@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Taxonomy profiles (`full`, `minimal`, `none`) — users can choose how much built-in classification to use or start from scratch (FD-032)
 - Three-table classify lookup (global → built-in → project) with supply-chain safety — project config can only fill gaps, never reclassify built-in commands (FD-032)
 - Minimal profile with 9 curated JSON files covering universally obvious commands (rm, git, curl, kill, etc.) (FD-032)
+- Flag-dependent classifiers for `sed` (-i/-I → write, else read) and `tar` (mode detection with write precedence) (FD-018)
+- ~80 new filesystem_read entries: bash builtins (cd, pwd, type, test), system info (uname, hostname, ps), text processing (sort, cut, uniq, tr), file info (basename, dirname, checksums), binary inspection, compressed reading, and harmless wrappers (FD-018)
 - OpenAI and Anthropic LLM backends for ambiguous command resolution — OpenAI via Responses API, Anthropic via Messages API (FD-030)
 - BrokenPipeError-safe shim with stdout buffering and crash recovery (FD-011)
 - Debug crash log at `~/.config/nah/hook-errors.log` with 1MB rotation (FD-011)
