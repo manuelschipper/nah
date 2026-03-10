@@ -145,10 +145,6 @@ def classify_tokens(
             if result != UNKNOWN:
                 return result
 
-    # Fallback: use full built-in table if no tables were provided
-    if global_table is None and builtin_table is None and project_table is None:
-        return _prefix_match(tokens, get_builtin_table("full"))
-
     return UNKNOWN
 
 

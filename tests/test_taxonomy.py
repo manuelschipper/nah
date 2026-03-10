@@ -12,6 +12,13 @@ from nah.taxonomy import (
     is_shell_wrapper,
 )
 
+_FULL = get_builtin_table("full")
+
+
+def _ct(tokens: list[str]) -> str:
+    """Classify tokens against the full built-in table."""
+    return classify_tokens(tokens, builtin_table=_FULL)
+
 
 # --- classify_tokens ---
 
@@ -24,18 +31,18 @@ class TestClassifyTokens:
                                       "wc", "stat", "du", "df", "ls", "tree", "bat",
                                       "echo", "printf", "diff", "grep", "rg", "awk", "sed"])
     def test_filesystem_read(self, cmd):
-        assert classify_tokens([cmd, "file.txt"]) == "filesystem_read"
+        assert _ct([cmd, "file.txt"]) == "filesystem_read"
 
     # filesystem_write
     @pytest.mark.parametrize("cmd", ["tee", "cp", "mv", "mkdir", "touch", "chmod",
                                       "chown", "ln", "install"])
     def test_filesystem_write(self, cmd):
-        assert classify_tokens([cmd, "target"]) == "filesystem_write"
+        assert _ct([cmd, "target"]) == "filesystem_write"
 
     # filesystem_delete
     @pytest.mark.parametrize("cmd", ["rm", "rmdir", "unlink", "shred", "truncate"])
     def test_filesystem_delete(self, cmd):
-        assert classify_tokens([cmd, "file"]) == "filesystem_delete"
+        assert _ct([cmd, "file"]) == "filesystem_delete"
 
     # git_safe
     @pytest.mark.parametrize("tokens", [
@@ -49,7 +56,7 @@ class TestClassifyTokens:
         ["git", "stash", "list"],
     ])
     def test_git_safe(self, tokens):
-        assert classify_tokens(tokens) == "git_safe"
+        assert _ct(tokens) == "git_safe"
 
     # git_write
     @pytest.mark.parametrize("tokens", [
@@ -64,7 +71,7 @@ class TestClassifyTokens:
         ["git", "switch", "branch"],
     ])
     def test_git_write(self, tokens):
-        assert classify_tokens(tokens) == "git_write"
+        assert _ct(tokens) == "git_write"
 
     # git_history_rewrite
     @pytest.mark.parametrize("tokens", [
@@ -77,26 +84,26 @@ class TestClassifyTokens:
         ["git", "branch", "-D", "old"],
     ])
     def test_git_history_rewrite(self, tokens):
-        assert classify_tokens(tokens) == "git_history_rewrite"
+        assert _ct(tokens) == "git_history_rewrite"
 
     # Prefix priority: longer prefix wins
     def test_git_push_force_beats_git_push(self):
-        assert classify_tokens(["git", "push", "--force"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "push"]) == "git_write"
+        assert _ct(["git", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push"]) == "git_write"
 
     def test_git_branch_D_beats_git_branch(self):
-        assert classify_tokens(["git", "branch", "-D", "x"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "branch"]) == "git_safe"
+        assert _ct(["git", "branch", "-D", "x"]) == "git_history_rewrite"
+        assert _ct(["git", "branch"]) == "git_safe"
 
     def test_git_stash_drop_beats_git_stash(self):
-        assert classify_tokens(["git", "stash", "drop"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "stash"]) == "git_write"
+        assert _ct(["git", "stash", "drop"]) == "git_history_rewrite"
+        assert _ct(["git", "stash"]) == "git_write"
 
     # network_outbound
     @pytest.mark.parametrize("cmd", ["curl", "wget", "ssh", "scp", "rsync",
                                       "nc", "ncat", "telnet", "ftp", "sftp"])
     def test_network_outbound(self, cmd):
-        assert classify_tokens([cmd, "target"]) == "network_outbound"
+        assert _ct([cmd, "target"]) == "network_outbound"
 
     # package_install
     @pytest.mark.parametrize("tokens", [
@@ -113,7 +120,7 @@ class TestClassifyTokens:
         ["bun", "install"],
     ])
     def test_package_install(self, tokens):
-        assert classify_tokens(tokens) == "package_install"
+        assert _ct(tokens) == "package_install"
 
     # package_run
     @pytest.mark.parametrize("tokens", [
@@ -134,7 +141,7 @@ class TestClassifyTokens:
         ["task", "lint"],
     ])
     def test_package_run(self, tokens):
-        assert classify_tokens(tokens) == "package_run"
+        assert _ct(tokens) == "package_run"
 
     # lang_exec
     @pytest.mark.parametrize("tokens", [
@@ -146,20 +153,20 @@ class TestClassifyTokens:
         ["php", "-r", "echo 1;"],
     ])
     def test_lang_exec(self, tokens):
-        assert classify_tokens(tokens) == "lang_exec"
+        assert _ct(tokens) == "lang_exec"
 
     # find — special case
     def test_find_read(self):
-        assert classify_tokens(["find", ".", "-name", "*.py"]) == "filesystem_read"
+        assert _ct(["find", ".", "-name", "*.py"]) == "filesystem_read"
 
     def test_find_delete(self):
-        assert classify_tokens(["find", ".", "-delete"]) == "filesystem_delete"
+        assert _ct(["find", ".", "-delete"]) == "filesystem_delete"
 
     def test_find_exec(self):
-        assert classify_tokens(["find", ".", "-exec", "rm", "{}", ";"]) == "filesystem_delete"
+        assert _ct(["find", ".", "-exec", "rm", "{}", ";"]) == "filesystem_delete"
 
     def test_find_execdir(self):
-        assert classify_tokens(["find", ".", "-execdir", "cmd", "{}", ";"]) == "filesystem_delete"
+        assert _ct(["find", ".", "-execdir", "cmd", "{}", ";"]) == "filesystem_delete"
 
     # git_discard
     @pytest.mark.parametrize("tokens", [
@@ -178,16 +185,16 @@ class TestClassifyTokens:
         ["git", "rm", "file.txt"],
     ])
     def test_git_discard(self, tokens):
-        assert classify_tokens(tokens) == "git_discard"
+        assert _ct(tokens) == "git_discard"
 
     # git_discard vs git_write priority
     def test_git_checkout_dot_discard_not_write(self):
-        assert classify_tokens(["git", "checkout", "."]) == "git_discard"
-        assert classify_tokens(["git", "checkout", "branch"]) == "git_write"
+        assert _ct(["git", "checkout", "."]) == "git_discard"
+        assert _ct(["git", "checkout", "branch"]) == "git_write"
 
     def test_git_switch_force_discard_not_write(self):
-        assert classify_tokens(["git", "switch", "--force", "b"]) == "git_discard"
-        assert classify_tokens(["git", "switch", "branch"]) == "git_write"
+        assert _ct(["git", "switch", "--force", "b"]) == "git_discard"
+        assert _ct(["git", "switch", "branch"]) == "git_write"
 
     # process_signal
     @pytest.mark.parametrize("tokens", [
@@ -198,7 +205,7 @@ class TestClassifyTokens:
         ["killall", "node"],
     ])
     def test_process_signal(self, tokens):
-        assert classify_tokens(tokens) == "process_signal"
+        assert _ct(tokens) == "process_signal"
 
     # container_destructive
     @pytest.mark.parametrize("tokens", [
@@ -211,7 +218,7 @@ class TestClassifyTokens:
         ["docker", "network", "rm", "net"],
     ])
     def test_container_destructive(self, tokens):
-        assert classify_tokens(tokens) == "container_destructive"
+        assert _ct(tokens) == "container_destructive"
 
     # package_uninstall
     @pytest.mark.parametrize("tokens", [
@@ -229,7 +236,7 @@ class TestClassifyTokens:
         ["apt", "purge", "curl"],
     ])
     def test_package_uninstall(self, tokens):
-        assert classify_tokens(tokens) == "package_uninstall"
+        assert _ct(tokens) == "package_uninstall"
 
     # sql_write
     @pytest.mark.parametrize("tokens", [
@@ -242,38 +249,38 @@ class TestClassifyTokens:
         ["bq", "query", "--use_legacy_sql=false", "SELECT 1"],
     ])
     def test_sql_write(self, tokens):
-        assert classify_tokens(tokens) == "sql_write"
+        assert _ct(tokens) == "sql_write"
 
     # git push origin --force → git_history_rewrite (not git_write)
     def test_git_push_origin_force(self):
-        assert classify_tokens(["git", "push", "origin", "--force"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "push", "origin", "-f"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
-        assert classify_tokens(["git", "push", "origin", "main", "-f"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "-f"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "main", "-f"]) == "git_history_rewrite"
 
     # git flag stripping
     def test_git_C_flag_stripped(self):
-        assert classify_tokens(["git", "-C", "/dir", "rm", "file"]) == "git_discard"
+        assert _ct(["git", "-C", "/dir", "rm", "file"]) == "git_discard"
 
     def test_git_no_pager_stripped(self):
-        assert classify_tokens(["git", "--no-pager", "log"]) == "git_safe"
+        assert _ct(["git", "--no-pager", "log"]) == "git_safe"
 
     def test_git_git_dir_stripped(self):
-        assert classify_tokens(["git", "--git-dir", "/x", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--git-dir", "/x", "push", "--force"]) == "git_history_rewrite"
 
     def test_git_multiple_flags_stripped(self):
-        assert classify_tokens(["git", "-C", "/dir", "--no-pager", "status"]) == "git_safe"
+        assert _ct(["git", "-C", "/dir", "--no-pager", "status"]) == "git_safe"
 
     # git reset --hard → git_discard (DD#3)
     def test_git_reset_hard_is_discard(self):
-        assert classify_tokens(["git", "reset", "--hard"]) == "git_discard"
+        assert _ct(["git", "reset", "--hard"]) == "git_discard"
 
     # Edge cases
     def test_empty_tokens(self):
-        assert classify_tokens([]) == "unknown"
+        assert _ct([]) == "unknown"
 
     def test_unknown_command(self):
-        assert classify_tokens(["foobar", "--flag"]) == "unknown"
+        assert _ct(["foobar", "--flag"]) == "unknown"
 
 
 # --- get_policy ---
@@ -407,209 +414,209 @@ class TestClassifyGit:
 
     # --- tag ---
     def test_tag_bare_safe(self):
-        assert classify_tokens(["git", "tag"]) == "git_safe"
+        assert _ct(["git", "tag"]) == "git_safe"
 
     def test_tag_with_args_write(self):
-        assert classify_tokens(["git", "tag", "v1.0"]) == "git_write"
+        assert _ct(["git", "tag", "v1.0"]) == "git_write"
 
     def test_tag_annotated_write(self):
-        assert classify_tokens(["git", "tag", "-a", "v1.0", "-m", "release"]) == "git_write"
+        assert _ct(["git", "tag", "-a", "v1.0", "-m", "release"]) == "git_write"
 
     # --- branch ---
     def test_branch_bare_safe(self):
-        assert classify_tokens(["git", "branch"]) == "git_safe"
+        assert _ct(["git", "branch"]) == "git_safe"
 
     def test_branch_list_a_safe(self):
-        assert classify_tokens(["git", "branch", "-a"]) == "git_safe"
+        assert _ct(["git", "branch", "-a"]) == "git_safe"
 
     def test_branch_list_r_safe(self):
-        assert classify_tokens(["git", "branch", "-r"]) == "git_safe"
+        assert _ct(["git", "branch", "-r"]) == "git_safe"
 
     def test_branch_list_flag_safe(self):
-        assert classify_tokens(["git", "branch", "--list"]) == "git_safe"
+        assert _ct(["git", "branch", "--list"]) == "git_safe"
 
     def test_branch_v_safe(self):
-        assert classify_tokens(["git", "branch", "-v"]) == "git_safe"
+        assert _ct(["git", "branch", "-v"]) == "git_safe"
 
     def test_branch_vv_safe(self):
-        assert classify_tokens(["git", "branch", "-vv"]) == "git_safe"
+        assert _ct(["git", "branch", "-vv"]) == "git_safe"
 
     def test_branch_create_write(self):
-        assert classify_tokens(["git", "branch", "newfeature"]) == "git_write"
+        assert _ct(["git", "branch", "newfeature"]) == "git_write"
 
     def test_branch_d_discard(self):
-        assert classify_tokens(["git", "branch", "-d", "old"]) == "git_discard"
+        assert _ct(["git", "branch", "-d", "old"]) == "git_discard"
 
     def test_branch_D_history_rewrite(self):
-        assert classify_tokens(["git", "branch", "-D", "old"]) == "git_history_rewrite"
+        assert _ct(["git", "branch", "-D", "old"]) == "git_history_rewrite"
 
     # --- config ---
     def test_config_get_safe(self):
-        assert classify_tokens(["git", "config", "--get", "user.name"]) == "git_safe"
+        assert _ct(["git", "config", "--get", "user.name"]) == "git_safe"
 
     def test_config_list_safe(self):
-        assert classify_tokens(["git", "config", "--list"]) == "git_safe"
+        assert _ct(["git", "config", "--list"]) == "git_safe"
 
     def test_config_get_all_safe(self):
-        assert classify_tokens(["git", "config", "--get-all", "remote.origin.url"]) == "git_safe"
+        assert _ct(["git", "config", "--get-all", "remote.origin.url"]) == "git_safe"
 
     def test_config_get_regexp_safe(self):
-        assert classify_tokens(["git", "config", "--get-regexp", "user"]) == "git_safe"
+        assert _ct(["git", "config", "--get-regexp", "user"]) == "git_safe"
 
     def test_config_read_key_safe(self):
-        assert classify_tokens(["git", "config", "user.name"]) == "git_safe"
+        assert _ct(["git", "config", "user.name"]) == "git_safe"
 
     def test_config_set_write(self):
-        assert classify_tokens(["git", "config", "user.name", "Alice"]) == "git_write"
+        assert _ct(["git", "config", "user.name", "Alice"]) == "git_write"
 
     def test_config_unset_write(self):
-        assert classify_tokens(["git", "config", "--unset", "user.name"]) == "git_write"
+        assert _ct(["git", "config", "--unset", "user.name"]) == "git_write"
 
     def test_config_unset_all_write(self):
-        assert classify_tokens(["git", "config", "--unset-all", "user.name"]) == "git_write"
+        assert _ct(["git", "config", "--unset-all", "user.name"]) == "git_write"
 
     def test_config_replace_all_write(self):
-        assert classify_tokens(["git", "config", "--replace-all", "k", "v"]) == "git_write"
+        assert _ct(["git", "config", "--replace-all", "k", "v"]) == "git_write"
 
     # --- reset ---
     def test_reset_hard_discard(self):
-        assert classify_tokens(["git", "reset", "--hard"]) == "git_discard"
+        assert _ct(["git", "reset", "--hard"]) == "git_discard"
 
     def test_reset_hard_head_discard(self):
-        assert classify_tokens(["git", "reset", "--hard", "HEAD~1"]) == "git_discard"
+        assert _ct(["git", "reset", "--hard", "HEAD~1"]) == "git_discard"
 
     def test_reset_soft_write(self):
-        assert classify_tokens(["git", "reset", "--soft", "HEAD~1"]) == "git_write"
+        assert _ct(["git", "reset", "--soft", "HEAD~1"]) == "git_write"
 
     def test_reset_mixed_write(self):
-        assert classify_tokens(["git", "reset", "HEAD~1"]) == "git_write"
+        assert _ct(["git", "reset", "HEAD~1"]) == "git_write"
 
     def test_reset_bare_write(self):
-        assert classify_tokens(["git", "reset"]) == "git_write"
+        assert _ct(["git", "reset"]) == "git_write"
 
     # --- push ---
     def test_push_bare_write(self):
-        assert classify_tokens(["git", "push"]) == "git_write"
+        assert _ct(["git", "push"]) == "git_write"
 
     def test_push_origin_main_write(self):
-        assert classify_tokens(["git", "push", "origin", "main"]) == "git_write"
+        assert _ct(["git", "push", "origin", "main"]) == "git_write"
 
     def test_push_force_history(self):
-        assert classify_tokens(["git", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "--force"]) == "git_history_rewrite"
 
     def test_push_f_history(self):
-        assert classify_tokens(["git", "push", "-f"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "-f"]) == "git_history_rewrite"
 
     def test_push_force_with_lease_history(self):
-        assert classify_tokens(["git", "push", "--force-with-lease"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "--force-with-lease"]) == "git_history_rewrite"
 
     def test_push_force_if_includes_history(self):
-        assert classify_tokens(["git", "push", "--force-if-includes"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "--force-if-includes"]) == "git_history_rewrite"
 
     def test_push_plus_refspec_history(self):
-        assert classify_tokens(["git", "push", "origin", "+main"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "+main"]) == "git_history_rewrite"
 
     def test_push_origin_force_history(self):
-        assert classify_tokens(["git", "push", "origin", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "--force"]) == "git_history_rewrite"
 
     def test_push_origin_main_force_history(self):
-        assert classify_tokens(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
 
     # --- add ---
     def test_add_write(self):
-        assert classify_tokens(["git", "add", "."]) == "git_write"
+        assert _ct(["git", "add", "."]) == "git_write"
 
     def test_add_dry_run_safe(self):
-        assert classify_tokens(["git", "add", "--dry-run", "."]) == "git_safe"
+        assert _ct(["git", "add", "--dry-run", "."]) == "git_safe"
 
     def test_add_n_safe(self):
-        assert classify_tokens(["git", "add", "-n", "."]) == "git_safe"
+        assert _ct(["git", "add", "-n", "."]) == "git_safe"
 
     # --- rm ---
     def test_rm_discard(self):
-        assert classify_tokens(["git", "rm", "file.txt"]) == "git_discard"
+        assert _ct(["git", "rm", "file.txt"]) == "git_discard"
 
     def test_rm_cached_write(self):
-        assert classify_tokens(["git", "rm", "--cached", "file.txt"]) == "git_write"
+        assert _ct(["git", "rm", "--cached", "file.txt"]) == "git_write"
 
     # --- clean ---
     def test_clean_fd_history(self):
-        assert classify_tokens(["git", "clean", "-fd"]) == "git_history_rewrite"
+        assert _ct(["git", "clean", "-fd"]) == "git_history_rewrite"
 
     def test_clean_dry_run_safe(self):
-        assert classify_tokens(["git", "clean", "--dry-run"]) == "git_safe"
+        assert _ct(["git", "clean", "--dry-run"]) == "git_safe"
 
     def test_clean_n_safe(self):
-        assert classify_tokens(["git", "clean", "-n"]) == "git_safe"
+        assert _ct(["git", "clean", "-n"]) == "git_safe"
 
     # --- reflog ---
     def test_reflog_bare_safe(self):
-        assert classify_tokens(["git", "reflog"]) == "git_safe"
+        assert _ct(["git", "reflog"]) == "git_safe"
 
     def test_reflog_show_safe(self):
-        assert classify_tokens(["git", "reflog", "show"]) == "git_safe"
+        assert _ct(["git", "reflog", "show"]) == "git_safe"
 
     def test_reflog_delete_discard(self):
-        assert classify_tokens(["git", "reflog", "delete"]) == "git_discard"
+        assert _ct(["git", "reflog", "delete"]) == "git_discard"
 
     def test_reflog_expire_discard(self):
-        assert classify_tokens(["git", "reflog", "expire"]) == "git_discard"
+        assert _ct(["git", "reflog", "expire"]) == "git_discard"
 
     # --- checkout ---
     def test_checkout_branch_write(self):
-        assert classify_tokens(["git", "checkout", "main"]) == "git_write"
+        assert _ct(["git", "checkout", "main"]) == "git_write"
 
     def test_checkout_dot_discard(self):
-        assert classify_tokens(["git", "checkout", "."]) == "git_discard"
+        assert _ct(["git", "checkout", "."]) == "git_discard"
 
     def test_checkout_dashdash_discard(self):
-        assert classify_tokens(["git", "checkout", "--", "file.txt"]) == "git_discard"
+        assert _ct(["git", "checkout", "--", "file.txt"]) == "git_discard"
 
     def test_checkout_head_discard(self):
-        assert classify_tokens(["git", "checkout", "HEAD", "file.txt"]) == "git_discard"
+        assert _ct(["git", "checkout", "HEAD", "file.txt"]) == "git_discard"
 
     def test_checkout_force_discard(self):
-        assert classify_tokens(["git", "checkout", "--force"]) == "git_discard"
+        assert _ct(["git", "checkout", "--force"]) == "git_discard"
 
     def test_checkout_f_discard(self):
-        assert classify_tokens(["git", "checkout", "-f"]) == "git_discard"
+        assert _ct(["git", "checkout", "-f"]) == "git_discard"
 
     def test_checkout_ours_discard(self):
-        assert classify_tokens(["git", "checkout", "--ours", "file.txt"]) == "git_discard"
+        assert _ct(["git", "checkout", "--ours", "file.txt"]) == "git_discard"
 
     def test_checkout_theirs_discard(self):
-        assert classify_tokens(["git", "checkout", "--theirs", "file.txt"]) == "git_discard"
+        assert _ct(["git", "checkout", "--theirs", "file.txt"]) == "git_discard"
 
     def test_checkout_B_discard(self):
-        assert classify_tokens(["git", "checkout", "-B", "branch"]) == "git_discard"
+        assert _ct(["git", "checkout", "-B", "branch"]) == "git_discard"
 
     # --- switch ---
     def test_switch_branch_write(self):
-        assert classify_tokens(["git", "switch", "main"]) == "git_write"
+        assert _ct(["git", "switch", "main"]) == "git_write"
 
     def test_switch_force_discard(self):
-        assert classify_tokens(["git", "switch", "--force", "main"]) == "git_discard"
+        assert _ct(["git", "switch", "--force", "main"]) == "git_discard"
 
     def test_switch_f_discard(self):
-        assert classify_tokens(["git", "switch", "-f", "main"]) == "git_discard"
+        assert _ct(["git", "switch", "-f", "main"]) == "git_discard"
 
     def test_switch_discard_changes_discard(self):
-        assert classify_tokens(["git", "switch", "--discard-changes", "main"]) == "git_discard"
+        assert _ct(["git", "switch", "--discard-changes", "main"]) == "git_discard"
 
     # --- restore ---
     def test_restore_discard(self):
-        assert classify_tokens(["git", "restore", "file.txt"]) == "git_discard"
+        assert _ct(["git", "restore", "file.txt"]) == "git_discard"
 
     def test_restore_staged_write(self):
-        assert classify_tokens(["git", "restore", "--staged", "file.txt"]) == "git_write"
+        assert _ct(["git", "restore", "--staged", "file.txt"]) == "git_write"
 
     # --- fallthrough ---
     def test_unknown_subcommand_falls_through(self):
         """Subcommands not handled by _classify_git() fall to prefix matching."""
-        assert classify_tokens(["git", "commit", "-m", "msg"]) == "git_write"
+        assert _ct(["git", "commit", "-m", "msg"]) == "git_write"
 
     def test_git_alone_falls_through(self):
-        assert classify_tokens(["git"]) == "unknown"
+        assert _ct(["git"]) == "unknown"
 
 
 class TestGitSubcommands:
@@ -631,7 +638,7 @@ class TestGitSubcommands:
         "remote",
     ])
     def test_git_safe_subcommands(self, sub):
-        assert classify_tokens(["git", sub]) == "git_safe"
+        assert _ct(["git", sub]) == "git_safe"
 
     # git_write — new entries
     @pytest.mark.parametrize("sub", [
@@ -648,21 +655,21 @@ class TestGitSubcommands:
         "merge-one-file",
     ])
     def test_git_write_subcommands(self, sub):
-        assert classify_tokens(["git", sub]) == "git_write"
+        assert _ct(["git", sub]) == "git_write"
 
     # git_discard — new entry
     def test_git_prune_discard(self):
-        assert classify_tokens(["git", "prune"]) == "git_discard"
+        assert _ct(["git", "prune"]) == "git_discard"
 
     # git_history_rewrite — new entries
     @pytest.mark.parametrize("sub", ["filter-branch", "replace"])
     def test_git_history_rewrite_subcommands(self, sub):
-        assert classify_tokens(["git", sub]) == "git_history_rewrite"
+        assert _ct(["git", sub]) == "git_history_rewrite"
 
     # network_outbound — new entries
     @pytest.mark.parametrize("sub", ["daemon", "http-backend"])
     def test_git_network_outbound(self, sub):
-        assert classify_tokens(["git", sub]) == "network_outbound"
+        assert _ct(["git", sub]) == "network_outbound"
 
 
 class TestGhCommands:
@@ -715,7 +722,7 @@ class TestGhCommands:
         ["gh", "auth", "token"],
     ])
     def test_gh_safe(self, tokens):
-        assert classify_tokens(tokens) == "git_safe"
+        assert _ct(tokens) == "git_safe"
 
     # git_write — workflow mutations
     @pytest.mark.parametrize("tokens", [
@@ -769,7 +776,7 @@ class TestGhCommands:
         ["gh", "label", "clone", "owner/repo"],
     ])
     def test_gh_write(self, tokens):
-        assert classify_tokens(tokens) == "git_write"
+        assert _ct(tokens) == "git_write"
 
     # git_history_rewrite — destructive / hard to reverse
     @pytest.mark.parametrize("tokens", [
@@ -798,7 +805,7 @@ class TestGhCommands:
         ["gh", "cache", "delete", "abc"],
     ])
     def test_gh_history_rewrite(self, tokens):
-        assert classify_tokens(tokens) == "git_history_rewrite"
+        assert _ct(tokens) == "git_history_rewrite"
 
     # filesystem_read — local config reads
     @pytest.mark.parametrize("tokens", [
@@ -810,7 +817,7 @@ class TestGhCommands:
         ["gh", "attestation", "trusted-root"],
     ])
     def test_gh_filesystem_read(self, tokens):
-        assert classify_tokens(tokens) == "filesystem_read"
+        assert _ct(tokens) == "filesystem_read"
 
     # filesystem_write — local config/file writes
     @pytest.mark.parametrize("tokens", [
@@ -835,7 +842,7 @@ class TestGhCommands:
         ["gh", "auth", "switch"],
     ])
     def test_gh_filesystem_write(self, tokens):
-        assert classify_tokens(tokens) == "filesystem_write"
+        assert _ct(tokens) == "filesystem_write"
 
     # lang_exec — runs arbitrary code
     @pytest.mark.parametrize("tokens", [
@@ -843,7 +850,7 @@ class TestGhCommands:
         ["gh", "extension", "exec", "my-ext"],
     ])
     def test_gh_lang_exec(self, tokens):
-        assert classify_tokens(tokens) == "lang_exec"
+        assert _ct(tokens) == "lang_exec"
 
 
 # --- Profiles (FD-032) ---
@@ -955,10 +962,10 @@ class TestThreeTableLookup:
         result = classify_tokens(["terraform", "plan"], global_t, builtin_t, None)
         assert result == "my_safe"
 
-    def test_no_tables_falls_back_to_full(self):
-        """No tables provided → uses full built-in table (backward compat)."""
-        assert classify_tokens(["rm", "file"]) == "filesystem_delete"
-        assert classify_tokens(["docker", "rm", "x"]) == "container_destructive"
+    def test_no_tables_returns_unknown(self):
+        """No tables provided → returns unknown (no implicit fallback)."""
+        assert classify_tokens(["rm", "file"]) == "unknown"
+        assert classify_tokens(["docker", "rm", "x"]) == "unknown"
 
     def test_supply_chain_reclassify_blocked(self):
         """Project can't reclassify rm to bypass filesystem_delete policy."""

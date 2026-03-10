@@ -9,6 +9,9 @@ import pytest
 
 from nah import paths, taxonomy
 from nah.bash import StageResult, _apply_policy, _unwrap_shell, _check_redirect, Stage
+from nah.taxonomy import get_builtin_table
+
+_FULL = get_builtin_table("full")
 from nah.config import _merge_dict_tighten, _merge_list_union, _validate_dict, _merge_configs
 from nah.context import _extract_positional_host
 from nah.hook import _check_write_content
@@ -196,7 +199,7 @@ class TestUnwrapShell:
 
     def test_bash_c_unwraps(self):
         stage = Stage(tokens=["bash", "-c", "git status"])
-        result = _unwrap_shell(stage, 0, global_table=None, builtin_table=None, project_table=None, user_actions=None)
+        result = _unwrap_shell(stage, 0, global_table=None, builtin_table=_FULL, project_table=None, user_actions=None)
         assert result is not None
         assert result.action_type == taxonomy.GIT_SAFE
 
