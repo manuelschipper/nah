@@ -97,11 +97,11 @@ def _is_llm_eligible(result) -> bool:
 
 
 def _try_llm(classify_result) -> dict | None:
-    """Attempt LLM resolution. Returns decision dict or None (= keep ask)."""
+    """Attempt LLM resolution for bash ClassifyResult. Returns decision dict or None."""
     try:
         from nah.config import get_config
         cfg = get_config()
-        if not cfg.llm:
+        if not cfg.llm or not cfg.llm.get("enabled", False):
             return None
         from nah.llm import try_llm
         return try_llm(classify_result, cfg.llm)

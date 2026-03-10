@@ -78,6 +78,7 @@ def _set_llm_config(llm_cfg: dict):
 
 def _ollama_config():
     return {
+        "enabled": True,
         "backends": ["ollama"],
         "ollama": {"url": "http://localhost:11434/api/generate", "model": "test"},
     }

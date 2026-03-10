@@ -342,7 +342,11 @@ def cmd_test(args: argparse.Namespace) -> None:
             if eligible:
                 from nah.config import get_config
                 cfg = get_config()
-                if cfg.llm:
+                if not cfg.llm:
+                    print("LLM config:   not configured")
+                elif not cfg.llm.get("enabled", False):
+                    print("LLM config:   disabled (set enabled: true to activate)")
+                else:
                     from nah.llm import try_llm
                     llm_result = try_llm(result, cfg.llm)
                     if llm_result:
@@ -352,8 +356,6 @@ def cmd_test(args: argparse.Namespace) -> None:
                             print(f"LLM reason:   {reason}")
                     else:
                         print("LLM decision: (uncertain or unavailable)")
-                else:
-                    print("LLM config:   not configured")
     elif tool in ("Write", "Edit"):
         # Write/Edit: reuse hook handlers
         from nah.hook import handle_write, handle_edit
