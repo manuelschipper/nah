@@ -14,7 +14,7 @@ _SHIM_BODY = """\
 import sys, json, os, io
 
 _REAL_STDOUT = sys.stdout
-_ASK = '{{"decision": "ask", "message": "nah: error, requesting confirmation"}}\\n'
+_ASK = '{{"hookSpecificOutput": {{"permissionDecision": "ask", "permissionDecisionReason": "nah: error, requesting confirmation"}}}}\\n'
 _LOG_PATH = {log_path!r}
 _LOG_MAX = 1_000_000
 
@@ -122,7 +122,7 @@ class TestStdoutBuffering:
         )
         assert result.returncode == 0
         out = json.loads(result.stdout)
-        assert out["decision"] == "ask"
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
 
     def test_base_exception_recovery(self, tmp_path):
         """main() raises SystemExit(1) → shim returns ask."""
@@ -132,7 +132,7 @@ class TestStdoutBuffering:
         )
         assert result.returncode == 0
         out = json.loads(result.stdout)
-        assert out["decision"] == "ask"
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
 class TestCrashLog:
@@ -148,7 +148,7 @@ class TestCrashLog:
             [PYTHON, str(script)], input="", capture_output=True, text=True,
         )
         assert result.returncode == 0
-        assert json.loads(result.stdout)["decision"] == "ask"
+        assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
         assert os.path.exists(log_file)
         content = open(log_file).read()
         assert "RuntimeError" in content

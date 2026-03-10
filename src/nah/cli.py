@@ -23,7 +23,7 @@ import sys, json, os, io
 
 # Capture real stdout immediately — before anything can reassign it.
 _REAL_STDOUT = sys.stdout
-_ASK = '{{"decision": "ask", "message": "nah: error, requesting confirmation"}}\\n'
+_ASK = '{{"hookSpecificOutput": {{"permissionDecision": "ask", "permissionDecisionReason": "nah: error, requesting confirmation"}}}}\\n'
 _LOG_PATH = os.path.join(os.path.expanduser("~"), ".config", "nah", "hook-errors.log")
 _LOG_MAX = 1_000_000  # 1 MB
 
