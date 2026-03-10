@@ -72,6 +72,58 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
+def check_path(tool_name: str, raw_path: str) -> dict | None:
+    """Check a path for hook/sensitive violations. Returns decision dict or None (= allow)."""
+    if not raw_path:
+        return None
+
+    # Tools where hook-path access is hard-blocked (self-protection).
+    hook_block_tools = {"Write", "Edit"}
+
+    resolved = resolve_path(raw_path)
+
+    # Hook self-protection (highest priority)
+    if is_hook_path(resolved):
+        if tool_name in hook_block_tools:
+            return {
+                "decision": "block",
+                "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/ (self-modification blocked)",
+            }
+        return {
+            "decision": "ask",
+            "message": f"{tool_name} targets hook directory: ~/.claude/hooks/",
+        }
+
+    # Sensitive path check
+    matched, pattern, policy = is_sensitive(resolved)
+    if matched:
+        if policy == "block":
+            return {
+                "decision": "block",
+                "reason": f"{tool_name} targets sensitive path: {pattern}",
+            }
+        return {
+            "decision": "ask",
+            "message": f"{tool_name} targets sensitive path: {pattern}",
+        }
+
+    return None
+
+
+def set_project_root(path: str) -> None:
+    """Override project root (for testing). Bypasses git auto-detection."""
+    global _project_root, _project_root_resolved
+    _project_root = path
+    _project_root_resolved = True
+
+
+def reset_project_root() -> None:
+    """Clear project root override, restoring auto-detection."""
+    global _project_root, _project_root_resolved
+    _project_root = None
+    _project_root_resolved = False
+
+
 def get_project_root() -> str | None:
     """Detect project root via git. Cached for process lifetime."""
     global _project_root, _project_root_resolved

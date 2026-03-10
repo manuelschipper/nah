@@ -1,4 +1,4 @@
-"""CLI entry point — install/uninstall commands."""
+"""CLI entry point — install/uninstall/test commands."""
 
 import argparse
 import json
@@ -120,6 +120,40 @@ def cmd_install(args: argparse.Namespace) -> None:
         print(f"  Backup:      {_SETTINGS_BACKUP}")
 
 
+def cmd_test(args: argparse.Namespace) -> None:
+    """Dry-run classification for a command or tool input."""
+    tool = getattr(args, "tool", None) or "Bash"
+    input_args = args.args
+
+    if tool == "Bash":
+        command = " ".join(input_args)
+        from nah.bash import classify_command
+        result = classify_command(command)
+
+        print(f"Command:  {result.command}")
+        if result.stages:
+            print("Stages:")
+            for i, sr in enumerate(result.stages, 1):
+                tokens_str = " ".join(sr.tokens)
+                print(f"  [{i}] {tokens_str} → {sr.action_type} → {sr.policy} → {sr.decision} ({sr.reason})")
+        if result.composition_rule:
+            print(f"Composition: {result.composition_rule} → {result.final_decision.upper()}")
+        print(f"Decision:    {result.final_decision.upper()}")
+        print(f"Reason:      {result.reason}")
+    else:
+        # Non-Bash tools — use hook handlers
+        from nah import paths
+        raw_path = " ".join(input_args)
+        check = paths.check_path(tool, raw_path)
+        decision = check or {"decision": "allow"}
+        print(f"Tool:     {tool}")
+        print(f"Input:    {raw_path}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", decision.get("message", ""))
+        if reason:
+            print(f"Reason:   {reason}")
+
+
 def cmd_uninstall(args: argparse.Namespace) -> None:
     # 1. Remove nah entries from settings.json
     if _SETTINGS_FILE.exists():
@@ -163,6 +197,9 @@ def main():
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("install", help="Install nah hook into Claude Code")
     sub.add_parser("uninstall", help="Remove nah hook from Claude Code")
+    test_parser = sub.add_parser("test", help="Dry-run classification for a command")
+    test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
+    test_parser.add_argument("args", nargs="+", help="Command string or tool input")
 
     args = parser.parse_args()
 
@@ -170,6 +207,8 @@ def main():
         cmd_install(args)
     elif args.command == "uninstall":
         cmd_uninstall(args)
+    elif args.command == "test":
+        cmd_test(args)
     else:
         parser.print_help()
 
