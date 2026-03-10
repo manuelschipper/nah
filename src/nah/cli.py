@@ -348,14 +348,20 @@ def cmd_test(args: argparse.Namespace) -> None:
                     print("LLM config:   disabled (set enabled: true to activate)")
                 else:
                     from nah.llm import try_llm
-                    llm_result = try_llm(result, cfg.llm)
-                    if llm_result:
-                        print(f"LLM decision: {llm_result['decision'].upper()}")
-                        reason = llm_result.get('reason', llm_result.get('message', ''))
-                        if reason:
-                            print(f"LLM reason:   {reason}")
+                    llm_call = try_llm(result, cfg.llm)
+                    if llm_call.decision is not None:
+                        d = llm_call.decision.get("decision", "uncertain")
+                        print(f"LLM decision: {d.upper()}")
+                        print(f"LLM provider: {llm_call.provider} ({llm_call.model})")
+                        print(f"LLM latency:  {llm_call.latency_ms}ms")
+                        if llm_call.reasoning:
+                            print(f"LLM reason:   {llm_call.reasoning}")
                     else:
-                        print("LLM decision: (uncertain or unavailable)")
+                        if llm_call.cascade:
+                            statuses = ", ".join(f"{a.provider}={a.status}" for a in llm_call.cascade)
+                            print(f"LLM decision: (uncertain or unavailable) [{statuses}]")
+                        else:
+                            print("LLM decision: (no providers responded)")
     elif tool in ("Write", "Edit"):
         # Write/Edit: reuse hook handlers
         from nah.hook import handle_write, handle_edit
@@ -439,6 +445,172 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
     print("nah uninstalled.")
 
 
+def cmd_allow(args: argparse.Namespace) -> None:
+    """Allow an action type."""
+    from nah.remember import write_action
+    try:
+        msg = write_action(args.action_type, "allow", project=args.project)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_deny(args: argparse.Namespace) -> None:
+    """Deny an action type."""
+    from nah.remember import write_action
+    try:
+        msg = write_action(args.action_type, "block", project=args.project)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_allow_path(args: argparse.Namespace) -> None:
+    """Allow a sensitive path for the current project."""
+    from nah.remember import write_allow_path
+    try:
+        msg = write_allow_path(args.path)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_classify(args: argparse.Namespace) -> None:
+    """Classify a command prefix as an action type."""
+    from nah.remember import write_classify
+    try:
+        msg = write_classify(args.command_prefix, args.type, project=args.project)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_trust(args: argparse.Namespace) -> None:
+    """Trust a network host."""
+    from nah.remember import write_trust_host
+    try:
+        msg = write_trust_host(args.host, project=args.project)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """Show all custom rules."""
+    from nah.remember import list_rules
+    try:
+        rules = list_rules()
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+    any_rules = False
+    for scope in ("global", "project"):
+        scope_rules = rules.get(scope, {})
+        if not scope_rules:
+            continue
+        any_rules = True
+        print(f"{scope.upper()} config:")
+        if "actions" in scope_rules:
+            for action_type, policy in scope_rules["actions"].items():
+                print(f"  action: {action_type} → {policy}")
+        if "allow_paths" in scope_rules:
+            for path, roots in scope_rules["allow_paths"].items():
+                print(f"  allow-path: {path} → {', '.join(roots)}")
+        if "classify" in scope_rules:
+            for action_type, prefixes in scope_rules["classify"].items():
+                for prefix in prefixes:
+                    print(f"  classify: '{prefix}' → {action_type}")
+        if "known_registries" in scope_rules:
+            for host in scope_rules["known_registries"]:
+                print(f"  trust: {host}")
+
+    if not any_rules:
+        print("No custom rules configured.")
+
+
+def cmd_forget(args: argparse.Namespace) -> None:
+    """Remove a rule."""
+    from nah.remember import forget_rule
+    try:
+        msg = forget_rule(args.arg, project=args.project, global_only=args.global_flag)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_types(args: argparse.Namespace) -> None:
+    """List all action types."""
+    from nah.taxonomy import load_type_descriptions, get_policy
+    descriptions = load_type_descriptions()
+    for name, desc in descriptions.items():
+        policy = get_policy(name)
+        print(f"  {name:<25} {policy:<8} {desc}")
+
+
+def cmd_log(args: argparse.Namespace) -> None:
+    """Display recent decision log entries."""
+    from nah.log import read_log
+
+    filters: dict = {}
+    if getattr(args, "blocks", False):
+        filters["decision"] = "block"
+    elif getattr(args, "asks", False):
+        filters["decision"] = "ask"
+    tool = getattr(args, "tool", None)
+    if tool:
+        filters["tool"] = tool
+
+    limit = getattr(args, "limit", 50)
+    json_output = getattr(args, "json", False)
+
+    entries = read_log(filters=filters, limit=limit)
+
+    if not entries:
+        print("No log entries found.")
+        return
+
+    if json_output:
+        for entry in entries:
+            print(json.dumps(entry))
+        return
+
+    for entry in entries:
+        ts = entry.get("ts", "?")[:19]
+        tool_name = entry.get("tool", "?")
+        decision = entry.get("decision", "?").upper()
+        reason = entry.get("reason", "")
+        summary = entry.get("input_summary", "")
+        total_ms = entry.get("total_ms", "")
+
+        if decision == "BLOCK":
+            marker = "! "
+        elif decision == "ASK":
+            marker = "? "
+        else:
+            marker = "  "
+
+        line = f"{ts}  {marker}{decision:<5}  {tool_name:<5}  {summary[:60]}"
+        if reason:
+            line += f"  ({reason[:40]})"
+        if total_ms != "":
+            line += f"  [{total_ms}ms]"
+        llm_prov = entry.get("llm_provider") or entry.get("llm_backend", "")
+        if llm_prov:
+            llm_model = entry.get("llm_model", "")
+            llm_tag = f"  LLM:{llm_prov}"
+            if llm_model:
+                llm_tag += f"/{llm_model}"
+            line += llm_tag
+        print(line)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nah",
@@ -449,7 +621,7 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
-    agent_help = "Agent to target: claude (default), cortex, cursor, or all"
+    agent_help = "Agent to target: claude (default), cortex, or all"
     install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
     install_parser.add_argument("--agent", default=None, help=agent_help)
     update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
@@ -463,6 +635,12 @@ def main():
     config_sub = config_parser.add_subparsers(dest="config_command")
     config_sub.add_parser("show", help="Display effective merged config")
     config_sub.add_parser("path", help="Show config file paths")
+    log_parser = sub.add_parser("log", help="Show recent hook decisions")
+    log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
+    log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
+    log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
+    log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
+    log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")
 
     args = parser.parse_args()
 
@@ -476,6 +654,8 @@ def main():
         cmd_test(args)
     elif args.command == "config":
         cmd_config(args)
+    elif args.command == "log":
+        cmd_log(args)
     else:
         parser.print_help()
 
