@@ -26,9 +26,16 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+config = ["pyyaml>=6.0"]
+
 [project.scripts]
 nah = "nah.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/manuelschipper/nah"
 Issues = "https://github.com/manuelschipper/nah/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

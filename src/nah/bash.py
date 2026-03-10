@@ -56,12 +56,25 @@ def classify_command(command: str) -> ClassifyResult:
         result.reason = "empty command"
         return result
 
+    # Load config for custom classify/actions
+    merged_table = None
+    user_actions = None
+    try:
+        from nah.config import get_config  # lazy import
+        cfg = get_config()
+        if cfg.classify:
+            merged_table = taxonomy.build_merged_classify_table(cfg.classify)
+        if cfg.actions:
+            user_actions = cfg.actions
+    except Exception:
+        pass  # config unavailable — use defaults
+
     # Decompose into stages
     stages = _decompose(tokens)
 
     # Classify each stage
     for stage in stages:
-        sr = _classify_stage(stage)
+        sr = _classify_stage(stage, merged_table=merged_table, user_actions=user_actions)
         result.stages.append(sr)
 
     # Check pipe composition rules
@@ -149,7 +162,12 @@ def _make_stage(tokens: list[str], operator: str) -> Stage | None:
     return Stage(tokens=tokens[start:], operator=operator)
 
 
-def _classify_stage(stage: Stage, depth: int = 0) -> StageResult:
+def _classify_stage(
+    stage: Stage,
+    depth: int = 0,
+    merged_table: list | None = None,
+    user_actions: dict[str, str] | None = None,
+) -> StageResult:
     """Classify a single pipeline stage."""
     tokens = stage.tokens
     sr = StageResult(tokens=tokens)
@@ -168,7 +186,7 @@ def _classify_stage(stage: Stage, depth: int = 0) -> StageResult:
             # Check for $() or backticks in eval — obfuscated
             if tokens[0] == "eval" and ("$(" in inner or "`" in inner):
                 sr.action_type = taxonomy.OBFUSCATED
-                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED)
+                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
                 sr.decision = sr.policy
                 sr.reason = "eval with command substitution"
                 return sr
@@ -176,24 +194,24 @@ def _classify_stage(stage: Stage, depth: int = 0) -> StageResult:
                 inner_tokens = shlex.split(inner)
             except ValueError:
                 sr.action_type = taxonomy.OBFUSCATED
-                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED)
+                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
                 sr.decision = sr.policy
                 sr.reason = "unparseable inner command"
                 return sr
             if inner_tokens:
                 inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
-                return _classify_stage(inner_stage, depth + 1)
+                return _classify_stage(inner_stage, depth + 1, merged_table, user_actions)
 
     if depth >= _MAX_UNWRAP_DEPTH:
         sr.action_type = taxonomy.OBFUSCATED
-        sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED)
+        sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
         sr.decision = sr.policy
         sr.reason = "excessive shell nesting"
         return sr
 
     # Classify tokens
-    sr.action_type = taxonomy.classify_tokens(tokens)
-    sr.policy = taxonomy.get_policy(sr.action_type)
+    sr.action_type = taxonomy.classify_tokens(tokens, merged_table)
+    sr.policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Handle redirect target — treat as filesystem_write for the target path
     if stage.redirect_target:

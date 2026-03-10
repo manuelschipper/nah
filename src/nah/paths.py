@@ -72,6 +72,22 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
+def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: str) -> None:
+    """Merge user sensitive_paths with hardcoded lists. Modifies _SENSITIVE_DIRS in place."""
+    # User config can add new sensitive paths (not remove hardcoded ones)
+    home = os.path.expanduser("~")
+    existing_resolved = {entry[0] for entry in _SENSITIVE_DIRS}
+    for path_str, policy in config_paths.items():
+        if policy not in ("ask", "block"):
+            continue
+        expanded = os.path.expanduser(path_str)
+        resolved = os.path.realpath(expanded)
+        if resolved not in existing_resolved:
+            display = path_str if path_str.startswith("~") else resolved
+            _SENSITIVE_DIRS.append((resolved, display, policy))
+            existing_resolved.add(resolved)
+
+
 def check_path(tool_name: str, raw_path: str) -> dict | None:
     """Check a path for hook/sensitive violations. Returns decision dict or None (= allow)."""
     if not raw_path:
@@ -97,6 +113,12 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
     # Sensitive path check
     matched, pattern, policy = is_sensitive(resolved)
     if matched:
+        # Check allow_paths exemption before returning
+        from nah.config import is_path_allowed  # lazy import to avoid circular
+        project_root = get_project_root()
+        if is_path_allowed(raw_path, project_root):
+            return None  # exempted
+
         if policy == "block":
             return {
                 "decision": "block",

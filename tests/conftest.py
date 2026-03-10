@@ -5,13 +5,15 @@ import os
 import pytest
 
 from nah import paths
+from nah.config import reset_config
 
 
 @pytest.fixture(autouse=True)
-def _reset_paths():
-    """Reset project root between tests for isolation."""
+def _reset_state():
+    """Reset project root and config cache between tests for isolation."""
     yield
     paths.reset_project_root()
+    reset_config()
 
 
 @pytest.fixture

@@ -161,7 +161,18 @@ DECODE_COMMANDS: list[tuple[str, str | None]] = [
 ]
 
 
-def classify_tokens(tokens: list[str]) -> str:
+def build_merged_classify_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[str, ...], str]]:
+    """Merge user classify entries with built-in table. Sorted longest-first."""
+    merged = list(_CLASSIFY_TABLE)
+    for action_type, prefixes in user_classify.items():
+        for prefix_str in prefixes:
+            prefix_tuple = tuple(prefix_str.split())
+            merged.append((prefix_tuple, action_type))
+    merged.sort(key=lambda entry: len(entry[0]), reverse=True)
+    return merged
+
+
+def classify_tokens(tokens: list[str], classify_table: list | None = None) -> str:
     """Classify command tokens by prefix match (longest wins). Returns action type."""
     if not tokens:
         return UNKNOWN
@@ -171,8 +182,10 @@ def classify_tokens(tokens: list[str]) -> str:
     if action is not None:
         return action
 
+    table = classify_table if classify_table is not None else _CLASSIFY_TABLE
+
     # Prefix match: iterate sorted table, first (longest) match wins.
-    for prefix, action_type in _CLASSIFY_TABLE:
+    for prefix, action_type in table:
         if len(tokens) >= len(prefix) and tuple(tokens[:len(prefix)]) == prefix:
             return action_type
 
@@ -189,8 +202,10 @@ def _classify_find(tokens: list[str]) -> str | None:
     return FILESYSTEM_READ
 
 
-def get_policy(action_type: str) -> str:
-    """Return policy for an action type. Falls back to 'ask' for unknown types."""
+def get_policy(action_type: str, user_actions: dict[str, str] | None = None) -> str:
+    """Return policy for an action type. Checks user overrides first, then built-in."""
+    if user_actions and action_type in user_actions:
+        return user_actions[action_type]
     return _POLICIES.get(action_type, "ask")
 
 

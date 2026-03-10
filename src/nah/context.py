@@ -78,6 +78,12 @@ def resolve_network_context(tokens: list[str]) -> tuple[str, str]:
     if host_no_port in _KNOWN_HOSTS:
         return "allow", f"known host: {host_no_port}"
 
+    # User-configured known registries
+    from nah.config import get_config  # lazy import to avoid circular
+    cfg = get_config()
+    if host_no_port in cfg.known_registries:
+        return "allow", f"known host (config): {host_no_port}"
+
     return "ask", f"unknown host: {host_no_port}"
 
 
