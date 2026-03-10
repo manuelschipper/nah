@@ -229,6 +229,7 @@ def _label_for_path(cfg_path: str) -> str:
 
 def list_rules() -> dict:
     """List all custom rules from both configs. Returns structured dict."""
+    _ensure_yaml()
     result: dict = {"global": {}, "project": {}}
     global_path = get_global_config_path()
     global_data = _read_config(global_path) if os.path.isfile(global_path) else {}
