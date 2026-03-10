@@ -1,9 +1,11 @@
-"""LLM layer — resolve ambiguous ask decisions via LLM backends."""
+"""LLM layer — resolve ambiguous ask decisions via LLM providers."""
 
 import json
 import os
 import sys
+import time
 import urllib.request
+from dataclasses import dataclass, field
 from urllib.error import URLError
 
 _TIMEOUT_LOCAL = 10
@@ -16,6 +18,24 @@ class LLMResult:
     def __init__(self, decision: str, reasoning: str = ""):
         self.decision = decision    # "allow", "block", or "uncertain"
         self.reasoning = reasoning
+
+
+@dataclass
+class ProviderAttempt:
+    provider: str
+    status: str       # "success", "error", "uncertain"
+    latency_ms: int
+    model: str = ""
+
+
+@dataclass
+class LLMCallResult:
+    decision: dict | None = None
+    provider: str = ""
+    model: str = ""
+    latency_ms: int = 0
+    reasoning: str = ""
+    cascade: list[ProviderAttempt] = field(default_factory=list)
 
 
 _PROMPT_TEMPLATE = """\
@@ -102,7 +122,7 @@ def _parse_response(raw: str) -> LLMResult | None:
     return LLMResult(decision, reasoning)
 
 
-# -- Backends --
+# -- Providers --
 
 
 def _call_ollama(config: dict, prompt: str) -> LLMResult | None:
@@ -257,7 +277,7 @@ def _call_anthropic(config: dict, prompt: str) -> LLMResult | None:
         return None
 
 
-_BACKENDS = {
+_PROVIDERS = {
     "ollama": _call_ollama,
     "cortex": _call_cortex,
     "openrouter": _call_openrouter,
@@ -266,62 +286,95 @@ _BACKENDS = {
 }
 
 
-def _call_backend(name: str, config: dict, prompt: str) -> LLMResult | None:
-    """Dispatch to the named backend."""
-    fn = _BACKENDS.get(name)
+def _call_provider(name: str, config: dict, prompt: str) -> tuple[LLMResult | None, int]:
+    """Dispatch to the named provider. Returns (result, elapsed_ms)."""
+    fn = _PROVIDERS.get(name)
     if fn is None:
-        return None
+        return None, 0
+    t0 = time.monotonic()
     try:
-        return fn(config, prompt)
+        result = fn(config, prompt)
+        elapsed = int((time.monotonic() - t0) * 1000)
+        return result, elapsed
     except (URLError, OSError, TimeoutError):
-        return None  # expected: backend unavailable, try next
+        elapsed = int((time.monotonic() - t0) * 1000)
+        return None, elapsed  # expected: provider unavailable, try next
     except (json.JSONDecodeError, KeyError, IndexError):
+        elapsed = int((time.monotonic() - t0) * 1000)
         sys.stderr.write(f"nah: LLM {name}: bad response format\n")
-        return None  # expected: LLM returned garbage
+        return None, elapsed  # expected: LLM returned garbage
     except Exception as exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
         sys.stderr.write(f"nah: LLM {name}: unexpected error: {exc}\n")
-        return None  # unexpected but can't crash the hook
+        return None, elapsed  # unexpected but can't crash the hook
 
 
-def _try_backends(prompt: str, llm_config: dict, label: str) -> dict | None:
-    """Iterate backends in priority order. Returns decision dict or None."""
-    backends = llm_config.get("backends", [])
-    if not backends:
-        return None
+_DEFAULT_MODELS = {
+    "ollama": "qwen3.5:9b",
+    "cortex": "claude-haiku-4-5",
+    "openrouter": "google/gemini-3.1-flash-lite-preview",
+    "openai": "gpt-5.3-codex",
+    "anthropic": "claude-haiku-4-5",
+}
 
-    for backend_name in backends:
-        backend_config = llm_config.get(backend_name, {})
-        if not backend_config:
+
+def _try_providers(prompt: str, llm_config: dict, label: str) -> LLMCallResult:
+    """Iterate providers in priority order. Returns LLMCallResult (always)."""
+    call_result = LLMCallResult()
+    providers = llm_config.get("providers", []) or llm_config.get("backends", [])
+    if not providers:
+        return call_result
+
+    for provider_name in providers:
+        provider_config = llm_config.get(provider_name, {})
+        if not provider_config:
             continue
 
-        result = _call_backend(backend_name, backend_config, prompt)
+        model = provider_config.get("model", _DEFAULT_MODELS.get(provider_name, ""))
+        result, elapsed = _call_provider(provider_name, provider_config, prompt)
+
         if result is None:
+            call_result.cascade.append(ProviderAttempt(provider_name, "error", elapsed, model))
             continue
 
         if result.decision == "allow":
+            call_result.cascade.append(ProviderAttempt(provider_name, "success", elapsed, model))
+            call_result.provider = provider_name
+            call_result.model = model
+            call_result.latency_ms = elapsed
+            call_result.reasoning = result.reasoning
             decision = {"decision": "allow"}
             if result.reasoning:
                 decision["message"] = f"{label} (LLM): {result.reasoning}"
-            return decision
+            call_result.decision = decision
+            return call_result
 
         if result.decision == "block":
+            call_result.cascade.append(ProviderAttempt(provider_name, "success", elapsed, model))
+            call_result.provider = provider_name
+            call_result.model = model
+            call_result.latency_ms = elapsed
+            call_result.reasoning = result.reasoning
             reason = result.reasoning or "LLM: blocked"
-            return {"decision": "block", "reason": f"{label} (LLM): {reason}"}
+            call_result.decision = {"decision": "block", "reason": f"{label} (LLM): {reason}"}
+            return call_result
 
-        # "uncertain" — stop trying backends
-        return None
+        # "uncertain" — stop trying providers
+        call_result.cascade.append(ProviderAttempt(provider_name, "uncertain", elapsed, model))
+        call_result.reasoning = result.reasoning
+        return call_result
 
-    return None
+    return call_result
 
 
-def try_llm(classify_result, llm_config: dict) -> dict | None:
-    """Try LLM backends in priority order. Returns decision dict or None.
+def try_llm(classify_result, llm_config: dict) -> LLMCallResult:
+    """Try LLM providers in priority order. Returns LLMCallResult.
 
-    Returns {"decision": "allow"} or {"decision": "block", "reason": "..."} if LLM
-    picks a lane. None if uncertain, unavailable, or not configured.
+    ``result.decision`` is {"decision": "allow"} or {"decision": "block", ...}
+    if the LLM picks a lane, or None if uncertain/unavailable/not configured.
     """
     prompt = _build_prompt(classify_result)
-    return _try_backends(prompt, llm_config, "Bash")
+    return _try_providers(prompt, llm_config, "Bash")
 
 
 _GENERIC_PROMPT = """\
@@ -343,8 +396,8 @@ Rules:
 """
 
 
-def try_llm_generic(tool_name: str, reason: str, llm_config: dict) -> dict | None:
-    """Try LLM for a non-Bash ask decision."""
+def try_llm_generic(tool_name: str, reason: str, llm_config: dict) -> LLMCallResult:
+    """Try LLM providers for a non-Bash ask decision. Returns LLMCallResult."""
     cwd = os.getcwd()
     inside_project = "unknown"
     try:
@@ -359,4 +412,4 @@ def try_llm_generic(tool_name: str, reason: str, llm_config: dict) -> dict | Non
         tool_name=tool_name, reason=reason[:500],
         cwd=cwd, inside_project=inside_project,
     )
-    return _try_backends(prompt, llm_config, tool_name)
+    return _try_providers(prompt, llm_config, tool_name)

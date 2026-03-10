@@ -1,6 +1,6 @@
-"""Live integration tests for LLM backends.
+"""Live integration tests for LLM providers.
 
-These tests hit real APIs and are skipped unless the backend is available.
+These tests hit real APIs and are skipped unless the provider is available.
 Run with: pytest tests/test_llm_live.py -v -s
 """
 
@@ -87,7 +87,7 @@ def _make_dangerous_result() -> ClassifyResult:
 
 
 class TestBuildPromptLive:
-    """Verify prompts look sane before sending to backends."""
+    """Verify prompts look sane before sending to providers."""
 
     def test_prompt_structure(self):
         result = _make_unknown_result("terraform destroy --auto-approve")
@@ -146,17 +146,19 @@ class TestOllamaLive:
         assert llm_result.decision in ("block", "uncertain")
 
     def test_try_llm_with_ollama(self):
-        """Full pipeline: try_llm with Ollama backend."""
+        """Full pipeline: try_llm with Ollama provider."""
         llm_config = {
-            "backends": ["ollama"],
+            "providers": ["ollama"],
             "ollama": dict(_OLLAMA_TEST_CONFIG),
         }
         result = _make_safe_result()
-        decision = try_llm(result, llm_config)
-        print(f"\ntry_llm (Ollama, safe): {decision}")
+        call_result = try_llm(result, llm_config)
+        print(f"\ntry_llm (Ollama, safe): {call_result}")
         # allow -> dict, uncertain -> None, both acceptable
-        if decision is not None:
-            assert decision["decision"] in ("allow", "block")
+        if call_result.decision is not None:
+            assert call_result.decision["decision"] in ("allow", "block")
+            assert call_result.provider == "ollama"
+            assert len(call_result.cascade) >= 1
 
 
 # -- OpenRouter tests --
@@ -222,9 +224,9 @@ class TestOpenRouterLive:
         assert llm_result.decision in ("block", "uncertain")
 
     def test_try_llm_with_openrouter(self):
-        """Full pipeline: try_llm with OpenRouter backend."""
+        """Full pipeline: try_llm with OpenRouter provider."""
         llm_config = {
-            "backends": ["openrouter"],
+            "providers": ["openrouter"],
             "openrouter": {
                 "url": "https://openrouter.ai/api/v1/chat/completions",
                 "key_env": "OPENROUTER_API_KEY",
@@ -232,10 +234,10 @@ class TestOpenRouterLive:
             },
         }
         result = _make_safe_result()
-        decision = try_llm(result, llm_config)
-        print(f"\ntry_llm (OpenRouter, safe): {decision}")
-        if decision is not None:
-            assert decision["decision"] in ("allow", "block")
+        call_result = try_llm(result, llm_config)
+        print(f"\ntry_llm (OpenRouter, safe): {call_result}")
+        if call_result.decision is not None:
+            assert call_result.decision["decision"] in ("allow", "block")
 
 
 # -- Fallthrough test --
@@ -243,12 +245,12 @@ class TestOpenRouterLive:
 
 @skip_no_ollama
 @skip_no_openrouter
-class TestBackendFallthrough:
+class TestProviderFallthrough:
 
     def test_fallthrough_bad_ollama_to_openrouter(self):
         """If Ollama URL is wrong, should fall through to OpenRouter."""
         llm_config = {
-            "backends": ["ollama", "openrouter"],
+            "providers": ["ollama", "openrouter"],
             "ollama": {"url": "http://localhost:99999/api/generate", "model": "qwen3.5:35b", "timeout": 2},
             "openrouter": {
                 "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -257,7 +259,8 @@ class TestBackendFallthrough:
             },
         }
         result = _make_safe_result()
-        decision = try_llm(result, llm_config)
-        print(f"\nFallthrough (bad Ollama -> OpenRouter): {decision}")
+        call_result = try_llm(result, llm_config)
+        print(f"\nFallthrough (bad Ollama -> OpenRouter): {call_result}")
         # Should get a response from OpenRouter (or None if uncertain)
-        # The key thing: it didn't crash and it tried the second backend
+        # The key thing: it didn't crash and it tried the second provider
+        assert len(call_result.cascade) >= 1  # at least one provider tried

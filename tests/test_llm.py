@@ -149,8 +149,13 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(self._make_result(), self._ollama_config())
-        assert result["decision"] == "allow"
-        assert "LLM" in result.get("message", "")
+        assert result.decision["decision"] == "allow"
+        assert "LLM" in result.decision.get("message", "")
+        assert result.provider == "ollama"
+        assert result.model == "test"
+        assert result.latency_ms >= 0
+        assert len(result.cascade) == 1
+        assert result.cascade[0].status == "success"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_backend_returns_block(self, mock_urlopen):
@@ -161,8 +166,8 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(self._make_result(), self._ollama_config())
-        assert result["decision"] == "block"
-        assert "LLM" in result["reason"]
+        assert result.decision["decision"] == "block"
+        assert "LLM" in result.decision["reason"]
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_backend_returns_uncertain(self, mock_urlopen):
@@ -173,7 +178,9 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(self._make_result(), self._ollama_config())
-        assert result is None
+        assert result.decision is None
+        assert len(result.cascade) == 1
+        assert result.cascade[0].status == "uncertain"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_backend_unavailable_tries_next(self, mock_urlopen):
@@ -199,8 +206,11 @@ class TestTryLlm:
         }
         with patch.dict("os.environ", {"TEST_KEY": "fake-key"}):
             result = try_llm(self._make_result(), config)
-        assert result["decision"] == "allow"
+        assert result.decision["decision"] == "allow"
         assert call_count[0] == 2
+        assert len(result.cascade) == 2
+        assert result.cascade[0].status == "error"
+        assert result.cascade[1].status == "success"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_all_backends_unavailable(self, mock_urlopen):
@@ -208,19 +218,21 @@ class TestTryLlm:
         mock_urlopen.side_effect = URLError("connection refused")
 
         result = try_llm(self._make_result(), self._ollama_config())
-        assert result is None
+        assert result.decision is None
+        assert len(result.cascade) == 1
+        assert result.cascade[0].status == "error"
 
     def test_empty_backends_list(self):
         result = try_llm(self._make_result(), {"backends": []})
-        assert result is None
+        assert result.decision is None
 
     def test_no_backends_key(self):
         result = try_llm(self._make_result(), {})
-        assert result is None
+        assert result.decision is None
 
     def test_backend_not_in_config(self):
         result = try_llm(self._make_result(), {"backends": ["ollama"]})
-        assert result is None  # ollama key missing -> skip
+        assert result.decision is None  # ollama key missing -> skip
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_openai_backend_allow(self, mock_urlopen):
@@ -238,7 +250,7 @@ class TestTryLlm:
         }
         with patch.dict("os.environ", {"TEST_KEY": "fake-key"}):
             result = try_llm(self._make_result(), config)
-        assert result["decision"] == "allow"
+        assert result.decision["decision"] == "allow"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_anthropic_backend_allow(self, mock_urlopen):
@@ -254,7 +266,7 @@ class TestTryLlm:
         }
         with patch.dict("os.environ", {"TEST_KEY": "fake-key"}):
             result = try_llm(self._make_result(), config)
-        assert result["decision"] == "allow"
+        assert result.decision["decision"] == "allow"
 
     def test_anthropic_no_key_skips(self):
         config = {
@@ -262,7 +274,7 @@ class TestTryLlm:
             "anthropic": {"model": "claude-haiku-4-5", "key_env": "NONEXISTENT_KEY_12345"},
         }
         result = try_llm(self._make_result(), config)
-        assert result is None
+        assert result.decision is None
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_allow_without_reasoning(self, mock_urlopen):
@@ -273,5 +285,5 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(self._make_result(), self._ollama_config())
-        assert result["decision"] == "allow"
-        assert "message" not in result  # no reasoning = no message
+        assert result.decision["decision"] == "allow"
+        assert "message" not in result.decision  # no reasoning = no message

@@ -177,12 +177,13 @@ class TestCursorAskEscalation:
     def test_cursor_ask_no_llm_defaults_deny(self):
         """No LLM configured → deny (safe default)."""
         config._cached_config = NahConfig()  # no LLM
-        decision = _resolve_ask_for_agent(
+        decision, resolved_by, _ = _resolve_ask_for_agent(
             {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == taxonomy.BLOCK
         assert "lang_exec" in decision.get("reason", "")
+        assert resolved_by == "ask_fallback"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_cursor_ask_llm_allows(self, mock_urlopen):
@@ -190,11 +191,13 @@ class TestCursorAskEscalation:
         _set_llm_config(_ollama_config())
         mock_urlopen.return_value = _mock_ollama_response("allow", "safe op").return_value
 
-        decision = _resolve_ask_for_agent(
+        decision, resolved_by, llm_meta = _resolve_ask_for_agent(
             {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == "allow"
+        assert resolved_by == "llm"
+        assert llm_meta.get("llm_provider") == "ollama"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_cursor_ask_llm_blocks(self, mock_urlopen):
@@ -202,12 +205,13 @@ class TestCursorAskEscalation:
         _set_llm_config(_ollama_config())
         mock_urlopen.return_value = _mock_ollama_response("block", "dangerous").return_value
 
-        decision = _resolve_ask_for_agent(
+        decision, resolved_by, llm_meta = _resolve_ask_for_agent(
             {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == "block"
         assert "LLM" in decision.get("reason", "")
+        assert resolved_by == "llm"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_cursor_ask_llm_uncertain_defaults_deny(self, mock_urlopen):
@@ -215,7 +219,7 @@ class TestCursorAskEscalation:
         _set_llm_config(_ollama_config())
         mock_urlopen.return_value = _mock_ollama_response("uncertain", "not sure").return_value
 
-        decision = _resolve_ask_for_agent(
+        decision, _, _ = _resolve_ask_for_agent(
             {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
             "Bash",
         )
@@ -225,11 +229,12 @@ class TestCursorAskEscalation:
     def test_cursor_ask_fallback_allow(self):
         """ask_fallback: allow → Cursor gets allow when no LLM."""
         config._cached_config = NahConfig(ask_fallback="allow")
-        decision = _resolve_ask_for_agent(
+        decision, resolved_by, _ = _resolve_ask_for_agent(
             {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == taxonomy.ALLOW
+        assert resolved_by == "ask_fallback"
 
     def test_claude_ask_unchanged(self, project_root):
         """Claude Code ask decisions are NOT escalated (supports_ask=True)."""
