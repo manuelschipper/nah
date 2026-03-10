@@ -1,0 +1,8 @@
+[
+  "python -c",
+  "python3 -c",
+  "node -e",
+  "ruby -e",
+  "perl -e",
+  "php -r"
+]

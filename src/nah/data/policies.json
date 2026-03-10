@@ -1,0 +1,19 @@
+{
+  "filesystem_read": "allow",
+  "filesystem_write": "context",
+  "filesystem_delete": "context",
+  "git_safe": "allow",
+  "git_write": "allow",
+  "git_discard": "ask",
+  "git_history_rewrite": "ask",
+  "network_outbound": "context",
+  "package_install": "allow",
+  "package_run": "allow",
+  "package_uninstall": "ask",
+  "lang_exec": "ask",
+  "process_signal": "ask",
+  "container_destructive": "ask",
+  "sql_write": "ask",
+  "obfuscated": "block",
+  "unknown": "ask"
+}

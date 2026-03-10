@@ -1,0 +1,14 @@
+[
+  "git reset --hard",
+  "git push origin main --force",
+  "git push origin main -f",
+  "git push origin --force",
+  "git push origin -f",
+  "git push --force",
+  "git push -f",
+  "git stash drop",
+  "git stash clear",
+  "git branch -D",
+  "git rebase",
+  "git clean"
+]

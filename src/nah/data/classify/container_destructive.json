@@ -1,0 +1,9 @@
+[
+  "docker rm",
+  "docker rmi",
+  "docker system prune",
+  "docker volume rm",
+  "docker container rm",
+  "docker image rm",
+  "docker network rm"
+]

@@ -160,6 +160,109 @@ class TestClassifyTokens:
     def test_find_execdir(self):
         assert classify_tokens(["find", ".", "-execdir", "cmd", "{}", ";"]) == "filesystem_delete"
 
+    # git_discard
+    @pytest.mark.parametrize("tokens", [
+        ["git", "checkout", "."],
+        ["git", "checkout", "--", "file.txt"],
+        ["git", "checkout", "HEAD", "file.txt"],
+        ["git", "checkout", "-f"],
+        ["git", "checkout", "--force"],
+        ["git", "checkout", "--ours", "file.txt"],
+        ["git", "checkout", "--theirs", "file.txt"],
+        ["git", "checkout", "-B", "branch"],
+        ["git", "switch", "-f", "branch"],
+        ["git", "switch", "--force", "branch"],
+        ["git", "switch", "--discard-changes", "branch"],
+        ["git", "restore", "file.txt"],
+        ["git", "rm", "file.txt"],
+    ])
+    def test_git_discard(self, tokens):
+        assert classify_tokens(tokens) == "git_discard"
+
+    # git_discard vs git_write priority
+    def test_git_checkout_dot_discard_not_write(self):
+        assert classify_tokens(["git", "checkout", "."]) == "git_discard"
+        assert classify_tokens(["git", "checkout", "branch"]) == "git_write"
+
+    def test_git_switch_force_discard_not_write(self):
+        assert classify_tokens(["git", "switch", "--force", "b"]) == "git_discard"
+        assert classify_tokens(["git", "switch", "branch"]) == "git_write"
+
+    # process_signal
+    @pytest.mark.parametrize("tokens", [
+        ["kill", "-9", "1234"],
+        ["kill", "-KILL", "1234"],
+        ["kill", "-SIGKILL", "1234"],
+        ["pkill", "nginx"],
+        ["killall", "node"],
+    ])
+    def test_process_signal(self, tokens):
+        assert classify_tokens(tokens) == "process_signal"
+
+    # container_destructive
+    @pytest.mark.parametrize("tokens", [
+        ["docker", "rm", "abc"],
+        ["docker", "rmi", "img"],
+        ["docker", "system", "prune"],
+        ["docker", "volume", "rm", "vol"],
+        ["docker", "container", "rm", "abc"],
+        ["docker", "image", "rm", "img"],
+        ["docker", "network", "rm", "net"],
+    ])
+    def test_container_destructive(self, tokens):
+        assert classify_tokens(tokens) == "container_destructive"
+
+    # package_uninstall
+    @pytest.mark.parametrize("tokens", [
+        ["pip", "uninstall", "flask"],
+        ["pip3", "uninstall", "flask"],
+        ["npm", "uninstall", "react"],
+        ["brew", "uninstall", "jq"],
+        ["brew", "remove", "jq"],
+        ["cargo", "uninstall", "ripgrep"],
+        ["gem", "uninstall", "rails"],
+        ["pnpm", "remove", "react"],
+        ["yarn", "remove", "react"],
+        ["bun", "remove", "react"],
+        ["apt", "remove", "curl"],
+        ["apt", "purge", "curl"],
+    ])
+    def test_package_uninstall(self, tokens):
+        assert classify_tokens(tokens) == "package_uninstall"
+
+    # sql_write
+    @pytest.mark.parametrize("tokens", [
+        ["snow", "sql", "-q", "SELECT 1"],
+        ["snowsql", "-q", "SELECT 1"],
+        ["psql", "-c", "SELECT 1"],
+        ["psql", "-f", "script.sql"],
+        ["mysql", "-e", "SHOW TABLES"],
+        ["sqlite3", "db.sqlite", "SELECT 1"],
+        ["bq", "query", "--use_legacy_sql=false", "SELECT 1"],
+    ])
+    def test_sql_write(self, tokens):
+        assert classify_tokens(tokens) == "sql_write"
+
+    # git push origin --force → git_history_rewrite (not git_write)
+    def test_git_push_origin_force(self):
+        assert classify_tokens(["git", "push", "origin", "--force"]) == "git_history_rewrite"
+        assert classify_tokens(["git", "push", "origin", "-f"]) == "git_history_rewrite"
+        assert classify_tokens(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
+        assert classify_tokens(["git", "push", "origin", "main", "-f"]) == "git_history_rewrite"
+
+    # git flag stripping
+    def test_git_C_flag_stripped(self):
+        assert classify_tokens(["git", "-C", "/dir", "rm", "file"]) == "git_discard"
+
+    def test_git_no_pager_stripped(self):
+        assert classify_tokens(["git", "--no-pager", "log"]) == "git_safe"
+
+    def test_git_git_dir_stripped(self):
+        assert classify_tokens(["git", "--git-dir", "/x", "push", "--force"]) == "git_history_rewrite"
+
+    def test_git_multiple_flags_stripped(self):
+        assert classify_tokens(["git", "-C", "/dir", "--no-pager", "status"]) == "git_safe"
+
     # Edge cases
     def test_empty_tokens(self):
         assert classify_tokens([]) == "unknown"
@@ -180,11 +283,16 @@ class TestGetPolicy:
         ("filesystem_delete", "context"),
         ("git_safe", "allow"),
         ("git_write", "allow"),
+        ("git_discard", "ask"),
         ("git_history_rewrite", "ask"),
         ("network_outbound", "context"),
         ("package_install", "allow"),
         ("package_run", "allow"),
+        ("package_uninstall", "ask"),
         ("lang_exec", "ask"),
+        ("process_signal", "ask"),
+        ("container_destructive", "ask"),
+        ("sql_write", "ask"),
         ("obfuscated", "block"),
         ("unknown", "ask"),
     ])

@@ -201,3 +201,87 @@ class TestEdgeCases:
         """When stages have different decisions, most restrictive wins."""
         r = classify_command("git status && rm -rf /")
         assert r.final_decision == "ask"  # git_safe=allow, rm outside=ask → ask wins
+
+
+# --- New action types (taxonomy expansion) ---
+
+
+class TestNewActionTypes:
+    """E2E tests for git_discard, process_signal, container_destructive,
+    package_uninstall, sql_write action types."""
+
+    def test_git_checkout_dot_ask(self, project_root):
+        r = classify_command("git checkout .")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_discard"
+
+    def test_git_restore_ask(self, project_root):
+        r = classify_command("git restore file.txt")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_discard"
+
+    def test_git_rm_ask(self, project_root):
+        r = classify_command("git rm file.txt")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_discard"
+
+    def test_git_C_rm_ask(self, project_root):
+        r = classify_command("git -C /some/dir rm file.txt")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_discard"
+
+    def test_kill_9_ask(self, project_root):
+        r = classify_command("kill -9 1234")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "process_signal"
+
+    def test_pkill_ask(self, project_root):
+        r = classify_command("pkill nginx")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "process_signal"
+
+    def test_docker_system_prune_ask(self, project_root):
+        r = classify_command("docker system prune")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "container_destructive"
+
+    def test_docker_rm_ask(self, project_root):
+        r = classify_command("docker rm container_id")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "container_destructive"
+
+    def test_pip_uninstall_ask(self, project_root):
+        r = classify_command("pip uninstall flask")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "package_uninstall"
+
+    def test_npm_uninstall_ask(self, project_root):
+        r = classify_command("npm uninstall react")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "package_uninstall"
+
+    def test_brew_uninstall_ask(self, project_root):
+        r = classify_command("brew uninstall jq")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "package_uninstall"
+
+    def test_snow_sql_ask(self, project_root):
+        r = classify_command("snow sql -q 'SELECT 1'")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "sql_write"
+
+    def test_psql_c_ask(self, project_root):
+        r = classify_command("psql -c 'SELECT 1'")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "sql_write"
+
+    def test_git_push_origin_force_ask(self, project_root):
+        r = classify_command("git push origin --force")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    def test_git_checkout_branch_still_allow(self, project_root):
+        """git checkout <branch> should still be git_write (allow)."""
+        r = classify_command("git checkout main")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"

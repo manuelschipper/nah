@@ -1,0 +1,14 @@
+[
+  "pip uninstall",
+  "pip3 uninstall",
+  "npm uninstall",
+  "brew uninstall",
+  "brew remove",
+  "cargo uninstall",
+  "gem uninstall",
+  "pnpm remove",
+  "yarn remove",
+  "bun remove",
+  "apt remove",
+  "apt purge"
+]

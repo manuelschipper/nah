@@ -1,4 +1,12 @@
-"""Action taxonomy — command classification table and policy defaults."""
+"""Action taxonomy — command classification table and policy defaults.
+
+Classification data and policies are loaded from JSON files in data/.
+"""
+
+import json
+from pathlib import Path
+
+_DATA_DIR = Path(__file__).parent / "data"
 
 # Action types
 FILESYSTEM_READ = "filesystem_read"
@@ -6,11 +14,16 @@ FILESYSTEM_WRITE = "filesystem_write"
 FILESYSTEM_DELETE = "filesystem_delete"
 GIT_SAFE = "git_safe"
 GIT_WRITE = "git_write"
+GIT_DISCARD = "git_discard"
 GIT_HISTORY_REWRITE = "git_history_rewrite"
 NETWORK_OUTBOUND = "network_outbound"
 PACKAGE_INSTALL = "package_install"
 PACKAGE_RUN = "package_run"
+PACKAGE_UNINSTALL = "package_uninstall"
 LANG_EXEC = "lang_exec"
+PROCESS_SIGNAL = "process_signal"
+CONTAINER_DESTRUCTIVE = "container_destructive"
+SQL_WRITE = "sql_write"
 OBFUSCATED = "obfuscated"
 UNKNOWN = "unknown"
 
@@ -23,138 +36,30 @@ CONTEXT = "context"
 # Strictness ordering — higher = more restrictive. Used for tighten-only merges.
 STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
 
-# (prefix_tuple, action_type) — sorted longest-first at module load.
-# Prefix matching: iterate sorted list, first match wins.
-_CLASSIFY_TABLE: list[tuple[tuple[str, ...], str]] = [
-    # git — multi-token prefixes (longest first matters after sort)
-    (("git", "reset", "--hard"), GIT_HISTORY_REWRITE),
-    (("git", "push", "--force"), GIT_HISTORY_REWRITE),
-    (("git", "push", "-f"), GIT_HISTORY_REWRITE),
-    (("git", "stash", "list"), GIT_SAFE),
-    (("git", "stash", "drop"), GIT_HISTORY_REWRITE),
-    (("git", "stash", "clear"), GIT_HISTORY_REWRITE),
-    (("git", "branch", "-D"), GIT_HISTORY_REWRITE),
-    (("git", "remote", "-v"), GIT_SAFE),
-    (("git", "status"), GIT_SAFE),
-    (("git", "log"), GIT_SAFE),
-    (("git", "diff"), GIT_SAFE),
-    (("git", "show"), GIT_SAFE),
-    (("git", "branch"), GIT_SAFE),
-    (("git", "tag"), GIT_SAFE),
-    (("git", "rebase"), GIT_HISTORY_REWRITE),
-    (("git", "clean"), GIT_HISTORY_REWRITE),
-    (("git", "add"), GIT_WRITE),
-    (("git", "commit"), GIT_WRITE),
-    (("git", "push"), GIT_WRITE),
-    (("git", "pull"), GIT_WRITE),
-    (("git", "fetch"), GIT_WRITE),
-    (("git", "merge"), GIT_WRITE),
-    (("git", "stash"), GIT_WRITE),
-    (("git", "checkout"), GIT_WRITE),
-    (("git", "switch"), GIT_WRITE),
-    # package — multi-token
-    (("npm", "install"), PACKAGE_INSTALL),
-    (("npm", "test"), PACKAGE_RUN),
-    (("npm", "run"), PACKAGE_RUN),
-    (("pip", "install"), PACKAGE_INSTALL),
-    (("pip3", "install"), PACKAGE_INSTALL),
-    (("cargo", "build"), PACKAGE_INSTALL),
-    (("cargo", "test"), PACKAGE_RUN),
-    (("cargo", "run"), PACKAGE_RUN),
-    (("brew", "install"), PACKAGE_INSTALL),
-    (("apt", "install"), PACKAGE_INSTALL),
-    (("gem", "install"), PACKAGE_INSTALL),
-    (("go", "get"), PACKAGE_INSTALL),
-    (("go", "test"), PACKAGE_RUN),
-    (("go", "run"), PACKAGE_RUN),
-    (("pnpm", "install"), PACKAGE_INSTALL),
-    (("pnpm", "run"), PACKAGE_RUN),
-    (("yarn", "add"), PACKAGE_INSTALL),
-    (("yarn", "run"), PACKAGE_RUN),
-    (("bun", "install"), PACKAGE_INSTALL),
-    (("bun", "run"), PACKAGE_RUN),
-    (("python", "-m", "pytest"), PACKAGE_RUN),
-    # lang_exec — multi-token
-    (("python", "-c"), LANG_EXEC),
-    (("python3", "-c"), LANG_EXEC),
-    (("node", "-e"), LANG_EXEC),
-    (("ruby", "-e"), LANG_EXEC),
-    (("perl", "-e"), LANG_EXEC),
-    (("php", "-r"), LANG_EXEC),
-    # filesystem_read — single token
-    (("cat",), FILESYSTEM_READ),
-    (("head",), FILESYSTEM_READ),
-    (("tail",), FILESYSTEM_READ),
-    (("less",), FILESYSTEM_READ),
-    (("more",), FILESYSTEM_READ),
-    (("file",), FILESYSTEM_READ),
-    (("wc",), FILESYSTEM_READ),
-    (("stat",), FILESYSTEM_READ),
-    (("du",), FILESYSTEM_READ),
-    (("df",), FILESYSTEM_READ),
-    (("ls",), FILESYSTEM_READ),
-    (("tree",), FILESYSTEM_READ),
-    (("bat",), FILESYSTEM_READ),
-    (("echo",), FILESYSTEM_READ),
-    (("printf",), FILESYSTEM_READ),
-    (("diff",), FILESYSTEM_READ),
-    (("grep",), FILESYSTEM_READ),
-    (("rg",), FILESYSTEM_READ),
-    (("awk",), FILESYSTEM_READ),
-    (("sed",), FILESYSTEM_READ),
-    # filesystem_write — single token
-    (("tee",), FILESYSTEM_WRITE),
-    (("cp",), FILESYSTEM_WRITE),
-    (("mv",), FILESYSTEM_WRITE),
-    (("mkdir",), FILESYSTEM_WRITE),
-    (("touch",), FILESYSTEM_WRITE),
-    (("chmod",), FILESYSTEM_WRITE),
-    (("chown",), FILESYSTEM_WRITE),
-    (("ln",), FILESYSTEM_WRITE),
-    (("install",), FILESYSTEM_WRITE),
-    # filesystem_delete — single token
-    (("rm",), FILESYSTEM_DELETE),
-    (("rmdir",), FILESYSTEM_DELETE),
-    (("unlink",), FILESYSTEM_DELETE),
-    (("shred",), FILESYSTEM_DELETE),
-    (("truncate",), FILESYSTEM_DELETE),
-    # network_outbound — single token
-    (("curl",), NETWORK_OUTBOUND),
-    (("wget",), NETWORK_OUTBOUND),
-    (("ssh",), NETWORK_OUTBOUND),
-    (("scp",), NETWORK_OUTBOUND),
-    (("rsync",), NETWORK_OUTBOUND),
-    (("nc",), NETWORK_OUTBOUND),
-    (("ncat",), NETWORK_OUTBOUND),
-    (("telnet",), NETWORK_OUTBOUND),
-    (("ftp",), NETWORK_OUTBOUND),
-    (("sftp",), NETWORK_OUTBOUND),
-    # package_run — single token
-    (("npx",), PACKAGE_RUN),
-    (("pytest",), PACKAGE_RUN),
-    (("make",), PACKAGE_RUN),
-    (("just",), PACKAGE_RUN),
-    (("task",), PACKAGE_RUN),
-]
 
-# Sort longest prefix first — longest match wins.
-_CLASSIFY_TABLE.sort(key=lambda entry: len(entry[0]), reverse=True)
+def _load_classify_table() -> list[tuple[tuple[str, ...], str]]:
+    """Load classify table from data/classify/*.json files."""
+    table: list[tuple[tuple[str, ...], str]] = []
+    classify_dir = _DATA_DIR / "classify"
+    for json_file in classify_dir.glob("*.json"):
+        action_type = json_file.stem  # e.g. "git_safe" from "git_safe.json"
+        with open(json_file) as f:
+            prefixes = json.load(f)
+        for prefix_str in prefixes:
+            table.append((tuple(prefix_str.split()), action_type))
+    table.sort(key=lambda entry: len(entry[0]), reverse=True)
+    return table
 
-# Default policies per action type.
-_POLICIES: dict[str, str] = {
-    FILESYSTEM_READ: ALLOW,
-    FILESYSTEM_WRITE: CONTEXT,
-    FILESYSTEM_DELETE: CONTEXT,
-    GIT_SAFE: ALLOW,
-    GIT_WRITE: ALLOW,
-    GIT_HISTORY_REWRITE: ASK,
-    NETWORK_OUTBOUND: CONTEXT,
-    PACKAGE_INSTALL: ALLOW,
-    PACKAGE_RUN: ALLOW,
-    LANG_EXEC: ASK,
-    OBFUSCATED: BLOCK,
-    UNKNOWN: ASK,
-}
+
+def _load_policies() -> dict[str, str]:
+    """Load default policies from data/policies.json."""
+    with open(_DATA_DIR / "policies.json") as f:
+        return json.load(f)
+
+
+# Built at module load — one-time cost.
+_CLASSIFY_TABLE = _load_classify_table()
+_POLICIES = _load_policies()
 
 # Shell wrappers that need unwrapping.
 _SHELL_WRAPPERS = {"bash", "sh", "dash", "zsh"}
@@ -191,6 +96,10 @@ def classify_tokens(tokens: list[str], classify_table: list | None = None) -> st
     if action is not None:
         return action
 
+    # Strip git global flags so `git -C /dir rm` classifies as `git rm`.
+    if tokens[0] == "git":
+        tokens = _strip_git_global_flags(tokens)
+
     table = classify_table if classify_table is not None else _CLASSIFY_TABLE
 
     # Prefix match: iterate sorted table, first (longest) match wins.
@@ -199,6 +108,34 @@ def classify_tokens(tokens: list[str], classify_table: list | None = None) -> st
             return action_type
 
     return UNKNOWN
+
+
+# Git global flags that take a value argument (must consume next token too).
+_GIT_VALUE_FLAGS = {"-C", "--git-dir", "--work-tree", "--namespace", "-c"}
+
+# Git global flags that are standalone (no value argument).
+_GIT_BOOLEAN_FLAGS = {"--no-pager", "--no-replace-objects", "--bare", "--literal-pathspecs",
+                      "--glob-pathspecs", "--noglob-pathspecs", "--no-optional-locks"}
+
+
+def _strip_git_global_flags(tokens: list[str]) -> list[str]:
+    """Strip git global flags (e.g. -C <dir>, --no-pager) from token list.
+
+    Preserves 'git' as first token followed by the subcommand and its args.
+    """
+    result = [tokens[0]]  # keep "git"
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _GIT_VALUE_FLAGS:
+            i += 2  # skip flag + its value
+        elif tok in _GIT_BOOLEAN_FLAGS:
+            i += 1  # skip flag only
+        else:
+            # Reached the subcommand — append rest as-is.
+            result.extend(tokens[i:])
+            break
+    return result
 
 
 def _classify_find(tokens: list[str]) -> str | None:

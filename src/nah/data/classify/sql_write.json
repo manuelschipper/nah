@@ -1,0 +1,9 @@
+[
+  "snow sql",
+  "snowsql",
+  "psql -c",
+  "psql -f",
+  "mysql -e",
+  "sqlite3",
+  "bq query"
+]

@@ -1,0 +1,12 @@
+[
+  "curl",
+  "wget",
+  "ssh",
+  "scp",
+  "rsync",
+  "nc",
+  "ncat",
+  "telnet",
+  "ftp",
+  "sftp"
+]

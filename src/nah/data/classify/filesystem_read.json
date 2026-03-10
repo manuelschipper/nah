@@ -1,0 +1,22 @@
+[
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "file",
+  "wc",
+  "stat",
+  "du",
+  "df",
+  "ls",
+  "tree",
+  "bat",
+  "echo",
+  "printf",
+  "diff",
+  "grep",
+  "rg",
+  "awk",
+  "sed"
+]

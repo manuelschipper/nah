@@ -1,0 +1,17 @@
+[
+  "npm test",
+  "npm run",
+  "cargo test",
+  "cargo run",
+  "go test",
+  "go run",
+  "pnpm run",
+  "yarn run",
+  "bun run",
+  "python -m pytest",
+  "npx",
+  "pytest",
+  "make",
+  "just",
+  "task"
+]

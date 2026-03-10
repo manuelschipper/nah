@@ -1,0 +1,11 @@
+[
+  "tee",
+  "cp",
+  "mv",
+  "mkdir",
+  "touch",
+  "chmod",
+  "chown",
+  "ln",
+  "install"
+]

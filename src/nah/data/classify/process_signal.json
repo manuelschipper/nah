@@ -1,0 +1,7 @@
+[
+  "kill -9",
+  "kill -KILL",
+  "kill -SIGKILL",
+  "pkill",
+  "killall"
+]

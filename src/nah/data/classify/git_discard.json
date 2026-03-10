@@ -1,0 +1,15 @@
+[
+  "git checkout .",
+  "git checkout --",
+  "git checkout HEAD",
+  "git checkout -f",
+  "git checkout --force",
+  "git checkout --ours",
+  "git checkout --theirs",
+  "git checkout -B",
+  "git switch -f",
+  "git switch --force",
+  "git switch --discard-changes",
+  "git restore",
+  "git rm"
+]

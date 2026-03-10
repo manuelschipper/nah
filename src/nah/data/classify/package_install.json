@@ -1,0 +1,13 @@
+[
+  "npm install",
+  "pip install",
+  "pip3 install",
+  "cargo build",
+  "brew install",
+  "apt install",
+  "gem install",
+  "go get",
+  "pnpm install",
+  "yarn add",
+  "bun install"
+]
