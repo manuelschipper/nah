@@ -5,8 +5,8 @@ import os
 import urllib.request
 from urllib.error import URLError
 
-_TIMEOUT_LOCAL = 2   # Ollama ~200ms, hard limit 2s
-_TIMEOUT_REMOTE = 5  # Remote APIs, hard limit 5s
+_TIMEOUT_LOCAL = 10
+_TIMEOUT_REMOTE = 10
 
 
 class LLMResult:
@@ -134,7 +134,7 @@ def _call_openai_compat(
     if not url:
         return None
     key_env = config.get("key_env", default_key_env)
-    key = os.environ.get(key_env, "")
+    key = config.get("_resolved_key") or os.environ.get(key_env, "")
     if not key:
         return None
     model = config.get("model", default_model)
@@ -178,10 +178,119 @@ def _call_openrouter(config: dict, prompt: str) -> LLMResult | None:
     )
 
 
+def _call_openai(config: dict, prompt: str) -> LLMResult | None:
+    """Call OpenAI Responses API."""
+    return _call_openai_responses(
+        config, prompt, _TIMEOUT_REMOTE,
+        default_url="https://api.openai.com/v1/responses",
+        default_model="gpt-4.1-nano",
+        default_key_env="OPENAI_API_KEY",
+    )
+
+
+def _call_anthropic(config: dict, prompt: str) -> LLMResult | None:
+    """Call Anthropic Messages API."""
+    url = config.get("url", "https://api.anthropic.com/v1/messages")
+    key_env = config.get("key_env", "ANTHROPIC_API_KEY")
+    key = os.environ.get(key_env, "")
+    if not key:
+        return None
+    model = config.get("model", "claude-haiku-4-5")
+    timeout = config.get("timeout", _TIMEOUT_REMOTE)
+
+    body = json.dumps({
+        "model": model,
+        "max_tokens": 256,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+    })
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = json.loads(resp.read())
+        content = data["content"][0]["text"]
+        return _parse_response(content)
+    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
+        return None
+
+
+def _call_openai_responses(
+    config: dict,
+    prompt: str,
+    timeout: int,
+    default_url: str,
+    default_model: str,
+    default_key_env: str,
+) -> LLMResult | None:
+    """Call OpenAI Responses API (/v1/responses) for non-chat models like Codex."""
+    url = config.get("url", default_url)
+    if not url:
+        return None
+    key_env = config.get("key_env", default_key_env)
+    key = config.get("_resolved_key") or os.environ.get(key_env, "")
+    if not key:
+        return None
+    model = config.get("model", default_model)
+    timeout = config.get("timeout", timeout)
+
+    body = json.dumps({"model": model, "input": prompt}).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+    })
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = json.loads(resp.read())
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for c in item.get("content", []):
+                    if c.get("type") == "output_text":
+                        return _parse_response(c["text"])
+        return None
+    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
+        return None
+
+
+def _call_codex(config: dict, prompt: str) -> LLMResult | None:
+    """Call OpenAI Responses API using Codex CLI OAuth token."""
+    key = None
+    for auth_path in ("~/.codex/auth.json", "~/.config/codex/auth.json"):
+        expanded = os.path.expanduser(auth_path)
+        if os.path.isfile(expanded):
+            try:
+                with open(expanded) as f:
+                    key = json.load(f).get("token", "")
+                break
+            except (OSError, json.JSONDecodeError):
+                pass
+    if not key:
+        key_env = config.get("key_env", "OPENAI_API_KEY")
+        key = os.environ.get(key_env, "")
+    if not key:
+        return None
+
+    patched = dict(config)
+    patched["_resolved_key"] = key
+    return _call_openai_responses(
+        patched, prompt, _TIMEOUT_REMOTE,
+        default_url="https://api.openai.com/v1/responses",
+        default_model="gpt-5.3-codex",
+        default_key_env="OPENAI_API_KEY",
+    )
+
+
 _BACKENDS = {
     "ollama": _call_ollama,
     "cortex": _call_cortex,
     "openrouter": _call_openrouter,
+    "openai": _call_openai,
+    "anthropic": _call_anthropic,
+    "codex": _call_codex,
 }
 
 
