@@ -7,14 +7,10 @@ import stat
 import sys
 from pathlib import Path
 
-from nah import __version__
+from nah import __version__, agents
 
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
-_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
-_SETTINGS_BACKUP = Path.home() / ".claude" / "settings.json.bak"
-
-_TOOL_NAMES = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
@@ -87,25 +83,25 @@ def _hook_command() -> str:
     return f"{sys.executable} {_HOOK_SCRIPT}"
 
 
-def _read_settings() -> dict:
-    """Read ~/.claude/settings.json, return empty structure if missing."""
-    if _SETTINGS_FILE.exists():
-        with open(_SETTINGS_FILE) as f:
+def _read_settings(settings_file: Path) -> dict:
+    """Read a settings.json file, return empty structure if missing."""
+    if settings_file.exists():
+        with open(settings_file) as f:
             return json.load(f)
     return {}
 
 
-def _write_settings(data: dict) -> None:
+def _write_settings(settings_file: Path, data: dict) -> None:
     """Write settings.json with backup."""
-    if _SETTINGS_FILE.exists():
-        # Backup before modifying
-        with open(_SETTINGS_FILE) as f:
+    backup = settings_file.with_suffix(".json.bak")
+    if settings_file.exists():
+        with open(settings_file) as f:
             backup_content = f.read()
-        with open(_SETTINGS_BACKUP, "w") as f:
+        with open(backup, "w") as f:
             f.write(backup_content)
 
-    _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_SETTINGS_FILE, "w") as f:
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(settings_file, "w") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
 
@@ -118,31 +114,52 @@ def _is_nah_hook(hook_entry: dict) -> bool:
     return False
 
 
-def cmd_install(args: argparse.Namespace) -> None:
-    # 1. Create hooks directory
+def _resolve_agents(args: argparse.Namespace) -> list[str]:
+    """Resolve --agent flag to list of agent keys."""
+    agent_arg = getattr(args, "agent", None) or agents.CLAUDE
+    if agent_arg == "all":
+        # Only install for agents whose settings dir exists
+        result = []
+        for key in sorted(agents.INSTALLABLE_AGENTS):
+            settings_file = agents.AGENT_SETTINGS[key]
+            if settings_file.parent.exists():
+                result.append(key)
+        if not result:
+            print("No supported agent directories found.")
+        return result
+    if agent_arg not in agents.INSTALLABLE_AGENTS:
+        print(f"Agent '{agent_arg}' is not installable. Supported: {', '.join(sorted(agents.INSTALLABLE_AGENTS))}")
+        return []
+    return [agent_arg]
+
+
+def _write_hook_script() -> None:
+    """Write the shared hook shim script (used by all agents)."""
     _HOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. Write shim script
     if _HOOK_SCRIPT.exists():
-        # Make writable first (it's chmod 444)
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
     shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
     with open(_HOOK_SCRIPT, "w") as f:
         f.write(shim_content)
 
-    # 3. Set read-only
     os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
 
-    # 4. Patch settings.json
-    settings = _read_settings()
+
+def _install_for_agent(agent_key: str) -> None:
+    """Patch a single agent's settings.json with nah hook entries."""
+    settings_file = agents.AGENT_SETTINGS[agent_key]
+    tool_names = agents.AGENT_TOOL_MATCHERS[agent_key]
+    agent_name = agents.AGENT_NAMES[agent_key]
+
+    settings = _read_settings(settings_file)
     hooks = settings.setdefault("hooks", {})
     pre_tool_use = hooks.setdefault("PreToolUse", [])
 
     command = _hook_command()
 
-    for tool_name in _TOOL_NAMES:
-        # Check if nah entry already exists for this tool
+    for tool_name in tool_names:
         existing = None
         for entry in pre_tool_use:
             if entry.get("matcher") == tool_name and _is_nah_hook(entry):
@@ -150,7 +167,6 @@ def cmd_install(args: argparse.Namespace) -> None:
                 break
 
         if existing is not None:
-            # Update command in case interpreter path changed
             existing["hooks"] = [{"type": "command", "command": command}]
         else:
             pre_tool_use.append({
@@ -158,47 +174,56 @@ def cmd_install(args: argparse.Namespace) -> None:
                 "hooks": [{"type": "command", "command": command}],
             })
 
-    _write_settings(settings)
+    _write_settings(settings_file, settings)
+    backup = settings_file.with_suffix(".json.bak")
+
+    print(f"  {agent_name}:")
+    print(f"    Settings:  {settings_file} ({len(tool_names)} PreToolUse matchers)")
+    if backup.exists():
+        print(f"    Backup:    {backup}")
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    agent_keys = _resolve_agents(args)
+    if not agent_keys:
+        return
+
+    _write_hook_script()
 
     print(f"nah {__version__} installed:")
     print(f"  Hook script: {_HOOK_SCRIPT} (read-only)")
-    print(f"  Settings:    {_SETTINGS_FILE} (6 PreToolUse matchers)")
     print(f"  Interpreter: {sys.executable}")
-    if _SETTINGS_BACKUP.exists():
-        print(f"  Backup:      {_SETTINGS_BACKUP}")
+
+    for key in agent_keys:
+        _install_for_agent(key)
 
 
 def cmd_update(args: argparse.Namespace) -> None:
-    """Update hook script: unlock → overwrite → re-lock."""
+    """Update hook script: unlock → overwrite → re-lock. Update settings for targeted agents."""
     if not _HOOK_SCRIPT.exists():
         print(f"Hook script not found: {_HOOK_SCRIPT}")
         print("Run `nah install` first.")
         return
 
-    # 1. Unlock (chmod 644)
-    os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    _write_hook_script()
 
-    # 2. Overwrite with latest shim
-    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
-    with open(_HOOK_SCRIPT, "w") as f:
-        f.write(shim_content)
+    agent_keys = _resolve_agents(args)
+    command = _hook_command()
 
-    # 3. Re-lock (chmod 444)
-    os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-
-    # 4. Update settings.json command in case interpreter changed
-    if _SETTINGS_FILE.exists():
-        settings = _read_settings()
-        hooks = settings.get("hooks", {})
-        pre_tool_use = hooks.get("PreToolUse", [])
-        command = _hook_command()
-        updated = 0
-        for entry in pre_tool_use:
-            if _is_nah_hook(entry):
-                entry["hooks"] = [{"type": "command", "command": command}]
-                updated += 1
-        if updated:
-            _write_settings(settings)
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS[key]
+        if settings_file.exists():
+            settings = _read_settings(settings_file)
+            hooks = settings.get("hooks", {})
+            pre_tool_use = hooks.get("PreToolUse", [])
+            updated = 0
+            for entry in pre_tool_use:
+                if _is_nah_hook(entry):
+                    entry["hooks"] = [{"type": "command", "command": command}]
+                    updated += 1
+            if updated:
+                _write_settings(settings_file, settings)
+                print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({updated} hooks updated)")
 
     print(f"nah {__version__} updated:")
     print(f"  Hook script: {_HOOK_SCRIPT} (re-locked read-only)")
@@ -275,28 +300,51 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
-    # 1. Remove nah entries from settings.json
-    if _SETTINGS_FILE.exists():
-        settings = _read_settings()
-        hooks = settings.get("hooks", {})
-        pre_tool_use = hooks.get("PreToolUse", [])
+    agent_keys = _resolve_agents(args)
+    if not agent_keys:
+        return
 
-        # Filter out nah entries
-        filtered = [entry for entry in pre_tool_use if not _is_nah_hook(entry)]
+    # 1. Remove nah entries from each agent's settings.json
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS[key]
+        agent_name = agents.AGENT_NAMES[key]
+        if settings_file.exists():
+            settings = _read_settings(settings_file)
+            hooks = settings.get("hooks", {})
+            pre_tool_use = hooks.get("PreToolUse", [])
 
-        if filtered:
-            hooks["PreToolUse"] = filtered
+            filtered = [entry for entry in pre_tool_use if not _is_nah_hook(entry)]
+
+            if filtered:
+                hooks["PreToolUse"] = filtered
+            else:
+                hooks.pop("PreToolUse", None)
+
+            _write_settings(settings_file, settings)
+            print(f"  {agent_name}: {settings_file} (nah hooks removed)")
         else:
-            hooks.pop("PreToolUse", None)
+            print(f"  {agent_name}: settings not found (nothing to clean)")
 
-        _write_settings(settings)
-        print(f"  Settings:    {_SETTINGS_FILE} (nah hooks removed)")
-    else:
-        print("  Settings:    not found (nothing to clean)")
+    # 2. Remove hook script only if no other agents still have nah hooks
+    any_remaining = False
+    for key in agents.INSTALLABLE_AGENTS:
+        if key in agent_keys:
+            continue
+        sf = agents.AGENT_SETTINGS[key]
+        if sf.exists():
+            try:
+                data = _read_settings(sf)
+                for entry in data.get("hooks", {}).get("PreToolUse", []):
+                    if _is_nah_hook(entry):
+                        any_remaining = True
+                        break
+            except Exception:
+                pass
 
-    # 2. Remove hook script
-    if _HOOK_SCRIPT.exists():
-        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR)  # make writable
+    if any_remaining:
+        print(f"  Hook script: {_HOOK_SCRIPT} (kept — other agents still use it)")
+    elif _HOOK_SCRIPT.exists():
+        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR)
         _HOOK_SCRIPT.unlink()
         print(f"  Hook script: {_HOOK_SCRIPT} (deleted)")
     else:
@@ -315,9 +363,13 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("install", help="Install nah hook into Claude Code")
-    sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
-    sub.add_parser("uninstall", help="Remove nah hook from Claude Code")
+    agent_help = "Agent to target: claude (default), cortex, or all"
+    install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
+    install_parser.add_argument("--agent", default=None, help=agent_help)
+    update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
+    update_parser.add_argument("--agent", default=None, help=agent_help)
+    uninstall_parser = sub.add_parser("uninstall", help="Remove nah hook from coding agents")
+    uninstall_parser.add_argument("--agent", default=None, help=agent_help)
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
     test_parser.add_argument("args", nargs="+", help="Command string or tool input")

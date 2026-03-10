@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from nah import paths, taxonomy
+from nah import agents, paths, taxonomy
 from nah.bash import classify_command
 from nah.content import scan_content, format_content_message, is_credential_search
 
@@ -105,52 +105,40 @@ HANDLERS = {
 }
 
 
-def _to_hook_output(decision: dict) -> dict:
-    """Convert internal decision to Claude Code hookSpecificOutput protocol."""
+def _to_hook_output(decision: dict, agent: str) -> dict:
+    """Convert internal decision to agent-appropriate output format."""
     d = decision.get("decision", taxonomy.ALLOW)
     reason = decision.get("reason", decision.get("message", ""))
-    # Map internal → protocol: allow→allow, ask→ask, block→deny
-    perm = "deny" if d == taxonomy.BLOCK else d
-    # Brand the reason: "nah." for block, "nah?" for ask
-    if reason:
-        if d == taxonomy.BLOCK:
-            branded = f"nah. {reason}"
-        elif d == taxonomy.ASK:
-            branded = f"nah? {reason}"
-        else:
-            branded = reason
-    else:
-        branded = ""
-    result = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": perm}}
-    if branded:
-        result["hookSpecificOutput"]["permissionDecisionReason"] = branded
-    return result
+    if d == taxonomy.BLOCK:
+        return agents.format_block(reason, agent)
+    if d == taxonomy.ASK:
+        return agents.format_ask(reason, agent)
+    return agents.format_allow(agent)
 
 
 def main():
+    agent = agents.CLAUDE  # default until we can detect
     try:
         data = json.loads(sys.stdin.read())
         tool_name = data.get("tool_name", "")
         tool_input = data.get("tool_input", {})
 
-        handler = HANDLERS.get(tool_name)
+        agent = agents.detect_agent(tool_name)
+        canonical = agents.normalize_tool(tool_name)
+
+        handler = HANDLERS.get(canonical)
         if handler is None:
-            decision = {"decision": taxonomy.ALLOW}
+            json.dump(agents.format_allow(agent), sys.stdout)
         else:
             decision = handler(tool_input)
+            json.dump(_to_hook_output(decision, agent), sys.stdout)
 
-        json.dump(_to_hook_output(decision), sys.stdout)
         sys.stdout.write("\n")
         sys.stdout.flush()
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
         try:
-            output = {"hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "ask",
-                "permissionDecisionReason": f"nah: internal error: {e}",
-            }}
-            json.dump(output, sys.stdout)
+            json.dump(agents.format_error(str(e), agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
         except BrokenPipeError:
