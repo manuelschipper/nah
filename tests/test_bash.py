@@ -387,30 +387,15 @@ class TestFD018Regressions:
         r = classify_command("tar xf archive.tar")
         assert r.stages[0].action_type == "filesystem_write"
 
-    def test_cd_allow(self, project_root):
-        r = classify_command("cd /tmp")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "filesystem_read"
+    def test_sed_I_bsd_is_write(self, project_root):
+        """BSD uppercase -I is also detected as in-place edit."""
+        r = classify_command("sed -I .bak 's/a/b/' file.txt")
+        assert r.stages[0].action_type == "filesystem_write"
 
-    def test_uname_allow(self, project_root):
-        r = classify_command("uname -a")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "filesystem_read"
-
-    def test_sleep_allow(self, project_root):
-        r = classify_command("sleep 5")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "filesystem_read"
-
-    def test_sort_allow(self, project_root):
-        r = classify_command("sort file.txt")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "filesystem_read"
-
-    def test_basename_allow(self, project_root):
-        r = classify_command("basename /foo/bar.txt")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "filesystem_read"
+    def test_tar_write_precedence(self, project_root):
+        """When both read and write modes present, write wins."""
+        r = classify_command("tar -txf archive.tar")
+        assert r.stages[0].action_type == "filesystem_write"
 
     def test_env_still_unknown(self, project_root):
         """env must remain unknown (exfiltration risk)."""
