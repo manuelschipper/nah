@@ -125,9 +125,12 @@ def main():
         sys.stdout.flush()
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
-        json.dump({"decision": "allow"}, sys.stdout)
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        try:
+            json.dump({"decision": "allow"}, sys.stdout)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        except BrokenPipeError:
+            pass
 
 
 if __name__ == "__main__":

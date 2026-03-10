@@ -19,18 +19,34 @@ _TOOL_NAMES = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
 """nah guard — thin shim that imports from the installed nah package."""
-import sys, json
+import signal, sys, json, os
+
+# Die silently on broken pipe instead of cascading BrokenPipeError.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+def _allow():
+    """Write allow decision, suppressing broken pipe."""
+    try:
+        json.dump({{"decision": "allow"}}, sys.stdout)
+        sys.stdout.write("\\n")
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os._exit(0)
+
 try:
     from nah.hook import main
     main()
 except ImportError:
     sys.stderr.write("nah: package not found, allowing (run `nah install` to fix)\\n")
-    json.dump({{"decision": "allow"}}, sys.stdout)
-    sys.stdout.write("\\n")
-except Exception as e:
+    _allow()
+except BaseException as e:
     sys.stderr.write(f"nah: error: {{e}}, allowing\\n")
-    json.dump({{"decision": "allow"}}, sys.stdout)
-    sys.stdout.write("\\n")
+    _allow()
+
+try:
+    sys.stdout.flush()
+except BrokenPipeError:
+    os._exit(0)
 '''
 
 
