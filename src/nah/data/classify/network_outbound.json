@@ -8,5 +8,7 @@
   "ncat",
   "telnet",
   "ftp",
-  "sftp"
+  "sftp",
+  "git daemon",
+  "git http-backend"
 ]

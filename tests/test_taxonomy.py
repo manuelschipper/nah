@@ -608,3 +608,56 @@ class TestClassifyGit:
 
     def test_git_alone_falls_through(self):
         assert classify_tokens(["git"]) == "unknown"
+
+
+class TestGitSubcommands:
+    """FD-017 Commit 2: Expanded git subcommand coverage."""
+
+    # git_safe — new entries
+    @pytest.mark.parametrize("sub", [
+        "archive", "blame", "format-patch", "gitk", "grep",
+        "annotate", "bisect", "bugreport", "count-objects", "diagnose",
+        "difftool", "fast-export", "fsck", "help", "merge-tree",
+        "range-diff", "rerere", "show-branch", "verify-commit", "verify-tag",
+        "version", "whatchanged",
+        "cherry", "diff-files", "diff-index", "diff-tree", "for-each-repo",
+        "get-tar-commit-id", "ls-remote", "merge-base", "pack-redundant",
+        "show-index", "show-ref", "unpack-file", "var", "verify-pack",
+        "check-attr", "check-ignore", "check-mailmap", "check-ref-format",
+        "column", "fmt-merge-msg", "interpret-trailers", "mailinfo",
+        "mailsplit", "patch-id", "sh-i18n", "sh-setup", "stripspace",
+        "remote",
+    ])
+    def test_git_safe_subcommands(self, sub):
+        assert classify_tokens(["git", sub]) == "git_safe"
+
+    # git_write — new entries
+    @pytest.mark.parametrize("sub", [
+        "am", "bundle", "cherry-pick", "citool", "clone", "gc", "gui",
+        "init", "maintenance", "mv", "revert", "scalar", "sparse-checkout",
+        "worktree", "fast-import", "mergetool", "notes", "pack-refs",
+        "repack", "submodule", "apply", "checkout-index", "commit-graph",
+        "commit-tree", "hash-object", "index-pack", "merge-file",
+        "merge-index", "mktag", "mktree", "multi-pack-index",
+        "pack-objects", "prune-packed", "read-tree", "symbolic-ref",
+        "unpack-objects", "update-index", "update-ref", "write-tree",
+        "fetch-pack", "send-pack", "update-server-info",
+        "credential", "credential-cache", "credential-store", "hook",
+        "merge-one-file",
+    ])
+    def test_git_write_subcommands(self, sub):
+        assert classify_tokens(["git", sub]) == "git_write"
+
+    # git_discard — new entry
+    def test_git_prune_discard(self):
+        assert classify_tokens(["git", "prune"]) == "git_discard"
+
+    # git_history_rewrite — new entries
+    @pytest.mark.parametrize("sub", ["filter-branch", "replace"])
+    def test_git_history_rewrite_subcommands(self, sub):
+        assert classify_tokens(["git", sub]) == "git_history_rewrite"
+
+    # network_outbound — new entries
+    @pytest.mark.parametrize("sub", ["daemon", "http-backend"])
+    def test_git_network_outbound(self, sub):
+        assert classify_tokens(["git", sub]) == "network_outbound"

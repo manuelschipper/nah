@@ -105,8 +105,36 @@ def _try_llm(classify_result) -> dict | None:
             return None
         from nah.llm import try_llm
         return try_llm(classify_result, cfg.llm)
-    except Exception:
+    except ImportError:
+        return None  # yaml/llm module not available
+    except Exception as exc:
+        sys.stderr.write(f"nah: LLM error: {exc}\n")
         return None
+
+
+def _resolve_ask_for_agent(decision: dict, tool_name: str) -> dict:
+    """Resolve ask→allow/deny for agents without ask support.
+
+    Tries LLM if configured, otherwise falls back to ask_fallback config.
+    """
+    from nah.config import get_config
+    cfg = get_config()
+    reason = decision.get("reason", decision.get("message", ""))
+
+    if cfg.llm and cfg.llm.get("enabled", False):
+        try:
+            from nah.llm import try_llm_generic
+            llm_result = try_llm_generic(tool_name, reason, cfg.llm)
+            if llm_result is not None:
+                return llm_result
+        except ImportError:
+            pass
+        except Exception as exc:
+            sys.stderr.write(f"nah: LLM escalation error: {exc}\n")
+
+    if cfg.ask_fallback == "allow":
+        return {"decision": taxonomy.ALLOW}
+    return {"decision": taxonomy.BLOCK, "reason": reason}
 
 
 def handle_bash(tool_input: dict) -> dict:
@@ -183,6 +211,12 @@ def main():
             decision = handler(tool_input)
 
         d = decision.get("decision", taxonomy.ALLOW)
+
+        # Agents without ask support: resolve ask→allow/deny
+        if d == taxonomy.ASK and not agents.supports_ask(agent):
+            decision = _resolve_ask_for_agent(decision, canonical)
+            d = decision.get("decision", taxonomy.ALLOW)
+
         if d != taxonomy.ALLOW:
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")

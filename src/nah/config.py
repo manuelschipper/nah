@@ -20,6 +20,7 @@ class NahConfig:
     allow_paths: dict[str, list[str]] = field(default_factory=dict)
     known_registries: list[str] = field(default_factory=list)
     llm: dict = field(default_factory=dict)
+    ask_fallback: str = "deny"
 
 
 _cached_config: NahConfig | None = None
@@ -138,6 +139,10 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
 
     # llm: global config ONLY — project .nah.yaml silently ignored
     config.llm = _validate_dict(global_cfg.get("llm", {}))
+
+    # ask_fallback: global config ONLY
+    raw_fallback = global_cfg.get("ask_fallback", "deny")
+    config.ask_fallback = raw_fallback if raw_fallback in ("deny", "allow") else "deny"
 
     return config
 

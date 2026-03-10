@@ -49,6 +49,13 @@ CORTEX = "cortex"
 CURSOR = "cursor"
 KIRO = "kiro"
 
+_ASK_SUPPORT = {CLAUDE, CORTEX, KIRO}
+
+
+def supports_ask(agent: str) -> bool:
+    """Whether the agent's hook protocol supports ask (user confirmation)."""
+    return agent in _ASK_SUPPORT
+
 
 def detect_agent(data) -> str:
     """Detect which agent is calling.

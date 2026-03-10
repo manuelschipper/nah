@@ -183,14 +183,14 @@ class TestContentInspectionIntegration:
 
 
 class TestCursorIntegration:
-    def test_shell_ask_destructive(self):
-        """Cursor Shell with rm -rf / → ask in Cursor format."""
+    def test_shell_ask_destructive_becomes_deny(self):
+        """Cursor Shell with rm -rf / → deny (ask escalated, no LLM configured)."""
         perm, msg = run_hook_cursor({
             "tool_name": "Shell",
             "tool_input": {"command": "rm -rf /"},
         })
-        assert perm == "ask"
-        assert "nah?" in msg
+        assert perm == "deny"
+        assert "nah." in msg
 
     def test_shell_block_rce(self):
         """Cursor Shell with curl | bash → block in Cursor format."""
@@ -265,6 +265,16 @@ class TestKiroIntegration:
 
 
 # --- Unknown tool ---
+
+
+class TestCursorAskEscalation:
+    def test_cursor_ask_becomes_deny(self):
+        """Cursor lang_exec (ask) → deny when no LLM configured."""
+        perm, msg = run_hook_cursor({
+            "tool_name": "Shell",
+            "tool_input": {"command": "python -c 'print(1)'"},
+        })
+        assert perm == "deny"
 
 
 class TestUnknownToolIntegration:

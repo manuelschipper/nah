@@ -1,5 +1,7 @@
 [
   "git stash drop",
   "git stash clear",
-  "git rebase"
+  "git rebase",
+  "git filter-branch",
+  "git replace"
 ]

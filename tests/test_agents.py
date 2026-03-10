@@ -93,6 +93,23 @@ class TestDetectAgent:
 # --- Output formatting ---
 
 
+class TestSupportsAsk:
+    def test_claude_supports_ask(self):
+        assert agents.supports_ask("claude") is True
+
+    def test_cortex_supports_ask(self):
+        assert agents.supports_ask("cortex") is True
+
+    def test_cursor_no_ask(self):
+        assert agents.supports_ask("cursor") is False
+
+    def test_kiro_supports_ask(self):
+        assert agents.supports_ask("kiro") is True
+
+    def test_unknown_no_ask(self):
+        assert agents.supports_ask("unknown") is False
+
+
 class TestFormatBlock:
     def test_claude_format(self):
         result = agents.format_block("dangerous command", "claude")
