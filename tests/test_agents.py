@@ -56,15 +56,13 @@ class TestDetectAgent:
         assert agents.detect_agent("Shell") == "cursor"
         assert agents.detect_agent({"tool_name": "Shell"}) == "cursor"
 
-    def test_kiro_by_payload(self):
-        """hook_event_name (without cursor_version) → kiro."""
-        assert agents.detect_agent({"tool_name": "execute_bash", "hook_event_name": "preToolUse"}) == "kiro"
-        assert agents.detect_agent({"tool_name": "fs_read", "hook_event_name": "preToolUse"}) == "kiro"
-
-    def test_kiro_by_tool_fallback(self):
-        """Kiro-specific tool names → kiro even without payload marker."""
+    def test_kiro_by_tool(self):
+        """Kiro-specific snake_case tool names → kiro."""
         for tool in ("execute_bash", "shell", "fs_read", "fs_write", "glob", "grep"):
             assert agents.detect_agent(tool) == "kiro"
+        # Also works with full payload dict
+        assert agents.detect_agent({"tool_name": "execute_bash"}) == "kiro"
+        assert agents.detect_agent({"tool_name": "fs_read"}) == "kiro"
 
     def test_unknown_defaults_claude(self):
         assert agents.detect_agent("UnknownTool") == "claude"
@@ -81,6 +79,15 @@ class TestDetectAgent:
         assert agents.detect_agent("Read") == "claude"
         assert agents.detect_agent("Write") == "claude"
         assert agents.detect_agent("Grep") == "claude"
+
+    def test_claude_payload_with_hook_event_name(self):
+        """FD-029: Claude Code sends hook_event_name — must NOT be detected as Kiro."""
+        data = {"tool_name": "Bash", "hook_event_name": "PreToolUse",
+                "session_id": "abc123", "cwd": "/tmp"}
+        assert agents.detect_agent(data) == "claude"
+        # All PascalCase tools with hook_event_name → claude
+        for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
+            assert agents.detect_agent({"tool_name": tool, "hook_event_name": "PreToolUse"}) == "claude"
 
 
 # --- Output formatting ---

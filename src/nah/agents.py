@@ -54,18 +54,18 @@ def detect_agent(data) -> str:
     """Detect which agent is calling.
 
     Accepts either a full payload dict or a bare tool name string.
-    Uses payload fields for reliable detection (cursor_version, hook_event_name),
+    Uses payload fields for reliable detection (cursor_version),
     falls back to tool name heuristics for bare strings and unknown payloads.
+
+    Note: hook_event_name is NOT a reliable Kiro detector — Claude Code also
+    sends it in all hook payloads (FD-029).
     """
     if isinstance(data, str):
         data = {"tool_name": data}
     # Cursor sends cursor_version in every hook payload
     if "cursor_version" in data:
         return CURSOR
-    # Kiro CLI sends hook_event_name (Cursor does too, but caught above)
-    if "hook_event_name" in data:
-        return KIRO
-    # Fallback: detect from tool name alone
+    # Detect from tool name — Kiro uses snake_case, Claude/Cortex use PascalCase
     tool_name = data.get("tool_name", "")
     if tool_name in _CURSOR_TOOLS:
         return CURSOR

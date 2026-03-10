@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Decision constants (`ALLOW`, `ASK`, `BLOCK`, `CONTEXT`) and `STRICTNESS` ordering in taxonomy.py (FD-014)
 - Branded hook responses: `nah.` for block, `nah?` for ask (FD-014)
 
+### Fixed
+
+- Ask decisions no longer shown as "hook error" — `detect_agent()` misidentified Claude Code as Kiro via `hook_event_name` payload field, triggering `sys.exit(2)` (FD-029)
+
 ### Changed
 
 - Error default changed from `allow` to `ask` — crashes no longer silently bypass security (FD-014)
