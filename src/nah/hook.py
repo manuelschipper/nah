@@ -111,9 +111,19 @@ def _to_hook_output(decision: dict) -> dict:
     reason = decision.get("reason", decision.get("message", ""))
     # Map internal → protocol: allow→allow, ask→ask, block→deny
     perm = "deny" if d == taxonomy.BLOCK else d
-    result = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": perm}}
+    # Brand the reason: "nah." for block, "nah?" for ask
     if reason:
-        result["hookSpecificOutput"]["permissionDecisionReason"] = reason
+        if d == taxonomy.BLOCK:
+            branded = f"nah. {reason}"
+        elif d == taxonomy.ASK:
+            branded = f"nah? {reason}"
+        else:
+            branded = reason
+    else:
+        branded = ""
+    result = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": perm}}
+    if branded:
+        result["hookSpecificOutput"]["permissionDecisionReason"] = branded
     return result
 
 
