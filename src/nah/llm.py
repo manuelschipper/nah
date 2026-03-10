@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import urllib.request
 from urllib.error import URLError
 
@@ -61,7 +62,7 @@ def _build_prompt(classify_result) -> str:
         root = get_project_root()
         if root:
             inside_project = "yes" if cwd.startswith(root) else "no"
-    except Exception:
+    except (ImportError, OSError):
         pass
 
     return _PROMPT_TEMPLATE.format(
@@ -134,7 +135,7 @@ def _call_openai_compat(
     if not url:
         return None
     key_env = config.get("key_env", default_key_env)
-    key = config.get("_resolved_key") or os.environ.get(key_env, "")
+    key = os.environ.get(key_env, "")
     if not key:
         return None
     model = config.get("model", default_model)
@@ -178,12 +179,50 @@ def _call_openrouter(config: dict, prompt: str) -> LLMResult | None:
     )
 
 
+def _call_openai_responses(
+    config: dict,
+    prompt: str,
+    timeout: int,
+    default_url: str,
+    default_model: str,
+    default_key_env: str,
+) -> LLMResult | None:
+    """Call OpenAI Responses API (/v1/responses)."""
+    url = config.get("url", default_url)
+    if not url:
+        return None
+    key_env = config.get("key_env", default_key_env)
+    key = os.environ.get(key_env, "")
+    if not key:
+        return None
+    model = config.get("model", default_model)
+    timeout = config.get("timeout", timeout)
+
+    body = json.dumps({"model": model, "input": prompt}).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+    })
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = json.loads(resp.read())
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for c in item.get("content", []):
+                    if c.get("type") == "output_text":
+                        return _parse_response(c["text"])
+        return None
+    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
+        return None
+
+
 def _call_openai(config: dict, prompt: str) -> LLMResult | None:
     """Call OpenAI Responses API."""
     return _call_openai_responses(
         config, prompt, _TIMEOUT_REMOTE,
         default_url="https://api.openai.com/v1/responses",
-        default_model="gpt-4.1-nano",
+        default_model="gpt-5.3-codex",
         default_key_env="OPENAI_API_KEY",
     )
 
@@ -218,79 +257,12 @@ def _call_anthropic(config: dict, prompt: str) -> LLMResult | None:
         return None
 
 
-def _call_openai_responses(
-    config: dict,
-    prompt: str,
-    timeout: int,
-    default_url: str,
-    default_model: str,
-    default_key_env: str,
-) -> LLMResult | None:
-    """Call OpenAI Responses API (/v1/responses) for non-chat models like Codex."""
-    url = config.get("url", default_url)
-    if not url:
-        return None
-    key_env = config.get("key_env", default_key_env)
-    key = config.get("_resolved_key") or os.environ.get(key_env, "")
-    if not key:
-        return None
-    model = config.get("model", default_model)
-    timeout = config.get("timeout", timeout)
-
-    body = json.dumps({"model": model, "input": prompt}).encode()
-    req = urllib.request.Request(url, data=body, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {key}",
-    })
-
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        data = json.loads(resp.read())
-        for item in data.get("output", []):
-            if item.get("type") == "message":
-                for c in item.get("content", []):
-                    if c.get("type") == "output_text":
-                        return _parse_response(c["text"])
-        return None
-    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
-        return None
-
-
-def _call_codex(config: dict, prompt: str) -> LLMResult | None:
-    """Call OpenAI Responses API using Codex CLI OAuth token."""
-    key = None
-    for auth_path in ("~/.codex/auth.json", "~/.config/codex/auth.json"):
-        expanded = os.path.expanduser(auth_path)
-        if os.path.isfile(expanded):
-            try:
-                with open(expanded) as f:
-                    key = json.load(f).get("token", "")
-                break
-            except (OSError, json.JSONDecodeError):
-                pass
-    if not key:
-        key_env = config.get("key_env", "OPENAI_API_KEY")
-        key = os.environ.get(key_env, "")
-    if not key:
-        return None
-
-    patched = dict(config)
-    patched["_resolved_key"] = key
-    return _call_openai_responses(
-        patched, prompt, _TIMEOUT_REMOTE,
-        default_url="https://api.openai.com/v1/responses",
-        default_model="gpt-5.3-codex",
-        default_key_env="OPENAI_API_KEY",
-    )
-
-
 _BACKENDS = {
     "ollama": _call_ollama,
     "cortex": _call_cortex,
     "openrouter": _call_openrouter,
     "openai": _call_openai,
     "anthropic": _call_anthropic,
-    "codex": _call_codex,
 }
 
 
@@ -301,21 +273,21 @@ def _call_backend(name: str, config: dict, prompt: str) -> LLMResult | None:
         return None
     try:
         return fn(config, prompt)
-    except Exception:
-        return None
+    except (URLError, OSError, TimeoutError):
+        return None  # expected: backend unavailable, try next
+    except (json.JSONDecodeError, KeyError, IndexError):
+        sys.stderr.write(f"nah: LLM {name}: bad response format\n")
+        return None  # expected: LLM returned garbage
+    except Exception as exc:
+        sys.stderr.write(f"nah: LLM {name}: unexpected error: {exc}\n")
+        return None  # unexpected but can't crash the hook
 
 
-def try_llm(classify_result, llm_config: dict) -> dict | None:
-    """Try LLM backends in priority order. Returns decision dict or None.
-
-    Returns {"decision": "allow"} or {"decision": "block", "reason": "..."} if LLM
-    picks a lane. None if uncertain, unavailable, or not configured.
-    """
+def _try_backends(prompt: str, llm_config: dict, label: str) -> dict | None:
+    """Iterate backends in priority order. Returns decision dict or None."""
     backends = llm_config.get("backends", [])
     if not backends:
         return None
-
-    prompt = _build_prompt(classify_result)
 
     for backend_name in backends:
         backend_config = llm_config.get(backend_name, {})
@@ -324,19 +296,67 @@ def try_llm(classify_result, llm_config: dict) -> dict | None:
 
         result = _call_backend(backend_name, backend_config, prompt)
         if result is None:
-            continue  # backend unavailable, try next
+            continue
 
         if result.decision == "allow":
             decision = {"decision": "allow"}
             if result.reasoning:
-                decision["message"] = f"Bash (LLM): {result.reasoning}"
+                decision["message"] = f"{label} (LLM): {result.reasoning}"
             return decision
 
         if result.decision == "block":
             reason = result.reasoning or "LLM: blocked"
-            return {"decision": "block", "reason": f"Bash (LLM): {reason}"}
+            return {"decision": "block", "reason": f"{label} (LLM): {reason}"}
 
-        # "uncertain" → don't try next backend, keep ask
+        # "uncertain" — stop trying backends
         return None
 
     return None
+
+
+def try_llm(classify_result, llm_config: dict) -> dict | None:
+    """Try LLM backends in priority order. Returns decision dict or None.
+
+    Returns {"decision": "allow"} or {"decision": "block", "reason": "..."} if LLM
+    picks a lane. None if uncertain, unavailable, or not configured.
+    """
+    prompt = _build_prompt(classify_result)
+    return _try_backends(prompt, llm_config, "Bash")
+
+
+_GENERIC_PROMPT = """\
+You are a security classifier for a CLI tool safety guard. A tool operation was \
+flagged as potentially risky. Determine if it should be allowed or blocked.
+
+Tool: {tool_name}
+Operation: {reason}
+Working directory: {cwd}
+Inside project: {inside_project}
+
+Respond with EXACTLY one JSON object:
+{{"decision": "allow" or "block" or "uncertain", "reasoning": "brief explanation"}}
+
+Rules:
+- "allow" — clearly safe for the current development context
+- "block" — could cause data loss, exfiltration, or security issues
+- "uncertain" — not sure; err on the side of caution
+"""
+
+
+def try_llm_generic(tool_name: str, reason: str, llm_config: dict) -> dict | None:
+    """Try LLM for a non-Bash ask decision."""
+    cwd = os.getcwd()
+    inside_project = "unknown"
+    try:
+        from nah.paths import get_project_root
+        root = get_project_root()
+        if root:
+            inside_project = "yes" if cwd.startswith(root) else "no"
+    except (ImportError, OSError):
+        pass
+
+    prompt = _GENERIC_PROMPT.format(
+        tool_name=tool_name, reason=reason[:500],
+        cwd=cwd, inside_project=inside_project,
+    )
+    return _try_backends(prompt, llm_config, tool_name)

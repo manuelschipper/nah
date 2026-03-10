@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 5 new action types: git_discard, process_signal, container_destructive, package_uninstall, sql_write (FD-015)
 - Git global flag stripping (`git -C <dir>`, `--no-pager`, etc.) for correct classification (FD-015)
 - Classification data moved to JSON data files (`src/nah/data/classify/*.json`) (FD-015)
+- OpenAI and Anthropic LLM backends for ambiguous command resolution — OpenAI via Responses API, Anthropic via Messages API (FD-030)
 - BrokenPipeError-safe shim with stdout buffering and crash recovery (FD-011)
 - Debug crash log at `~/.config/nah/hook-errors.log` with 1MB rotation (FD-011)
 - Decision constants (`ALLOW`, `ASK`, `BLOCK`, `CONTEXT`) and `STRICTNESS` ordering in taxonomy.py (FD-014)

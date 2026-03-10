@@ -4,8 +4,6 @@ import json
 import os
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 from nah.bash import ClassifyResult, StageResult
 from nah import taxonomy
 from nah.llm import (
@@ -123,13 +121,6 @@ class TestBuildPrompt:
 
 
 # -- try_llm tests --
-
-
-def _mock_urlopen(response_json: str):
-    """Create a mock urlopen that returns the given response."""
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = response_json.encode()
-    return MagicMock(return_value=mock_resp)
 
 
 class TestTryLlm:
@@ -272,48 +263,6 @@ class TestTryLlm:
         }
         result = try_llm(self._make_result(), config)
         assert result is None
-
-    @patch("nah.llm.urllib.request.urlopen")
-    @patch("builtins.open", create=True)
-    @patch("nah.llm.os.path.isfile")
-    def test_codex_reads_auth_file(self, mock_isfile, mock_open, mock_urlopen):
-        mock_isfile.side_effect = lambda p: p == os.path.expanduser("~/.codex/auth.json")
-        mock_open.return_value.__enter__ = lambda s: s
-        mock_open.return_value.__exit__ = MagicMock(return_value=False)
-        mock_open.return_value.read = MagicMock(return_value='{"token": "codex-oauth-token"}')
-
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({
-            "output": [{"type": "message", "content": [
-                {"type": "output_text", "text": '{"decision": "allow", "reasoning": "safe"}'}
-            ]}]
-        }).encode()
-        mock_urlopen.return_value = mock_resp
-
-        config = {
-            "backends": ["codex"],
-            "codex": {"model": "gpt-5.3-codex"},
-        }
-        result = try_llm(self._make_result(), config)
-        assert result["decision"] == "allow"
-
-    @patch("nah.llm.urllib.request.urlopen")
-    def test_codex_fallback_to_env(self, mock_urlopen):
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({
-            "output": [{"type": "message", "content": [
-                {"type": "output_text", "text": '{"decision": "block", "reasoning": "dangerous"}'}
-            ]}]
-        }).encode()
-        mock_urlopen.return_value = mock_resp
-
-        config = {
-            "backends": ["codex"],
-            "codex": {"model": "gpt-5.3-codex", "key_env": "TEST_KEY"},
-        }
-        with patch.dict("os.environ", {"TEST_KEY": "fallback-key"}):
-            result = try_llm(self._make_result(), config)
-        assert result["decision"] == "block"
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_allow_without_reasoning(self, mock_urlopen):
