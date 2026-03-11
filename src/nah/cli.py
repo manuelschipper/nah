@@ -273,6 +273,9 @@ def cmd_test(args: argparse.Namespace) -> None:
     input_args = args.args
 
     if tool == "Bash":
+        if not input_args:
+            print("Error: nah test requires a command string", file=sys.stderr)
+            raise SystemExit(1)
         command = " ".join(input_args)
         from nah.bash import classify_command
         result = classify_command(command)
@@ -315,22 +318,48 @@ def cmd_test(args: argparse.Namespace) -> None:
                         else:
                             print("LLM decision: (no providers responded)")
     elif tool in ("Write", "Edit"):
-        # Write/Edit: reuse hook handlers
+        # Write/Edit: path + content inspection
         from nah.hook import handle_write, handle_edit
-        raw_input = " ".join(input_args)
+        file_path = getattr(args, "path", None) or " ".join(input_args)
+        content = getattr(args, "content", None) or ""
         content_field = "content" if tool == "Write" else "new_string"
         handler = handle_write if tool == "Write" else handle_edit
-        decision = handler({"file_path": raw_input, content_field: raw_input})
+        decision = handler({"file_path": file_path, content_field: content})
         print(f"Tool:     {tool}")
-        print(f"Input:    {raw_input[:100]}")
+        print(f"Path:     {file_path}")
+        if content:
+            print(f"Content:  {content[:100]}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+    elif tool == "Grep":
+        # Grep: path + credential pattern detection
+        from nah.hook import handle_grep
+        raw_path = getattr(args, "path", None) or " ".join(input_args)
+        pattern = getattr(args, "pattern", None) or ""
+        decision = handle_grep({"path": raw_path, "pattern": pattern})
+        print(f"Tool:     {tool}")
+        print(f"Path:     {raw_path}")
+        if pattern:
+            print(f"Pattern:  {pattern}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+    elif tool.startswith("mcp__"):
+        # MCP tools: classify via taxonomy
+        from nah.hook import _classify_unknown_tool
+        decision = _classify_unknown_tool(tool)
+        print(f"Tool:     {tool}")
         print(f"Decision: {decision['decision'].upper()}")
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
     else:
-        # Non-Bash tools — use hook handlers
+        # Path-only tools (Read, Glob, etc.)
         from nah import paths
-        raw_path = " ".join(input_args)
+        raw_path = getattr(args, "path", None) or " ".join(input_args)
         check = paths.check_path(tool, raw_path)
         decision = check or {"decision": "allow"}  # JSON protocol
         print(f"Tool:     {tool}")
@@ -741,7 +770,10 @@ def main():
     uninstall_parser.add_argument("--agent", default=None, help=agent_help)
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
-    test_parser.add_argument("args", nargs="+", help="Command string or tool input")
+    test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
+    test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
+    test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("args", nargs="*", help="Command string or tool input")
     config_parser = sub.add_parser("config", help="Show config info")
     config_sub = config_parser.add_subparsers(dest="config_command")
     config_sub.add_parser("show", help="Display effective merged config")

@@ -8,6 +8,7 @@ import pytest
 
 from nah import paths
 from nah.config import reset_config
+from nah.content import reset_content_patterns
 
 
 @pytest.fixture(autouse=True)
@@ -206,3 +207,102 @@ class TestCmdTypesShadowAnnotation:
         cmd_types(argparse.Namespace())
         out = capsys.readouterr().out
         assert "overrides" not in out
+
+
+# --- nah test full tool support (FD-069) ---
+
+
+class TestCmdTest:
+    """Tests for nah test with Write/Edit content, Grep patterns, and MCP tools."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_content(self):
+        reset_content_patterns()
+        yield
+        reset_content_patterns()
+
+    def test_write_secret_content(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+        target = str(tmp_path / "project" / "config.py")
+        args = argparse.Namespace(
+            tool="Write", path=target,
+            content="AKIA1234567890ABCDEF", pattern=None, args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ASK" in out
+        assert "AWS access key" in out
+
+    def test_write_safe_content(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+        target = str(tmp_path / "project" / "test.txt")
+        args = argparse.Namespace(
+            tool="Write", path=target,
+            content="hello world", pattern=None, args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
+    def test_edit_secret_content(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+        target = str(tmp_path / "project" / "app.py")
+        args = argparse.Namespace(
+            tool="Edit", path=target,
+            content="api_secret = 'hunter2hunter2'", pattern=None, args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ASK" in out
+        assert "hardcoded API key" in out
+
+    def test_grep_credential_pattern_outside_project(self, capsys):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool="Grep", path="/tmp",
+            content=None, pattern=r"password\s*=", args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ASK" in out
+        assert "credential" in out.lower()
+
+    def test_grep_safe_pattern(self, capsys):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool="Grep", path=".",
+            content=None, pattern="TODO", args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
+    def test_mcp_unknown_tool(self, capsys):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool="mcp__example__tool", path=None,
+            content=None, pattern=None, args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ASK" in out
+        assert "unrecognized tool" in out.lower() or "mcp__example__tool" in out
+
+    def test_backward_compat_positional_path(self, capsys):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool="Read", path=None,
+            content=None, pattern=None, args=["./README.md"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
+    def test_bash_no_args_exits(self):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None,
+            content=None, pattern=None, args=[],
+        )
+        with pytest.raises(SystemExit):
+            cmd_test(args)
