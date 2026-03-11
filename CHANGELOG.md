@@ -70,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Claude Code deny list (`permissions.deny` in settings.json) — all 82 patterns superseded by nah's taxonomy-based classification (FD-013)
 - Internal docs scrubbed from git history — article drafts, competitive analysis, positioning, design decisions (FD-002)
-- Dead Cursor/Kiro multi-agent code removed — ~200 lines across agents.py, cli.py, hook.py, config.py and tests; only Claude and Cortex remain as active agents (FD-040)
+- Dead Cursor/Kiro multi-agent code removed — ~200 lines across agents.py, cli.py, hook.py, config.py and tests; only Claude remains as active agent (FD-040)
 
 ### Changed
 

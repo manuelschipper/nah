@@ -105,4 +105,3 @@ class TestFormatError:
 class TestMcpMatchers:
     def test_mcp_matcher_registered(self):
         assert "mcp__.*" in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]
-        assert "mcp__.*" in agents.AGENT_TOOL_MATCHERS[agents.CORTEX]

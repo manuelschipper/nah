@@ -732,7 +732,7 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
-    agent_help = "Agent to target: claude (default), cortex, or all"
+    agent_help = "Agent to target: claude (default)"
     install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
     install_parser.add_argument("--agent", default=None, help=agent_help)
     update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")

@@ -45,14 +45,6 @@ You are up and running. To uninstall: `nah uninstall && pip uninstall nah`.
 > **Don't use `--dangerously-skip-permissions`.**
 > In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) — commands execute before nah can block them. Use Claude Code's permission system (`acceptEdits` or default mode) as the first layer and nah as defense-in-depth on top. They're complementary, not substitutes.
 
-Also supports Snowflake's Cortex Code:
-
-```bash
-nah install                    # Claude Code (default)
-nah install --agent cortex     # Cortex Code
-nah install --agent all        # both
-```
-
 ## What it guards
 
 nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts **every** tool call before it executes:
@@ -185,7 +177,7 @@ Project `.nah.yaml` can **add** classifications and **tighten** policies, but ca
 ### Core
 
 ```bash
-nah install                # install hook (supports --agent claude|cortex|all)
+nah install                # install hook
 nah uninstall              # clean removal
 nah update                 # update hook after pip upgrade
 nah config show            # show effective merged config

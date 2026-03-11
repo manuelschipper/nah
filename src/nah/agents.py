@@ -1,7 +1,7 @@
-"""Multi-agent support — tool name mapping, agent detection, output formatting.
+"""Agent support — tool name mapping, agent detection, output formatting.
 
-Supports Claude Code and Cortex Code. The hook script auto-detects the calling
-agent from payload fields and formats output accordingly.
+Supports Claude Code. The hook script detects the calling agent from payload
+fields and formats output accordingly.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 TOOL_MAP: dict[str, str] = {
-    # Claude Code / Cortex Code (canonical — identity mapping)
+    # Claude Code (canonical — identity mapping)
     "Bash": "Bash",
     "Read": "Read",
     "Write": "Write",
@@ -32,16 +32,13 @@ def normalize_tool(tool_name: str) -> str:
 
 # Agent type constants
 CLAUDE = "claude"
-CORTEX = "cortex"
 
 
 def detect_agent(data) -> str:
     """Detect which agent is calling.
 
     Accepts either a full payload dict or a bare tool name string.
-    Claude and Cortex use identical tool names — treat the same.
     """
-    # Claude and Cortex use identical payloads; default to Claude.
     return CLAUDE
 
 
@@ -89,19 +86,16 @@ def format_error(error: str, agent: str) -> dict:
 # Per-agent tool matchers for hook registration.
 AGENT_TOOL_MATCHERS: dict[str, list[str]] = {
     CLAUDE: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "mcp__.*"],
-    CORTEX: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "mcp__.*"],
 }
 
 # Settings/hooks file paths per agent.
 AGENT_SETTINGS: dict[str, Path] = {
     CLAUDE: Path.home() / ".claude" / "settings.json",
-    CORTEX: Path.home() / ".cortex" / "settings.json",
 }
 
 # Agents whose config format we can auto-install into.
-INSTALLABLE_AGENTS = {CLAUDE, CORTEX}
+INSTALLABLE_AGENTS = {CLAUDE}
 
 AGENT_NAMES: dict[str, str] = {
     CLAUDE: "Claude Code",
-    CORTEX: "Cortex Code",
 }
