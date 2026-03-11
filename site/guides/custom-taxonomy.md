@@ -60,7 +60,7 @@ classify:
 
 ### Phase 2: Flag classifiers (built-in)
 
-Eight commands have flag-dependent classification (find, sed, tar, git, curl, wget, httpie, global_install). These run after global config but before the built-in prefix tables.
+Nine commands have flag-dependent classification (find, sed, awk, tar, git, curl, wget, httpie, global_install). These run after global config but before the built-in prefix tables.
 
 Skipped entirely when `profile: none`.
 

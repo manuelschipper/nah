@@ -82,22 +82,23 @@ Each stage's tokens are classified through three tables in order:
 | Phase | Table | Source |
 |:-----:|-------|--------|
 | 1 | Global config | Your `classify:` entries (trusted, highest priority) |
-| 2 | Flag classifiers | Built-in flag-dependent logic (8 classifiers) |
+| 2 | Flag classifiers | Built-in flag-dependent logic (9 classifiers) |
 | 3 | Built-in + Project | Built-in prefix tables, then project `classify:` entries |
 
 First match wins. If nothing matches → `unknown`.
 
 ### Flag classifiers
 
-Eight built-in classifiers handle commands where the action type depends on flags:
+Nine built-in classifiers handle commands where the action type depends on flags:
 
 | Command | Logic |
 |---------|-------|
 | `find` | `-delete`, `-exec`, `-execdir`, `-ok` → `filesystem_delete`; else → `filesystem_read` |
 | `sed` | `-i`, `-I`, `--in-place` → `filesystem_write`; else → `filesystem_read` |
+| `awk` | awk/gawk/mawk/nawk: `system()`, `\| getline`, `\|&`, `print >` → `lang_exec`; else → `filesystem_read` |
 | `tar` | `c`, `x`, `r`, `u` modes → `filesystem_write`; `t` mode → `filesystem_read` |
 | `git` | 12 subcommands: branch, tag, config, reset, push, add, rm, clean, reflog, checkout, switch, restore — each with flag-dependent classification |
-| `curl` | `-d`, `--data`, `-F`, `--form`, `-X POST/PUT/DELETE/PATCH` → `network_write`; else → `network_outbound` |
+| `curl` | `-d`, `--data`, `--data-raw`, `--json`, `-F`, `--form`, `-T`, `--upload-file`, `-X POST/PUT/DELETE/PATCH` → `network_write`; else → `network_outbound` |
 | `wget` | `--post-data`, `--post-file`, `--method POST/...` → `network_write`; else → `network_outbound` |
 | `httpie` | `http`/`https`/`xh`/`xhs` with write method or data items → `network_write`; else → `network_outbound` |
 | `global_install` | `-g`, `--global`, `--system`, `--target`, `--root` on npm/pip/cargo/gem → `unknown` (ask) |

@@ -12,7 +12,7 @@ profile: full      # full | minimal | none
 Comprehensive coverage across all tool categories.
 
 - **17 classification files** covering shell builtins, coreutils, git, package managers, containers, databases, network tools, and more
-- **8 flag classifiers** for commands that need flag-dependent classification (find, sed, tar, git, curl, wget, httpie, global_install)
+- **9 flag classifiers** for commands that need flag-dependent classification (find, sed, awk, tar, git, curl, wget, httpie, global_install)
 - **All safety lists** populated with defaults (known registries, exec sinks, sensitive basenames, decode commands)
 - **All sensitive paths** active
 
@@ -23,7 +23,7 @@ Best for: most users. Start here and tune as needed.
 Curated essentials only — the commands most likely to be dangerous.
 
 - **10 classification files** with fewer prefix entries
-- **Same 8 flag classifiers** as full
+- **Same 9 flag classifiers** as full
 - **All safety lists** populated with defaults
 - **All sensitive paths** active
 

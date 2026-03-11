@@ -53,11 +53,11 @@ Patterns are organized by category. Each match triggers the category's policy (d
 
 | Pattern | Matches |
 |---------|---------|
-| `-----BEGIN PRIVATE KEY-----` | Private key literals |
+| `-----BEGIN [RSA] PRIVATE KEY-----` | Private key literals |
 | `AKIA...` | AWS access key IDs |
 | `ghp_...` | GitHub personal access tokens |
 | `sk-...` | Secret key tokens |
-| `api_key = '...'` | Hardcoded API keys |
+| `api_key / apikey / api_secret = '...'` | Hardcoded API keys |
 
 ## Credential search patterns (Grep)
 
@@ -100,9 +100,10 @@ Each entry needs `category`, `pattern` (regex), and `description`. Invalid regex
 Override the default `ask` policy for specific categories:
 
 ```yaml
-content_policies:
-  secret: block              # block all secret pattern matches
-  obfuscation: block         # block obfuscation patterns
+content_patterns:
+  policies:
+    secret: block              # block all secret pattern matches
+    obfuscation: block         # block obfuscation patterns
 ```
 
 Valid values: `ask`, `block`. Project config can only tighten.

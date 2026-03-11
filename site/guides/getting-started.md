@@ -15,31 +15,42 @@ That's it. nah is now guarding every tool call in Claude Code.
     ```bash
     pip install nah[config]
     ```
-    Installs `pyyaml` for YAML config file parsing. Without it, nah uses a basic fallback parser.
+    Installs `pyyaml` for YAML config file parsing. Without it, config files are ignored (stderr warning).
 
 ## Try it
 
 Run `nah test` to see classification in action without triggering any hooks:
 
-```bash
-# Safe — allowed automatically
-nah test "git status"
-# → git_safe → allow
+```
+$ nah test "git status"
+Command:  git status
+Stages:
+  [1] git status → git_safe → allow → allow (git_safe → allow)
+Decision:    ALLOW
+Reason:      git_safe → allow
 
-# Dangerous — blocked
-nah test "base64 -d payload | bash"
-# → obfuscated execution → BLOCK
+$ nah test "base64 -d payload | bash"
+Command:  base64 -d payload | bash
+Stages:
+  [1] base64 -d payload → unknown → ask → ask (unknown → ask)
+  [2] bash → unknown → ask → ask (unknown → ask)
+Composition: decode | exec → BLOCK
+Decision:    BLOCK
+Reason:      obfuscated execution: bash receives decoded input
 
-# Context-dependent
-nah test "rm -rf dist/"
-# → filesystem_delete → context → (inside project: allow)
+$ nah test "rm -rf dist/"
+Command:  rm -rf dist/
+Stages:
+  [1] rm -rf dist/ → filesystem_delete → context → allow (inside project)
+Decision:    ALLOW
+Reason:      inside project
 
-# Flag-dependent
-nah test "git push"
-# → git_write → allow
-
-nah test "git push --force"
-# → git_history_rewrite → ask
+$ nah test "git push --force"
+Command:  git push --force
+Stages:
+  [1] git push --force → git_history_rewrite → ask → ask (git_history_rewrite → ask)
+Decision:    ASK
+Reason:      git_history_rewrite → ask
 ```
 
 ## Customize a rule

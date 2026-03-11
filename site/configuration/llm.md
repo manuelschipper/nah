@@ -110,17 +110,17 @@ Control which `ask` categories route to the LLM:
 
 ```yaml
 llm:
-  eligible: default    # default: composition, sensitive, context
+  eligible: default    # default: unknown, lang_exec, context (excludes composition and sensitive)
   eligible: all        # route all ask decisions to LLM
   eligible:            # explicit list
-    - composition
-    - sensitive
-    - context
+    - unknown
     - lang_exec
-    - process_signal
+    - context
+    - composition      # must be explicitly added
+    - sensitive        # must be explicitly added
 ```
 
-The keywords `composition`, `sensitive`, and `context` are shorthand for common ask categories. You can also list action type names directly.
+The `default` set routes `unknown`, `lang_exec`, and `context` to the LLM. Categories like `composition` and `sensitive` are excluded by default (they involve pipe safety or sensitive paths and should generally prompt the user). Add them explicitly if you want LLM resolution for those too.
 
 ### max_decision
 

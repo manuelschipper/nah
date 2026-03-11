@@ -1,6 +1,6 @@
 site_name: nah
 site_description: Context-aware safety guard for Claude Code. A permission system you control.
-site_url: https://manuelschipper.github.io/nah
+site_url: https://schipper.ai/nah/
 repo_url: https://github.com/manuelschipper/nah
 repo_name: manuelschipper/nah
 docs_dir: site
@@ -8,8 +8,6 @@ site_dir: _build
 
 theme:
   name: material
-  logo: assets/logo.png
-  favicon: assets/logo.png
   font: false
   palette:
     - media: "(prefers-color-scheme: dark)"
@@ -29,6 +27,8 @@ theme:
     - search.highlight
     - content.code.copy
     - content.tabs.link
+  logo: assets/logo.png
+  favicon: assets/favicon.png
   icon:
     repo: fontawesome/brands/github
   custom_dir: site/overrides
