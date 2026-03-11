@@ -235,5 +235,7 @@ pip uninstall nah
 
 MIT
 
-## --dangerously-skip-permissions?
+<p align="center">
+  <code>--dangerously-skip-permissions?</code><br><br>
   <img src="assets/logo_hammock.png" alt="nah" width="280">
+</p>
