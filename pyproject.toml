@@ -45,6 +45,8 @@ exclude = [
   "assets/",
   "site/",
   ".claude/",
+  ".github/",
+  "scripts/",
   "mkdocs.yml",
 ]
 
