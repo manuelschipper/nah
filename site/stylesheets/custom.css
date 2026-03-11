@@ -1,0 +1,210 @@
+/* schipper.ai style — dark-first, periwinkle accent, system fonts, minimal */
+
+/* ── System font stack (matches schipper.ai) ── */
+:root {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --md-code-font: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+}
+
+/* ── Dark mode (default / slate) ── */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #0d0d0d;
+  --md-default-fg-color: #e0e0e0;
+  --md-default-fg-color--light: #888;
+  --md-default-fg-color--lighter: #666;
+  --md-default-fg-color--lightest: #444;
+
+  --md-primary-fg-color: #0d0d0d;
+  --md-primary-bg-color: #e0e0e0;
+  --md-accent-fg-color: #7aa2ff;
+
+  --md-typeset-a-color: #7aa2ff;
+  --md-typeset-color: #e0e0e0;
+
+  --md-code-bg-color: #161616;
+  --md-code-fg-color: #e0e0e0;
+  --md-code-hl-color: rgba(122, 162, 255, 0.1);
+
+  --md-footer-bg-color: #0d0d0d;
+  --md-footer-fg-color: #888;
+
+  /* Admonitions */
+  --md-admonition-bg-color: #161616;
+
+  /* Navigation sidebar */
+  --md-sidebar-bg-color: #0d0d0d;
+}
+
+/* Dark header bar */
+[data-md-color-scheme="slate"] .md-header {
+  background-color: #0d0d0d;
+  border-bottom: 1px solid #222;
+  box-shadow: none;
+}
+
+/* Dark tabs bar */
+[data-md-color-scheme="slate"] .md-tabs {
+  background-color: #0d0d0d;
+  border-bottom: 1px solid #222;
+}
+
+/* ── Light mode ── */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #fdfdfd;
+  --md-default-fg-color: #111;
+  --md-default-fg-color--light: #666;
+  --md-default-fg-color--lighter: #999;
+  --md-default-fg-color--lightest: #ccc;
+
+  --md-primary-fg-color: #fdfdfd;
+  --md-primary-bg-color: #111;
+  --md-accent-fg-color: #0b57d0;
+
+  --md-typeset-a-color: #0b57d0;
+  --md-typeset-color: #111;
+
+  --md-code-bg-color: #f3f3f3;
+  --md-code-fg-color: #111;
+  --md-code-hl-color: rgba(11, 87, 208, 0.1);
+
+  --md-footer-bg-color: #fdfdfd;
+  --md-footer-fg-color: #666;
+
+  --md-admonition-bg-color: #f3f3f3;
+
+  --md-sidebar-bg-color: #fdfdfd;
+}
+
+/* Light header bar */
+[data-md-color-scheme="default"] .md-header {
+  background-color: #fdfdfd;
+  border-bottom: 1px solid #ddd;
+  box-shadow: none;
+  color: #111;
+}
+
+[data-md-color-scheme="default"] .md-header .md-header__title {
+  color: #111;
+}
+
+[data-md-color-scheme="default"] .md-header .md-header__button {
+  color: #111;
+}
+
+/* Light tabs bar */
+[data-md-color-scheme="default"] .md-tabs {
+  background-color: #fdfdfd;
+  border-bottom: 1px solid #ddd;
+  color: #111;
+}
+
+[data-md-color-scheme="default"] .md-tabs__link {
+  color: #666;
+}
+
+[data-md-color-scheme="default"] .md-tabs__link--active {
+  color: #0b57d0;
+}
+
+/* Light footer */
+[data-md-color-scheme="default"] .md-footer {
+  background-color: #fdfdfd;
+  border-top: 1px solid #ddd;
+  color: #666;
+}
+
+[data-md-color-scheme="default"] .md-footer a {
+  color: #0b57d0;
+}
+
+/* ── Shared styles ── */
+
+/* Narrow content width (matches schipper.ai ~680px feel) */
+.md-grid {
+  max-width: 960px;
+}
+
+/* Typography refinements */
+.md-typeset {
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h2 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+}
+
+/* Code blocks — minimal border, no heavy shadow */
+.md-typeset pre {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 4px;
+}
+
+.md-typeset code {
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+/* Inline code */
+.md-typeset :not(pre) > code {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  padding: 0.1em 0.3em;
+}
+
+/* Tables — clean borders */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  font-size: 0.8rem;
+}
+
+.md-typeset table:not([class]) th {
+  font-weight: 600;
+}
+
+/* Admonitions — subtle */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 4px;
+  box-shadow: none;
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Footer — minimal */
+.md-footer {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Remove header shadow */
+.md-header {
+  box-shadow: none;
+}
+
+/* Search bar — subtle */
+.md-search__input {
+  background-color: var(--md-code-bg-color);
+}
+
+/* Tab containers — subtle */
+.md-typeset .tabbed-labels > label {
+  font-size: 0.8rem;
+}
+
+/* Navigation links — slightly smaller */
+.md-nav__link {
+  font-size: 0.78rem;
+}
+
+/* Hide the grid cards icons if Material Insiders isn't available */
+.grid.cards {
+  display: none;
+}

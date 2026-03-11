@@ -58,38 +58,6 @@ Claude: Bash → base64 -d payload | bash
 | **Grep** | Catches credential search patterns outside the project |
 | **MCP** | Generic classification for third-party tool servers |
 
-<div class="grid cards" markdown>
+---
 
--   :material-download:{ .lg .middle } **Install**
-
-    ---
-
-    Get up and running in 30 seconds
-
-    [:octicons-arrow-right-24: Install](install.md)
-
--   :material-cog:{ .lg .middle } **Configure**
-
-    ---
-
-    Action types, profiles, safety lists, LLM layer
-
-    [:octicons-arrow-right-24: Configuration](configuration/index.md)
-
--   :material-pipe:{ .lg .middle } **How it works**
-
-    ---
-
-    Classification pipeline, composition rules, context resolution
-
-    [:octicons-arrow-right-24: Architecture](how-it-works.md)
-
--   :material-rocket-launch:{ .lg .middle } **Getting started**
-
-    ---
-
-    First 5 minutes — test, customize, inspect
-
-    [:octicons-arrow-right-24: Guide](guides/getting-started.md)
-
-</div>
+[Install](install.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md)
