@@ -38,5 +38,18 @@ nah = "nah.cli:main"
 Homepage = "https://github.com/manuelschipper/nah"
 Issues = "https://github.com/manuelschipper/nah/issues"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "docs/",
+  "tests/",
+  "assets/",
+  "site/",
+  ".claude/",
+  "mkdocs.yml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nah"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="nah" width="280">
+  <img src="https://raw.githubusercontent.com/manuelschipper/nah/main/assets/logo.png" alt="nah" width="280">
 </p>
 
 <p align="center">
@@ -234,5 +234,5 @@ nah forget filesystem_delete     # remove a rule
 
 <p align="center">
   <code>--dangerously-skip-permissions?</code><br><br>
-  <img src="assets/logo_hammock.png" alt="nah" width="280">
+  <img src="https://raw.githubusercontent.com/manuelschipper/nah/main/assets/logo_hammock.png" alt="nah" width="280">
 </p>

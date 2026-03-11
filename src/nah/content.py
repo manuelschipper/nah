@@ -56,7 +56,7 @@ _CREDENTIAL_SEARCH_PATTERNS: list[re.Pattern] = [
     re.compile(r"\btoken\b", re.IGNORECASE),
     re.compile(r"\bapi_key\b", re.IGNORECASE),
     re.compile(r"\bprivate_key\b", re.IGNORECASE),
-    re.compile(r"\bAWS_SECRET\b"),
+    re.compile(r"\bAWS_SECRET"),
     re.compile(r"BEGIN.*PRIVATE", re.IGNORECASE),
 ]
 
