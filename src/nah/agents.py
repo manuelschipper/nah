@@ -71,7 +71,10 @@ def format_allow(agent: str) -> dict:
 
 def format_error(error: str, agent: str) -> dict:
     """Format an error response (block with error message)."""
-    msg = f"nah: internal error — blocked for safety: {error}"
+    msg = (
+        f"nah: internal error — blocked for safety: {error}\n"
+        "      To bypass: nah uninstall | To debug: nah log --tail"
+    )
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "block",

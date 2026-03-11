@@ -368,23 +368,16 @@ class TestErrorDefaultBlock:
 
 class TestStderrWarnings:
     def test_config_parse_error(self, tmp_path):
-        """Corrupt YAML should produce stderr warning."""
+        """Corrupt YAML should raise ConfigError (fail-closed, FD-071)."""
         bad_yaml = tmp_path / "bad.yaml"
         bad_yaml.write_text(": :\n  :\n[invalid")
         try:
             import yaml
         except ImportError:
             pytest.skip("PyYAML not installed")
-        from nah.config import _load_yaml_file
-        import io
-        old_stderr = sys.stderr
-        sys.stderr = captured = io.StringIO()
-        try:
-            result = _load_yaml_file(str(bad_yaml))
-        finally:
-            sys.stderr = old_stderr
-        assert result == {}
-        assert "config parse error" in captured.getvalue()
+        from nah.config import _load_yaml_file, ConfigError
+        with pytest.raises(ConfigError, match="config parse error"):
+            _load_yaml_file(str(bad_yaml))
 
     def test_git_warning_on_missing(self):
         """When git is unavailable, stderr should warn."""
