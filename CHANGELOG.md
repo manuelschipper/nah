@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debug crash log at `~/.config/nah/hook-errors.log` with 1MB rotation (FD-011)
 - Decision constants (`ALLOW`, `ASK`, `BLOCK`, `CONTEXT`) and `STRICTNESS` ordering in taxonomy.py (FD-014)
 - Branded hook responses: `nah.` for block, `nah?` for ask (FD-014)
+- `llm.max_decision` config option caps LLM decision severity — prevents false-positive blocks by downgrading to ask with reasoning preserved (FD-041)
 
 ### Fixed
 
