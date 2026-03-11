@@ -374,15 +374,14 @@ def _classify_unknown_tool(canonical: str) -> dict:
 
     action_type = taxonomy.classify_tokens([canonical], global_table, builtin_table, project_table)
 
-    if action_type == taxonomy.UNKNOWN:
-        return {"decision": taxonomy.ASK, "message": f"unrecognized tool: {canonical}"}
-
     policy = taxonomy.get_policy(action_type, user_actions)
     if policy == taxonomy.ALLOW:
         return {"decision": taxonomy.ALLOW}
     if policy == taxonomy.BLOCK:
-        return {"decision": taxonomy.BLOCK, "reason": f"{action_type} → {policy}"}
-    return {"decision": taxonomy.ASK, "message": f"{action_type} → {policy}"}
+        reason = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
+        return {"decision": taxonomy.BLOCK, "reason": reason}
+    msg = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
+    return {"decision": taxonomy.ASK, "message": msg}
 
 
 def main():

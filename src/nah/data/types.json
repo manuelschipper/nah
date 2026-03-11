@@ -15,5 +15,5 @@
   "container_destructive": "Destructive container operations (docker rm, docker system prune)",
   "sql_write": "Write operations on databases (DROP, DELETE, ALTER)",
   "obfuscated": "Obfuscated or encoded commands (base64 | bash)",
-  "unknown": "Unrecognized command — not in any classify table"
+  "unknown": "Unrecognized command or tool — not in any classify table"
 }

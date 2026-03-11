@@ -1,4 +1,4 @@
-"""Unit tests for _classify_unknown_tool — FD-037 + FD-024."""
+"""Unit tests for _classify_unknown_tool — FD-037 + FD-024 + FD-045."""
 
 from nah.hook import _classify_unknown_tool
 from nah import config
@@ -70,3 +70,31 @@ class TestClassifyUnknownTool:
         )
         d = _classify_unknown_tool("mcp__memory__search")
         assert d["decision"] == "allow"
+
+    # --- FD-045 configurable unknown tool policy ---
+
+    def test_unknown_default_ask(self):
+        """No actions config → unknown defaults to ask."""
+        d = _classify_unknown_tool("BrandNewTool")
+        assert d["decision"] == "ask"
+        assert "unrecognized tool" in d["message"]
+
+    def test_unknown_actions_block(self):
+        """actions.unknown: block → block unknown tools."""
+        config._cached_config = NahConfig(actions={"unknown": "block"})
+        d = _classify_unknown_tool("BrandNewTool")
+        assert d["decision"] == "block"
+        assert "unrecognized tool" in d["reason"]
+
+    def test_unknown_actions_allow(self):
+        """actions.unknown: allow → allow unknown tools."""
+        config._cached_config = NahConfig(actions={"unknown": "allow"})
+        d = _classify_unknown_tool("BrandNewTool")
+        assert d["decision"] == "allow"
+
+    def test_unknown_context_falls_to_ask(self):
+        """actions.unknown: context → ask (no path to resolve context)."""
+        config._cached_config = NahConfig(actions={"unknown": "context"})
+        d = _classify_unknown_tool("BrandNewTool")
+        # context policy falls through to ask (not allow/block)
+        assert d["decision"] == "ask"
