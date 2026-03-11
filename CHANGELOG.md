@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Config defaults audit: `network_write` to localhost now asks instead of allowing (closes exfiltration proxy gap), config parse errors raise `ConfigError` and block instead of silently falling back to permissive defaults, `format_error` includes actionable recovery hints (`nah uninstall` / `nah log --tail`) (FD-071)
 - Internal errors now return `block` instead of `ask` — fail-closed principle prevents crash-induced security downgrades (FD-066)
 
 ### Fixed
