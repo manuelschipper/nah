@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Taxonomy coverage for package managers (npm, yarn, pnpm, bun, pip, uv, brew, apt, dnf, yum, gem, cargo, go) and build tools (gradle, mvn, cmake, make) — ~500 new prefix entries, new `network_write.json` for publish/deploy, `_classify_global_install()` flag classifier for `-g`/`--global`/`--system`/`--target`/`--root` escalation (FD-019)
 - Classify shadow warnings — `nah status` annotates user classify entries that shadow finer-grained built-in rules (with count) or Phase 2 flag classifiers. `nah types` shows override notes under affected action types with `nah forget` remediation hints. Global scope only — project classify entries are Phase 3 and cannot shadow builtins. (FD-062)
 - Database CLI taxonomy — `sql_write` renamed to `db_write` with `db_read` action type, expanded classify entries for psql, mysql, sqlite3, snowsql (bare CLI + long-form flags), companion tools (pg_dump, mysqldump → `filesystem_write`, pg_restore → `db_write`) (FD-021)
 - Shared context dispatch — `resolve_context()` in context.py routes by action type for both Bash and MCP tool paths. MCP tools classified as `db_write` with `context` policy now get context resolution via `tool_input` inspection, enabling auto-allow for matching `db_targets` (e.g., Snowflake MCP). (FD-055)
