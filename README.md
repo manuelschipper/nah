@@ -201,6 +201,7 @@ nah log --blocks                 # show only blocked decisions
 nah log --asks                   # show only ask decisions
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable output
+/nah-demo                        # live security demo inside Claude Code
 ```
 
 ### Manage rules

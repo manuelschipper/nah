@@ -5,33 +5,31 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 ## Architecture
 
 ```
-Claude Code tool call
-       ↓
-  nah hook (stdin: JSON)
-       ↓
-  Agent detection → Tool normalization → Handler dispatch
-       ↓
-  ┌─────────────────────────────────────────────┐
-  │  Bash handler (structural classifier)       │
-  │  ┌─────────────────────────────────────┐    │
-  │  │ Tokenize (shlex)                    │    │
-  │  │ Shell unwrap (up to 5 levels)       │    │
-  │  │ Decompose (|, &&, ||, ;, >)         │    │
-  │  │ Classify each stage (3-phase)       │    │
-  │  │ Composition rules (pipe safety)     │    │
-  │  │ Aggregate (most restrictive wins)   │    │
-  │  │ Context resolution (path/host/db)   │    │
-  │  └─────────────────────────────────────┘    │
-  │  Other handlers (Read/Write/Edit/Glob/Grep) │
-  │  → Path checks + content inspection         │
-  │  MCP handler → regex matching + classify     │
-  └─────────────────────────────────────────────┘
-       ↓
-  Decision: allow / ask / block
-       ↓
-  Optional LLM (for ambiguous "ask" only)
-       ↓
-  stdout: JSON → Claude Code permission system
+  Tool call (stdin: JSON)
+          │
+          ▼
+  ┌───────────────┐
+  │  nah hook      │  detect agent, normalize tool name
+  └───────┬───────┘
+          │
+          ▼
+  ┌───────────────┐     ┌────────────────────────────────┐
+  │  Bash         │────▶│  tokenize → unwrap → decompose │
+  │  Read / Write │     │  classify → compose → aggregate│
+  │  Edit / Glob  │     │  context resolution            │
+  │  Grep / MCP   │     └────────────────────────────────┘
+  └───────┬───────┘
+          │
+          ▼
+     allow / ask / block
+          │
+          ▼
+  ┌───────────────┐
+  │  LLM (opt.)   │  only for unresolved "ask" decisions
+  └───────┬───────┘
+          │
+          ▼
+     stdout: JSON → Claude Code
 ```
 
 ## Tool handlers

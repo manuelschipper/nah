@@ -117,16 +117,34 @@
   color: #0b57d0;
 }
 
+/* ── Logo: invert for dark mode + size ── */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img,
+[data-md-color-scheme="slate"] .md-nav__button.md-logo img,
+[data-md-color-scheme="slate"] .md-typeset img.invertible {
+  filter: invert(1);
+}
+
+.md-header__button.md-logo img {
+  height: 3.5rem;
+  width: auto;
+}
+
+/* Hide site name text — logo is enough */
+.md-header__topic .md-ellipsis {
+  display: none;
+}
+
+
 /* ── Shared styles ── */
 
-/* Narrow content width (matches schipper.ai ~680px feel) */
+/* Content width — Material default 1220px gives sidebars room to breathe */
 .md-grid {
-  max-width: 960px;
+  max-width: 1220px;
 }
 
 /* Typography refinements */
 .md-typeset {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.7;
 }
 
@@ -192,6 +210,11 @@
 /* Search bar — subtle */
 .md-search__input {
   background-color: var(--md-code-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.md-search__input::placeholder {
+  color: var(--md-default-fg-color--light);
 }
 
 /* Tab containers — subtle */

@@ -2,6 +2,9 @@
 
 nah can auto-allow `db_write` operations to specific databases when the target matches a configured allowlist. This requires opting in with a `context` policy.
 
+!!! note "Supported databases"
+    Currently **PostgreSQL** (`psql`) and **Snowflake** (`snowsql`, `snow sql`, MCP). Target configs are shared across both — there's no way to scope a `db_targets` entry to a single database engine.
+
 ## Setup
 
 Two-step activation:

@@ -132,6 +132,31 @@ nah log --json                   # machine-readable JSONL output
 | `-n`, `--limit N` | Number of entries (default: 50) |
 | `--json` | Output as JSON lines |
 
+## Security Demo
+
+### /nah-demo
+
+Live security demo that runs inside Claude Code. Walks through real tool calls and shows nah intercepting them in real-time.
+
+```
+/nah-demo                        # 25 cases across 8 threat categories
+/nah-demo --full                 # all 90 cases + config variants
+/nah-demo --story rce            # deep-dive into a single category
+```
+
+**Stories:**
+
+| Story | What it covers |
+|-------|---------------|
+| `safe` | Operations that should pass through |
+| `rce` | Remote code execution (curl \| bash, wget \| sh) |
+| `exfil` | Data exfiltration (piping secrets to network) |
+| `obfuscated` | Obfuscated execution (base64, eval, nested shells) |
+| `path` | Path & boundary protection (sensitive dirs, project scope) |
+| `destructive` | Destructive operations (rm, force push, DROP TABLE) |
+| `secrets` | Credential & secret detection in file content |
+| `network` | Network context (trusted vs unknown hosts) |
+
 ## Manage Rules
 
 Adjust policies from the command line -- no need to edit YAML.
