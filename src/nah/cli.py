@@ -252,6 +252,9 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
         print(f"  allow_paths:           {cfg.allow_paths or '{}'}")
         print(f"  known_registries:      {cfg.known_registries or '[]'}")
+        print(f"  exec_sinks:            {cfg.exec_sinks or '[]'}")
+        print(f"  sensitive_basenames:   {cfg.sensitive_basenames or '{}'}")
+        print(f"  decode_commands:       {cfg.decode_commands or '[]'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_max_decision:      {cfg.llm_max_decision}")
     elif sub == "path":
@@ -478,11 +481,11 @@ def cmd_classify(args: argparse.Namespace) -> None:
 
 
 def cmd_trust(args: argparse.Namespace) -> None:
-    """Trust a network host."""
+    """Trust a network host (global config only)."""
     from nah.remember import write_trust_host
-    _warn_comments(args.project)
+    _warn_comments(project=False)
     try:
-        msg = write_trust_host(args.host, project=args.project)
+        msg = write_trust_host(args.host)
         print(msg)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
@@ -516,8 +519,34 @@ def cmd_status(args: argparse.Namespace) -> None:
                 for prefix in prefixes:
                     print(f"  classify: '{prefix}' → {action_type}")
         if "known_registries" in scope_rules:
-            for host in scope_rules["known_registries"]:
-                print(f"  trust: {host}")
+            kr = scope_rules["known_registries"]
+            if isinstance(kr, list):
+                for host in kr:
+                    print(f"  trust: {host}")
+            elif isinstance(kr, dict):
+                from nah.config import _parse_add_remove
+                add, remove = _parse_add_remove(kr)
+                for host in add:
+                    print(f"  trust: {host}")
+                for host in remove:
+                    print(f"  trust: !{host}")
+        if "exec_sinks" in scope_rules:
+            from nah.config import _parse_add_remove
+            add, remove = _parse_add_remove(scope_rules["exec_sinks"])
+            for s in add:
+                print(f"  exec-sink: {s}")
+            for s in remove:
+                print(f"  exec-sink: !{s}")
+        if "sensitive_basenames" in scope_rules:
+            for name, policy in scope_rules["sensitive_basenames"].items():
+                print(f"  sensitive-basename: {name} → {policy}")
+        if "decode_commands" in scope_rules:
+            from nah.config import _parse_add_remove
+            add, remove = _parse_add_remove(scope_rules["decode_commands"])
+            for d in add:
+                print(f"  decode-command: {d}")
+            for d in remove:
+                print(f"  decode-command: !{d}")
 
     if not any_rules:
         print("No custom rules configured.")
@@ -643,9 +672,8 @@ def main():
     classify_parser.add_argument("command_prefix", help="Command prefix to classify")
     classify_parser.add_argument("type", help="Action type to assign")
     classify_parser.add_argument("--project", action="store_true", help="Write to project config")
-    trust_parser = sub.add_parser("trust", help="Trust a network host")
+    trust_parser = sub.add_parser("trust", help="Trust a network host (global only)")
     trust_parser.add_argument("host", help="Hostname to trust")
-    trust_parser.add_argument("--project", action="store_true", help="Write to project config")
     sub.add_parser("status", help="Show all custom rules")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")

@@ -24,6 +24,10 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
 # Basename patterns: (basename, display_name, policy)
 _SENSITIVE_BASENAMES: list[tuple[str, str, str]] = [
     (".env", ".env", "ask"),
+    (".env.local", ".env.local", "ask"),
+    (".env.production", ".env.production", "ask"),
+    (".npmrc", ".npmrc", "ask"),
+    (".pypirc", ".pypirc", "ask"),
 ]
 
 _project_root: str | None = None
@@ -31,6 +35,7 @@ _project_root_resolved = False
 
 # Snapshot of hardcoded defaults for reset (testing).
 _SENSITIVE_DIRS_DEFAULTS = list(_SENSITIVE_DIRS)
+_SENSITIVE_BASENAMES_DEFAULTS = list(_SENSITIVE_BASENAMES)
 _sensitive_paths_merged = False
 
 
@@ -113,24 +118,54 @@ def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: s
             existing_resolved.add(resolved)
 
 
+def _merge_sensitive_basenames(config: dict) -> None:
+    """Merge user sensitive_basenames config into _SENSITIVE_BASENAMES.
+
+    Policies: ask/block = add or override, allow = remove from defaults.
+    """
+    existing = {e[0] for e in _SENSITIVE_BASENAMES}
+    for basename, policy in config.items():
+        name = str(basename)
+        policy = str(policy)
+        if policy == "allow":
+            # Remove from list
+            _SENSITIVE_BASENAMES[:] = [e for e in _SENSITIVE_BASENAMES if e[0] != name]
+            existing.discard(name)
+        elif policy in ("ask", "block"):
+            if name in existing:
+                for i, (n, d, _) in enumerate(_SENSITIVE_BASENAMES):
+                    if n == name:
+                        _SENSITIVE_BASENAMES[i] = (n, d, policy)
+                        break
+            else:
+                _SENSITIVE_BASENAMES.append((name, name, policy))
+                existing.add(name)
+
+
 def _ensure_sensitive_paths_merged() -> None:
-    """Lazy one-time merge of config sensitive_paths into _SENSITIVE_DIRS."""
+    """Lazy one-time merge of config sensitive_paths and basenames."""
     global _sensitive_paths_merged
     if _sensitive_paths_merged:
         return
     _sensitive_paths_merged = True
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
+    if cfg.profile == "none":
+        _SENSITIVE_BASENAMES.clear()
     if cfg.sensitive_paths:
         build_merged_sensitive_paths(cfg.sensitive_paths, cfg.sensitive_paths_default)
+    if cfg.sensitive_basenames:
+        _merge_sensitive_basenames(cfg.sensitive_basenames)
 
 
 def reset_sensitive_paths() -> None:
-    """Restore _SENSITIVE_DIRS to hardcoded defaults and clear merge flag (for testing)."""
+    """Restore _SENSITIVE_DIRS and _SENSITIVE_BASENAMES to hardcoded defaults (for testing)."""
     global _sensitive_paths_merged
     _sensitive_paths_merged = False
     _SENSITIVE_DIRS.clear()
     _SENSITIVE_DIRS.extend(_SENSITIVE_DIRS_DEFAULTS)
+    _SENSITIVE_BASENAMES.clear()
+    _SENSITIVE_BASENAMES.extend(_SENSITIVE_BASENAMES_DEFAULTS)
 
 
 def check_path(tool_name: str, raw_path: str) -> dict | None:

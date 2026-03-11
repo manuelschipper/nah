@@ -6,7 +6,7 @@ import urllib.parse
 from nah import paths, taxonomy
 
 # Known safe registries / hosts for network context.
-_KNOWN_HOSTS: set[str] = {
+_KNOWN_HOSTS_DEFAULTS: set[str] = {
     "npmjs.org", "www.npmjs.org", "registry.npmjs.org",
     "pypi.org", "files.pythonhosted.org",
     "github.com", "api.github.com", "raw.githubusercontent.com",
@@ -20,9 +20,68 @@ _KNOWN_HOSTS: set[str] = {
     "pkg.go.dev", "proxy.golang.org",
     "hub.docker.com", "registry.hub.docker.com", "ghcr.io",
 }
+_known_hosts: set[str] = set(_KNOWN_HOSTS_DEFAULTS)
+_known_hosts_merged = False
+
+
+def _ensure_known_hosts_merged():
+    """Lazy one-time merge of config known_registries into _known_hosts."""
+    global _known_hosts_merged, _known_hosts
+    if _known_hosts_merged:
+        return
+    _known_hosts_merged = True
+    try:
+        from nah.config import get_config, _parse_add_remove
+        cfg = get_config()
+        if cfg.profile == "none":
+            _known_hosts.clear()
+        add, remove = _parse_add_remove(cfg.known_registries)
+        _known_hosts.update(str(h) for h in add)
+        _known_hosts.difference_update(str(h) for h in remove)
+    except Exception:
+        pass
+
+
+def reset_known_hosts():
+    """Restore defaults and clear merge flag (for testing)."""
+    global _known_hosts_merged, _known_hosts
+    _known_hosts_merged = False
+    _known_hosts = set(_KNOWN_HOSTS_DEFAULTS)
 
 # Localhost addresses.
 _LOCALHOST: set[str] = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def resolve_context(
+    action_type: str,
+    *,
+    tokens: list[str] | None = None,
+    tool_input: dict | None = None,
+    target_path: str | None = None,
+) -> tuple[str, str]:
+    """Dispatch context resolution by action type.
+
+    Callers provide what they have:
+    - bash.py: tokens + target_path (pre-extracted)
+    - hook.py: tool_input (MCP structured input)
+    """
+    if action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE):
+        if tokens:
+            return resolve_network_context(tokens, action_type)
+        return taxonomy.ASK, "unknown host"
+
+    if action_type == taxonomy.DB_WRITE:
+        return resolve_database_context(tokens, tool_input)
+
+    if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
+                       taxonomy.FILESYSTEM_DELETE):
+        if target_path:
+            return resolve_filesystem_context(target_path)
+        if action_type in (taxonomy.FILESYSTEM_DELETE, taxonomy.FILESYSTEM_WRITE):
+            return taxonomy.ASK, f"{action_type}: no target path extracted"
+        return taxonomy.ALLOW, f"{action_type}: no target path"
+
+    return taxonomy.ASK, f"{action_type}: no context resolver"
 
 
 def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
@@ -57,6 +116,7 @@ def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWO
 
     Returns (decision, reason).
     """
+    _ensure_known_hosts_merged()
     host = extract_host(tokens)
     if host is None:
         return taxonomy.ASK, "unknown host"
@@ -72,15 +132,9 @@ def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWO
     if action_type == taxonomy.NETWORK_WRITE:
         return taxonomy.ASK, f"network_write → ask (host: {host_no_port})"
 
-    # Known registries (reads only)
-    if host_no_port in _KNOWN_HOSTS:
+    # Known hosts (defaults + user config, merged)
+    if host_no_port in _known_hosts:
         return taxonomy.ALLOW, f"known host: {host_no_port}"
-
-    # User-configured known registries
-    from nah.config import get_config  # lazy import to avoid circular
-    cfg = get_config()
-    if host_no_port in cfg.known_registries:
-        return taxonomy.ALLOW, f"known host (config): {host_no_port}"
 
     return taxonomy.ASK, f"unknown host: {host_no_port}"
 

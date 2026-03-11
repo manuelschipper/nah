@@ -12,7 +12,7 @@ from nah.bash import StageResult, _apply_policy, _unwrap_shell, _check_redirect,
 from nah.taxonomy import get_builtin_table
 
 _FULL = get_builtin_table("full")
-from nah.config import _merge_dict_tighten, _merge_list_union, _validate_dict, _merge_configs
+from nah.config import _merge_dict_tighten, _validate_dict, _merge_configs
 from nah.context import _extract_positional_host
 from nah.hook import _check_write_content
 
@@ -295,12 +295,21 @@ class TestMergeHelpers:
         result = _merge_dict_tighten({}, {"x": "ask"})
         assert result["x"] == "ask"
 
-    def test_merge_list_union_dedupes(self):
-        result = _merge_list_union(["a", "b"], ["b", "c"])
-        assert result == ["a", "b", "c"]
+    def test_parse_add_remove_list(self):
+        from nah.config import _parse_add_remove
+        add, remove = _parse_add_remove(["a", "b"])
+        assert add == ["a", "b"]
+        assert remove == []
 
-    def test_merge_list_union_non_lists(self):
-        assert _merge_list_union("not a list", None) == []
+    def test_parse_add_remove_dict(self):
+        from nah.config import _parse_add_remove
+        add, remove = _parse_add_remove({"add": ["a"], "remove": ["b"]})
+        assert add == ["a"]
+        assert remove == ["b"]
+
+    def test_parse_add_remove_non_list(self):
+        from nah.config import _parse_add_remove
+        assert _parse_add_remove("not a list") == ([], [])
 
 
 # --- StageResult.default_policy (renamed from policy) ---

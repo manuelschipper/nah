@@ -99,14 +99,87 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _SHELL_WRAPPERS = {"bash", "sh", "dash", "zsh"}
 
 # Exec sinks for pipe composition.
-EXEC_SINKS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3", "node", "ruby", "perl", "php"}
+_EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
+                         "node", "ruby", "perl", "php", "bun", "deno", "fish", "pwsh"}
+EXEC_SINKS: set[str] = set(_EXEC_SINKS_DEFAULTS)
+_exec_sinks_merged = False
+
+
+def _ensure_exec_sinks_merged():
+    """Lazy one-time merge of config exec_sinks into EXEC_SINKS."""
+    global _exec_sinks_merged
+    if _exec_sinks_merged:
+        return
+    _exec_sinks_merged = True
+    try:
+        from nah.config import get_config, _parse_add_remove
+        cfg = get_config()
+        if cfg.profile == "none":
+            EXEC_SINKS.clear()
+        add, remove = _parse_add_remove(cfg.exec_sinks)
+        EXEC_SINKS.update(str(s) for s in add)
+        if remove:
+            import sys
+            sys.stderr.write("nah: warning: exec_sinks.remove weakens composition rules\n")
+            EXEC_SINKS.difference_update(str(s) for s in remove)
+    except Exception:
+        pass
+
+
+def reset_exec_sinks():
+    """Restore defaults and clear merge flag (for testing)."""
+    global _exec_sinks_merged
+    _exec_sinks_merged = False
+    EXEC_SINKS.clear()
+    EXEC_SINKS.update(_EXEC_SINKS_DEFAULTS)
+
 
 # Decode commands for pipe composition (command, flag).
-DECODE_COMMANDS: list[tuple[str, str | None]] = [
+_DECODE_COMMANDS_DEFAULTS: list[tuple[str, str | None]] = [
     ("base64", "-d"),
     ("base64", "--decode"),
     ("xxd", "-r"),
+    ("uudecode", None),
 ]
+DECODE_COMMANDS: list[tuple[str, str | None]] = list(_DECODE_COMMANDS_DEFAULTS)
+_decode_commands_merged = False
+
+
+def _ensure_decode_commands_merged():
+    """Lazy one-time merge of config decode_commands into DECODE_COMMANDS."""
+    global _decode_commands_merged
+    if _decode_commands_merged:
+        return
+    _decode_commands_merged = True
+    try:
+        from nah.config import get_config, _parse_add_remove
+        cfg = get_config()
+        if cfg.profile == "none":
+            DECODE_COMMANDS.clear()
+        add, remove = _parse_add_remove(cfg.decode_commands)
+        # Remove by command name (all flag variants)
+        if remove:
+            import sys
+            sys.stderr.write("nah: warning: decode_commands.remove weakens composition rules\n")
+            remove_cmds = {str(c) for c in remove}
+            DECODE_COMMANDS[:] = [(c, f) for c, f in DECODE_COMMANDS if c not in remove_cmds]
+        # Add: "command flag" or "command" (space-separated string)
+        for entry in add:
+            parts = str(entry).split(None, 1)
+            if parts:
+                cmd = parts[0]
+                flag = parts[1] if len(parts) > 1 else None
+                DECODE_COMMANDS.append((cmd, flag))
+    except Exception:
+        pass
+
+
+def reset_decode_commands():
+    """Restore defaults and clear merge flag (for testing)."""
+    global _decode_commands_merged
+    _decode_commands_merged = False
+    DECODE_COMMANDS.clear()
+    DECODE_COMMANDS.extend(_DECODE_COMMANDS_DEFAULTS)
 
 
 def _prefix_match(tokens: list[str], table: list[tuple[tuple[str, ...], str]]) -> str:
@@ -582,11 +655,13 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
 
 def is_exec_sink(token: str) -> bool:
     """Check if a token is an exec sink (for pipe composition rules)."""
+    _ensure_exec_sinks_merged()
     return token in EXEC_SINKS
 
 
 def is_decode_stage(tokens: list[str]) -> bool:
     """Check if tokens represent a decode command (base64 -d, xxd -r, etc.)."""
+    _ensure_decode_commands_merged()
     if not tokens:
         return False
     for cmd, flag in DECODE_COMMANDS:

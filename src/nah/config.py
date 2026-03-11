@@ -20,7 +20,10 @@ class NahConfig:
     sensitive_paths_default: str = "ask"
     sensitive_paths: dict[str, str] = field(default_factory=dict)
     allow_paths: dict[str, list[str]] = field(default_factory=dict)
-    known_registries: list[str] = field(default_factory=list)
+    known_registries: list | dict = field(default_factory=list)
+    exec_sinks: list | dict = field(default_factory=list)
+    sensitive_basenames: dict = field(default_factory=dict)
+    decode_commands: list | dict = field(default_factory=list)
     llm: dict = field(default_factory=dict)
     llm_max_decision: str = "ask"  # default: LLM can't escalate past ask
     llm_eligible: str | list = "default"
@@ -95,13 +98,15 @@ def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None =
     return merged
 
 
-def _merge_list_union(global_l, project_l) -> list:
-    """Union two lists, deduped, preserving order."""
-    if not isinstance(global_l, list):
-        global_l = []
-    if not isinstance(project_l, list):
-        project_l = []
-    return list(dict.fromkeys(global_l + project_l))
+def _parse_add_remove(raw) -> tuple[list, list]:
+    """Parse polymorphic config: list = add-only, dict = add/remove."""
+    if isinstance(raw, list):
+        return raw, []
+    if isinstance(raw, dict):
+        add = raw.get("add", [])
+        remove = raw.get("remove", [])
+        return (add if isinstance(add, list) else []), (remove if isinstance(remove, list) else [])
+    return [], []
 
 
 def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
@@ -145,11 +150,29 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     if isinstance(g_allow, dict):
         config.allow_paths = {k: v for k, v in g_allow.items() if isinstance(v, list)}
 
-    # known_registries: union
-    config.known_registries = _merge_list_union(
-        global_cfg.get("known_registries", []),
-        project_cfg.get("known_registries", []),
-    )
+    # known_registries: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_kr = global_cfg.get("known_registries", [])
+    if isinstance(raw_kr, (list, dict)):
+        config.known_registries = raw_kr
+    else:
+        config.known_registries = []
+
+    # exec_sinks: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_es = global_cfg.get("exec_sinks", [])
+    if isinstance(raw_es, (list, dict)):
+        config.exec_sinks = raw_es
+    else:
+        config.exec_sinks = []
+
+    # sensitive_basenames: global only, flat dict (name → policy)
+    config.sensitive_basenames = _validate_dict(global_cfg.get("sensitive_basenames", {}))
+
+    # decode_commands: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_dc = global_cfg.get("decode_commands", [])
+    if isinstance(raw_dc, (list, dict)):
+        config.decode_commands = raw_dc
+    else:
+        config.decode_commands = []
 
     # llm: global config ONLY — project .nah.yaml silently ignored
     config.llm = _validate_dict(global_cfg.get("llm", {}))

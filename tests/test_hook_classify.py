@@ -93,8 +93,121 @@ class TestClassifyUnknownTool:
         assert d["decision"] == "allow"
 
     def test_unknown_context_falls_to_ask(self):
-        """actions.unknown: context → ask (no path to resolve context)."""
+        """actions.unknown: context → ask (no context resolver for 'unknown' type)."""
         config._cached_config = NahConfig(actions={"unknown": "context"})
         d = _classify_unknown_tool("BrandNewTool")
-        # context policy falls through to ask (not allow/block)
         assert d["decision"] == "ask"
+        assert "no context resolver" in d["reason"]
+
+
+class TestClassifyUnknownToolContext:
+    """FD-055: MCP tools with context policy resolve context via tool_input."""
+
+    def setup_method(self):
+        config._cached_config = NahConfig(
+            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
+            actions={"db_write": "context"},
+            db_targets=[
+                {"database": "SANDBOX"},
+                {"database": "SALES", "schema": "DEV"},
+            ],
+        )
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def test_mcp_db_write_matching_target_allow(self):
+        """MCP tool_input with matching database → allow."""
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "SANDBOX", "query": "INSERT INTO t VALUES (1)"},
+        )
+        assert d["decision"] == "allow"
+        assert "allowed target" in d["reason"]
+
+    def test_mcp_db_write_matching_db_schema_allow(self):
+        """MCP tool_input with matching database+schema → allow."""
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "SALES", "schema": "DEV", "query": "INSERT INTO t VALUES (1)"},
+        )
+        assert d["decision"] == "allow"
+        assert "SALES.DEV" in d["reason"]
+
+    def test_mcp_db_write_non_matching_target_ask(self):
+        """MCP tool_input with non-matching database → ask."""
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "PRODUCTION", "query": "DROP TABLE users"},
+        )
+        assert d["decision"] == "ask"
+        assert "unrecognized target" in d["reason"]
+
+    def test_mcp_db_write_no_database_key_ask(self):
+        """MCP tool_input without database key → ask."""
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"query": "SELECT 1"},
+        )
+        assert d["decision"] == "ask"
+        assert "unknown database target" in d["reason"]
+
+    def test_mcp_db_write_no_tool_input_ask(self):
+        """MCP with no tool_input → ask."""
+        d = _classify_unknown_tool("mcp__snowflake__execute_sql")
+        assert d["decision"] == "ask"
+
+    def test_mcp_db_write_no_db_targets_ask(self):
+        """No db_targets configured → ask even with matching input."""
+        config._cached_config = NahConfig(
+            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
+            actions={"db_write": "context"},
+            db_targets=[],
+        )
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "SANDBOX", "query": "INSERT INTO t VALUES (1)"},
+        )
+        assert d["decision"] == "ask"
+        assert "no db_targets configured" in d["reason"]
+
+    def test_mcp_db_write_empty_tool_input_ask(self):
+        """Empty dict {} (what main() actually passes) → ask."""
+        d = _classify_unknown_tool("mcp__snowflake__execute_sql", {})
+        assert d["decision"] == "ask"
+        assert "unknown database target" in d["reason"]
+
+    def test_mcp_db_write_case_insensitive(self):
+        """Database name matching is case-insensitive."""
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "sandbox", "query": "INSERT INTO t VALUES (1)"},
+        )
+        assert d["decision"] == "allow"
+        assert "SANDBOX" in d["reason"]
+
+    def test_mcp_non_db_context_falls_to_ask(self):
+        """MCP tool classified as network_outbound + context → ask (no tokens)."""
+        config._cached_config = NahConfig(
+            classify_global={"network_outbound": ["mcp__api__fetch"]},
+            actions={"network_outbound": "context"},
+        )
+        d = _classify_unknown_tool(
+            "mcp__api__fetch",
+            {"url": "https://example.com"},
+        )
+        assert d["decision"] == "ask"
+        assert "unknown host" in d["reason"]
+
+    def test_mcp_db_write_default_policy_ask(self):
+        """db_write with default policy (ask, not context) → no context resolution."""
+        config._cached_config = NahConfig(
+            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
+            db_targets=[{"database": "SANDBOX"}],
+        )
+        d = _classify_unknown_tool(
+            "mcp__snowflake__execute_sql",
+            {"database": "SANDBOX", "query": "INSERT INTO t VALUES (1)"},
+        )
+        assert d["decision"] == "ask"
+        assert "allowed target" not in d.get("reason", "")

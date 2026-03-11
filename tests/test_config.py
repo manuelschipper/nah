@@ -141,18 +141,19 @@ class TestMergeConfigs:
         assert "~/.aws" in cfg.allow_paths
         assert "~/.ssh" not in cfg.allow_paths
 
-    def test_known_registries_union(self):
+    def test_known_registries_global_only_list(self):
+        """known_registries: global only, list form."""
         global_cfg = {"known_registries": ["custom.registry.io"]}
         project_cfg = {"known_registries": ["another.registry.io"]}
         cfg = _merge_configs(global_cfg, project_cfg)
-        assert "custom.registry.io" in cfg.known_registries
-        assert "another.registry.io" in cfg.known_registries
+        # Project config is silently ignored — only global values
+        assert cfg.known_registries == ["custom.registry.io"]
 
-    def test_known_registries_dedup(self):
-        global_cfg = {"known_registries": ["custom.registry.io"]}
-        project_cfg = {"known_registries": ["custom.registry.io"]}
-        cfg = _merge_configs(global_cfg, project_cfg)
-        assert cfg.known_registries.count("custom.registry.io") == 1
+    def test_known_registries_global_only_dict(self):
+        """known_registries: global only, dict form."""
+        global_cfg = {"known_registries": {"add": ["custom.io"], "remove": ["github.com"]}}
+        cfg = _merge_configs(global_cfg, {})
+        assert cfg.known_registries == {"add": ["custom.io"], "remove": ["github.com"]}
 
     def test_invalid_types_handled(self):
         """Non-dict/non-list values don't crash merge."""
@@ -307,3 +308,101 @@ class TestLlmEligible:
     def test_project_config_ignored(self):
         cfg = _merge_configs({}, {"llm": {"eligible": "all"}})
         assert cfg.llm_eligible == "default"  # llm is global-only
+
+
+class TestSafetyLists:
+    """FD-051: Configurable safety lists — config parsing."""
+
+    # --- known_registries polymorphic ---
+
+    def test_known_registries_list_form(self):
+        cfg = _merge_configs({"known_registries": ["custom.io"]}, {})
+        assert cfg.known_registries == ["custom.io"]
+
+    def test_known_registries_dict_form(self):
+        cfg = _merge_configs({"known_registries": {"add": ["x.com"], "remove": ["y.com"]}}, {})
+        assert cfg.known_registries == {"add": ["x.com"], "remove": ["y.com"]}
+
+    def test_known_registries_invalid_type(self):
+        cfg = _merge_configs({"known_registries": 42}, {})
+        assert cfg.known_registries == []
+
+    def test_known_registries_project_ignored(self):
+        cfg = _merge_configs({}, {"known_registries": ["evil.com"]})
+        assert cfg.known_registries == []
+
+    # --- exec_sinks polymorphic ---
+
+    def test_exec_sinks_list_form(self):
+        cfg = _merge_configs({"exec_sinks": ["bun", "deno"]}, {})
+        assert cfg.exec_sinks == ["bun", "deno"]
+
+    def test_exec_sinks_dict_form(self):
+        cfg = _merge_configs({"exec_sinks": {"add": ["bun"], "remove": ["python3"]}}, {})
+        assert cfg.exec_sinks == {"add": ["bun"], "remove": ["python3"]}
+
+    def test_exec_sinks_invalid_type(self):
+        cfg = _merge_configs({"exec_sinks": "not a list"}, {})
+        assert cfg.exec_sinks == []
+
+    def test_exec_sinks_project_ignored(self):
+        cfg = _merge_configs({}, {"exec_sinks": ["bun"]})
+        assert cfg.exec_sinks == []
+
+    # --- sensitive_basenames ---
+
+    def test_sensitive_basenames_dict(self):
+        cfg = _merge_configs({"sensitive_basenames": {".secrets": "block"}}, {})
+        assert cfg.sensitive_basenames == {".secrets": "block"}
+
+    def test_sensitive_basenames_invalid_type(self):
+        cfg = _merge_configs({"sensitive_basenames": ["not", "a", "dict"]}, {})
+        assert cfg.sensitive_basenames == {}
+
+    def test_sensitive_basenames_project_ignored(self):
+        cfg = _merge_configs({}, {"sensitive_basenames": {".secrets": "block"}})
+        assert cfg.sensitive_basenames == {}
+
+    # --- decode_commands polymorphic ---
+
+    def test_decode_commands_list_form(self):
+        cfg = _merge_configs({"decode_commands": ["uudecode"]}, {})
+        assert cfg.decode_commands == ["uudecode"]
+
+    def test_decode_commands_dict_form(self):
+        cfg = _merge_configs({"decode_commands": {"add": ["uudecode"], "remove": ["xxd"]}}, {})
+        assert cfg.decode_commands == {"add": ["uudecode"], "remove": ["xxd"]}
+
+    def test_decode_commands_invalid_type(self):
+        cfg = _merge_configs({"decode_commands": 99}, {})
+        assert cfg.decode_commands == []
+
+    def test_decode_commands_project_ignored(self):
+        cfg = _merge_configs({}, {"decode_commands": ["uudecode"]})
+        assert cfg.decode_commands == []
+
+    # --- _parse_add_remove helper ---
+
+    def test_parse_add_remove_list(self):
+        from nah.config import _parse_add_remove
+        add, remove = _parse_add_remove(["a", "b"])
+        assert add == ["a", "b"]
+        assert remove == []
+
+    def test_parse_add_remove_dict(self):
+        from nah.config import _parse_add_remove
+        add, remove = _parse_add_remove({"add": ["a"], "remove": ["b"]})
+        assert add == ["a"]
+        assert remove == ["b"]
+
+    def test_parse_add_remove_dict_missing_keys(self):
+        from nah.config import _parse_add_remove
+        add, remove = _parse_add_remove({"add": ["a"]})
+        assert add == ["a"]
+        assert remove == []
+
+    def test_parse_add_remove_invalid(self):
+        from nah.config import _parse_add_remove
+        assert _parse_add_remove("string") == ([], [])
+        assert _parse_add_remove(42) == ([], [])
+        assert _parse_add_remove(None) == ([], [])

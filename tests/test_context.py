@@ -4,8 +4,19 @@ import os
 
 import pytest
 
+from unittest.mock import patch
+
 from nah import paths
-from nah.context import extract_host, resolve_filesystem_context, resolve_network_context
+from nah import config
+from nah.config import NahConfig
+from nah.context import (
+    extract_host,
+    resolve_context,
+    resolve_filesystem_context,
+    resolve_network_context,
+    reset_known_hosts,
+)
+import nah.context
 
 
 # --- resolve_filesystem_context ---
@@ -184,3 +195,144 @@ class TestExtractHostHttpie:
 
     def test_xh_url(self):
         assert extract_host(["xh", "POST", "https://api.example.com/path"]) == "api.example.com"
+
+
+# --- FD-055: shared context dispatcher ---
+
+
+class TestResolveContext:
+    """FD-055: resolve_context() dispatches by action type."""
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def test_db_write_with_tool_input(self):
+        config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
+        decision, reason = resolve_context(
+            "db_write", tool_input={"database": "SANDBOX", "query": "INSERT ..."}
+        )
+        assert decision == "allow"
+        assert "allowed target" in reason
+
+    def test_db_write_with_tokens(self):
+        config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
+        decision, reason = resolve_context(
+            "db_write", tokens=["psql", "-d", "sandbox"]
+        )
+        assert decision == "allow"
+
+    def test_db_write_no_input_ask(self):
+        config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
+        decision, reason = resolve_context("db_write")
+        assert decision == "ask"
+        assert "unknown database target" in reason
+
+    def test_network_outbound_with_tokens(self):
+        decision, reason = resolve_context(
+            "network_outbound", tokens=["curl", "https://github.com/repo"]
+        )
+        assert decision == "allow"
+
+    def test_network_outbound_no_tokens_ask(self):
+        decision, reason = resolve_context("network_outbound")
+        assert decision == "ask"
+        assert "unknown host" in reason
+
+    def test_network_write_no_tokens_ask(self):
+        decision, reason = resolve_context("network_write")
+        assert decision == "ask"
+        assert "unknown host" in reason
+
+    def test_filesystem_write_with_target(self, project_root):
+        target = os.path.join(project_root, "output.txt")
+        decision, reason = resolve_context("filesystem_write", target_path=target)
+        assert decision == "allow"
+
+    def test_filesystem_write_no_target_ask(self):
+        decision, reason = resolve_context("filesystem_write")
+        assert decision == "ask"
+        assert "no target path" in reason
+
+    def test_filesystem_delete_no_target_ask(self):
+        decision, reason = resolve_context("filesystem_delete")
+        assert decision == "ask"
+        assert "no target path" in reason
+
+    def test_filesystem_read_no_target_allow(self):
+        decision, reason = resolve_context("filesystem_read")
+        assert decision == "allow"
+
+    def test_unknown_action_type_ask(self):
+        decision, reason = resolve_context("unknown")
+        assert decision == "ask"
+        assert "no context resolver" in reason
+
+    def test_future_action_type_ask(self):
+        decision, reason = resolve_context("some_future_type")
+        assert decision == "ask"
+        assert "no context resolver" in reason
+
+
+# --- FD-051: Configurable known hosts ---
+
+
+class TestKnownHostsConfigurable:
+    """FD-051: known_registries add/remove/profile-none."""
+
+    def _setup_merge(self, cfg):
+        """Reset and allow merge to run with given config."""
+        reset_known_hosts()
+        nah.context._known_hosts_merged = False
+        config._cached_config = cfg
+
+    def teardown_method(self):
+        config._cached_config = None
+        reset_known_hosts()
+        nah.context._known_hosts_merged = True
+
+    def test_add_host_list_form(self):
+        self._setup_merge(NahConfig(known_registries=["custom.corp.com"]))
+        decision, reason = resolve_network_context(["curl", "https://custom.corp.com/pkg"])
+        assert decision == "allow"
+        assert "known host" in reason
+
+    def test_add_host_dict_form(self):
+        self._setup_merge(NahConfig(known_registries={"add": ["custom.corp.com"]}))
+        decision, reason = resolve_network_context(["curl", "https://custom.corp.com/pkg"])
+        assert decision == "allow"
+
+    def test_remove_host(self):
+        self._setup_merge(NahConfig(known_registries={"remove": ["github.com"]}))
+        decision, reason = resolve_network_context(["curl", "https://github.com/repo"])
+        assert decision == "ask"
+        assert "unknown host" in reason
+
+    def test_add_and_remove_same_host(self):
+        """Remove wins over add."""
+        self._setup_merge(NahConfig(known_registries={"add": ["x.com"], "remove": ["x.com"]}))
+        decision, _ = resolve_network_context(["curl", "https://x.com"])
+        assert decision == "ask"
+
+    def test_profile_none_clears_all(self):
+        self._setup_merge(NahConfig(profile="none"))
+        decision, _ = resolve_network_context(["curl", "https://github.com/repo"])
+        assert decision == "ask"
+
+    def test_profile_none_with_add(self):
+        """profile: none clears defaults, but user add still works."""
+        self._setup_merge(NahConfig(profile="none", known_registries=["custom.io"]))
+        decision, _ = resolve_network_context(["curl", "https://custom.io/pkg"])
+        assert decision == "allow"
+        # Default host should be gone
+        decision2, _ = resolve_network_context(["curl", "https://pypi.org/simple/"])
+        assert decision2 == "ask"
+
+    def test_list_backward_compat(self):
+        """Plain list form works same as before (add-only)."""
+        self._setup_merge(NahConfig(known_registries=["internal.corp.com"]))
+        # Default hosts still present
+        decision, _ = resolve_network_context(["curl", "https://github.com/repo"])
+        assert decision == "allow"
+        # New host added
+        decision2, _ = resolve_network_context(["curl", "https://internal.corp.com/pkg"])
+        assert decision2 == "allow"

@@ -2,6 +2,7 @@
 
 import pytest
 
+from nah import taxonomy
 from nah.taxonomy import (
     build_user_table,
     classify_tokens,
@@ -1371,3 +1372,122 @@ class TestFD022Classifiers:
 
     def test_openssl_s_client_outbound(self):
         assert _ct(["openssl", "s_client"]) == "network_outbound"
+
+
+# --- FD-051: Configurable exec sinks ---
+
+
+class TestExecSinksConfigurable:
+    """FD-051: exec_sinks add/remove/profile-none and new defaults."""
+
+    def _setup_merge(self, cfg):
+        from nah import config
+        taxonomy.reset_exec_sinks()
+        taxonomy._exec_sinks_merged = False
+        config._cached_config = cfg
+
+    def teardown_method(self):
+        from nah import config
+        config._cached_config = None
+        taxonomy.reset_exec_sinks()
+        taxonomy._exec_sinks_merged = True
+
+    def test_new_defaults_bun(self):
+        """bun is now a default exec sink."""
+        assert "bun" in taxonomy._EXEC_SINKS_DEFAULTS
+        assert is_exec_sink("bun")
+
+    def test_new_defaults_deno(self):
+        assert "deno" in taxonomy._EXEC_SINKS_DEFAULTS
+
+    def test_new_defaults_fish(self):
+        assert "fish" in taxonomy._EXEC_SINKS_DEFAULTS
+
+    def test_new_defaults_pwsh(self):
+        assert "pwsh" in taxonomy._EXEC_SINKS_DEFAULTS
+
+    def test_add_via_list(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(exec_sinks=["custom_shell"]))
+        assert is_exec_sink("custom_shell")
+        # Default still present
+        assert is_exec_sink("bash")
+
+    def test_add_via_dict(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(exec_sinks={"add": ["custom_shell"]}))
+        assert is_exec_sink("custom_shell")
+
+    def test_remove_via_dict(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(exec_sinks={"remove": ["python3"]}))
+        assert not is_exec_sink("python3")
+        # Others still present
+        assert is_exec_sink("bash")
+
+    def test_profile_none_clears(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(profile="none"))
+        assert not is_exec_sink("bash")
+        assert not is_exec_sink("python3")
+
+    def test_profile_none_with_add(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(profile="none", exec_sinks=["bash"]))
+        assert is_exec_sink("bash")
+        assert not is_exec_sink("python3")
+
+
+# --- FD-051: Configurable decode commands ---
+
+
+class TestDecodeCommandsConfigurable:
+    """FD-051: decode_commands add/remove/profile-none and new defaults."""
+
+    def _setup_merge(self, cfg):
+        from nah import config
+        taxonomy.reset_decode_commands()
+        taxonomy._decode_commands_merged = False
+        config._cached_config = cfg
+
+    def teardown_method(self):
+        from nah import config
+        config._cached_config = None
+        taxonomy.reset_decode_commands()
+        taxonomy._decode_commands_merged = True
+
+    def test_new_default_uudecode(self):
+        """uudecode is now a default decode command."""
+        assert ("uudecode", None) in taxonomy._DECODE_COMMANDS_DEFAULTS
+        assert is_decode_stage(["uudecode", "file.uu"])
+
+    def test_add_via_list(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(decode_commands=["openssl base64"]))
+        assert is_decode_stage(["openssl", "base64", "-d", "payload"])
+        # Default still present
+        assert is_decode_stage(["base64", "-d"])
+
+    def test_add_command_only(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(decode_commands=["mydecode"]))
+        assert is_decode_stage(["mydecode", "whatever"])
+
+    def test_remove_by_command_name(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(decode_commands={"remove": ["xxd"]}))
+        assert not is_decode_stage(["xxd", "-r"])
+        # Others still present
+        assert is_decode_stage(["base64", "-d"])
+
+    def test_profile_none_clears(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(profile="none"))
+        assert not is_decode_stage(["base64", "-d"])
+        assert not is_decode_stage(["xxd", "-r"])
+
+    def test_profile_none_with_add(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(profile="none", decode_commands=["uudecode"]))
+        assert is_decode_stage(["uudecode", "file"])
+        assert not is_decode_stage(["base64", "-d"])

@@ -148,18 +148,29 @@ def write_classify(command: str, action_type: str, project: bool = False,
     return f"Classified: '{command}' → {action_type} ({scope})"
 
 
-def write_trust_host(host: str, project: bool = False) -> str:
-    """Write a known_registries entry. Returns confirmation message."""
+def write_trust_host(host: str) -> str:
+    """Write a known_registries entry to global config. Returns confirmation message."""
     _ensure_yaml()
-    path = _get_config_path(project)
+    path = _get_config_path(project=False)  # always global
     data = _read_config(path)
-    registries = data.setdefault("known_registries", [])
-    if host in registries:
-        return f"Already trusted: {host}"
-    registries.append(host)
+    raw = data.get("known_registries", [])
+    if isinstance(raw, dict):
+        # Dict form: append to add list
+        add_list = raw.setdefault("add", [])
+        if host in add_list:
+            return f"Already trusted: {host}"
+        add_list.append(host)
+    else:
+        # List form (or missing): append to list
+        registries = data.setdefault("known_registries", [])
+        if not isinstance(registries, list):
+            registries = []
+            data["known_registries"] = registries
+        if host in registries:
+            return f"Already trusted: {host}"
+        registries.append(host)
     _write_config(path, data)
-    scope = "project" if project else "global"
-    return f"Trusted: {host} ({scope})"
+    return f"Trusted: {host} (global)"
 
 
 def forget_rule(arg: str, project: bool | None = None, global_only: bool | None = None) -> str:
@@ -201,10 +212,34 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
             for action_type, prefixes in classify.items():
                 if isinstance(prefixes, list) and arg in prefixes:
                     matches.append((cfg_path, f"classify.{action_type}", arg))
-        # Check known_registries
+        # Check known_registries (polymorphic)
         registries = data.get("known_registries", [])
         if isinstance(registries, list) and arg in registries:
             matches.append((cfg_path, "known_registries", arg))
+        elif isinstance(registries, dict):
+            add = registries.get("add", [])
+            if isinstance(add, list) and arg in add:
+                matches.append((cfg_path, "known_registries.add", arg))
+        # Check exec_sinks
+        exec_sinks = data.get("exec_sinks", [])
+        if isinstance(exec_sinks, list) and arg in exec_sinks:
+            matches.append((cfg_path, "exec_sinks", arg))
+        elif isinstance(exec_sinks, dict):
+            add = exec_sinks.get("add", [])
+            if isinstance(add, list) and arg in add:
+                matches.append((cfg_path, "exec_sinks.add", arg))
+        # Check sensitive_basenames
+        basenames = data.get("sensitive_basenames", {})
+        if isinstance(basenames, dict) and arg in basenames:
+            matches.append((cfg_path, "sensitive_basenames", arg))
+        # Check decode_commands
+        decode_cmds = data.get("decode_commands", [])
+        if isinstance(decode_cmds, list) and arg in decode_cmds:
+            matches.append((cfg_path, "decode_commands", arg))
+        elif isinstance(decode_cmds, dict):
+            add = decode_cmds.get("add", [])
+            if isinstance(add, list) and arg in add:
+                matches.append((cfg_path, "decode_commands.add", arg))
 
     if not matches:
         raise ValueError(f"No rule found matching: {arg}")
@@ -234,10 +269,58 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
             data.pop("classify", None)
     elif section == "known_registries":
         registries = data.get("known_registries", [])
-        if key in registries:
+        if isinstance(registries, list) and key in registries:
             registries.remove(key)
         if not registries:
             data.pop("known_registries", None)
+    elif section == "known_registries.add":
+        raw = data.get("known_registries", {})
+        if isinstance(raw, dict):
+            add = raw.get("add", [])
+            if isinstance(add, list) and key in add:
+                add.remove(key)
+            if not add:
+                raw.pop("add", None)
+            if not raw:
+                data.pop("known_registries", None)
+    elif section == "exec_sinks":
+        sinks = data.get("exec_sinks", [])
+        if isinstance(sinks, list) and key in sinks:
+            sinks.remove(key)
+        if not sinks:
+            data.pop("exec_sinks", None)
+    elif section == "exec_sinks.add":
+        raw = data.get("exec_sinks", {})
+        if isinstance(raw, dict):
+            add = raw.get("add", [])
+            if isinstance(add, list) and key in add:
+                add.remove(key)
+            if not add:
+                raw.pop("add", None)
+            if not raw:
+                data.pop("exec_sinks", None)
+    elif section == "sensitive_basenames":
+        basenames = data.get("sensitive_basenames", {})
+        if isinstance(basenames, dict):
+            basenames.pop(key, None)
+        if not basenames:
+            data.pop("sensitive_basenames", None)
+    elif section == "decode_commands":
+        cmds = data.get("decode_commands", [])
+        if isinstance(cmds, list) and key in cmds:
+            cmds.remove(key)
+        if not cmds:
+            data.pop("decode_commands", None)
+    elif section == "decode_commands.add":
+        raw = data.get("decode_commands", {})
+        if isinstance(raw, dict):
+            add = raw.get("add", [])
+            if isinstance(add, list) and key in add:
+                add.remove(key)
+            if not add:
+                raw.pop("add", None)
+            if not raw:
+                data.pop("decode_commands", None)
     _write_config(cfg_path, data)
     label = _label_for_path(cfg_path)
     return f"Removed: {arg} from {section} ({label})"
@@ -270,7 +353,16 @@ def list_rules() -> dict:
         if isinstance(classify, dict) and classify:
             result[label]["classify"] = classify
         registries = data.get("known_registries", [])
-        if isinstance(registries, list) and registries:
+        if isinstance(registries, (list, dict)) and registries:
             result[label]["known_registries"] = registries
+        exec_sinks = data.get("exec_sinks", [])
+        if isinstance(exec_sinks, (list, dict)) and exec_sinks:
+            result[label]["exec_sinks"] = exec_sinks
+        sensitive_basenames = data.get("sensitive_basenames", {})
+        if isinstance(sensitive_basenames, dict) and sensitive_basenames:
+            result[label]["sensitive_basenames"] = sensitive_basenames
+        decode_commands = data.get("decode_commands", [])
+        if isinstance(decode_commands, (list, dict)) and decode_commands:
+            result[label]["decode_commands"] = decode_commands
 
     return result

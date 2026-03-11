@@ -115,9 +115,12 @@ class TestIsSensitive:
         assert pattern == ".env"
         assert policy == "ask"
 
-    def test_env_local_not_matched(self):
-        matched, _, _ = paths.is_sensitive("/project/.env.local")
-        assert matched is False
+    def test_env_local_now_matched(self):
+        """FD-051: .env.local is now a default sensitive basename."""
+        matched, pattern, policy = paths.is_sensitive("/project/.env.local")
+        assert matched is True
+        assert pattern == ".env.local"
+        assert policy == "ask"
 
     def test_normal_path(self):
         matched, _, _ = paths.is_sensitive("/tmp/normal.txt")
@@ -253,3 +256,78 @@ class TestSensitivePathConfigOverride:
             # Calling again should not re-merge (flag stays True)
             paths._ensure_sensitive_paths_merged()
             assert paths._sensitive_paths_merged is True
+
+
+# --- FD-051: Configurable sensitive basenames ---
+
+
+class TestSensitiveBasenamesConfigurable:
+    """FD-051: sensitive_basenames add/override/allow-remove, profile none."""
+
+    def _mock_config(self, sensitive_basenames, profile="full"):
+        return NahConfig(sensitive_basenames=sensitive_basenames, profile=profile)
+
+    def test_new_defaults(self):
+        """FD-051: new default sensitive basenames are present."""
+        paths.reset_sensitive_paths()
+        names = {e[0] for e in paths._SENSITIVE_BASENAMES}
+        assert ".env" in names
+        assert ".env.local" in names
+        assert ".env.production" in names
+        assert ".npmrc" in names
+        assert ".pypirc" in names
+
+    def test_add_new_basename(self):
+        """Config adds a new sensitive basename."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".secrets": "block"})):
+            paths.reset_sensitive_paths()
+            matched, pattern, policy = paths.is_sensitive("/project/.secrets")
+        assert matched is True
+        assert policy == "block"
+
+    def test_override_existing_basename(self):
+        """Config overrides .env from ask to block."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".env": "block"})):
+            paths.reset_sensitive_paths()
+            matched, _, policy = paths.is_sensitive("/project/.env")
+        assert matched is True
+        assert policy == "block"
+
+    def test_allow_removes_basename(self):
+        """allow policy removes a basename from defaults."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".env": "allow"})):
+            paths.reset_sensitive_paths()
+            matched, _, _ = paths.is_sensitive("/project/.env")
+        assert matched is False
+
+    def test_allow_removes_only_targeted(self):
+        """allow on .env doesn't affect .env.local."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".env": "allow"})):
+            paths.reset_sensitive_paths()
+            matched, _, _ = paths.is_sensitive("/project/.env.local")
+        assert matched is True
+
+    def test_profile_none_clears_basenames(self):
+        """profile: none clears all basenames."""
+        with patch("nah.config.get_config", return_value=self._mock_config({}, profile="none")):
+            paths.reset_sensitive_paths()
+            matched, _, _ = paths.is_sensitive("/project/.env")
+        assert matched is False
+
+    def test_profile_none_with_config(self):
+        """profile: none clears defaults, but config entries still apply."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".secrets": "block"}, profile="none")):
+            paths.reset_sensitive_paths()
+            matched_env, _, _ = paths.is_sensitive("/project/.env")
+            matched_secrets, _, policy = paths.is_sensitive("/project/.secrets")
+        assert matched_env is False  # cleared by none
+        assert matched_secrets is True
+        assert policy == "block"
+
+    def test_reset_restores_basenames(self):
+        """reset_sensitive_paths restores basenames to defaults."""
+        paths._SENSITIVE_BASENAMES.clear()
+        paths.reset_sensitive_paths()
+        names = {e[0] for e in paths._SENSITIVE_BASENAMES}
+        assert ".env" in names
+        assert ".env.local" in names

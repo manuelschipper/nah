@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from nah import agents, paths, taxonomy
+from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
 from nah.content import scan_content, format_content_message, is_credential_search
 
@@ -323,7 +323,7 @@ def _log_hook_decision(
         sys.stderr.write(f"nah: log error: {exc}\n")
 
 
-def _classify_unknown_tool(canonical: str) -> dict:
+def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> dict:
     """Classify tools without a dedicated handler via the classify table.
 
     MCP tools (mcp__*) skip the project classify table — only global config
@@ -354,6 +354,9 @@ def _classify_unknown_tool(canonical: str) -> dict:
     if policy == taxonomy.BLOCK:
         reason = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
         return {"decision": taxonomy.BLOCK, "reason": reason}
+    if policy == taxonomy.CONTEXT:
+        decision, reason = context.resolve_context(action_type, tool_input=tool_input)
+        return {"decision": decision, "reason": reason}
     msg = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
     return {"decision": taxonomy.ASK, "reason": msg}
 
@@ -375,7 +378,7 @@ def main():
 
         handler = HANDLERS.get(canonical)
         if handler is None:
-            decision = _classify_unknown_tool(canonical)
+            decision = _classify_unknown_tool(canonical, tool_input)
         else:
             decision = handler(tool_input)
 

