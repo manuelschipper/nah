@@ -69,6 +69,57 @@ def reset_config() -> None:
     _cached_config = None
 
 
+def apply_override(override_data: dict) -> None:
+    """Apply inline config override for single-shot CLI use (nah test --config).
+
+    Merges override_data onto the current config. No cleanup needed —
+    the override only lives for the process lifetime.
+    """
+    global _cached_config
+    cfg = get_config()  # ensure base is loaded
+
+    if "profile" in override_data:
+        profile = override_data["profile"]
+        if profile in _PROFILES:
+            cfg.profile = profile
+    if "classify" in override_data:
+        cfg.classify_global.update(_validate_dict(override_data["classify"]))
+    if "actions" in override_data:
+        cfg.actions.update(_validate_dict(override_data["actions"]))
+    if "sensitive_paths" in override_data:
+        cfg.sensitive_paths.update(_validate_dict(override_data["sensitive_paths"]))
+    if "trusted_paths" in override_data:
+        tp = override_data["trusted_paths"]
+        if isinstance(tp, list):
+            cfg.trusted_paths = [str(p) for p in tp]
+    if "known_registries" in override_data:
+        cfg.known_registries = override_data["known_registries"]
+    if "exec_sinks" in override_data:
+        cfg.exec_sinks = override_data["exec_sinks"]
+    if "content_patterns" in override_data:
+        cp = _validate_dict(override_data["content_patterns"])
+        if "suppress" in cp:
+            cfg.content_patterns_suppress = cp["suppress"]
+        if "add" in cp:
+            cfg.content_patterns_add = cp["add"]
+    if "credential_patterns" in override_data:
+        cp = _validate_dict(override_data["credential_patterns"])
+        if "suppress" in cp:
+            cfg.credential_patterns_suppress = cp["suppress"]
+        if "add" in cp:
+            cfg.credential_patterns_add = cp["add"]
+
+    _cached_config = cfg
+
+    # Reset lazy-merge caches so they re-read from the updated config
+    from nah import paths, content, context, taxonomy
+    paths.reset_sensitive_paths()
+    content.reset_content_patterns()
+    context.reset_known_hosts()
+    taxonomy.reset_exec_sinks()
+    taxonomy.reset_decode_commands()
+
+
 def _load_yaml_file(path: str) -> dict:
     """Load YAML file. Returns {} if file missing or yaml unavailable."""
     if not os.path.isfile(path):

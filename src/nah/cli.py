@@ -269,6 +269,16 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 def cmd_test(args: argparse.Namespace) -> None:
     """Dry-run classification for a command or tool input."""
+    if getattr(args, "config", None):
+        import json as json_mod
+        try:
+            override = json_mod.loads(args.config)
+        except json.JSONDecodeError as e:
+            print(f"Error: invalid --config JSON: {e}", file=sys.stderr)
+            raise SystemExit(1)
+        from nah.config import apply_override
+        apply_override(override)
+
     tool = getattr(args, "tool", None) or "Bash"
     input_args = args.args
 
@@ -773,6 +783,7 @@ def main():
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
     test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("--config", default=None, help="Inline JSON config override")
     test_parser.add_argument("args", nargs="*", help="Command string or tool input")
     config_parser = sub.add_parser("config", help="Show config info")
     config_sub = config_parser.add_subparsers(dest="config_command")

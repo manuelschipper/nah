@@ -302,7 +302,43 @@ class TestCmdTest:
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool=None, path=None,
-            content=None, pattern=None, args=[],
+            content=None, pattern=None, config=None, args=[],
         )
         with pytest.raises(SystemExit):
             cmd_test(args)
+
+    def test_config_classify_override(self, capsys):
+        """FD-076: --config classify override reclassifies command."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config='{"classify": {"git_safe": ["git push --force"]}}',
+            args=["git", "push", "--force"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
+    def test_config_action_override(self, capsys):
+        """FD-076: --config actions override changes policy."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config='{"actions": {"filesystem_delete": "block"}}',
+            args=["rm", "foo.txt"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "BLOCK" in out
+
+    def test_config_profile_none(self, capsys):
+        """FD-076: --config profile:none makes everything unknown → ask."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config='{"profile": "none"}',
+            args=["git", "status"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ASK" in out
