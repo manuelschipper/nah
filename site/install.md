@@ -66,6 +66,16 @@ nah test "git status"      # dry-run classification
 nah config path            # show config file locations
 ```
 
+## See it in action
+
+Run the security demo inside Claude Code:
+
+```
+/nah-demo
+```
+
+25 live cases across 8 threat categories — remote code execution, data exfiltration, obfuscated commands, and more. Takes ~5 minutes.
+
 ---
 
 <p align="center">

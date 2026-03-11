@@ -17,6 +17,16 @@ That's it. nah is now guarding every tool call in Claude Code.
     ```
     Installs `pyyaml` for YAML config file parsing. Without it, config files are ignored (stderr warning).
 
+## See it in action
+
+Run the security demo inside Claude Code to see nah intercepting real tool calls:
+
+```
+/nah-demo
+```
+
+25 live cases across 8 threat categories. Takes ~5 minutes.
+
 ## Try it
 
 Run `nah test` to see classification in action without triggering any hooks:

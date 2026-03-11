@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://manuelschipper.github.io/nah">Docs</a> &bull;
+  <a href="https://schipper.ai/nah/">Docs</a> &bull;
   <a href="#install">Install</a> &bull;
   <a href="#what-it-guards">What it guards</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
@@ -49,6 +49,16 @@ You are up and running. To uninstall: `nah uninstall && pip uninstall nah`.
 >
 > Allow-list `Bash`, `Read`, `Glob`, `Grep` and let nah guard them.
 > For `Write` and `Edit`, your call — nah inspects content either way.
+
+## Try it out
+
+Run the security demo inside Claude Code:
+
+```
+/nah-demo
+```
+
+You'll go thru 25 live cases across 8 threat categories: remote code execution, data exfiltration, obfuscated commands, and others. Takes ~5 minutes.
 
 ## What it guards
 
@@ -206,7 +216,7 @@ nah log --json                   # machine-readable output
 
 ### Manage rules
 
-Adjust policies from the command line — no need to edit YAML:
+Adjust policies from the command line:
 
 ```bash
 nah allow filesystem_delete      # allow an action type
@@ -217,14 +227,6 @@ nah allow-path ~/sensitive/dir   # exempt a path for this project
 nah status                       # show all custom rules
 nah forget filesystem_delete     # remove a rule
 ```
-
-## How it's different
-
-**vs. deny lists** ([safety-net](https://github.com/kenryu42/claude-code-safety-net), [destructive_command_guard](https://github.com/Dicklesworthstone/destructive_command_guard)) — Pattern matching on command strings is trivially bypassed. nah resolves paths, inspects content, guards all 6 tools + MCP, and classifies by action type instead of command name.
-
-**vs. OS sandboxes** ([nono](https://github.com/always-further/nono)) — Complementary layers. Sandboxes enforce at the OS level but can't distinguish safe from unsafe operations on allowed paths.
-
-**vs. built-in permissions** — Not configurable enough. You can't say "allow deletes inside my project but ask outside."
 
 ## License
 

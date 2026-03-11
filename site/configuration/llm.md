@@ -140,9 +140,10 @@ How much conversation transcript context to include in the LLM prompt:
 
 ```yaml
 llm:
-  context_chars: 4000   # default: 4000 characters of recent transcript
-  context_chars: 0       # disable transcript context
+  context_chars: 12000  # default: 12000 characters of recent transcript
 ```
+
+Set to `0` to disable transcript context entirely.
 
 The transcript is read from Claude Code's JSONL conversation file. It includes user/assistant messages and tool use summaries, wrapped with anti-injection framing.
 
