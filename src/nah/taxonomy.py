@@ -98,7 +98,12 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 
 # Commands with Phase 2 flag classifiers (flag-dependent classification).
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "tar", "git", "curl", "wget",
-                          "http", "https", "xh", "xhs"}
+                          "http", "https", "xh", "xhs",
+                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem"}
+
+# Global-install flags that escalate to unknown (ask).
+_GLOBAL_INSTALL_FLAGS = {"-g", "--global", "--system", "--target", "--root"}
+_GLOBAL_INSTALL_CMDS = {"npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem"}
 
 
 def find_table_shadows(
@@ -280,6 +285,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_httpie(tokens)
+        if action is not None:
+            return action
+        action = _classify_global_install(tokens)
         if action is not None:
             return action
 
@@ -564,6 +572,16 @@ def _classify_httpie(tokens: list[str]) -> str | None:
     if has_data_item:
         return NETWORK_WRITE
     return NETWORK_OUTBOUND
+
+
+def _classify_global_install(tokens: list[str]) -> str | None:
+    """Flag-dependent: global-install flags escalate to unknown (ask)."""
+    if not tokens or tokens[0] not in _GLOBAL_INSTALL_CMDS:
+        return None
+    for tok in tokens[1:]:
+        if tok in _GLOBAL_INSTALL_FLAGS:
+            return UNKNOWN
+    return None
 
 
 def _classify_git(tokens: list[str]) -> str | None:

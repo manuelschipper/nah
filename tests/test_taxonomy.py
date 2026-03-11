@@ -1720,3 +1720,543 @@ class TestFindFlagClassifierShadows:
         user = [((cmd,), "unknown") for cmd in _FLAG_CLASSIFIER_CMDS]
         result = find_flag_classifier_shadows(user)
         assert len(result) == len(_FLAG_CLASSIFIER_CMDS)
+
+
+# --- FD-019: Package Managers & Build Tools ---
+
+
+class TestFD019PackageInstall:
+    """FD-019: package_install classification for new entries."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "ci"],
+        ["npm", "update", "react"],
+        ["npm", "audit", "fix"],
+        ["npm", "dedupe"],
+        ["npm", "rebuild"],
+        ["npm", "link", "my-pkg"],
+        ["npm", "init"],
+        ["npm", "pack"],
+        ["yarn", "install"],
+        ["yarn", "upgrade", "react"],
+        ["yarn", "up", "react"],
+        ["yarn", "dedupe"],
+        ["yarn", "patch", "react"],
+        ["yarn", "plugin", "import", "@yarnpkg/plugin-typescript"],
+        ["pnpm", "add", "react"],
+        ["pnpm", "update", "react"],
+        ["pnpm", "fetch"],
+        ["pnpm", "patch", "react"],
+        ["pnpm", "env", "use", "18"],
+        ["bun", "add", "react"],
+        ["bun", "build", "index.ts"],
+        ["bun", "upgrade"],
+        ["bun", "pm", "migrate"],
+        ["python", "-m", "pip", "install", "flask"],
+        ["python3", "-m", "pip", "install", "flask"],
+        ["python", "-m", "build"],
+        ["python", "-m", "venv", ".venv"],
+        ["pip", "download", "flask"],
+        ["pip", "wheel", "flask"],
+        ["pip3", "download", "flask"],
+        ["uv", "pip", "install", "flask"],
+        ["uv", "pip", "sync"],
+        ["uv", "pip", "compile", "requirements.in"],
+        ["uv", "sync"],
+        ["uv", "lock"],
+        ["uv", "add", "flask"],
+        ["uv", "venv"],
+        ["uv", "build"],
+        ["uv", "init"],
+        ["uv", "self", "update"],
+        ["uv", "tool", "install", "ruff"],
+        ["uv", "python", "install", "3.12"],
+        ["brew", "upgrade", "jq"],
+        ["brew", "reinstall", "jq"],
+        ["brew", "fetch", "jq"],
+        ["apt", "update"],
+        ["apt", "upgrade"],
+        ["apt", "full-upgrade"],
+        ["apt-get", "install", "curl"],
+        ["apt-get", "dist-upgrade"],
+        ["apt-get", "build-dep", "pkg"],
+        ["dnf", "install", "vim"],
+        ["dnf", "group", "install", "dev-tools"],
+        ["dnf", "module", "install", "nodejs"],
+        ["dnf", "makecache"],
+        ["yum", "install", "gcc"],
+        ["yum", "update"],
+        ["gem", "update", "rails"],
+        ["gem", "build", "my.gemspec"],
+        ["gem", "pristine", "--all"],
+        ["cargo", "add", "serde"],
+        ["cargo", "check"],
+        ["cargo", "doc"],
+        ["cargo", "init", "my-project"],
+        ["cargo", "new", "my-project"],
+        ["cargo", "fetch"],
+        ["cargo", "vendor"],
+        ["go", "build", "./..."],
+        ["go", "install", "./cmd/tool"],
+        ["go", "mod", "tidy"],
+        ["go", "mod", "vendor"],
+        ["go", "mod", "init", "example.com/foo"],
+        ["go", "work", "init"],
+        ["go", "work", "sync"],
+        ["gradle", "build"],
+        ["gradle", "assemble"],
+        ["gradle", "compileJava"],
+        ["gradle", "jar"],
+        ["gradle", "bootJar"],
+        ["gradle", "init"],
+        ["gradlew", "build"],
+        ["gradlew", "assemble"],
+        ["./gradlew", "build"],
+        ["./gradlew", "jar"],
+        ["mvn", "compile"],
+        ["mvn", "package"],
+        ["mvn", "install"],
+        ["mvn", "archetype:generate"],
+        ["mvn", "release:prepare"],
+        ["cmake", "--build", "build/"],
+        ["cpack"],
+    ])
+    def test_package_install(self, tokens):
+        assert _ct(tokens) == "package_install"
+
+
+class TestFD019PackageRun:
+    """FD-019: package_run classification for new entries."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "exec", "tsc"],
+        ["npm", "start"],
+        ["npm", "stop"],
+        ["npm", "restart"],
+        ["npm", "install-test"],
+        ["yarn", "dlx", "create-react-app"],
+        ["yarn", "exec", "tsc"],
+        ["yarn", "start"],
+        ["yarn", "test"],
+        ["yarn", "create", "react-app"],
+        ["yarn", "workspaces", "foreach", "run", "build"],
+        ["pnpm", "exec", "tsc"],
+        ["pnpm", "dlx", "create-react-app"],
+        ["pnpm", "create", "react-app"],
+        ["pnpm", "start"],
+        ["pnpm", "test"],
+        ["bun", "exec", "tsc"],
+        ["bun", "x", "create-react-app"],
+        ["bun", "test"],
+        ["bun", "create", "react-app"],
+        ["bun", "repl"],
+        ["bunx", "create-react-app"],
+        ["uv", "run", "python", "script.py"],
+        ["uv", "tool", "run", "ruff"],
+        ["uvx", "ruff"],
+        ["cargo", "bench"],
+        ["cargo", "fmt"],
+        ["cargo", "fix"],
+        ["go", "fmt", "./..."],
+        ["go", "fix", "./..."],
+        ["go", "tool", "cover"],
+        ["gradle", "test"],
+        ["gradle", "check"],
+        ["gradle", "run"],
+        ["gradle", "bootRun"],
+        ["gradlew", "test"],
+        ["gradlew", "run"],
+        ["./gradlew", "test"],
+        ["./gradlew", "bootRun"],
+        ["mvn", "test"],
+        ["mvn", "verify"],
+        ["mvn", "exec:java"],
+        ["mvn", "exec:exec"],
+        ["ctest"],
+        ["gmake"],
+        ["gmake", "all"],
+    ])
+    def test_package_run(self, tokens):
+        assert _ct(tokens) == "package_run"
+
+
+class TestFD019PackageUninstall:
+    """FD-019: package_uninstall classification for new entries."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "prune"],
+        ["npm", "unlink", "my-pkg"],
+        ["npm", "cache", "clean", "--force"],
+        ["yarn", "cache", "clean"],
+        ["yarn", "autoclean"],
+        ["yarn", "unlink", "my-pkg"],
+        ["yarn", "plugin", "remove", "@yarnpkg/plugin-typescript"],
+        ["pnpm", "prune"],
+        ["pnpm", "unlink", "my-pkg"],
+        ["pnpm", "store", "prune"],
+        ["pnpm", "patch-remove", "react"],
+        ["pnpm", "env", "remove", "18"],
+        ["bun", "unlink", "my-pkg"],
+        ["bun", "pm", "cache", "rm"],
+        ["pip", "cache", "purge"],
+        ["pip", "cache", "remove", "flask"],
+        ["pip3", "cache", "purge"],
+        ["uv", "pip", "uninstall", "flask"],
+        ["uv", "remove", "flask"],
+        ["uv", "tool", "uninstall", "ruff"],
+        ["uv", "python", "uninstall", "3.12"],
+        ["uv", "cache", "clean"],
+        ["uv", "cache", "prune"],
+        ["brew", "cleanup"],
+        ["brew", "autoremove"],
+        ["brew", "unlink", "jq"],
+        ["brew", "untap", "homebrew/cask"],
+        ["brew", "update-reset"],
+        ["apt", "autoremove"],
+        ["apt", "clean"],
+        ["apt", "autoclean"],
+        ["apt-get", "remove", "pkg"],
+        ["apt-get", "purge", "pkg"],
+        ["apt-get", "autoremove"],
+        ["apt-get", "clean"],
+        ["dnf", "remove", "vim"],
+        ["dnf", "autoremove"],
+        ["dnf", "clean", "all"],
+        ["dnf", "clean", "packages"],
+        ["dnf", "history", "undo", "5"],
+        ["dnf", "group", "remove", "dev-tools"],
+        ["dnf", "module", "remove", "nodejs"],
+        ["yum", "remove", "gcc"],
+        ["yum", "clean", "all"],
+        ["yum", "autoremove"],
+        ["gem", "cleanup"],
+        ["cargo", "clean"],
+        ["cargo", "remove", "serde"],
+        ["go", "clean"],
+        ["gradle", "clean"],
+        ["gradlew", "clean"],
+        ["./gradlew", "clean"],
+        ["mvn", "clean"],
+        ["mvn", "dependency:purge-local-repository"],
+    ])
+    def test_package_uninstall(self, tokens):
+        assert _ct(tokens) == "package_uninstall"
+
+
+class TestFD019FilesystemRead:
+    """FD-019: filesystem_read classification for package manager query commands."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "ls"],
+        ["npm", "list"],
+        ["npm", "outdated"],
+        ["npm", "info", "react"],
+        ["npm", "view", "react"],
+        ["npm", "audit"],
+        ["npm", "fund"],
+        ["npm", "search", "react"],
+        ["npm", "doctor"],
+        ["npm", "whoami"],
+        ["npm", "help"],
+        ["npm", "config", "get", "registry"],
+        ["npm", "cache", "ls"],
+        ["yarn", "info", "react"],
+        ["yarn", "list"],
+        ["yarn", "why", "react"],
+        ["yarn", "audit"],
+        ["yarn", "config", "get", "registry"],
+        ["yarn", "npm", "info", "react"],
+        ["yarn", "npm", "whoami"],
+        ["yarn", "workspaces", "list"],
+        ["yarn", "help"],
+        ["pnpm", "list"],
+        ["pnpm", "outdated"],
+        ["pnpm", "audit"],
+        ["pnpm", "why", "react"],
+        ["pnpm", "store", "status"],
+        ["pnpm", "doctor"],
+        ["bun", "pm", "ls"],
+        ["bun", "pm", "bin"],
+        ["bun", "outdated"],
+        ["bun", "help"],
+        ["pip", "list"],
+        ["pip", "show", "flask"],
+        ["pip", "freeze"],
+        ["pip", "check"],
+        ["pip", "cache", "list"],
+        ["pip", "cache", "info"],
+        ["pip", "hash", "flask.whl"],
+        ["pip", "help"],
+        ["pip3", "list"],
+        ["pip3", "show", "flask"],
+        ["pip3", "freeze"],
+        ["pip3", "help"],
+        ["uv", "pip", "list"],
+        ["uv", "pip", "show", "flask"],
+        ["uv", "pip", "freeze"],
+        ["uv", "pip", "tree"],
+        ["uv", "tree"],
+        ["uv", "tool", "list"],
+        ["uv", "python", "list"],
+        ["uv", "python", "find"],
+        ["uv", "cache", "dir"],
+        ["uv", "version"],
+        ["uv", "help"],
+        ["brew", "list"],
+        ["brew", "info", "jq"],
+        ["brew", "search", "jq"],
+        ["brew", "outdated"],
+        ["brew", "deps", "jq"],
+        ["brew", "leaves"],
+        ["brew", "doctor"],
+        ["brew", "--version"],
+        ["brew", "--prefix"],
+        ["brew", "services", "list"],
+        ["brew", "services", "info", "redis"],
+        ["brew", "help"],
+        ["apt", "list"],
+        ["apt", "search", "curl"],
+        ["apt", "show", "curl"],
+        ["apt", "policy", "curl"],
+        ["apt-get", "check"],
+        ["dnf", "list"],
+        ["dnf", "search", "vim"],
+        ["dnf", "info", "vim"],
+        ["dnf", "repolist"],
+        ["dnf", "check-update"],
+        ["dnf", "history"],
+        ["dnf", "history", "info", "5"],
+        ["dnf", "group", "list"],
+        ["dnf", "module", "list"],
+        ["dnf", "help"],
+        ["yum", "list"],
+        ["yum", "search", "gcc"],
+        ["yum", "info", "gcc"],
+        ["yum", "check-update"],
+        ["gem", "list"],
+        ["gem", "search", "rails"],
+        ["gem", "info", "rails"],
+        ["gem", "contents", "rails"],
+        ["gem", "environment"],
+        ["gem", "outdated"],
+        ["gem", "help"],
+        ["cargo", "search", "serde"],
+        ["cargo", "tree"],
+        ["cargo", "metadata"],
+        ["cargo", "clippy"],
+        ["cargo", "fmt", "--check"],
+        ["cargo", "version"],
+        ["cargo", "help"],
+        ["go", "doc", "fmt"],
+        ["go", "list", "./..."],
+        ["go", "vet", "./..."],
+        ["go", "version"],
+        ["go", "mod", "verify"],
+        ["go", "mod", "graph"],
+        ["go", "mod", "why", "example.com/foo"],
+        ["go", "help"],
+        ["gradle", "dependencies"],
+        ["gradle", "dependencyInsight", "--dependency", "junit"],
+        ["gradle", "projects"],
+        ["gradle", "tasks"],
+        ["gradle", "properties"],
+        ["gradle", "--version"],
+        ["gradle", "help"],
+        ["gradlew", "dependencies"],
+        ["gradlew", "tasks"],
+        ["gradlew", "--version"],
+        ["./gradlew", "dependencies"],
+        ["./gradlew", "tasks"],
+        ["./gradlew", "--version"],
+        ["mvn", "validate"],
+        ["mvn", "dependency:tree"],
+        ["mvn", "dependency:analyze"],
+        ["mvn", "help:effective-pom"],
+        ["mvn", "-version"],
+        ["mvn", "--help"],
+        ["cmake", "--version"],
+        ["cmake", "--help"],
+        ["cmake", "--system-information"],
+        ["ctest", "-N"],
+        ["ctest", "--show-only"],
+        ["make", "-n"],
+        ["make", "--dry-run"],
+        ["make", "-p"],
+        ["make", "-q"],
+        ["make", "--version"],
+        ["make", "--help"],
+        ["gmake", "-n"],
+        ["gmake", "--dry-run"],
+        ["gmake", "--version"],
+    ])
+    def test_filesystem_read(self, tokens):
+        assert _ct(tokens) == "filesystem_read"
+
+
+class TestFD019FilesystemWrite:
+    """FD-019: filesystem_write for make/cmake install."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["make", "install"],
+        ["gmake", "install"],
+        ["cmake", "--install", "build/"],
+    ])
+    def test_filesystem_write(self, tokens):
+        assert _ct(tokens) == "filesystem_write"
+
+
+class TestFD019NetworkWrite:
+    """FD-019: network_write classification for publish/deploy commands."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "publish"],
+        ["npm", "unpublish", "my-pkg"],
+        ["npm", "deprecate", "my-pkg@1.0", "use v2"],
+        ["npm", "dist-tag", "add", "my-pkg@1.0", "latest"],
+        ["npm", "access", "public", "my-pkg"],
+        ["npm", "owner", "add", "user", "my-pkg"],
+        ["yarn", "publish"],
+        ["yarn", "npm", "publish"],
+        ["yarn", "npm", "tag", "add", "my-pkg@1.0", "latest"],
+        ["pnpm", "publish"],
+        ["bun", "publish"],
+        ["uv", "publish"],
+        ["gem", "push", "my.gem"],
+        ["gem", "yank", "my-gem", "-v", "1.0"],
+        ["gem", "owner", "--add", "user", "my-gem"],
+        ["cargo", "publish"],
+        ["cargo", "owner", "--add", "user"],
+        ["cargo", "yank", "--version", "1.0"],
+        ["gradle", "publish"],
+        ["gradle", "uploadArchives"],
+        ["gradlew", "publish"],
+        ["./gradlew", "publish"],
+        ["./gradlew", "uploadArchives"],
+        ["mvn", "deploy"],
+        ["mvn", "site-deploy"],
+        ["mvn", "release:perform"],
+    ])
+    def test_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+
+class TestFD019PrefixPriority:
+    """FD-019: Longest-prefix-first resolves ambiguous commands."""
+
+    def test_npm_audit_vs_audit_fix(self):
+        assert _ct(["npm", "audit"]) == "filesystem_read"
+        assert _ct(["npm", "audit", "fix"]) == "package_install"
+
+    def test_make_vs_make_install(self):
+        assert _ct(["make"]) == "package_run"
+        assert _ct(["make", "install"]) == "filesystem_write"
+
+    def test_make_vs_make_dry_run(self):
+        assert _ct(["make"]) == "package_run"
+        assert _ct(["make", "-n"]) == "filesystem_read"
+
+    def test_cargo_fmt_vs_fmt_check(self):
+        assert _ct(["cargo", "fmt"]) == "package_run"
+        assert _ct(["cargo", "fmt", "--check"]) == "filesystem_read"
+
+    def test_cmake_build_vs_install(self):
+        assert _ct(["cmake", "--build", "build/"]) == "package_install"
+        assert _ct(["cmake", "--install", "build/"]) == "filesystem_write"
+
+    def test_gmake_vs_gmake_install(self):
+        assert _ct(["gmake"]) == "package_run"
+        assert _ct(["gmake", "install"]) == "filesystem_write"
+
+    def test_gmake_vs_gmake_dry_run(self):
+        assert _ct(["gmake"]) == "package_run"
+        assert _ct(["gmake", "-n"]) == "filesystem_read"
+
+    def test_ctest_vs_ctest_N(self):
+        assert _ct(["ctest"]) == "package_run"
+        assert _ct(["ctest", "-N"]) == "filesystem_read"
+
+
+class TestFD019GlobalInstall:
+    """FD-019: Global-install flag classifier escalation."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "install", "-g", "typescript"],
+        ["npm", "install", "--global", "typescript"],
+        ["pnpm", "add", "--global", "turbo"],
+        ["bun", "add", "--global", "bun-types"],
+        ["pip", "install", "--system", "flask"],
+        ["pip", "install", "--target", "/tmp/lib", "flask"],
+        ["pip", "install", "--root", "/opt", "flask"],
+        ["pip3", "install", "--system", "flask"],
+        ["cargo", "install", "--root", "/usr/local", "ripgrep"],
+        ["gem", "install", "--system", "bundler"],
+    ])
+    def test_global_flag_escalates_to_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    def test_npm_install_without_global_still_install(self):
+        assert _ct(["npm", "install", "react"]) == "package_install"
+
+    def test_pip_install_without_system_still_install(self):
+        assert _ct(["pip", "install", "flask"]) == "package_install"
+
+    def test_cargo_build_without_root_still_install(self):
+        assert _ct(["cargo", "build"]) == "package_install"
+
+    def test_yarn_not_in_global_install_cmds(self):
+        """yarn uses 'yarn global add' pattern, not a flag."""
+        assert _ct(["yarn", "add", "something"]) == "package_install"
+
+    def test_global_override_via_user_table(self):
+        """Global config can override the global-install flag classifier."""
+        global_t = build_user_table({"package_install": ["npm install"]})
+        builtin_t = get_builtin_table("full")
+        result = classify_tokens(
+            ["npm", "install", "-g", "x"], global_t, builtin_t
+        )
+        assert result == "package_install"
+
+
+class TestFD019Roundtrip:
+    """Every JSON prefix entry classifies to its file's action type."""
+
+    def test_all_classify_full_entries_roundtrip(self):
+        import json
+        from pathlib import Path
+        data_dir = Path(__file__).parent.parent / "src" / "nah" / "data" / "classify_full"
+        full_table = get_builtin_table("full")
+        failures = []
+        for json_file in sorted(data_dir.glob("*.json")):
+            expected_type = json_file.stem
+            with open(json_file) as f:
+                prefixes = json.load(f)
+            for prefix_str in prefixes:
+                tokens = prefix_str.split()
+                result = classify_tokens(tokens, builtin_table=full_table)
+                if result != expected_type:
+                    failures.append(
+                        f"{prefix_str!r} → {result} (expected {expected_type})"
+                    )
+        assert failures == [], "Misclassified entries:\n" + "\n".join(failures)
+
+
+class TestFD019NoDuplicates:
+    """No prefix string appears in more than one JSON file."""
+
+    def test_no_cross_file_duplicates(self):
+        import json
+        from pathlib import Path
+        data_dir = Path(__file__).parent.parent / "src" / "nah" / "data" / "classify_full"
+        seen: dict[str, str] = {}
+        duplicates = []
+        for json_file in sorted(data_dir.glob("*.json")):
+            with open(json_file) as f:
+                prefixes = json.load(f)
+            for prefix_str in prefixes:
+                if prefix_str in seen:
+                    duplicates.append(
+                        f"{prefix_str!r} in both {seen[prefix_str]} and {json_file.name}"
+                    )
+                else:
+                    seen[prefix_str] = json_file.name
+        assert duplicates == [], "Duplicate entries:\n" + "\n".join(duplicates)

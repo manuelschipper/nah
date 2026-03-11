@@ -32,5 +32,8 @@
   "gh auth switch",
   "pg_dump",
   "pg_dumpall",
-  "mysqldump"
+  "mysqldump",
+  "make install",
+  "gmake install",
+  "cmake --install"
 ]
