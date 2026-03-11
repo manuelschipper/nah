@@ -175,6 +175,30 @@ class TestUnwrapping:
         r = classify_command('bash -c "bash -c \\"git status\\""')
         assert r.final_decision == "allow"
 
+    # FD-065: absolute path normalization
+    def test_absolute_path_rm(self, project_root):
+        r = classify_command("/usr/bin/rm -rf /")
+        assert r.final_decision != "allow"
+        assert r.stages[0].action_type == "filesystem_delete"
+
+    def test_absolute_path_curl(self, project_root):
+        r = classify_command("/usr/local/bin/curl -X POST url")
+        assert r.stages[0].action_type == "network_write"
+
+    # FD-066: here-string unwrapping
+    def test_bash_here_string_unwrap(self, project_root):
+        r = classify_command("bash <<< 'rm -rf /'")
+        assert r.stages[0].action_type == "filesystem_delete"
+
+    def test_bash_glued_here_string(self, project_root):
+        r = classify_command("bash<<<'echo hello'")
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_cat_here_string_not_unwrapped(self, project_root):
+        r = classify_command("cat <<< 'text'")
+        # cat is not a shell wrapper — should NOT unwrap
+        assert r.stages[0].action_type == "filesystem_read"
+
 
 # --- FD-049: command builtin unwrap ---
 

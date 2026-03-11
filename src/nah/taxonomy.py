@@ -4,6 +4,7 @@ Classification data and policies are loaded from JSON files in data/.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -247,6 +248,11 @@ def classify_tokens(
     if not tokens:
         return UNKNOWN
 
+    # Basename normalization — resolve /usr/bin/rm → rm (FD-065)
+    base = os.path.basename(tokens[0])
+    if base and base != tokens[0]:
+        tokens = [base] + tokens[1:]
+
     # --- Phase 1: Global table override (trusted user config) ---
     # Non-git: check global table on raw tokens.
     if global_table and tokens[0] != "git":
@@ -269,6 +275,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_sed(tokens)
+        if action is not None:
+            return action
+        action = _classify_awk(tokens)
         if action is not None:
             return action
         action = _classify_tar(tokens)
@@ -354,6 +363,18 @@ def _classify_sed(tokens: list[str]) -> str | None:
         if tok.startswith("-") and not tok.startswith("--") and ("i" in tok or "I" in tok):
             return FILESYSTEM_WRITE
     return FILESYSTEM_READ
+
+
+def _classify_awk(tokens: list[str]) -> str | None:
+    """Flag-dependent: awk with system()/getline/pipes → lang_exec."""
+    if not tokens or tokens[0] not in ("awk", "gawk", "mawk", "nawk"):
+        return None
+    for tok in tokens[1:]:
+        if tok.startswith("-"):
+            continue
+        if any(p in tok for p in ("system(", "| getline", "|&", "| \"", "print >")):
+            return LANG_EXEC
+    return None
 
 
 def _classify_tar(tokens: list[str]) -> str | None:
@@ -709,6 +730,10 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
     # eval "string"
     if cmd == "eval" and len(tokens) >= 2:
         return True, " ".join(tokens[1:])
+
+    # bash/sh/dash/zsh <<< "inner" (here-string)
+    if cmd in _SHELL_WRAPPERS and len(tokens) >= 3 and tokens[1] == "<<<":
+        return True, tokens[2]
 
     # source / . (not unwrapped — classify as lang_exec)
     if cmd in ("source", "."):

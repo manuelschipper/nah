@@ -70,11 +70,11 @@ def format_allow(agent: str) -> dict:
 
 
 def format_error(error: str, agent: str) -> dict:
-    """Format an error response (ask with error message)."""
-    msg = f"nah: internal error: {error}"
+    """Format an error response (block with error message)."""
+    msg = f"nah: internal error — blocked for safety: {error}"
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "ask",
+        "permissionDecision": "block",
         "permissionDecisionReason": msg,
     }}
 
