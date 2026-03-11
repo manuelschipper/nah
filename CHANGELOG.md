@@ -71,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Error transparency — 16 silent `except: pass` locations across 7 files now emit stderr diagnostics (`nah: {context}: {exc}`). LLM cascade entries include `error` field with specific failure reason (HTTP 401, timeout, DNS, bad JSON). Config merge failures, hook config reads, and log write errors all surfaced to stderr while preserving fail-open behavior (FD-061)
+
 - Global config `classify:` entries now override all 7 flag-dependent classifiers (find, sed, tar, git, curl, wget, httpie) — `classify_tokens()` restructured into three phases: global table lookup → flag classifiers → builtin/project tables. `profile: none` now skips flag classifiers entirely (all return `unknown`). Git global flag stripping (`-C`, `--no-pager`, etc.) applied before global table lookup so user entries like `"git push --force"` match regardless of flags. (FD-050)
 
 
