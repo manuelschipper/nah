@@ -275,3 +275,35 @@ class TestLlmMaxDecision:
     def test_llm_max_decision_default_ask(self):
         cfg = _merge_configs({}, {})
         assert cfg.llm_max_decision == "ask"
+
+
+class TestLlmEligible:
+    """llm.eligible config loading."""
+
+    def test_default_when_omitted(self):
+        cfg = _merge_configs({}, {})
+        assert cfg.llm_eligible == "default"
+
+    def test_default_explicit(self):
+        cfg = _merge_configs({"llm": {"eligible": "default"}}, {})
+        assert cfg.llm_eligible == "default"
+
+    def test_all(self):
+        cfg = _merge_configs({"llm": {"eligible": "all"}}, {})
+        assert cfg.llm_eligible == "all"
+
+    def test_list(self):
+        cfg = _merge_configs({"llm": {"eligible": ["unknown", "composition"]}}, {})
+        assert cfg.llm_eligible == ["unknown", "composition"]
+
+    def test_invalid_string_falls_back(self):
+        cfg = _merge_configs({"llm": {"eligible": "turbo"}}, {})
+        assert cfg.llm_eligible == "default"
+
+    def test_invalid_type_falls_back(self):
+        cfg = _merge_configs({"llm": {"eligible": 42}}, {})
+        assert cfg.llm_eligible == "default"
+
+    def test_project_config_ignored(self):
+        cfg = _merge_configs({}, {"llm": {"eligible": "all"}})
+        assert cfg.llm_eligible == "default"  # llm is global-only

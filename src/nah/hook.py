@@ -91,6 +91,35 @@ def _format_bash_reason(result) -> str:
 
 def _is_llm_eligible(result) -> bool:
     """Check if an ask decision could benefit from LLM analysis."""
+    try:
+        from nah.config import get_config
+        eligible = get_config().llm_eligible
+    except Exception:
+        eligible = "default"
+
+    if eligible == "all":
+        return True
+
+    if isinstance(eligible, list):
+        # Structural gate: composition
+        if result.composition_rule and "composition" not in eligible:
+            return False
+        for sr in result.stages:
+            if sr.decision != taxonomy.ASK:
+                continue
+            # Sensitive exclusion (context-policy stages only)
+            if sr.default_policy == taxonomy.CONTEXT and "sensitive" in sr.reason.lower():
+                if "sensitive" not in eligible:
+                    continue
+            # Direct action type match
+            if sr.action_type in eligible:
+                return True
+            # "context" keyword: any context-policy type
+            if "context" in eligible and sr.default_policy == taxonomy.CONTEXT:
+                return True
+        return False
+
+    # "default" — equivalent to [unknown, lang_exec, context]
     if result.composition_rule:
         return False
     for sr in result.stages:
@@ -144,33 +173,6 @@ def _try_llm(classify_result) -> tuple[dict | None, dict]:
         return None, {}
 
 
-def _resolve_ask_for_agent(decision: dict, tool_name: str) -> tuple[dict, str, dict]:
-    """Resolve ask→allow/deny for agents without ask support.
-
-    Tries LLM if configured, otherwise falls back to ask_fallback config.
-    Returns (decision, resolved_by, llm_meta).
-    """
-    from nah.config import get_config
-    cfg = get_config()
-    reason = decision.get("reason", "")
-
-    if cfg.llm and cfg.llm.get("enabled", False):
-        try:
-            from nah.llm import try_llm_generic
-            llm_call = try_llm_generic(tool_name, reason, cfg.llm, _transcript_path)
-            llm_meta = _build_llm_meta(llm_call, cfg)
-            if llm_call.decision is not None:
-                return llm_call.decision, "llm", llm_meta
-        except ImportError:
-            pass
-        except Exception as exc:
-            sys.stderr.write(f"nah: LLM escalation error: {exc}\n")
-
-    if cfg.ask_fallback == "allow":
-        return {"decision": taxonomy.ALLOW}, "ask_fallback", {}
-    return {"decision": taxonomy.BLOCK, "reason": reason}, "ask_fallback", {}
-
-
 def _cap_llm_decision(llm_decision: dict) -> dict:
     """Apply llm.max_decision cap. Downgrades but preserves reasoning."""
     try:
@@ -198,6 +200,8 @@ def _build_bash_hint(result) -> str | None:
         if sr.action_type == taxonomy.UNKNOWN:
             cmd = sr.tokens[0] if sr.tokens else "command"
             return f"To classify: nah classify {cmd} <type>\n     See available types: nah types"
+        if sr.action_type == taxonomy.NETWORK_WRITE:
+            return f"To always allow: nah allow network_write"
         if "unknown host: " in sr.reason:
             # Extract host from reason like "network_outbound → ask (unknown host: example.com)"
             idx = sr.reason.index("unknown host: ") + len("unknown host: ")
@@ -284,24 +288,9 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
     return agents.format_allow(agent)
 
 
-def _signal_kiro(decision: dict, agent: str) -> None:
-    """For Kiro CLI, signal block/ask via exit code 2 + stderr."""
-    if agent != agents.KIRO:
-        return
-    d = decision.get("decision", taxonomy.ALLOW)
-    if d in (taxonomy.BLOCK, taxonomy.ASK):
-        reason = decision.get("reason", "")
-        if d == taxonomy.BLOCK:
-            branded = f"nah. {reason}" if reason else "nah."
-        else:
-            branded = f"nah? {reason}" if reason else "nah?"
-        sys.stderr.write(branded + "\n")
-        sys.exit(2)
-
-
 def _log_hook_decision(
     tool: str, tool_input: dict, decision: dict,
-    agent: str, ask_resolved_by: str | None, llm_meta: dict, total_ms: int,
+    agent: str, total_ms: int,
 ) -> None:
     """Build and write the log entry. Never raises."""
     try:
@@ -320,11 +309,7 @@ def _log_hook_decision(
             "total_ms": total_ms,
         }
 
-        if ask_resolved_by:
-            entry["ask_resolved_by"] = ask_resolved_by
-
         entry.update(meta)
-        entry.update(llm_meta)
 
         log_config = None
         try:
@@ -395,23 +380,14 @@ def main():
             decision = handler(tool_input)
 
         d = decision.get("decision", taxonomy.ALLOW)
-        ask_resolved_by = None
-        llm_meta: dict = {}
-
-        # Agents without ask support: resolve ask→allow/deny
-        if d == taxonomy.ASK and not agents.supports_ask(agent):
-            decision, ask_resolved_by, llm_meta = _resolve_ask_for_agent(decision, canonical)
-            d = decision.get("decision", taxonomy.ALLOW)
 
         if d != taxonomy.ALLOW:
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
-            # Kiro CLI: also signal via exit code 2 + stderr
-            _signal_kiro(decision, agent)
 
         total_ms = int((time.monotonic() - t0) * 1000)
-        _log_hook_decision(canonical, tool_input, decision, agent, ask_resolved_by, llm_meta, total_ms)
+        _log_hook_decision(canonical, tool_input, decision, agent, total_ms)
 
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
@@ -419,7 +395,6 @@ def main():
             json.dump(agents.format_error(str(e), agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
-            _signal_kiro({"decision": taxonomy.ASK, "reason": str(e)}, agent)
         except BrokenPipeError:
             pass
 
