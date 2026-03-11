@@ -96,12 +96,24 @@ def apply_override(override_data: dict) -> None:
         cfg.known_registries = override_data["known_registries"]
     if "exec_sinks" in override_data:
         cfg.exec_sinks = override_data["exec_sinks"]
+    if "sensitive_basenames" in override_data:
+        cfg.sensitive_basenames.update(_validate_dict(override_data["sensitive_basenames"]))
+    if "decode_commands" in override_data:
+        raw_dc = override_data["decode_commands"]
+        if isinstance(raw_dc, (list, dict)):
+            cfg.decode_commands = raw_dc
+    if "db_targets" in override_data:
+        raw_dt = override_data["db_targets"]
+        if isinstance(raw_dt, list):
+            cfg.db_targets = [t for t in raw_dt if isinstance(t, dict)]
     if "content_patterns" in override_data:
         cp = _validate_dict(override_data["content_patterns"])
         if "suppress" in cp:
             cfg.content_patterns_suppress = cp["suppress"]
         if "add" in cp:
             cfg.content_patterns_add = cp["add"]
+        if "policies" in cp:
+            cfg.content_policies.update(_validate_dict(cp["policies"]))
     if "credential_patterns" in override_data:
         cp = _validate_dict(override_data["credential_patterns"])
         if "suppress" in cp:
