@@ -332,8 +332,8 @@ class TestStageResultRename:
 # --- Error default: hook returns "ask" on errors ---
 
 
-class TestErrorDefaultAsk:
-    def test_empty_stdin_returns_ask(self):
+class TestErrorDefaultBlock:
+    def test_empty_stdin_returns_block(self):
         result = subprocess.run(
             [PYTHON, "-m", "nah.hook"],
             input="",
@@ -341,10 +341,10 @@ class TestErrorDefaultAsk:
         )
         out = json.loads(result.stdout)
         hso = out["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "ask"
+        assert hso["permissionDecision"] == "block"
         assert "error" in hso.get("permissionDecisionReason", "")
 
-    def test_malformed_json_returns_ask(self):
+    def test_malformed_json_returns_block(self):
         result = subprocess.run(
             [PYTHON, "-m", "nah.hook"],
             input='{"bad json',
@@ -352,7 +352,7 @@ class TestErrorDefaultAsk:
         )
         out = json.loads(result.stdout)
         hso = out["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "ask"
+        assert hso["permissionDecision"] == "block"
 
     def test_stderr_has_error_info(self):
         result = subprocess.run(

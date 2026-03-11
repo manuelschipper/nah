@@ -86,13 +86,13 @@ class TestErrorHandling:
     def test_empty_stdin(self):
         raw, stderr = run_hook_raw("")
         hso = raw["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "ask"
+        assert hso["permissionDecision"] == "block"
         assert "error" in hso.get("permissionDecisionReason", "")
 
     def test_invalid_json(self):
         raw, stderr = run_hook_raw("not json")
         hso = raw["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "ask"
+        assert hso["permissionDecision"] == "block"
         assert "error" in hso.get("permissionDecisionReason", "")
 
     def test_unknown_tool(self):

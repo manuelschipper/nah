@@ -304,6 +304,32 @@ class TestClassifyTokens:
     def test_unknown_command(self):
         assert _ct(["foobar", "--flag"]) == "unknown"
 
+    # FD-065: basename normalization
+    def test_basename_normalization(self):
+        assert _ct(["/usr/bin/rm", "-rf", "/"]) == "filesystem_delete"
+
+    def test_basename_curl(self):
+        assert _ct(["/usr/local/bin/curl", "-X", "POST", "url"]) == "network_write"
+
+    def test_basename_no_change(self):
+        assert _ct(["rm", "-rf", "/"]) == "filesystem_delete"
+
+    # FD-065: awk meta-execution
+    def test_awk_safe(self):
+        assert _ct(["awk", "{print $1}", "file"]) == "filesystem_read"
+
+    def test_awk_system(self):
+        assert _ct(["awk", 'BEGIN{system("whoami")}']) == "lang_exec"
+
+    def test_awk_getline(self):
+        assert _ct(["gawk", "{x | getline y}", "file"]) == "lang_exec"
+
+    def test_awk_flag_skip(self):
+        assert _ct(["awk", "-F:", "{print $1}", "/etc/passwd"]) == "filesystem_read"
+
+    def test_mawk_nawk(self):
+        assert _ct(["mawk", 'BEGIN{system("x")}']) == "lang_exec"
+
 
 # --- get_policy ---
 
@@ -385,6 +411,31 @@ class TestIsShellWrapper:
 
     def test_bash_c_missing_arg(self):
         is_w, _ = is_shell_wrapper(["bash", "-c"])
+        assert is_w is False
+
+    # FD-066: here-string detection
+    def test_bash_here_string(self):
+        is_w, inner = is_shell_wrapper(["bash", "<<<", "rm -rf /"])
+        assert is_w is True
+        assert inner == "rm -rf /"
+
+    def test_sh_here_string(self):
+        is_w, inner = is_shell_wrapper(["sh", "<<<", "ls"])
+        assert is_w is True
+        assert inner == "ls"
+
+    def test_zsh_here_string(self):
+        is_w, inner = is_shell_wrapper(["zsh", "<<<", "echo hi"])
+        assert is_w is True
+        assert inner == "echo hi"
+
+    def test_non_wrapper_here_string(self):
+        is_w, inner = is_shell_wrapper(["cat", "<<<", "text"])
+        assert is_w is False
+        assert inner is None
+
+    def test_bash_here_string_missing_arg(self):
+        is_w, _ = is_shell_wrapper(["bash", "<<<"])
         assert is_w is False
 
 
