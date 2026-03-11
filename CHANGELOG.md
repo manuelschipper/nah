@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Config self-protection — hardcoded `is_nah_config_path()` guard for `~/.config/nah/` that survives `profile: none`, with ASK "guard self-protection" reason for all tools. `~/.claude/settings.json` and `settings.local.json` added to sensitive paths as defense-in-depth against hook removal. (FD-075)
 - `nah test` full tool support — `--path`, `--content`, `--pattern` flags for Write/Edit content inspection, Grep credential pattern detection, and MCP tool classification via `_classify_unknown_tool()`. Fixes broken Write/Edit branch that passed path as content. (FD-069)
 - Taxonomy coverage for package managers (npm, yarn, pnpm, bun, pip, uv, brew, apt, dnf, yum, gem, cargo, go) and build tools (gradle, mvn, cmake, make) — ~500 new prefix entries, new `network_write.json` for publish/deploy, `_classify_global_install()` flag classifier for `-g`/`--global`/`--system`/`--target`/`--root` escalation (FD-019)
 - Classify shadow warnings — `nah status` annotates user classify entries that shadow finer-grained built-in rules (with count) or Phase 2 flag classifiers. `nah types` shows override notes under affected action types with `nah forget` remediation hints. Global scope only — project classify entries are Phase 3 and cannot shadow builtins. (FD-062)
