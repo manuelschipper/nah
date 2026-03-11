@@ -1,0 +1,64 @@
+site_name: nah
+site_description: Context-aware safety guard for Claude Code. A permission system you control.
+site_url: https://manuelschipper.github.io/nah
+repo_url: https://github.com/manuelschipper/nah
+repo_name: manuelschipper/nah
+docs_dir: site
+site_dir: _build
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - How it works: how-it-works.md
+  - Configuration:
+    - Overview: configuration/index.md
+    - Action types: configuration/actions.md
+    - Profiles: configuration/profiles.md
+    - Safety lists: configuration/safety-lists.md
+    - Sensitive paths: configuration/sensitive-paths.md
+    - Content inspection: configuration/content.md
+    - LLM layer: configuration/llm.md
+    - Database targets: configuration/database.md
+  - CLI reference: cli.md
+  - Guides:
+    - Getting started: guides/getting-started.md
+    - Airgapped environments: guides/airgapped.md
+    - Custom taxonomy: guides/custom-taxonomy.md
