@@ -9,7 +9,7 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
           │
           ▼
   ┌───────────────┐
-  │  nah hook      │  detect agent, normalize tool name
+  │  nah hook     │  detect agent, normalize tool name
   └───────┬───────┘
           │
           ▼
