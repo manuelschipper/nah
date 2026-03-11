@@ -306,12 +306,58 @@ def _unwrap_shell(
         return _obfuscated_result(tokens, "unparseable inner command", user_actions)
 
     if inner_tokens:
-        inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
-        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
-                               builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile)
+        return _classify_inner(inner_tokens, stage, depth + 1,
+                               global_table=global_table, builtin_table=builtin_table,
+                               project_table=project_table, user_actions=user_actions,
+                               profile=profile)
 
     return None
+
+
+def _classify_inner(
+    inner_tokens: list[str],
+    outer_stage: Stage,
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    profile: str = "full",
+) -> StageResult:
+    """Classify unwrapped inner tokens, decomposing if operators present."""
+    kw = dict(global_table=global_table, builtin_table=builtin_table,
+              project_table=project_table, user_actions=user_actions, profile=profile)
+
+    # Decompose inner tokens into stages
+    inner_stages = _decompose(inner_tokens)
+
+    if len(inner_stages) <= 1:
+        # Simple case — single command, no operators
+        s = inner_stages[0] if inner_stages else Stage(tokens=inner_tokens)
+        return _classify_stage(s, depth, **kw)
+
+    # Multiple stages — classify each, check composition, aggregate
+    inner_results = []
+    for s in inner_stages:
+        sr = _classify_stage(s, depth, **kw)
+        inner_results.append(sr)
+
+    # Check pipe composition rules on inner pipeline
+    comp_decision, comp_reason, comp_rule = _check_composition(inner_results, inner_stages)
+    if comp_decision:
+        sr = StageResult(tokens=outer_stage.tokens)
+        sr.action_type = inner_results[0].action_type
+        sr.decision = comp_decision
+        sr.reason = f"unwrapped: {comp_reason}"
+        return sr
+
+    # No composition trigger — return most restrictive stage
+    worst = inner_results[0]
+    for sr in inner_results[1:]:
+        if taxonomy.STRICTNESS.get(sr.decision, 2) > taxonomy.STRICTNESS.get(worst.decision, 2):
+            worst = sr
+    return worst
 
 
 def _apply_policy(sr: StageResult) -> None:
