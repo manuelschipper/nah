@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 
 from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
 
+class ConfigError(Exception):
+    """Raised when a config file exists but fails to parse."""
+
 _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah")
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
@@ -80,8 +83,7 @@ def _load_yaml_file(path: str) -> dict:
             data = yaml.safe_load(f)
         return data if isinstance(data, dict) else {}
     except Exception as e:
-        sys.stderr.write(f"nah: config parse error in {path}: {e}\n")
-        return {}
+        raise ConfigError(f"config parse error in {path}: {e}") from e
 
 
 def _validate_dict(val) -> dict:

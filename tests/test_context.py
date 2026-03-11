@@ -157,11 +157,12 @@ class TestExtractHost:
 class TestNetworkWriteContext:
     """FD-022: network_write context resolution."""
 
-    def test_localhost_allow(self):
+    def test_localhost_ask(self):
+        """network_write to localhost asks — exfiltration risk (FD-071)."""
         decision, _ = resolve_network_context(
             ["curl", "-d", "{}", "http://localhost:3000"], "network_write"
         )
-        assert decision == "allow"
+        assert decision == "ask"
 
     def test_known_host_ask(self):
         decision, _ = resolve_network_context(

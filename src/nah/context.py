@@ -134,8 +134,10 @@ def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWO
     # Strip port if present
     host_no_port = host.split(":")[0] if ":" in host else host
 
-    # Localhost — allowed for both reads and writes
+    # Localhost — allowed for reads, ask for writes (exfiltration risk)
     if host_no_port in _LOCALHOST:
+        if action_type == taxonomy.NETWORK_WRITE:
+            return taxonomy.ASK, f"network_write to localhost: {host}"
         return taxonomy.ALLOW, f"localhost: {host}"
 
     # Network writes always ask (known hosts only trusted for reads)

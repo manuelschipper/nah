@@ -629,9 +629,10 @@ class TestFD022Regressions:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "network_write"
 
-    def test_curl_d_localhost_allow(self, project_root):
+    def test_curl_d_localhost_ask(self, project_root):
+        """network_write to localhost asks — exfiltration risk (FD-071)."""
         r = classify_command("curl -d data http://localhost:3000")
-        assert r.final_decision == "allow"
+        assert r.final_decision == "ask"
 
     def test_curl_json_github_ask(self, project_root):
         r = classify_command('curl --json \'{"k":"v"}\' https://github.com')
