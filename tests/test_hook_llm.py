@@ -3,11 +3,9 @@
 import json
 from unittest.mock import patch, MagicMock
 
-import pytest
-
-from nah import agents, config, hook, taxonomy
+from nah import config, hook, taxonomy
 from nah.config import NahConfig
-from nah.hook import handle_bash, _is_llm_eligible, _resolve_ask_for_agent
+from nah.hook import handle_bash, _is_llm_eligible
 from nah.bash import ClassifyResult, StageResult
 
 
@@ -169,82 +167,6 @@ class TestHandleBashLlm:
         assert result["decision"] == "ask"
 
 
-# -- Cursor ask escalation tests --
-
-
-class TestCursorAskEscalation:
-    """Cursor ask→deny/allow escalation via LLM or fallback."""
-
-    def test_cursor_ask_no_llm_defaults_deny(self):
-        """No LLM configured → deny (safe default)."""
-        config._cached_config = NahConfig()  # no LLM
-        decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
-            "Bash",
-        )
-        assert decision["decision"] == taxonomy.BLOCK
-        assert "lang_exec" in decision.get("reason", "")
-        assert resolved_by == "ask_fallback"
-
-    @patch("nah.llm.urllib.request.urlopen")
-    def test_cursor_ask_llm_allows(self, mock_urlopen):
-        """LLM says allow → Cursor gets allow."""
-        _set_llm_config(_ollama_config())
-        mock_urlopen.return_value = _mock_ollama_response("allow", "safe op").return_value
-
-        decision, resolved_by, llm_meta = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
-            "Bash",
-        )
-        assert decision["decision"] == "allow"
-        assert resolved_by == "llm"
-        assert llm_meta.get("llm_provider") == "ollama"
-
-    @patch("nah.llm.urllib.request.urlopen")
-    def test_cursor_ask_llm_blocks(self, mock_urlopen):
-        """LLM says block → Cursor gets block."""
-        _set_llm_config(_ollama_config())
-        mock_urlopen.return_value = _mock_ollama_response("block", "dangerous").return_value
-
-        decision, resolved_by, llm_meta = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
-            "Bash",
-        )
-        assert decision["decision"] == "block"
-        assert "LLM" in decision.get("reason", "")
-        assert resolved_by == "llm"
-
-    @patch("nah.llm.urllib.request.urlopen")
-    def test_cursor_ask_llm_uncertain_defaults_deny(self, mock_urlopen):
-        """LLM uncertain → deny (fallback)."""
-        _set_llm_config(_ollama_config())
-        mock_urlopen.return_value = _mock_ollama_response("uncertain", "not sure").return_value
-
-        decision, _, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
-            "Bash",
-        )
-        # LLM returned None (uncertain), so falls back to ask_fallback=deny
-        assert decision["decision"] == taxonomy.BLOCK
-
-    def test_cursor_ask_fallback_allow(self):
-        """ask_fallback: allow → Cursor gets allow when no LLM."""
-        config._cached_config = NahConfig(ask_fallback="allow")
-        decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
-            "Bash",
-        )
-        assert decision["decision"] == taxonomy.ALLOW
-        assert resolved_by == "ask_fallback"
-
-    def test_claude_ask_unchanged(self, project_root):
-        """Claude Code ask decisions are NOT escalated (supports_ask=True)."""
-        assert agents.supports_ask("claude") is True
-        # So _resolve_ask_for_agent is never called for Claude — test the gate
-        result = handle_bash({"command": "somethingunknown123"})
-        assert result["decision"] == "ask"  # stays ask, not escalated
-
-
 # -- LLM max_decision cap tests --
 
 
@@ -341,35 +263,6 @@ class TestTranscriptPassthrough:
         assert result["decision"] == "allow"
         assert len(captured) == 1
         assert "clean the build" in captured[0]["prompt"]
-
-    @patch("nah.llm.urllib.request.urlopen")
-    def test_resolve_ask_receives_transcript(self, mock_urlopen, tmp_path):
-        """_resolve_ask_for_agent reads _transcript_path and includes context."""
-        _set_llm_config(_ollama_config())
-
-        f = tmp_path / "t.jsonl"
-        f.write_text(json.dumps(_user_msg("set up SSH")) + "\n")
-        hook._transcript_path = str(f)
-
-        captured = []
-
-        def capture(req, **kw):
-            captured.append(json.loads(req.data.decode()))
-            resp = MagicMock()
-            resp.read.return_value = json.dumps({
-                "response": '{"decision": "allow", "reasoning": "ssh setup"}'
-            }).encode()
-            return resp
-
-        mock_urlopen.side_effect = capture
-
-        decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "reason": "Write: sensitive path"},
-            "Write",
-        )
-        assert decision["decision"] == "allow"
-        assert len(captured) == 1
-        assert "set up SSH" in captured[0]["prompt"]
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_no_transcript_no_context(self, mock_urlopen, project_root):
