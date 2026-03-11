@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI now accepts custom action types with confirmation prompt — typos still caught via fuzzy matching, intentional custom types confirmed interactively, non-interactive input defaults to deny (FD-047)
 - CLI warns before overwriting config files that contain YAML comments, since `yaml.dump` strips them (FD-047)
 - MCP tool support — `mcp__.*` regex matcher guards all MCP tool calls, project classify skipped for supply-chain safety, MCP-specific log redaction (FD-024)
+- Flag-dependent classifiers for `curl`, `wget`, and httpie (`http`/`https`/`xh`/`xhs`) — POST/PUT/DELETE/PATCH detected as `network_write` (context: localhost→allow, everything else→ask), GET/download as `network_outbound`. Combined short flags (`-sXPOST`) handled correctly. (FD-022)
+- `network_diagnostic` action type (allow) for read-only network probes: ping, dig, nslookup, host, whois, traceroute, mtr (FD-022)
+- Local network info tools (`netstat`, `ss`, `lsof`) classified as `filesystem_read` (allow), `netcat` and `openssl s_client` added to `network_outbound` (FD-022)
+- Pipe composition rules (exfiltration, RCE) extended to cover `network_write` in addition to `network_outbound` (FD-022)
 
 ### Fixed
 
