@@ -6,6 +6,8 @@ from nah import taxonomy
 from nah.taxonomy import (
     build_user_table,
     classify_tokens,
+    find_flag_classifier_shadows,
+    find_table_shadows,
     get_builtin_table,
     get_policy,
     is_decode_stage,
@@ -1641,3 +1643,80 @@ class TestDecodeCommandsConfigurable:
         self._setup_merge(NahConfig(profile="none", decode_commands=["uudecode"]))
         assert is_decode_stage(["uudecode", "file"])
         assert not is_decode_stage(["base64", "-d"])
+
+
+# --- Shadow detection (FD-062) ---
+
+
+class TestFindTableShadows:
+    """Detect user classify entries that shadow finer-grained builtin entries."""
+
+    def test_short_prefix_shadows_longer(self):
+        user = [(("docker",), "container_destructive")]
+        builtin = [
+            (("docker", "rm"), "container_destructive"),
+            (("docker", "rmi"), "container_destructive"),
+            (("docker", "system", "prune"), "container_destructive"),
+        ]
+        result = find_table_shadows(user, builtin)
+        assert ("docker",) in result
+        assert len(result[("docker",)]) == 3
+
+    def test_no_overlap_empty(self):
+        user = [(("mycmd",), "lang_exec")]
+        builtin = [(("docker", "rm"), "container_destructive")]
+        assert find_table_shadows(user, builtin) == {}
+
+    def test_exact_match_included(self):
+        user = [(("docker", "rm"), "container_destructive")]
+        builtin = [(("docker", "rm"), "container_destructive")]
+        result = find_table_shadows(user, builtin)
+        assert result[("docker", "rm")] == [("docker", "rm")]
+
+    def test_user_longer_than_builtin_no_shadow(self):
+        user = [(("docker", "rm", "-f"), "container_destructive")]
+        builtin = [(("docker",), "container_destructive")]
+        assert find_table_shadows(user, builtin) == {}
+
+    def test_empty_tables(self):
+        assert find_table_shadows([], []) == {}
+        assert find_table_shadows([(("x",), "t")], []) == {}
+        assert find_table_shadows([], [(("x",), "t")]) == {}
+
+    def test_against_real_builtin_table(self):
+        """User 'docker' should shadow multiple real builtin docker entries."""
+        user = [(("docker",), "container_destructive")]
+        builtin = get_builtin_table("full")
+        result = find_table_shadows(user, builtin)
+        assert ("docker",) in result
+        assert len(result[("docker",)]) >= 2
+
+
+class TestFindFlagClassifierShadows:
+    """Detect user classify entries that shadow Phase 2 flag classifiers."""
+
+    def test_curl_detected(self):
+        user = [(("curl",), "network_outbound")]
+        assert ("curl",) in find_flag_classifier_shadows(user)
+
+    def test_git_detected(self):
+        user = [(("git",), "git_safe")]
+        assert ("git",) in find_flag_classifier_shadows(user)
+
+    def test_find_detected(self):
+        user = [(("find",), "filesystem_read")]
+        assert ("find",) in find_flag_classifier_shadows(user)
+
+    def test_non_flag_cmd_not_detected(self):
+        user = [(("docker",), "container_destructive")]
+        assert find_flag_classifier_shadows(user) == []
+
+    def test_multi_token_not_detected(self):
+        user = [(("curl", "-d"), "network_write")]
+        assert find_flag_classifier_shadows(user) == []
+
+    def test_all_flag_cmds(self):
+        from nah.taxonomy import _FLAG_CLASSIFIER_CMDS
+        user = [((cmd,), "unknown") for cmd in _FLAG_CLASSIFIER_CMDS]
+        result = find_flag_classifier_shadows(user)
+        assert len(result) == len(_FLAG_CLASSIFIER_CMDS)

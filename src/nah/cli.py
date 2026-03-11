@@ -358,9 +358,9 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
             filtered = [entry for entry in pre_tool_use if not _is_nah_hook(entry)]
 
             if filtered:
-                hooks[hook_key] = filtered
+                hooks["PreToolUse"] = filtered
             else:
-                hooks.pop(hook_key, None)
+                hooks.pop("PreToolUse", None)
 
             _write_settings(settings_file, settings)
             print(f"  {agent_name}: {settings_file} (nah hooks removed)")
@@ -548,9 +548,26 @@ def cmd_status(args: argparse.Namespace) -> None:
             for path, roots in scope_rules["allow_paths"].items():
                 print(f"  allow-path: {path} → {', '.join(roots)}")
         if "classify" in scope_rules:
-            for action_type, prefixes in scope_rules["classify"].items():
+            from nah.taxonomy import (build_user_table, get_builtin_table,
+                                      find_table_shadows, find_flag_classifier_shadows)
+            from nah.config import get_config
+            cfg = get_config()
+            user_classify = scope_rules["classify"]
+            user_table = build_user_table(user_classify)
+            builtin_table = get_builtin_table(cfg.profile) if cfg.profile != "none" else []
+            table_shadows = find_table_shadows(user_table, builtin_table)
+            flag_shadows = set(find_flag_classifier_shadows(user_table))
+            for action_type, prefixes in user_classify.items():
                 for prefix in prefixes:
-                    print(f"  classify: '{prefix}' → {action_type}")
+                    prefix_tuple = tuple(prefix.split())
+                    annotations = []
+                    if prefix_tuple in table_shadows:
+                        count = len(table_shadows[prefix_tuple])
+                        annotations.append(f"shadows {count} built-in rule{'s' if count != 1 else ''}")
+                    if prefix_tuple in flag_shadows:
+                        annotations.append("shadows flag classifier")
+                    suffix = f"  ({'; '.join(annotations)})" if annotations else ""
+                    print(f"  classify: '{prefix}' → {action_type}{suffix}")
         if "known_registries" in scope_rules:
             kr = scope_rules["known_registries"]
             if isinstance(kr, list):
@@ -601,11 +618,47 @@ def cmd_forget(args: argparse.Namespace) -> None:
 
 def cmd_types(args: argparse.Namespace) -> None:
     """List all action types."""
-    from nah.taxonomy import load_type_descriptions, get_policy
+    from nah.taxonomy import (load_type_descriptions, get_policy, build_user_table,
+                              get_builtin_table, find_table_shadows,
+                              find_flag_classifier_shadows)
+    from nah.remember import list_rules
+    from nah.config import get_config
+
     descriptions = load_type_descriptions()
+    cfg = get_config()
+
+    # Gather shadow data from user classify entries
+    override_notes: dict[str, list[str]] = {}
+    try:
+        rules = list_rules()
+    except RuntimeError:
+        rules = {}
+    builtin_table = get_builtin_table(cfg.profile) if cfg.profile != "none" else []
+    for scope in ("global", "project"):
+        user_classify = rules.get(scope, {}).get("classify", {})
+        if not user_classify:
+            continue
+        user_table = build_user_table(user_classify)
+        table_shadows = find_table_shadows(user_table, builtin_table)
+        flag_shadows = set(find_flag_classifier_shadows(user_table))
+        for action_type, prefixes in user_classify.items():
+            for prefix in prefixes:
+                prefix_tuple = tuple(prefix.split())
+                parts = []
+                if prefix_tuple in table_shadows:
+                    count = len(table_shadows[prefix_tuple])
+                    parts.append(f"overrides {count} built-in rule{'s' if count != 1 else ''}")
+                if prefix_tuple in flag_shadows:
+                    parts.append("overrides flag classifier")
+                if parts:
+                    note = f"'{prefix}' {'; '.join(parts)} (nah forget {prefix} to use built-in)"
+                    override_notes.setdefault(action_type, []).append(note)
+
     for name, desc in descriptions.items():
         policy = get_policy(name)
         print(f"  {name:<25} {policy:<8} {desc}")
+        for note in override_notes.get(name, []):
+            print(f"    \u21b3 {note}")
 
 
 def cmd_log(args: argparse.Namespace) -> None:

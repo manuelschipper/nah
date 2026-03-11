@@ -150,3 +150,59 @@ class TestConfirmHelper:
              patch("builtins.input", side_effect=EOFError):
             mock_stdin.isatty.return_value = True
             assert _confirm("test?") is False
+
+
+# --- Shadow warnings (FD-062) ---
+
+
+class TestCmdStatusShadowAnnotation:
+    """Shadow annotations in nah status output."""
+
+    def test_table_shadow(self, patched_paths, global_cfg, capsys):
+        os.makedirs(os.path.dirname(global_cfg), exist_ok=True)
+        with open(global_cfg, "w") as f:
+            f.write("classify:\n  container_destructive:\n    - docker\n")
+        from nah.cli import cmd_status
+        cmd_status(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "shadows" in out
+        assert "built-in rule" in out
+
+    def test_flag_classifier_shadow(self, patched_paths, global_cfg, capsys):
+        os.makedirs(os.path.dirname(global_cfg), exist_ok=True)
+        with open(global_cfg, "w") as f:
+            f.write("classify:\n  network_outbound:\n    - curl\n")
+        from nah.cli import cmd_status
+        cmd_status(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "flag classifier" in out
+
+    def test_no_shadow_for_unique_entry(self, patched_paths, global_cfg, capsys):
+        os.makedirs(os.path.dirname(global_cfg), exist_ok=True)
+        with open(global_cfg, "w") as f:
+            f.write("classify:\n  lang_exec:\n    - mycustomcmd\n")
+        from nah.cli import cmd_status
+        cmd_status(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "mycustomcmd" in out
+        assert "shadow" not in out
+
+
+class TestCmdTypesShadowAnnotation:
+    """Override notes in nah types output."""
+
+    def test_override_note(self, patched_paths, global_cfg, capsys):
+        os.makedirs(os.path.dirname(global_cfg), exist_ok=True)
+        with open(global_cfg, "w") as f:
+            f.write("classify:\n  container_destructive:\n    - docker\n")
+        from nah.cli import cmd_types
+        cmd_types(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "overrides" in out
+        assert "nah forget docker" in out
+
+    def test_no_override_without_classify(self, patched_paths, global_cfg, capsys):
+        from nah.cli import cmd_types
+        cmd_types(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "overrides" not in out

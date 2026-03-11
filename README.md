@@ -42,6 +42,9 @@ nah install
 
 You are up and running. To uninstall: `nah uninstall && pip uninstall nah`.
 
+> **Don't use `--dangerously-skip-permissions`.**
+> In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) — commands execute before nah can block them. Use Claude Code's permission system (`acceptEdits` or default mode) as the first layer and nah as defense-in-depth on top. They're complementary, not substitutes.
+
 Also supports Snowflake's Cortex Code:
 
 ```bash
@@ -133,7 +136,7 @@ classify:
     - "mysql -e DROP"
 ```
 
-nah classifies commands by **action type**, not by command name. Run `nah types` to see all 17 built-in action types with their default policies.
+nah classifies commands by **action type**, not by command name. Run `nah types` to see all 20 built-in action types with their default policies.
 
 ### Action types
 
@@ -198,6 +201,7 @@ nah test --tool Write ./out.txt      # test Write with content inspection
 nah types                        # list all action types with default policies
 nah log                          # show recent hook decisions
 nah log --blocks                 # show only blocked decisions
+nah log --asks                   # show only ask decisions
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable output
 ```
