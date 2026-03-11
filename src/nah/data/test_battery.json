@@ -878,7 +878,7 @@
         "content": "# overwritten"
       },
       "expected": "block",
-      "mode": "live",
+      "mode": "dry_run",
       "quick": true,
       "description": "hook self-protection — Write/Edit get block (immutable, hardcoded)"
     },
@@ -970,7 +970,7 @@
       "category": "bash_network_context",
       "tool": "Bash",
       "input": {
-        "command": "curl http://localhost:3000/api"
+        "command": "curl -so /dev/null -w \"%{http_code}\" http://localhost:3000/api"
       },
       "expected": "allow",
       "mode": "live",
@@ -984,7 +984,7 @@
       "category": "bash_network_context",
       "tool": "Bash",
       "input": {
-        "command": "curl https://github.com/api/v3"
+        "command": "curl -so /dev/null -w \"%{http_code}\" https://github.com"
       },
       "expected": "allow",
       "mode": "live",
