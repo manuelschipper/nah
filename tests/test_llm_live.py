@@ -92,12 +92,13 @@ class TestBuildPromptLive:
     def test_prompt_structure(self):
         result = _make_unknown_result("terraform destroy --auto-approve")
         prompt = _build_prompt(result)
-        assert "terraform destroy --auto-approve" in prompt
-        assert "security classifier" in prompt
-        assert '"allow"' in prompt
-        assert '"block"' in prompt
-        assert '"uncertain"' in prompt
-        print(f"\n--- Prompt ---\n{prompt}")
+        assert "terraform destroy --auto-approve" in prompt.user
+        assert "security classifier" in prompt.system
+        assert "allow" in prompt.system
+        assert "block" in prompt.system
+        assert "uncertain" in prompt.system
+        full = f"{prompt.system}\n\n{prompt.user}"
+        print(f"\n--- Prompt ---\n{full}")
 
 
 # -- Ollama tests --
