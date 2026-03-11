@@ -331,3 +331,138 @@ class TestSensitiveBasenamesConfigurable:
         names = {e[0] for e in paths._SENSITIVE_BASENAMES}
         assert ".env" in names
         assert ".env.local" in names
+
+
+# --- FD-075: Config self-protection ---
+
+
+class TestIsNahConfigPath:
+    """FD-075: is_nah_config_path() detects ~/.config/nah/ paths."""
+
+    def test_exact_config_dir(self):
+        resolved = os.path.realpath(os.path.join(os.path.expanduser("~"), ".config", "nah"))
+        assert paths.is_nah_config_path(resolved) is True
+
+    def test_child_of_config_dir(self):
+        resolved = os.path.realpath(os.path.join(os.path.expanduser("~"), ".config", "nah", "config.yaml"))
+        assert paths.is_nah_config_path(resolved) is True
+
+    def test_not_config_dir(self):
+        assert paths.is_nah_config_path("/tmp/something") is False
+
+    def test_config_sibling_not_matched(self):
+        """~/.config/other is not nah config."""
+        resolved = os.path.realpath(os.path.join(os.path.expanduser("~"), ".config", "other"))
+        assert paths.is_nah_config_path(resolved) is False
+
+    def test_prefix_collision(self):
+        """~/.config/nah-evil should not match (prefix without separator)."""
+        resolved = os.path.realpath(os.path.join(os.path.expanduser("~"), ".config", "nah-evil"))
+        assert paths.is_nah_config_path(resolved) is False
+
+    def test_empty(self):
+        assert paths.is_nah_config_path("") is False
+
+
+class TestConfigSelfProtection:
+    """FD-075: check_path and check_path_basic protect ~/.config/nah/."""
+
+    def setup_method(self):
+        paths._sensitive_paths_merged = True
+
+    def test_check_path_basic_returns_ask(self):
+        resolved = paths.resolve_path("~/.config/nah/config.yaml")
+        result = paths.check_path_basic(resolved)
+        assert result is not None
+        decision, reason = result
+        assert decision == "ask"
+        assert "nah config" in reason
+
+    def test_check_path_write_ask(self):
+        result = paths.check_path("Write", "~/.config/nah/config.yaml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "nah config" in result["reason"]
+        assert "guard self-protection" in result["reason"]
+
+    def test_check_path_edit_ask(self):
+        result = paths.check_path("Edit", "~/.config/nah/config.yaml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "nah config" in result["reason"]
+
+    def test_check_path_read_ask(self):
+        result = paths.check_path("Read", "~/.config/nah/config.yaml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "nah config" in result["reason"]
+
+    def test_not_block_like_hook(self):
+        """Config path gets ASK for Write/Edit, NOT BLOCK (unlike hook path)."""
+        write_result = paths.check_path("Write", "~/.config/nah/config.yaml")
+        hook_result = paths.check_path("Write", "~/.claude/hooks/nah_guard.py")
+        assert write_result["decision"] == "ask"
+        assert hook_result["decision"] == "block"
+
+    def test_survives_profile_none(self):
+        """Config path protection is hardcoded — not cleared by profile: none."""
+        # Simulate profile: none clearing _SENSITIVE_DIRS
+        paths._SENSITIVE_DIRS.clear()
+        paths._SENSITIVE_BASENAMES.clear()
+
+        # Config path should STILL be caught (hardcoded, not in _SENSITIVE_DIRS)
+        result = paths.check_path("Write", "~/.config/nah/config.yaml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "nah config" in result["reason"]
+
+        # Contrast: a regular sensitive path is gone
+        result_ssh = paths.check_path("Read", "~/.ssh/id_rsa")
+        # Only check_path_basic would catch it, but _SENSITIVE_DIRS is cleared
+        # Hook check doesn't match, nah config check doesn't match, is_sensitive returns False
+        assert result_ssh is None
+
+    def test_subdirectory_protected(self):
+        """Subdirectories of ~/.config/nah/ are also protected."""
+        result = paths.check_path("Write", "~/.config/nah/subdir/file.txt")
+        assert result is not None
+        assert result["decision"] == "ask"
+
+    def test_nah_log_protected(self):
+        """Log file in config dir is protected."""
+        result = paths.check_path("Write", "~/.config/nah/nah.log")
+        assert result is not None
+        assert result["decision"] == "ask"
+
+
+class TestSettingsJsonProtection:
+    """FD-075: ~/.claude/settings.json in _SENSITIVE_DIRS."""
+
+    def test_settings_json_in_defaults(self):
+        """settings.json is in the default sensitive dirs."""
+        resolved = paths.resolve_path("~/.claude/settings.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert policy == "ask"
+        assert "settings.json" in pattern
+
+    def test_settings_local_json_in_defaults(self):
+        """settings.local.json is in the default sensitive dirs."""
+        resolved = paths.resolve_path("~/.claude/settings.local.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert policy == "ask"
+        assert "settings.local.json" in pattern
+
+    def test_check_path_catches_settings(self):
+        result = paths.check_path("Write", "~/.claude/settings.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "sensitive path" in result["reason"]
+
+    def test_settings_cleared_by_profile_none(self):
+        """settings.json protection IS cleared by profile: none (by design)."""
+        paths._SENSITIVE_DIRS.clear()
+        resolved = paths.resolve_path("~/.claude/settings.json")
+        matched, _, _ = paths.is_sensitive(resolved)
+        assert matched is False

@@ -8,6 +8,7 @@ from nah import taxonomy
 
 _HOME = os.path.expanduser("~")
 _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
+_NAH_CONFIG_DIR = os.path.realpath(os.path.join(_HOME, ".config", "nah"))
 
 # Sensitive paths: (resolved_dir, display_name, policy)
 # Hook path (~/.claude/hooks) is NOT in this list — checked separately via is_hook_path().
@@ -19,6 +20,8 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".netrc")), "~/.netrc", "block"),
     (os.path.realpath(os.path.join(_HOME, ".aws")), "~/.aws", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gcloud")), "~/.config/gcloud", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".claude", "settings.json")), "~/.claude/settings.json", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".claude", "settings.local.json")), "~/.claude/settings.local.json", "ask"),
 ]
 
 # Basename patterns: (basename, display_name, policy)
@@ -62,6 +65,13 @@ def is_hook_path(resolved: str) -> bool:
     return resolved == _HOOKS_DIR or resolved.startswith(_HOOKS_DIR + os.sep)
 
 
+def is_nah_config_path(resolved: str) -> bool:
+    """Check if path targets ~/.config/nah/ (self-protection)."""
+    if not resolved:
+        return False
+    return resolved == _NAH_CONFIG_DIR or resolved.startswith(_NAH_CONFIG_DIR + os.sep)
+
+
 def is_sensitive(resolved: str) -> tuple[bool, str, str]:
     """Check path against sensitive paths list.
 
@@ -86,9 +96,11 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
 
 
 def check_path_basic(resolved: str) -> tuple[str, str] | None:
-    """Core path check: hook → sensitive. Returns (decision, reason) or None."""
+    """Core path check: hook → nah config → sensitive. Returns (decision, reason) or None."""
     if is_hook_path(resolved):
         return (taxonomy.ASK, f"targets hook directory: {friendly_path(resolved)}")
+    if is_nah_config_path(resolved):
+        return (taxonomy.ASK, f"targets nah config: {friendly_path(resolved)}")
     matched, pattern, policy = is_sensitive(resolved)
     if matched:
         return (policy, f"targets sensitive path: {pattern}")
@@ -189,6 +201,13 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         return {
             "decision": taxonomy.ASK,
             "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/",
+        }
+
+    # Config self-protection — ASK for all tools (users legitimately edit config)
+    if is_nah_config_path(resolved):
+        return {
+            "decision": taxonomy.ASK,
+            "reason": f"{tool_name} targets nah config: ~/.config/nah/ (guard self-protection)",
         }
 
     # Core check: sensitive paths
