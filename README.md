@@ -12,8 +12,7 @@
   <a href="#what-it-guards">What it guards</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#configure">Configure</a> &bull;
-  <a href="#cli">CLI</a> &bull;
-  <a href="#auto-mode">Works with Auto Mode</a>
+  <a href="#cli">CLI</a>
 </p>
 
 ---
@@ -41,7 +40,7 @@ pip install nah
 nah install
 ```
 
-You are up and running with sensible defaults.
+You are up and running.
 
 Also supports Snowflake's Cortex Code:
 
@@ -67,7 +66,7 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 
 ## How it works
 
-Every tool call hits a deterministic structural classifier first. Under 5ms. Zero tokens.
+Every tool call hits a deterministic structural classifier first. Milliseconds, zero tokens.
 
 ```
 Claude: Edit → ~/.claude/hooks/nah_guard.py
@@ -85,7 +84,7 @@ Claude: Write → config.py containing "-----BEGIN PRIVATE KEY-----"
 
 **`nah.`** = blocked. **`nah?`** = asks for your confirmation. Everything else flows through silently.
 
-### Context-aware, not pattern-matching
+### Context-aware
 
 The same command gets different decisions based on context:
 
@@ -98,10 +97,10 @@ The same command gets different decisions based on context:
 
 ### Optional LLM layer
 
-For commands the structural classifier can't resolve (the ambiguous 10-20%), nah can optionally consult an LLM:
+For commands the classifier can't resolve, nah can optionally consult an LLM:
 
 ```
-Tool call → nah (deterministic, <5ms) → LLM (optional) → Claude Code permissions → execute
+Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions → execute
 ```
 
 The deterministic layer always runs first — the LLM only resolves leftover "ask" decisions. If no LLM is configured or available, the decision stays "ask" and the user is prompted.
@@ -134,7 +133,7 @@ classify:
     - "mysql -e DROP"
 ```
 
-nah classifies commands by **action type** (what kind of thing), not by command name (which command). Run `nah types` to see all 17 built-in action types with their default policies.
+nah classifies commands by **action type**, not by command name. Run `nah types` to see all 17 built-in action types with their default policies.
 
 ### Action types
 
@@ -217,32 +216,13 @@ nah status                       # show all custom rules
 nah forget filesystem_delete     # remove a rule
 ```
 
-<h2 id="auto-mode">Works with Auto Mode</h2>
-
-Anthropic's [Auto Mode](https://www.anthropic.com/news/enabling-claude-code-to-work-more-autonomously) lets Claude reason per-action about whether to auto-approve or prompt. nah complements it — they're different layers:
-
-```
-Tool call → nah (deterministic) → Auto Mode (probabilistic) → execute
-```
-
-| | Auto Mode | nah | Both |
-|---|---|---|---|
-| **Engine** | LLM reasoning | Deterministic rules + optional LLM | Hard floor + smart fallback |
-| **Latency** | ~500ms-2s | <5ms deterministic | Faster on average |
-| **Cost** | Extra tokens/call | Zero (LLM layer optional) | Reduced |
-| **Prompt injection** | Vulnerable | Immune at the deterministic layer | Immune floor |
-| **Content inspection** | No | Yes | Yes |
-| **Your rules** | Anthropic's black box | Your YAML | You control the floor |
-
-Auto Mode makes Claude smarter about permissions. nah makes it impossible for that smartness to fail catastrophically.
-
 ## How it's different
 
 **vs. deny lists** ([safety-net](https://github.com/kenryu42/claude-code-safety-net), [destructive_command_guard](https://github.com/Dicklesworthstone/destructive_command_guard)) — Pattern matching on command strings is trivially bypassed. nah resolves paths, inspects content, guards all 6 tools + MCP, and classifies by action type instead of command name.
 
-**vs. OS sandboxes** ([nono](https://github.com/always-further/nono)) — Complementary layers. Sandboxes enforce at the OS level but can't distinguish safe from unsafe operations on allowed paths. nah adds the smart gate inside the OS fence. `pip install` on any machine with Python 3.
+**vs. OS sandboxes** ([nono](https://github.com/always-further/nono)) — Complementary layers. Sandboxes enforce at the OS level but can't distinguish safe from unsafe operations on allowed paths.
 
-**vs. built-in permissions** — Not configurable enough. You can't say "allow deletes inside my project but ask outside." nah adds the granularity that's missing.
+**vs. built-in permissions** — Not configurable enough. You can't say "allow deletes inside my project but ask outside."
 
 ## Uninstall
 
@@ -254,3 +234,6 @@ pip uninstall nah
 ## License
 
 MIT
+
+## --dangerously-skip-permissions?
+  <img src="assets/logo_hammock.png" alt="nah" width="280">
