@@ -329,7 +329,7 @@ class TestStageResultRename:
         assert sr.default_policy == taxonomy.ASK
 
 
-# --- Error default: hook returns "ask" on errors ---
+# --- Error default: hook returns "block" on errors ---
 
 
 class TestErrorDefaultBlock:

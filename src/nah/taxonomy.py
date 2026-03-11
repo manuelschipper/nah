@@ -98,7 +98,8 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 
 
 # Commands with Phase 2 flag classifiers (flag-dependent classification).
-_FLAG_CLASSIFIER_CMDS = {"find", "sed", "tar", "git", "curl", "wget",
+_FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
+                          "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
                           "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem"}
 
