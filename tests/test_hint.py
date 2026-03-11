@@ -125,7 +125,7 @@ class TestHintInOutput:
         from nah.hook import _to_hook_output
         decision = {
             "decision": taxonomy.ASK,
-            "message": "Bash: git_history_rewrite → ask",
+            "reason": "Bash: git_history_rewrite → ask",
             "_hint": "To always allow: nah allow git_history_rewrite",
         }
         output = _to_hook_output(decision, "claude")
@@ -138,7 +138,7 @@ class TestHintInOutput:
         from nah.hook import _to_hook_output
         decision = {
             "decision": taxonomy.ASK,
-            "message": "Bash: some reason",
+            "reason": "Bash: some reason",
         }
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]

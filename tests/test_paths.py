@@ -150,7 +150,7 @@ class TestCheckPath:
         result = paths.check_path("Read", "~/.claude/hooks/nah_guard.py")
         assert result is not None
         assert result["decision"] == "ask"
-        assert "hook directory" in result["message"]
+        assert "hook directory" in result["reason"]
 
     def test_hook_ask_for_bash(self):
         result = paths.check_path("Bash", "~/.claude/hooks/")

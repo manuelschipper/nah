@@ -12,12 +12,10 @@ _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
 
 
+@dataclass
 class LLMResult:
-    __slots__ = ("decision", "reasoning")
-
-    def __init__(self, decision: str, reasoning: str = ""):
-        self.decision = decision    # "allow", "block", or "uncertain"
-        self.reasoning = reasoning
+    decision: str      # "allow", "block", or "uncertain"
+    reasoning: str = ""
 
 
 @dataclass
@@ -63,6 +61,20 @@ Rules:
 """
 
 
+def _resolve_cwd_context() -> tuple[str, str]:
+    """Return (cwd, inside_project) for LLM prompt context."""
+    cwd = os.getcwd()
+    inside_project = "unknown"
+    try:
+        from nah.paths import get_project_root
+        root = get_project_root()
+        if root:
+            inside_project = "yes" if cwd.startswith(root) else "no"
+    except (ImportError, OSError):
+        pass
+    return cwd, inside_project
+
+
 def _build_prompt(classify_result, transcript_context: str = "") -> str:
     """Build classification prompt from ClassifyResult."""
     driving_stage = None
@@ -75,16 +87,7 @@ def _build_prompt(classify_result, transcript_context: str = "") -> str:
 
     action_type = driving_stage.action_type if driving_stage else "unknown"
     reason = classify_result.reason
-
-    cwd = os.getcwd()
-    inside_project = "unknown"
-    try:
-        from nah.paths import get_project_root
-        root = get_project_root()
-        if root:
-            inside_project = "yes" if cwd.startswith(root) else "no"
-    except (ImportError, OSError):
-        pass
+    cwd, inside_project = _resolve_cwd_context()
 
     prompt = _PROMPT_TEMPLATE.format(
         command=classify_result.command[:500],
@@ -476,7 +479,7 @@ def _try_providers(prompt: str, llm_config: dict, label: str) -> LLMCallResult:
             call_result.reasoning = result.reasoning
             decision = {"decision": "allow"}
             if result.reasoning:
-                decision["message"] = f"{label} (LLM): {result.reasoning}"
+                decision["reason"] = f"{label} (LLM): {result.reasoning}"
             call_result.decision = decision
             return call_result
 
@@ -535,15 +538,7 @@ Rules:
 def try_llm_generic(tool_name: str, reason: str, llm_config: dict,
                     transcript_path: str = "") -> LLMCallResult:
     """Try LLM providers for a non-Bash ask decision. Returns LLMCallResult."""
-    cwd = os.getcwd()
-    inside_project = "unknown"
-    try:
-        from nah.paths import get_project_root
-        root = get_project_root()
-        if root:
-            inside_project = "yes" if cwd.startswith(root) else "no"
-    except (ImportError, OSError):
-        pass
+    cwd, inside_project = _resolve_cwd_context()
 
     prompt = _GENERIC_PROMPT.format(
         tool_name=tool_name, reason=reason[:500],

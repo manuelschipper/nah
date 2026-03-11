@@ -138,7 +138,7 @@ class TestCheckWriteContent:
             "content",
         )
         assert result["decision"] == taxonomy.ASK
-        assert "content inspection" in result["message"]
+        assert "content inspection" in result["reason"]
 
     def test_sensitive_path_blocked(self):
         result = _check_write_content("Write", {"file_path": "~/.ssh/id_rsa", "content": "x"}, "content")

@@ -154,7 +154,6 @@ AGENT_SETTINGS: dict[str, Path] = {
 INSTALLABLE_AGENTS = {CLAUDE, CORTEX}
 
 # Config format groups — determines how install reads/writes the config.
-CLAUDE_FORMAT_AGENTS = {CLAUDE, CORTEX}
 CURSOR_FORMAT_AGENTS = {CURSOR}
 
 AGENT_NAMES: dict[str, str] = {

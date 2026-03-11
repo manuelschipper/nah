@@ -15,7 +15,7 @@ class TestClassifyUnknownTool:
     def test_no_config_returns_ask(self):
         d = _classify_unknown_tool("SomeTool")
         assert d["decision"] == "ask"
-        assert "unrecognized tool" in d["message"]
+        assert "unrecognized tool" in d["reason"]
 
     def test_global_classify_allow(self):
         config._cached_config = NahConfig(
@@ -77,7 +77,7 @@ class TestClassifyUnknownTool:
         """No actions config → unknown defaults to ask."""
         d = _classify_unknown_tool("BrandNewTool")
         assert d["decision"] == "ask"
-        assert "unrecognized tool" in d["message"]
+        assert "unrecognized tool" in d["reason"]
 
     def test_unknown_actions_block(self):
         """actions.unknown: block → block unknown tools."""

@@ -21,7 +21,7 @@ def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -
     if matches:
         return {
             "decision": taxonomy.ASK,
-            "message": format_content_message(tool_name, matches),
+            "reason": format_content_message(tool_name, matches),
             "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
             "_hint": "(content varies per call — cannot be remembered)",
         }
@@ -66,7 +66,7 @@ def handle_grep(tool_input: dict) -> dict:
             if resolved_path and not (resolved_path == real_root or resolved_path.startswith(real_root + os.sep)):
                 return {
                     "decision": taxonomy.ASK,
-                    "message": "Grep: credential search pattern outside project root",
+                    "reason": "Grep: credential search pattern outside project root",
                     "_hint": "(content varies per call — cannot be remembered)",
                 }
         else:
@@ -74,7 +74,7 @@ def handle_grep(tool_input: dict) -> dict:
             if raw_path:
                 return {
                     "decision": taxonomy.ASK,
-                    "message": "Grep: credential search pattern (no project root)",
+                    "reason": "Grep: credential search pattern (no project root)",
                     "_hint": "(content varies per call — cannot be remembered)",
                 }
 
@@ -105,6 +105,28 @@ def _is_llm_eligible(result) -> bool:
     return False
 
 
+def _build_llm_meta(llm_call, cfg) -> dict:
+    """Build LLM metadata dict from an LLMCallResult."""
+    llm_meta: dict = {}
+    if llm_call.cascade:
+        llm_meta = {
+            "llm_provider": llm_call.provider,
+            "llm_model": llm_call.model,
+            "llm_latency_ms": llm_call.latency_ms,
+            "llm_reasoning": llm_call.reasoning,
+            "llm_cascade": [
+                {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms}
+                for a in llm_call.cascade
+            ],
+        }
+    try:
+        if cfg.log and cfg.log.get("llm_prompt", False):
+            llm_meta["llm_prompt"] = llm_call.prompt
+    except Exception:
+        pass
+    return llm_meta
+
+
 def _try_llm(classify_result) -> tuple[dict | None, dict]:
     """Attempt LLM resolution for bash ClassifyResult. Returns (decision, llm_meta)."""
     try:
@@ -114,24 +136,7 @@ def _try_llm(classify_result) -> tuple[dict | None, dict]:
             return None, {}
         from nah.llm import try_llm
         llm_call = try_llm(classify_result, cfg.llm, _transcript_path)
-        llm_meta = {}
-        if llm_call.cascade:
-            llm_meta = {
-                "llm_provider": llm_call.provider,
-                "llm_model": llm_call.model,
-                "llm_latency_ms": llm_call.latency_ms,
-                "llm_reasoning": llm_call.reasoning,
-                "llm_cascade": [
-                    {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms}
-                    for a in llm_call.cascade
-                ],
-            }
-        try:
-            if cfg.log and cfg.log.get("llm_prompt", False):
-                llm_meta["llm_prompt"] = llm_call.prompt
-        except Exception:
-            pass
-        return llm_call.decision, llm_meta
+        return llm_call.decision, _build_llm_meta(llm_call, cfg)
     except ImportError:
         return None, {}
     except Exception as exc:
@@ -147,29 +152,13 @@ def _resolve_ask_for_agent(decision: dict, tool_name: str) -> tuple[dict, str, d
     """
     from nah.config import get_config
     cfg = get_config()
-    reason = decision.get("reason", decision.get("message", ""))
+    reason = decision.get("reason", "")
 
     if cfg.llm and cfg.llm.get("enabled", False):
         try:
             from nah.llm import try_llm_generic
             llm_call = try_llm_generic(tool_name, reason, cfg.llm, _transcript_path)
-            llm_meta = {}
-            if llm_call.cascade:
-                llm_meta = {
-                    "llm_provider": llm_call.provider,
-                    "llm_model": llm_call.model,
-                    "llm_latency_ms": llm_call.latency_ms,
-                    "llm_reasoning": llm_call.reasoning,
-                    "llm_cascade": [
-                        {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms}
-                        for a in llm_call.cascade
-                    ],
-                }
-            try:
-                if cfg.log and cfg.log.get("llm_prompt", False):
-                    llm_meta["llm_prompt"] = llm_call.prompt
-            except Exception:
-                pass
+            llm_meta = _build_llm_meta(llm_call, cfg)
             if llm_call.decision is not None:
                 return llm_call.decision, "llm", llm_meta
         except ImportError:
@@ -193,9 +182,9 @@ def _cap_llm_decision(llm_decision: dict) -> dict:
         return llm_decision
     decision = llm_decision.get("decision", taxonomy.ASK)
     if taxonomy.STRICTNESS.get(decision, 2) > taxonomy.STRICTNESS.get(cap, 3):
-        original_reason = llm_decision.get("reason", llm_decision.get("message", ""))
+        original_reason = llm_decision.get("reason", "")
         llm_decision["decision"] = cap
-        llm_decision["message"] = f"LLM suggested {decision}: {original_reason}"
+        llm_decision["reason"] = f"LLM suggested {decision}: {original_reason}"
     return llm_decision
 
 
@@ -263,7 +252,7 @@ def handle_bash(tool_input: dict) -> dict:
                 llm_decision["_meta"] = meta
                 return llm_decision
 
-        decision = {"decision": taxonomy.ASK, "message": _format_bash_reason(result), "_meta": meta}
+        decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
         if hint:
             decision["_hint"] = hint
         return decision
@@ -284,7 +273,7 @@ HANDLERS = {
 def _to_hook_output(decision: dict, agent: str) -> dict:
     """Convert internal decision to agent-appropriate output format."""
     d = decision.get("decision", taxonomy.ALLOW)
-    reason = decision.get("reason", decision.get("message", ""))
+    reason = decision.get("reason", "")
     if d == taxonomy.BLOCK:
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
@@ -301,7 +290,7 @@ def _signal_kiro(decision: dict, agent: str) -> None:
         return
     d = decision.get("decision", taxonomy.ALLOW)
     if d in (taxonomy.BLOCK, taxonomy.ASK):
-        reason = decision.get("reason", decision.get("message", ""))
+        reason = decision.get("reason", "")
         if d == taxonomy.BLOCK:
             branded = f"nah. {reason}" if reason else "nah."
         else:
@@ -325,7 +314,7 @@ def _log_hook_decision(
             "tool": tool,
             "input_summary": redact_input(tool, tool_input),
             "decision": decision.get("decision", "allow"),
-            "reason": decision.get("reason", decision.get("message", "")),
+            "reason": decision.get("reason", ""),
             "agent": agent,
             "hook_version": __version__,
             "total_ms": total_ms,
@@ -345,8 +334,8 @@ def _log_hook_decision(
             pass
 
         log_decision(entry, log_config)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"nah: log error: {exc}\n")
 
 
 def _classify_unknown_tool(canonical: str) -> dict:
@@ -370,7 +359,7 @@ def _classify_unknown_tool(canonical: str) -> dict:
 
         user_actions = cfg.actions or None
     except Exception:
-        return {"decision": taxonomy.ASK, "message": f"unrecognized tool: {canonical}"}
+        return {"decision": taxonomy.ASK, "reason": f"unrecognized tool: {canonical}"}
 
     action_type = taxonomy.classify_tokens([canonical], global_table, builtin_table, project_table)
 
@@ -381,7 +370,7 @@ def _classify_unknown_tool(canonical: str) -> dict:
         reason = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
         return {"decision": taxonomy.BLOCK, "reason": reason}
     msg = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
-    return {"decision": taxonomy.ASK, "message": msg}
+    return {"decision": taxonomy.ASK, "reason": msg}
 
 
 def main():
@@ -430,7 +419,7 @@ def main():
             json.dump(agents.format_error(str(e), agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
-            _signal_kiro({"decision": taxonomy.ASK, "message": str(e)}, agent)
+            _signal_kiro({"decision": taxonomy.ASK, "reason": str(e)}, agent)
         except BrokenPipeError:
             pass
 

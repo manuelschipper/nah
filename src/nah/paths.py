@@ -152,7 +152,7 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
             }
         return {
             "decision": taxonomy.ASK,
-            "message": f"{tool_name} targets hook directory: ~/.claude/hooks/",
+            "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/",
         }
 
     # Core check: sensitive paths
@@ -172,7 +172,7 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
             }
         return {
             "decision": taxonomy.ASK,
-            "message": f"{tool_name} {reason}",
+            "reason": f"{tool_name} {reason}",
             "_hint": f"To always allow: nah allow-path {friendly_path(resolved)}",
         }
 

@@ -115,7 +115,7 @@ class TestHandleBashLlm:
 
         result = handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
-        assert "LLM suggested block" in result.get("message", "")
+        assert "LLM suggested block" in result.get("reason", "")
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_unknown_command_llm_uncertain(self, mock_urlopen, project_root):
@@ -124,7 +124,7 @@ class TestHandleBashLlm:
 
         result = handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
-        assert "message" in result
+        assert "reason" in result
 
     def test_no_llm_config_keeps_ask(self, project_root):
         """Without LLM config, unknown commands stay as ask."""
@@ -179,7 +179,7 @@ class TestCursorAskEscalation:
         """No LLM configured → deny (safe default)."""
         config._cached_config = NahConfig()  # no LLM
         decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
+            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == taxonomy.BLOCK
@@ -193,7 +193,7 @@ class TestCursorAskEscalation:
         mock_urlopen.return_value = _mock_ollama_response("allow", "safe op").return_value
 
         decision, resolved_by, llm_meta = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
+            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == "allow"
@@ -207,7 +207,7 @@ class TestCursorAskEscalation:
         mock_urlopen.return_value = _mock_ollama_response("block", "dangerous").return_value
 
         decision, resolved_by, llm_meta = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
+            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == "block"
@@ -221,7 +221,7 @@ class TestCursorAskEscalation:
         mock_urlopen.return_value = _mock_ollama_response("uncertain", "not sure").return_value
 
         decision, _, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
+            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
             "Bash",
         )
         # LLM returned None (uncertain), so falls back to ask_fallback=deny
@@ -231,7 +231,7 @@ class TestCursorAskEscalation:
         """ask_fallback: allow → Cursor gets allow when no LLM."""
         config._cached_config = NahConfig(ask_fallback="allow")
         decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Bash: lang_exec"},
+            {"decision": taxonomy.ASK, "reason": "Bash: lang_exec"},
             "Bash",
         )
         assert decision["decision"] == taxonomy.ALLOW
@@ -264,7 +264,7 @@ class TestLlmMaxDecisionCap:
 
         result = handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
-        assert "LLM suggested block" in result.get("message", "")
+        assert "LLM suggested block" in result.get("reason", "")
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_llm_allow_not_capped(self, mock_urlopen, project_root):
@@ -289,7 +289,7 @@ class TestLlmMaxDecisionCap:
 
         result = handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
-        assert "LLM suggested block" in result.get("message", "")
+        assert "LLM suggested block" in result.get("reason", "")
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_llm_block_uncapped_when_configured(self, mock_urlopen, project_root):
@@ -364,7 +364,7 @@ class TestTranscriptPassthrough:
         mock_urlopen.side_effect = capture
 
         decision, resolved_by, _ = _resolve_ask_for_agent(
-            {"decision": taxonomy.ASK, "message": "Write: sensitive path"},
+            {"decision": taxonomy.ASK, "reason": "Write: sensitive path"},
             "Write",
         )
         assert decision["decision"] == "allow"
