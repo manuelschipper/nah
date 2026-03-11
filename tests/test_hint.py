@@ -91,7 +91,6 @@ class TestContentHints:
 
     def test_write_content_hint(self, project_root):
         """Content inspection ask → hint says cannot be remembered."""
-        import os
         from nah.hook import handle_write
         # Write content with something that looks like a secret (inside project)
         target = os.path.join(project_root, "test.py")
