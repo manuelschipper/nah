@@ -309,13 +309,42 @@ def _call_openai_compat(
 
 
 def _call_cortex(config: dict, prompt: str) -> LLMResult | None:
-    """Call Snowflake Cortex REST API."""
-    return _call_openai_compat(
-        config, prompt, _TIMEOUT_REMOTE,
-        default_url="",
-        default_model="claude-haiku-4-5",
-        default_key_env="SNOWFLAKE_PAT",
-    )
+    """Call Snowflake Cortex REST API (inference:complete endpoint).
+
+    Auto-derives URL from account name if not set explicitly.
+    Requires SNOWFLAKE_PAT env var (or custom key_env) for auth.
+    """
+    url = config.get("url", "")
+    if not url:
+        account = config.get("account", "") or os.environ.get("SNOWFLAKE_ACCOUNT", "")
+        if not account:
+            return None
+        url = f"https://{account}.snowflakecomputing.com/api/v2/cortex/inference:complete"
+
+    key_env = config.get("key_env", "SNOWFLAKE_PAT")
+    pat = os.environ.get(key_env, "")
+    if not pat:
+        return None
+
+    model = config.get("model", "claude-haiku-4-5")
+    timeout = config.get("timeout", _TIMEOUT_REMOTE)
+
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {pat}",
+        "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
+    })
+
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    content = data["choices"][0]["message"]["content"]
+    return _parse_response(content)
 
 
 def _call_openrouter(config: dict, prompt: str) -> LLMResult | None:

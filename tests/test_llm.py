@@ -297,6 +297,119 @@ class TestTryLlm:
         assert "reason" not in result.decision  # no reasoning = no reason key
 
 
+# -- Cortex provider tests --
+
+
+class TestCortexProvider:
+    def _cortex_config(self, **overrides):
+        cfg = {
+            "backends": ["cortex"],
+            "cortex": {"url": "https://myaccount.snowflakecomputing.com/api/v2/cortex/inference:complete",
+                       "model": "claude-haiku-4-5"},
+        }
+        cfg["cortex"].update(overrides)
+        return cfg
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_cortex_backend_allow(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "safe"}'}}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        with patch.dict("os.environ", {"SNOWFLAKE_PAT": "fake-pat"}):
+            result = try_llm(_make_default_result(), self._cortex_config())
+        assert result.decision["decision"] == "allow"
+        assert result.provider == "cortex"
+        assert result.model == "claude-haiku-4-5"
+        assert result.cascade[0].status == "success"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_cortex_auth_header(self, mock_urlopen):
+        """Verify PAT and token-type headers are sent."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        with patch.dict("os.environ", {"SNOWFLAKE_PAT": "test-token-123"}):
+            try_llm(_make_default_result(), self._cortex_config())
+        assert len(captured) == 1
+        req = captured[0]
+        assert req.get_header("Authorization") == "Bearer test-token-123"
+        assert req.get_header("X-snowflake-authorization-token-type") == "PROGRAMMATIC_ACCESS_TOKEN"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_cortex_account_url_derivation(self, mock_urlopen):
+        """URL derived from account config when url not set."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        config = {
+            "backends": ["cortex"],
+            "cortex": {"account": "snowhouse", "model": "claude-haiku-4-5"},
+        }
+        with patch.dict("os.environ", {"SNOWFLAKE_PAT": "fake-pat"}):
+            try_llm(_make_default_result(), config)
+        assert len(captured) == 1
+        assert captured[0].full_url == "https://snowhouse.snowflakecomputing.com/api/v2/cortex/inference:complete"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_cortex_account_from_env(self, mock_urlopen):
+        """SNOWFLAKE_ACCOUNT env var used when no url or account in config."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        config = {"backends": ["cortex"], "cortex": {"model": "claude-haiku-4-5"}}
+        with patch.dict("os.environ", {"SNOWFLAKE_PAT": "fake-pat", "SNOWFLAKE_ACCOUNT": "testacct"}):
+            try_llm(_make_default_result(), config)
+        assert len(captured) == 1
+        assert "testacct.snowflakecomputing.com" in captured[0].full_url
+
+    def test_cortex_no_pat_skips(self):
+        """Missing SNOWFLAKE_PAT → provider skipped."""
+        config = self._cortex_config()
+        env = {k: v for k, v in os.environ.items() if k != "SNOWFLAKE_PAT"}
+        with patch.dict("os.environ", env, clear=True):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision is None
+
+    def test_cortex_no_account_no_url_skips(self):
+        """No url and no account → provider skipped."""
+        config = {"backends": ["cortex"], "cortex": {"model": "claude-haiku-4-5"}}
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("SNOWFLAKE_PAT", "SNOWFLAKE_ACCOUNT")}
+        with patch.dict("os.environ", env, clear=True):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision is None
+
+
 # -- _format_tool_use_summary tests --
 
 
