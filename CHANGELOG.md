@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `command` builtin no longer bypasses classification — `command psql -c "DROP TABLE"` now correctly unwraps to `sql_write → ask` instead of `filesystem_read → allow`. Introspection forms (`command -v`/`-V`) remain safe. (FD-049)
 - Context resolver no longer silently allows action types without an explicit resolver branch — `_resolve_context()` defaults to ask, `_extract_primary_target()` guarded behind filesystem types only (FD-046)
 - Tighten-only config merge no longer accepts loosening overrides for new keys — project `.nah.yaml` action policies validated against built-in defaults from `policies.json` (FD-048)
 - Unknown/unhandled tools now default to ask instead of silent allow — added `write_to_file → Write` TOOL_MAP entry for Cursor (FD-037)
