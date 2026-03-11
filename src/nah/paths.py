@@ -11,7 +11,8 @@ _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
 _NAH_CONFIG_DIR = os.path.realpath(os.path.join(_HOME, ".config", "nah"))
 
 # Sensitive paths: (resolved_dir, display_name, policy)
-# Hook path (~/.claude/hooks) is NOT in this list — checked separately via is_hook_path().
+# Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list —
+# checked separately via is_hook_path() / is_nah_config_path() so they survive profile: none.
 # These are hardcoded defaults for FD-004. FD-006 makes them configurable.
 _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".ssh")), "~/.ssh", "block"),
