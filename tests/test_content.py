@@ -163,6 +163,9 @@ class TestIsCredentialSearch:
     def test_aws_secret(self):
         assert is_credential_search("AWS_SECRET") is True
 
+    def test_aws_secret_access_key(self):
+        assert is_credential_search("AWS_SECRET_ACCESS_KEY") is True
+
     def test_begin_private(self):
         assert is_credential_search("BEGIN.*PRIVATE") is True
 
