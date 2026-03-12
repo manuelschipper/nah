@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shlex
 import stat
 import sys
 from pathlib import Path
@@ -286,7 +287,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if not input_args:
             print("Error: nah test requires a command string", file=sys.stderr)
             raise SystemExit(1)
-        command = " ".join(input_args)
+        command = shlex.join(input_args)
         from nah.bash import classify_command
         result = classify_command(command)
 
