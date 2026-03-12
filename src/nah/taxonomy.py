@@ -150,7 +150,8 @@ _SHELL_WRAPPERS = {"bash", "sh", "dash", "zsh"}
 
 # Exec sinks for pipe composition.
 _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
-                         "node", "ruby", "perl", "php", "bun", "deno", "fish", "pwsh"}
+                         "node", "ruby", "perl", "php", "bun", "deno", "fish", "pwsh",
+                         "env"}
 EXEC_SINKS: set[str] = set(_EXEC_SINKS_DEFAULTS)
 _exec_sinks_merged = False
 

@@ -1,5 +1,6 @@
 """Bash command classifier — tokenize, decompose, classify, compose."""
 
+import os.path
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ class Stage:
     operator: str = ""  # |, &&, ||, ;
     redirect_target: str = ""
     redirect_append: bool = False
+    action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
 
 
 @dataclass
@@ -173,8 +175,31 @@ def _decompose(tokens: list[str]) -> list[Stage]:
     return stages
 
 
+def _env_var_has_exec(value: str) -> bool:
+    """Check if an env var value contains an exec sink as its base command.
+
+    Returns True (fail-closed) on parse errors to avoid silently allowing
+    malformed values through.
+    """
+    if not value:
+        return False
+    try:
+        tokens = shlex.split(value)
+    except ValueError:
+        return True  # Fail-closed: unparseable value → escalate
+    if not tokens:
+        return False
+    base = os.path.basename(tokens[0])
+    return taxonomy.is_exec_sink(base)
+
+
 def _make_stage(tokens: list[str], operator: str) -> Stage | None:
-    """Create a Stage from tokens, stripping env var assignments."""
+    """Create a Stage from tokens, stripping env var assignments.
+
+    Inspects env var values for exec sinks before stripping — if any value
+    invokes a shell interpreter, the stage keeps all tokens so it classifies
+    as lang_exec (ask) rather than silently allowing the trailing command.
+    """
     if not tokens:
         return None
     # Skip leading env assignments (FOO=bar cmd ...)
@@ -182,6 +207,12 @@ def _make_stage(tokens: list[str], operator: str) -> Stage | None:
     for start, tok in enumerate(tokens):
         if "=" not in tok or tok.startswith("-"):
             break
+        # Inspect the value portion for exec sinks
+        _, value = tok.split("=", 1)
+        if _env_var_has_exec(value):
+            # Dangerous env var — flag as lang_exec
+            return Stage(tokens=tokens, operator=operator,
+                         action_hint=taxonomy.LANG_EXEC)
     else:
         # All tokens were env assignments
         return Stage(tokens=tokens, operator=operator)
@@ -204,6 +235,14 @@ def _classify_stage(
 
     if not tokens:
         sr.reason = "empty stage"
+        return sr
+
+    # Pre-set action type (e.g. env var with exec sink)
+    if stage.action_hint:
+        sr.action_type = stage.action_hint
+        sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+        _apply_policy(sr)
+        sr.reason = f"env var exec sink: {sr.action_type} → {sr.decision}"
         return sr
 
     # Shell unwrapping
