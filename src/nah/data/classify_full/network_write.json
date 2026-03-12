@@ -27,8 +27,6 @@
   "gradle uploadArchives",
   "gradlew publish",
   "gradlew uploadArchives",
-  "./gradlew publish",
-  "./gradlew uploadArchives",
   "mvn deploy",
   "mvn site-deploy",
   "mvn release:perform"

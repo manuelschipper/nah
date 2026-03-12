@@ -57,7 +57,10 @@ def _load_classify_table(profile: str = "full") -> list[tuple[tuple[str, ...], s
         with open(json_file) as f:
             prefixes = json.load(f)
         for prefix_str in prefixes:
-            table.append((tuple(prefix_str.split()), action_type))
+            parts = prefix_str.split()
+            if parts:
+                parts[0] = os.path.basename(parts[0]) or parts[0]
+            table.append((tuple(parts), action_type))
     table.sort(key=lambda entry: len(entry[0]), reverse=True)
     return table
 
@@ -92,7 +95,10 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
         if not isinstance(prefixes, list):
             continue
         for prefix_str in prefixes:
-            table.append((tuple(prefix_str.split()), action_type))
+            parts = prefix_str.split()
+            if parts:
+                parts[0] = os.path.basename(parts[0]) or parts[0]
+            table.append((tuple(parts), action_type))
     table.sort(key=lambda entry: len(entry[0]), reverse=True)
     return table
 

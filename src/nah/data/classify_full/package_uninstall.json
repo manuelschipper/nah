@@ -67,7 +67,6 @@
   "go clean",
   "gradle clean",
   "gradlew clean",
-  "./gradlew clean",
   "mvn clean",
   "mvn dependency:purge-local-repository"
 ]
