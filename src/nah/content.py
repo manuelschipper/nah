@@ -14,6 +14,10 @@ class ContentMatch:
     policy: str = "ask"
 
 
+_MAX_SCAN_CHARS = 1_048_576  # 1M characters (~1MB for ASCII)
+_truncation_logged = False
+
+
 # Compiled regexes by category. Each entry: (compiled_regex, description).
 _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
     "destructive": [
@@ -170,8 +174,9 @@ def _ensure_content_patterns_merged() -> None:
 
 def reset_content_patterns() -> None:
     """Restore defaults and clear merge flag (for testing)."""
-    global _content_patterns_merged
+    global _content_patterns_merged, _truncation_logged
     _content_patterns_merged = False
+    _truncation_logged = False
     _CONTENT_PATTERNS.clear()
     for cat, patterns in _CONTENT_PATTERNS_DEFAULTS.items():
         _CONTENT_PATTERNS[cat] = list(patterns)
@@ -182,9 +187,19 @@ def reset_content_patterns() -> None:
 
 def scan_content(content: str) -> list[ContentMatch]:
     """Scan content for dangerous patterns. Returns matches (empty = safe)."""
+    global _truncation_logged
     _ensure_content_patterns_merged()
     if not content:
         return []
+
+    if len(content) > _MAX_SCAN_CHARS:
+        if not _truncation_logged:
+            sys.stderr.write(
+                f"nah: content truncated from {len(content)} to "
+                f"{_MAX_SCAN_CHARS} characters for scanning\n"
+            )
+            _truncation_logged = True
+        content = content[:_MAX_SCAN_CHARS]
 
     matches = []
     for category, patterns in _CONTENT_PATTERNS.items():

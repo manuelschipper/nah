@@ -425,3 +425,45 @@ class TestCredentialPatternConfig:
             assert "invalid regex" in captured.err
         finally:
             _cleanup()
+
+
+# --- FD-084: Content scan size limit ---
+
+
+class TestScanContentSizeLimit:
+    """FD-084: content scan size cap."""
+
+    def setup_method(self):
+        _content_mod.reset_content_patterns()
+
+    def teardown_method(self):
+        _content_mod.reset_content_patterns()
+
+    def test_large_content_truncated(self, capsys):
+        """Content >1M chars is truncated; patterns in head still match."""
+        secret = "-----BEGIN PRIVATE KEY-----"
+        content = secret + "x" * (1_048_576 + 100)
+        matches = scan_content(content)
+        assert any(m.category == "secret" for m in matches)
+        assert "truncated" in capsys.readouterr().err
+
+    def test_large_content_tail_not_scanned(self):
+        """Patterns beyond the 1M boundary are not detected."""
+        padding = "x" * (1_048_576 + 100)
+        content = padding + "-----BEGIN PRIVATE KEY-----"
+        matches = scan_content(content)
+        assert not matches
+
+    def test_small_content_unchanged(self, capsys):
+        """Content <1M chars is scanned fully, no truncation warning."""
+        matches = scan_content("-----BEGIN PRIVATE KEY-----")
+        assert any(m.category == "secret" for m in matches)
+        assert "truncated" not in capsys.readouterr().err
+
+    def test_truncation_logged_once(self, capsys):
+        """Truncation warning is logged only once per process."""
+        big = "x" * (1_048_576 + 100)
+        scan_content(big)
+        scan_content(big)
+        err = capsys.readouterr().err
+        assert err.count("truncated") == 1

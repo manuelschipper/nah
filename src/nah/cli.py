@@ -145,10 +145,22 @@ def _write_hook_script() -> None:
     """Write the shared hook shim script (used by all agents)."""
     _HOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
+    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
+
+    # Skip write if content is identical
+    if _HOOK_SCRIPT.exists():
+        try:
+            if _HOOK_SCRIPT.read_text() == shim_content:
+                return
+        except OSError:
+            # Read is best-effort optimization; if it fails (race with
+            # deletion, permissions, disk), the safe default is to fall
+            # through to the write path which will surface real errors.
+            pass
+
     if _HOOK_SCRIPT.exists():
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
     with open(_HOOK_SCRIPT, "w") as f:
         f.write(shim_content)
 
