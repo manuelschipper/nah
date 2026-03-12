@@ -13,9 +13,6 @@ nah install
 
 That's it. nah registers itself as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json` and creates a read-only hook script at `~/.claude/hooks/nah_guard.py`.
 
-!!! warning "Don't use bypass mode"
-    **Don't use `--dangerously-skip-permissions`.** In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) — commands execute before nah can block them.
-
 ## Set up permissions
 
 Allow-list the tools nah guards in `~/.claude/settings.json`:
@@ -24,9 +21,9 @@ Allow-list the tools nah guards in `~/.claude/settings.json`:
 "permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
 ```
 
-nah classifies every call and will block or ask for confirmation on anything dangerous.
+nah classifies every call and will block or ask for confirmation on anything dangerous. **Don't use `--dangerously-skip-permissions`** — in bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
-**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads). Adding them to the allow list means nah guards silently. Leaving them out means Claude Code prompts you too — double-prompting, but extra safety.
+**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads).
 
 ### Optional dependencies
 
