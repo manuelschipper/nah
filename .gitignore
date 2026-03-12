@@ -16,7 +16,8 @@ _build/
 # Internal dev files (kept locally, not tracked)
 docs/features/
 docs/PLAN.md
-.claude/
+.claude/*
+!.claude/commands/
 site/
 scripts/
 .github/
