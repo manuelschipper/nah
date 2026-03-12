@@ -410,12 +410,9 @@ def main():
         else:
             decision = handler(tool_input)
 
-        d = decision.get("decision", taxonomy.ALLOW)
-
-        if d != taxonomy.ALLOW:
-            json.dump(_to_hook_output(decision, agent), sys.stdout)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+        json.dump(_to_hook_output(decision, agent), sys.stdout)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
         total_ms = int((time.monotonic() - t0) * 1000)
         _log_hook_decision(canonical, tool_input, decision, agent, total_ms)

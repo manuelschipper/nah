@@ -61,10 +61,10 @@ try:
     main()
     sys.stdout = _REAL_STDOUT
     output = buf.getvalue()
-    # Empty output = allow (pass through to permission system).
-    # Non-empty output must be valid JSON.
+    # Non-empty output must be valid JSON (includes allow decisions).
+    # Empty output = no opinion (fallback — should not happen normally).
     if not output.strip():
-        pass  # allow — write nothing to stdout
+        pass  # no opinion — fall through to agent's own permission system
     else:
         try:
             json.loads(output)

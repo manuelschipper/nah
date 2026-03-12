@@ -101,7 +101,8 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
-                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem"}
+                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem",
+                          "gh"}
 
 # Global-install flags that escalate to unknown (ask).
 _GLOBAL_INSTALL_FLAGS = {"-g", "--global", "--system", "--target", "--root"}
@@ -298,6 +299,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_global_install(tokens)
+        if action is not None:
+            return action
+        action = _classify_gh_api(tokens)
         if action is not None:
             return action
 
@@ -594,6 +598,47 @@ def _classify_httpie(tokens: list[str]) -> str | None:
     if has_data_item:
         return NETWORK_WRITE
     return NETWORK_OUTBOUND
+
+
+_GH_API_WRITE_FLAGS = {"--method", "-X"}
+_GH_API_WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+_GH_API_DATA_FLAGS = {"--input", "-f", "--raw-field", "-F", "--field"}
+_GH_API_DATA_LONG_PREFIXES = ("--input=", "--raw-field=", "--field=")
+
+
+def _classify_gh_api(tokens: list[str]) -> str | None:
+    """Flag-dependent: gh api with write method/data → network_write; else → git_safe."""
+    if len(tokens) < 2 or tokens[0] != "gh" or tokens[1] != "api":
+        return None
+
+    has_write_method = False
+    has_data = False
+
+    i = 2
+    while i < len(tokens):
+        tok = tokens[i]
+
+        if tok in _GH_API_WRITE_FLAGS:
+            if i + 1 < len(tokens) and tokens[i + 1].upper() in _GH_API_WRITE_METHODS:
+                has_write_method = True
+            i += 2
+            continue
+
+        if tok in _GH_API_DATA_FLAGS:
+            has_data = True
+            i += 2
+            continue
+
+        if any(tok.startswith(p) for p in _GH_API_DATA_LONG_PREFIXES):
+            has_data = True
+            i += 1
+            continue
+
+        i += 1
+
+    if has_data or has_write_method:
+        return NETWORK_WRITE
+    return GIT_SAFE
 
 
 def _classify_global_install(tokens: list[str]) -> str | None:
