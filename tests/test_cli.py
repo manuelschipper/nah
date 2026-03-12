@@ -342,3 +342,61 @@ class TestCmdTest:
         cmd_test(args)
         out = capsys.readouterr().out
         assert "ASK" in out
+
+
+# --- Shell quote preservation (FD-085) ---
+
+
+class TestCmdTestQuotePreservation:
+    """Ensure nah test handles both single-string and multi-arg invocations."""
+
+    def _run(self, args_list, capsys):
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config=None, args=args_list,
+        )
+        cmd_test(args)
+        return capsys.readouterr().out
+
+    def test_single_string_simple(self, capsys):
+        """nah test "rm -rf /" — common pattern, must not regress."""
+        out = self._run(["rm -rf /"], capsys)
+        assert "filesystem_delete" in out
+        assert "BLOCK" in out or "ASK" in out
+
+    def test_single_string_pipe(self, capsys):
+        """nah test "cat foo | grep bar" — pipe preserved in single string."""
+        out = self._run(["cat foo | grep bar"], capsys)
+        # Should decompose into two stages (cat + grep)
+        assert "[1]" in out
+        assert "[2]" in out
+
+    def test_single_arg_no_spaces(self, capsys):
+        """nah test "ls" — trivial single arg."""
+        out = self._run(["ls"], capsys)
+        assert "filesystem_read" in out
+
+    def test_multi_arg_embedded_and(self, capsys):
+        """nah test -- ssh user@host "cd /app && python deploy.py" — the reported bug."""
+        out = self._run(["ssh", "user@host", "cd /app && python deploy.py"], capsys)
+        assert "network_outbound" in out
+        # Must be a single stage — the && is inside the quoted remote payload
+        assert "[2]" not in out
+
+    def test_multi_arg_embedded_pipe(self, capsys):
+        """Multi-arg where one token contains a pipe character."""
+        out = self._run(["echo", "hello | world"], capsys)
+        # "hello | world" should stay as one token, not split on |
+        assert "[2]" not in out
+
+    def test_multi_arg_no_metacharacters(self, capsys):
+        """nah test -- git push --force — no metacharacters, same as join."""
+        out = self._run(["git", "push", "--force"], capsys)
+        assert "git_history_rewrite" in out
+
+    def test_multi_arg_apostrophe(self, capsys):
+        """Multi-arg with apostrophe — must not cause shlex error."""
+        out = self._run(["echo", "it's a test"], capsys)
+        # Should classify without error
+        assert "Decision:" in out or "decision" in out.lower()
