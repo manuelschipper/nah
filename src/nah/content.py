@@ -14,6 +14,11 @@ class ContentMatch:
     policy: str = "ask"
 
 
+# Maximum content size to scan (1MB) to prevent resource exhaustion
+# Large content is truncated to avoid excessive memory/CPU usage from regex scanning
+_MAX_CONTENT_SIZE = 1024 * 1024  # 1MB
+
+
 # Compiled regexes by category. Each entry: (compiled_regex, description).
 _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
     "destructive": [
@@ -181,16 +186,32 @@ def reset_content_patterns() -> None:
 
 
 def scan_content(content: str) -> list[ContentMatch]:
-    """Scan content for dangerous patterns. Returns matches (empty = safe)."""
+    """Scan content for dangerous patterns. Returns matches (empty = safe).
+
+    Content is truncated to _MAX_CONTENT_SIZE if larger to prevent
+    resource exhaustion from regex scanning on very large inputs.
+    """
     _ensure_content_patterns_merged()
     if not content:
         return []
 
+    # Truncate content to prevent resource exhaustion
+    if len(content) > _MAX_CONTENT_SIZE:
+        # Only log on first occurrence per process to avoid spam
+        if not hasattr(scan_content, "_truncate_logged"):
+            sys.stderr.write(
+                f"nah: content truncated from {len(content)} to {_MAX_CONTENT_SIZE} bytes "
+                f"for scanning\n"
+            )
+            scan_content._truncate_logged = True  # type: ignore[attr-defined]
+
     matches = []
+    # Use truncated content for scanning
+    scan_content = content[:_MAX_CONTENT_SIZE]
     for category, patterns in _CONTENT_PATTERNS.items():
         policy = _content_policies.get(category, "ask")
         for regex, desc in patterns:
-            m = regex.search(content)
+            m = regex.search(scan_content)
             if m:
                 matches.append(ContentMatch(
                     category=category,

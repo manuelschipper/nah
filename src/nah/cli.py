@@ -141,13 +141,34 @@ def _resolve_agents(args: argparse.Namespace) -> list[str]:
 
 
 def _write_hook_script() -> None:
-    """Write the shared hook shim script (used by all agents)."""
+    """Write the shared hook shim script (used by all agents).
+
+    Only writes if the script doesn't exist or content differs, to avoid
+    unnecessary file operations and preserve file modification times when
+    the installed version matches the current package version.
+    """
     _HOOKS_DIR.mkdir(parents=True, exist_ok=True)
+
+    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
+
+    # Check if existing script has the same content
+    needs_write = True
+    if _HOOK_SCRIPT.exists():
+        try:
+            with open(_HOOK_SCRIPT, "r") as f:
+                existing_content = f.read()
+            if existing_content == shim_content:
+                needs_write = False
+        except OSError:
+            # If we can't read the file, overwrite it
+            needs_write = True
+
+    if not needs_write:
+        return
 
     if _HOOK_SCRIPT.exists():
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
     with open(_HOOK_SCRIPT, "w") as f:
         f.write(shim_content)
 

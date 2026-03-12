@@ -52,13 +52,25 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
 
 
 def _rotate() -> None:
-    """Rotate log: current -> .1, start fresh."""
+    """Rotate log: current -> .1, start fresh.
+
+    Only performs rotation if the current log file exists and has content.
+    This avoids creating unnecessary empty log files.
+    """
     try:
+        # Only rotate if the current log file exists and is non-empty
+        if not os.path.exists(LOG_PATH):
+            return
+        if os.path.getsize(LOG_PATH) == 0:
+            return
+
         if os.path.exists(_LOG_BACKUP):
             os.unlink(_LOG_BACKUP)
         os.rename(LOG_PATH, _LOG_BACKUP)
     except OSError as exc:
         sys.stderr.write(f"nah: log: rotation: {exc}\n")
+        # Only create/reset log file if rotation failed due to rename issue
+        # This ensures we always have a writable log file
         try:
             with open(LOG_PATH, "w") as f:
                 f.write("")
