@@ -47,12 +47,21 @@ nah install
 
 You are up and running. To uninstall: `nah uninstall && pip uninstall nah`.
 
+### Set up permissions
+
+Allow-list the tools nah guards in `~/.claude/settings.json`:
+
+```json
+"permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
+```
+
+nah classifies every call and will block or ask for confirmation on anything dangerous.
+
+**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads). Adding them to the allow list means nah guards silently. Leaving them out means Claude Code prompts you too — double-prompting, but extra safety.
+
 > **Don't use `--dangerously-skip-permissions`.** In bypass mode, hooks
 > [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) —
 > commands execute before nah can block them.
->
-> Allow-list `Bash`, `Read`, `Glob`, `Grep` and let nah guard them.
-> For `Write` and `Edit`, your call — nah inspects content either way.
 
 ## Try it out
 

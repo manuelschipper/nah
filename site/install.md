@@ -16,19 +16,17 @@ That's it. nah registers itself as a [PreToolUse hook](https://docs.anthropic.co
 !!! warning "Don't use bypass mode"
     **Don't use `--dangerously-skip-permissions`.** In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) — commands execute before nah can block them.
 
-## Recommended setup
+## Set up permissions
 
-Allow-list the read and execute tools — nah guards them via hooks:
+Allow-list the tools nah guards in `~/.claude/settings.json`:
 
 ```json
-{
-  "permissions": {
-    "allow": ["Bash", "Read", "Glob", "Grep"]
-  }
-}
+"permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
 ```
 
-For **Write** and **Edit**, your call — nah's content inspection runs either way.
+nah classifies every call and will block or ask for confirmation on anything dangerous.
+
+**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads). Adding them to the allow list means nah guards silently. Leaving them out means Claude Code prompts you too — double-prompting, but extra safety.
 
 ### Optional dependencies
 
