@@ -53,15 +53,11 @@ Allow-list the tools nah guards in `~/.claude/settings.json`:
 "permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
 ```
 
-nah classifies every call and will block or ask for confirmation on anything dangerous.
+nah classifies every call and will block or ask for confirmation on anything dangerous. **Don't use `--dangerously-skip-permissions`** — in bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
 **Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads).
 
 To uninstall: `nah uninstall && pip uninstall nah`.
-
-> **Don't use `--dangerously-skip-permissions`.** In bypass mode, hooks
-> [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) —
-> commands execute before nah can block them.
 
 ## Try it out
 
