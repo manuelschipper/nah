@@ -151,6 +151,72 @@ class TestExtractHost:
         assert extract_host(["curl", "-s", "-o", "/dev/null", "https://api.github.com"]) == "api.github.com"
 
 
+# --- FD-086: SSH/SCP host extraction ---
+
+
+class TestExtractHostSSH:
+    """FD-086: SSH/SCP/SFTP host extraction — valued flags, IPv6, SCP paths."""
+
+    # IPv6 bracketed addresses
+    def test_ssh_ipv6_user_at(self):
+        assert extract_host(["ssh", "user@[2001:db8::1]"]) == "2001:db8::1"
+
+    def test_scp_ipv6_user_at_path(self):
+        assert extract_host(["scp", "user@[2001:db8::1]:/remote/file", "."]) == "2001:db8::1"
+
+    def test_scp_ipv6_no_user(self):
+        assert extract_host(["scp", "[2001:db8::1]:/remote/file", "."]) == "2001:db8::1"
+
+    # SCP local-path-first (should not extract the local path)
+    def test_scp_local_path_first_user_at(self):
+        assert extract_host(["scp", "/local/file.txt", "user@host.com:/remote/"]) == "host.com"
+
+    def test_scp_local_path_first_colon(self):
+        assert extract_host(["scp", "/local/file.txt", "host.com:/remote/"]) == "host.com"
+
+    # Valued flags that were previously missing
+    def test_ssh_S_flag(self):
+        assert extract_host(["ssh", "-S", "/tmp/socket", "user@host.com"]) == "host.com"
+
+    def test_ssh_D_flag(self):
+        assert extract_host(["ssh", "-D", "9999", "user@host.com"]) == "host.com"
+
+    # Bare host (regression guard)
+    def test_ssh_bare_host(self):
+        assert extract_host(["ssh", "host.com"]) == "host.com"
+
+    # IPv6 localhost
+    def test_ssh_ipv6_localhost(self):
+        assert extract_host(["ssh", "user@[::1]"]) == "::1"
+
+    # Multiple valued flags in sequence
+    def test_ssh_multiple_valued_flags(self):
+        assert extract_host(["ssh", "-L", "8080:localhost:80", "-i", "key.pem", "user@host.com"]) == "host.com"
+
+    # ProxyJump (-J consumes jump host, extracts final)
+    def test_ssh_proxy_jump(self):
+        assert extract_host(["ssh", "-J", "jump.com", "user@final.com"]) == "final.com"
+
+    # -l flag consumes username, bare host is positional
+    def test_ssh_l_flag_bare_host(self):
+        assert extract_host(["ssh", "-l", "user", "host.com"]) == "host.com"
+
+    # SCP with -r boolean flag (not in valued flags)
+    def test_scp_r_flag(self):
+        assert extract_host(["scp", "-r", "/dir", "user@host.com:/dest/"]) == "host.com"
+
+    # SCP with -o valued flag
+    def test_scp_o_flag(self):
+        assert extract_host(["scp", "-o", "StrictHostKeyChecking=no", "/local/file", "root@host.com:/remote/"]) == "host.com"
+
+    # SFTP host extraction
+    def test_sftp_user_at_host(self):
+        assert extract_host(["sftp", "user@host.com"]) == "host.com"
+
+    def test_sftp_host_colon_path(self):
+        assert extract_host(["sftp", "host.com:/path"]) == "host.com"
+
+
 # --- FD-022: Network write context ---
 
 

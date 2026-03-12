@@ -380,6 +380,15 @@ def _looks_like_local_path(arg: str) -> bool:
     return arg.startswith(("/", "./", "../", "~"))
 
 
+def _strip_host_from_colon_suffix(s: str) -> str:
+    """Extract hostname from host:port or host:path, handling [IPv6] brackets."""
+    if s.startswith("["):
+        end = s.find("]")
+        if end != -1:
+            return s[1:end]
+    return s.split(":")[0]
+
+
 # ssh/scp/sftp valued flags — flags that consume the next argument.
 # Comprehensive set to avoid misidentifying flag values as hostnames.
 _SSH_VALUED_FLAGS = {
@@ -402,13 +411,13 @@ def _extract_ssh_host(cmd: str, args: list[str]) -> str | None:
     for arg in positionals:
         if "@" in arg:
             host_part = arg.split("@", 1)[1]
-            return host_part.split(":")[0] if ":" in host_part else host_part
+            return _strip_host_from_colon_suffix(host_part) if ":" in host_part else host_part
 
     # Pass 2 (scp/sftp): look for host:path (colon indicates remote)
     if cmd in ("scp", "sftp"):
         for arg in positionals:
             if ":" in arg:
-                return arg.split(":")[0]
+                return _strip_host_from_colon_suffix(arg)
 
     # Pass 3: first positional that doesn't look like a local path
     for arg in positionals:
@@ -440,7 +449,7 @@ def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | N
     for arg in positionals:
         if "@" in arg:
             host_part = arg.split("@", 1)[1]
-            return host_part.split(":")[0] if ":" in host_part else host_part
+            return _strip_host_from_colon_suffix(host_part) if ":" in host_part else host_part
     # First positional that doesn't look like a local path
     for arg in positionals:
         if not _looks_like_local_path(arg):
