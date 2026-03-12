@@ -400,3 +400,41 @@ class TestCmdTestQuotePreservation:
         out = self._run(["echo", "it's a test"], capsys)
         # Should classify without error
         assert "Decision:" in out or "decision" in out.lower()
+
+
+# --- FD-084: Hook write optimization ---
+
+
+class TestWriteHookScriptOptimization:
+    """FD-084: skip hook write when content unchanged."""
+
+    def test_skip_write_when_identical(self, tmp_path, monkeypatch):
+        """Hook script not rewritten when content matches."""
+        import nah.cli as cli_mod
+        hook_path = tmp_path / "nah_guard.py"
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+
+        cli_mod._write_hook_script()
+        mtime1 = hook_path.stat().st_mtime_ns
+
+        cli_mod._write_hook_script()
+        mtime2 = hook_path.stat().st_mtime_ns
+
+        assert mtime1 == mtime2
+
+    def test_write_when_content_differs(self, tmp_path, monkeypatch):
+        """Hook script rewritten when content changes."""
+        import nah.cli as cli_mod
+        hook_path = tmp_path / "nah_guard.py"
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+
+        cli_mod._write_hook_script()
+        # Corrupt the file
+        hook_path.chmod(0o644)
+        hook_path.write_text("stale")
+        hook_path.chmod(0o444)
+
+        cli_mod._write_hook_script()
+        assert "stale" not in hook_path.read_text()

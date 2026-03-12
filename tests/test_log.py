@@ -189,6 +189,13 @@ class TestRotation:
         # Main log should be smaller than total written
         assert os.path.getsize(log_path) < 100 * 200
 
+    def test_no_rotation_on_empty_log(self, tmp_path):
+        """FD-084: empty log file is not rotated."""
+        log_path = tmp_path / "nah.log"
+        log_path.touch()  # empty file
+        log._rotate()
+        assert not os.path.exists(str(tmp_path / "nah.log.1"))
+
 
 # -- read_log --
 

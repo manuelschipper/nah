@@ -54,6 +54,8 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
 def _rotate() -> None:
     """Rotate log: current -> .1, start fresh."""
     try:
+        if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
+            return
         if os.path.exists(_LOG_BACKUP):
             os.unlink(_LOG_BACKUP)
         os.rename(LOG_PATH, _LOG_BACKUP)
