@@ -32,7 +32,7 @@ Before proceeding, remind the user about the recommended permission setup (adapt
 
 > **Quick setup note:** Don't use `--dangerously-skip-permissions` — in bypass mode, hooks fire asynchronously, so commands can execute before nah blocks them.
 >
-> Make sure `Bash`, `Read`, `Glob`, and `Grep` are in `permissions.allow` in your `~/.claude/settings.json` — nah is guarding them. For **Write** and **Edit**, your call — allowing means nah guards silently via content inspection, leaving them out means double-prompting but extra safety.
+> Make sure `Bash`, `Read`, `Glob`, and `Grep` are in `permissions.allow` in your `~/.claude/settings.json` — nah is guarding them. For **Write** and **Edit**, your call — nah inspects their content either way.
 >
 > This way, nah's live blocks and asks will show up properly during the demo.
 
