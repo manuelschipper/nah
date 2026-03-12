@@ -20,6 +20,36 @@ Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write,
 - **Hook script**: `~/.claude/hooks/nah_guard.py` (installed read-only, chmod 444)
 - **Testing commands**: Always use `nah test "..."` — never `python -m nah ...` (nah flags the latter as `lang_exec`)
 
+## Error Handling
+
+**No silent pass-through.** Do not swallow exceptions with bare `except: pass` or empty fallbacks unless there is a clear, documented reason. Silent failures hide bugs and make debugging painful.
+
+When a silent pass-through or config fallback **is** justified, it must have a comment explaining:
+1. **Why** the failure is expected or harmless
+2. **What** the fallback behavior is
+3. **Why** surfacing the error would be worse than swallowing it
+
+Good — justified and explained:
+```python
+except OSError:
+    # Read is best-effort optimization; if it fails (race with
+    # deletion, permissions, disk), the safe default is to fall
+    # through to the write path which will surface real errors.
+    pass
+```
+
+Bad — silent and unexplained:
+```python
+except Exception:
+    pass
+```
+
+**Guidelines:**
+- Prefer narrow exception types (`OSError`, `json.JSONDecodeError`) over broad `Exception`
+- Functions that must never crash (e.g. `log_decision`) should catch broadly but log to stderr: `sys.stderr.write(f"nah: log: {exc}\n")`
+- Config fallbacks to defaults are fine, but log a warning if the config was present but malformed
+- Never silence errors in the hot path (hook classification) — if something is wrong, the user should know
+
 ## CLI Quick Reference
 
 ```bash
