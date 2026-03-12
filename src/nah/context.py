@@ -167,7 +167,7 @@ def extract_host(tokens: list[str]) -> str | None:
     if cmd in ("http", "https", "xh", "xhs"):
         return _extract_httpie_host(args)
     if cmd in ("ssh", "scp", "sftp"):
-        return _extract_positional_host(args, {"-p", "-i", "-l", "-o", "-F", "-J", "-P"})
+        return _extract_ssh_host(cmd, args)
     if cmd in ("nc", "ncat", "telnet"):
         return _extract_positional_host(args, {"-p", "-w", "-s"})
 
@@ -375,8 +375,52 @@ def _matches_db_targets(database: str, schema: str | None, db_targets: list[dict
     return False
 
 
-def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | None:
-    """Extract host from positional args, skipping valued flags. Handles user@host."""
+def _looks_like_local_path(arg: str) -> bool:
+    """Check if an argument looks like a local file path rather than a hostname."""
+    return arg.startswith(("/", "./", "../", "~"))
+
+
+# ssh/scp/sftp valued flags — flags that consume the next argument.
+# Comprehensive set to avoid misidentifying flag values as hostnames.
+_SSH_VALUED_FLAGS = {
+    "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+    "-l", "-m", "-O", "-o", "-P", "-p", "-Q", "-R", "-S", "-W", "-w",
+}
+
+
+def _extract_ssh_host(cmd: str, args: list[str]) -> str | None:
+    """Extract host from ssh/scp/sftp args.
+
+    Two-pass approach:
+    1. Prefer args with @ (user@host) — unambiguous.
+    2. For scp, prefer args with : (host:path) — remote indicator.
+    3. Fall back to first positional that doesn't look like a local path.
+    """
+    positionals = _collect_positionals(args, _SSH_VALUED_FLAGS)
+
+    # Pass 1: look for user@host
+    for arg in positionals:
+        if "@" in arg:
+            host_part = arg.split("@", 1)[1]
+            return host_part.split(":")[0] if ":" in host_part else host_part
+
+    # Pass 2 (scp/sftp): look for host:path (colon indicates remote)
+    if cmd in ("scp", "sftp"):
+        for arg in positionals:
+            if ":" in arg:
+                return arg.split(":")[0]
+
+    # Pass 3: first positional that doesn't look like a local path
+    for arg in positionals:
+        if not _looks_like_local_path(arg):
+            return arg
+
+    return None
+
+
+def _collect_positionals(args: list[str], valued_flags: set[str]) -> list[str]:
+    """Collect positional (non-flag) args, skipping valued flags and their values."""
+    positionals = []
     skip_next = False
     for arg in args:
         if skip_next:
@@ -386,9 +430,20 @@ def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | N
             if arg in valued_flags:
                 skip_next = True
             continue
-        # user@host
+        positionals.append(arg)
+    return positionals
+
+
+def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | None:
+    """Extract host from positional args, skipping valued flags. Handles user@host."""
+    positionals = _collect_positionals(args, valued_flags)
+    for arg in positionals:
         if "@" in arg:
             host_part = arg.split("@", 1)[1]
             return host_part.split(":")[0] if ":" in host_part else host_part
-        return arg
-    return None
+    # First positional that doesn't look like a local path
+    for arg in positionals:
+        if not _looks_like_local_path(arg):
+            return arg
+    # Last resort: first positional
+    return positionals[0] if positionals else None
