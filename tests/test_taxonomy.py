@@ -314,6 +314,73 @@ class TestClassifyTokens:
     def test_basename_no_change(self):
         assert _ct(["rm", "-rf", "/"]) == "filesystem_delete"
 
+    # FD-091: path-style classify entries with basename normalization
+    def test_user_classify_path_prefix(self):
+        """User entry 'vendor/bin/codecept run' matches after basename normalization."""
+        tbl = build_user_table({"testing": ["vendor/bin/codecept run"]})
+        assert classify_tokens(["vendor/bin/codecept", "run"], global_table=tbl) == "testing"
+
+    def test_user_classify_dotslash(self):
+        """User entry './my-tool test' matches after basename normalization."""
+        tbl = build_user_table({"testing": ["./my-tool test"]})
+        assert classify_tokens(["./my-tool", "test"], global_table=tbl) == "testing"
+
+    def test_user_classify_absolute_path(self):
+        """User entry '/usr/local/bin/foo' matches after basename normalization."""
+        tbl = build_user_table({"testing": ["/usr/local/bin/foo"]})
+        assert classify_tokens(["/usr/local/bin/foo"], global_table=tbl) == "testing"
+
+    def test_builtin_gradlew_dotslash(self):
+        """./gradlew tasks classifies via builtin gradlew entry after normalization."""
+        assert _ct(["./gradlew", "tasks"]) == "filesystem_read"
+
+    def test_user_classify_bare_still_works(self):
+        """Bare command entries still match (no regression)."""
+        tbl = build_user_table({"testing": ["codecept run"]})
+        assert classify_tokens(["codecept", "run"], global_table=tbl) == "testing"
+
+    def test_user_classify_path_via_project_table(self):
+        """Path entry works via project_table (Phase 3), not just global_table."""
+        tbl = build_user_table({"testing": ["vendor/bin/codecept run"]})
+        assert classify_tokens(
+            ["vendor/bin/codecept", "run"], project_table=tbl, profile="none",
+        ) == "testing"
+
+    def test_user_classify_multi_token_path(self):
+        """Path in non-first position: only first token gets basename'd."""
+        tbl = build_user_table({"testing": ["php vendor/bin/codecept run"]})
+        # 'php' has no path — stays 'php'. 'vendor/bin/codecept' is NOT first token
+        # so it stays as-is in both the table and the input.
+        assert classify_tokens(
+            ["php", "vendor/bin/codecept", "run"], global_table=tbl,
+        ) == "testing"
+
+    def test_build_user_table_normalizes_path(self):
+        """build_user_table normalizes path in first token."""
+        tbl = build_user_table({"testing": ["vendor/bin/codecept run"]})
+        assert tbl[0][0] == ("codecept", "run")
+
+    def test_load_classify_table_no_dotslash_duplicates(self):
+        """Built-in table has no duplicate prefixes after normalization."""
+        table = get_builtin_table("full")
+        seen: set[tuple[str, ...]] = set()
+        dupes = []
+        for prefix, action_type in table:
+            if prefix in seen:
+                dupes.append((prefix, action_type))
+            seen.add(prefix)
+        assert dupes == [], f"Duplicate prefixes in builtin table: {dupes}"
+
+    def test_builtin_gradlew_build_dotslash(self):
+        """./gradlew build classifies via builtin gradlew entry (package_install)."""
+        assert _ct(["./gradlew", "build"]) == "package_install"
+
+    def test_basename_empty_guard(self):
+        """Entry with just '/' doesn't crash — basename returns empty string."""
+        tbl = build_user_table({"testing": ["/"]})
+        # '/' → basename '' → fallback keeps '/' → no crash
+        assert len(tbl) == 1
+
     # FD-065: awk meta-execution
     def test_awk_safe(self):
         assert _ct(["awk", "{print $1}", "file"]) == "filesystem_read"
