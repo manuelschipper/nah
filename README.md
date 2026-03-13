@@ -55,13 +55,16 @@ To uninstall: `nah uninstall && pip uninstall nah`.
 
 ## Try it out
 
-Run the security demo inside Claude Code:
+Clone the repo and run the security demo inside Claude Code:
 
-```
+```bash
+git clone https://github.com/manuelschipper/nah.git
+cd nah
+# inside Claude Code:
 /nah-demo
 ```
 
-You'll go thru 25 live cases across 8 threat categories: remote code execution, data exfiltration, obfuscated commands, and others. Takes ~5 minutes.
+25 live cases across 8 threat categories: remote code execution, data exfiltration, obfuscated commands, and others. Takes ~5 minutes.
 
 ## What it guards
 

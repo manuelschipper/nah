@@ -136,7 +136,7 @@ nah log --json                   # machine-readable JSONL output
 
 ### /nah-demo
 
-Live security demo that runs inside Claude Code. Walks through real tool calls and shows nah intercepting them in real-time.
+Live security demo that runs inside Claude Code. Clone the [nah repo](https://github.com/manuelschipper/nah) and run `/nah-demo` from within it — the slash command is defined in `.claude/commands/`.
 
 ```
 /nah-demo                        # 25 cases across 8 threat categories

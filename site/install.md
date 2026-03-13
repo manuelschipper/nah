@@ -74,9 +74,12 @@ nah config path            # show config file locations
 
 ## See it in action
 
-Run the security demo inside Claude Code:
+Clone the repo and run the security demo inside Claude Code:
 
-```
+```bash
+git clone https://github.com/manuelschipper/nah.git
+cd nah
+# inside Claude Code:
 /nah-demo
 ```
 
