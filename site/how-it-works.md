@@ -136,9 +136,9 @@ For `context` policies, nah checks the environment:
 ## Decision format
 
 ```
-nah.  → blocked (hook returns block decision)
+nah.  → blocked (hook returns deny decision)
 nah?  → asks for confirmation (hook returns ask decision)
-(nothing) → allowed (hook returns empty output)
+      → allowed (hook returns allow decision)
 ```
 
 Every decision is logged to `~/.config/nah/nah.log` (JSONL) and inspectable via `nah log`.

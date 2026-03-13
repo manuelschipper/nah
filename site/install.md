@@ -23,11 +23,11 @@ The core hook has **zero external dependencies** — it runs on Python's stdlib 
 
 ## How permissions work
 
-Once installed, nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations pass silently, dangerous ones are blocked, ambiguous ones ask.
+Once installed, nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
 
-WebFetch and WebSearch are not guarded by nah. If you use those, add them to Claude Code's `permissions.allow` in `~/.claude/settings.json`.
+WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 
-**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
+**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
 ### active_allow
 

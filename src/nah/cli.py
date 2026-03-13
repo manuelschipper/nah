@@ -62,10 +62,10 @@ try:
     main()
     sys.stdout = _REAL_STDOUT
     output = buf.getvalue()
-    # Empty output = no active decision (falls through to Claude Code's permission system).
-    # Non-empty output with permissionDecision actively bypasses prompts.
+    # Non-empty output = active decision (allow, ask, or deny).
+    # Empty output = active_allow disabled, falls through to Claude Code's permission system.
     if not output.strip():
-        pass  # no active decision — write nothing to stdout
+        pass  # active_allow disabled — fall through to Claude Code
     else:
         try:
             json.loads(output)

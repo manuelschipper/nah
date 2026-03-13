@@ -50,7 +50,7 @@ Claude: Bash → base64 -d payload | bash
   nah. obfuscated execution: bash receives decoded input
 ```
 
-**`nah.`** = blocked. **`nah?`** = asks for confirmation. Everything else flows through silently.
+**`nah.`** = blocked. **`nah?`** = asks for confirmation. Everything else goes through.
 
 ## What it guards
 
