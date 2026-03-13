@@ -45,9 +45,9 @@ pip install nah
 nah install
 ```
 
-Once installed, nah handles permissions for everything Claude Code does in your file system. Safe operations pass silently, dangerous ones are blocked, ambiguous ones ask.
+Once installed, nah handles permissions for everything Claude Code does in your file system. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
 
-**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
+**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
 To control which tools nah actively allows, set `active_allow` in `~/.config/nah/config.yaml`. See [configuration docs](https://schipper.ai/nah/configuration/).
 
@@ -95,7 +95,7 @@ Claude: Write → config.py containing "-----BEGIN PRIVATE KEY-----"
   nah? Write content inspection [secret]: private key
 ```
 
-**`nah.`** = blocked. **`nah?`** = asks for your confirmation. Everything else flows through silently.
+**`nah.`** = blocked. **`nah?`** = asks for your confirmation. Everything else goes through.
 
 ### Context-aware
 

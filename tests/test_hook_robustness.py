@@ -57,7 +57,7 @@ try:
     sys.stdout = _REAL_STDOUT
     output = buf.getvalue()
     if not output.strip():
-        pass  # allow — write nothing to stdout
+        pass  # active_allow disabled — fall through to Claude Code
     else:
         try:
             json.loads(output)

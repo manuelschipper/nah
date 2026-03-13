@@ -10,7 +10,7 @@ PYTHON = sys.executable
 def run_hook_raw(input_str: str) -> tuple[dict | None, str]:
     """Run the hook as a subprocess, return (raw JSON or None, stderr).
 
-    Returns None when stdout is empty (silent allow — FD-028).
+    Returns None when stdout is empty (active_allow disabled).
     """
     result = subprocess.run(
         [PYTHON, "-m", "nah.hook"],
@@ -25,7 +25,7 @@ def run_hook_raw(input_str: str) -> tuple[dict | None, str]:
 def run_hook(input_dict: dict) -> tuple[str, str]:
     """Run hook, return (decision, reason) using hookSpecificOutput protocol.
 
-    Empty stdout = silent allow (FD-028). Maps protocol deny→block for readability.
+    Empty stdout = allow (active_allow disabled). Maps protocol deny→block for readability.
     """
     raw, _ = run_hook_raw(json.dumps(input_dict))
     if raw is None:
