@@ -1,5 +1,6 @@
-"""Unit tests for _classify_unknown_tool + Write/Edit boundary — FD-037 + FD-024 + FD-045 + FD-054."""
+"""Unit tests for _classify_unknown_tool + Write/Edit boundary + active allow — FD-037 + FD-024 + FD-045 + FD-054 + FD-094."""
 
+import json
 import os
 
 from nah.hook import _classify_unknown_tool, handle_write, handle_edit, handle_read
@@ -313,3 +314,75 @@ class TestWriteEditBoundary:
         d = handle_write({"file_path": "/tmp/file.txt", "content": "hello"})
         assert d["decision"] == "ask"
         assert "no git root" in d["reason"]
+
+
+# --- FD-094: Active allow emission tests ---
+
+
+class TestActiveAllowEmission:
+    """FD-094: Verify hook.main() emits JSON for ALLOW decisions based on active_allow config."""
+
+    def setup_method(self):
+        config._cached_config = NahConfig()
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def _run_hook(self, tool_name: str, tool_input: dict) -> str:
+        """Run hook.main() with mocked stdin/stdout and return stdout output."""
+        import io
+        payload = json.dumps({"tool_name": tool_name, "tool_input": tool_input})
+        stdin_mock = io.StringIO(payload)
+        stdout_mock = io.StringIO()
+        import sys
+        old_stdin, old_stdout = sys.stdin, sys.stdout
+        sys.stdin, sys.stdout = stdin_mock, stdout_mock
+        try:
+            from nah.hook import main
+            main()
+        finally:
+            sys.stdin, sys.stdout = old_stdin, old_stdout
+        return stdout_mock.getvalue()
+
+    def test_default_active_allow_emits_json(self):
+        """Default (active_allow: True): ALLOW decision emits JSON with permissionDecision."""
+        output = self._run_hook("Bash", {"command": "ls"})
+        assert output.strip(), "Expected JSON output for active allow"
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    def test_active_allow_false_emits_nothing(self):
+        """active_allow: False: ALLOW decision emits nothing."""
+        config._cached_config = NahConfig(active_allow=False)
+        output = self._run_hook("Bash", {"command": "ls"})
+        assert not output.strip(), "Expected no output when active_allow is False"
+
+    def test_active_allow_list_matching_tool(self):
+        """active_allow: [Bash, Read]: Bash ALLOW emits JSON."""
+        config._cached_config = NahConfig(active_allow=["Bash", "Read"])
+        output = self._run_hook("Bash", {"command": "ls"})
+        assert output.strip(), "Expected JSON output for Bash in active_allow list"
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    def test_active_allow_list_non_matching_tool(self):
+        """active_allow: [Bash]: Glob ALLOW emits nothing (Glob not in list)."""
+        config._cached_config = NahConfig(active_allow=["Bash"])
+        output = self._run_hook("Glob", {"pattern": "*.py"})
+        assert not output.strip(), "Expected no output for Glob not in active_allow list"
+
+    def test_ask_decision_emits_regardless(self):
+        """ASK decisions emit JSON regardless of active_allow setting."""
+        config._cached_config = NahConfig(active_allow=False)
+        output = self._run_hook("Bash", {"command": "rm -rf /"})
+        assert output.strip(), "ASK/BLOCK should always emit"
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] in ("deny", "ask")
+
+    def test_block_decision_emits_regardless(self):
+        """BLOCK decisions emit JSON regardless of active_allow setting."""
+        config._cached_config = NahConfig(active_allow=False)
+        output = self._run_hook("Write", {"file_path": "~/.ssh/id_rsa", "content": "key"})
+        assert output.strip(), "BLOCK should always emit"
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

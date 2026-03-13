@@ -38,6 +38,7 @@ class NahConfig:
     trusted_paths: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
+    active_allow: bool | list = True
 
 
 _cached_config: NahConfig | None = None
@@ -120,6 +121,13 @@ def apply_override(override_data: dict) -> None:
             cfg.credential_patterns_suppress = cp["suppress"]
         if "add" in cp:
             cfg.credential_patterns_add = cp["add"]
+
+    if "active_allow" in override_data:
+        raw_aa = override_data["active_allow"]
+        if isinstance(raw_aa, bool):
+            cfg.active_allow = raw_aa
+        elif isinstance(raw_aa, list):
+            cfg.active_allow = [str(t) for t in raw_aa]
 
     _cached_config = cfg
 
@@ -292,6 +300,15 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
 
     # log: global config ONLY — project .nah.yaml silently ignored
     config.log = _validate_dict(global_cfg.get("log", {}))
+
+    # active_allow: global config ONLY — controls whether ALLOW emits JSON
+    raw_aa = global_cfg.get("active_allow", True)
+    if isinstance(raw_aa, bool):
+        config.active_allow = raw_aa
+    elif isinstance(raw_aa, list):
+        config.active_allow = [str(t) for t in raw_aa]
+    else:
+        config.active_allow = True
 
     return config
 

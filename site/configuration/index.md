@@ -55,6 +55,7 @@ When both configs exist, nah merges them with these rules:
 | `db_targets` | Global only |
 | `llm` | Global only |
 | `log` | Global only |
+| `active_allow` | Global only |
 
 ## Quick reference — all config keys
 
@@ -76,6 +77,7 @@ When both configs exist, nah merges them with these rules:
 | `llm` | dict (providers, `max_decision`, `eligible`, `context_chars`) | global | [LLM layer](llm.md) |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |
+| `active_allow` | `true`, `false`, or list of tool names | global | [Install](../install.md#active_allow) |
 
 *\* `classify` entries in global config are Phase 1 (checked first, can override built-in). Project entries are Phase 3 (checked after built-in, can only add new commands). `sensitive_paths_default` in project config can only tighten (ask → block).*
 

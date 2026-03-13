@@ -45,17 +45,11 @@ pip install nah
 nah install
 ```
 
-### Set up permissions
+Once installed, nah handles permissions for everything Claude Code does in your file system. Safe operations pass silently, dangerous ones are blocked, ambiguous ones ask.
 
-Allow-list the tools nah guards in `~/.claude/settings.json`:
+**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
-```json
-"permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
-```
-
-nah classifies every call and will block or ask for confirmation on anything dangerous. **Don't use `--dangerously-skip-permissions`** — in bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
-
-**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads).
+To control which tools nah actively allows, set `active_allow` in `~/.config/nah/config.yaml`. See [configuration docs](https://schipper.ai/nah/configuration/).
 
 To uninstall: `nah uninstall && pip uninstall nah`.
 

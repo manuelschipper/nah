@@ -11,19 +11,7 @@ pip install nah
 nah install
 ```
 
-That's it. nah registers itself as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json` and creates a read-only hook script at `~/.claude/hooks/nah_guard.py`.
-
-## Set up permissions
-
-Allow-list the tools nah guards in `~/.claude/settings.json`:
-
-```json
-"permissions": { "allow": ["Bash", "Read", "Glob", "Grep"] }
-```
-
-nah classifies every call and will block or ask for confirmation on anything dangerous. **Don't use `--dangerously-skip-permissions`** — in bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
-
-**Write** and **Edit** are your call — nah inspects their content either way (secrets, exfiltration, destructive payloads).
+nah registers itself as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json` and creates a read-only hook script at `~/.claude/hooks/nah_guard.py`.
 
 ### Optional dependencies
 
@@ -32,6 +20,29 @@ pip install nah[config]    # YAML config support (pyyaml)
 ```
 
 The core hook has **zero external dependencies** — it runs on Python's stdlib only. The `config` extra adds `pyyaml` for YAML config file parsing.
+
+## How permissions work
+
+Once installed, nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations pass silently, dangerous ones are blocked, ambiguous ones ask.
+
+WebFetch and WebSearch are not guarded by nah. If you use those, add them to Claude Code's `permissions.allow` in `~/.claude/settings.json`.
+
+**Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In bypass mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
+
+### active_allow
+
+By default nah actively allows safe operations for all guarded tools. You can control this per tool:
+
+```yaml
+# ~/.config/nah/config.yaml
+
+# Only actively allow these tools (Write/Edit fall back to Claude Code's prompts)
+active_allow: [Bash, Read, Glob, Grep]
+
+# Disable active allow entirely (nah still blocks/asks, but safe operations
+# fall through to Claude Code's permission system)
+active_allow: false
+```
 
 ## Update
 

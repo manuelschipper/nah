@@ -158,16 +158,19 @@ class TestCrashLog:
         assert "test crash" in content
 
     def test_happy_path_no_log(self, tmp_path):
-        """Normal operation creates no log file. Allow = empty stdout (FD-028)."""
+        """Normal operation creates no crash log. Allow emits active allow JSON (FD-094)."""
         log_file = str(tmp_path / "logs" / "hook-errors.log")
-        # Run the real hook with valid input — should not log
+        # Run the real hook with valid input — should not crash-log
         result = subprocess.run(
             [PYTHON, "-m", "nah.hook"],
             input='{"tool_name":"Bash","tool_input":{"command":"ls"}}',
             capture_output=True, text=True,
         )
         assert result.returncode == 0
-        assert result.stdout.strip() == ""  # silent allow
+        # FD-094: active_allow defaults to True, so ALLOW emits JSON
+        import json
+        output = json.loads(result.stdout)
+        assert output["hookSpecificOutput"]["permissionDecision"] == "allow"
         assert not os.path.exists(log_file)
 
     def test_log_rotation(self, tmp_path):

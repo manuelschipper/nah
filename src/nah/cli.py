@@ -62,10 +62,10 @@ try:
     main()
     sys.stdout = _REAL_STDOUT
     output = buf.getvalue()
-    # Empty output = allow (pass through to permission system).
-    # Non-empty output must be valid JSON.
+    # Empty output = no active decision (falls through to Claude Code's permission system).
+    # Non-empty output with permissionDecision actively bypasses prompts.
     if not output.strip():
-        pass  # allow — write nothing to stdout
+        pass  # no active decision — write nothing to stdout
     else:
         try:
             json.loads(output)
@@ -216,6 +216,10 @@ def cmd_install(args: argparse.Namespace) -> None:
 
     for key in agent_keys:
         _install_for_agent(key)
+
+    print()
+    print("Ready. Safe commands go through silently, dangerous ones are")
+    print("blocked, ambiguous ones ask for confirmation.")
 
 
 def cmd_update(args: argparse.Namespace) -> None:

@@ -389,6 +389,20 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
     return {"decision": taxonomy.ASK, "reason": msg}
 
 
+def _is_active_allow(tool_name: str) -> bool:
+    """Check if active allow emission is enabled for this tool."""
+    try:
+        from nah.config import get_config
+        aa = get_config().active_allow
+    except Exception:
+        return True  # default: active allow on
+    if isinstance(aa, bool):
+        return aa
+    if isinstance(aa, list):
+        return tool_name in aa
+    return True
+
+
 def main():
     agent = agents.CLAUDE  # default until we can detect
     try:
@@ -412,7 +426,7 @@ def main():
 
         d = decision.get("decision", taxonomy.ALLOW)
 
-        if d != taxonomy.ALLOW:
+        if d != taxonomy.ALLOW or _is_active_allow(canonical):
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
