@@ -26,9 +26,12 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
+dependencies = [
+    "pyyaml>=6.0",
+]
+
 [project.optional-dependencies]
 dev = ["pytest"]
-config = ["pyyaml>=6.0"]
 docs = ["mkdocs-material>=9.0"]
 
 [project.scripts]
