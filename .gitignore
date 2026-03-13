@@ -20,4 +20,5 @@ docs/PLAN.md
 !.claude/commands/
 site/
 scripts/
-.github/
+.github/*
+!.github/workflows/
