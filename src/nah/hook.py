@@ -139,8 +139,8 @@ def _is_llm_eligible(result) -> bool:
         return False
 
     # "default" — equivalent to [unknown, lang_exec, context]
-    if result.composition_rule:
-        return False
+    # Compositions are evaluated stage-by-stage like everything else —
+    # if any ask stage qualifies, the whole command goes to the LLM.
     for sr in result.stages:
         if sr.decision != taxonomy.ASK:
             continue
