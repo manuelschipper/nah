@@ -1499,11 +1499,7 @@ class TestCoreutilsExpanded:
         ["getconf", "PAGE_SIZE"],
         ["locale"],
         ["tty"],
-        # Harmless wrappers
-        ["nice", "cmd"],
-        ["nohup", "cmd"],
-        ["timeout", "10", "cmd"],
-        ["stdbuf", "-oL", "cmd"],
+        # nice/nohup/timeout/stdbuf removed — were classification bypasses (FD-105)
     ])
     def test_coreutils_is_read(self, cmd):
         assert _ct(cmd) == "filesystem_read"
