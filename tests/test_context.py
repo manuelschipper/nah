@@ -450,3 +450,11 @@ class TestTrustedPathContext:
         decision, reason = resolve_filesystem_context("/tmp")
         assert decision == "allow"
         assert "trusted path" in reason
+
+    def test_trusted_path_no_git_root(self):
+        """Trusted path should allow even with no git root (FD-107)."""
+        paths.set_project_root(None)
+        config._cached_config = NahConfig(trusted_paths=["/tmp"])
+        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+        assert decision == "allow"
+        assert "trusted path" in reason

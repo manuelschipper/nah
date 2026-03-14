@@ -105,6 +105,10 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     if basic:
         return basic
 
+    # Trusted paths check — before project root so it works with no git root (FD-107)
+    if paths.is_trusted_path(resolved):
+        return taxonomy.ALLOW, f"trusted path: {paths.friendly_path(resolved)}"
+
     # Project root check
     project_root = paths.get_project_root()
     if project_root is None:
@@ -113,10 +117,6 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     real_root = os.path.realpath(project_root)
     if resolved == real_root or resolved.startswith(real_root + os.sep):
         return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
-
-    # Trusted paths check
-    if paths.is_trusted_path(resolved):
-        return taxonomy.ALLOW, f"trusted path: {paths.friendly_path(resolved)}"
 
     return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 

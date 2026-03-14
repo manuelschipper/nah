@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nah import paths
+from nah import config, paths
 from nah.config import NahConfig
 
 
@@ -202,6 +202,29 @@ class TestProjectRoot:
         # We just verify set/get works from a clean state.
         paths.set_project_root("/test/root")
         assert paths.get_project_root() == "/test/root"
+
+
+class TestTrustedPathNoGitRoot:
+    """FD-107: trusted_paths should work even with no git root."""
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def test_trusted_path_no_git_root(self):
+        """Trusted path should allow even with no git root."""
+        paths.set_project_root(None)
+        config._cached_config = NahConfig(trusted_paths=["/tmp"])
+        result = paths.check_project_boundary("Write", "/tmp/test.txt")
+        assert result is None  # allowed
+
+    def test_untrusted_path_no_git_root(self):
+        """Untrusted path with no git root should still ask."""
+        paths.set_project_root(None)
+        config._cached_config = NahConfig()
+        result = paths.check_project_boundary("Write", "/var/data/file.txt")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "no git root" in result["reason"]
 
 
 # --- sensitive path config override ---

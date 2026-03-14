@@ -277,6 +277,8 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
     if get_config().profile == "none":
         return None  # boundary check disabled (D9)
     resolved = resolve_path(raw_path)
+    if is_trusted_path(resolved):
+        return None  # trusted — allow regardless of git root (FD-107)
     project_root = get_project_root()
     if project_root is None:
         return {
