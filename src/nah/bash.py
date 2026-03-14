@@ -372,6 +372,82 @@ def _strip_command_builtin(tokens: list[str]) -> list[str] | None:
     return None
 
 
+# xargs flags: bail-out triggers, no-arg flags, arg flags (short prefix → consumes value)
+_XARGS_BAILOUT_SHORT = {"-I", "-J", "-a"}
+_XARGS_BAILOUT_LONG = {"--replace", "--arg-file"}  # also checked as prefix for =value form
+_XARGS_NOARG_SHORT = {"-0", "-o", "-p", "-r", "-t", "-x"}
+_XARGS_NOARG_LONG = {"--null", "--interactive", "--no-run-if-empty", "--verbose", "--exit"}
+# Short flags that take an argument (next token or glued): -n1, -P 4, -d '\n', etc.
+_XARGS_ARG_SHORT = {"-d", "-E", "-L", "-n", "-P", "-R", "-S", "-s"}
+_XARGS_ARG_LONG_PREFIX = (
+    "--delimiter=", "--max-lines=", "--max-args=", "--max-procs=", "--max-chars=",
+)
+
+
+def _strip_xargs(tokens: list[str]) -> list[str] | None:
+    """Strip xargs wrapper and flags, returning inner command tokens (FD-089).
+
+    Returns None if:
+    - bare xargs (no inner command)
+    - -I/-J/--replace/-a/--arg-file present (placeholder semantics, Phase 2)
+    - unrecognized flag (fail-closed → unknown → ask)
+    """
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        # End of options
+        if tok == "--":
+            i += 1
+            break
+
+        # Not a flag → start of inner command
+        if not tok.startswith("-"):
+            break
+
+        # Bail-out: exact short flags
+        if tok in _XARGS_BAILOUT_SHORT:
+            return None
+
+        # Bail-out: long flags (exact or =value form)
+        for prefix in _XARGS_BAILOUT_LONG:
+            if tok == prefix or tok.startswith(prefix + "="):
+                return None
+
+        # No-arg flags
+        if tok in _XARGS_NOARG_SHORT or tok in _XARGS_NOARG_LONG:
+            i += 1
+            continue
+
+        # Arg flags: check exact match (consume next token) or glued form
+        matched = False
+        for flag in _XARGS_ARG_SHORT:
+            if tok == flag:
+                # Exact: consume next token as value
+                i += 2
+                matched = True
+                break
+            if tok.startswith(flag) and len(tok) > len(flag):
+                # Glued: -n1, -P4, -d'\n'
+                i += 1
+                matched = True
+                break
+        if matched:
+            continue
+
+        # Arg long flags with =value
+        if any(tok.startswith(p) for p in _XARGS_ARG_LONG_PREFIX):
+            i += 1
+            continue
+
+        # Unknown flag → fail-closed
+        return None
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _unwrap_shell(
     stage: Stage,
     depth: int,
@@ -397,6 +473,24 @@ def _unwrap_shell(
                                    builtin_table=builtin_table, project_table=project_table,
                                    user_actions=user_actions, profile=profile)
         return None  # Introspection or bare — fall through to classify
+
+    # xargs unwrap (FD-089)
+    if tokens and tokens[0] == "xargs":
+        inner_tokens = _strip_xargs(tokens)
+        if inner_tokens is None:
+            return None  # bare xargs, -I/-J, or unknown flag → fall through
+        if taxonomy.is_exec_sink(inner_tokens[0]):
+            # xargs bash, xargs eval, etc. → lang_exec (don't recurse into exec sink)
+            sr = StageResult(tokens=inner_tokens)
+            sr.action_type = taxonomy.LANG_EXEC
+            sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
+            _apply_policy(sr)
+            sr.reason = f"xargs wraps exec sink: {inner_tokens[0]}"
+            return sr
+        inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
+        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                               builtin_table=builtin_table, project_table=project_table,
+                               user_actions=user_actions, profile=profile)
 
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
     if not is_wrapper or inner is None:
