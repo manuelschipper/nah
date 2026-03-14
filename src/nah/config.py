@@ -162,18 +162,12 @@ def _validate_dict(val) -> dict:
     return val if isinstance(val, dict) else {}
 
 
-def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
-    """Merge two dicts — project can only tighten (stricter policy wins)."""
+def _merge_dict_override(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
+    """Merge two dicts — project values override global values."""
     merged = dict(global_d)
     for key, val in project_d.items():
-        if key in merged:
-            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(merged[key], 2):
-                merged[key] = val
-        else:
-            # New key: only accept if at least as strict as the built-in default
-            base = defaults.get(key, "ask") if defaults else "ask"
-            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(base, 2):
-                merged[key] = val
+        if val in _STRICTNESS:
+            merged[key] = val
     return merged
 
 
@@ -203,23 +197,23 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))
     config.classify_project = _validate_dict(project_cfg.get("classify", {}))
 
-    # actions: tighten only (compare new keys against built-in defaults)
-    config.actions = _merge_dict_tighten(
+    # actions: project overrides global
+    config.actions = _merge_dict_override(
         _validate_dict(global_cfg.get("actions", {})),
         _validate_dict(project_cfg.get("actions", {})),
         defaults=_POLICIES,
     )
 
-    # sensitive_paths_default: use project if stricter
+    # sensitive_paths_default: project overrides global
     g_default = global_cfg.get("sensitive_paths_default", "ask")
     p_default = project_cfg.get("sensitive_paths_default", "")
-    if p_default and _STRICTNESS.get(p_default, 2) >= _STRICTNESS.get(g_default, 2):
+    if p_default and p_default in _STRICTNESS:
         config.sensitive_paths_default = p_default
     else:
         config.sensitive_paths_default = g_default if g_default in _STRICTNESS else "ask"
 
-    # sensitive_paths: tighten only
-    config.sensitive_paths = _merge_dict_tighten(
+    # sensitive_paths: project overrides global
+    config.sensitive_paths = _merge_dict_override(
         _validate_dict(global_cfg.get("sensitive_paths", {})),
         _validate_dict(project_cfg.get("sensitive_paths", {})),
     )
@@ -262,7 +256,7 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     config.content_patterns_suppress = raw_cp_suppress if isinstance(raw_cp_suppress, list) else []
     g_policies = _validate_dict(g_content.get("policies", {}))
     p_policies = _validate_dict(p_content.get("policies", {}))
-    config.content_policies = _merge_dict_tighten(g_policies, p_policies)
+    config.content_policies = _merge_dict_override(g_policies, p_policies)
 
     # credential_patterns: entirely global-only
     g_cred = _validate_dict(global_cfg.get("credential_patterns", {}))

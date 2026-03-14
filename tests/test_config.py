@@ -96,15 +96,15 @@ class TestMergeConfigs:
         assert cfg.classify_global == {"package_run": ["just build"]}
         assert cfg.classify_project == {"package_run": ["task dev"]}
 
-    def test_actions_tighten_only(self):
-        """Project can tighten actions but not loosen."""
+    def test_actions_project_overrides(self):
+        """Project can both tighten and loosen actions."""
         global_cfg = {"actions": {"filesystem_read": "allow", "network_outbound": "ask"}}
         project_cfg = {"actions": {"filesystem_read": "ask", "network_outbound": "allow"}}
         cfg = _merge_configs(global_cfg, project_cfg)
-        # filesystem_read: allow → ask (tightened) ✓
+        # filesystem_read: allow → ask (tightened)
         assert cfg.actions["filesystem_read"] == "ask"
-        # network_outbound: ask → allow (loosened) — stays at ask
-        assert cfg.actions["network_outbound"] == "ask"
+        # network_outbound: ask → allow (loosened)
+        assert cfg.actions["network_outbound"] == "allow"
 
     def test_actions_project_adds_new(self):
         """Project can add new action types."""
@@ -113,18 +113,18 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, project_cfg)
         assert cfg.actions["custom_type"] == "block"
 
-    def test_sensitive_paths_tighten_only(self):
-        """Sensitive paths tighten only per path."""
+    def test_sensitive_paths_project_overrides(self):
+        """Project can both tighten and loosen sensitive paths."""
         global_cfg = {"sensitive_paths": {"~/.custom": "ask"}}
         project_cfg = {"sensitive_paths": {"~/.custom": "block"}}
         cfg = _merge_configs(global_cfg, project_cfg)
         assert cfg.sensitive_paths["~/.custom"] == "block"
 
-    def test_sensitive_paths_no_loosen(self):
+    def test_sensitive_paths_project_loosens(self):
         global_cfg = {"sensitive_paths": {"~/.custom": "block"}}
         project_cfg = {"sensitive_paths": {"~/.custom": "ask"}}
         cfg = _merge_configs(global_cfg, project_cfg)
-        assert cfg.sensitive_paths["~/.custom"] == "block"
+        assert cfg.sensitive_paths["~/.custom"] == "ask"
 
     def test_sensitive_paths_union(self):
         global_cfg = {"sensitive_paths": {"~/.a": "ask"}}
@@ -223,12 +223,12 @@ class TestSensitivePathsDefault:
         )
         assert cfg.sensitive_paths_default == "block"
 
-    def test_project_cannot_loosen(self):
+    def test_project_loosens(self):
         cfg = _merge_configs(
             {"sensitive_paths_default": "block"},
             {"sensitive_paths_default": "ask"},
         )
-        assert cfg.sensitive_paths_default == "block"
+        assert cfg.sensitive_paths_default == "ask"
 
 
 class TestProfile:
@@ -503,12 +503,12 @@ class TestContentPatterns:
         )
         assert cfg.content_policies["secret"] == "block"
 
-    def test_content_policies_project_cannot_loosen(self):
+    def test_content_policies_project_loosens(self):
         cfg = _merge_configs(
             {"content_patterns": {"policies": {"secret": "block"}}},
             {"content_patterns": {"policies": {"secret": "ask"}}},
         )
-        assert cfg.content_policies["secret"] == "block"
+        assert cfg.content_policies["secret"] == "ask"
 
     # --- content_patterns invalid types ---
 

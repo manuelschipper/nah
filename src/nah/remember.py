@@ -61,23 +61,9 @@ def _get_config_path(project: bool) -> str:
 
 
 def _validate_action_scope(action_type: str, policy: str, project: bool) -> None:
-    """Check that a project config doesn't loosen policy relative to global + defaults."""
-    if not project:
-        return
-    # Read global config to find the effective policy
-    global_path = get_global_config_path()
-    global_data = _read_config(global_path)
-    global_actions = global_data.get("actions", {})
-    if isinstance(global_actions, dict) and action_type in global_actions:
-        effective = global_actions[action_type]
-    else:
-        effective = taxonomy._POLICIES.get(action_type, taxonomy.ASK)
-    # Project policy must be at least as strict
-    if taxonomy.STRICTNESS.get(policy, 2) < taxonomy.STRICTNESS.get(effective, 2):
-        raise ValueError(
-            f"Project config cannot loosen '{action_type}' from {effective} to {policy}. "
-            f"Use global config to allow, or set a stricter policy."
-        )
+    """Validate action scope. Project configs can freely override policies."""
+    # No restriction — project configs can both tighten and loosen policies.
+    pass
 
 
 def write_action(action_type: str, policy: str, project: bool = False,

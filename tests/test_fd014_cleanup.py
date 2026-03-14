@@ -12,7 +12,7 @@ from nah.bash import StageResult, _apply_policy, _unwrap_shell, _check_redirect,
 from nah.taxonomy import get_builtin_table
 
 _FULL = get_builtin_table("full")
-from nah.config import _merge_dict_tighten, _validate_dict, _merge_configs
+from nah.config import _merge_dict_override, _validate_dict, _merge_configs
 from nah.context import _extract_positional_host
 from nah.hook import _check_write_content
 
@@ -250,53 +250,35 @@ class TestMergeHelpers:
         assert _validate_dict(None) == {}
         assert _validate_dict(42) == {}
 
-    def test_merge_dict_tighten_keeps_stricter(self):
-        result = _merge_dict_tighten(
+    def test_merge_dict_override_project_wins(self):
+        result = _merge_dict_override(
             {"a": "allow", "b": "ask"},
             {"a": "ask", "b": "allow"},
         )
         assert result["a"] == "ask"  # tightened
-        assert result["b"] == "ask"  # not loosened
+        assert result["b"] == "allow"  # loosened
 
-    def test_merge_dict_tighten_adds_new(self):
-        result = _merge_dict_tighten({"a": "allow"}, {"b": "block"})
+    def test_merge_dict_override_adds_new(self):
+        result = _merge_dict_override({"a": "allow"}, {"b": "block"})
         assert result["a"] == "allow"
         assert result["b"] == "block"
 
-    def test_merge_dict_tighten_new_key_validated_against_defaults(self):
-        """FD-048: new keys compared against built-in defaults, not accepted blindly."""
+    def test_merge_dict_override_accepts_any_valid_policy(self):
+        """Project can set any valid policy value."""
         defaults = {"db_write": "ask", "network_outbound": "context"}
-        # allow < ask → rejected
-        result = _merge_dict_tighten({}, {"db_write": "allow"}, defaults=defaults)
-        assert "db_write" not in result
-        # block > ask → accepted
-        result = _merge_dict_tighten({}, {"db_write": "block"}, defaults=defaults)
+        result = _merge_dict_override({}, {"db_write": "allow"}, defaults=defaults)
+        assert result["db_write"] == "allow"
+        result = _merge_dict_override({}, {"db_write": "block"}, defaults=defaults)
         assert result["db_write"] == "block"
-        # allow < context → rejected
-        result = _merge_dict_tighten({}, {"network_outbound": "allow"}, defaults=defaults)
-        assert "network_outbound" not in result
-        # ask > context → accepted
-        result = _merge_dict_tighten({}, {"network_outbound": "ask"}, defaults=defaults)
-        assert result["network_outbound"] == "ask"
+        result = _merge_dict_override({}, {"network_outbound": "allow"}, defaults=defaults)
+        assert result["network_outbound"] == "allow"
 
-    def test_merge_dict_tighten_unknown_key_defaults_to_ask(self):
-        """FD-048: keys not in defaults dict fall back to 'ask'."""
-        defaults = {"known": "allow"}
-        # unknown key, allow < ask → rejected
-        result = _merge_dict_tighten({}, {"fake_type": "allow"}, defaults=defaults)
-        assert "fake_type" not in result
-        # unknown key, block > ask → accepted
-        result = _merge_dict_tighten({}, {"fake_type": "block"}, defaults=defaults)
-        assert result["fake_type"] == "block"
-
-    def test_merge_dict_tighten_no_defaults_falls_back_to_ask(self):
-        """Without defaults param, new keys still compared against 'ask'."""
-        # allow < ask → rejected
-        result = _merge_dict_tighten({}, {"x": "allow"})
+    def test_merge_dict_override_ignores_invalid_values(self):
+        """Non-policy values are ignored."""
+        result = _merge_dict_override({"a": "ask"}, {"a": "bogus"})
+        assert result["a"] == "ask"
+        result = _merge_dict_override({}, {"x": "nonsense"})
         assert "x" not in result
-        # ask >= ask → accepted
-        result = _merge_dict_tighten({}, {"x": "ask"})
-        assert result["x"] == "ask"
 
     def test_parse_add_remove_list(self):
         from nah.config import _parse_add_remove

@@ -59,11 +59,12 @@ class TestWriteAction:
         with pytest.raises(ValueError, match="Did you mean"):
             write_action("git_histori_rewrite", "allow")
 
-    def test_project_loosening_raises(self, patched_paths, global_cfg):
-        from nah.remember import write_action
-        # Default for git_history_rewrite is 'ask'. Trying to set project to 'allow' should fail.
-        with pytest.raises(ValueError, match="cannot loosen"):
-            write_action("git_history_rewrite", "allow", project=True)
+    def test_project_loosening_ok(self, patched_paths, project_cfg):
+        from nah.remember import write_action, _read_config
+        msg = write_action("git_history_rewrite", "allow", project=True)
+        assert "allow" in msg
+        data = _read_config(project_cfg)
+        assert data["actions"]["git_history_rewrite"] == "allow"
 
     def test_project_tightening_ok(self, patched_paths, project_cfg):
         from nah.remember import write_action, _read_config
@@ -181,20 +182,17 @@ class TestForgetRule:
 
 
 class TestValidateActionScope:
-    def test_loosening_detected(self, patched_paths):
+    def test_loosening_allowed(self, patched_paths):
         from nah.remember import _validate_action_scope
-        # Default for git_history_rewrite is 'ask', trying to set 'allow' in project should fail
-        with pytest.raises(ValueError, match="cannot loosen"):
-            _validate_action_scope("git_history_rewrite", "allow", project=True)
+        # Project configs can freely loosen policies
+        _validate_action_scope("git_history_rewrite", "allow", project=True)
 
     def test_tightening_ok(self, patched_paths):
         from nah.remember import _validate_action_scope
-        # Tightening from 'ask' to 'block' should be fine
         _validate_action_scope("git_history_rewrite", "block", project=True)
 
     def test_global_always_ok(self, patched_paths):
         from nah.remember import _validate_action_scope
-        # Global config can do anything
         _validate_action_scope("git_history_rewrite", "allow", project=False)
 
 
