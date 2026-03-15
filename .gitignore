@@ -27,4 +27,4 @@ scripts/
 .dolt/
 *.db
 .beads/
-.mold/
+.molds/

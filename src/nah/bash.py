@@ -628,8 +628,11 @@ def _extract_primary_target(tokens: list[str]) -> str:
 
 def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
     """Check all path-like tokens against sensitive paths. Most restrictive wins."""
+    from nah.config import is_path_allowed  # lazy import to avoid circular
+
     block_result = None
     ask_result = None
+    project_root = paths.get_project_root()
 
     for tok in tokens[1:]:
         if tok.startswith("-"):
@@ -639,6 +642,9 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
             basic = paths.check_path_basic(resolved)
             if basic:
                 decision, reason = basic
+                # Check allow_paths exemption (same as check_path does for file tools)
+                if is_path_allowed(tok, project_root):
+                    continue  # exempted
                 if decision == taxonomy.BLOCK:
                     block_result = (taxonomy.BLOCK, reason)
                 elif ask_result is None:

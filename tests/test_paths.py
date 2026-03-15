@@ -280,6 +280,22 @@ class TestSensitivePathConfigOverride:
             paths._ensure_sensitive_paths_merged()
             assert paths._sensitive_paths_merged is True
 
+    def test_allow_removes_hardcoded_entry(self):
+        """sensitive_paths: allow removes the path from sensitive list (nah-9lw)."""
+        with patch("nah.config.get_config", return_value=self._mock_config({"~/.ssh": "allow"})):
+            paths.reset_sensitive_paths()
+            result = paths.check_path("Read", "~/.ssh/id_rsa")
+        # Should not be flagged as sensitive (returns None or allow-level result)
+        assert result is None or result.get("decision") != "block"
+
+    def test_allow_only_removes_targeted_path(self):
+        """sensitive_paths: allow on ~/.ssh should not affect ~/.gnupg."""
+        with patch("nah.config.get_config", return_value=self._mock_config({"~/.ssh": "allow"})):
+            paths.reset_sensitive_paths()
+            result = paths.check_path("Read", "~/.gnupg/key")
+        assert result is not None
+        assert result["decision"] == "block"
+
 
 # --- FD-051: Configurable sensitive basenames ---
 

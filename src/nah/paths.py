@@ -115,10 +115,15 @@ def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: s
     """
     existing_resolved = {entry[0] for entry in _SENSITIVE_DIRS}
     for path_str, policy in config_paths.items():
-        if policy not in ("ask", "block"):
-            continue
         expanded = os.path.expanduser(path_str)
         resolved = os.path.realpath(expanded)
+        if policy == "allow":
+            # Remove from sensitive list entirely (desensitize hardcoded entry)
+            _SENSITIVE_DIRS[:] = [e for e in _SENSITIVE_DIRS if e[0] != resolved]
+            existing_resolved.discard(resolved)
+            continue
+        if policy not in ("ask", "block"):
+            continue
         if resolved in existing_resolved:
             # Override existing entry's policy
             for i, (dir_path, display, _old_policy) in enumerate(_SENSITIVE_DIRS):

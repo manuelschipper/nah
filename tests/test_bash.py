@@ -436,6 +436,39 @@ class TestPathExtraction:
         r = classify_command("cp ~/.ssh/id_rsa ~/.aws/backup")
         assert r.final_decision == "block"
 
+    def test_allow_paths_exempts_sensitive_in_bash(self, project_root):
+        """allow_paths should exempt sensitive paths in bash args (nah-jwk)."""
+        from nah import config
+        from nah.config import NahConfig, reset_config
+
+        reset_config()
+        config._cached_config = NahConfig(
+            sensitive_paths={"~/.ssh": "ask"},
+            allow_paths={"~/.ssh": [project_root]},
+        )
+        paths.reset_sensitive_paths()
+        paths._sensitive_paths_merged = False  # allow merge to pick up config
+
+        # Use cat to isolate the sensitive path check (ssh also triggers network_outbound)
+        r = classify_command("cat ~/.ssh/id_ed25519")
+        assert r.final_decision == "allow"
+
+    def test_allow_paths_wrong_root_still_asks(self, project_root):
+        """allow_paths for different project root should not exempt."""
+        from nah import config
+        from nah.config import NahConfig, reset_config
+
+        reset_config()
+        config._cached_config = NahConfig(
+            sensitive_paths={"~/.ssh": "ask"},
+            allow_paths={"~/.ssh": ["/some/other/project"]},
+        )
+        paths.reset_sensitive_paths()
+        paths._sensitive_paths_merged = False
+
+        r = classify_command("cat ~/.ssh/id_ed25519")
+        assert r.final_decision == "ask"
+
 
 # --- Edge cases ---
 

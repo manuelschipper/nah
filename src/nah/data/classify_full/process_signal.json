@@ -3,5 +3,9 @@
   "kill -KILL",
   "kill -SIGKILL",
   "pkill",
-  "killall"
+  "killall",
+  "bd dolt start",
+  "bd dolt stop",
+  "bd dolt killall",
+  "dolt sql-server"
 ]
