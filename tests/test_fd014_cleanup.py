@@ -341,7 +341,7 @@ class TestErrorDefaultBlock:
         )
         out = json.loads(result.stdout)
         hso = out["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "block"
+        assert hso["permissionDecision"] == "deny"
         assert "error" in hso.get("permissionDecisionReason", "")
 
     def test_malformed_json_returns_block(self):
@@ -352,7 +352,7 @@ class TestErrorDefaultBlock:
         )
         out = json.loads(result.stdout)
         hso = out["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "block"
+        assert hso["permissionDecision"] == "deny"
 
     def test_stderr_has_error_info(self):
         result = subprocess.run(
