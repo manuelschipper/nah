@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- bd/dolt taxonomy — 108 entries across db_read (52), db_write (52), and process_signal (4). First `db_read.json` in the builtin taxonomy. Covers beads issue tracking, dolt version control, and server lifecycle commands
+- `sensitive_paths: allow` policy — removes hardcoded sensitive path entries entirely, giving users full control to desensitize paths like `~/.ssh` (nah-9lw)
+
+### Fixed
+
+- Bash token scanner now respects `allow_paths` exemption — previously only file tools (Read/Write/Edit) checked `allow_paths`, so SSH commands with `-i ~/.ssh/key` still prompted even when the path was exempted for the current project (nah-jwk)
+
 ## [0.4.1] - 2026-03-15
 
 ### Changed
