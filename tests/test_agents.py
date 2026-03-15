@@ -94,7 +94,7 @@ class TestFormatError:
     def test_claude_format(self):
         result = agents.format_error("oops", "claude")
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecision"] == "block"
+        assert hso["permissionDecision"] == "deny"
         assert "oops" in hso["permissionDecisionReason"]
         assert "nah: internal error" in hso["permissionDecisionReason"]
 
