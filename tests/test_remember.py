@@ -197,6 +197,15 @@ class TestValidateActionScope:
         # Global config can do anything
         _validate_action_scope("git_history_rewrite", "allow", project=False)
 
+    def test_trust_project_config_allows_loosening(self, patched_paths):
+        from nah.remember import _validate_action_scope
+        from nah import config
+        from nah.config import NahConfig
+        config._cached_config = NahConfig(trust_project_config=True)
+        # With trust_project_config, project loosening is allowed
+        _validate_action_scope("git_history_rewrite", "allow", project=True)
+        config._cached_config = None
+
 
 class TestMissingYaml:
     def test_raises_runtime_error(self):
