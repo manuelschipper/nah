@@ -4,6 +4,10 @@ Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write,
 
 **Tagline:** "A permission system you control."
 
+## GitHub Communication
+
+**Never post comments, replies, or reviews on GitHub issues or PRs without explicit approval.** When a response is needed, draft the proposed comment and present it for review first. Only post after the user approves the wording and gives the go-ahead.
+
 ## Project Structure
 
 - `src/nah/` — Python package (pip-installable, CLI entry point: `nah`)
@@ -144,3 +148,81 @@ Lines starting with `%%` in any file are **inline annotations from the user**. W
 - **FD references**: Entries end with `(FD-XXX)` for traceability
 - **Subsections**: Added, Changed, Fixed, Removed
 - **Releasing**: Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add fresh `[Unreleased]` header
+
+---
+
+## Design Workflow (mold)
+
+Design specs use beads with working files in `.mold/` (gitignored).
+
+### Beads (`bd`)
+
+Beads is the task database underneath prep. Bead IDs look like `<prefix>-<hash>` (e.g., `nah-a3f8`, `prep-yz9`). The prefix matches the project.
+
+**Statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`
+**Priority:** 0-4 (P0 = highest, P2 = default)
+
+#### Common commands
+
+```bash
+# Querying
+bd list                          # open beads (default view)
+bd list --pretty                 # tree view with status symbols
+bd list --status open --json     # JSON output for parsing
+bd list --all                    # include closed
+bd list --label <label>          # filter by label
+bd ready                         # unblocked beads ready to work on
+bd ready --label design          # design-phase beads
+bd ready --label build           # build-phase beads
+bd show <id>                     # full bead details
+bd show <id> --json              # JSON output
+bd search "query"                # full-text search
+
+# Creating & updating
+bd create "<title>" --json                    # create bead, get ID
+bd create "<title>" -p 1 -d "description"     # with priority and description
+bd update <id> --body-file - < file.md        # set body from file
+bd update <id> --add-label <label>            # add label
+bd update <id> --remove-label <label>         # remove label
+bd update <id> --status in_progress           # change status
+bd update <id> --priority 1                   # change priority
+bd update <id> --assignee "<name>"            # assign
+bd update <id> --claim                        # atomically claim (assign + in_progress)
+
+# Closing & lifecycle
+bd close <id> --reason "Completed"            # close with reason
+bd reopen <id>                                # reopen closed bead
+bd delete <id>                                # permanently delete
+
+# Labels & comments
+bd label list-all                             # all labels in database
+bd comments <id>                              # view comments
+bd comments add <id> "comment text"           # add comment
+
+# Dependencies
+bd update <id> --deps "blocks:<other-id>"     # add dependency
+bd children <id>                              # list child beads
+```
+
+### Labels
+- `design` — spec phase (working file exists in `.mold/`)
+- `build` — signed off, ready to implement
+
+### Lifecycle
+`/monew` → `/mosync` → `/moready` → implement → `/moreview` → `/moclose`
+
+### Skills
+| Skill | Purpose |
+|-------|---------|
+| `/monew` | Create bead (label: design) + working file |
+| `/mosync` | Bidirectional sync .mold/ ↔ beads |
+| `/moready` | Pre-flight + label design→build + delete working file |
+| `/moclose` | Close bead + changelog + commit |
+| `/mostatus` | Sync + PM dashboard |
+| `/moexplore` | Project overview + bead state + activity |
+| `/moreview` | Adversarial review + quality gate |
+| `/modeep` | 4-agent parallel analysis (Claude Code only) |
+| `/modemo` | Full lifecycle test + onboarding walkthrough |
+
+### Inline Annotations (`%%`)
+Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.

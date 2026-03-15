@@ -22,3 +22,9 @@ site/
 scripts/
 .github/*
 !.github/workflows/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
+.beads/
+.mold/
