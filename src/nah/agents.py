@@ -77,7 +77,7 @@ def format_error(error: str, agent: str) -> dict:
     )
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "block",
+        "permissionDecision": "deny",
         "permissionDecisionReason": msg,
     }}
 
