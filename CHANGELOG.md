@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-15
+
+### Changed
+
+- `nah config show` displays all config fields
+- Publish workflow now auto-creates GitHub Releases from changelog
+
+### Fixed
+
+- `format_error()` emitting invalid `"block"` protocol value instead of `"deny"` for `hookSpecificOutput.permissionDecision` — Claude Code rejected the value and fell through to its built-in permission system, silently defeating nah's error-path safety guard (PR #20, thanks @ZhangJiaLong90524)
+
 ## [0.4.0] - 2026-03-15
 
 ### Changed

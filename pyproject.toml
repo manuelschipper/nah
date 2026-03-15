@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nah"
-version = "0.4.0"
+version = "0.4.1"
 description = "Context-aware safety guard for Claude Code. A permission system you control."
 readme = "README.md"
 license = "MIT"
