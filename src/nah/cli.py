@@ -273,8 +273,17 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  exec_sinks:            {cfg.exec_sinks or '[]'}")
         print(f"  sensitive_basenames:   {cfg.sensitive_basenames or '{}'}")
         print(f"  decode_commands:       {cfg.decode_commands or '[]'}")
+        print(f"  content_patterns_add:  {cfg.content_patterns_add or '[]'}")
+        print(f"  content_patterns_suppress: {cfg.content_patterns_suppress or '[]'}")
+        print(f"  content_policies:      {cfg.content_policies or '{}'}")
+        print(f"  credential_patterns_add: {cfg.credential_patterns_add or '[]'}")
+        print(f"  credential_patterns_suppress: {cfg.credential_patterns_suppress or '[]'}")
+        print(f"  db_targets:            {cfg.db_targets or '[]'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_max_decision:      {cfg.llm_max_decision}")
+        print(f"  llm_eligible:          {cfg.llm_eligible}")
+        print(f"  log:                   {cfg.log or '{}'}")
+        print(f"  active_allow:          {cfg.active_allow}")
     elif sub == "path":
         from nah.config import get_global_config_path, get_project_config_path
         print(f"Global:  {get_global_config_path()}")
