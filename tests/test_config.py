@@ -126,6 +126,43 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, project_cfg)
         assert cfg.sensitive_paths["~/.custom"] == "block"
 
+    # --- trust_project_config ---
+
+    def test_trust_project_config_allows_loosening(self):
+        """With trust_project_config, project can loosen actions."""
+        global_cfg = {"trust_project_config": True, "actions": {"network_outbound": "ask"}}
+        project_cfg = {"actions": {"network_outbound": "allow"}}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.actions["network_outbound"] == "allow"
+
+    def test_trust_project_config_default_false(self):
+        """Without trust_project_config, loosening is blocked."""
+        global_cfg = {"actions": {"network_outbound": "ask"}}
+        project_cfg = {"actions": {"network_outbound": "allow"}}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.actions["network_outbound"] == "ask"
+
+    def test_trust_project_config_sensitive_paths_loosen(self):
+        """With trust_project_config, project can loosen sensitive_paths."""
+        global_cfg = {"trust_project_config": True, "sensitive_paths": {"~/.custom": "block"}}
+        project_cfg = {"sensitive_paths": {"~/.custom": "ask"}}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.sensitive_paths["~/.custom"] == "ask"
+
+    def test_trust_project_config_sensitive_paths_default_loosen(self):
+        """With trust_project_config, project can loosen sensitive_paths_default."""
+        global_cfg = {"trust_project_config": True, "sensitive_paths_default": "block"}
+        project_cfg = {"sensitive_paths_default": "ask"}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.sensitive_paths_default == "ask"
+
+    def test_trust_project_config_content_policies_loosen(self):
+        """With trust_project_config, project can loosen content_policies."""
+        global_cfg = {"trust_project_config": True, "content_patterns": {"policies": {"secret": "block"}}}
+        project_cfg = {"content_patterns": {"policies": {"secret": "ask"}}}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.content_policies["secret"] == "ask"
+
     def test_sensitive_paths_union(self):
         global_cfg = {"sensitive_paths": {"~/.a": "ask"}}
         project_cfg = {"sensitive_paths": {"~/.b": "block"}}

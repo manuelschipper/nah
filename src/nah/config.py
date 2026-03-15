@@ -39,6 +39,7 @@ class NahConfig:
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
     active_allow: bool | list = True
+    trust_project_config: bool = False
 
 
 _cached_config: NahConfig | None = None
@@ -177,6 +178,15 @@ def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None =
     return merged
 
 
+def _merge_dict_override(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
+    """Merge two dicts — project values override global (any valid policy accepted)."""
+    merged = dict(global_d)
+    for key, val in project_d.items():
+        if val in _STRICTNESS:
+            merged[key] = val
+    return merged
+
+
 def _parse_add_remove(raw) -> tuple[list, list]:
     """Parse polymorphic config: list = add-only, dict = add/remove."""
     if isinstance(raw, list):
@@ -192,6 +202,10 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     """Merge global and project configs with security rules."""
     config = NahConfig()
 
+    # trust_project_config: global config ONLY — when true, project can loosen policies
+    config.trust_project_config = bool(global_cfg.get("trust_project_config", False))
+    _merge = _merge_dict_override if config.trust_project_config else _merge_dict_tighten
+
     # profile: global config ONLY, validated
     profile = global_cfg.get("profile", "full")
     if profile not in _PROFILES:
@@ -203,23 +217,25 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))
     config.classify_project = _validate_dict(project_cfg.get("classify", {}))
 
-    # actions: tighten only (compare new keys against built-in defaults)
-    config.actions = _merge_dict_tighten(
+    # actions: tighten only (or override if trust_project_config)
+    config.actions = _merge(
         _validate_dict(global_cfg.get("actions", {})),
         _validate_dict(project_cfg.get("actions", {})),
         defaults=_POLICIES,
     )
 
-    # sensitive_paths_default: use project if stricter
+    # sensitive_paths_default: use project if stricter (or any valid value if trusted)
     g_default = global_cfg.get("sensitive_paths_default", "ask")
     p_default = project_cfg.get("sensitive_paths_default", "")
-    if p_default and _STRICTNESS.get(p_default, 2) >= _STRICTNESS.get(g_default, 2):
+    if p_default and config.trust_project_config and p_default in _STRICTNESS:
+        config.sensitive_paths_default = p_default
+    elif p_default and _STRICTNESS.get(p_default, 2) >= _STRICTNESS.get(g_default, 2):
         config.sensitive_paths_default = p_default
     else:
         config.sensitive_paths_default = g_default if g_default in _STRICTNESS else "ask"
 
-    # sensitive_paths: tighten only
-    config.sensitive_paths = _merge_dict_tighten(
+    # sensitive_paths: tighten only (or override if trust_project_config)
+    config.sensitive_paths = _merge(
         _validate_dict(global_cfg.get("sensitive_paths", {})),
         _validate_dict(project_cfg.get("sensitive_paths", {})),
     )
@@ -262,7 +278,7 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     config.content_patterns_suppress = raw_cp_suppress if isinstance(raw_cp_suppress, list) else []
     g_policies = _validate_dict(g_content.get("policies", {}))
     p_policies = _validate_dict(p_content.get("policies", {}))
-    config.content_policies = _merge_dict_tighten(g_policies, p_policies)
+    config.content_policies = _merge(g_policies, p_policies)
 
     # credential_patterns: entirely global-only
     g_cred = _validate_dict(global_cfg.get("credential_patterns", {}))
