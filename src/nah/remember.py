@@ -61,9 +61,16 @@ def _get_config_path(project: bool) -> str:
 
 
 def _validate_action_scope(action_type: str, policy: str, project: bool) -> None:
-    """Check that a project config doesn't loosen policy relative to global + defaults."""
+    """Check that a project config doesn't loosen policy relative to global + defaults.
+
+    Skipped when trust_project_config is enabled in global config.
+    """
     if not project:
         return
+    # Check if trust_project_config is enabled
+    from nah.config import get_config
+    if get_config().trust_project_config:
+        return  # project can freely override
     # Read global config to find the effective policy
     global_path = get_global_config_path()
     global_data = _read_config(global_path)
@@ -76,7 +83,7 @@ def _validate_action_scope(action_type: str, policy: str, project: bool) -> None
     if taxonomy.STRICTNESS.get(policy, 2) < taxonomy.STRICTNESS.get(effective, 2):
         raise ValueError(
             f"Project config cannot loosen '{action_type}' from {effective} to {policy}. "
-            f"Use global config to allow, or set a stricter policy."
+            f"Use global config to allow, or set trust_project_config: true to enable per-project loosening."
         )
 
 
