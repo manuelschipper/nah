@@ -22,6 +22,7 @@ Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write,
 - **Config format**: YAML (`~/.config/nah/config.yaml` + `.nah.yaml` per project)
 - **Hook script**: `~/.claude/hooks/nah_guard.py` (installed read-only, chmod 444)
 - **Testing commands**: Always use `nah test "..."` — never `python -m nah ...` (nah flags the latter as `lang_exec`)
+- **Branch protection**: `main` is protected — all changes require a PR. Create a feature branch, push, and open a PR via `gh pr create`
 
 ## Error Handling
 
@@ -145,16 +146,15 @@ bd children <id>                              # list child beads
 - `build` — signed off, ready to implement
 
 ### Lifecycle
-`/monew` → `/mosync` → `/moready` → implement → `/moreview` → `/moclose`
+`/monew` → `/moready` → implement → `/moreview` → `/moclose`
 
 ### Skills
 | Skill | Purpose |
 |-------|---------|
 | `/monew` | Create bead (label: design) + working file |
-| `/mosync` | Bidirectional sync .molds/ ↔ beads |
 | `/moready` | Pre-flight + label design→build + delete working file |
 | `/moclose` | Close bead + changelog + commit |
-| `/mostatus` | Sync + PM dashboard |
+| `/mostatus` | Dashboard grouped by phase |
 | `/moexplore` | Project overview + bead state + activity |
 | `/moreview` | Adversarial review + quality gate |
 | `/modeep` | 4-agent parallel analysis (Claude Code only) |
