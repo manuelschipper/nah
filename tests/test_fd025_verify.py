@@ -23,8 +23,8 @@ def _check(tool, path):
 class TestFD025LiveVerification:
     """Verify config overrides with the real ~/.config/nah/config.yaml."""
 
-    def test_bash_profile_local_ask_from_config(self):
-        assert _check("Read", HOME + "/.bash_profile.local") == "ask"
+    def test_keys_file_ask_from_config(self):
+        assert _check("Read", HOME + "/.keys") == "ask"
 
     def test_gnupg_hardcoded_block(self):
         assert _check("Read", HOME + "/.gnupg/key") == "block"
