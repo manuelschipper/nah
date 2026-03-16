@@ -88,7 +88,10 @@ os._exit(0)
 
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
-    return f"{sys.executable} {_HOOK_SCRIPT}"
+    # Forward slashes: works in both bash and cmd.exe on Windows
+    exe = sys.executable.replace("\\", "/")
+    script = str(_HOOK_SCRIPT).replace("\\", "/")
+    return f"{exe} {script}"
 
 
 def _read_settings(settings_file: Path) -> dict:
