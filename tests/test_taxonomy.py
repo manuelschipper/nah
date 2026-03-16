@@ -175,6 +175,9 @@ class TestClassifyTokens:
         assert _ct(["find", ".", "-delete"]) == "filesystem_delete"
 
     def test_find_exec(self):
+        assert _ct(["find", ".", "-type", "f", "-exec", "grep", "-l", "needle", "{}", "+"]) == "filesystem_read"
+
+    def test_find_exec_delete_command(self):
         assert _ct(["find", ".", "-exec", "rm", "{}", ";"]) == "filesystem_delete"
 
     def test_find_execdir(self):
@@ -428,6 +431,53 @@ class TestClassifyTokens:
         assert classify_tokens(
             ["vendor/bin/codecept", "run"], project_table=tbl, profile="none",
         ) == "testing"
+
+    def test_project_table_overrides_builtin_prefix(self):
+        """Project classify entries beat builtins for the same command prefix."""
+        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["make", "docker-clean"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+        ) == "container_destructive"
+
+    def test_project_table_overrides_builtin_prefix_with_full_profile(self):
+        """Override also works with profile='full' (flag classifiers enabled)."""
+        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["make", "docker-clean"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="full",
+        ) == "container_destructive"
+
+    def test_project_cannot_loosen_builtin_without_trust(self):
+        """Without trust_project, project classify cannot weaken a builtin."""
+        # docker rm is container_destructive (ask) in builtins;
+        # project tries to reclassify as filesystem_read (allow) — should be denied.
+        tbl = build_user_table({"filesystem_read": ["docker rm"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["docker", "rm", "abc"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+        ) == "container_destructive"
+
+    def test_project_can_loosen_builtin_with_trust(self):
+        """With trust_project=True, project classify can weaken a builtin."""
+        tbl = build_user_table({"filesystem_read": ["docker rm"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["docker", "rm", "abc"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+            trust_project=True,
+        ) == "filesystem_read"
 
     def test_user_classify_multi_token_path(self):
         """Path in non-first position: only first token gets basename'd."""

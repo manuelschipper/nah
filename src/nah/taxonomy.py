@@ -249,12 +249,16 @@ def classify_tokens(
     project_table: list | None = None,
     *,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> str:
     """Classify command tokens via three-phase lookup.
 
     Phase 1: Global table (trusted user config) — always runs.
     Phase 2: Flag classifiers (built-in opinions) — skipped when profile == "none".
-    Phase 3: Remaining tables (builtin, project) — global already checked.
+    Phase 3: Remaining tables (project, builtin) — global already checked.
+        When trust_project is True, project table wins over builtins even
+        when it loosens policy (user explicitly opted in via
+        trust_project_config in global config).
     """
     if not tokens:
         return UNKNOWN
@@ -282,7 +286,14 @@ def classify_tokens(
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     # Skipped entirely when profile == "none".
     if profile != "none":
-        action = _classify_find(tokens)
+        action = _classify_find(
+            tokens,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            profile=profile,
+            trust_project=trust_project,
+        )
         if action is not None:
             return action
         action = _classify_sed(tokens)
@@ -311,14 +322,28 @@ def classify_tokens(
         if action is not None:
             return action
 
-    # --- Phase 3: Remaining tables (builtin, project) ---
-    for table in (builtin_table, project_table):
-        if table:
-            result = _prefix_match(tokens, table)
-            if result != UNKNOWN:
-                return result
+    # --- Phase 3: Remaining tables (project, builtin) ---
+    # Project table may override built-ins only when it does not weaken policy,
+    # unless trust_project is True (user opted in via trust_project_config).
+    project_result = _prefix_match(tokens, project_table) if project_table else UNKNOWN
+    builtin_result = _prefix_match(tokens, builtin_table) if builtin_table else UNKNOWN
 
-    return UNKNOWN
+    if project_result == UNKNOWN:
+        return builtin_result
+    if builtin_result == UNKNOWN:
+        return project_result
+    if project_result == builtin_result:
+        return project_result
+
+    # Trusted project: project wins unconditionally (user explicitly opted in).
+    if trust_project:
+        return project_result
+
+    project_policy = get_policy(project_result)
+    builtin_policy = get_policy(builtin_result)
+    if STRICTNESS.get(project_policy, 0) >= STRICTNESS.get(builtin_policy, 0):
+        return project_result
+    return builtin_result
 
 
 # Git global flags that take a value argument (must consume next token too).
@@ -349,14 +374,45 @@ def _strip_git_global_flags(tokens: list[str]) -> list[str]:
     return result
 
 
-def _classify_find(tokens: list[str]) -> str | None:
-    """Special classifier for find — flag-dependent action type."""
+def _classify_find(
+    tokens: list[str],
+    *,
+    global_table: list | None = None,
+    builtin_table: list | None = None,
+    project_table: list | None = None,
+    profile: str = "full",
+    trust_project: bool = False,
+) -> str | None:
+    """Special classifier for find — inspect -exec payloads conservatively."""
     if not tokens or tokens[0] != "find":
         return None
-    for tok in tokens[1:]:
-        if tok in ("-delete", "-exec", "-execdir", "-ok"):
+    for i, tok in enumerate(tokens[1:], start=1):
+        if tok == "-delete":
             return FILESYSTEM_DELETE
+        if tok in ("-exec", "-execdir", "-ok", "-okdir"):
+            inner_tokens = _extract_find_exec_tokens(tokens, i + 1)
+            if not inner_tokens:
+                return FILESYSTEM_DELETE
+            inner_action = classify_tokens(
+                inner_tokens,
+                global_table=global_table,
+                builtin_table=builtin_table,
+                project_table=project_table,
+                profile=profile,
+                trust_project=trust_project,
+            )
+            return inner_action if inner_action != UNKNOWN else FILESYSTEM_DELETE
     return FILESYSTEM_READ
+
+
+def _extract_find_exec_tokens(tokens: list[str], start: int) -> list[str]:
+    """Extract the command payload following find -exec/-execdir/-ok until ; or +."""
+    inner: list[str] = []
+    for tok in tokens[start:]:
+        if tok in (";", "+"):
+            break
+        inner.append(tok)
+    return inner
 
 
 def _classify_sed(tokens: list[str]) -> str | None:
