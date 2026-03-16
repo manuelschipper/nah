@@ -397,6 +397,28 @@ class TestClassifyTokens:
             ["vendor/bin/codecept", "run"], project_table=tbl, profile="none",
         ) == "testing"
 
+    def test_project_table_overrides_builtin_prefix(self):
+        """Project classify entries beat builtins for the same command prefix."""
+        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["make", "docker-clean"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+        ) == "container_destructive"
+
+    def test_project_table_overrides_builtin_prefix_with_full_profile(self):
+        """Override also works with profile='full' (flag classifiers enabled)."""
+        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["make", "docker-clean"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="full",
+        ) == "container_destructive"
+
     def test_user_classify_multi_token_path(self):
         """Path in non-first position: only first token gets basename'd."""
         tbl = build_user_table({"testing": ["php vendor/bin/codecept run"]})

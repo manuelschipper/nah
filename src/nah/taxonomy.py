@@ -254,7 +254,7 @@ def classify_tokens(
 
     Phase 1: Global table (trusted user config) — always runs.
     Phase 2: Flag classifiers (built-in opinions) — skipped when profile == "none".
-    Phase 3: Remaining tables (builtin, project) — global already checked.
+    Phase 3: Remaining tables (project, builtin) — global already checked.
     """
     if not tokens:
         return UNKNOWN
@@ -317,14 +317,24 @@ def classify_tokens(
         if action is not None:
             return action
 
-    # --- Phase 3: Remaining tables (builtin, project) ---
-    for table in (builtin_table, project_table):
-        if table:
-            result = _prefix_match(tokens, table)
-            if result != UNKNOWN:
-                return result
+    # --- Phase 3: Remaining tables (project, builtin) ---
+    # Project table may override built-ins only when it does not weaken policy.
+    # This preserves supply-chain safety while allowing project-specific tightening.
+    project_result = _prefix_match(tokens, project_table) if project_table else UNKNOWN
+    builtin_result = _prefix_match(tokens, builtin_table) if builtin_table else UNKNOWN
 
-    return UNKNOWN
+    if project_result == UNKNOWN:
+        return builtin_result
+    if builtin_result == UNKNOWN:
+        return project_result
+    if project_result == builtin_result:
+        return project_result
+
+    project_policy = get_policy(project_result)
+    builtin_policy = get_policy(builtin_result)
+    if STRICTNESS.get(project_policy, 0) >= STRICTNESS.get(builtin_policy, 0):
+        return project_result
+    return builtin_result
 
 
 # Git global flags that take a value argument (must consume next token too).
