@@ -166,6 +166,9 @@ class TestClassifyTokens:
         assert _ct(["find", ".", "-delete"]) == "filesystem_delete"
 
     def test_find_exec(self):
+        assert _ct(["find", ".", "-type", "f", "-exec", "grep", "-l", "needle", "{}", "+"]) == "filesystem_read"
+
+    def test_find_exec_delete_command(self):
         assert _ct(["find", ".", "-exec", "rm", "{}", ";"]) == "filesystem_delete"
 
     def test_find_execdir(self):

@@ -282,7 +282,13 @@ def classify_tokens(
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     # Skipped entirely when profile == "none".
     if profile != "none":
-        action = _classify_find(tokens)
+        action = _classify_find(
+            tokens,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            profile=profile,
+        )
         if action is not None:
             return action
         action = _classify_sed(tokens)
@@ -349,14 +355,43 @@ def _strip_git_global_flags(tokens: list[str]) -> list[str]:
     return result
 
 
-def _classify_find(tokens: list[str]) -> str | None:
-    """Special classifier for find — flag-dependent action type."""
+def _classify_find(
+    tokens: list[str],
+    *,
+    global_table: list | None = None,
+    builtin_table: list | None = None,
+    project_table: list | None = None,
+    profile: str = "full",
+) -> str | None:
+    """Special classifier for find — inspect -exec payloads conservatively."""
     if not tokens or tokens[0] != "find":
         return None
-    for tok in tokens[1:]:
-        if tok in ("-delete", "-exec", "-execdir", "-ok"):
+    for i, tok in enumerate(tokens[1:], start=1):
+        if tok == "-delete":
             return FILESYSTEM_DELETE
+        if tok in ("-exec", "-execdir", "-ok", "-okdir"):
+            inner_tokens = _extract_find_exec_tokens(tokens, i + 1)
+            if not inner_tokens:
+                return FILESYSTEM_DELETE
+            inner_action = classify_tokens(
+                inner_tokens,
+                global_table=global_table,
+                builtin_table=builtin_table,
+                project_table=project_table,
+                profile=profile,
+            )
+            return inner_action if inner_action != UNKNOWN else FILESYSTEM_DELETE
     return FILESYSTEM_READ
+
+
+def _extract_find_exec_tokens(tokens: list[str], start: int) -> list[str]:
+    """Extract the command payload following find -exec/-execdir/-ok until ; or +."""
+    inner: list[str] = []
+    for tok in tokens[start:]:
+        if tok in (";", "+"):
+            break
+        inner.append(tok)
+    return inner
 
 
 def _classify_sed(tokens: list[str]) -> str | None:
