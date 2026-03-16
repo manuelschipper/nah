@@ -575,3 +575,47 @@ class TestCmdClaude:
         args = exec_calls[0][1]
         assert "--resume" in args
         assert "--verbose" in args
+
+
+class TestHookCommand:
+    """_hook_command() must produce quoted POSIX paths for bash compatibility."""
+
+    def test_windows_backslashes_converted(self, monkeypatch):
+        """Backslash paths from sys.executable/pathlib are converted to forward slashes."""
+        import shlex
+        import nah.cli as cli_mod
+        from pathlib import PureWindowsPath
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
+                            PureWindowsPath(r"C:\Users\test\.claude\hooks\nah_guard.py"))
+        monkeypatch.setattr("sys.executable",
+                            r"C:\Users\test\AppData\Local\Python\python.exe")
+        cmd = cli_mod._hook_command()
+        assert "\\" not in cmd
+        assert "C:/Users/test" in cmd
+        assert len(shlex.split(cmd)) == 2
+
+    def test_shlex_parses_to_two_tokens(self, monkeypatch):
+        """Output is a valid shell command with exactly two tokens."""
+        import shlex
+        import nah.cli as cli_mod
+        from pathlib import PurePosixPath
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
+                            PurePosixPath("/home/user/.claude/hooks/nah_guard.py"))
+        monkeypatch.setattr("sys.executable", "/usr/bin/python3")
+        parts = shlex.split(cli_mod._hook_command())
+        assert len(parts) == 2
+        assert "python" in parts[0]
+        assert parts[1].endswith("nah_guard.py")
+
+    def test_spaces_in_paths_preserved(self, monkeypatch):
+        """Paths with spaces are quoted so bash treats each as one token."""
+        import shlex
+        import nah.cli as cli_mod
+        from pathlib import PurePosixPath
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
+                            PurePosixPath("/home/my user/.claude/hooks/nah_guard.py"))
+        monkeypatch.setattr("sys.executable", "/opt/my python/bin/python3")
+        parts = shlex.split(cli_mod._hook_command())
+        assert len(parts) == 2
+        assert "my python" in parts[0]
+        assert "my user" in parts[1]
