@@ -419,6 +419,31 @@ class TestClassifyTokens:
             profile="full",
         ) == "container_destructive"
 
+    def test_project_cannot_loosen_builtin_without_trust(self):
+        """Without trust_project, project classify cannot weaken a builtin."""
+        # docker rm is container_destructive (ask) in builtins;
+        # project tries to reclassify as filesystem_read (allow) — should be denied.
+        tbl = build_user_table({"filesystem_read": ["docker rm"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["docker", "rm", "abc"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+        ) == "container_destructive"
+
+    def test_project_can_loosen_builtin_with_trust(self):
+        """With trust_project=True, project classify can weaken a builtin."""
+        tbl = build_user_table({"filesystem_read": ["docker rm"]})
+        builtin = get_builtin_table("full")
+        assert classify_tokens(
+            ["docker", "rm", "abc"],
+            builtin_table=builtin,
+            project_table=tbl,
+            profile="none",
+            trust_project=True,
+        ) == "filesystem_read"
+
     def test_user_classify_multi_token_path(self):
         """Path in non-first position: only first token gets basename'd."""
         tbl = build_user_table({"testing": ["php vendor/bin/codecept run"]})
