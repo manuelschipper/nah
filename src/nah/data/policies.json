@@ -17,6 +17,9 @@
   "container_destructive": "ask",
   "db_read": "allow",
   "db_write": "ask",
+  "beads_safe": "allow",
+  "beads_write": "allow",
+  "beads_destructive": "ask",
   "obfuscated": "block",
   "unknown": "ask"
 }
