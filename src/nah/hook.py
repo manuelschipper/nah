@@ -374,7 +374,8 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
         return {"decision": taxonomy.ASK, "reason": f"unrecognized tool: {canonical}"}
 
     action_type = taxonomy.classify_tokens([canonical], global_table, builtin_table, project_table,
-                                           profile=cfg.profile)
+                                           profile=cfg.profile,
+                                           trust_project=cfg.trust_project_config)
 
     policy = taxonomy.get_policy(action_type, user_actions)
     if policy == taxonomy.ALLOW:

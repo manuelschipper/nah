@@ -61,10 +61,12 @@ def classify_command(command: str) -> ClassifyResult:
     project_table = None
     user_actions = None
     profile = "full"
+    trust_project = False
     try:
         from nah.config import get_config  # lazy import
         cfg = get_config()
         profile = cfg.profile
+        trust_project = cfg.trust_project_config
         if cfg.classify_global:
             global_table = taxonomy.build_user_table(cfg.classify_global)
         builtin_table = taxonomy.get_builtin_table(cfg.profile)
@@ -99,7 +101,7 @@ def classify_command(command: str) -> ClassifyResult:
     for stage in stages:
         sr = _classify_stage(stage, global_table=global_table, builtin_table=builtin_table,
                              project_table=project_table, user_actions=user_actions,
-                             profile=profile)
+                             profile=profile, trust_project=trust_project)
         result.stages.append(sr)
 
     # Check pipe composition rules
@@ -295,6 +297,7 @@ def _classify_stage(
     project_table: list | None = None,
     user_actions: dict[str, str] | None = None,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> StageResult:
     """Classify a single pipeline stage."""
     tokens = stage.tokens
@@ -315,13 +318,14 @@ def _classify_stage(
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
                               builtin_table=builtin_table, project_table=project_table,
-                              user_actions=user_actions, profile=profile)
+                              user_actions=user_actions, profile=profile,
+                              trust_project=trust_project)
     if unwrapped is not None:
         return unwrapped
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
-                                              profile=profile)
+                                              profile=profile, trust_project=trust_project)
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Handle redirect target — treat as filesystem_write for the target path
@@ -457,6 +461,7 @@ def _unwrap_shell(
     project_table: list | None,
     user_actions: dict[str, str] | None,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> StageResult | None:
     """Try shell unwrapping. Returns StageResult if handled, None if not a wrapper."""
     tokens = stage.tokens
@@ -471,7 +476,8 @@ def _unwrap_shell(
             inner_stage = Stage(tokens=inner, operator=stage.operator)
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
-                                   user_actions=user_actions, profile=profile)
+                                   user_actions=user_actions, profile=profile,
+                                   trust_project=trust_project)
         return None  # Introspection or bare — fall through to classify
 
     # xargs unwrap (FD-089)
@@ -490,7 +496,8 @@ def _unwrap_shell(
         inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile)
+                               user_actions=user_actions, profile=profile,
+                               trust_project=trust_project)
 
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
     if not is_wrapper or inner is None:
@@ -523,7 +530,7 @@ def _unwrap_shell(
         return _classify_inner(inner_stages, stage, depth + 1,
                                global_table=global_table, builtin_table=builtin_table,
                                project_table=project_table, user_actions=user_actions,
-                               profile=profile)
+                               profile=profile, trust_project=trust_project)
 
     return None
 
@@ -538,10 +545,12 @@ def _classify_inner(
     project_table: list | None,
     user_actions: dict[str, str] | None,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> StageResult:
     """Classify pre-decomposed inner stages."""
     kw = dict(global_table=global_table, builtin_table=builtin_table,
-              project_table=project_table, user_actions=user_actions, profile=profile)
+              project_table=project_table, user_actions=user_actions, profile=profile,
+              trust_project=trust_project)
 
     if len(inner_stages) <= 1:
         # Simple case — single command, no operators

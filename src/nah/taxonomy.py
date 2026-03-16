@@ -249,12 +249,16 @@ def classify_tokens(
     project_table: list | None = None,
     *,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> str:
     """Classify command tokens via three-phase lookup.
 
     Phase 1: Global table (trusted user config) — always runs.
     Phase 2: Flag classifiers (built-in opinions) — skipped when profile == "none".
     Phase 3: Remaining tables (project, builtin) — global already checked.
+        When trust_project is True, project table wins over builtins even
+        when it loosens policy (user explicitly opted in via
+        trust_project_config in global config).
     """
     if not tokens:
         return UNKNOWN
@@ -288,6 +292,7 @@ def classify_tokens(
             builtin_table=builtin_table,
             project_table=project_table,
             profile=profile,
+            trust_project=trust_project,
         )
         if action is not None:
             return action
@@ -318,8 +323,8 @@ def classify_tokens(
             return action
 
     # --- Phase 3: Remaining tables (project, builtin) ---
-    # Project table may override built-ins only when it does not weaken policy.
-    # This preserves supply-chain safety while allowing project-specific tightening.
+    # Project table may override built-ins only when it does not weaken policy,
+    # unless trust_project is True (user opted in via trust_project_config).
     project_result = _prefix_match(tokens, project_table) if project_table else UNKNOWN
     builtin_result = _prefix_match(tokens, builtin_table) if builtin_table else UNKNOWN
 
@@ -328,6 +333,10 @@ def classify_tokens(
     if builtin_result == UNKNOWN:
         return project_result
     if project_result == builtin_result:
+        return project_result
+
+    # Trusted project: project wins unconditionally (user explicitly opted in).
+    if trust_project:
         return project_result
 
     project_policy = get_policy(project_result)
@@ -372,6 +381,7 @@ def _classify_find(
     builtin_table: list | None = None,
     project_table: list | None = None,
     profile: str = "full",
+    trust_project: bool = False,
 ) -> str | None:
     """Special classifier for find — inspect -exec payloads conservatively."""
     if not tokens or tokens[0] != "find":
@@ -389,6 +399,7 @@ def _classify_find(
                 builtin_table=builtin_table,
                 project_table=project_table,
                 profile=profile,
+                trust_project=trust_project,
             )
             return inner_action if inner_action != UNKNOWN else FILESYSTEM_DELETE
     return FILESYSTEM_READ
