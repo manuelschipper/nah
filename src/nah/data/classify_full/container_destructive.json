@@ -7,6 +7,10 @@
   "docker volume prune",
   "docker network prune",
   "docker builder prune",
+  "docker buildx prune",
+  "docker compose down",
+  "docker compose rm",
+  "docker buildx rm",
   "docker volume rm",
   "docker container rm",
   "docker image rm",
@@ -19,9 +23,13 @@
   "podman volume prune",
   "podman network prune",
   "podman pod prune",
+  "podman compose down",
+  "podman compose rm",
   "podman volume rm",
   "podman container rm",
   "podman image rm",
   "podman network rm",
-  "podman pod rm"
+  "podman pod rm",
+  "podman machine rm",
+  "podman secret rm"
 ]
