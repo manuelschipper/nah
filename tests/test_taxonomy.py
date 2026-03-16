@@ -125,6 +125,15 @@ class TestClassifyTokens:
     def test_package_install(self, tokens):
         assert _ct(tokens) == "package_install"
 
+    @pytest.mark.parametrize("tokens", [
+        ["pip", "install", "--target=/tmp/lib", "flask"],
+        ["pip", "install", "--root=/opt", "flask"],
+        ["pip", "install", "-t", "/tmp/lib", "flask"],
+        ["pip3", "install", "-t", "/tmp/lib", "flask"],
+    ])
+    def test_global_install_flag_variants_escalate_to_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
     # package_run
     @pytest.mark.parametrize("tokens", [
         ["npx", "create-react-app"],

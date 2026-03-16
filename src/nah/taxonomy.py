@@ -613,6 +613,10 @@ def _classify_global_install(tokens: list[str]) -> str | None:
     for tok in tokens[1:]:
         if tok in _GLOBAL_INSTALL_FLAGS:
             return UNKNOWN
+        if tok.startswith(("--global=", "--system=", "--target=", "--root=")):
+            return UNKNOWN
+        if tokens[0] in {"pip", "pip3"} and tok == "-t":
+            return UNKNOWN
     return None
 
 
