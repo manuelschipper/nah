@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- bd/dolt taxonomy — 108 entries across db_read (52), db_write (52), and process_signal (4). First `db_read.json` in the builtin taxonomy. Covers beads issue tracking, dolt version control, and server lifecycle commands
+- Beads-specific action types — `beads_safe` (allow), `beads_write` (allow), `beads_destructive` (ask) replace generic db_read/db_write classification for `bd` commands. Includes prefix-leak guards for flag-dependent mutations (nah-1op)
 - `sensitive_paths: allow` policy — removes hardcoded sensitive path entries entirely, giving users full control to desensitize paths like `~/.ssh` (nah-9lw)
 
 ### Fixed
