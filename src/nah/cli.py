@@ -88,7 +88,14 @@ os._exit(0)
 
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(_HOOK_SCRIPT))}"
+    # Use POSIX forward-slash paths: safe in both bash and cmd.exe on Windows.
+    # shlex.quote() produces POSIX single-quoting which only works when the
+    # command is interpreted by a POSIX shell. Claude Code may invoke hooks
+    # via cmd.exe or direct OS spawn, where single quotes are literal chars.
+    # as_posix() eliminates backslashes at the source, sidestepping the issue.
+    exe = Path(sys.executable).as_posix()
+    script = _HOOK_SCRIPT.as_posix()
+    return f'"{exe}" "{script}"'
 
 
 def _build_hooks_settings() -> dict:
