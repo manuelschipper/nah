@@ -173,6 +173,16 @@ _MODULE_FLAGS: dict[str, set[str]] = {
     "python": {"-m"}, "python3": {"-m"},
 }
 
+# Interpreter flags that consume the next token as a value argument.
+# Must be skipped (along with their value) when searching for the script file.
+_VALUE_FLAGS: dict[str, set[str]] = {
+    "python": {"-W", "-X"},
+    "python3": {"-W", "-X"},
+    "node": {"-r", "--require", "--loader"},
+    "ruby": {"-I", "-r"},
+    "perl": {"-I", "-M"},
+}
+
 # Script file extensions for shebang/extension detection.
 _SCRIPT_EXTENSIONS = {".py", ".js", ".rb", ".sh", ".pl", ".ts", ".php", ".tsx"}
 
@@ -804,8 +814,17 @@ def _classify_script_exec(tokens: list[str]) -> str | None:
     if tokens[1] in module:
         return None
 
-    # First non-flag argument = script file
+    # First non-flag argument = script file.
+    # Skip value-taking flags (e.g. -W ignore) and their arguments.
+    value_flags = _VALUE_FLAGS.get(cmd, set())
+    skip_next = False
     for tok in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in value_flags:
+            skip_next = True
+            continue
         if tok.startswith("-"):
             continue
         return LANG_EXEC  # found script file argument

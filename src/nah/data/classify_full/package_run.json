@@ -42,6 +42,7 @@
   "uv tool run",
   "uvx",
   "python -m pytest",
+  "python3 -m pytest",
   "npx",
   "pytest",
   "make",

@@ -106,9 +106,10 @@ def _build_prompt(
     classify_result, transcript_context: str = "",
 ) -> PromptParts:
     """Build classification prompt from ClassifyResult."""
+    from nah import taxonomy
     driving_stage = None
     for sr in classify_result.stages:
-        if sr.decision == "ask":
+        if sr.decision == taxonomy.ASK:
             driving_stage = sr
             break
     if driving_stage is None and classify_result.stages:
@@ -137,6 +138,12 @@ def _build_prompt(
         script_content = _read_script_for_llm(driving_stage.tokens)
         if script_content:
             user += f"\nScript about to execute:\n```\n{script_content}\n```\n"
+            from nah.content import scan_content
+            matches = scan_content(script_content)
+            if matches:
+                user += f"Content inspection: {', '.join(m.pattern_desc for m in matches)}\n"
+            else:
+                user += "Content inspection: no flags\n"
 
     if transcript_context:
         user += transcript_context
@@ -149,28 +156,51 @@ def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None
 
     Extracts script path from interpreter tokens and reads the file.
     Returns None if no file argument, file doesn't exist, or read fails.
+    Handles inline flags (-c/-e), module flags (-m), value-taking flags (-W),
+    and direct execution (./script.py as single token).
     """
-    if not tokens or len(tokens) < 2:
+    if not tokens:
         return None
 
-    from nah.taxonomy import _INLINE_FLAGS
+    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS
 
     cmd = os.path.basename(tokens[0])
     inline = _INLINE_FLAGS.get(cmd, set())
+    module = _MODULE_FLAGS.get(cmd, set())
+    value_flags = _VALUE_FLAGS.get(cmd, set())
 
+    # Direct script execution: ./script.py (single token after normalization)
+    if len(tokens) == 1:
+        path = tokens[0] if os.path.isabs(tokens[0]) else os.path.join(os.getcwd(), tokens[0])
+        return _try_read(path, max_chars)
+
+    skip_next = False
     for tok in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
         if tok in inline:
             return None  # inline code, no file to read
+        if tok in module:
+            return None  # module mode, no single file to read
+        if tok in value_flags:
+            skip_next = True  # skip flag + its value argument
+            continue
         if tok.startswith("-"):
             continue
         path = tok if os.path.isabs(tok) else os.path.join(os.getcwd(), tok)
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                return f.read(max_chars)
-        except OSError:
-            return None
+        return _try_read(path, max_chars)
 
     return None
+
+
+def _try_read(path: str, max_chars: int) -> str | None:
+    """Best-effort file read. Returns None on any error."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(max_chars)
+    except OSError:
+        return None
 
 
 def _build_generic_prompt(
