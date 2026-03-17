@@ -154,11 +154,12 @@ sensitive_paths:
   ~/.kube: ask
   ~/Documents/taxes: block
 
-# Teach nah about your commands
+# Teach nah about your custom commands
 classify:
-  database_destructive:
-    - "psql -c DROP"
-    - "mysql -e DROP"
+  filesystem_delete:
+    - cleanup-staging
+  db_write:
+    - migrate-prod
 ```
 
 nah classifies commands by **action type**, not by command name. Run `nah types` to see all 23 built-in action types with their default policies.

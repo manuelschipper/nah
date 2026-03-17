@@ -1038,18 +1038,8 @@ class TestFD018Regressions:
 class TestContextResolverFallback:
     """FD-046: Non-filesystem/network types with context policy must ASK."""
 
-    def test_db_write_context_policy_asks(self, project_root, monkeypatch):
-        """db_write dispatched to _resolve_context() with no targets gets ASK."""
-        from nah import taxonomy
-
-        original = taxonomy.get_policy
-
-        def patched(action_type, user_overrides):
-            if action_type == "db_write":
-                return "context"
-            return original(action_type, user_overrides)
-
-        monkeypatch.setattr(taxonomy, "get_policy", patched)
+    def test_db_write_context_policy_asks(self, project_root):
+        """db_write with default context policy and no targets gets ASK."""
         r = classify_command("psql -c 'SELECT 1'")
         assert r.final_decision == "ask"
 
