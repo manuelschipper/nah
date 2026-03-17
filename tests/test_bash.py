@@ -60,6 +60,10 @@ class TestPassthroughWrappers:
             'nice bash -c "git status"',
             'nice -n 5 bash -c "git status"',
             'nice --adjustment=5 bash -c "git status"',
+            'nohup bash -c "git status"',
+            '/usr/bin/nohup bash -c "git status"',
+            'command nohup bash -c "git status"',
+            'nohup -- bash -c "git status"',
             'stdbuf -oL bash -c "git status"',
             'stdbuf --output=L bash -c "git status"',
             'setsid bash -c "git status"',
@@ -110,6 +114,9 @@ class TestPassthroughWrappers:
             'command env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'stdbuf -oL bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command stdbuf --output=L bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'setsid bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
@@ -149,6 +156,9 @@ class TestPassthroughWrappers:
             'env bash -lc "echo rm -rf /" > {target}',
             'nice bash -c "echo rm -rf /" > {target}',
             'nice --adjustment=5 bash -c "echo rm -rf /" > {target}',
+            'nohup bash -c "echo rm -rf /" > {target}',
+            '/usr/bin/nohup bash -c "echo rm -rf /" > {target}',
+            'command nohup bash -c "echo rm -rf /" > {target}',
             'stdbuf -oL bash -c "echo rm -rf /" > {target}',
             'command stdbuf --output=L bash -lc "echo rm -rf /" > {target}',
             'setsid bash -c "echo rm -rf /" > {target}',
@@ -192,6 +202,13 @@ class TestPassthroughWrappers:
     def test_setsid_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(f"setsid --session-leader bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    def test_nohup_unknown_flag_fails_closed(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"nohup --version bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
