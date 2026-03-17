@@ -823,10 +823,10 @@ def _classify_git(tokens: list[str]) -> str | None:
         for a in args:
             if a in ("-a", "-r", "--list", "-v", "-vv"):
                 return GIT_SAFE
-            if a == "-d":
-                return GIT_DISCARD
-            if a == "-D":
-                return GIT_HISTORY_REWRITE
+        if "-D" in args or ("--delete" in args and ("--force" in args or "-f" in args)):
+            return GIT_HISTORY_REWRITE
+        if "-d" in args or "--delete" in args:
+            return GIT_DISCARD
         return GIT_WRITE
 
     if sub == "config":
@@ -845,7 +845,7 @@ def _classify_git(tokens: list[str]) -> str | None:
     if sub == "push":
         _FORCE_FLAGS = {"--force", "-f", "--force-with-lease", "--force-if-includes"}
         for a in args:
-            if a in _FORCE_FLAGS:
+            if a in _FORCE_FLAGS or a.startswith("--force-with-lease="):
                 return GIT_HISTORY_REWRITE
             # +refspec means force push
             if a.startswith("+") and len(a) > 1:

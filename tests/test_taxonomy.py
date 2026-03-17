@@ -790,8 +790,14 @@ class TestClassifyGit:
     def test_branch_d_discard(self):
         assert _ct(["git", "branch", "-d", "old"]) == "git_discard"
 
+    def test_branch_delete_discard(self):
+        assert _ct(["git", "branch", "--delete", "old"]) == "git_discard"
+
     def test_branch_D_history_rewrite(self):
         assert _ct(["git", "branch", "-D", "old"]) == "git_history_rewrite"
+
+    def test_branch_delete_force_history_rewrite(self):
+        assert _ct(["git", "branch", "--delete", "--force", "old"]) == "git_history_rewrite"
 
     # --- config ---
     def test_config_get_safe(self):
@@ -852,6 +858,10 @@ class TestClassifyGit:
 
     def test_push_force_with_lease_history(self):
         assert _ct(["git", "push", "--force-with-lease"]) == "git_history_rewrite"
+
+    def test_push_force_with_lease_equals_history(self):
+        assert _ct(["git", "push", "--force-with-lease=main"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "--force-with-lease=refs/heads/main"]) == "git_history_rewrite"
 
     def test_push_force_if_includes_history(self):
         assert _ct(["git", "push", "--force-if-includes"]) == "git_history_rewrite"
