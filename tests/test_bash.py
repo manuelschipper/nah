@@ -194,6 +194,34 @@ class TestDecomposition:
         assert "content inspection" in r.reason
         assert token in r.stages[0].tokens
 
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "cat > {target} <<\'EOF\'\n-----BEGIN PRIVATE KEY-----\nEOF",
+            "cat <<\'EOF\' > {target}\n-----BEGIN PRIVATE KEY-----\nEOF",
+        ],
+    )
+    def test_heredoc_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "cat > {target} <<\'EOF\'\nrm -rf /\nEOF",
+            "cat <<\'EOF\' > {target}\nrm -rf /\nEOF",
+        ],
+    )
+    def test_heredoc_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "script.sh")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
     def test_redirect_uses_filesystem_write_action_override(self, project_root):
         target = os.path.join(project_root, "artifact.bin")
         config._cached_config = NahConfig(actions={"filesystem_write": "block"})

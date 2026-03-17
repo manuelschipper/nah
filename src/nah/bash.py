@@ -1,6 +1,7 @@
 """Bash command classifier — tokenize, decompose, classify, compose."""
 
 import os.path
+import re
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ class Stage:
     redirect_fd: str = ""
     redirect_target: str = ""
     redirect_append: bool = False
+    heredoc_literal: str = ""
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
     action_reason: str = ""
 
@@ -92,6 +94,7 @@ def classify_command(command: str) -> ClassifyResult:
         if not stage_str:
             continue
         action_reason = _detect_shell_substitution(stage_str)
+        heredoc_literal = _extract_heredoc_literal(stage_str)
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
@@ -104,6 +107,7 @@ def classify_command(command: str) -> ClassifyResult:
                 operator=op,
                 action_hint=taxonomy.OBFUSCATED if action_reason else "",
                 action_reason=action_reason or "",
+                heredoc_literal=heredoc_literal,
             ))
 
     if not stages:
@@ -319,11 +323,32 @@ def _split_embedded_output_redirect(tok: str) -> tuple[str, str] | None:
     return None
 
 
+def _extract_heredoc_literal(stage_str: str) -> str:
+    """Best-effort extraction of a heredoc body from the raw stage string."""
+    if "<<" not in stage_str or "\n" not in stage_str:
+        return ""
+
+    match = re.search(r"<<-?\s*(?P<quote>['\"]?)(?P<delim>[^\s'\"<>|;&]+)(?P=quote)", stage_str)
+    if not match:
+        return ""
+
+    delimiter = match.group("delim")
+    strip_tabs = match.group(0).startswith("<<-")
+    body_lines: list[str] = []
+    for line in stage_str.splitlines()[1:]:
+        candidate = line.lstrip("\t") if strip_tabs else line
+        if candidate == delimiter:
+            return "\n".join(body_lines)
+        body_lines.append(line)
+    return ""
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
     action_hint: str = "",
     action_reason: str = "",
+    heredoc_literal: str = "",
 ) -> list[Stage]:
     """Process tokens for a single pipeline stage. Detect redirects and here-strings.
 
@@ -383,6 +408,7 @@ def _decompose(
                 stage.redirect_fd = redirect_fd
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
+                stage.heredoc_literal = heredoc_literal
                 stages.append(stage)
             i += step
             continue
@@ -396,6 +422,7 @@ def _decompose(
     stage = _make_stage(current_tokens, final_operator, action_hint=action_hint,
                         action_reason=action_reason)
     if stage:
+        stage.heredoc_literal = heredoc_literal
         stages.append(stage)
 
     return stages
@@ -676,6 +703,7 @@ def _unwrap_shell(
         if not stage_str:
             continue
         action_reason = _detect_shell_substitution(stage_str)
+        heredoc_literal = _extract_heredoc_literal(stage_str)
         try:
             inner_tokens = shlex.split(stage_str)
         except ValueError:
@@ -686,6 +714,7 @@ def _unwrap_shell(
                 operator=op,
                 action_hint=taxonomy.OBFUSCATED if action_reason else "",
                 action_reason=action_reason or "",
+                heredoc_literal=heredoc_literal,
             ))
 
     if inner_stages:
@@ -754,13 +783,12 @@ def _apply_policy(sr: StageResult) -> None:
         sr.reason = f"unknown policy: {sr.default_policy}"
 
 
-def _extract_redirect_literal(tokens: list[str]) -> str:
-    """Best-effort extraction of literal text written by simple emitters.
+def _extract_redirect_literal(stage: Stage) -> str:
+    """Best-effort extraction of literal text written by redirects."""
+    if stage.heredoc_literal:
+        return stage.heredoc_literal
 
-    This is intentionally conservative: only commands whose argv already carries
-    the literal payload are handled. Everything else returns an empty string so
-    redirect classification still happens, just without content inspection.
-    """
+    tokens = stage.tokens
     if not tokens:
         return ""
 
@@ -794,7 +822,7 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
         sr.decision, reason = _check_redirect(stage.redirect_target)
         sr.reason = f"redirect target: {reason}"
 
-    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1", "&") else ""
+    literal = _extract_redirect_literal(stage) if stage.redirect_fd in ("", "1", "&") else ""
     matches = scan_content(literal)
     if matches:
         content_decision = max(
