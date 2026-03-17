@@ -64,6 +64,17 @@ Claude: Bash → base64 -d payload | bash
 | **Grep** | Catches credential search patterns outside the project |
 | **MCP** | Generic classification for third-party tool servers |
 
+## Choose what nah handles
+
+By default nah actively allows safe operations for all tools. Want Claude Code's normal prompts for writes and edits, but nah's protection for everything else?
+
+```yaml
+# ~/.config/nah/config.yaml
+active_allow: [Bash, Read, Glob, Grep]
+```
+
+nah still blocks and asks for dangerous operations on all tools — this only controls which safe operations get automatic allow. See [active_allow](install.md#active_allow) for details.
+
 ---
 
 [Install](install.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md)

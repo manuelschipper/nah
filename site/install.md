@@ -31,18 +31,26 @@ WebFetch and WebSearch are not guarded by nah. Claude Code handles those with it
 
 ### active_allow
 
-By default nah actively allows safe operations for all guarded tools. You can control this per tool:
+When nah classifies a tool call as safe, it emits an explicit `"allow"` response so Claude Code skips its own permission prompt. This is **active allow** — nah takes over the permission decision entirely.
+
+Sometimes you want nah's protection (blocking dangerous commands, flagging sensitive paths) but still want Claude Code to prompt you before writes or edits. Set `active_allow` to a list of tool names to control which tools nah actively allows:
 
 ```yaml
 # ~/.config/nah/config.yaml
 
-# Only actively allow these tools (Write/Edit fall back to Claude Code's prompts)
+# nah handles Bash/Read/Glob/Grep; Write/Edit fall back to Claude Code's prompts
 active_allow: [Bash, Read, Glob, Grep]
-
-# Disable active allow entirely (nah still blocks/asks, but safe operations
-# fall through to Claude Code's permission system)
-active_allow: false
 ```
+
+nah still classifies **all** tool calls regardless of this setting — it will still block or ask for dangerous operations on Write/Edit. The only difference is that *safe* Write/Edit calls won't get an automatic allow from nah, so Claude Code shows its normal permission prompt.
+
+| Value | Behavior |
+|-------|----------|
+| `true` (default) | Actively allow all guarded tools |
+| `false` | Never actively allow — nah only blocks and asks |
+| list of tool names | Actively allow only the listed tools |
+
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`.
 
 ## Update
 
