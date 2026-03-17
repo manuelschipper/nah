@@ -49,7 +49,19 @@ Once installed, nah handles permissions for everything Claude Code does in your 
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
-To control which tools nah actively allows, set `active_allow` in `~/.config/nah/config.yaml`. See [configuration docs](https://schipper.ai/nah/configuration/).
+By default nah actively allows safe operations for all guarded tools. To keep nah's protection on some tools but let others fall back to Claude Code's built-in prompts, set `active_allow` to a list:
+
+```yaml
+# ~/.config/nah/config.yaml
+
+# Only actively allow these tools (Write/Edit fall back to Claude Code's prompts)
+active_allow: [Bash, Read, Glob, Grep]
+
+# Or disable active allow entirely
+active_allow: false
+```
+
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`. See [configuration docs](https://schipper.ai/nah/configuration/).
 
 To uninstall: `nah uninstall && pip uninstall nah`.
 
