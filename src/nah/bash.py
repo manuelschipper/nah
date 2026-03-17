@@ -255,7 +255,8 @@ def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
     """Parse shell output redirect tokens.
 
     Supports operator-only and glued forms for >, >>, and >|, including
-    fd-prefixed variants like 1>, 2>>, and 1>|. Returns
+    fd-prefixed variants like 1>, 2>>, 1>|, and combined stdout/stderr forms
+    like &> and &>>. Returns
     ``(fd, append, target, needs_target)`` where ``fd`` is "" for implicit
     stdout and ``needs_target`` indicates that the redirect target must be read
     from the next token.
@@ -263,12 +264,16 @@ def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
     if not tok:
         return None
 
-    i = 0
-    while i < len(tok) and tok[i].isdigit():
-        i += 1
+    if tok.startswith("&"):
+        fd = "&"
+        rest = tok[1:]
+    else:
+        i = 0
+        while i < len(tok) and tok[i].isdigit():
+            i += 1
 
-    fd = tok[:i]
-    rest = tok[i:]
+        fd = tok[:i]
+        rest = tok[i:]
     for op, append in ((">>", True), (">|", False), (">", False)):
         if rest == op:
             return fd, append, "", True
