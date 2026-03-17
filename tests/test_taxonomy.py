@@ -553,7 +553,7 @@ class TestGetPolicy:
         ("process_signal", "ask"),
         ("container_destructive", "ask"),
         ("db_read", "allow"),
-        ("db_write", "ask"),
+        ("db_write", "context"),
         ("beads_safe", "allow"),
         ("beads_write", "allow"),
         ("beads_destructive", "ask"),

@@ -265,7 +265,7 @@ class TestMergeHelpers:
 
     def test_merge_dict_tighten_new_key_validated_against_defaults(self):
         """FD-048: new keys compared against built-in defaults, not accepted blindly."""
-        defaults = {"db_write": "ask", "network_outbound": "context"}
+        defaults = {"db_write": "context", "network_outbound": "context"}
         # allow < ask → rejected
         result = _merge_dict_tighten({}, {"db_write": "allow"}, defaults=defaults)
         assert "db_write" not in result
