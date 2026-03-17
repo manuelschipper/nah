@@ -1004,6 +1004,81 @@ def _strip_chrt_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+_PRLIMIT_NOARG_FLAGS = {"--noheadings", "--raw", "--verbose"}
+_PRLIMIT_ARG_FLAGS = {"-o", "--output"}
+_PRLIMIT_PID_FLAGS = {"-p", "--pid"}
+_PRLIMIT_RESOURCE_SHORT_FLAGS = {"-c", "-d", "-e", "-f", "-i", "-l", "-m", "-n", "-q", "-r", "-s", "-t", "-u", "-v", "-x", "-y"}
+_PRLIMIT_RESOURCE_LONG_FLAGS = {
+    "--core",
+    "--data",
+    "--nice",
+    "--fsize",
+    "--sigpending",
+    "--memlock",
+    "--rss",
+    "--nofile",
+    "--msgqueue",
+    "--rtprio",
+    "--stack",
+    "--cpu",
+    "--nproc",
+    "--as",
+    "--locks",
+    "--rttime",
+}
+
+
+def _strip_prlimit_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode prlimit wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "prlimit":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in _PRLIMIT_NOARG_FLAGS:
+            i += 1
+            continue
+
+        if tok in _PRLIMIT_PID_FLAGS or tok.startswith("--pid="):
+            return None
+
+        if tok in _PRLIMIT_ARG_FLAGS | _PRLIMIT_RESOURCE_SHORT_FLAGS | _PRLIMIT_RESOURCE_LONG_FLAGS:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith("--output=") or any(
+            tok.startswith(flag + "=") for flag in _PRLIMIT_RESOURCE_LONG_FLAGS
+        ):
+            i += 1
+            continue
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            flag = tok[:2]
+            if flag == "-p":
+                return None
+            if flag in _PRLIMIT_ARG_FLAGS | _PRLIMIT_RESOURCE_SHORT_FLAGS:
+                i += 1
+                continue
+            return None
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip one supported passthrough wrapper layer, if present."""
     if not tokens:
@@ -1023,6 +1098,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
         or _strip_ionice_wrapper(tokens)
         or _strip_taskset_wrapper(tokens)
         or _strip_chrt_wrapper(tokens)
+        or _strip_prlimit_wrapper(tokens)
     )
 
 

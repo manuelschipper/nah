@@ -109,6 +109,11 @@ class TestPassthroughWrappers:
             'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "git status"',
             '/usr/bin/chrt -i 0 bash -c "git status"',
             'command chrt --idle 0 bash -c "git status"',
+            'prlimit --nofile=1024:2048 bash -c "git status"',
+            'prlimit -n=1024:2048 bash -c "git status"',
+            'prlimit --verbose --rss=1048576:2097152 bash -c "git status"',
+            '/usr/bin/prlimit --nproc=256:512 bash -c "git status"',
+            'command prlimit --nofile=1024:2048 -- bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -161,6 +166,10 @@ class TestPassthroughWrappers:
             'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             '/usr/bin/chrt -i 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command chrt --idle 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'prlimit --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'prlimit -n=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/prlimit --nproc=256:512 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command prlimit --rss=1048576:2097152 -- bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -212,6 +221,10 @@ class TestPassthroughWrappers:
             'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo rm -rf /" > {target}',
             '/usr/bin/chrt -i 0 bash -lc "echo rm -rf /" > {target}',
             'command chrt --idle 0 bash -c "echo rm -rf /" > {target}',
+            'prlimit --nofile=1024:2048 bash -c "echo rm -rf /" > {target}',
+            'prlimit -n=1024:2048 bash -lc "echo rm -rf /" > {target}',
+            '/usr/bin/prlimit --nproc=256:512 bash -c "echo rm -rf /" > {target}',
+            'command prlimit --rss=1048576:2097152 -- bash -lc "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -323,6 +336,34 @@ class TestPassthroughWrappers:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'prlimit --pid 123 --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'prlimit -p123 --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command prlimit --pid=123 --rss=1048576:2097152 -- bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_prlimit_pid_targeting_flags_fail_closed(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'prlimit --help bash -c "git status"',
+            'prlimit --bogus=1 bash -c "git status"',
+            'prlimit --output bash -c "git status"',
+        ],
+    )
+    def test_prlimit_unknown_and_non_wrapper_flags_fail_closed(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
 
 
 # --- Composition rules ---
