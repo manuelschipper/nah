@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Structured log schema** — log entries now include `id` (16 hex correlation ID), `user` (OS username), `session` (Claude Code transcript basename), `project` (git root), `action_type` (top-level). LLM metadata nested under `llm`, classification under `classify`. Replaces flat `entry.update(meta)` approach (nah-4gm)
 - `db_write` default policy changed from `ask` to `context` — `db_targets` config now takes effect without requiring `actions: {db_write: context}` override. Unconfigured users see no behavior change (nah-10a)
 
 ### Fixed
@@ -19,7 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Sensitive path expansion — `~/.azure` (Azure CLI tokens), `~/.docker/config.json` (registry auth), `~/.terraform.d/credentials.tfrc.json` and `~/.terraformrc` (Terraform Cloud tokens) now trigger ask prompts
+- **Passthrough wrapper unwrapping** — env, nice, stdbuf, setsid, timeout, ionice, taskset, nohup, time, chrt, prlimit now unwrap to classify the inner command (nah-g6g)
+- **Redirect content inspection** — heredoc bodies, here-strings, shell-wrapper -c forms scanned for secrets when redirected to files (nah-g6g)
+- **Git global flag stripping** — strips -C, --no-pager, --config-env, --exec-path=, -c, etc. before subcommand classification. Fails closed on malformed values (nah-g6g)
+- **Git subcommand tightening** — flag-aware classification for push, branch, tag, add, clean with clustered short flags and long-form destructive flags (nah-g6g)
+- Sensitive path expansion — ~/.azure, ~/.docker/config.json, ~/.terraform.d/credentials.tfrc.json, ~/.terraformrc, ~/.config/gh now trigger ask prompts (nah-g6g)
 - Hint correctness test battery — 389 parametrized cases across 60 test classes covering all 7 hint code paths, proportionality checks, and edge cases (nah-2ig)
 - `active_allow` documentation — README and site install page now explain how to configure per-tool active allow lists (nah-5c1)
 - `nah claude` — per-session launcher that runs Claude Code with nah hooks active via `--settings` inline JSON. No `nah install` required, scoped to the process, parallel sessions unaffected. Auto-detects existing install to avoid double-firing (nah-ujc)

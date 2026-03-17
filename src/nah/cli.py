@@ -774,8 +774,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         tool_name = entry.get("tool", "?")
         decision = entry.get("decision", "?").upper()
         reason = entry.get("reason", "")
-        summary = entry.get("input_summary", "")
-        total_ms = entry.get("total_ms", "")
+        summary = entry.get("input", "")
+        total_ms = entry.get("ms", "")
 
         if decision == "BLOCK":
             marker = "! "
@@ -789,9 +789,9 @@ def cmd_log(args: argparse.Namespace) -> None:
             line += f"  ({reason[:40]})"
         if total_ms != "":
             line += f"  [{total_ms}ms]"
-        llm_prov = entry.get("llm_provider") or entry.get("llm_backend", "")
+        llm_prov = entry.get("llm", {}).get("provider", "")
         if llm_prov:
-            llm_model = entry.get("llm_model", "")
+            llm_model = entry.get("llm", {}).get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
             if llm_model:
                 llm_tag += f"/{llm_model}"

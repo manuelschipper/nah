@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -241,3 +242,162 @@ class TestReadLog:
             f.write('{"decision": "block"}\n')
         entries = log.read_log()
         assert len(entries) == 2
+
+
+# -- build_entry_v2 --
+
+
+class TestBuildEntry:
+    """Structured entry builder (nah-4gm)."""
+
+    def _build(self, **kwargs):
+        defaults = dict(
+            tool="Bash", input_summary="ls", decision="allow", reason="",
+            agent="claude", hook_version="0.6.0", total_ms=18,
+            meta={}, transcript_path="",
+        )
+        defaults.update(kwargs)
+        with patch("nah.paths.get_project_root", return_value="/tmp/project"):
+            return log.build_entry(**defaults)
+
+    def test_core_fields_present(self):
+        entry = self._build()
+        assert "id" in entry
+        assert "ts" not in entry  # ts added by log_decision, not builder
+        assert entry["user"] != ""  # OS user should be set
+        assert entry["agent"] == "claude"
+        assert entry["hook_version"] == "0.6.0"
+        assert entry["tool"] == "Bash"
+        assert entry["input"] == "ls"
+        assert entry["project"] == "/tmp/project"
+        assert entry["decision"] == "allow"
+        assert entry["reason"] == ""
+        assert entry["ms"] == 18
+
+    def test_id_length_16_hex(self):
+        entry = self._build()
+        assert len(entry["id"]) == 16
+        int(entry["id"], 16)  # valid hex
+
+    def test_id_unique(self):
+        e1 = self._build()
+        e2 = self._build()
+        assert e1["id"] != e2["id"]
+
+    def test_action_type_first_ask(self):
+        """Multi-stage: picks first ask stage's action_type."""
+        meta = {"stages": [
+            {"action_type": "filesystem_read", "decision": "allow"},
+            {"action_type": "network_outbound", "decision": "ask"},
+        ]}
+        entry = self._build(meta=meta)
+        assert entry["action_type"] == "network_outbound"
+
+    def test_action_type_fallback_first_stage(self):
+        """All allow: picks first stage's action_type."""
+        meta = {"stages": [
+            {"action_type": "git_safe", "decision": "allow"},
+            {"action_type": "filesystem_read", "decision": "allow"},
+        ]}
+        entry = self._build(meta=meta)
+        assert entry["action_type"] == "git_safe"
+
+    def test_action_type_empty_meta(self):
+        entry = self._build(meta={})
+        assert entry["action_type"] == ""
+
+    def test_classify_nested(self):
+        meta = {
+            "stages": [{"action_type": "git_safe", "decision": "allow"}],
+            "composition_rule": "pipe+fetch+exec",
+        }
+        entry = self._build(meta=meta)
+        assert "classify" in entry
+        assert entry["classify"]["stages"] == meta["stages"]
+        assert entry["classify"]["composition"] == "pipe+fetch+exec"
+
+    def test_classify_absent_without_stages(self):
+        entry = self._build(meta={})
+        assert "classify" not in entry
+
+    def test_llm_nested(self):
+        meta = {
+            "llm_provider": "openrouter",
+            "llm_model": "gemini-flash",
+            "llm_latency_ms": 500,
+            "llm_reasoning": "safe",
+            "llm_cascade": [{"provider": "openrouter", "status": "success"}],
+        }
+        entry = self._build(meta=meta)
+        assert "llm" in entry
+        assert entry["llm"]["provider"] == "openrouter"
+        assert entry["llm"]["model"] == "gemini-flash"
+        assert entry["llm"]["ms"] == 500
+        assert entry["llm"]["reasoning"] == "safe"
+        assert entry["llm"]["cascade"][0]["status"] == "success"
+
+    def test_llm_absent_without_provider(self):
+        entry = self._build(meta={})
+        assert "llm" not in entry
+
+    def test_llm_prompt_included(self):
+        meta = {"llm_provider": "openrouter", "llm_prompt": "full prompt text"}
+        entry = self._build(meta=meta)
+        assert entry["llm"]["prompt"] == "full prompt text"
+
+    def test_session_from_transcript(self):
+        entry = self._build(transcript_path="/Users/me/.claude/transcript/abc123.jsonl")
+        assert entry["session"] == "abc123.jsonl"
+
+    def test_session_empty_without_transcript(self):
+        entry = self._build(transcript_path="")
+        assert entry["session"] == ""
+
+    def test_hint_included(self):
+        meta = {"hint": "nah trust /tmp"}
+        entry = self._build(meta=meta)
+        assert entry["hint"] == "nah trust /tmp"
+
+    def test_hint_absent(self):
+        entry = self._build(meta={})
+        assert "hint" not in entry
+
+    def test_content_match_included(self):
+        meta = {"content_match": "destructive"}
+        entry = self._build(meta=meta)
+        assert entry["content_match"] == "destructive"
+
+    def test_no_legacy_flat_fields(self):
+        """Structured entry should not have flat legacy field names."""
+        meta = {"stages": [{"action_type": "git_safe", "decision": "allow"}]}
+        entry = self._build(meta=meta)
+        assert "input_summary" not in entry
+        assert "total_ms" not in entry
+        assert "llm_provider" not in entry
+
+    def test_redirect_target_in_classify(self):
+        meta = {
+            "stages": [{"action_type": "filesystem_write", "decision": "ask"}],
+            "redirect_target": "/tmp/out.txt",
+        }
+        entry = self._build(meta=meta)
+        assert entry["classify"]["redirect_target"] == "/tmp/out.txt"
+
+
+class TestBuildEntryRoundTrip:
+    """build_entry entries survive write → read cycle."""
+
+    def test_round_trip(self, tmp_path):
+        """Entry built by build_entry is written and read back correctly."""
+        with patch("nah.paths.get_project_root", return_value="/tmp/project"):
+            entry = log.build_entry(
+                tool="Bash", input_summary="ls", decision="allow", reason="",
+                agent="claude", hook_version="0.6.0", total_ms=18, meta={},
+            )
+        log.log_decision(entry)
+        entries = log.read_log()
+        assert len(entries) == 1
+        assert entries[0]["id"] == entry["id"]
+        assert entries[0]["input"] == "ls"
+        assert entries[0]["ms"] == 18
+        assert entries[0]["project"] == "/tmp/project"
