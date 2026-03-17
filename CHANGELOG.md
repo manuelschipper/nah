@@ -11,8 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `db_write` default policy changed from `ask` to `context` — `db_targets` config now takes effect without requiring `actions: {db_write: context}` override. Unconfigured users see no behavior change (nah-10a)
 
+### Fixed
+
+- `/dev/null` and `/dev/stderr`/`/dev/stdout`/`/dev/tty`/`/dev/fd/*` redirects no longer trigger ask — safe sinks are now allowlisted in the redirect handler (nah-gwm)
+- Redirect hints now suggest `nah trust <dir>` instead of broad `nah allow filesystem_write` — `StageResult.redirect_target` carries the actual redirect path to the hint generator (nah-4tk)
+- Hint generator no longer suggests `nah trust /` for root-path commands like `rm -rf /` (nah-4tk)
+
 ### Added
 
+- Hint correctness test battery — 389 parametrized cases across 60 test classes covering all 7 hint code paths, proportionality checks, and edge cases (nah-2ig)
 - `active_allow` documentation — README and site install page now explain how to configure per-tool active allow lists (nah-5c1)
 
 ## [0.5.0] - 2026-03-17
