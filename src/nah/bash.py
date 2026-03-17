@@ -17,6 +17,7 @@ class Stage:
     redirect_target: str = ""
     redirect_append: bool = False
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
+    action_reason: str = ""
 
 
 @dataclass
@@ -83,6 +84,7 @@ def classify_command(command: str) -> ClassifyResult:
         stage_str = stage_str.strip()
         if not stage_str:
             continue
+        action_reason = _detect_shell_substitution(stage_str)
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
@@ -90,7 +92,12 @@ def classify_command(command: str) -> ClassifyResult:
             result.reason = "unparseable command (shlex error)"
             return result
         if tokens:
-            stages.extend(_decompose(tokens, operator=op))
+            stages.extend(_decompose(
+                tokens,
+                operator=op,
+                action_hint=taxonomy.OBFUSCATED if action_reason else "",
+                action_reason=action_reason or "",
+            ))
 
     if not stages:
         result.final_decision = taxonomy.ALLOW
@@ -196,7 +203,53 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
     return stages
 
 
-def _decompose(tokens: list[str], operator: str = "") -> list[Stage]:
+def _detect_shell_substitution(command: str) -> str | None:
+    """Detect shell substitution syntax outside single-quoted literals.
+
+    This is intentionally fail-closed: if shell substitution syntax appears in a
+    stage, treat it as obfuscated rather than trying to model a hidden command
+    through argv tokenization.
+    """
+    in_single = False
+    i = 0
+    n = len(command)
+
+    while i < n:
+        c = command[i]
+
+        if in_single:
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+
+        if c == "'":
+            in_single = True
+            i += 1
+            continue
+
+        if c == '`':
+            return "backtick substitution"
+        if c == '$' and i + 1 < n and command[i + 1] == '(':
+            return "command substitution"
+        if c in '<>' and i + 1 < n and command[i + 1] == '(':
+            return "process substitution"
+
+        i += 1
+
+    return None
+
+
+def _decompose(
+    tokens: list[str],
+    operator: str = "",
+    action_hint: str = "",
+    action_reason: str = "",
+) -> list[Stage]:
     """Process tokens for a single pipeline stage. Detect redirects and here-strings.
 
     Operator splitting is handled upstream by ``_split_on_operators`` on the
@@ -224,7 +277,8 @@ def _decompose(tokens: list[str], operator: str = "") -> list[Stage]:
         if tok in (">", ">>"):
             redirect_append = tok == ">>"
             target = tokens[i + 1] if i + 1 < len(tokens) else ""
-            stage = _make_stage(current_tokens, "")
+            stage = _make_stage(current_tokens, "", action_hint=action_hint,
+                                action_reason=action_reason)
             if stage:
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
@@ -237,7 +291,8 @@ def _decompose(tokens: list[str], operator: str = "") -> list[Stage]:
         i += 1
 
     # Last stage — attach the operator from the raw-string split
-    stage = _make_stage(current_tokens, operator)
+    stage = _make_stage(current_tokens, operator, action_hint=action_hint,
+                        action_reason=action_reason)
     if stage:
         stages.append(stage)
 
@@ -262,7 +317,12 @@ def _env_var_has_exec(value: str) -> bool:
     return taxonomy.is_exec_sink(base)
 
 
-def _make_stage(tokens: list[str], operator: str) -> Stage | None:
+def _make_stage(
+    tokens: list[str],
+    operator: str,
+    action_hint: str = "",
+    action_reason: str = "",
+) -> Stage | None:
     """Create a Stage from tokens, stripping env var assignments.
 
     Inspects env var values for exec sinks before stripping — if any value
@@ -284,8 +344,10 @@ def _make_stage(tokens: list[str], operator: str) -> Stage | None:
                          action_hint=taxonomy.LANG_EXEC)
     else:
         # All tokens were env assignments
-        return Stage(tokens=tokens, operator=operator)
-    return Stage(tokens=tokens[start:], operator=operator)
+        return Stage(tokens=tokens, operator=operator,
+                     action_hint=action_hint, action_reason=action_reason)
+    return Stage(tokens=tokens[start:], operator=operator,
+                 action_hint=action_hint, action_reason=action_reason)
 
 
 def _classify_stage(
@@ -312,7 +374,7 @@ def _classify_stage(
         sr.action_type = stage.action_hint
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
         _apply_policy(sr)
-        sr.reason = f"env var exec sink: {sr.action_type} → {sr.decision}"
+        sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return sr
 
     # Shell unwrapping
@@ -519,12 +581,18 @@ def _unwrap_shell(
         stage_str = stage_str.strip()
         if not stage_str:
             continue
+        action_reason = _detect_shell_substitution(stage_str)
         try:
             inner_tokens = shlex.split(stage_str)
         except ValueError:
             return _obfuscated_result(tokens, "unparseable inner command", user_actions)
         if inner_tokens:
-            inner_stages.extend(_decompose(inner_tokens, operator=op))
+            inner_stages.extend(_decompose(
+                inner_tokens,
+                operator=op,
+                action_hint=taxonomy.OBFUSCATED if action_reason else "",
+                action_reason=action_reason or "",
+            ))
 
     if inner_stages:
         return _classify_inner(inner_stages, stage, depth + 1,
