@@ -190,6 +190,22 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
 
 
+    @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>"])
+    def test_glued_redirect_variants_detected_as_write(self, project_root, redirect):
+        target = os.path.join(project_root, "artifact.bin")
+        r = classify_command(f"echo ok {redirect}{target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "inside project" in r.reason
+
+    @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>"])
+    def test_glued_redirect_variants_preserve_target_checks(self, project_root, redirect):
+        r = classify_command(f"grep ERROR {redirect}/etc/passwd")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "redirect target" in r.reason
+
+
 # --- Shell unwrapping ---
 
 
