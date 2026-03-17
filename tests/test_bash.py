@@ -60,6 +60,8 @@ class TestPassthroughWrappers:
             'nice bash -c "git status"',
             'nice -n 5 bash -c "git status"',
             'nice --adjustment=5 bash -c "git status"',
+            'stdbuf -oL bash -c "git status"',
+            'stdbuf --output=L bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -76,6 +78,8 @@ class TestPassthroughWrappers:
             'command env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'stdbuf -oL bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command stdbuf --output=L bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -91,6 +95,8 @@ class TestPassthroughWrappers:
             'env bash -lc "echo rm -rf /" > {target}',
             'nice bash -c "echo rm -rf /" > {target}',
             'nice --adjustment=5 bash -c "echo rm -rf /" > {target}',
+            'stdbuf -oL bash -c "echo rm -rf /" > {target}',
+            'command stdbuf --output=L bash -lc "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
