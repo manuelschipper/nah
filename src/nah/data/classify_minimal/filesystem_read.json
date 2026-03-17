@@ -6,5 +6,21 @@
   "less",
   "wc",
   "file",
-  "stat"
+  "stat",
+  "docker ps",
+  "docker images",
+  "docker image ls",
+  "docker container ls",
+  "docker compose ps",
+  "docker compose ls",
+  "docker volume ls",
+  "docker network ls",
+  "podman ps",
+  "podman images",
+  "podman image ls",
+  "podman container ls",
+  "podman compose ps",
+  "podman pod ps",
+  "podman volume ls",
+  "podman network ls"
 ]
