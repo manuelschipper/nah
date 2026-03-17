@@ -549,7 +549,7 @@ class TestGetPolicy:
         ("package_install", "allow"),
         ("package_run", "allow"),
         ("package_uninstall", "ask"),
-        ("lang_exec", "ask"),
+        ("lang_exec", "context"),
         ("process_signal", "ask"),
         ("container_destructive", "ask"),
         ("db_read", "allow"),

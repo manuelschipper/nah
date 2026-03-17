@@ -131,10 +131,46 @@ def _build_prompt(
         f"Working directory: {cwd}\n"
         f"Inside project: {inside_project}\n"
     )
+
+    # Enrich with script content for lang_exec commands (FD-079)
+    if action_type == "lang_exec" and driving_stage:
+        script_content = _read_script_for_llm(driving_stage.tokens)
+        if script_content:
+            user += f"\nScript about to execute:\n```\n{script_content}\n```\n"
+
     if transcript_context:
         user += transcript_context
 
     return PromptParts(system=_SYSTEM_TEMPLATE, user=user)
+
+
+def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None:
+    """Read script file content for LLM prompt enrichment.
+
+    Extracts script path from interpreter tokens and reads the file.
+    Returns None if no file argument, file doesn't exist, or read fails.
+    """
+    if not tokens or len(tokens) < 2:
+        return None
+
+    from nah.taxonomy import _INLINE_FLAGS
+
+    cmd = os.path.basename(tokens[0])
+    inline = _INLINE_FLAGS.get(cmd, set())
+
+    for tok in tokens[1:]:
+        if tok in inline:
+            return None  # inline code, no file to read
+        if tok.startswith("-"):
+            continue
+        path = tok if os.path.isabs(tok) else os.path.join(os.getcwd(), tok)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read(max_chars)
+        except OSError:
+            return None
+
+    return None
 
 
 def _build_generic_prompt(

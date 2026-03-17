@@ -82,6 +82,9 @@ def resolve_context(
             return taxonomy.ASK, f"{action_type}: no target path extracted"
         return taxonomy.ALLOW, f"{action_type}: no target path"
 
+    if action_type == taxonomy.LANG_EXEC:
+        return resolve_lang_exec_context(target_path)
+
     return taxonomy.ASK, f"{action_type}: no context resolver"
 
 
@@ -456,3 +459,65 @@ def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | N
             return arg
     # Last resort: first positional
     return positionals[0] if positionals else None
+
+
+def resolve_lang_exec_context(target_path: str | None) -> tuple[str, str]:
+    """Resolve lang_exec context by checking script path and contents.
+
+    For inline code (python -c) target_path is None → ask.
+    For script files: checks path sensitivity, reads file, inspects contents.
+    Content inspection runs even for trusted/in-project paths — being inside
+    the project is necessary but not sufficient for lang_exec.
+    """
+    if not target_path:
+        return taxonomy.ASK, "lang_exec: no script file"
+
+    from nah.config import get_config
+    if get_config().profile == "none":
+        return taxonomy.ALLOW, "profile: none (no script inspection)"
+
+    resolved = paths.resolve_path(target_path)
+
+    # Core path check (hook + sensitive)
+    basic = paths.check_path_basic_raw(target_path)
+    if basic:
+        return basic
+
+    # Project boundary check — outside project always asks
+    project_root = paths.get_project_root()
+    inside_project = False
+    if project_root:
+        real_root = os.path.realpath(project_root)
+        inside_project = resolved == real_root or resolved.startswith(real_root + os.sep)
+
+    if not inside_project and not paths.is_trusted_path(resolved):
+        return taxonomy.ASK, f"script outside project: {paths.friendly_path(resolved)}"
+
+    # Inside project or trusted — read and inspect contents
+    content = _read_script_content(resolved)
+    if content is None:
+        return taxonomy.ASK, f"script not readable: {paths.friendly_path(resolved)}"
+
+    from nah.content import scan_content, format_content_message
+    matches = scan_content(content)
+    if matches:
+        worst = "ask"
+        for m in matches:
+            if m.policy == "block":
+                worst = "block"
+                break
+        reason = format_content_message("script", matches)
+        return worst, reason
+
+    return taxonomy.ALLOW, f"script clean: {paths.friendly_path(resolved)}"
+
+
+def _read_script_content(path: str, max_bytes: int = 65_536) -> str | None:
+    """Read script file for content inspection. Returns None on any error."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(max_bytes)
+    except OSError:
+        # Read is best-effort; if it fails (race, permissions, disk),
+        # the caller falls through to ask — never silently allows.
+        return None

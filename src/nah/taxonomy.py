@@ -110,7 +110,9 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
-                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem"}
+                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem",
+                          "python", "python3", "node", "ruby", "perl",
+                          "bash", "sh", "dash", "zsh", "php", "tsx"}
 
 # Global-install flags that escalate to unknown (ask).
 _GLOBAL_INSTALL_FLAGS = {"-g", "--global", "--system", "--target", "--root"}
@@ -150,6 +152,29 @@ def find_flag_classifier_shadows(
 
 # Shell wrappers that need unwrapping.
 _SHELL_WRAPPERS = {"bash", "sh", "dash", "zsh"}
+
+# Script execution detection — interpreters and their flags.
+_SCRIPT_INTERPRETERS = {
+    "python", "python3", "node", "ruby", "perl",
+    "bash", "sh", "dash", "zsh", "php", "tsx",
+}
+
+# Flags that mean inline code (already classified as lang_exec via classify table).
+_INLINE_FLAGS: dict[str, set[str]] = {
+    "python": {"-c"}, "python3": {"-c"},
+    "node": {"-e", "-p", "--eval", "--print"},
+    "ruby": {"-e"},
+    "perl": {"-e", "-E"},
+    "php": {"-r"},
+}
+
+# Flags that mean module mode (still lang_exec, but different path resolution).
+_MODULE_FLAGS: dict[str, set[str]] = {
+    "python": {"-m"}, "python3": {"-m"},
+}
+
+# Script file extensions for shebang/extension detection.
+_SCRIPT_EXTENSIONS = {".py", ".js", ".rb", ".sh", ".pl", ".ts", ".php", ".tsx"}
 
 # Exec sinks for pipe composition.
 _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
@@ -319,6 +344,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_global_install(tokens)
+        if action is not None:
+            return action
+        action = _classify_script_exec(tokens)
         if action is not None:
             return action
 
@@ -674,6 +702,51 @@ def _classify_global_install(tokens: list[str]) -> str | None:
         if tokens[0] in {"pip", "pip3"} and tok == "-t":
             return UNKNOWN
     return None
+
+
+def _classify_script_exec(tokens: list[str]) -> str | None:
+    """Flag-dependent: detect interpreter + script file execution → lang_exec.
+
+    Returns LANG_EXEC when a known interpreter is invoked with a script file.
+    Returns None for bare REPL (python), inline code (python -c), and
+    commands handled by the classify table or shell wrapper unwrapping.
+    """
+    if not tokens:
+        return None
+
+    cmd = tokens[0]
+
+    # Shebang / extension detection: ./script.py, /path/to/script.sh
+    if cmd not in _SCRIPT_INTERPRETERS:
+        if cmd.startswith(("./", "/")):
+            _, ext = os.path.splitext(cmd)
+            if ext in _SCRIPT_EXTENSIONS:
+                return LANG_EXEC
+        return None
+
+    if len(tokens) < 2:
+        return None  # bare REPL (python, node) — fall through
+
+    inline = _INLINE_FLAGS.get(cmd, set())
+    module = _MODULE_FLAGS.get(cmd, set())
+
+    # Inline code flags → fall through to classify table (already lang_exec)
+    if tokens[1] in inline:
+        return None
+
+    # Module mode (python -m) → fall through to Phase 3 classify table.
+    # Phase 3 has more specific prefixes (python -m pytest → package_run)
+    # and python -m → lang_exec as a catch-all.
+    if tokens[1] in module:
+        return None
+
+    # First non-flag argument = script file
+    for tok in tokens[1:]:
+        if tok.startswith("-"):
+            continue
+        return LANG_EXEC  # found script file argument
+
+    return None  # all args are flags — fall through
 
 
 def _classify_git(tokens: list[str]) -> str | None:

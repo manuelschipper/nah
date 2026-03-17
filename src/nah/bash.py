@@ -854,6 +854,8 @@ def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         target_path = _extract_primary_target(tokens)
+    elif action_type == taxonomy.LANG_EXEC:
+        target_path = _resolve_script_path(tokens)
     return context.resolve_context(action_type, tokens=tokens, target_path=target_path)
 
 
@@ -873,6 +875,56 @@ def _extract_primary_target(tokens: list[str]) -> str:
     # Return last path-like candidate, or fall back to last non-flag arg
     # (handles bare relative paths like "new_dir")
     return candidates[-1] if candidates else last_non_flag
+
+
+def _resolve_script_path(tokens: list[str]) -> str | None:
+    """Extract script file path from interpreter command tokens.
+
+    Returns resolved path if the file exists, None otherwise.
+    Handles: python script.py, python -m module, ./script.py, etc.
+    Returns None for inline code (python -c) so context resolver falls
+    through to ask.
+    """
+    if not tokens:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+
+    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS
+
+    inline = _INLINE_FLAGS.get(cmd, set())
+    module = _MODULE_FLAGS.get(cmd, set())
+
+    for i, tok in enumerate(tokens[1:], 1):
+        if tok in inline:
+            return None  # inline code, no file
+        if tok in module and i + 1 < len(tokens):
+            return _resolve_module_path(tokens[i + 1])
+        if tok.startswith("-"):
+            continue
+        if os.path.isabs(tok):
+            return tok if os.path.isfile(tok) else None
+        cwd = os.getcwd()
+        path = os.path.join(cwd, tok)
+        return path if os.path.isfile(path) else None
+
+    # ./script.py — tokens[0] is the script itself
+    if cmd != tokens[0] and os.path.isfile(tokens[0]):
+        return os.path.realpath(tokens[0])
+
+    return None
+
+
+def _resolve_module_path(module_name: str) -> str | None:
+    """Best-effort resolution of python -m module_name to a file path."""
+    cwd = os.getcwd()
+    pkg_main = os.path.join(cwd, module_name, "__main__.py")
+    if os.path.isfile(pkg_main):
+        return pkg_main
+    mod_file = os.path.join(cwd, module_name + ".py")
+    if os.path.isfile(mod_file):
+        return mod_file
+    return None
 
 
 def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:

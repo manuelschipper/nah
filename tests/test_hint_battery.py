@@ -964,11 +964,11 @@ class TestLangExecHints:
         assert decision == "ask"
         assert "nah allow lang_exec" in hint
 
-    def test_python_module_unknown(self):
-        """python3 -m is unknown (not a direct -c exec)."""
+    def test_python_module_lang_exec(self):
+        """python3 -m is lang_exec (module execution, FD-079)."""
         decision, hint = _hint("python3 -m http.server 8000")
         assert decision == "ask"
-        assert "nah classify" in hint
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
