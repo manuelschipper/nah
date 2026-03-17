@@ -713,6 +713,54 @@ def _strip_setsid_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_timeout_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip timeout wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "timeout":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-f", "-p", "-v", "--foreground", "--preserve-status", "--verbose"}:
+            i += 1
+            continue
+
+        if tok in {"-k", "-s"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith(("-k", "-s")) and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith(("--kill-after=", "--signal=")):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    i += 1  # duration
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip one supported passthrough wrapper layer, if present."""
     if not tokens:
@@ -726,6 +774,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
         or _strip_nice_wrapper(tokens)
         or _strip_stdbuf_wrapper(tokens)
         or _strip_setsid_wrapper(tokens)
+        or _strip_timeout_wrapper(tokens)
     )
 
 
