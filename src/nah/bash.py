@@ -783,6 +783,17 @@ def _apply_policy(sr: StageResult) -> None:
         sr.reason = f"unknown policy: {sr.default_policy}"
 
 
+def _extract_here_string_operand(args: list[str]) -> str:
+    """Return the literal operand from a here-string argv suffix, if present."""
+    if not args:
+        return ""
+    if args[0] == "<<<" and len(args) > 1:
+        return args[1]
+    if args[0].startswith("<<<") and len(args[0]) > 3:
+        return args[0][3:]
+    return ""
+
+
 def _extract_redirect_literal(stage: Stage) -> str:
     """Best-effort extraction of literal text written by redirects."""
     if stage.heredoc_literal:
@@ -807,6 +818,20 @@ def _extract_redirect_literal(stage: Stage) -> str:
 
     if cmd == "printf":
         return " ".join(args)
+
+    if cmd == "cat":
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            if tok == "--":
+                i += 1
+                break
+            if tok.startswith("-") and tok != "<<<" and not tok.startswith("<<<"):
+                i += 1
+                continue
+            break
+        if i < len(args):
+            return _extract_here_string_operand(args[i:])
 
     return ""
 
