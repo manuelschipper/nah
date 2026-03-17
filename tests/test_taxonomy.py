@@ -390,6 +390,33 @@ class TestClassifyTokens:
         assert _ct(["git", "--paginate", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--no-advice", "status"]) == "git_safe"
 
+    def test_git_config_env_variants_stripped(self):
+        assert _ct(["git", "--config-env", "http.extraHeader=ENV", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--config-env=http.extraHeader=ENV", "rm", "file"]) == "git_discard"
+
+    def test_git_exec_path_equals_joined_flag_stripped(self):
+        assert _ct(["git", "--exec-path=/tmp/git-core", "push", "--force"]) == "git_history_rewrite"
+
+    def test_git_new_global_flags_work_with_global_overrides(self):
+        tbl = build_user_table({"testing": ["git status"]})
+        assert classify_tokens(
+            ["git", "--config-env=http.extraHeader=ENV", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+        assert classify_tokens(
+            ["git", "--exec-path=/tmp/git-core", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+
+    def test_git_config_env_invalid_values_fail_closed(self):
+        assert _ct(["git", "--config-env", "push", "--force"]) == "unknown"
+        assert _ct(["git", "--config-env=http.extraHeader", "push", "--force"]) == "unknown"
+
+    def test_git_exec_path_bare_form_not_stripped(self):
+        assert _ct(["git", "--exec-path", "push", "--force"]) == "unknown"
+
     # git reset --hard → git_discard (DD#3)
     def test_git_reset_hard_is_discard(self):
         assert _ct(["git", "reset", "--hard"]) == "git_discard"

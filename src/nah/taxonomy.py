@@ -375,8 +375,8 @@ def classify_tokens(
 
 
 # Git global flags that take a value argument (must consume next token too).
-_GIT_VALUE_FLAGS = {"-C", "--git-dir", "--work-tree", "--namespace", "-c"}
-_GIT_VALUE_FLAG_PREFIXES = ("--git-dir=", "--work-tree=", "--namespace=")
+_GIT_VALUE_FLAGS = {"-C", "--git-dir", "--work-tree", "--namespace", "-c", "--config-env"}
+_GIT_VALUE_FLAG_PREFIXES = ("--git-dir=", "--work-tree=", "--namespace=", "--exec-path=", "--config-env=")
 
 # Git global flags that are standalone (no value argument).
 _GIT_BOOLEAN_FLAGS = {
@@ -386,17 +386,46 @@ _GIT_BOOLEAN_FLAGS = {
 }
 
 
+def _git_has_short_flag(args: list[str], flag: str) -> bool:
+    """Return True if args contain a short git flag, including combined clusters."""
+    needle = f"-{flag}"
+    for arg in args:
+        if arg == needle:
+            return True
+        if arg.startswith("-") and not arg.startswith("--") and flag in arg[1:]:
+            return True
+    return False
+
+
+def _is_valid_git_config_env(value: str) -> bool:
+    """Return True for NAME=ENVVAR values accepted by --config-env."""
+    name, sep, env = value.partition("=")
+    return bool(sep and name and env)
+
+
 def _strip_git_global_flags(tokens: list[str]) -> list[str]:
     """Strip git global flags (e.g. -C <dir>, --no-pager) from token list.
 
     Preserves 'git' as first token followed by the subcommand and its args.
+    Malformed value-taking flags stop stripping so classification fails closed.
     """
     result = [tokens[0]]  # keep "git"
     i = 1
     while i < len(tokens):
         tok = tokens[i]
         if tok in _GIT_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                result.extend(tokens[i:])
+                break
+            if tok == "--config-env" and not _is_valid_git_config_env(tokens[i + 1]):
+                result.extend(tokens[i:])
+                break
             i += 2  # skip flag + its value
+        elif tok.startswith("--config-env="):
+            if not _is_valid_git_config_env(tok.split("=", 1)[1]):
+                result.extend(tokens[i:])
+                break
+            i += 1  # skip =joined config-env value flag
         elif any(tok.startswith(prefix) for prefix in _GIT_VALUE_FLAG_PREFIXES):
             i += 1  # skip =joined value flag
         elif tok in _GIT_BOOLEAN_FLAGS:
