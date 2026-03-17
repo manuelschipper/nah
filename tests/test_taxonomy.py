@@ -261,6 +261,29 @@ class TestClassifyTokens:
     def test_container_destructive(self, tokens):
         assert _ct(tokens) == "container_destructive"
 
+
+    # docker/podman read-only listing ops
+    @pytest.mark.parametrize("tokens", [
+        ["docker", "ps"],
+        ["docker", "images"],
+        ["docker", "image", "ls"],
+        ["docker", "container", "ls"],
+        ["docker", "compose", "ps"],
+        ["docker", "compose", "ls"],
+        ["docker", "volume", "ls"],
+        ["docker", "network", "ls"],
+        ["podman", "ps"],
+        ["podman", "images"],
+        ["podman", "image", "ls"],
+        ["podman", "container", "ls"],
+        ["podman", "compose", "ps"],
+        ["podman", "pod", "ps"],
+        ["podman", "volume", "ls"],
+        ["podman", "network", "ls"],
+    ])
+    def test_container_listing_read_ops(self, tokens):
+        assert _ct(tokens) == "filesystem_read"
+
     # package_uninstall
     @pytest.mark.parametrize("tokens", [
         ["pip", "uninstall", "flask"],
