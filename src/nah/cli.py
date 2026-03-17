@@ -88,7 +88,19 @@ os._exit(0)
 
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
-    return f"{sys.executable} {_HOOK_SCRIPT}"
+    return f"{shlex.quote(sys.executable)} {shlex.quote(str(_HOOK_SCRIPT))}"
+
+
+def _build_hooks_settings() -> dict:
+    """Build a settings dict containing nah PreToolUse hooks for Claude Code."""
+    command = _hook_command()
+    pre_tool_use = []
+    for tool_name in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]:
+        pre_tool_use.append({
+            "matcher": tool_name,
+            "hooks": [{"type": "command", "command": command}],
+        })
+    return {"hooks": {"PreToolUse": pre_tool_use}}
 
 
 def _read_settings(settings_file: Path) -> dict:
@@ -787,6 +799,38 @@ def cmd_log(args: argparse.Namespace) -> None:
         print(line)
 
 
+def cmd_claude(user_args: list[str]) -> None:
+    """Launch Claude Code with nah hooks active for this session."""
+    import shutil
+
+    for arg in user_args:
+        if arg == "--settings" or arg.startswith("--settings="):
+            print("nah claude: --settings is managed by nah; pass other flags directly",
+                  file=sys.stderr)
+            raise SystemExit(1)
+
+    claude_path = shutil.which("claude")
+    if claude_path is None:
+        print("nah claude: 'claude' not found on PATH", file=sys.stderr)
+        raise SystemExit(1)
+
+    settings_file = agents.AGENT_SETTINGS[agents.CLAUDE]
+    already_installed = False
+    if settings_file.exists():
+        settings = _read_settings(settings_file)
+        for entry in settings.get("hooks", {}).get("PreToolUse", []):
+            if _is_nah_hook(entry):
+                already_installed = True
+                break
+
+    if already_installed:
+        os.execvp(claude_path, ["claude"] + user_args)
+    else:
+        _write_hook_script()
+        settings_json = json.dumps(_build_hooks_settings())
+        os.execvp(claude_path, ["claude", "--settings", settings_json] + user_args)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nah",
@@ -843,6 +887,13 @@ def main():
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")
     forget_parser.add_argument("--global", dest="global_flag", action="store_true", help="Search only global config")
     sub.add_parser("types", help="List all action types with descriptions and default policies")
+    sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
+
+    # Manual intercept: "nah claude ..." bypasses argparse for user_args
+    # because argparse.REMAINDER fails when first arg starts with "--".
+    if len(sys.argv) >= 2 and sys.argv[1] == "claude":
+        cmd_claude(sys.argv[2:])
+        return
 
     args = parser.parse_args()
 

@@ -438,3 +438,140 @@ class TestWriteHookScriptOptimization:
 
         cli_mod._write_hook_script()
         assert "stale" not in hook_path.read_text()
+
+
+class TestCmdClaude:
+    """Tests for nah claude — per-session launcher."""
+
+    def test_rejects_user_settings(self):
+        from nah.cli import cmd_claude
+        with pytest.raises(SystemExit):
+            cmd_claude(["--settings", "foo.json"])
+
+    def test_rejects_settings_equals_form(self):
+        from nah.cli import cmd_claude
+        with pytest.raises(SystemExit):
+            cmd_claude(["--settings=custom.json"])
+
+    def test_claude_not_found(self):
+        from nah.cli import cmd_claude
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(SystemExit):
+                cmd_claude([])
+
+    def test_existing_install_execs_directly(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "settings.json"
+        settings_data = {"hooks": {"PreToolUse": [
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 nah_guard.py"}]}
+        ]}}
+        settings_file.write_text(json_mod.dumps(settings_data))
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+
+        exec_calls = []
+        def mock_execvp(path, args):
+            exec_calls.append((path, args))
+            raise SystemExit(0)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", mock_execvp):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude(["--resume"])
+
+        assert len(exec_calls) == 1
+        path, args = exec_calls[0]
+        assert path == "/usr/bin/claude"
+        assert args == ["claude", "--resume"]
+        assert "--settings" not in args
+
+    def test_no_install_builds_settings_json(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+
+        exec_calls = []
+        def mock_execvp(path, args):
+            exec_calls.append((path, args))
+            raise SystemExit(0)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", mock_execvp):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude(["-p", "fix bug"])
+
+        assert len(exec_calls) == 1
+        path, args = exec_calls[0]
+        assert args[0] == "claude"
+        assert args[1] == "--settings"
+        settings = json_mod.loads(args[2])
+        assert "PreToolUse" in settings["hooks"]
+        assert "-p" in args
+        assert "fix bug" in args
+
+    def test_no_settings_file(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "nonexistent" / "settings.json"
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+
+        exec_calls = []
+        def mock_execvp(path, args):
+            exec_calls.append((path, args))
+            raise SystemExit(0)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", mock_execvp):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude([])
+
+        assert exec_calls[0][1][1] == "--settings"
+        assert (tmp_path / "hooks" / "nah_guard.py").exists()
+
+    def test_writes_shim_when_missing(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", side_effect=SystemExit(0)):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude([])
+
+        assert (tmp_path / "hooks" / "nah_guard.py").exists()
+        assert "nah" in (tmp_path / "hooks" / "nah_guard.py").read_text()
+
+    def test_passthrough_flags(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+
+        exec_calls = []
+        def mock_execvp(path, args):
+            exec_calls.append((path, args))
+            raise SystemExit(0)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", mock_execvp):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude(["--resume", "--verbose"])
+
+        args = exec_calls[0][1]
+        assert "--resume" in args
+        assert "--verbose" in args
