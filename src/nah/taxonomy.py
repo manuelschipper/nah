@@ -717,11 +717,13 @@ def _classify_script_exec(tokens: list[str]) -> str | None:
     cmd = tokens[0]
 
     # Shebang / extension detection: ./script.py, /path/to/script.sh
+    # Note: classify_tokens() normalizes paths via basename before calling
+    # flag classifiers, so ./script.py becomes script.py. Check extension
+    # on the (possibly normalized) command name.
     if cmd not in _SCRIPT_INTERPRETERS:
-        if cmd.startswith(("./", "/")):
-            _, ext = os.path.splitext(cmd)
-            if ext in _SCRIPT_EXTENSIONS:
-                return LANG_EXEC
+        _, ext = os.path.splitext(cmd)
+        if ext in _SCRIPT_EXTENSIONS:
+            return LANG_EXEC
         return None
 
     if len(tokens) < 2:

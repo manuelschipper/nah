@@ -74,7 +74,6 @@ class TestUnknownHints:
 
     @pytest.mark.parametrize("cmd", [
         "env HOME=/tmp rm file",
-        "./scripts/deploy.sh",
         "dd if=/dev/zero of=/tmp/zeros bs=1M count=1",
     ])
     def test_unknown_misc(self, cmd):
@@ -83,6 +82,12 @@ class TestUnknownHints:
         assert decision == "ask"
         assert hint is not None
         assert "nah classify" in hint
+
+    def test_script_extension_lang_exec(self):
+        """./script.sh detected as lang_exec via extension (FD-079)."""
+        decision, hint = _hint("./scripts/deploy.sh")
+        assert decision == "ask"
+        assert "nah allow lang_exec" in hint
 
     def test_unknown_path_traversal(self):
         """Path traversal as command — unknown, classify hint."""
