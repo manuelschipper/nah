@@ -42,10 +42,16 @@ We needed something like --dangerously-skip-permissions that doesn’t nuke your
 
 ```bash
 pip install nah
-nah install
+nah claude              # try it — hooks active for this session only
 ```
 
-Once installed, nah handles permissions for everything Claude Code does in your file system. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
+For permanent use:
+
+```bash
+nah install             # hooks in ~/.claude/settings.json, every session
+```
+
+`nah claude` passes hooks inline via `--settings`, scoped to that process. `nah install` writes to `settings.json` so every `claude` session runs through nah. Undo with `nah uninstall`.
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 

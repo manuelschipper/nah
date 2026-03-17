@@ -1,6 +1,7 @@
 """Bash command classifier — tokenize, decompose, classify, compose."""
 
 import os.path
+import re
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ class Stage:
     redirect_fd: str = ""
     redirect_target: str = ""
     redirect_append: bool = False
+    heredoc_literal: str = ""
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
     action_reason: str = ""
 
@@ -92,6 +94,7 @@ def classify_command(command: str) -> ClassifyResult:
         if not stage_str:
             continue
         action_reason = _detect_shell_substitution(stage_str)
+        heredoc_literal = _extract_heredoc_literal(stage_str)
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
@@ -104,6 +107,7 @@ def classify_command(command: str) -> ClassifyResult:
                 operator=op,
                 action_hint=taxonomy.OBFUSCATED if action_reason else "",
                 action_reason=action_reason or "",
+                heredoc_literal=heredoc_literal,
             ))
 
     if not stages:
@@ -319,11 +323,32 @@ def _split_embedded_output_redirect(tok: str) -> tuple[str, str] | None:
     return None
 
 
+def _extract_heredoc_literal(stage_str: str) -> str:
+    """Best-effort extraction of a heredoc body from the raw stage string."""
+    if "<<" not in stage_str or "\n" not in stage_str:
+        return ""
+
+    match = re.search(r"<<-?\s*(?P<quote>['\"]?)(?P<delim>[^\s'\"<>|;&]+)(?P=quote)", stage_str)
+    if not match:
+        return ""
+
+    delimiter = match.group("delim")
+    strip_tabs = match.group(0).startswith("<<-")
+    body_lines: list[str] = []
+    for line in stage_str.splitlines()[1:]:
+        candidate = line.lstrip("\t") if strip_tabs else line
+        if candidate == delimiter:
+            return "\n".join(body_lines)
+        body_lines.append(line)
+    return ""
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
     action_hint: str = "",
     action_reason: str = "",
+    heredoc_literal: str = "",
 ) -> list[Stage]:
     """Process tokens for a single pipeline stage. Detect redirects and here-strings.
 
@@ -339,15 +364,18 @@ def _decompose(
     while i < len(tokens):
         tok = tokens[i]
 
-        # Handle glued here-string: bash<<<'cmd' → bash <<< cmd
+        # Handle glued here-string operators so forms like cat -n<<<'secret',
+        # bash -s<<<'script', and cat --<<<'payload' are tokenized like
+        # their spaced equivalents.
         if "<<<" in tok and tok != "<<<":
-            parts = tok.split("<<<", 1)
-            if parts[0] in taxonomy._SHELL_WRAPPERS and parts[1]:
-                current_tokens.append(parts[0])
-                current_tokens.append("<<<")
-                current_tokens.append(parts[1])
-                i += 1
-                continue
+            prefix, suffix = tok.split("<<<", 1)
+            if prefix:
+                current_tokens.append(prefix)
+            current_tokens.append("<<<")
+            if suffix:
+                current_tokens.append(suffix)
+            i += 1
+            continue
 
         # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
         # fd-prefixed variants like 1> foo or 2>>foo, and fully glued shell
@@ -383,6 +411,7 @@ def _decompose(
                 stage.redirect_fd = redirect_fd
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
+                stage.heredoc_literal = heredoc_literal
                 stages.append(stage)
             i += step
             continue
@@ -396,6 +425,7 @@ def _decompose(
     stage = _make_stage(current_tokens, final_operator, action_hint=action_hint,
                         action_reason=action_reason)
     if stage:
+        stage.heredoc_literal = heredoc_literal
         stages.append(stage)
 
     return stages
@@ -532,6 +562,546 @@ def _strip_command_builtin(tokens: list[str]) -> list[str] | None:
     return None
 
 
+_ENV_NOARG_FLAGS = {"-i", "--ignore-environment"}
+_ENV_ARG_FLAGS = {"-u", "--unset", "-C", "--chdir", "--argv0"}
+_ENV_ARG_FLAG_PREFIXES = ("--unset=", "--chdir=", "--argv0=")
+
+
+def _is_env_assignment(tok: str) -> bool:
+    """Return True for env-style NAME=value assignments."""
+    if "=" not in tok or tok.startswith("="):
+        return False
+    name, _ = tok.split("=", 1)
+    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
+        ch.isalnum() or ch == "_" for ch in name
+    )
+
+
+def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip env wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "env":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if _is_env_assignment(tok):
+            i += 1
+            continue
+
+        if tok in _ENV_NOARG_FLAGS:
+            i += 1
+            continue
+
+        if tok in _ENV_ARG_FLAGS:
+            i += 2
+            continue
+
+        if any(tok.startswith(prefix) for prefix in _ENV_ARG_FLAG_PREFIXES):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_nice_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip nice wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "nice":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-n", "--adjustment"}:
+            i += 2
+            continue
+
+        if tok.startswith("--adjustment="):
+            i += 1
+            continue
+
+        if tok.startswith("-n") and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_time_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip time wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "time":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok == "-p":
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_nohup_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip nohup wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "nohup":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_stdbuf_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip stdbuf wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "stdbuf":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-i", "-o", "-e"}:
+            i += 2
+            continue
+
+        if tok.startswith(("-i", "-o", "-e")) and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith(("--input=", "--output=", "--error=")):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_setsid_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip setsid wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "setsid":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-c", "-f", "-w", "--ctty", "--fork", "--wait"}:
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_timeout_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip timeout wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "timeout":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-f", "-p", "-v", "--foreground", "--preserve-status", "--verbose"}:
+            i += 1
+            continue
+
+        if tok in {"-k", "-s"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith(("-k", "-s")) and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith(("--kill-after=", "--signal=")):
+            i += 1
+            continue
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            j = 0
+            while j < len(cluster):
+                flag = cluster[j]
+                if flag in {"f", "p", "v"}:
+                    j += 1
+                    continue
+                if flag in {"k", "s"}:
+                    if j + 1 == len(cluster):
+                        if i + 1 >= n:
+                            return None
+                        i += 2
+                    else:
+                        i += 1
+                    break
+                return None
+            else:
+                i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    i += 1  # duration
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_ionice_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip ionice wrapper and supported command-mode flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "ionice":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-t", "--ignore"}:
+            i += 1
+            continue
+
+        if tok in {"-c", "-n", "--class", "--classdata"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith(("-c", "-n")) and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith(("--class=", "--classdata=")):
+            i += 1
+            continue
+
+        if tok in {"-p", "-P", "-u", "--pid", "--pgid", "--uid"}:
+            return None
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            j = 0
+            while j < len(cluster):
+                flag = cluster[j]
+                if flag == "t":
+                    j += 1
+                    continue
+                if flag in {"c", "n"}:
+                    if j + 1 == len(cluster):
+                        if i + 1 >= n:
+                            return None
+                        i += 2
+                    else:
+                        i += 1
+                    break
+                if flag in {"p", "P", "u"}:
+                    return None
+                return None
+            else:
+                i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_taskset_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode taskset wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "taskset":
+        return None
+
+    i = 1
+    n = len(tokens)
+    expect_mask = True
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-p", "--pid", "-a", "--all-tasks"}:
+            return None
+
+        if tok in {"-c", "--cpu-list"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            expect_mask = False
+            continue
+
+        if tok.startswith("--cpu-list="):
+            i += 1
+            expect_mask = False
+            continue
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            if cluster[0] == "c" and len(cluster) > 1:
+                i += 1
+                expect_mask = False
+                continue
+            return None
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    if expect_mask:
+        i += 1
+        if i >= n:
+            return None
+
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_chrt_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode chrt wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "chrt":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-a", "--all-tasks", "-m", "--max", "-p", "--pid", "-h", "--help", "-V", "--version"}:
+            return None
+
+        if tok in {"-b", "--batch", "-d", "--deadline", "-f", "--fifo", "-i", "--idle", "-o", "--other", "-r", "--rr", "-R", "--reset-on-fork", "-v", "--verbose"}:
+            i += 1
+            continue
+
+        if tok in {"-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith(("--sched-runtime=", "--sched-period=", "--sched-deadline=")):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    i += 1  # priority
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+_PRLIMIT_NOARG_FLAGS = {"--noheadings", "--raw", "--verbose"}
+_PRLIMIT_ARG_FLAGS = {"-o", "--output"}
+_PRLIMIT_PID_FLAGS = {"-p", "--pid"}
+_PRLIMIT_RESOURCE_SHORT_FLAGS = {"-c", "-d", "-e", "-f", "-i", "-l", "-m", "-n", "-q", "-r", "-s", "-t", "-u", "-v", "-x", "-y"}
+_PRLIMIT_RESOURCE_LONG_FLAGS = {
+    "--core",
+    "--data",
+    "--nice",
+    "--fsize",
+    "--sigpending",
+    "--memlock",
+    "--rss",
+    "--nofile",
+    "--msgqueue",
+    "--rtprio",
+    "--stack",
+    "--cpu",
+    "--nproc",
+    "--as",
+    "--locks",
+    "--rttime",
+}
+
+
+def _strip_prlimit_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode prlimit wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "prlimit":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in _PRLIMIT_NOARG_FLAGS:
+            i += 1
+            continue
+
+        if tok in _PRLIMIT_PID_FLAGS or tok.startswith("--pid="):
+            return None
+
+        if tok in _PRLIMIT_ARG_FLAGS | _PRLIMIT_RESOURCE_SHORT_FLAGS | _PRLIMIT_RESOURCE_LONG_FLAGS:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith("--output=") or any(
+            tok.startswith(flag + "=") for flag in _PRLIMIT_RESOURCE_LONG_FLAGS
+        ):
+            i += 1
+            continue
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            flag = tok[:2]
+            if flag == "-p":
+                return None
+            if flag in _PRLIMIT_ARG_FLAGS | _PRLIMIT_RESOURCE_SHORT_FLAGS:
+                i += 1
+                continue
+            return None
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip one supported passthrough wrapper layer, if present."""
+    if not tokens:
+        return None
+
+    if tokens[0] == "command":
+        return _strip_command_builtin(tokens)
+
+    return (
+        _strip_env_wrapper(tokens)
+        or _strip_nice_wrapper(tokens)
+        or _strip_time_wrapper(tokens)
+        or _strip_nohup_wrapper(tokens)
+        or _strip_stdbuf_wrapper(tokens)
+        or _strip_setsid_wrapper(tokens)
+        or _strip_timeout_wrapper(tokens)
+        or _strip_ionice_wrapper(tokens)
+        or _strip_taskset_wrapper(tokens)
+        or _strip_chrt_wrapper(tokens)
+        or _strip_prlimit_wrapper(tokens)
+    )
+
+
 # xargs flags: bail-out triggers, no-arg flags, arg flags (short prefix → consumes value)
 _XARGS_BAILOUT_SHORT = {"-I", "-J", "-a"}
 _XARGS_BAILOUT_LONG = {"--replace", "--arg-file"}  # also checked as prefix for =value form
@@ -636,6 +1206,32 @@ def _unwrap_shell(
                                    trust_project=trust_project)
         return None  # Introspection or bare — fall through to classify
 
+    if tokens and os.path.basename(tokens[0]) == "time":
+        passthrough_tokens = _strip_time_wrapper(tokens)
+        if passthrough_tokens is not None:
+            inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+                tokens=passthrough_tokens, operator=stage.operator
+            )
+            return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                                   builtin_table=builtin_table, project_table=project_table,
+                                   user_actions=user_actions, profile=profile)
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.UNKNOWN
+        sr.default_policy = taxonomy.get_policy(taxonomy.UNKNOWN, user_actions)
+        _apply_policy(sr)
+        sr.reason = "unsupported time wrapper flags"
+        return sr
+
+    # env/nice passthrough wrappers
+    passthrough_tokens = _strip_passthrough_wrapper(tokens)
+    if passthrough_tokens is not None:
+        inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+            tokens=passthrough_tokens, operator=stage.operator
+        )
+        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                               builtin_table=builtin_table, project_table=project_table,
+                               user_actions=user_actions, profile=profile)
+
     # xargs unwrap (FD-089)
     if tokens and tokens[0] == "xargs":
         inner_tokens = _strip_xargs(tokens)
@@ -643,7 +1239,7 @@ def _unwrap_shell(
             return None  # bare xargs, -I/-J, or unknown flag → fall through
         if taxonomy.is_exec_sink(inner_tokens[0]):
             # xargs bash, xargs eval, etc. → lang_exec (don't recurse into exec sink)
-            sr = StageResult(tokens=inner_tokens)
+            sr = StageResult(tokens=tokens)
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
             _apply_policy(sr)
@@ -676,6 +1272,7 @@ def _unwrap_shell(
         if not stage_str:
             continue
         action_reason = _detect_shell_substitution(stage_str)
+        heredoc_literal = _extract_heredoc_literal(stage_str)
         try:
             inner_tokens = shlex.split(stage_str)
         except ValueError:
@@ -686,6 +1283,7 @@ def _unwrap_shell(
                 operator=op,
                 action_hint=taxonomy.OBFUSCATED if action_reason else "",
                 action_reason=action_reason or "",
+                heredoc_literal=heredoc_literal,
             ))
 
     if inner_stages:
@@ -754,18 +1352,54 @@ def _apply_policy(sr: StageResult) -> None:
         sr.reason = f"unknown policy: {sr.default_policy}"
 
 
-def _extract_redirect_literal(tokens: list[str]) -> str:
-    """Best-effort extraction of literal text written by simple emitters.
+def _extract_here_string_operand(args: list[str]) -> str:
+    """Return the literal operand from a here-string argv suffix, if present."""
+    if not args:
+        return ""
 
-    This is intentionally conservative: only commands whose argv already carries
-    the literal payload are handled. Everything else returns an empty string so
-    redirect classification still happens, just without content inspection.
-    """
+    for i, tok in enumerate(args):
+        if tok == "<<<" and i + 1 < len(args):
+            return args[i + 1]
+        if tok.startswith("<<<") and len(tok) > 3:
+            return tok[3:]
+    return ""
+
+
+def _extract_wrapped_redirect_literal(inner: str) -> str:
+    """Extract redirect literal text from a single inner shell command string."""
+    try:
+        raw_stages = [(stage_str.strip(), op) for stage_str, op in _split_on_operators(inner) if stage_str.strip()]
+        if len(raw_stages) != 1 or raw_stages[0][1]:
+            return ""
+        inner_tokens = shlex.split(raw_stages[0][0])
+    except ValueError:
+        return ""
+    if not inner_tokens:
+        return ""
+    inner_stages = _decompose(inner_tokens)
+    if len(inner_stages) != 1:
+        return ""
+    return _extract_redirect_literal(inner_stages[0])
+
+
+def _extract_redirect_literal(stage: Stage) -> str:
+    """Best-effort extraction of literal text written by redirects."""
+    if stage.heredoc_literal:
+        return stage.heredoc_literal
+
+    tokens = stage.tokens
     if not tokens:
         return ""
 
     cmd = os.path.basename(tokens[0])
     args = tokens[1:]
+
+    passthrough_tokens = _strip_passthrough_wrapper(tokens)
+    if passthrough_tokens is not None:
+        inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+            tokens=passthrough_tokens, operator=stage.operator
+        )
+        return _extract_redirect_literal(inner_stage)
 
     if cmd == "echo":
         i = 0
@@ -778,8 +1412,31 @@ def _extract_redirect_literal(tokens: list[str]) -> str:
         return " ".join(args[i:])
 
     if cmd == "printf":
-        non_flag_args = [tok for tok in args if not tok.startswith("-")]
-        return " ".join(non_flag_args)
+        return " ".join(args)
+
+    if cmd == "command":
+        inner_tokens = _strip_command_builtin(tokens)
+        if inner_tokens:
+            return _extract_redirect_literal(Stage(tokens=inner_tokens, operator=stage.operator))
+
+    if cmd in taxonomy._SHELL_WRAPPERS:
+        is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
+        if is_wrapper and inner:
+            return _extract_wrapped_redirect_literal(inner)
+
+    if cmd == "cat":
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            if tok == "--":
+                i += 1
+                break
+            if tok.startswith("-") and tok != "<<<" and not tok.startswith("<<<"):
+                i += 1
+                continue
+            break
+        if i < len(args):
+            return _extract_here_string_operand(args[i:])
 
     return ""
 
@@ -795,7 +1452,7 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
         sr.decision, reason = _check_redirect(stage.redirect_target)
         sr.reason = f"redirect target: {reason}"
 
-    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1") else ""
+    literal = _extract_redirect_literal(stage) if stage.redirect_fd in ("", "1", "&") else ""
     matches = scan_content(literal)
     if matches:
         content_decision = max(

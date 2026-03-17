@@ -946,23 +946,35 @@ def get_policy(action_type: str, user_actions: dict[str, str] | None = None) -> 
 
 
 def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
-    """Detect bash -c, eval, source. Returns (is_wrapper, inner_command_or_None)."""
+    """Detect shell-wrapper inner commands. Returns (is_wrapper, inner_command_or_None)."""
     if not tokens:
         return False, None
 
     cmd = tokens[0]
 
-    # bash/sh/dash/zsh -c "inner"
-    if cmd in _SHELL_WRAPPERS and len(tokens) >= 3 and tokens[1] == "-c":
-        return True, tokens[2]
+    if cmd in _SHELL_WRAPPERS:
+        # bash/sh/dash/zsh [flags...] -c "inner"
+        for i in range(1, len(tokens) - 1):
+            if tokens[i] == "-c":
+                return True, tokens[i + 1]
+
+        # Support the common short-option clusters that real shells accept as
+        # equivalent to `-l -c` or `-c -l`. Keep attached payload forms like
+        # `-cecho` fail-closed by only unwrapping the exact clustered flags.
+        for i in range(1, len(tokens) - 1):
+            if tokens[i] in {"-lc", "-cl"}:
+                return True, tokens[i + 1]
+
+        # bash/sh/dash/zsh [flags...] <<< "inner" (here-string)
+        for i in range(1, len(tokens) - 1):
+            if tokens[i] == "<<<":
+                return True, tokens[i + 1]
+            if tokens[i].startswith("<<<") and len(tokens[i]) > 3:
+                return True, tokens[i][3:]
 
     # eval "string"
     if cmd == "eval" and len(tokens) >= 2:
         return True, " ".join(tokens[1:])
-
-    # bash/sh/dash/zsh <<< "inner" (here-string)
-    if cmd in _SHELL_WRAPPERS and len(tokens) >= 3 and tokens[1] == "<<<":
-        return True, tokens[2]
 
     # source / . (not unwrapped — classify as lang_exec)
     if cmd in ("source", "."):

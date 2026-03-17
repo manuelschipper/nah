@@ -4,6 +4,20 @@ All nah commands. Run `nah --version` to check your installed version.
 
 ## Core
 
+### nah claude
+
+Launch Claude Code with nah hooks active for this session.
+
+```bash
+nah claude              # start a protected session
+nah claude --resume     # pass-through flags to claude
+nah claude -p "fix bug" # non-interactive mode
+```
+
+Writes the hook shim if missing, then execs `claude --settings <hooks-json>`. If `nah install` has already been run, skips `--settings` injection and launches `claude` directly.
+
+All flags after `claude` are passed through to the `claude` CLI.
+
 ### nah install
 
 Install the nah hook into a coding agent's settings.

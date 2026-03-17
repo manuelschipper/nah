@@ -4,14 +4,22 @@
 
 - Python 3.10+
 
-## Install
+## Quick start
 
 ```bash
 pip install nah
+nah claude              # try it — hooks active for this session only
+```
+
+`nah claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and passes hooks inline via Claude Code's `--settings` flag, scoped to that process.
+
+## Permanent install
+
+```bash
 nah install
 ```
 
-nah registers itself as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json` and creates a read-only hook script at `~/.claude/hooks/nah_guard.py`.
+Registers nah as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json`. Every `claude` session runs through nah.
 
 ### Optional dependencies
 
@@ -23,7 +31,7 @@ The core hook has **zero external dependencies** — it runs on Python's stdlib 
 
 ## How permissions work
 
-Once installed, nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
+When active (via `nah claude` or `nah install`), nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
 
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 
