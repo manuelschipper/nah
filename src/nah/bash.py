@@ -282,6 +282,24 @@ def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
     return None
 
 
+def _split_embedded_output_redirect(tok: str) -> tuple[str, str] | None:
+    """Split a token like ``ok>file`` into argv and redirect pieces.
+
+    ``shlex.split`` leaves fully glued redirects attached to the preceding word,
+    so shell forms like ``echo ok>file`` arrive as ``["echo", "ok>file"]``.
+    This helper peels off the first output redirect operator so ``_decompose``
+    can treat it exactly like the spaced form.
+    """
+    if not tok:
+        return None
+
+    for op in (">>", ">|", ">"):
+        idx = tok.find(op)
+        if idx > 0:
+            return tok[:idx], tok[idx:]
+    return None
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
@@ -312,8 +330,15 @@ def _decompose(
                 continue
 
         # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
-        # and fd-prefixed variants like 1> foo or 2>>foo.
+        # fd-prefixed variants like 1> foo or 2>>foo, and fully glued shell
+        # forms like ok>foo where shlex leaves the redirect attached to argv.
         parsed_redirect = _parse_output_redirect(tok)
+        if parsed_redirect is None:
+            embedded_redirect = _split_embedded_output_redirect(tok)
+            if embedded_redirect is not None:
+                prefix, redirect_tok = embedded_redirect
+                current_tokens.append(prefix)
+                parsed_redirect = _parse_output_redirect(redirect_tok)
         if parsed_redirect is not None:
             redirect_fd, redirect_append, target, needs_target = parsed_redirect
             step = 1
