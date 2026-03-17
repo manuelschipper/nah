@@ -234,11 +234,12 @@ def _build_bash_hint(result) -> str | None:
             path = sr.reason[idx:].strip()
             return f"To always allow: nah allow-path {path}"
         if "outside project" in sr.reason:
-            # Extract target from tokens and suggest trust dir
-            target = _extract_target_from_tokens(sr.tokens)
+            # Prefer redirect target over token extraction
+            target = getattr(sr, "redirect_target", "") or _extract_target_from_tokens(sr.tokens)
             if target:
                 dir_hint = paths._suggest_trust_dir(target)
-                return f"To always allow: nah trust {dir_hint}"
+                if dir_hint != "/":  # Never suggest trusting root
+                    return f"To always allow: nah trust {dir_hint}"
         # Action policy ask
         return f"To always allow: nah allow {sr.action_type}"
     return None
