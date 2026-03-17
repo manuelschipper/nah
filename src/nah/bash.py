@@ -15,6 +15,7 @@ _MAX_UNWRAP_DEPTH = 5
 class Stage:
     tokens: list[str]
     operator: str = ""  # |, &&, ||, ;
+    redirect_fd: str = ""
     redirect_target: str = ""
     redirect_append: bool = False
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
@@ -245,6 +246,28 @@ def _detect_shell_substitution(command: str) -> str | None:
     return None
 
 
+def _parse_output_redirect(tok: str) -> tuple[str, bool, str] | None:
+    """Parse a glued shell output redirect token.
+
+    Supports >target, >>target, N>target, and N>>target. Returns (fd, append,
+    target) where fd is "" for implicit stdout.
+    """
+    if not tok:
+        return None
+
+    i = 0
+    while i < len(tok) and tok[i].isdigit():
+        i += 1
+
+    fd = tok[:i]
+    rest = tok[i:]
+    if rest.startswith(">>") and len(rest) > 2:
+        return fd, True, rest[2:]
+    if rest.startswith(">") and len(rest) > 1:
+        return fd, False, rest[1:]
+    return None
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
@@ -274,18 +297,26 @@ def _decompose(
                 i += 1
                 continue
 
-        # Redirect detection: > or >>
-        if tok in (">", ">>"):
-            redirect_append = tok == ">>"
-            target = tokens[i + 1] if i + 1 < len(tokens) else ""
+        # Redirect detection: > foo, >> foo, >foo, >>foo, N>foo, N>>foo
+        parsed_redirect = _parse_output_redirect(tok)
+        if tok in (">", ">>") or parsed_redirect is not None:
+            redirect_fd = ""
+            if parsed_redirect is not None:
+                redirect_fd, redirect_append, target = parsed_redirect
+                step = 1
+            else:
+                redirect_append = tok == ">>"
+                target = tokens[i + 1] if i + 1 < len(tokens) else ""
+                step = 2
             stage = _make_stage(current_tokens, "", action_hint=action_hint,
                                 action_reason=action_reason)
             if stage:
+                stage.redirect_fd = redirect_fd
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
                 stages.append(stage)
             current_tokens = []
-            i += 2  # skip target
+            i += step
             continue
 
         current_tokens.append(tok)
@@ -694,7 +725,7 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
         sr.decision, reason = _check_redirect(stage.redirect_target)
         sr.reason = f"redirect target: {reason}"
 
-    literal = _extract_redirect_literal(stage.tokens)
+    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1") else ""
     matches = scan_content(literal)
     if matches:
         content_decision = max(
