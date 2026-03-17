@@ -799,6 +799,22 @@ class TestClassifyGit:
     def test_branch_delete_force_history_rewrite(self):
         assert _ct(["git", "branch", "--delete", "--force", "old"]) == "git_history_rewrite"
 
+    @pytest.mark.parametrize("tokens", [
+        ["git", "branch", "-d", "-f", "old"],
+        ["git", "branch", "-f", "-d", "old"],
+        ["git", "branch", "-df", "old"],
+        ["git", "branch", "-fd", "old"],
+        ["git", "branch", "--force", "-d", "old"],
+    ])
+    def test_branch_force_delete_variants_history_rewrite(self, tokens):
+        assert _ct(tokens) == "git_history_rewrite"
+
+    def test_branch_delete_beats_safe_flag(self):
+        assert _ct(["git", "branch", "-d", "-v", "old"]) == "git_discard"
+
+    def test_branch_force_delete_beats_safe_flag(self):
+        assert _ct(["git", "branch", "-D", "-v", "old"]) == "git_history_rewrite"
+
     # --- config ---
     def test_config_get_safe(self):
         assert _ct(["git", "config", "--get", "user.name"]) == "git_safe"
@@ -875,6 +891,15 @@ class TestClassifyGit:
     def test_push_origin_main_force_history(self):
         assert _ct(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
 
+    @pytest.mark.parametrize("tokens", [
+        ["git", "push", "origin", "--delete", "old"],
+        ["git", "push", "--delete", "origin", "old"],
+        ["git", "push", "-d", "origin", "old"],
+        ["git", "push", "origin", ":old"],
+    ])
+    def test_push_delete_variants_history(self, tokens):
+        assert _ct(tokens) == "git_history_rewrite"
+
     # --- add ---
     def test_add_write(self):
         assert _ct(["git", "add", "."]) == "git_write"
@@ -901,6 +926,14 @@ class TestClassifyGit:
 
     def test_clean_n_safe(self):
         assert _ct(["git", "clean", "-n"]) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["git", "clean", "-nfd"],
+        ["git", "clean", "-fdn"],
+        ["git", "clean", "-nd"],
+    ])
+    def test_clean_combined_dry_run_safe(self, tokens):
+        assert _ct(tokens) == "git_safe"
 
     # --- reflog ---
     def test_reflog_bare_safe(self):
