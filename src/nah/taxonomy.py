@@ -166,6 +166,7 @@ _INLINE_FLAGS: dict[str, set[str]] = {
     "ruby": {"-e"},
     "perl": {"-e", "-E"},
     "php": {"-r"},
+    "bash": {"-c"}, "sh": {"-c"}, "dash": {"-c"}, "zsh": {"-c"},
 }
 
 # Flags that mean module mode (still lang_exec, but different path resolution).
