@@ -375,7 +375,7 @@ def _classify_stage(
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
         _apply_policy(sr)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
-        return sr
+        return _apply_redirect_guard(stage, sr)
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
@@ -383,20 +383,12 @@ def _classify_stage(
                               user_actions=user_actions, profile=profile,
                               trust_project=trust_project)
     if unwrapped is not None:
-        return unwrapped
+        return _apply_redirect_guard(stage, unwrapped)
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
                                               profile=profile, trust_project=trust_project)
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
-
-    # Handle redirect target — treat as filesystem_write for the target path
-    if stage.redirect_target:
-        redir_decision, redir_reason = _check_redirect(stage.redirect_target)
-        if redir_decision in (taxonomy.BLOCK, taxonomy.ASK):
-            sr.decision = redir_decision
-            sr.reason = f"redirect target: {redir_reason}"
-            return sr
 
     # Apply policy → decision
     _apply_policy(sr)
@@ -407,7 +399,7 @@ def _classify_stage(
         sr.decision = path_decision
         sr.reason = path_reason
 
-    return sr
+    return _apply_redirect_guard(stage, sr)
 
 
 def _obfuscated_result(tokens: list[str], reason: str, user_actions: dict[str, str] | None) -> StageResult:
@@ -658,6 +650,18 @@ def _apply_policy(sr: StageResult) -> None:
     else:
         sr.decision = taxonomy.ASK
         sr.reason = f"unknown policy: {sr.default_policy}"
+
+
+def _apply_redirect_guard(stage: Stage, sr: StageResult) -> StageResult:
+    """Escalate a stage result when the outer stage redirects output to disk."""
+    if not stage.redirect_target:
+        return sr
+
+    redir_decision, redir_reason = _check_redirect(stage.redirect_target)
+    if taxonomy.STRICTNESS.get(redir_decision, 0) > taxonomy.STRICTNESS.get(sr.decision, 0):
+        sr.decision = redir_decision
+        sr.reason = f"redirect target: {redir_reason}"
+    return sr
 
 
 def _check_redirect(target: str) -> tuple[str, str]:
