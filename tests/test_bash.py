@@ -89,6 +89,11 @@ class TestPassthroughWrappers:
             '/usr/bin/ionice -tc3 bash -c "git status"',
             'command ionice -t -c 3 bash -c "git status"',
             'command ionice -tc3 bash -c "git status"',
+            'taskset -c 0 bash -c "git status"',
+            'taskset --cpu-list=0 bash -c "git status"',
+            'taskset 0x1 bash -c "git status"',
+            '/usr/bin/taskset -c 0 bash -c "git status"',
+            'command taskset --cpu-list=0 bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -125,6 +130,10 @@ class TestPassthroughWrappers:
             'ionice -tc3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command ionice -tc2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command ionice -t -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset -c 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset --cpu-list=0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command taskset -c 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -160,6 +169,10 @@ class TestPassthroughWrappers:
             'ionice -tc3 bash -c "echo rm -rf /" > {target}',
             'command ionice -tc2 -n4 bash -lc "echo rm -rf /" > {target}',
             'command ionice -t -c 3 bash -c "echo rm -rf /" > {target}',
+            'taskset -c 0 bash -c "echo rm -rf /" > {target}',
+            'taskset --cpu-list=0 bash -lc "echo rm -rf /" > {target}',
+            'taskset 0x1 bash -c "echo rm -rf /" > {target}',
+            'command taskset -c 0 bash -lc "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -213,6 +226,22 @@ class TestPassthroughWrappers:
         ],
     )
     def test_ionice_process_targeting_flags_fail_closed(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'taskset -p 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset -a 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset -pc 0 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command taskset --all-tasks 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_taskset_pid_targeting_and_process_flags_fail_closed(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"

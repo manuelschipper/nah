@@ -849,6 +849,64 @@ def _strip_ionice_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_taskset_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode taskset wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "taskset":
+        return None
+
+    i = 1
+    n = len(tokens)
+    expect_mask = True
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-p", "--pid", "-a", "--all-tasks"}:
+            return None
+
+        if tok in {"-c", "--cpu-list"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            expect_mask = False
+            continue
+
+        if tok.startswith("--cpu-list="):
+            i += 1
+            expect_mask = False
+            continue
+
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            if cluster[0] == "c" and len(cluster) > 1:
+                i += 1
+                expect_mask = False
+                continue
+            return None
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    if expect_mask:
+        i += 1
+        if i >= n:
+            return None
+
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip one supported passthrough wrapper layer, if present."""
     if not tokens:
@@ -864,6 +922,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
         or _strip_setsid_wrapper(tokens)
         or _strip_timeout_wrapper(tokens)
         or _strip_ionice_wrapper(tokens)
+        or _strip_taskset_wrapper(tokens)
     )
 
 
