@@ -69,9 +69,17 @@ class TestPassthroughWrappers:
             'command setsid --wait bash -c "git status"',
             'timeout 5 bash -c "git status"',
             'timeout -s KILL 5 bash -c "git status"',
+            'timeout -vp 5 bash -c "git status"',
+            'timeout -vf 5 bash -c "git status"',
+            'timeout -vk 1s 5 bash -c "git status"',
+            'timeout -vs KILL 5 bash -c "git status"',
+            'timeout -vk1s 5 bash -c "git status"',
+            'timeout -vsKILL 5 bash -c "git status"',
             'timeout --signal=KILL --kill-after=1s 5 bash -c "git status"',
             '/usr/bin/timeout -v 5 bash -c "git status"',
+            '/usr/bin/timeout -vp 5 bash -c "git status"',
             'command timeout -p 5 bash -c "git status"',
+            'command timeout -vk1s 5 bash -c "git status"',
             'ionice -c 3 bash -c "git status"',
             'ionice --class idle bash -c "git status"',
             'ionice -c2 -n4 bash -c "git status"',
@@ -100,6 +108,11 @@ class TestPassthroughWrappers:
             'command setsid -w bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'timeout 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'timeout -s KILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'timeout -vp 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'timeout -vk 1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'timeout -vs KILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'timeout -vk1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'timeout -vsKILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'timeout --signal=KILL --kill-after=1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command timeout -p 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'ionice -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
@@ -128,6 +141,11 @@ class TestPassthroughWrappers:
             'command setsid -w bash -c "echo rm -rf /" > {target}',
             'timeout 5 bash -c "echo rm -rf /" > {target}',
             'timeout -s KILL 5 bash -c "echo rm -rf /" > {target}',
+            'timeout -vf 5 bash -c "echo rm -rf /" > {target}',
+            'timeout -vk 1s 5 bash -c "echo rm -rf /" > {target}',
+            'timeout -vs KILL 5 bash -lc "echo rm -rf /" > {target}',
+            'timeout -vk1s 5 bash -lc "echo rm -rf /" > {target}',
+            'timeout -vsKILL 5 bash -c "echo rm -rf /" > {target}',
             'timeout --signal=KILL --kill-after=1s 5 bash -lc "echo rm -rf /" > {target}',
             'command timeout -p 5 bash -c "echo rm -rf /" > {target}',
             'ionice -c 3 bash -c "echo rm -rf /" > {target}',
@@ -163,6 +181,20 @@ class TestPassthroughWrappers:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'timeout -vz 5 bash -c "git status"',
+            'timeout -vk bash -c "git status"',
+            'timeout -vs bash -c "git status"',
+            'timeout -vZKILL 5 bash -c "git status"',
+        ],
+    )
+    def test_timeout_clustered_short_flags_fail_closed_when_malformed(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
 
     def test_ionice_process_targeting_flags_fail_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")

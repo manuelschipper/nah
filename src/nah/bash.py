@@ -745,6 +745,27 @@ def _strip_timeout_wrapper(tokens: list[str]) -> list[str] | None:
             i += 1
             continue
 
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            j = 0
+            while j < len(cluster):
+                flag = cluster[j]
+                if flag in {"f", "p", "v"}:
+                    j += 1
+                    continue
+                if flag in {"k", "s"}:
+                    if j + 1 == len(cluster):
+                        if i + 1 >= n:
+                            return None
+                        i += 2
+                    else:
+                        i += 1
+                    break
+                return None
+            else:
+                i += 1
+            continue
+
         if tok.startswith("-"):
             return None
 
