@@ -57,7 +57,8 @@ except Exception:
 
 ```bash
 # Setup
-nah install              # install the PreToolUse hook
+nah claude               # launch claude with nah active (this session only)
+nah install              # install the PreToolUse hook (permanent)
 nah uninstall            # clean removal
 nah update               # update hook after pip upgrade
 

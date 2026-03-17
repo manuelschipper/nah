@@ -73,7 +73,6 @@ class TestUnknownHints:
         assert "nah types" in hint
 
     @pytest.mark.parametrize("cmd", [
-        "env HOME=/tmp rm file",
         "dd if=/dev/zero of=/tmp/zeros bs=1M count=1",
     ])
     def test_unknown_misc(self, cmd):
@@ -1693,10 +1692,10 @@ class TestDebugToolHints:
         assert decision == "ask"
         assert "nah classify" in hint
 
-    def test_time_wraps_to_read(self):
-        """time is classified as filesystem_read — allowed."""
+    def test_time_wraps_to_unknown(self):
+        """time unwraps — inner unknown_command is unknown → ask."""
         decision, hint = _hint("time unknown_command")
-        assert decision == "allow"
+        assert decision == "ask"
 
 
 # ===================================================================
