@@ -227,6 +227,8 @@ class TestDecomposition:
         [
             "cat <<< '-----BEGIN PRIVATE KEY-----' > {target}",
             "cat <<<'-----BEGIN PRIVATE KEY-----' > {target}",
+            "cat -n<<<'-----BEGIN PRIVATE KEY-----' > {target}",
+            "cat --<<<'-----BEGIN PRIVATE KEY-----' > {target}",
         ],
     )
     def test_here_string_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -241,6 +243,8 @@ class TestDecomposition:
         [
             "cat <<< 'rm -rf /' > {target}",
             "cat <<<'rm -rf /' > {target}",
+            "cat -n<<<'rm -rf /' > {target}",
+            "cat --<<<'rm -rf /' > {target}",
         ],
     )
     def test_here_string_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -255,6 +259,8 @@ class TestDecomposition:
         [
             "bash <<< 'echo -----BEGIN PRIVATE KEY-----' > {target}",
             "sh <<< 'printf \"-----BEGIN PRIVATE KEY-----\"' > {target}",
+            "bash -s <<< 'echo -----BEGIN PRIVATE KEY-----' > {target}",
+            "bash --noprofile -s<<<'echo -----BEGIN PRIVATE KEY-----' > {target}",
         ],
     )
     def test_shell_wrapper_here_string_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -264,9 +270,17 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
 
-    def test_shell_wrapper_here_string_redirect_runs_content_inspection_for_destructive_payloads(self, project_root):
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "bash <<< 'echo rm -rf /' > {target}",
+            "bash -s <<< 'echo rm -rf /' > {target}",
+            "bash --noprofile -s<<<'echo rm -rf /' > {target}",
+        ],
+    )
+    def test_shell_wrapper_here_string_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "script.sh")
-        r = classify_command(f"bash <<< 'echo rm -rf /' > {target}")
+        r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason

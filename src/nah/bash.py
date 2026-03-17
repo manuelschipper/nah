@@ -364,15 +364,18 @@ def _decompose(
     while i < len(tokens):
         tok = tokens[i]
 
-        # Handle glued here-string: bash<<<'cmd' → bash <<< cmd
+        # Handle glued here-string operators so forms like cat -n<<<'secret',
+        # bash -s<<<'script', and cat --<<<'payload' are tokenized like
+        # their spaced equivalents.
         if "<<<" in tok and tok != "<<<":
-            parts = tok.split("<<<", 1)
-            if parts[0] in taxonomy._SHELL_WRAPPERS and parts[1]:
-                current_tokens.append(parts[0])
-                current_tokens.append("<<<")
-                current_tokens.append(parts[1])
-                i += 1
-                continue
+            prefix, suffix = tok.split("<<<", 1)
+            if prefix:
+                current_tokens.append(prefix)
+            current_tokens.append("<<<")
+            if suffix:
+                current_tokens.append(suffix)
+            i += 1
+            continue
 
         # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
         # fd-prefixed variants like 1> foo or 2>>foo, and fully glued shell
@@ -787,10 +790,12 @@ def _extract_here_string_operand(args: list[str]) -> str:
     """Return the literal operand from a here-string argv suffix, if present."""
     if not args:
         return ""
-    if args[0] == "<<<" and len(args) > 1:
-        return args[1]
-    if args[0].startswith("<<<") and len(args[0]) > 3:
-        return args[0][3:]
+
+    for i, tok in enumerate(args):
+        if tok == "<<<" and i + 1 < len(args):
+            return args[i + 1]
+        if tok.startswith("<<<") and len(tok) > 3:
+            return tok[3:]
     return ""
 
 
