@@ -52,6 +52,16 @@ class TestResolveFilesystemContext:
         assert decision == "block"
         assert "sensitive path" in reason
 
+    def test_sensitive_path_home_env_var(self, project_root):
+        decision, reason = resolve_filesystem_context("$HOME/.ssh/id_rsa")
+        assert decision == "block"
+        assert "sensitive path" in reason
+
+    def test_sensitive_path_home_glob(self, project_root):
+        decision, reason = resolve_filesystem_context("/home/*/.aws/credentials")
+        assert decision == "ask"
+        assert "sensitive path" in reason
+
     def test_hook_path(self, project_root):
         decision, reason = resolve_filesystem_context("~/.claude/hooks/guard.py")
         assert decision == "ask"

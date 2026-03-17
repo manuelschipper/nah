@@ -18,6 +18,10 @@ class TestResolvePath:
         assert result.startswith("/")
         assert "~" not in result
 
+    def test_env_var_expansion(self):
+        result = paths.resolve_path("$HOME/file.txt")
+        assert result == os.path.realpath(os.path.join(os.path.expanduser("~"), "file.txt"))
+
     def test_relative_path(self):
         result = paths.resolve_path("./file.txt")
         assert os.path.isabs(result)
@@ -168,6 +172,21 @@ class TestCheckPath:
 
     def test_sensitive_ask(self):
         result = paths.check_path("Read", "~/.aws/credentials")
+        assert result is not None
+        assert result["decision"] == "ask"
+
+    def test_sensitive_block_home_env_var(self):
+        result = paths.check_path("Read", "$HOME/.ssh/id_rsa")
+        assert result is not None
+        assert result["decision"] == "block"
+
+    def test_sensitive_block_dynamic_user_substitution(self):
+        result = paths.check_path("Read", "/Users/$(whoami)/.ssh/id_rsa")
+        assert result is not None
+        assert result["decision"] == "block"
+
+    def test_sensitive_ask_home_glob(self):
+        result = paths.check_path("Read", "/home/*/.aws/credentials")
         assert result is not None
         assert result["decision"] == "ask"
 
