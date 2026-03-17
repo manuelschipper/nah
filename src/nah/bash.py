@@ -819,6 +819,23 @@ def _extract_redirect_literal(stage: Stage) -> str:
     if cmd == "printf":
         return " ".join(args)
 
+    if cmd in taxonomy._SHELL_WRAPPERS:
+        inner = _extract_here_string_operand(args)
+        if inner:
+            try:
+                raw_stages = [(stage_str.strip(), op) for stage_str, op in _split_on_operators(inner) if stage_str.strip()]
+                if len(raw_stages) != 1 or raw_stages[0][1]:
+                    return ""
+                inner_tokens = shlex.split(raw_stages[0][0])
+            except ValueError:
+                return ""
+            if not inner_tokens:
+                return ""
+            inner_stages = _decompose(inner_tokens)
+            if len(inner_stages) != 1:
+                return ""
+            return _extract_redirect_literal(inner_stages[0])
+
     if cmd == "cat":
         i = 0
         while i < len(args):
