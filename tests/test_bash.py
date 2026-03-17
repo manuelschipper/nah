@@ -262,6 +262,11 @@ class TestUnwrapping:
         r = classify_command("bash -c 'git status'")
         assert r.final_decision == "allow"
 
+    def test_bash_c_redirect_preserved_after_unwrap(self, project_root):
+        r = classify_command("bash -c 'grep ERROR' > /etc/passwd")
+        assert r.final_decision == "ask"
+        assert "redirect target" in r.reason
+
 
 # --- FD-049: command builtin unwrap ---
 
@@ -321,6 +326,11 @@ class TestCommandUnwrap:
         assert r.stages[0].action_type == "git_safe"
         assert r.final_decision == "allow"
 
+    def test_redirect_preserved_after_unwrap(self, project_root):
+        r = classify_command("command grep ERROR > /etc/passwd")
+        assert r.final_decision == "ask"
+        assert "redirect target" in r.reason
+
     def test_process_signal(self, project_root):
         r = classify_command("command kill -9 1234")
         assert r.stages[0].action_type == "process_signal"
@@ -341,6 +351,11 @@ class TestXargsUnwrap:
         r = classify_command("find . | xargs wc -l")
         assert r.stages[1].action_type == "filesystem_read"
         assert r.final_decision == "allow"
+
+    def test_xargs_redirect_preserved_after_unwrap(self, project_root):
+        r = classify_command("find . | xargs grep ERROR > /etc/passwd")
+        assert r.final_decision == "ask"
+        assert "redirect target" in r.reason
 
     def test_xargs_rm(self, project_root):
         r = classify_command("find . | xargs rm")
