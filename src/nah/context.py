@@ -101,7 +101,7 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     resolved = paths.resolve_path(target_path)
 
     # Core path check (hook + sensitive)
-    basic = paths.check_path_basic(resolved)
+    basic = paths.check_path_basic_raw(target_path)
     if basic:
         return basic
 

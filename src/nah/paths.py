@@ -44,10 +44,11 @@ _sensitive_paths_merged = False
 
 
 def resolve_path(raw: str) -> str:
-    """Expand ~ and resolve to absolute canonical path."""
+    """Expand ~ and env vars, then resolve to absolute canonical path."""
     if not raw:
         return ""
-    return os.path.realpath(os.path.expanduser(raw))
+    expanded = os.path.expanduser(os.path.expandvars(raw))
+    return os.path.realpath(expanded)
 
 
 def friendly_path(resolved: str) -> str:
@@ -94,6 +95,74 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
             return True, display, policy
 
     return False, "", ""
+
+
+def _split_path_parts(raw: str) -> list[str]:
+    """Split a Unix-like path into normalized components.
+
+    This is intentionally string-based so it can reason about wildcard and
+    command-substitution-style segments without executing shell syntax.
+    """
+    return [part for part in raw.split("/") if part and part != "."]
+
+
+def _home_relative_sensitive_entries() -> list[tuple[tuple[str, ...], str, str]]:
+    """Return sensitive entries expressed relative to the current home dir."""
+    _ensure_sensitive_paths_merged()
+    entries: list[tuple[tuple[str, ...], str, str]] = []
+    for resolved, display, policy in _SENSITIVE_DIRS:
+        if resolved == _HOME:
+            continue
+        if not resolved.startswith(_HOME + os.sep):
+            continue
+        rel = os.path.relpath(resolved, _HOME)
+        parts = tuple(part for part in rel.split(os.sep) if part and part != ".")
+        if parts:
+            entries.append((parts, display, policy))
+    return entries
+
+
+def _check_dynamic_home_sensitive_path(raw: str) -> tuple[str, str] | None:
+    """Conservatively detect sensitive home-style paths with dynamic user segments.
+
+    Examples:
+    - /home/*/.aws/credentials
+    - /Users/$(whoami)/.ssh/id_rsa
+
+    This does not execute shell syntax. It only matches sensitive home-relative
+    suffixes immediately after a home-style prefix.
+    """
+    if not raw:
+        return None
+
+    expanded = os.path.expanduser(os.path.expandvars(raw))
+    parts = _split_path_parts(expanded)
+    if not parts:
+        return None
+
+    tails: list[list[str]] = []
+    if parts[0] in ("home", "Users") and len(parts) >= 3:
+        tails.append(parts[2:])
+    elif parts[0] == "root" and len(parts) >= 2:
+        tails.append(parts[1:])
+
+    if not tails:
+        return None
+
+    for tail in tails:
+        for rel_parts, display, policy in _home_relative_sensitive_entries():
+            if len(tail) >= len(rel_parts) and tuple(tail[:len(rel_parts)]) == rel_parts:
+                return policy, f"targets sensitive path: {display}"
+    return None
+
+
+def check_path_basic_raw(raw: str) -> tuple[str, str] | None:
+    """Core path check that preserves conservative matching on raw input."""
+    resolved = resolve_path(raw)
+    basic = check_path_basic(resolved)
+    if basic:
+        return basic
+    return _check_dynamic_home_sensitive_path(raw)
 
 
 def check_path_basic(resolved: str) -> tuple[str, str] | None:
@@ -217,7 +286,7 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         }
 
     # Core check: sensitive paths
-    basic = check_path_basic(resolved)
+    basic = check_path_basic_raw(raw_path)
     if basic:
         decision, reason = basic
         # Check allow_paths exemption before returning
