@@ -22,7 +22,6 @@ Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write,
 - **Config format**: YAML (`~/.config/nah/config.yaml` + `.nah.yaml` per project)
 - **Hook script**: `~/.claude/hooks/nah_guard.py` (installed read-only, chmod 444)
 - **Testing commands**: Always use `nah test "..."` — never `python -m nah ...` (nah flags the latter as `lang_exec`)
-- **Branch protection**: `main` is protected — all changes require a PR. Create a feature branch, push, and open a PR via `gh pr create`
 
 ## Error Handling
 
