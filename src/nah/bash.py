@@ -651,6 +651,29 @@ def _strip_nice_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_nohup_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip nohup wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "nohup":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_stdbuf_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip stdbuf wrapper and supported flags, returning inner command tokens."""
     if not tokens or os.path.basename(tokens[0]) != "stdbuf":
@@ -918,6 +941,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     return (
         _strip_env_wrapper(tokens)
         or _strip_nice_wrapper(tokens)
+        or _strip_nohup_wrapper(tokens)
         or _strip_stdbuf_wrapper(tokens)
         or _strip_setsid_wrapper(tokens)
         or _strip_timeout_wrapper(tokens)
