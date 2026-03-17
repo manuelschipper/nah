@@ -4,8 +4,9 @@ import os
 
 import pytest
 
-from nah import paths
+from nah import config, paths
 from nah.bash import classify_command
+from nah.config import NahConfig
 
 
 # --- FD-005 acceptance criteria ---
@@ -156,6 +157,37 @@ class TestDecomposition:
         r = classify_command("echo hello > /tmp/out.txt")
         # Redirect creates a stage with redirect_target set
         assert len(r.stages) >= 1
+
+    def test_echo_redirect_reclassified_as_filesystem_write(self, project_root):
+        target = os.path.join(project_root, "artifact.bin")
+        r = classify_command(rf"echo -ne '\x7fELF\x02\x01' > {target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "inside project" in r.reason
+
+    def test_printf_redirect_reclassified_as_filesystem_write(self, project_root):
+        target = os.path.join(project_root, "artifact.bin")
+        r = classify_command(rf"printf '\x7f\x45\x4c\x46' > {target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "inside project" in r.reason
+
+    def test_echo_redirect_runs_content_inspection(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(rf"echo '-----BEGIN PRIVATE KEY-----' > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+    def test_redirect_uses_filesystem_write_action_override(self, project_root):
+        target = os.path.join(project_root, "artifact.bin")
+        config._cached_config = NahConfig(actions={"filesystem_write": "block"})
+        try:
+            r = classify_command(rf"echo ok > {target}")
+        finally:
+            config._cached_config = None
+        assert r.final_decision == "block"
+        assert r.stages[0].action_type == "filesystem_write"
 
 
 # --- Shell unwrapping ---
