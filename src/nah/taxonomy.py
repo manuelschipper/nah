@@ -382,7 +382,7 @@ _GIT_VALUE_FLAG_PREFIXES = ("--git-dir=", "--work-tree=", "--namespace=", "--exe
 _GIT_BOOLEAN_FLAGS = {
     "-p", "--paginate", "-P", "--no-pager", "--no-replace-objects",
     "--no-optional-locks", "--no-advice", "--bare", "--literal-pathspecs",
-    "--glob-pathspecs", "--noglob-pathspecs",
+    "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
 }
 
 

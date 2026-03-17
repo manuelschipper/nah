@@ -389,6 +389,8 @@ class TestClassifyTokens:
         assert _ct(["git", "-p", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--paginate", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--no-advice", "status"]) == "git_safe"
+        assert _ct(["git", "--icase-pathspecs", "status"]) == "git_safe"
+        assert _ct(["git", "--icase-pathspecs", "push", "--force"]) == "git_history_rewrite"
 
     def test_git_config_env_variants_stripped(self):
         assert _ct(["git", "--config-env", "http.extraHeader=ENV", "push", "--force"]) == "git_history_rewrite"
