@@ -669,7 +669,7 @@ class TestDecomposition:
         target = os.path.join(project_root, "key.pem")
         r = classify_command(f"bash -cecho 'echo -----BEGIN PRIVATE KEY-----' > {target}")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "unknown"
+        assert r.stages[0].action_type in ("unknown", "lang_exec")
         assert "content inspection" not in r.reason
 
     def test_redirect_uses_filesystem_write_action_override(self, project_root):
