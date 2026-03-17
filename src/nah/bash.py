@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass, field
 
 from nah import context, paths, taxonomy
+from nah.content import scan_content, format_content_message
 
 _MAX_UNWRAP_DEPTH = 5
 
@@ -375,7 +376,7 @@ def _classify_stage(
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
         _apply_policy(sr)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
-        return _apply_redirect_guard(stage, sr)
+        return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
@@ -383,7 +384,7 @@ def _classify_stage(
                               user_actions=user_actions, profile=profile,
                               trust_project=trust_project)
     if unwrapped is not None:
-        return _apply_redirect_guard(stage, unwrapped)
+        return _apply_redirect_guard(stage, unwrapped, user_actions=user_actions)
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
@@ -399,7 +400,7 @@ def _classify_stage(
         sr.decision = path_decision
         sr.reason = path_reason
 
-    return _apply_redirect_guard(stage, sr)
+    return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
 
 def _obfuscated_result(tokens: list[str], reason: str, user_actions: dict[str, str] | None) -> StageResult:
@@ -652,15 +653,80 @@ def _apply_policy(sr: StageResult) -> None:
         sr.reason = f"unknown policy: {sr.default_policy}"
 
 
-def _apply_redirect_guard(stage: Stage, sr: StageResult) -> StageResult:
+def _extract_redirect_literal(tokens: list[str]) -> str:
+    """Best-effort extraction of literal text written by simple emitters.
+
+    This is intentionally conservative: only commands whose argv already carries
+    the literal payload are handled. Everything else returns an empty string so
+    redirect classification still happens, just without content inspection.
+    """
+    if not tokens:
+        return ""
+
+    cmd = os.path.basename(tokens[0])
+    args = tokens[1:]
+
+    if cmd == "echo":
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            if tok.startswith("-") and len(tok) > 1 and set(tok[1:]) <= {"n", "e", "E"}:
+                i += 1
+                continue
+            break
+        return " ".join(args[i:])
+
+    if cmd == "printf":
+        non_flag_args = [tok for tok in args if not tok.startswith("-")]
+        return " ".join(non_flag_args)
+
+    return ""
+
+
+def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) -> StageResult:
+    """Classify shell output redirection as a filesystem write."""
+    sr = StageResult(tokens=stage.tokens)
+    sr.action_type = taxonomy.FILESYSTEM_WRITE
+    sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_WRITE, user_actions)
+    _apply_policy(sr)
+
+    if sr.default_policy == taxonomy.CONTEXT:
+        sr.decision, reason = _check_redirect(stage.redirect_target)
+        sr.reason = f"redirect target: {reason}"
+
+    literal = _extract_redirect_literal(stage.tokens)
+    matches = scan_content(literal)
+    if matches:
+        content_decision = max(
+            (m.policy for m in matches),
+            key=lambda p: taxonomy.STRICTNESS.get(p, 2),
+        )
+        if taxonomy.STRICTNESS.get(content_decision, 0) > taxonomy.STRICTNESS.get(sr.decision, 0):
+            sr.decision = content_decision
+            sr.reason = format_content_message("Write", matches)
+
+    return sr
+
+
+def _apply_redirect_guard(
+    stage: Stage,
+    sr: StageResult,
+    *,
+    user_actions: dict[str, str] | None = None,
+) -> StageResult:
     """Escalate a stage result when the outer stage redirects output to disk."""
     if not stage.redirect_target:
         return sr
 
-    redir_decision, redir_reason = _check_redirect(stage.redirect_target)
-    if taxonomy.STRICTNESS.get(redir_decision, 0) > taxonomy.STRICTNESS.get(sr.decision, 0):
-        sr.decision = redir_decision
-        sr.reason = f"redirect target: {redir_reason}"
+    redirect_sr = _classify_redirect_write(stage, user_actions)
+    redirect_strictness = taxonomy.STRICTNESS.get(redirect_sr.decision, 0)
+    current_strictness = taxonomy.STRICTNESS.get(sr.decision, 0)
+
+    if redirect_strictness > current_strictness or sr.decision == taxonomy.ALLOW:
+        sr.action_type = redirect_sr.action_type
+        sr.default_policy = redirect_sr.default_policy
+        sr.decision = redirect_sr.decision
+        sr.reason = redirect_sr.reason
     return sr
 
 
