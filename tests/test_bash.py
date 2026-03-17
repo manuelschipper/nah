@@ -83,8 +83,12 @@ class TestPassthroughWrappers:
             'ionice -c 3 bash -c "git status"',
             'ionice --class idle bash -c "git status"',
             'ionice -c2 -n4 bash -c "git status"',
+            'ionice -tc3 bash -c "git status"',
+            'ionice -tc2 -n4 bash -c "git status"',
             '/usr/bin/ionice -c 3 bash -c "git status"',
+            '/usr/bin/ionice -tc3 bash -c "git status"',
             'command ionice -t -c 3 bash -c "git status"',
+            'command ionice -tc3 bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -118,6 +122,8 @@ class TestPassthroughWrappers:
             'ionice -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'ionice --class idle bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'ionice -c2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice -tc3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command ionice -tc2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command ionice -t -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
@@ -151,6 +157,8 @@ class TestPassthroughWrappers:
             'ionice -c 3 bash -c "echo rm -rf /" > {target}',
             'ionice --class idle bash -c "echo rm -rf /" > {target}',
             'ionice -c2 -n4 bash -lc "echo rm -rf /" > {target}',
+            'ionice -tc3 bash -c "echo rm -rf /" > {target}',
+            'command ionice -tc2 -n4 bash -lc "echo rm -rf /" > {target}',
             'command ionice -t -c 3 bash -c "echo rm -rf /" > {target}',
         ],
     )
@@ -196,9 +204,17 @@ class TestPassthroughWrappers:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
 
-    def test_ionice_process_targeting_flags_fail_closed(self, project_root):
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'ionice -p 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice -tp123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command ionice -tu123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_ionice_process_targeting_flags_fail_closed(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"ionice -p 123 bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason

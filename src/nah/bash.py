@@ -817,6 +817,29 @@ def _strip_ionice_wrapper(tokens: list[str]) -> list[str] | None:
         if tok in {"-p", "-P", "-u", "--pid", "--pgid", "--uid"}:
             return None
 
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            cluster = tok[1:]
+            j = 0
+            while j < len(cluster):
+                flag = cluster[j]
+                if flag == "t":
+                    j += 1
+                    continue
+                if flag in {"c", "n"}:
+                    if j + 1 == len(cluster):
+                        if i + 1 >= n:
+                            return None
+                        i += 2
+                    else:
+                        i += 1
+                    break
+                if flag in {"p", "P", "u"}:
+                    return None
+                return None
+            else:
+                i += 1
+            continue
+
         if tok.startswith("-"):
             return None
 
