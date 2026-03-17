@@ -72,6 +72,11 @@ class TestPassthroughWrappers:
             'timeout --signal=KILL --kill-after=1s 5 bash -c "git status"',
             '/usr/bin/timeout -v 5 bash -c "git status"',
             'command timeout -p 5 bash -c "git status"',
+            'ionice -c 3 bash -c "git status"',
+            'ionice --class idle bash -c "git status"',
+            'ionice -c2 -n4 bash -c "git status"',
+            '/usr/bin/ionice -c 3 bash -c "git status"',
+            'command ionice -t -c 3 bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -97,6 +102,10 @@ class TestPassthroughWrappers:
             'timeout -s KILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'timeout --signal=KILL --kill-after=1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command timeout -p 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice --class idle bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice -c2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command ionice -t -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -121,6 +130,10 @@ class TestPassthroughWrappers:
             'timeout -s KILL 5 bash -c "echo rm -rf /" > {target}',
             'timeout --signal=KILL --kill-after=1s 5 bash -lc "echo rm -rf /" > {target}',
             'command timeout -p 5 bash -c "echo rm -rf /" > {target}',
+            'ionice -c 3 bash -c "echo rm -rf /" > {target}',
+            'ionice --class idle bash -c "echo rm -rf /" > {target}',
+            'ionice -c2 -n4 bash -lc "echo rm -rf /" > {target}',
+            'command ionice -t -c 3 bash -c "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -147,6 +160,13 @@ class TestPassthroughWrappers:
     def test_timeout_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(f"timeout --bogus 5 bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    def test_ionice_process_targeting_flags_fail_closed(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"ionice -p 123 bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
