@@ -10,6 +10,10 @@ from nah.content import scan_content, format_content_message
 
 _MAX_UNWRAP_DEPTH = 5
 
+# Safe redirect sinks — /dev/ special files that are not real file writes.
+# Excludes block devices (/dev/sda, /dev/disk*) which are dangerous.
+_REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty"})
+
 
 @dataclass
 class Stage:
@@ -29,6 +33,7 @@ class StageResult:
     default_policy: str = taxonomy.ASK
     decision: str = taxonomy.ASK
     reason: str = ""
+    redirect_target: str = ""
 
 
 @dataclass
@@ -819,6 +824,7 @@ def _apply_redirect_guard(
     current_strictness = taxonomy.STRICTNESS.get(sr.decision, 0)
 
     if redirect_strictness > current_strictness or sr.decision == taxonomy.ALLOW:
+        sr.redirect_target = stage.redirect_target
         sr.action_type = redirect_sr.action_type
         sr.default_policy = redirect_sr.default_policy
         sr.decision = redirect_sr.decision
@@ -829,6 +835,8 @@ def _apply_redirect_guard(
 def _check_redirect(target: str) -> tuple[str, str]:
     """Check redirect target as a filesystem write."""
     if not target:
+        return taxonomy.ALLOW, ""
+    if target in _REDIRECT_SAFE_SINKS or target.startswith("/dev/fd/"):
         return taxonomy.ALLOW, ""
     basic = paths.check_path_basic_raw(target)
     if basic:
