@@ -104,6 +104,11 @@ class TestPassthroughWrappers:
             'taskset 0x1 bash -c "git status"',
             '/usr/bin/taskset -c 0 bash -c "git status"',
             'command taskset --cpu-list=0 bash -c "git status"',
+            'chrt -b 0 bash -c "git status"',
+            'chrt --batch 0 bash -c "git status"',
+            'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "git status"',
+            '/usr/bin/chrt -i 0 bash -c "git status"',
+            'command chrt --idle 0 bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -151,6 +156,11 @@ class TestPassthroughWrappers:
             'taskset --cpu-list=0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'taskset 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command taskset -c 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt -b 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt --batch 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/chrt -i 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command chrt --idle 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -197,6 +207,11 @@ class TestPassthroughWrappers:
             'taskset --cpu-list=0 bash -lc "echo rm -rf /" > {target}',
             'taskset 0x1 bash -c "echo rm -rf /" > {target}',
             'command taskset -c 0 bash -lc "echo rm -rf /" > {target}',
+            'chrt -b 0 bash -c "echo rm -rf /" > {target}',
+            'chrt --batch 0 bash -lc "echo rm -rf /" > {target}',
+            'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo rm -rf /" > {target}',
+            '/usr/bin/chrt -i 0 bash -lc "echo rm -rf /" > {target}',
+            'command chrt --idle 0 bash -c "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -287,6 +302,22 @@ class TestPassthroughWrappers:
         ],
     )
     def test_taskset_pid_targeting_and_process_flags_fail_closed(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'chrt -p 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt -a -r 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt -m bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command chrt --pid 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_chrt_pid_targeting_and_non_wrapper_flags_fail_closed(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"

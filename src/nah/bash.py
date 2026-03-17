@@ -957,6 +957,53 @@ def _strip_taskset_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_chrt_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip command-mode chrt wrapper, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "chrt":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-a", "--all-tasks", "-m", "--max", "-p", "--pid", "-h", "--help", "-V", "--version"}:
+            return None
+
+        if tok in {"-b", "--batch", "-d", "--deadline", "-f", "--fifo", "-i", "--idle", "-o", "--other", "-r", "--rr", "-R", "--reset-on-fork", "-v", "--verbose"}:
+            i += 1
+            continue
+
+        if tok in {"-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"}:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        if tok.startswith(("--sched-runtime=", "--sched-period=", "--sched-deadline=")):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    if i >= n:
+        return None
+
+    i += 1  # priority
+    if i < n and tokens[i] == "--":
+        i += 1
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip one supported passthrough wrapper layer, if present."""
     if not tokens:
@@ -975,6 +1022,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
         or _strip_timeout_wrapper(tokens)
         or _strip_ionice_wrapper(tokens)
         or _strip_taskset_wrapper(tokens)
+        or _strip_chrt_wrapper(tokens)
     )
 
 
