@@ -596,9 +596,7 @@ def _check_redirect(target: str) -> tuple[str, str]:
     """Check redirect target as a filesystem write."""
     if not target:
         return taxonomy.ALLOW, ""
-    resolved = paths.resolve_path(target)
-
-    basic = paths.check_path_basic(resolved)
+    basic = paths.check_path_basic_raw(target)
     if basic:
         decision, reason = basic
         # reason is "targets X: detail" — rewrite as "redirect to X: detail"
@@ -647,8 +645,7 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
         if tok.startswith("-"):
             continue
         if "/" in tok or tok.startswith("~") or tok.startswith("."):
-            resolved = paths.resolve_path(tok)
-            basic = paths.check_path_basic(resolved)
+            basic = paths.check_path_basic_raw(tok)
             if basic:
                 decision, reason = basic
                 # Check allow_paths exemption (same as check_path does for file tools)
@@ -705,11 +702,13 @@ def _is_sensitive_read(sr: StageResult) -> bool:
     for tok in sr.tokens[1:]:
         if tok.startswith("-"):
             continue
-        resolved = paths.resolve_path(tok)
-        if paths.is_hook_path(resolved):
+        basic = paths.check_path_basic_raw(tok)
+        if not basic:
+            continue
+        _decision, reason = basic
+        if "hook directory" in reason:
             return True
-        matched, _, _ = paths.is_sensitive(resolved)
-        if matched:
+        if "sensitive path" in reason:
             return True
     return False
 
