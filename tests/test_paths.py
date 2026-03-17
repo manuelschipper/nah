@@ -113,6 +113,34 @@ class TestIsSensitive:
         assert matched is True
         assert policy == "ask"
 
+    def test_azure_ask(self):
+        resolved = paths.resolve_path("~/.azure/accessTokens.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.azure"
+        assert policy == "ask"
+
+    def test_docker_config_ask(self):
+        resolved = paths.resolve_path("~/.docker/config.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.docker/config.json"
+        assert policy == "ask"
+
+    def test_terraform_credentials_ask(self):
+        resolved = paths.resolve_path("~/.terraform.d/credentials.tfrc.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.terraform.d/credentials.tfrc.json"
+        assert policy == "ask"
+
+    def test_terraformrc_ask(self):
+        resolved = paths.resolve_path("~/.terraformrc")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.terraformrc"
+        assert policy == "ask"
+
     def test_env_basename(self):
         matched, pattern, policy = paths.is_sensitive("/project/.env")
         assert matched is True
@@ -174,6 +202,30 @@ class TestCheckPath:
         result = paths.check_path("Read", "~/.aws/credentials")
         assert result is not None
         assert result["decision"] == "ask"
+
+    def test_sensitive_ask_azure(self):
+        result = paths.check_path("Read", "~/.azure/accessTokens.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.azure" in result["reason"]
+
+    def test_sensitive_ask_docker_config(self):
+        result = paths.check_path("Read", "~/.docker/config.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.docker/config.json" in result["reason"]
+
+    def test_sensitive_ask_terraform_credentials(self):
+        result = paths.check_path("Read", "~/.terraform.d/credentials.tfrc.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraform.d/credentials.tfrc.json" in result["reason"]
+
+    def test_sensitive_ask_terraformrc(self):
+        result = paths.check_path("Read", "~/.terraformrc")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraformrc" in result["reason"]
 
     def test_sensitive_block_home_env_var(self):
         result = paths.check_path("Read", "$HOME/.ssh/id_rsa")
