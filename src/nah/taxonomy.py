@@ -826,7 +826,19 @@ def _classify_git(tokens: list[str]) -> str | None:
     args = tokens[2:]
 
     if sub == "tag":
-        return GIT_SAFE if not args else GIT_WRITE
+        if not args:
+            return GIT_SAFE
+        has_force = "--force" in args or _git_has_short_flag(args, "f")
+        has_delete = "--delete" in args or _git_has_short_flag(args, "d")
+        if has_force:
+            return GIT_HISTORY_REWRITE
+        if has_delete:
+            return GIT_DISCARD
+        listing_flags = {"-l", "--list", "-v", "--verify", "--contains", "--no-contains",
+                         "--merged", "--no-merged", "--points-at"}
+        if any(a in listing_flags or a.startswith("-n") for a in args):
+            return GIT_SAFE
+        return GIT_WRITE
 
     if sub == "branch":
         if not args:
@@ -858,6 +870,10 @@ def _classify_git(tokens: list[str]) -> str | None:
 
     if sub == "push":
         _FORCE_FLAGS = {"--force", "-f", "--force-with-lease", "--force-if-includes"}
+        if "--mirror" in args or "--prune" in args:
+            return GIT_HISTORY_REWRITE
+        if _git_has_short_flag(args, "f") or _git_has_short_flag(args, "d"):
+            return GIT_HISTORY_REWRITE
         for a in args:
             if a in _FORCE_FLAGS or a.startswith("--force-with-lease="):
                 return GIT_HISTORY_REWRITE
@@ -869,7 +885,7 @@ def _classify_git(tokens: list[str]) -> str | None:
         return GIT_WRITE
 
     if sub == "add":
-        return GIT_SAFE if ("--dry-run" in args or "-n" in args) else GIT_WRITE
+        return GIT_SAFE if ("--dry-run" in args or _git_has_short_flag(args, "n")) else GIT_WRITE
 
     if sub == "rm":
         return GIT_WRITE if "--cached" in args else GIT_DISCARD
