@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sensitive path expansion — `~/.azure` (Azure CLI tokens), `~/.docker/config.json` (registry auth), `~/.terraform.d/credentials.tfrc.json` and `~/.terraformrc` (Terraform Cloud tokens) now trigger ask prompts
 - Hint correctness test battery — 389 parametrized cases across 60 test classes covering all 7 hint code paths, proportionality checks, and edge cases (nah-2ig)
 - `active_allow` documentation — README and site install page now explain how to configure per-tool active allow lists (nah-5c1)
+- `nah claude` — per-session launcher that runs Claude Code with nah hooks active via `--settings` inline JSON. No `nah install` required, scoped to the process, parallel sessions unaffected. Auto-detects existing install to avoid double-firing (nah-ujc)
 
 ## [0.5.0] - 2026-03-17
 
