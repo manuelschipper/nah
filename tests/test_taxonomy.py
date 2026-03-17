@@ -416,7 +416,13 @@ class TestClassifyTokens:
 
     def test_git_config_env_invalid_values_fail_closed(self):
         assert _ct(["git", "--config-env", "push", "--force"]) == "unknown"
+        assert _ct(["git", "--config-env", "push=ENV", "status"]) == "unknown"
         assert _ct(["git", "--config-env=http.extraHeader", "push", "--force"]) == "unknown"
+        assert _ct(["git", "--config-env=push=ENV", "push", "--force"]) == "unknown"
+
+    def test_git_c_invalid_values_fail_closed(self):
+        assert _ct(["git", "-c", "push", "status"]) == "unknown"
+        assert _ct(["git", "-c", "push", "push", "--force"]) == "unknown"
 
     def test_git_exec_path_bare_form_not_stripped(self):
         assert _ct(["git", "--exec-path", "push", "--force"]) == "unknown"

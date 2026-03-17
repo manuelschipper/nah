@@ -398,10 +398,22 @@ def _git_has_short_flag(args: list[str], flag: str) -> bool:
     return False
 
 
+def _is_valid_git_config_key(name: str) -> bool:
+    """Return True for plausible git config keys like section.name or section.sub.key."""
+    section, dot, remainder = name.partition(".")
+    return bool(dot and section and remainder and not remainder.startswith("."))
+
+
+def _is_valid_git_config_arg(value: str) -> bool:
+    """Return True for values accepted by `git -c`, including implicit boolean keys."""
+    name = value.split("=", 1)[0]
+    return _is_valid_git_config_key(name)
+
+
 def _is_valid_git_config_env(value: str) -> bool:
     """Return True for NAME=ENVVAR values accepted by --config-env."""
     name, sep, env = value.partition("=")
-    return bool(sep and name and env)
+    return bool(sep and env and _is_valid_git_config_key(name))
 
 
 def _strip_git_global_flags(tokens: list[str]) -> list[str]:
@@ -416,6 +428,9 @@ def _strip_git_global_flags(tokens: list[str]) -> list[str]:
         tok = tokens[i]
         if tok in _GIT_VALUE_FLAGS:
             if i + 1 >= len(tokens):
+                result.extend(tokens[i:])
+                break
+            if tok == "-c" and not _is_valid_git_config_arg(tokens[i + 1]):
                 result.extend(tokens[i:])
                 break
             if tok == "--config-env" and not _is_valid_git_config_env(tokens[i + 1]):
