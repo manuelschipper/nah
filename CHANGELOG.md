@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `db_write` default policy changed from `ask` to `context` — `db_targets` config now takes effect without requiring `actions: {db_write: context}` override. Unconfigured users see no behavior change (nah-10a)
+
+### Added
+
+- `active_allow` documentation — README and site install page now explain how to configure per-tool active allow lists (nah-5c1)
+
 ## [0.5.0] - 2026-03-17
 
 ### Added
