@@ -49,6 +49,65 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "allow"
 
 
+class TestPassthroughWrappers:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'env bash -c "git status"',
+            'env -i PATH=/usr/bin bash -c "git status"',
+            'env --ignore-environment PATH=/usr/bin bash -c "git status"',
+            '/usr/bin/env bash -c "git status"',
+            'nice bash -c "git status"',
+            'nice -n 5 bash -c "git status"',
+            'nice --adjustment=5 bash -c "git status"',
+        ],
+    )
+    def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'env -i PATH=/usr/bin bash -lc "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'nice bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'env bash -lc "echo rm -rf /" > {target}',
+            'nice bash -c "echo rm -rf /" > {target}',
+            'nice --adjustment=5 bash -c "echo rm -rf /" > {target}',
+        ],
+    )
+    def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "script.sh")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+    def test_env_split_string_flag_fails_closed(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"env -S 'bash -c \"echo -----BEGIN PRIVATE KEY-----\"' > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+
 # --- Composition rules ---
 
 

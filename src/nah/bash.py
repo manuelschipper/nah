@@ -562,6 +562,106 @@ def _strip_command_builtin(tokens: list[str]) -> list[str] | None:
     return None
 
 
+_ENV_NOARG_FLAGS = {"-i", "--ignore-environment"}
+_ENV_ARG_FLAGS = {"-u", "--unset", "-C", "--chdir", "--argv0"}
+_ENV_ARG_FLAG_PREFIXES = ("--unset=", "--chdir=", "--argv0=")
+
+
+def _is_env_assignment(tok: str) -> bool:
+    """Return True for env-style NAME=value assignments."""
+    if "=" not in tok or tok.startswith("="):
+        return False
+    name, _ = tok.split("=", 1)
+    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
+        ch.isalnum() or ch == "_" for ch in name
+    )
+
+
+def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip env wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "env":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if _is_env_assignment(tok):
+            i += 1
+            continue
+
+        if tok in _ENV_NOARG_FLAGS:
+            i += 1
+            continue
+
+        if tok in _ENV_ARG_FLAGS:
+            i += 2
+            continue
+
+        if any(tok.startswith(prefix) for prefix in _ENV_ARG_FLAG_PREFIXES):
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_nice_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip nice wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "nice":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-n", "--adjustment"}:
+            i += 2
+            continue
+
+        if tok.startswith("--adjustment="):
+            i += 1
+            continue
+
+        if tok.startswith("-n") and len(tok) > 2:
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
+def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip one supported passthrough wrapper layer, if present."""
+    if not tokens:
+        return None
+
+    if tokens[0] == "command":
+        return _strip_command_builtin(tokens)
+
+    return _strip_env_wrapper(tokens) or _strip_nice_wrapper(tokens)
+
+
 # xargs flags: bail-out triggers, no-arg flags, arg flags (short prefix → consumes value)
 _XARGS_BAILOUT_SHORT = {"-I", "-J", "-a"}
 _XARGS_BAILOUT_LONG = {"--replace", "--arg-file"}  # also checked as prefix for =value form
@@ -665,6 +765,16 @@ def _unwrap_shell(
                                    user_actions=user_actions, profile=profile,
                                    trust_project=trust_project)
         return None  # Introspection or bare — fall through to classify
+
+    # env/nice passthrough wrappers
+    passthrough_tokens = _strip_passthrough_wrapper(tokens)
+    if passthrough_tokens is not None:
+        inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+            tokens=passthrough_tokens, operator=stage.operator
+        )
+        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                               builtin_table=builtin_table, project_table=project_table,
+                               user_actions=user_actions, profile=profile)
 
     # xargs unwrap (FD-089)
     if tokens and tokens[0] == "xargs":
@@ -827,6 +937,13 @@ def _extract_redirect_literal(stage: Stage) -> str:
 
     cmd = os.path.basename(tokens[0])
     args = tokens[1:]
+
+    passthrough_tokens = _strip_passthrough_wrapper(tokens)
+    if passthrough_tokens is not None:
+        inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+            tokens=passthrough_tokens, operator=stage.operator
+        )
+        return _extract_redirect_literal(inner_stage)
 
     if cmd == "echo":
         i = 0
