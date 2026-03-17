@@ -62,6 +62,11 @@ class TestPassthroughWrappers:
             'nice --adjustment=5 bash -c "git status"',
             'stdbuf -oL bash -c "git status"',
             'stdbuf --output=L bash -c "git status"',
+            'setsid bash -c "git status"',
+            'setsid -w bash -c "git status"',
+            'setsid --wait bash -c "git status"',
+            '/usr/bin/setsid bash -c "git status"',
+            'command setsid --wait bash -c "git status"',
         ],
     )
     def test_passthrough_wrappers_preserve_safe_inner_classification(self, project_root, command):
@@ -80,6 +85,9 @@ class TestPassthroughWrappers:
             'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'stdbuf -oL bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command stdbuf --output=L bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'setsid bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'setsid --wait bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command setsid -w bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
@@ -97,6 +105,9 @@ class TestPassthroughWrappers:
             'nice --adjustment=5 bash -c "echo rm -rf /" > {target}',
             'stdbuf -oL bash -c "echo rm -rf /" > {target}',
             'command stdbuf --output=L bash -lc "echo rm -rf /" > {target}',
+            'setsid bash -c "echo rm -rf /" > {target}',
+            'setsid --wait bash -lc "echo rm -rf /" > {target}',
+            'command setsid -w bash -c "echo rm -rf /" > {target}',
         ],
     )
     def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
@@ -109,6 +120,13 @@ class TestPassthroughWrappers:
     def test_env_split_string_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(f"env -S 'bash -c \"echo -----BEGIN PRIVATE KEY-----\"' > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    def test_setsid_unknown_flag_fails_closed(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"setsid --session-leader bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason

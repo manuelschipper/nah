@@ -686,6 +686,33 @@ def _strip_stdbuf_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_setsid_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip setsid wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "setsid":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok in {"-c", "-f", "-w", "--ctty", "--fork", "--wait"}:
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip one supported passthrough wrapper layer, if present."""
     if not tokens:
@@ -694,7 +721,12 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     if tokens[0] == "command":
         return _strip_command_builtin(tokens)
 
-    return _strip_env_wrapper(tokens) or _strip_nice_wrapper(tokens) or _strip_stdbuf_wrapper(tokens)
+    return (
+        _strip_env_wrapper(tokens)
+        or _strip_nice_wrapper(tokens)
+        or _strip_stdbuf_wrapper(tokens)
+        or _strip_setsid_wrapper(tokens)
+    )
 
 
 # xargs flags: bail-out triggers, no-arg flags, arg flags (short prefix → consumes value)
