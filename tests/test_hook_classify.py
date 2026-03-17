@@ -202,8 +202,8 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "ask"
         assert "unknown host" in d["reason"]
 
-    def test_mcp_db_write_default_policy_ask(self):
-        """db_write with default policy (ask, not context) → no context resolution."""
+    def test_mcp_db_write_default_policy_context_with_targets(self):
+        """db_write with default policy (context) + matching db_targets → allow."""
         config._cached_config = NahConfig(
             classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
             db_targets=[{"database": "SANDBOX"}],
@@ -212,8 +212,8 @@ class TestClassifyUnknownToolContext:
             "mcp__snowflake__execute_sql",
             {"database": "SANDBOX", "query": "INSERT INTO t VALUES (1)"},
         )
-        assert d["decision"] == "ask"
-        assert "allowed target" not in d.get("reason", "")
+        assert d["decision"] == "allow"
+        assert "allowed target" in d.get("reason", "")
 
 
 # --- FD-054: Write/Edit project boundary tests ---
