@@ -381,8 +381,9 @@ _GIT_VALUE_FLAG_PREFIXES = ("--git-dir=", "--work-tree=", "--namespace=", "--exe
 # Git global flags that are standalone (no value argument).
 _GIT_BOOLEAN_FLAGS = {
     "-p", "--paginate", "-P", "--no-pager", "--no-replace-objects",
-    "--no-optional-locks", "--no-advice", "--bare", "--literal-pathspecs",
-    "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
+    "--no-lazy-fetch", "--no-optional-locks", "--no-advice", "--bare",
+    "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs",
+    "--icase-pathspecs",
 }
 
 

@@ -389,6 +389,8 @@ class TestClassifyTokens:
         assert _ct(["git", "-p", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--paginate", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--no-advice", "status"]) == "git_safe"
+        assert _ct(["git", "--no-lazy-fetch", "status"]) == "git_safe"
+        assert _ct(["git", "--no-lazy-fetch", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--icase-pathspecs", "status"]) == "git_safe"
         assert _ct(["git", "--icase-pathspecs", "push", "--force"]) == "git_history_rewrite"
 
