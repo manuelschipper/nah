@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass, field
 
 from nah import context, paths, taxonomy
+from nah.content import scan_content, format_content_message
 
 _MAX_UNWRAP_DEPTH = 5
 
@@ -14,6 +15,7 @@ _MAX_UNWRAP_DEPTH = 5
 class Stage:
     tokens: list[str]
     operator: str = ""  # |, &&, ||, ;
+    redirect_fd: str = ""
     redirect_target: str = ""
     redirect_append: bool = False
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
@@ -178,6 +180,11 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
             current = []
             i += 2
             continue
+        if c == '|' and current and current[-1] == '>':
+            # `>|` is a shell clobber redirect, not a pipeline separator.
+            current.append(c)
+            i += 1
+            continue
         if c == '|' and i + 1 < n and command[i + 1] == '|':
             stages.append((''.join(current), '||'))
             current = []
@@ -244,6 +251,69 @@ def _detect_shell_substitution(command: str) -> str | None:
     return None
 
 
+def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool, str] | None:
+    """Parse shell output redirect tokens.
+
+    Supports operator-only and glued forms for >, >>, and >|, including
+    fd-prefixed variants like 1>, 2>>, 1>|, combined stdout/stderr forms like
+    &> and &>>, and descriptor-duplication redirects like >&2 or 2>&1.
+
+    Returns ``(fd, append, target, needs_target, kind)`` where ``kind`` is one
+    of:
+    - ``"file"`` for redirects that write to a path-like target
+    - ``"dup"`` for descriptor duplication / close redirects
+    - ``"dup_or_file"`` for operator-only ``>&`` forms that need the next token
+    """
+    if not tok:
+        return None
+
+    if tok.startswith("&"):
+        fd = "&"
+        rest = tok[1:]
+    else:
+        i = 0
+        while i < len(tok) and tok[i].isdigit():
+            i += 1
+
+        fd = tok[:i]
+        rest = tok[i:]
+
+    if rest == ">&":
+        return fd, False, "", True, "dup_or_file"
+    if rest.startswith(">&") and len(rest) > 2:
+        target = rest[2:]
+        if target == "-" or target.isdigit():
+            return fd, False, target, False, "dup"
+        if fd in ("", "1"):
+            fd = "&"
+        return fd, False, target, False, "file"
+
+    for op, append in ((">>", True), (">|", False), (">", False)):
+        if rest == op:
+            return fd, append, "", True, "file"
+        if rest.startswith(op) and len(rest) > len(op):
+            return fd, append, rest[len(op):], False, "file"
+    return None
+
+
+def _split_embedded_output_redirect(tok: str) -> tuple[str, str] | None:
+    """Split a token like ``ok>file`` into argv and redirect pieces.
+
+    ``shlex.split`` leaves fully glued redirects attached to the preceding word,
+    so shell forms like ``echo ok>file`` arrive as ``["echo", "ok>file"]``.
+    This helper peels off the first output redirect operator so ``_decompose``
+    can treat it exactly like the spaced form.
+    """
+    if not tok:
+        return None
+
+    for op in (">>", ">|", ">"):
+        idx = tok.find(op)
+        if idx > 0:
+            return tok[:idx], tok[idx:]
+    return None
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
@@ -258,6 +328,7 @@ def _decompose(
     """
     stages: list[Stage] = []
     current_tokens: list[str] = []
+    stdout_redirected = False
     i = 0
 
     while i < len(tokens):
@@ -273,25 +344,51 @@ def _decompose(
                 i += 1
                 continue
 
-        # Redirect detection: > or >>
-        if tok in (">", ">>"):
-            redirect_append = tok == ">>"
-            target = tokens[i + 1] if i + 1 < len(tokens) else ""
+        # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
+        # fd-prefixed variants like 1> foo or 2>>foo, and fully glued shell
+        # forms like ok>foo where shlex leaves the redirect attached to argv.
+        parsed_redirect = _parse_output_redirect(tok)
+        if parsed_redirect is None:
+            embedded_redirect = _split_embedded_output_redirect(tok)
+            if embedded_redirect is not None:
+                prefix, redirect_tok = embedded_redirect
+                current_tokens.append(prefix)
+                parsed_redirect = _parse_output_redirect(redirect_tok)
+        if parsed_redirect is not None:
+            redirect_fd, redirect_append, target, needs_target, redirect_kind = parsed_redirect
+            step = 1
+            if needs_target:
+                target = tokens[i + 1] if i + 1 < len(tokens) else ""
+                step = 2
+                if redirect_kind == "dup_or_file":
+                    if target == "-" or target.isdigit():
+                        redirect_kind = "dup"
+                    else:
+                        redirect_kind = "file"
+                        if redirect_fd in ("", "1"):
+                            redirect_fd = "&"
+            if redirect_fd in ("", "1", "&"):
+                stdout_redirected = True
+            if redirect_kind == "dup":
+                i += step
+                continue
             stage = _make_stage(current_tokens, "", action_hint=action_hint,
                                 action_reason=action_reason)
             if stage:
+                stage.redirect_fd = redirect_fd
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
                 stages.append(stage)
-            current_tokens = []
-            i += 2  # skip target
+            i += step
             continue
 
         current_tokens.append(tok)
         i += 1
 
-    # Last stage — attach the operator from the raw-string split
-    stage = _make_stage(current_tokens, operator, action_hint=action_hint,
+    # Last stage — attach the operator from the raw-string split, unless a
+    # stdout redirect has already consumed the pipe payload.
+    final_operator = "" if stdout_redirected and operator == "|" else operator
+    stage = _make_stage(current_tokens, final_operator, action_hint=action_hint,
                         action_reason=action_reason)
     if stage:
         stages.append(stage)
@@ -375,7 +472,7 @@ def _classify_stage(
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
         _apply_policy(sr)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
-        return _apply_redirect_guard(stage, sr)
+        return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
@@ -383,7 +480,7 @@ def _classify_stage(
                               user_actions=user_actions, profile=profile,
                               trust_project=trust_project)
     if unwrapped is not None:
-        return _apply_redirect_guard(stage, unwrapped)
+        return _apply_redirect_guard(stage, unwrapped, user_actions=user_actions)
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
@@ -399,7 +496,7 @@ def _classify_stage(
         sr.decision = path_decision
         sr.reason = path_reason
 
-    return _apply_redirect_guard(stage, sr)
+    return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
 
 def _obfuscated_result(tokens: list[str], reason: str, user_actions: dict[str, str] | None) -> StageResult:
@@ -652,15 +749,80 @@ def _apply_policy(sr: StageResult) -> None:
         sr.reason = f"unknown policy: {sr.default_policy}"
 
 
-def _apply_redirect_guard(stage: Stage, sr: StageResult) -> StageResult:
+def _extract_redirect_literal(tokens: list[str]) -> str:
+    """Best-effort extraction of literal text written by simple emitters.
+
+    This is intentionally conservative: only commands whose argv already carries
+    the literal payload are handled. Everything else returns an empty string so
+    redirect classification still happens, just without content inspection.
+    """
+    if not tokens:
+        return ""
+
+    cmd = os.path.basename(tokens[0])
+    args = tokens[1:]
+
+    if cmd == "echo":
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            if tok.startswith("-") and len(tok) > 1 and set(tok[1:]) <= {"n", "e", "E"}:
+                i += 1
+                continue
+            break
+        return " ".join(args[i:])
+
+    if cmd == "printf":
+        non_flag_args = [tok for tok in args if not tok.startswith("-")]
+        return " ".join(non_flag_args)
+
+    return ""
+
+
+def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) -> StageResult:
+    """Classify shell output redirection as a filesystem write."""
+    sr = StageResult(tokens=stage.tokens)
+    sr.action_type = taxonomy.FILESYSTEM_WRITE
+    sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_WRITE, user_actions)
+    _apply_policy(sr)
+
+    if sr.default_policy == taxonomy.CONTEXT:
+        sr.decision, reason = _check_redirect(stage.redirect_target)
+        sr.reason = f"redirect target: {reason}"
+
+    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1") else ""
+    matches = scan_content(literal)
+    if matches:
+        content_decision = max(
+            (m.policy for m in matches),
+            key=lambda p: taxonomy.STRICTNESS.get(p, 2),
+        )
+        if taxonomy.STRICTNESS.get(content_decision, 0) > taxonomy.STRICTNESS.get(sr.decision, 0):
+            sr.decision = content_decision
+            sr.reason = format_content_message("Write", matches)
+
+    return sr
+
+
+def _apply_redirect_guard(
+    stage: Stage,
+    sr: StageResult,
+    *,
+    user_actions: dict[str, str] | None = None,
+) -> StageResult:
     """Escalate a stage result when the outer stage redirects output to disk."""
     if not stage.redirect_target:
         return sr
 
-    redir_decision, redir_reason = _check_redirect(stage.redirect_target)
-    if taxonomy.STRICTNESS.get(redir_decision, 0) > taxonomy.STRICTNESS.get(sr.decision, 0):
-        sr.decision = redir_decision
-        sr.reason = f"redirect target: {redir_reason}"
+    redirect_sr = _classify_redirect_write(stage, user_actions)
+    redirect_strictness = taxonomy.STRICTNESS.get(redirect_sr.decision, 0)
+    current_strictness = taxonomy.STRICTNESS.get(sr.decision, 0)
+
+    if redirect_strictness > current_strictness or sr.decision == taxonomy.ALLOW:
+        sr.action_type = redirect_sr.action_type
+        sr.default_policy = redirect_sr.default_policy
+        sr.decision = redirect_sr.decision
+        sr.reason = redirect_sr.reason
     return sr
 
 
