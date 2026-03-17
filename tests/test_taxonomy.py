@@ -379,6 +379,17 @@ class TestClassifyTokens:
     def test_git_multiple_flags_stripped(self):
         assert _ct(["git", "-C", "/dir", "--no-pager", "status"]) == "git_safe"
 
+    def test_git_equals_joined_global_value_flags_stripped(self):
+        assert _ct(["git", "--git-dir=/x", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--work-tree=/x", "rm", "file"]) == "git_discard"
+        assert _ct(["git", "--namespace=ns", "status"]) == "git_safe"
+
+    def test_git_more_boolean_global_flags_stripped(self):
+        assert _ct(["git", "-P", "status"]) == "git_safe"
+        assert _ct(["git", "-p", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--paginate", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--no-advice", "status"]) == "git_safe"
+
     # git reset --hard → git_discard (DD#3)
     def test_git_reset_hard_is_discard(self):
         assert _ct(["git", "reset", "--hard"]) == "git_discard"
@@ -1392,6 +1403,18 @@ class TestGlobalOverridesFlagClassifiers:
         global_t = build_user_table({"git_safe": ["git push"]})
         builtin_t = get_builtin_table("full")
         assert classify_tokens(["git", "--no-pager", "push"], global_t, builtin_t) == "git_safe"
+
+    def test_git_equals_joined_flag_stripped_for_global_lookup(self):
+        """git --git-dir=/path push matches global 'git push'."""
+        global_t = build_user_table({"git_safe": ["git push"]})
+        builtin_t = get_builtin_table("full")
+        assert classify_tokens(["git", "--git-dir=/path", "push"], global_t, builtin_t) == "git_safe"
+
+    def test_git_paginate_flag_stripped_for_global_lookup(self):
+        """git -P push --force matches global 'git push --force'."""
+        global_t = build_user_table({"git_safe": ["git push --force"]})
+        builtin_t = get_builtin_table("full")
+        assert classify_tokens(["git", "-P", "push", "--force"], global_t, builtin_t) == "git_safe"
 
     # --- V16–V21: Profile:none ---
 
