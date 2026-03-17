@@ -799,6 +799,23 @@ def _extract_here_string_operand(args: list[str]) -> str:
     return ""
 
 
+def _extract_wrapped_redirect_literal(inner: str) -> str:
+    """Extract redirect literal text from a single inner shell command string."""
+    try:
+        raw_stages = [(stage_str.strip(), op) for stage_str, op in _split_on_operators(inner) if stage_str.strip()]
+        if len(raw_stages) != 1 or raw_stages[0][1]:
+            return ""
+        inner_tokens = shlex.split(raw_stages[0][0])
+    except ValueError:
+        return ""
+    if not inner_tokens:
+        return ""
+    inner_stages = _decompose(inner_tokens)
+    if len(inner_stages) != 1:
+        return ""
+    return _extract_redirect_literal(inner_stages[0])
+
+
 def _extract_redirect_literal(stage: Stage) -> str:
     """Best-effort extraction of literal text written by redirects."""
     if stage.heredoc_literal:
@@ -824,22 +841,15 @@ def _extract_redirect_literal(stage: Stage) -> str:
     if cmd == "printf":
         return " ".join(args)
 
+    if cmd == "command":
+        inner_tokens = _strip_command_builtin(tokens)
+        if inner_tokens:
+            return _extract_redirect_literal(Stage(tokens=inner_tokens, operator=stage.operator))
+
     if cmd in taxonomy._SHELL_WRAPPERS:
-        inner = _extract_here_string_operand(args)
-        if inner:
-            try:
-                raw_stages = [(stage_str.strip(), op) for stage_str, op in _split_on_operators(inner) if stage_str.strip()]
-                if len(raw_stages) != 1 or raw_stages[0][1]:
-                    return ""
-                inner_tokens = shlex.split(raw_stages[0][0])
-            except ValueError:
-                return ""
-            if not inner_tokens:
-                return ""
-            inner_stages = _decompose(inner_tokens)
-            if len(inner_stages) != 1:
-                return ""
-            return _extract_redirect_literal(inner_stages[0])
+        is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
+        if is_wrapper and inner:
+            return _extract_wrapped_redirect_literal(inner)
 
     if cmd == "cat":
         i = 0

@@ -285,6 +285,38 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
 
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+            "sh -c \"printf '-----BEGIN PRIVATE KEY-----'\" > {target}",
+            "bash --noprofile -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+            "bash -O extglob -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+            "command bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+        ],
+    )
+    def test_shell_wrapper_c_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "bash -c \"echo rm -rf /\" > {target}",
+            "bash --noprofile -c \"echo rm -rf /\" > {target}",
+            "command bash -c \"echo rm -rf /\" > {target}",
+        ],
+    )
+    def test_shell_wrapper_c_redirect_runs_content_inspection_for_destructive_payloads(self, project_root, command_template):
+        target = os.path.join(project_root, "script.sh")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
     def test_redirect_uses_filesystem_write_action_override(self, project_root):
         target = os.path.join(project_root, "artifact.bin")
         config._cached_config = NahConfig(actions={"filesystem_write": "block"})
