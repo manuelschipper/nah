@@ -391,12 +391,30 @@ class TestClassifyTokens:
         assert _ct(["git", "--no-advice", "status"]) == "git_safe"
         assert _ct(["git", "--no-lazy-fetch", "status"]) == "git_safe"
         assert _ct(["git", "--no-lazy-fetch", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--no-optional-locks", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--bare", "status"]) == "git_safe"
+        assert _ct(["git", "--bare", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--icase-pathspecs", "status"]) == "git_safe"
         assert _ct(["git", "--icase-pathspecs", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--literal-pathspecs", "status"]) == "git_safe"
+        assert _ct(["git", "--glob-pathspecs", "branch", "-D", "old"]) == "git_history_rewrite"
+        assert _ct(["git", "--noglob-pathspecs", "rm", "file"]) == "git_discard"
 
     def test_git_config_env_variants_stripped(self):
         assert _ct(["git", "--config-env", "http.extraHeader=ENV", "push", "--force"]) == "git_history_rewrite"
         assert _ct(["git", "--config-env=http.extraHeader=ENV", "rm", "file"]) == "git_discard"
+
+    def test_git_c_valid_values_stripped(self):
+        assert _ct(["git", "-c", "core.editor=true", "status"]) == "git_safe"
+        assert _ct(["git", "-c", "core.editor=true", "push", "--force"]) == "git_history_rewrite"
+
+    def test_git_c_valid_values_work_with_global_overrides(self):
+        tbl = build_user_table({"testing": ["git status"]})
+        assert classify_tokens(
+            ["git", "-c", "core.editor=true", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
 
     def test_git_exec_path_equals_joined_flag_stripped(self):
         assert _ct(["git", "--exec-path=/tmp/git-core", "push", "--force"]) == "git_history_rewrite"
