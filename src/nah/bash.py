@@ -251,15 +251,18 @@ def _detect_shell_substitution(command: str) -> str | None:
     return None
 
 
-def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
+def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool, str] | None:
     """Parse shell output redirect tokens.
 
     Supports operator-only and glued forms for >, >>, and >|, including
-    fd-prefixed variants like 1>, 2>>, 1>|, and combined stdout/stderr forms
-    like &> and &>>. Returns
-    ``(fd, append, target, needs_target)`` where ``fd`` is "" for implicit
-    stdout and ``needs_target`` indicates that the redirect target must be read
-    from the next token.
+    fd-prefixed variants like 1>, 2>>, 1>|, combined stdout/stderr forms like
+    &> and &>>, and descriptor-duplication redirects like >&2 or 2>&1.
+
+    Returns ``(fd, append, target, needs_target, kind)`` where ``kind`` is one
+    of:
+    - ``"file"`` for redirects that write to a path-like target
+    - ``"dup"`` for descriptor duplication / close redirects
+    - ``"dup_or_file"`` for operator-only ``>&`` forms that need the next token
     """
     if not tok:
         return None
@@ -274,11 +277,22 @@ def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
 
         fd = tok[:i]
         rest = tok[i:]
+
+    if rest == ">&":
+        return fd, False, "", True, "dup_or_file"
+    if rest.startswith(">&") and len(rest) > 2:
+        target = rest[2:]
+        if target == "-" or target.isdigit():
+            return fd, False, target, False, "dup"
+        if fd in ("", "1"):
+            fd = "&"
+        return fd, False, target, False, "file"
+
     for op, append in ((">>", True), (">|", False), (">", False)):
         if rest == op:
-            return fd, append, "", True
+            return fd, append, "", True, "file"
         if rest.startswith(op) and len(rest) > len(op):
-            return fd, append, rest[len(op):], False
+            return fd, append, rest[len(op):], False, "file"
     return None
 
 
@@ -314,6 +328,7 @@ def _decompose(
     """
     stages: list[Stage] = []
     current_tokens: list[str] = []
+    stdout_redirected = False
     i = 0
 
     while i < len(tokens):
@@ -340,11 +355,23 @@ def _decompose(
                 current_tokens.append(prefix)
                 parsed_redirect = _parse_output_redirect(redirect_tok)
         if parsed_redirect is not None:
-            redirect_fd, redirect_append, target, needs_target = parsed_redirect
+            redirect_fd, redirect_append, target, needs_target, redirect_kind = parsed_redirect
             step = 1
             if needs_target:
                 target = tokens[i + 1] if i + 1 < len(tokens) else ""
                 step = 2
+                if redirect_kind == "dup_or_file":
+                    if target == "-" or target.isdigit():
+                        redirect_kind = "dup"
+                    else:
+                        redirect_kind = "file"
+                        if redirect_fd in ("", "1"):
+                            redirect_fd = "&"
+            if redirect_fd in ("", "1", "&"):
+                stdout_redirected = True
+            if redirect_kind == "dup":
+                i += step
+                continue
             stage = _make_stage(current_tokens, "", action_hint=action_hint,
                                 action_reason=action_reason)
             if stage:
@@ -352,15 +379,16 @@ def _decompose(
                 stage.redirect_target = target
                 stage.redirect_append = redirect_append
                 stages.append(stage)
-            current_tokens = []
             i += step
             continue
 
         current_tokens.append(tok)
         i += 1
 
-    # Last stage — attach the operator from the raw-string split
-    stage = _make_stage(current_tokens, operator, action_hint=action_hint,
+    # Last stage — attach the operator from the raw-string split, unless a
+    # stdout redirect has already consumed the pipe payload.
+    final_operator = "" if stdout_redirected and operator == "|" else operator
+    stage = _make_stage(current_tokens, final_operator, action_hint=action_hint,
                         action_reason=action_reason)
     if stage:
         stages.append(stage)
