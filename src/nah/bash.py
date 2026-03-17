@@ -1537,37 +1537,46 @@ def _extract_primary_target(tokens: list[str]) -> str:
 def _resolve_script_path(tokens: list[str]) -> str | None:
     """Extract script file path from interpreter command tokens.
 
-    Returns resolved path if the file exists, None otherwise.
-    Handles: python script.py, python -m module, ./script.py, etc.
-    Returns None for inline code (python -c) so context resolver falls
-    through to ask.
+    Returns resolved path (even if file doesn't exist) so context resolver
+    can distinguish "file not found" from "inline execution" (None).
+    Handles: python script.py, python -W ignore script.py, python -m module,
+    ./script.py, etc. Returns None for inline code (python -c).
     """
     if not tokens:
         return None
 
     cmd = os.path.basename(tokens[0])
 
-    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS
+    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
+    value_flags = _VALUE_FLAGS.get(cmd, set())
 
+    skip_next = False
     for i, tok in enumerate(tokens[1:], 1):
+        if skip_next:
+            skip_next = False
+            continue
         if tok in inline:
             return None  # inline code, no file
         if tok in module and i + 1 < len(tokens):
             return _resolve_module_path(tokens[i + 1])
+        if tok in value_flags:
+            skip_next = True  # skip flag + its value argument
+            continue
         if tok.startswith("-"):
             continue
+        # Return resolved path even if file doesn't exist — context resolver
+        # distinguishes "file not found" from "inline execution" (None).
         if os.path.isabs(tok):
-            return tok if os.path.isfile(tok) else None
+            return tok
         cwd = os.getcwd()
-        path = os.path.join(cwd, tok)
-        return path if os.path.isfile(path) else None
+        return os.path.join(cwd, tok)
 
-    # ./script.py — tokens[0] is the script itself
-    if cmd != tokens[0] and os.path.isfile(tokens[0]):
-        return os.path.realpath(tokens[0])
+    # ./script.py — tokens[0] is the script itself (direct execution)
+    if cmd != tokens[0]:
+        return os.path.realpath(tokens[0]) if os.path.isfile(tokens[0]) else tokens[0]
 
     return None
 

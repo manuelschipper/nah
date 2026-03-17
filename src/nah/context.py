@@ -470,7 +470,7 @@ def resolve_lang_exec_context(target_path: str | None) -> tuple[str, str]:
     the project is necessary but not sufficient for lang_exec.
     """
     if not target_path:
-        return taxonomy.ASK, "lang_exec: no script file"
+        return taxonomy.ASK, "lang_exec: inline execution"
 
     from nah.config import get_config
     if get_config().profile == "none":
@@ -494,6 +494,13 @@ def resolve_lang_exec_context(target_path: str | None) -> tuple[str, str]:
         return taxonomy.ASK, f"script outside project: {paths.friendly_path(resolved)}"
 
     # Inside project or trusted — read and inspect contents
+    if not os.path.isfile(resolved):
+        return taxonomy.ASK, f"script not found: {paths.friendly_path(resolved)}"
+
+    # Note: the LLM layer (llm.py) reads the file independently for prompt
+    # enrichment. The dual read is intentional — this read is the authoritative
+    # deterministic gate; the LLM read is for prompt context. TOCTOU between
+    # the two reads is accepted as a known limitation.
     content = _read_script_content(resolved)
     if content is None:
         return taxonomy.ASK, f"script not readable: {paths.friendly_path(resolved)}"

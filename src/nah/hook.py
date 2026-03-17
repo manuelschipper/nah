@@ -289,7 +289,33 @@ def handle_bash(tool_input: dict) -> dict:
             decision["_hint"] = hint
         return decision
 
+    # LLM veto gate for lang_exec scripts (FD-079): even when the deterministic
+    # layer allows, the LLM inspects script content and can block.
+    if _has_lang_exec_script(result):
+        llm_decision, llm_meta = _try_llm(result)
+        meta.update(llm_meta)
+        if llm_decision is not None:
+            capped = _cap_llm_decision(llm_decision)
+            if capped.get("decision") == taxonomy.BLOCK:
+                capped["_meta"] = meta
+                return capped
+            # LLM says allow or uncertain — keep structural allow
+
     return {"decision": taxonomy.ALLOW, "_meta": meta}
+
+
+def _has_lang_exec_script(result) -> bool:
+    """Check if result has a lang_exec stage where a script file was inspected.
+
+    Returns True only when the context resolver successfully read and scanned
+    the script (reason starts with 'script clean:'). Returns False for inline
+    code, nonexistent files, and outside-project scripts — those either have
+    no content for the LLM, or already resolved to ask.
+    """
+    for sr in result.stages:
+        if sr.action_type == taxonomy.LANG_EXEC and sr.reason.startswith("script clean:"):
+            return True
+    return False
 
 
 HANDLERS = {
@@ -322,22 +348,10 @@ def _log_hook_decision(
 ) -> None:
     """Build and write the log entry. Never raises."""
     try:
-        from nah.log import log_decision, redact_input
+        from nah.log import log_decision, redact_input, build_entry
         from nah import __version__
 
         meta = decision.pop("_meta", None) or {}
-
-        entry: dict = {
-            "tool": tool,
-            "input_summary": redact_input(tool, tool_input),
-            "decision": decision.get("decision", "allow"),
-            "reason": decision.get("reason", ""),
-            "agent": agent,
-            "hook_version": __version__,
-            "total_ms": total_ms,
-        }
-
-        entry.update(meta)
 
         log_config = None
         try:
@@ -345,6 +359,17 @@ def _log_hook_decision(
             log_config = get_config().log or None
         except Exception as exc:
             sys.stderr.write(f"nah: config: log: {exc}\n")
+
+        summary = redact_input(tool, tool_input)
+
+        entry = build_entry(
+            tool=tool, input_summary=summary,
+            decision=decision.get("decision", "allow"),
+            reason=decision.get("reason", ""),
+            agent=agent, hook_version=__version__,
+            total_ms=total_ms, meta=meta,
+            transcript_path=_transcript_path,
+        )
 
         log_decision(entry, log_config)
     except Exception as exc:
