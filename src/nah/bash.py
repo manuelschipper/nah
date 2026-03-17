@@ -180,6 +180,11 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
             current = []
             i += 2
             continue
+        if c == '|' and current and current[-1] == '>':
+            # `>|` is a shell clobber redirect, not a pipeline separator.
+            current.append(c)
+            i += 1
+            continue
         if c == '|' and i + 1 < n and command[i + 1] == '|':
             stages.append((''.join(current), '||'))
             current = []
@@ -246,11 +251,14 @@ def _detect_shell_substitution(command: str) -> str | None:
     return None
 
 
-def _parse_output_redirect(tok: str) -> tuple[str, bool, str] | None:
-    """Parse a glued shell output redirect token.
+def _parse_output_redirect(tok: str) -> tuple[str, bool, str, bool] | None:
+    """Parse shell output redirect tokens.
 
-    Supports >target, >>target, N>target, and N>>target. Returns (fd, append,
-    target) where fd is "" for implicit stdout.
+    Supports operator-only and glued forms for >, >>, and >|, including
+    fd-prefixed variants like 1>, 2>>, and 1>|. Returns
+    ``(fd, append, target, needs_target)`` where ``fd`` is "" for implicit
+    stdout and ``needs_target`` indicates that the redirect target must be read
+    from the next token.
     """
     if not tok:
         return None
@@ -261,10 +269,11 @@ def _parse_output_redirect(tok: str) -> tuple[str, bool, str] | None:
 
     fd = tok[:i]
     rest = tok[i:]
-    if rest.startswith(">>") and len(rest) > 2:
-        return fd, True, rest[2:]
-    if rest.startswith(">") and len(rest) > 1:
-        return fd, False, rest[1:]
+    for op, append in ((">>", True), (">|", False), (">", False)):
+        if rest == op:
+            return fd, append, "", True
+        if rest.startswith(op) and len(rest) > len(op):
+            return fd, append, rest[len(op):], False
     return None
 
 
@@ -297,15 +306,13 @@ def _decompose(
                 i += 1
                 continue
 
-        # Redirect detection: > foo, >> foo, >foo, >>foo, N>foo, N>>foo
+        # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
+        # and fd-prefixed variants like 1> foo or 2>>foo.
         parsed_redirect = _parse_output_redirect(tok)
-        if tok in (">", ">>") or parsed_redirect is not None:
-            redirect_fd = ""
-            if parsed_redirect is not None:
-                redirect_fd, redirect_append, target = parsed_redirect
-                step = 1
-            else:
-                redirect_append = tok == ">>"
+        if parsed_redirect is not None:
+            redirect_fd, redirect_append, target, needs_target = parsed_redirect
+            step = 1
+            if needs_target:
                 target = tokens[i + 1] if i + 1 < len(tokens) else ""
                 step = 2
             stage = _make_stage(current_tokens, "", action_hint=action_hint,
