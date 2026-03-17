@@ -120,6 +120,13 @@ class TestIsSensitive:
         assert pattern == "~/.azure"
         assert policy == "ask"
 
+    def test_github_cli_hosts_ask(self):
+        resolved = paths.resolve_path("~/.config/gh/hosts.yml")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.config/gh"
+        assert policy == "ask"
+
     def test_docker_config_ask(self):
         resolved = paths.resolve_path("~/.docker/config.json")
         matched, pattern, policy = paths.is_sensitive(resolved)
@@ -208,6 +215,12 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "ask"
         assert "~/.azure" in result["reason"]
+
+    def test_github_cli_hosts_ask(self):
+        result = paths.check_path("Read", "~/.config/gh/hosts.yml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.config/gh" in result["reason"]
 
     def test_sensitive_ask_docker_config(self):
         result = paths.check_path("Read", "~/.docker/config.json")

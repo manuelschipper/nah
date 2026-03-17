@@ -22,6 +22,7 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".aws")), "~/.aws", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".azure")), "~/.azure", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gcloud")), "~/.config/gcloud", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".config", "gh")), "~/.config/gh", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".docker", "config.json")), "~/.docker/config.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".terraform.d", "credentials.tfrc.json")), "~/.terraform.d/credentials.tfrc.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".terraformrc")), "~/.terraformrc", "ask"),

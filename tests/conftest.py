@@ -12,6 +12,7 @@ from nah.context import reset_known_hosts
 @pytest.fixture(autouse=True)
 def _reset_state():
     """Reset project root, config cache, and sensitive paths between tests for isolation."""
+    reset_config()
     paths.reset_sensitive_paths()
     paths._sensitive_paths_merged = True  # prevent real config from polluting tests
     taxonomy.reset_exec_sinks()

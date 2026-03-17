@@ -995,6 +995,66 @@ class TestFD017Regressions:
         assert r.stages[0].action_type == "git_safe"
 
 
+class TestFD017MoreGitRegressions:
+    """Additional git flag-parity regressions for remote-destructive push forms."""
+
+    def test_push_mirror_is_history(self, project_root):
+        r = classify_command("git push --mirror origin")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    def test_push_prune_is_history(self, project_root):
+        r = classify_command("git push --prune origin")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    @pytest.mark.parametrize("command", ["git push -fd origin main", "git push -df origin main"])
+    def test_push_combined_short_force_delete_is_history(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    @pytest.mark.parametrize("command", ["git add -nv .", "git add -vn ."])
+    def test_add_combined_short_dry_run_is_safe(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+
+class TestFD017TagRegressions:
+    """Flag-dependent git tag handling for list/delete/force variants."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git tag -l v1*",
+            "git tag --list v1*",
+            "git tag -n",
+            "git tag -n2",
+            "git tag -v v1",
+            "git tag --contains HEAD",
+            "git tag --merged",
+            "git tag --no-contains HEAD",
+            "git tag --points-at HEAD",
+        ],
+    )
+    def test_tag_listing_and_verify_are_safe(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+    @pytest.mark.parametrize("command", ["git tag -d v1", "git tag --delete v1"])
+    def test_tag_delete_is_discard(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_discard"
+
+    def test_tag_force_replace_is_history_rewrite(self, project_root):
+        r = classify_command("git tag -f v1 HEAD")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+
 class TestFD018Regressions:
     """FD-018: Integration tests for sed/tar classifiers and new builtins."""
 

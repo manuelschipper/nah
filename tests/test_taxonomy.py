@@ -379,6 +379,72 @@ class TestClassifyTokens:
     def test_git_multiple_flags_stripped(self):
         assert _ct(["git", "-C", "/dir", "--no-pager", "status"]) == "git_safe"
 
+    def test_git_equals_joined_global_value_flags_stripped(self):
+        assert _ct(["git", "--git-dir=/x", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--work-tree=/x", "rm", "file"]) == "git_discard"
+        assert _ct(["git", "--namespace=ns", "status"]) == "git_safe"
+
+    def test_git_more_boolean_global_flags_stripped(self):
+        assert _ct(["git", "-P", "status"]) == "git_safe"
+        assert _ct(["git", "-p", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--paginate", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--no-advice", "status"]) == "git_safe"
+        assert _ct(["git", "--no-lazy-fetch", "status"]) == "git_safe"
+        assert _ct(["git", "--no-lazy-fetch", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--no-optional-locks", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--bare", "status"]) == "git_safe"
+        assert _ct(["git", "--bare", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--icase-pathspecs", "status"]) == "git_safe"
+        assert _ct(["git", "--icase-pathspecs", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--literal-pathspecs", "status"]) == "git_safe"
+        assert _ct(["git", "--glob-pathspecs", "branch", "-D", "old"]) == "git_history_rewrite"
+        assert _ct(["git", "--noglob-pathspecs", "rm", "file"]) == "git_discard"
+
+    def test_git_config_env_variants_stripped(self):
+        assert _ct(["git", "--config-env", "http.extraHeader=ENV", "push", "--force"]) == "git_history_rewrite"
+        assert _ct(["git", "--config-env=http.extraHeader=ENV", "rm", "file"]) == "git_discard"
+
+    def test_git_c_valid_values_stripped(self):
+        assert _ct(["git", "-c", "core.editor=true", "status"]) == "git_safe"
+        assert _ct(["git", "-c", "core.editor=true", "push", "--force"]) == "git_history_rewrite"
+
+    def test_git_c_valid_values_work_with_global_overrides(self):
+        tbl = build_user_table({"testing": ["git status"]})
+        assert classify_tokens(
+            ["git", "-c", "core.editor=true", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+
+    def test_git_exec_path_equals_joined_flag_stripped(self):
+        assert _ct(["git", "--exec-path=/tmp/git-core", "push", "--force"]) == "git_history_rewrite"
+
+    def test_git_new_global_flags_work_with_global_overrides(self):
+        tbl = build_user_table({"testing": ["git status"]})
+        assert classify_tokens(
+            ["git", "--config-env=http.extraHeader=ENV", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+        assert classify_tokens(
+            ["git", "--exec-path=/tmp/git-core", "status"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+
+    def test_git_config_env_invalid_values_fail_closed(self):
+        assert _ct(["git", "--config-env", "push", "--force"]) == "unknown"
+        assert _ct(["git", "--config-env", "push=ENV", "status"]) == "unknown"
+        assert _ct(["git", "--config-env=http.extraHeader", "push", "--force"]) == "unknown"
+        assert _ct(["git", "--config-env=push=ENV", "push", "--force"]) == "unknown"
+
+    def test_git_c_invalid_values_fail_closed(self):
+        assert _ct(["git", "-c", "push", "status"]) == "unknown"
+        assert _ct(["git", "-c", "push", "push", "--force"]) == "unknown"
+
+    def test_git_exec_path_bare_form_not_stripped(self):
+        assert _ct(["git", "--exec-path", "push", "--force"]) == "unknown"
+
     # git reset --hard → git_discard (DD#3)
     def test_git_reset_hard_is_discard(self):
         assert _ct(["git", "reset", "--hard"]) == "git_discard"
@@ -724,8 +790,30 @@ class TestClassifyGit:
     def test_branch_d_discard(self):
         assert _ct(["git", "branch", "-d", "old"]) == "git_discard"
 
+    def test_branch_delete_discard(self):
+        assert _ct(["git", "branch", "--delete", "old"]) == "git_discard"
+
     def test_branch_D_history_rewrite(self):
         assert _ct(["git", "branch", "-D", "old"]) == "git_history_rewrite"
+
+    def test_branch_delete_force_history_rewrite(self):
+        assert _ct(["git", "branch", "--delete", "--force", "old"]) == "git_history_rewrite"
+
+    @pytest.mark.parametrize("tokens", [
+        ["git", "branch", "-d", "-f", "old"],
+        ["git", "branch", "-f", "-d", "old"],
+        ["git", "branch", "-df", "old"],
+        ["git", "branch", "-fd", "old"],
+        ["git", "branch", "--force", "-d", "old"],
+    ])
+    def test_branch_force_delete_variants_history_rewrite(self, tokens):
+        assert _ct(tokens) == "git_history_rewrite"
+
+    def test_branch_delete_beats_safe_flag(self):
+        assert _ct(["git", "branch", "-d", "-v", "old"]) == "git_discard"
+
+    def test_branch_force_delete_beats_safe_flag(self):
+        assert _ct(["git", "branch", "-D", "-v", "old"]) == "git_history_rewrite"
 
     # --- config ---
     def test_config_get_safe(self):
@@ -787,6 +875,10 @@ class TestClassifyGit:
     def test_push_force_with_lease_history(self):
         assert _ct(["git", "push", "--force-with-lease"]) == "git_history_rewrite"
 
+    def test_push_force_with_lease_equals_history(self):
+        assert _ct(["git", "push", "--force-with-lease=main"]) == "git_history_rewrite"
+        assert _ct(["git", "push", "origin", "--force-with-lease=refs/heads/main"]) == "git_history_rewrite"
+
     def test_push_force_if_includes_history(self):
         assert _ct(["git", "push", "--force-if-includes"]) == "git_history_rewrite"
 
@@ -798,6 +890,15 @@ class TestClassifyGit:
 
     def test_push_origin_main_force_history(self):
         assert _ct(["git", "push", "origin", "main", "--force"]) == "git_history_rewrite"
+
+    @pytest.mark.parametrize("tokens", [
+        ["git", "push", "origin", "--delete", "old"],
+        ["git", "push", "--delete", "origin", "old"],
+        ["git", "push", "-d", "origin", "old"],
+        ["git", "push", "origin", ":old"],
+    ])
+    def test_push_delete_variants_history(self, tokens):
+        assert _ct(tokens) == "git_history_rewrite"
 
     # --- add ---
     def test_add_write(self):
@@ -825,6 +926,14 @@ class TestClassifyGit:
 
     def test_clean_n_safe(self):
         assert _ct(["git", "clean", "-n"]) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["git", "clean", "-nfd"],
+        ["git", "clean", "-fdn"],
+        ["git", "clean", "-nd"],
+    ])
+    def test_clean_combined_dry_run_safe(self, tokens):
+        assert _ct(tokens) == "git_safe"
 
     # --- reflog ---
     def test_reflog_bare_safe(self):
@@ -1392,6 +1501,18 @@ class TestGlobalOverridesFlagClassifiers:
         global_t = build_user_table({"git_safe": ["git push"]})
         builtin_t = get_builtin_table("full")
         assert classify_tokens(["git", "--no-pager", "push"], global_t, builtin_t) == "git_safe"
+
+    def test_git_equals_joined_flag_stripped_for_global_lookup(self):
+        """git --git-dir=/path push matches global 'git push'."""
+        global_t = build_user_table({"git_safe": ["git push"]})
+        builtin_t = get_builtin_table("full")
+        assert classify_tokens(["git", "--git-dir=/path", "push"], global_t, builtin_t) == "git_safe"
+
+    def test_git_paginate_flag_stripped_for_global_lookup(self):
+        """git -P push --force matches global 'git push --force'."""
+        global_t = build_user_table({"git_safe": ["git push --force"]})
+        builtin_t = get_builtin_table("full")
+        assert classify_tokens(["git", "-P", "push", "--force"], global_t, builtin_t) == "git_safe"
 
     # --- V16–V21: Profile:none ---
 
