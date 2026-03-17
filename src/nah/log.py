@@ -68,6 +68,79 @@ def _rotate() -> None:
             sys.stderr.write(f"nah: log: rotation reset: {exc2}\n")
 
 
+def build_entry(
+    tool: str, input_summary: str, decision: str, reason: str,
+    agent: str, hook_version: str, total_ms: int,
+    meta: dict, transcript_path: str = "",
+) -> dict:
+    """Build a structured log entry with core + detail fields."""
+    from nah.paths import get_project_root  # lazy import to avoid circular
+
+    entry: dict = {
+        "id": os.urandom(8).hex(),
+        "user": os.environ.get("USER", ""),
+        "agent": agent,
+        "hook_version": hook_version,
+        "tool": tool,
+        "input": input_summary,
+        "project": get_project_root() or "",
+        "session": os.path.basename(transcript_path) if transcript_path else "",
+        "decision": decision,
+        "reason": reason,
+        "action_type": _extract_action_type(meta),
+        "ms": total_ms,
+    }
+
+    # Detail: classify
+    stages = meta.get("stages")
+    if stages:
+        classify: dict = {"stages": stages}
+        comp = meta.get("composition_rule")
+        if comp:
+            classify["composition"] = comp
+        redir = meta.get("redirect_target", "")
+        if redir:
+            classify["redirect_target"] = redir
+        entry["classify"] = classify
+
+    # Detail: llm
+    llm_provider = meta.get("llm_provider")
+    if llm_provider:
+        llm: dict = {
+            "provider": llm_provider,
+            "model": meta.get("llm_model", ""),
+            "ms": meta.get("llm_latency_ms", 0),
+            "decision": meta.get("llm_decision", ""),
+            "reasoning": meta.get("llm_reasoning", ""),
+        }
+        cascade = meta.get("llm_cascade")
+        if cascade:
+            llm["cascade"] = cascade
+        prompt = meta.get("llm_prompt")
+        if prompt:
+            llm["prompt"] = prompt
+        entry["llm"] = llm
+
+    # Detail: hint, content_match
+    hint = meta.get("hint")
+    if hint:
+        entry["hint"] = hint
+    content = meta.get("content_match")
+    if content:
+        entry["content_match"] = content
+
+    return entry
+
+
+def _extract_action_type(meta: dict) -> str:
+    """Extract primary action_type: first ask/block stage, else first stage."""
+    stages = meta.get("stages", [])
+    for s in stages:
+        if s.get("decision") in ("ask", "block"):
+            return s.get("action_type", "")
+    return stages[0].get("action_type", "") if stages else ""
+
+
 def redact_input(tool: str, tool_input: dict) -> str:
     """Build a redacted input summary string."""
     if tool == "Bash":
