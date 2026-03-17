@@ -651,6 +651,33 @@ def _strip_nice_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_time_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip time wrapper and supported flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "time":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if tok == "-p":
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_nohup_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip nohup wrapper, returning inner command tokens."""
     if not tokens or os.path.basename(tokens[0]) != "nohup":
@@ -941,6 +968,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
     return (
         _strip_env_wrapper(tokens)
         or _strip_nice_wrapper(tokens)
+        or _strip_time_wrapper(tokens)
         or _strip_nohup_wrapper(tokens)
         or _strip_stdbuf_wrapper(tokens)
         or _strip_setsid_wrapper(tokens)
@@ -1054,6 +1082,22 @@ def _unwrap_shell(
                                    trust_project=trust_project)
         return None  # Introspection or bare — fall through to classify
 
+    if tokens and os.path.basename(tokens[0]) == "time":
+        passthrough_tokens = _strip_time_wrapper(tokens)
+        if passthrough_tokens is not None:
+            inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
+                tokens=passthrough_tokens, operator=stage.operator
+            )
+            return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                                   builtin_table=builtin_table, project_table=project_table,
+                                   user_actions=user_actions, profile=profile)
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.UNKNOWN
+        sr.default_policy = taxonomy.get_policy(taxonomy.UNKNOWN, user_actions)
+        _apply_policy(sr)
+        sr.reason = "unsupported time wrapper flags"
+        return sr
+
     # env/nice passthrough wrappers
     passthrough_tokens = _strip_passthrough_wrapper(tokens)
     if passthrough_tokens is not None:
@@ -1071,7 +1115,7 @@ def _unwrap_shell(
             return None  # bare xargs, -I/-J, or unknown flag → fall through
         if taxonomy.is_exec_sink(inner_tokens[0]):
             # xargs bash, xargs eval, etc. → lang_exec (don't recurse into exec sink)
-            sr = StageResult(tokens=inner_tokens)
+            sr = StageResult(tokens=tokens)
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
             _apply_policy(sr)

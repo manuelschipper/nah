@@ -60,6 +60,12 @@ class TestPassthroughWrappers:
             'nice bash -c "git status"',
             'nice -n 5 bash -c "git status"',
             'nice --adjustment=5 bash -c "git status"',
+            'time bash -c "git status"',
+            'time -p bash -c "git status"',
+            '/usr/bin/time bash -c "git status"',
+            '/usr/bin/time -p bash -c "git status"',
+            'command time bash -c "git status"',
+            'command time -p bash -c "git status"',
             'nohup bash -c "git status"',
             '/usr/bin/nohup bash -c "git status"',
             'command nohup bash -c "git status"',
@@ -114,6 +120,10 @@ class TestPassthroughWrappers:
             'command env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'time bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'time -p bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/time bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'command time -p bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             '/usr/bin/nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
             'command nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
@@ -156,6 +166,10 @@ class TestPassthroughWrappers:
             'env bash -lc "echo rm -rf /" > {target}',
             'nice bash -c "echo rm -rf /" > {target}',
             'nice --adjustment=5 bash -c "echo rm -rf /" > {target}',
+            'time bash -c "echo rm -rf /" > {target}',
+            'time -p bash -lc "echo rm -rf /" > {target}',
+            '/usr/bin/time bash -c "echo rm -rf /" > {target}',
+            'command time -p bash -lc "echo rm -rf /" > {target}',
             'nohup bash -c "echo rm -rf /" > {target}',
             '/usr/bin/nohup bash -c "echo rm -rf /" > {target}',
             'command nohup bash -c "echo rm -rf /" > {target}',
@@ -202,6 +216,20 @@ class TestPassthroughWrappers:
     def test_setsid_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(f"setsid --session-leader bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+        assert "content inspection" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            'time -f %E bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            '/usr/bin/time -f %E bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+        ],
+    )
+    def test_time_unknown_flag_fails_closed(self, project_root, command_template):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
