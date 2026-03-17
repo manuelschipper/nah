@@ -958,6 +958,13 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
             if tokens[i] == "-c":
                 return True, tokens[i + 1]
 
+        # Support the common short-option clusters that real shells accept as
+        # equivalent to `-l -c` or `-c -l`. Keep attached payload forms like
+        # `-cecho` fail-closed by only unwrapping the exact clustered flags.
+        for i in range(1, len(tokens) - 1):
+            if tokens[i] in {"-lc", "-cl"}:
+                return True, tokens[i + 1]
+
         # bash/sh/dash/zsh [flags...] <<< "inner" (here-string)
         for i in range(1, len(tokens) - 1):
             if tokens[i] == "<<<":
