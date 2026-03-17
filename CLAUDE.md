@@ -2,7 +2,7 @@
 
 Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write, Edit, Glob, Grep), not just shell commands. Deterministic, zero tokens, milliseconds.
 
-**Tagline:** "A permission system you control."
+**Tagline:** "Safeguard your vibes. Keep your flow state."
 
 ## GitHub Communication
 

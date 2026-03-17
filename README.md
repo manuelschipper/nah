@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>A permission system you control.</strong><br>
-  Because allow-or-deny isn't enough.
+  <strong>Safeguard your vibes.</strong><br>
+  Keep your flow state.
 </p>
 
 <p align="center">
