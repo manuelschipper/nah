@@ -179,6 +179,21 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
 
+    @pytest.mark.parametrize(
+        ("command_template", "token"),
+        [
+            ("echo '-----BEGIN PRIVATE KEY-----' &> {target}", "echo"),
+            ("printf '-----BEGIN PRIVATE KEY-----' &>> {target}", "printf"),
+        ],
+    )
+    def test_redirect_variants_with_stdout_still_run_content_inspection(self, project_root, command_template, token):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(command_template.format(target=target))
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+        assert token in r.stages[0].tokens
+
     def test_redirect_uses_filesystem_write_action_override(self, project_root):
         target = os.path.join(project_root, "artifact.bin")
         config._cached_config = NahConfig(actions={"filesystem_write": "block"})

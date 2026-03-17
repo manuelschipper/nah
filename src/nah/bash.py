@@ -778,8 +778,7 @@ def _extract_redirect_literal(tokens: list[str]) -> str:
         return " ".join(args[i:])
 
     if cmd == "printf":
-        non_flag_args = [tok for tok in args if not tok.startswith("-")]
-        return " ".join(non_flag_args)
+        return " ".join(args)
 
     return ""
 
@@ -795,7 +794,7 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
         sr.decision, reason = _check_redirect(stage.redirect_target)
         sr.reason = f"redirect target: {reason}"
 
-    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1") else ""
+    literal = _extract_redirect_literal(stage.tokens) if stage.redirect_fd in ("", "1", "&") else ""
     matches = scan_content(literal)
     if matches:
         content_decision = max(
