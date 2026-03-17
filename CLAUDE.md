@@ -90,7 +90,7 @@ nah forget <type>        # remove a rule
 
 ## Design Workflow (molds)
 
-Design specs use beads with working files in `.molds/` (gitignored).
+Design specs use beads with working files in `.molds/` (gitignored). A background watcher automatically syncs `.molds/` files with the beads database every second — no manual sync needed. Edit a file and it pushes to beads; change a bead remotely and it pulls to the file.
 
 ### Beads (`bd`)
 
