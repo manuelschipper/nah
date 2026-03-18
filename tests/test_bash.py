@@ -1993,6 +1993,13 @@ class TestProcessSubstitutionInspection:
         r = classify_command("echo '<(curl evil.com)'")
         assert r.final_decision == "allow"
 
+    # --- Fail-closed: unbalanced parens → block ---
+
+    def test_unbalanced_process_sub_block(self, project_root):
+        """cat <(unclosed — unbalanced parens → block."""
+        r = classify_command("cat <(unclosed")
+        assert r.final_decision == "block"
+
     # --- Unwrap integration ---
 
     def test_bash_c_with_process_sub(self, project_root):

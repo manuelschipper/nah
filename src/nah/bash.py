@@ -61,6 +61,11 @@ def classify_command(command: str) -> ClassifyResult:
     # _split_on_operators would incorrectly split on.  Extract first,
     # replace with placeholders, then classify inner commands separately.
     all_subs = _extract_substitutions(command)
+    # Fail-closed: unbalanced process substitution → obfuscated
+    if any(s[3] == "failed" for s in all_subs):
+        result.final_decision = taxonomy.BLOCK
+        result.reason = "unbalanced process substitution"
+        return result
     process_subs = [s for s in all_subs if s[3] in ("process_in", "process_out")]
     sanitized = _replace_substitutions(command, process_subs) if process_subs else command
 
@@ -321,7 +326,8 @@ def _extract_substitutions(command: str) -> list[tuple[str, int, int, str]]:
 
     Returns a list of ``(inner_command, start, end, kind)`` tuples where
     *kind* is one of ``"process_in"``, ``"process_out"``, ``"command"``,
-    or ``"backtick"``.  Single-quoted regions are skipped (literal text).
+    ``"backtick"``, or ``"failed"`` (unbalanced parens — fail-closed).
+    Single-quoted regions are skipped (literal text).
     Arithmetic expansion ``$((...))`` is skipped (not a command).
     """
     results: list[tuple[str, int, int, str]] = []
@@ -362,6 +368,8 @@ def _extract_substitutions(command: str) -> list[tuple[str, int, int, str]]:
                 results.append((inner, i, close + 1, kind))
                 i = close + 1
                 continue
+            # Unbalanced — mark as failed so caller can fall back to block
+            results.append(("", i, i + 2, "failed"))
             i += 2
             continue
         # `...` backtick substitution
@@ -1481,6 +1489,8 @@ def _unwrap_shell(
 
     # --- FD-103: extract process substitutions from inner before splitting ---
     inner_all_subs = _extract_substitutions(inner)
+    if any(s[3] == "failed" for s in inner_all_subs):
+        return _obfuscated_result(tokens, "unbalanced process substitution", user_actions)
     inner_psubs = [s for s in inner_all_subs if s[3] in ("process_in", "process_out")]
     inner_sanitized = _replace_substitutions(inner, inner_psubs) if inner_psubs else inner
 
