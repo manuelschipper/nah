@@ -162,9 +162,9 @@ def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None
     if not tokens:
         return None
 
-    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS
+    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
 
-    cmd = os.path.basename(tokens[0])
+    cmd = _normalize_interpreter(os.path.basename(tokens[0]))
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
     value_flags = _VALUE_FLAGS.get(cmd, set())
@@ -747,6 +747,86 @@ def try_llm_generic(
     transcript_text = _read_transcript_tail(transcript_path, context_chars)
     transcript_context = _format_transcript_context(transcript_text)
     prompt = _build_generic_prompt(tool_name, reason, transcript_context)
+    result = _try_providers(prompt, llm_config, tool_name)
+    result.prompt = f"{prompt.system}\n\n{prompt.user}"
+    return result
+
+
+# -- Write/Edit LLM inspection (FD-080) --
+
+_MAX_WRITE_CONTENT_CHARS = 8192
+
+
+def _build_write_prompt(
+    tool_name: str,
+    tool_input: dict,
+    deterministic_decision: dict,
+    transcript_context: str = "",
+) -> PromptParts:
+    """Build LLM prompt for Write/Edit content inspection."""
+    file_path = tool_input.get("file_path", "unknown")
+    cwd, inside_project = _resolve_cwd_context()
+
+    parts = [
+        f"Tool: {tool_name}",
+        f"Path: {file_path}",
+        f"Working directory: {cwd}",
+        f"Inside project: {inside_project}",
+        "",
+    ]
+
+    if tool_name == "Edit":
+        old = tool_input.get("old_string", "")
+        new = tool_input.get("new_string", "")
+        half = _MAX_WRITE_CONTENT_CHARS // 2
+        parts.append("Replacing:")
+        parts.append("---")
+        parts.append(old[:half])
+        parts.append("---")
+        parts.append("With:")
+        parts.append("---")
+        parts.append(new[:half])
+        parts.append("---")
+    else:
+        content = tool_input.get("content", "")
+        truncated = content[:_MAX_WRITE_CONTENT_CHARS]
+        parts.append("Content about to be written:")
+        parts.append("---")
+        parts.append(truncated)
+        parts.append("---")
+        if len(content) > _MAX_WRITE_CONTENT_CHARS:
+            parts.append(
+                f"(truncated — showing first {_MAX_WRITE_CONTENT_CHARS}"
+                f" of {len(content)} characters)"
+            )
+
+    det_reason = deterministic_decision.get("reason", "")
+    if det_reason:
+        parts.append(f"Content inspection: {det_reason}")
+    else:
+        parts.append("Content inspection: no flags")
+
+    if transcript_context:
+        parts.append("")
+        parts.append(transcript_context)
+
+    return PromptParts(system=_SYSTEM_TEMPLATE, user="\n".join(parts))
+
+
+def try_llm_write(
+    tool_name: str,
+    tool_input: dict,
+    deterministic_decision: dict,
+    llm_config: dict,
+    transcript_path: str = "",
+) -> LLMCallResult:
+    """Try LLM providers for Write/Edit content inspection (FD-080)."""
+    context_chars = llm_config.get("context_chars", _DEFAULT_CONTEXT_CHARS)
+    transcript_text = _read_transcript_tail(transcript_path, context_chars)
+    transcript_context = _format_transcript_context(transcript_text)
+    prompt = _build_write_prompt(
+        tool_name, tool_input, deterministic_decision, transcript_context,
+    )
     result = _try_providers(prompt, llm_config, tool_name)
     result.prompt = f"{prompt.system}\n\n{prompt.user}"
     return result

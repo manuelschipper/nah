@@ -121,13 +121,16 @@ def build_entry(
             llm["prompt"] = prompt
         entry["llm"] = llm
 
-    # Detail: hint, content_match
+    # Detail: hint, content_match, warning
     hint = meta.get("hint")
     if hint:
         entry["hint"] = hint
     content = meta.get("content_match")
     if content:
         entry["content_match"] = content
+    warning = meta.get("warning")
+    if warning:
+        entry["warning"] = warning
 
     return entry
 
