@@ -177,8 +177,8 @@ Every command maps to an action type, and every action type has a default policy
 | Policy | Meaning | Example types |
 |--------|---------|---------------|
 | `allow` | Always permit | `filesystem_read`, `git_safe`, `package_run` |
-| `context` | Check path/project context, then decide | `filesystem_write`, `filesystem_delete`, `network_outbound` |
-| `ask` | Always prompt the user | `git_history_rewrite`, `lang_exec`, `process_signal` |
+| `context` | Check path/project context, then decide | `filesystem_write`, `filesystem_delete`, `network_outbound`, `lang_exec` |
+| `ask` | Always prompt the user | `git_history_rewrite`, `process_signal` |
 | `block` | Always reject | `obfuscated` |
 
 ### Taxonomy profiles

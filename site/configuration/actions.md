@@ -30,7 +30,7 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `package_install` | allow | Install packages (npm install, pip install) |
 | `package_run` | allow | Run package scripts (npm run, npx, just) |
 | `package_uninstall` | ask | Remove packages (npm uninstall, pip uninstall) |
-| `lang_exec` | ask | Execute code via language runtimes (python, node) |
+| `lang_exec` | context | Execute code via language runtimes (python, node) |
 | `process_signal` | ask | Send signals to processes (kill, pkill) |
 | `container_destructive` | ask | Destructive container operations (docker rm, docker system prune) |
 | `db_read` | allow | Read-only database operations (SELECT, introspection) |
