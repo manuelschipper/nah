@@ -74,11 +74,20 @@ def build_entry(
     meta: dict, transcript_path: str = "",
 ) -> dict:
     """Build a structured log entry with core + detail fields."""
+    import getpass
+
     from nah.paths import get_project_root  # lazy import to avoid circular
+
+    user = os.environ.get("USER") or os.environ.get("LOGNAME")
+    if not user:
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = ""
 
     entry: dict = {
         "id": os.urandom(8).hex(),
-        "user": os.environ.get("USER", ""),
+        "user": user,
         "agent": agent,
         "hook_version": hook_version,
         "tool": tool,
