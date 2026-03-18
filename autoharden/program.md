@@ -371,18 +371,6 @@ TEST_CT=$(pytest tests/ -q --tb=no 2>&1 | grep -oP '\d+ passed' | grep -oP '\d+'
 {"ts":"...","cycle":3,"event":"error","bead":"nah-ghi","category":"taxonomy","priority":"med","detail":"circuit breaker: bounced open→in_progress→open 3 times, closing as deferred. Review kept finding edge cases in redirect parsing that broke existing tests."}
 ```
 
-### Telegram
-
-Send via `send_message` **only on `close`**:
-```
-🔬 Cycle <N>: <bead title>
-Category: <vulnerability/taxonomy/tests/docs> | Priority: <Critical/High/Med/Low>
-Status: <keep/discard/deferred>
-Δ taxonomy: <before> → <after> | Δ tests: <before> → <after>
-Bypasses: <count> | Value avg: <X.X> | Commit: <hash> | Duration: <X>m
-PR: <url>
-```
-
 ## One cycle per session
 
 Complete one full cycle (scan → create → design → implement → review → close), then exit. An external wrapper handles restarting you for the next cycle. Do NOT create cron jobs, scheduled tasks, or any mechanism to keep yourself running.
