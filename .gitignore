@@ -28,6 +28,3 @@ scripts/
 *.db
 .beads/
 .molds/
-
-# Autoharden local state
-autoharden/activity.jsonl
