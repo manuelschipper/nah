@@ -1,4 +1,4 @@
-"""FD-025 live verification: config overrides are wired end-to-end."""
+"""FD-025 verification: config overrides are wired end-to-end."""
 
 import os
 from unittest.mock import patch
@@ -21,10 +21,13 @@ def _check(tool, path):
 
 
 class TestFD025LiveVerification:
-    """Verify config overrides with the real ~/.config/nah/config.yaml."""
+    """Verify config overrides through the real config loading path."""
 
-    def test_keys_file_ask_from_config(self):
-        assert _check("Read", HOME + "/.keys") == "ask"
+    def test_keys_file_ask_from_config(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("sensitive_paths:\n  ~/.keys: ask\n")
+        with patch("nah.config._GLOBAL_CONFIG", str(cfg)):
+            assert _check("Read", HOME + "/.keys") == "ask"
 
     def test_gnupg_hardcoded_block(self):
         assert _check("Read", HOME + "/.gnupg/key") == "block"
