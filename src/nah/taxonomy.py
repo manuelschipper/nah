@@ -17,6 +17,7 @@ FILESYSTEM_WRITE = "filesystem_write"
 FILESYSTEM_DELETE = "filesystem_delete"
 GIT_SAFE = "git_safe"
 GIT_WRITE = "git_write"
+GIT_REMOTE_WRITE = "git_remote_write"
 GIT_DISCARD = "git_discard"
 GIT_HISTORY_REWRITE = "git_history_rewrite"
 NETWORK_OUTBOUND = "network_outbound"
@@ -936,7 +937,7 @@ def _classify_git(tokens: list[str]) -> str | None:
             # +refspec means force push; :refspec deletes a remote ref.
             if (a.startswith("+") or a.startswith(":")) and len(a) > 1:
                 return GIT_HISTORY_REWRITE
-        return GIT_WRITE
+        return GIT_REMOTE_WRITE
 
     if sub == "add":
         return GIT_SAFE if ("--dry-run" in args or _git_has_short_flag(args, "n")) else GIT_WRITE

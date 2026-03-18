@@ -4,6 +4,7 @@
   "filesystem_delete": "Delete files or directories",
   "git_safe": "Read-only git operations (status, log, diff)",
   "git_write": "Git operations that modify the working tree or index",
+  "git_remote_write": "Remote git mutations (gh pr merge, gh issue create, git push)",
   "git_discard": "Discard uncommitted changes (reset --hard, checkout .)",
   "git_history_rewrite": "Rewrite published history (force push, rebase -i)",
   "network_outbound": "Outbound network requests (curl, wget, ssh)",

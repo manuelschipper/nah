@@ -1502,9 +1502,9 @@ class TestRealWorldPatterns:
     """Commands agents actually run frequently."""
 
     def test_git_add_commit_push(self):
-        """git add && commit && push — push is git_write (allow)."""
+        """git add && commit && push — push is git_remote_write (ask)."""
         decision, hint = _hint("git add -A && git commit -m 'test' && git push")
-        assert decision == "allow"
+        assert decision == "ask"
 
     def test_npm_ci_build_test(self):
         decision, hint = _hint("npm ci && npm run build && npm test")

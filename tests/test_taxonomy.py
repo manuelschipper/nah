@@ -65,7 +65,6 @@ class TestClassifyTokens:
     @pytest.mark.parametrize("tokens", [
         ["git", "add", "."],
         ["git", "commit", "-m", "msg"],
-        ["git", "push"],
         ["git", "pull"],
         ["git", "fetch"],
         ["git", "merge", "main"],
@@ -75,6 +74,10 @@ class TestClassifyTokens:
     ])
     def test_git_write(self, tokens):
         assert _ct(tokens) == "git_write"
+
+    # git_remote_write
+    def test_git_push_remote_write(self):
+        assert _ct(["git", "push"]) == "git_remote_write"
 
     # git_history_rewrite
     @pytest.mark.parametrize("tokens", [
@@ -92,7 +95,7 @@ class TestClassifyTokens:
     # Prefix priority: longer prefix wins
     def test_git_push_force_beats_git_push(self):
         assert _ct(["git", "push", "--force"]) == "git_history_rewrite"
-        assert _ct(["git", "push"]) == "git_write"
+        assert _ct(["git", "push"]) == "git_remote_write"
 
     def test_git_branch_D_beats_git_branch(self):
         assert _ct(["git", "branch", "-D", "x"]) == "git_history_rewrite"
@@ -632,6 +635,7 @@ class TestGetPolicy:
         ("filesystem_delete", "context"),
         ("git_safe", "allow"),
         ("git_write", "allow"),
+        ("git_remote_write", "ask"),
         ("git_discard", "ask"),
         ("git_history_rewrite", "ask"),
         ("network_outbound", "context"),
@@ -883,11 +887,11 @@ class TestClassifyGit:
         assert _ct(["git", "reset"]) == "git_write"
 
     # --- push ---
-    def test_push_bare_write(self):
-        assert _ct(["git", "push"]) == "git_write"
+    def test_push_bare_remote_write(self):
+        assert _ct(["git", "push"]) == "git_remote_write"
 
-    def test_push_origin_main_write(self):
-        assert _ct(["git", "push", "origin", "main"]) == "git_write"
+    def test_push_origin_main_remote_write(self):
+        assert _ct(["git", "push", "origin", "main"]) == "git_remote_write"
 
     def test_push_force_history(self):
         assert _ct(["git", "push", "--force"]) == "git_history_rewrite"
@@ -1133,7 +1137,17 @@ class TestGhCommands:
     def test_gh_safe(self, tokens):
         assert _ct(tokens) == "git_safe"
 
-    # git_write — workflow mutations
+    # git_write — local gh operations
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "pr", "checkout", "456"],
+        ["gh", "repo", "clone", "owner/repo"],
+        ["gh", "gist", "clone", "abc"],
+        ["gh", "codespace", "ssh"],
+    ])
+    def test_gh_write(self, tokens):
+        assert _ct(tokens) == "git_write"
+
+    # git_remote_write — remote state mutations
     @pytest.mark.parametrize("tokens", [
         ["gh", "issue", "create"],
         ["gh", "issue", "close", "123"],
@@ -1157,25 +1171,35 @@ class TestGhCommands:
         ["gh", "pr", "lock", "456"],
         ["gh", "pr", "unlock", "456"],
         ["gh", "pr", "update-branch"],
-        ["gh", "pr", "checkout", "456"],
         ["gh", "repo", "create", "my-repo"],
         ["gh", "repo", "edit"],
         ["gh", "repo", "fork"],
-        ["gh", "repo", "clone", "owner/repo"],
         ["gh", "repo", "sync"],
+        ["gh", "repo", "autolink", "create"],
+        ["gh", "repo", "deploy-key", "add"],
         ["gh", "release", "create", "v1.0"],
         ["gh", "release", "edit", "v1.0"],
         ["gh", "release", "upload", "v1.0", "file.tar.gz"],
         ["gh", "run", "rerun", "123"],
         ["gh", "workflow", "run", "ci.yml"],
         ["gh", "codespace", "create"],
-        ["gh", "codespace", "ssh"],
         ["gh", "codespace", "stop"],
+        ["gh", "codespace", "edit"],
         ["gh", "gist", "create", "file.py"],
         ["gh", "gist", "edit", "abc"],
-        ["gh", "gist", "clone", "abc"],
+        ["gh", "gist", "rename", "abc", "newname"],
         ["gh", "project", "create"],
         ["gh", "project", "edit", "1"],
+        ["gh", "project", "close", "1"],
+        ["gh", "project", "copy", "1"],
+        ["gh", "project", "field-create"],
+        ["gh", "project", "item-add"],
+        ["gh", "project", "item-archive"],
+        ["gh", "project", "item-create"],
+        ["gh", "project", "item-edit"],
+        ["gh", "project", "link"],
+        ["gh", "project", "mark-template"],
+        ["gh", "project", "unlink"],
         ["gh", "gpg-key", "add", "key.pub"],
         ["gh", "ssh-key", "add", "key.pub"],
         ["gh", "secret", "set", "TOKEN"],
@@ -1184,8 +1208,8 @@ class TestGhCommands:
         ["gh", "label", "edit", "bug"],
         ["gh", "label", "clone", "owner/repo"],
     ])
-    def test_gh_write(self, tokens):
-        assert _ct(tokens) == "git_write"
+    def test_gh_remote_write(self, tokens):
+        assert _ct(tokens) == "git_remote_write"
 
     # git_history_rewrite — destructive / hard to reverse
     @pytest.mark.parametrize("tokens", [

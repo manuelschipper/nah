@@ -4,6 +4,7 @@
   "filesystem_delete": "context",
   "git_safe": "allow",
   "git_write": "allow",
+  "git_remote_write": "ask",
   "git_discard": "ask",
   "git_history_rewrite": "ask",
   "network_outbound": "context",
