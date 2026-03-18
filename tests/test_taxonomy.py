@@ -2684,3 +2684,54 @@ class TestFD019NoDuplicates:
                 else:
                     seen[prefix_str] = json_file.name
         assert duplicates == [], "Duplicate entries:\n" + "\n".join(duplicates)
+
+
+class TestSupabaseMcp:
+    """Supabase MCP tool classification (nah-3f5)."""
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__supabase__list_tables",
+        "mcp__supabase__list_extensions",
+        "mcp__supabase__list_migrations",
+        "mcp__supabase__list_edge_functions",
+        "mcp__supabase__get_edge_function",
+        "mcp__supabase__list_branches",
+        "mcp__supabase__list_storage_buckets",
+        "mcp__supabase__get_storage_config",
+        "mcp__supabase__list_projects",
+        "mcp__supabase__get_project",
+        "mcp__supabase__list_organizations",
+        "mcp__supabase__get_organization",
+        "mcp__supabase__get_cost",
+        "mcp__supabase__get_project_url",
+        "mcp__supabase__get_publishable_keys",
+        "mcp__supabase__generate_typescript_types",
+        "mcp__supabase__get_logs",
+        "mcp__supabase__get_advisors",
+        "mcp__supabase__search_docs",
+    ])
+    def test_supabase_read(self, tool):
+        assert _ct([tool]) == "db_read"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__supabase__execute_sql",
+        "mcp__supabase__confirm_cost",
+        "mcp__supabase__create_branch",
+        "mcp__supabase__restore_project",
+        "mcp__supabase__update_storage_config",
+        "mcp__supabase__rebase_branch",
+    ])
+    def test_supabase_write(self, tool):
+        assert _ct([tool]) == "db_write"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__supabase__create_project",
+        "mcp__supabase__pause_project",
+        "mcp__supabase__apply_migration",
+        "mcp__supabase__deploy_edge_function",
+        "mcp__supabase__delete_branch",
+        "mcp__supabase__merge_branch",
+        "mcp__supabase__reset_branch",
+    ])
+    def test_supabase_destructive_unclassified(self, tool):
+        assert _ct([tool]) == "unknown"

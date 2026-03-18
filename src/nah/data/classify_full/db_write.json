@@ -23,5 +23,11 @@
   "dolt commit",
   "dolt push",
   "dolt pull",
-  "dolt table"
+  "dolt table",
+  "mcp__supabase__execute_sql",
+  "mcp__supabase__confirm_cost",
+  "mcp__supabase__create_branch",
+  "mcp__supabase__restore_project",
+  "mcp__supabase__update_storage_config",
+  "mcp__supabase__rebase_branch"
 ]
