@@ -113,7 +113,7 @@ def classify_command(command: str) -> ClassifyResult:
             inner_raw = _split_on_operators(inner_cmd)
         except ValueError:
             inner_results_by_idx[sub_idx] = _obfuscated_result(
-                [inner_cmd], "unparseable process substitution", user_actions)
+                [inner_cmd], "unparseable substitution", user_actions)
             continue
         inner_stages: list[Stage] = []
         _inner_ok = True
@@ -1479,7 +1479,7 @@ def _unwrap_shell(
             psub_raw = _split_on_operators(psub_cmd)
         except ValueError:
             inner_sub_results[psub_idx] = _obfuscated_result(
-                [psub_cmd], "unparseable process substitution", user_actions)
+                [psub_cmd], "unparseable substitution", user_actions)
             continue
         psub_stages: list[Stage] = []
         _psub_ok = True
