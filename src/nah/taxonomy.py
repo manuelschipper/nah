@@ -239,7 +239,7 @@ def _ensure_exec_sinks_merged():
         EXEC_SINKS.update(_normalize_interpreter(str(s)) for s in add)
         if remove:
             sys.stderr.write("nah: warning: exec_sinks.remove weakens composition rules\n")
-            EXEC_SINKS.difference_update(str(s) for s in remove)
+            EXEC_SINKS.difference_update(_normalize_interpreter(str(s)) for s in remove)
     except Exception as exc:
         sys.stderr.write(f"nah: config: exec_sinks: {exc}\n")
 
