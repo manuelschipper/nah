@@ -55,12 +55,14 @@ def format_block(reason: str, agent: str) -> dict:
     return result
 
 
-def format_ask(reason: str, agent: str) -> dict:
+def format_ask(reason: str, agent: str, system_message: str = "") -> dict:
     """Format an ask/confirm response for the given agent."""
     branded = f"nah? {reason}" if reason else "nah?"
     result: dict = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask"}}
     if branded:
         result["hookSpecificOutput"]["permissionDecisionReason"] = branded
+    if system_message:
+        result["systemMessage"] = system_message  # top-level, shown to user
     return result
 
 

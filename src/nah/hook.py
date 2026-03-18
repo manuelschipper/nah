@@ -40,12 +40,101 @@ def handle_read(tool_input: dict) -> dict:
     return paths.check_path("Read", tool_input.get("file_path", "")) or {"decision": taxonomy.ALLOW}
 
 
+def _should_llm_inspect_write(tool_input: dict) -> bool:
+    """Check if LLM should inspect this write (FD-080)."""
+    try:
+        from nah.config import get_config
+        cfg = get_config()
+        if not cfg.llm or not cfg.llm.get("enabled", False):
+            return False
+    except Exception:
+        return False
+    # LLM inspects all writes when enabled — the value is catching
+    # what deterministic misses, so we can't filter by decision.
+    return True
+
+
+def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[dict | None, dict]:
+    """LLM veto gate for Write/Edit. Returns (decision, llm_meta).
+
+    Fail-open: any exception → (None, {}) → structural decision stands.
+    Uncertain → escalate to ask (human should decide).
+    """
+    try:
+        from nah.config import get_config
+        cfg = get_config()
+        if not cfg.llm or not cfg.llm.get("enabled", False):
+            return None, {}
+        from nah.llm import try_llm_write
+        llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
+        if llm_call.decision is not None:
+            return llm_call.decision, _build_llm_meta(llm_call, cfg)
+        # LLM said uncertain (reached but undecided) — escalate to ask
+        if llm_call.cascade:
+            ask = {
+                "decision": taxonomy.ASK,
+                "reason": f"{tool_name} (LLM): uncertain — {llm_call.reasoning or 'human review needed'}",
+            }
+            return ask, _build_llm_meta(llm_call, cfg)
+        return None, {}
+    except ImportError:
+        return None, {}
+    except Exception as exc:
+        sys.stderr.write(f"nah: LLM write error: {exc}\n")
+        return None, {}
+
+
+def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
+    """Shared Write/Edit handler: deterministic check + LLM veto gate (FD-080)."""
+    decision = _check_write_content(tool_name, tool_input, content_field)
+
+    # Block decisions return immediately — no LLM needed
+    if decision.get("decision") == taxonomy.BLOCK:
+        return decision
+
+    # LLM veto gate: inspect content when LLM enabled
+    if _should_llm_inspect_write(tool_input):
+        llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, decision)
+        if llm_decision is not None:
+            capped = _cap_llm_decision(llm_decision)
+            capped_d = capped.get("decision")
+            structural_d = decision.get("decision", taxonomy.ALLOW)
+
+            # Surface LLM warning to user via systemMessage (always, not just escalation)
+            llm_reason = capped.get("reason", "")
+            if llm_reason and capped_d in (taxonomy.BLOCK, taxonomy.ASK):
+                # Strip wrapper prefixes to get clean LLM reasoning
+                clean = llm_reason
+                for prefix in (
+                    f"LLM suggested {capped_d}: ",
+                    f"LLM suggested block: ",
+                    f"LLM suggested ask: ",
+                    f"{tool_name} (LLM): ",
+                    "LLM: ",
+                ):
+                    if clean.startswith(prefix):
+                        clean = clean[len(prefix):]
+                clean = clean.strip()
+                if clean:
+                    decision["_system_message"] = f"nah! ⚠️ {clean}"
+
+            # Only escalate decision when LLM is strictly stricter than structural
+            if (capped_d in (taxonomy.BLOCK, taxonomy.ASK)
+                    and taxonomy.STRICTNESS.get(capped_d, 2) > taxonomy.STRICTNESS.get(structural_d, 0)):
+                capped.setdefault("_meta", {}).update(llm_meta)
+                capped["_system_message"] = decision.get("_system_message", "")
+                return capped
+            # LLM is same or weaker — keep structural decision (with warning attached)
+
+    return decision
+
+
 def handle_write(tool_input: dict) -> dict:
-    return _check_write_content("Write", tool_input, "content")
+    return _handle_write_with_llm("Write", tool_input, "content")
 
 
 def handle_edit(tool_input: dict) -> dict:
-    return _check_write_content("Edit", tool_input, "new_string")
+    return _handle_write_with_llm("Edit", tool_input, "new_string")
 
 
 def handle_glob(tool_input: dict) -> dict:
@@ -338,7 +427,8 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
         hint = decision.get("_hint")
         if hint:
             reason = f"{reason}\n     {hint}"
-        return agents.format_ask(reason, agent)
+        system_message = decision.get("_system_message", "")
+        return agents.format_ask(reason, agent, system_message=system_message)
     return agents.format_allow(agent)
 
 
@@ -352,6 +442,9 @@ def _log_hook_decision(
         from nah import __version__
 
         meta = decision.pop("_meta", None) or {}
+        warning = decision.pop("_system_message", "")
+        if warning:
+            meta["warning"] = warning
 
         log_config = None
         try:

