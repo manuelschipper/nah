@@ -56,10 +56,18 @@ def classify_command(command: str) -> ClassifyResult:
         result.reason = "empty command"
         return result
 
+    # --- FD-103 Phase 1: extract process substitutions before splitting ---
+    # Process substitutions <(cmd) / >(cmd) can contain pipes that
+    # _split_on_operators would incorrectly split on.  Extract first,
+    # replace with placeholders, then classify inner commands separately.
+    all_subs = _extract_substitutions(command)
+    process_subs = [s for s in all_subs if s[3] in ("process_in", "process_out")]
+    sanitized = _replace_substitutions(command, process_subs) if process_subs else command
+
     # Split on top-level shell operators while quoting context is available,
     # then shlex.split each stage independently (FD-095).
     try:
-        raw_stages = _split_on_operators(command)
+        raw_stages = _split_on_operators(sanitized)
     except ValueError:
         result.final_decision = taxonomy.ASK
         result.reason = "unparseable command (shlex error)"
@@ -86,6 +94,50 @@ def classify_command(command: str) -> ClassifyResult:
             user_actions = cfg.actions
     except Exception as e:
         sys.stderr.write(f"nah: config load error: {e}\n")
+
+    # --- FD-103: classify extracted process substitution inners ---
+    _kw = dict(global_table=global_table, builtin_table=builtin_table,
+               project_table=project_table, user_actions=user_actions,
+               profile=profile, trust_project=trust_project)
+    inner_results_by_idx: dict[int, StageResult] = {}
+    for sub_idx, (inner_cmd, _start, _end, _kind) in enumerate(process_subs):
+        inner_cmd = inner_cmd.strip()
+        if not inner_cmd:
+            continue
+        try:
+            inner_raw = _split_on_operators(inner_cmd)
+        except ValueError:
+            inner_results_by_idx[sub_idx] = _obfuscated_result(
+                [inner_cmd], "unparseable process substitution", user_actions)
+            continue
+        inner_stages: list[Stage] = []
+        _inner_ok = True
+        for istage_str, iop in inner_raw:
+            istage_str = istage_str.strip()
+            if not istage_str:
+                continue
+            iaction = _detect_shell_substitution(istage_str)
+            iheredoc = _extract_heredoc_literal(istage_str)
+            try:
+                itokens = shlex.split(istage_str)
+            except ValueError:
+                inner_results_by_idx[sub_idx] = _obfuscated_result(
+                    [inner_cmd], "unparseable process substitution", user_actions)
+                _inner_ok = False
+                break
+            if itokens:
+                inner_stages.extend(_decompose(
+                    itokens, operator=iop,
+                    action_hint=taxonomy.OBFUSCATED if iaction else "",
+                    action_reason=iaction or "",
+                    heredoc_literal=iheredoc,
+                ))
+        if not _inner_ok:
+            continue
+        if inner_stages:
+            outer_placeholder = Stage(tokens=[f"__nah_psub_{sub_idx}__"])
+            inner_results_by_idx[sub_idx] = _classify_inner(
+                inner_stages, outer_placeholder, 1, **_kw)
 
     # Decompose each raw stage into classified stages
     stages: list[Stage] = []
@@ -117,10 +169,13 @@ def classify_command(command: str) -> ClassifyResult:
 
     # Classify each stage
     for stage in stages:
-        sr = _classify_stage(stage, global_table=global_table, builtin_table=builtin_table,
-                             project_table=project_table, user_actions=user_actions,
-                             profile=profile, trust_project=trust_project)
+        sr = _classify_stage(stage, **_kw)
         result.stages.append(sr)
+
+    # --- FD-103: tighten outer results from inner process sub classifications ---
+    if inner_results_by_idx:
+        for i, sr in enumerate(result.stages):
+            _tighten_from_inner(stages[i], sr, inner_results_by_idx)
 
     # Check pipe composition rules
     comp_decision, comp_reason, comp_rule = _check_composition(result.stages, stages)
@@ -219,12 +274,139 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
     return stages
 
 
+def _match_parens(command: str, start: int) -> int:
+    """Find the matching close-paren for an opening paren at *start*.
+
+    Tracks nesting depth and respects single-quote, double-quote, and
+    backslash escaping.  Returns the index of the matching ``)``, or
+    ``-1`` if the parens are unbalanced (fail-closed).
+    """
+    depth = 1
+    i = start + 1
+    n = len(command)
+    while i < n:
+        c = command[i]
+        if c == "'":
+            # Skip single-quoted region (no escapes inside)
+            j = command.find("'", i + 1)
+            i = j + 1 if j >= 0 else n
+            continue
+        if c == '"':
+            # Skip double-quoted region (backslash escapes apply)
+            i += 1
+            while i < n:
+                if command[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if command[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _extract_substitutions(command: str) -> list[tuple[str, int, int, str]]:
+    """Extract shell substitution syntax from *command*.
+
+    Returns a list of ``(inner_command, start, end, kind)`` tuples where
+    *kind* is one of ``"process_in"``, ``"process_out"``, ``"command"``,
+    or ``"backtick"``.  Single-quoted regions are skipped (literal text).
+    Arithmetic expansion ``$((...))`` is skipped (not a command).
+    """
+    results: list[tuple[str, int, int, str]] = []
+    i = 0
+    n = len(command)
+    while i < n:
+        c = command[i]
+        # Skip single-quoted regions entirely
+        if c == "'":
+            j = command.find("'", i + 1)
+            i = j + 1 if j >= 0 else n
+            continue
+        # Skip backslash-escaped characters
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+        # $(...) command substitution — skip $((…)) arithmetic
+        if c == "$" and i + 1 < n and command[i + 1] == "(":
+            if i + 2 < n and command[i + 2] == "(":
+                # Arithmetic expansion $((expr)) — skip past closing ))
+                j = command.find("))", i + 3)
+                i = j + 2 if j >= 0 else i + 3
+                continue
+            close = _match_parens(command, i + 1)
+            if close >= 0:
+                inner = command[i + 2 : close].strip()
+                results.append((inner, i, close + 1, "command"))
+                i = close + 1
+                continue
+            i += 2
+            continue
+        # <(...) or >(...) process substitution
+        if c in "<>" and i + 1 < n and command[i + 1] == "(":
+            kind = "process_in" if c == "<" else "process_out"
+            close = _match_parens(command, i + 1)
+            if close >= 0:
+                inner = command[i + 2 : close].strip()
+                results.append((inner, i, close + 1, kind))
+                i = close + 1
+                continue
+            i += 2
+            continue
+        # `...` backtick substitution
+        if c == "`":
+            j = i + 1
+            while j < n:
+                if command[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if command[j] == "`":
+                    inner = command[i + 1 : j]
+                    results.append((inner, i, j + 1, "backtick"))
+                    j += 1
+                    break
+                j += 1
+            i = j
+            continue
+        i += 1
+    return results
+
+
+def _replace_substitutions(
+    command: str,
+    subs: list[tuple[str, int, int, str]],
+) -> str:
+    """Replace extracted substitution ranges with ``__nah_psub_N__`` placeholders.
+
+    Processes in reverse offset order so earlier indices remain valid.
+    """
+    indexed = sorted(enumerate(subs), key=lambda t: t[1][1], reverse=True)
+    result = command
+    for idx, (_inner, start, end, _kind) in indexed:
+        result = result[:start] + f"__nah_psub_{idx}__" + result[end:]
+    return result
+
+
 def _detect_shell_substitution(command: str) -> str | None:
-    """Detect shell substitution syntax outside single-quoted literals.
+    """Detect $() and backtick substitution outside single-quoted literals.
 
     This is intentionally fail-closed: if shell substitution syntax appears in a
     stage, treat it as obfuscated rather than trying to model a hidden command
     through argv tokenization.
+
+    Note: process substitutions (<()/>(}) are handled by _extract_substitutions
+    and are NOT detected here (FD-103 Phase 1).
     """
     in_single = False
     i = 0
@@ -252,8 +434,6 @@ def _detect_shell_substitution(command: str) -> str | None:
             return "backtick substitution"
         if c == '$' and i + 1 < n and command[i + 1] == '(':
             return "command substitution"
-        if c in '<>' and i + 1 < n and command[i + 1] == '(':
-            return "process substitution"
 
         i += 1
 
@@ -480,6 +660,46 @@ def _make_stage(
                      action_hint=action_hint, action_reason=action_reason)
     return Stage(tokens=tokens[start:], operator=operator,
                  action_hint=action_hint, action_reason=action_reason)
+
+
+_PSUB_PREFIX = "__nah_psub_"
+_PSUB_SUFFIX = "__"
+
+
+def _tighten_from_inner(
+    stage: Stage,
+    sr: StageResult,
+    inner_results: dict[int, StageResult],
+) -> None:
+    """Escalate *sr* if an inner process-substitution result is stricter.
+
+    Scans *stage.tokens* for ``__nah_psub_N__`` placeholders, looks up the
+    corresponding inner ``StageResult``, and overwrites *sr* if the inner
+    decision is more restrictive.  Never weakens.
+    """
+    worst: StageResult | None = None
+    worst_s = -1
+    for tok in stage.tokens:
+        if tok.startswith(_PSUB_PREFIX) and tok.endswith(_PSUB_SUFFIX):
+            try:
+                idx = int(tok[len(_PSUB_PREFIX) : -len(_PSUB_SUFFIX)])
+            except ValueError:
+                continue
+            ir = inner_results.get(idx)
+            if ir is None:
+                continue
+            s = taxonomy.STRICTNESS.get(ir.decision, 2)
+            if s > worst_s:
+                worst_s = s
+                worst = ir
+    if worst is None:
+        return
+    current_s = taxonomy.STRICTNESS.get(sr.decision, 0)
+    if worst_s > current_s:
+        sr.action_type = worst.action_type
+        sr.default_policy = worst.default_policy
+        sr.decision = worst.decision
+        sr.reason = f"process substitution: {worst.reason}"
 
 
 def _classify_stage(
@@ -1259,12 +1479,61 @@ def _unwrap_shell(
     if tokens[0] == "eval" and ("$(" in inner or "`" in inner):
         return _obfuscated_result(tokens, "eval with command substitution", user_actions)
 
+    # --- FD-103: extract process substitutions from inner before splitting ---
+    inner_all_subs = _extract_substitutions(inner)
+    inner_psubs = [s for s in inner_all_subs if s[3] in ("process_in", "process_out")]
+    inner_sanitized = _replace_substitutions(inner, inner_psubs) if inner_psubs else inner
+
     # Use _split_on_operators on the raw inner string to preserve quoting
     # context (FD-095), then shlex.split each stage independently.
     try:
-        raw_stages = _split_on_operators(inner)
+        raw_stages = _split_on_operators(inner_sanitized)
     except ValueError:
         return _obfuscated_result(tokens, "unparseable inner command", user_actions)
+
+    # Classify extracted process sub inners
+    _ikw = dict(global_table=global_table, builtin_table=builtin_table,
+                project_table=project_table, user_actions=user_actions,
+                profile=profile, trust_project=trust_project)
+    inner_psub_results: dict[int, StageResult] = {}
+    for psub_idx, (psub_cmd, _ps, _pe, _pk) in enumerate(inner_psubs):
+        psub_cmd = psub_cmd.strip()
+        if not psub_cmd:
+            continue
+        try:
+            psub_raw = _split_on_operators(psub_cmd)
+        except ValueError:
+            inner_psub_results[psub_idx] = _obfuscated_result(
+                [psub_cmd], "unparseable process substitution", user_actions)
+            continue
+        psub_stages: list[Stage] = []
+        _psub_ok = True
+        for pstage_str, pop in psub_raw:
+            pstage_str = pstage_str.strip()
+            if not pstage_str:
+                continue
+            paction = _detect_shell_substitution(pstage_str)
+            pheredoc = _extract_heredoc_literal(pstage_str)
+            try:
+                ptokens = shlex.split(pstage_str)
+            except ValueError:
+                inner_psub_results[psub_idx] = _obfuscated_result(
+                    [psub_cmd], "unparseable process substitution", user_actions)
+                _psub_ok = False
+                break
+            if ptokens:
+                psub_stages.extend(_decompose(
+                    ptokens, operator=pop,
+                    action_hint=taxonomy.OBFUSCATED if paction else "",
+                    action_reason=paction or "",
+                    heredoc_literal=pheredoc,
+                ))
+        if not _psub_ok:
+            continue
+        if psub_stages:
+            ph = Stage(tokens=[f"__nah_psub_{psub_idx}__"])
+            inner_psub_results[psub_idx] = _classify_inner(
+                psub_stages, ph, depth + 1, **_ikw)
 
     inner_stages: list[Stage] = []
     for stage_str, op in raw_stages:
@@ -1288,9 +1557,7 @@ def _unwrap_shell(
 
     if inner_stages:
         return _classify_inner(inner_stages, stage, depth + 1,
-                               global_table=global_table, builtin_table=builtin_table,
-                               project_table=project_table, user_actions=user_actions,
-                               profile=profile, trust_project=trust_project)
+                               sub_results=inner_psub_results or None, **_ikw)
 
     return None
 
@@ -1306,6 +1573,7 @@ def _classify_inner(
     user_actions: dict[str, str] | None,
     profile: str = "full",
     trust_project: bool = False,
+    sub_results: dict[int, StageResult] | None = None,
 ) -> StageResult:
     """Classify pre-decomposed inner stages."""
     kw = dict(global_table=global_table, builtin_table=builtin_table,
@@ -1315,13 +1583,21 @@ def _classify_inner(
     if len(inner_stages) <= 1:
         # Simple case — single command, no operators
         s = inner_stages[0] if inner_stages else Stage(tokens=[])
-        return _classify_stage(s, depth, **kw)
+        sr = _classify_stage(s, depth, **kw)
+        if sub_results:
+            _tighten_from_inner(s, sr, sub_results)
+        return sr
 
     # Multiple stages — classify each, check composition, aggregate
     inner_results = []
     for s in inner_stages:
         sr = _classify_stage(s, depth, **kw)
         inner_results.append(sr)
+
+    # FD-103: tighten from inner process sub results before composition
+    if sub_results:
+        for i, sr in enumerate(inner_results):
+            _tighten_from_inner(inner_stages[i], sr, sub_results)
 
     # Check pipe composition rules on inner pipeline
     comp_decision, comp_reason, comp_rule = _check_composition(inner_results, inner_stages)

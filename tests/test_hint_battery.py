@@ -1560,9 +1560,8 @@ class TestGitMaintenanceHints:
 class TestProcessSubstitution:
     """Process substitution <() misidentified as obfuscated."""
 
-    @pytest.mark.xfail(reason="process substitution <() parsed as obfuscated")
     def test_diff_process_substitution(self):
-        """diff <(ls /tmp) <(ls /var) — should not be obfuscated."""
+        """FD-103: diff <(ls /tmp) <(ls /var) — classified, not obfuscated."""
         decision, hint = _hint("diff <(ls /tmp) <(ls /var)")
         assert decision != "block", "process substitution should not block"
 
