@@ -5,6 +5,7 @@ Classification data and policies are loaded from JSON files in data/.
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -101,6 +102,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
             parts = prefix_str.split()
             if parts:
                 parts[0] = os.path.basename(parts[0]) or parts[0]
+                parts[0] = _normalize_interpreter(parts[0])
             table.append((tuple(parts), action_type))
     table.sort(key=lambda entry: len(entry[0]), reverse=True)
     return table
@@ -194,6 +196,33 @@ _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3"
 EXEC_SINKS: set[str] = set(_EXEC_SINKS_DEFAULTS)
 _exec_sinks_merged = False
 
+# Versioned interpreter normalization (nah-1o5).
+# Canonical names, longest first to avoid prefix ambiguity.
+_CANONICAL_INTERPRETERS = [
+    "python3", "python", "pip3", "pip",
+    "node", "ruby", "perl", "php", "deno", "bun",
+    "bash", "dash", "zsh", "sh", "fish", "pwsh",
+]
+_VERSION_SUFFIX_RE = re.compile(r"^\.?[0-9]+(?:\.[0-9]+)*$")
+
+
+def _normalize_interpreter(name: str) -> str:
+    """Strip version suffix from interpreter basename.
+
+    python3.12 → python3, node22 → node, bash5.2 → bash.
+    Returns name unchanged if not a versioned interpreter.
+    Uses longest-prefix-first matching to correctly handle python3 vs python.
+    """
+    for canonical in _CANONICAL_INTERPRETERS:
+        if name.startswith(canonical):
+            suffix = name[len(canonical):]
+            if not suffix:
+                return name
+            if _VERSION_SUFFIX_RE.match(suffix):
+                return canonical
+            return name
+    return name
+
 
 def _ensure_exec_sinks_merged():
     """Lazy one-time merge of config exec_sinks into EXEC_SINKS."""
@@ -207,7 +236,7 @@ def _ensure_exec_sinks_merged():
         if cfg.profile == "none":
             EXEC_SINKS.clear()
         add, remove = _parse_add_remove(cfg.exec_sinks)
-        EXEC_SINKS.update(str(s) for s in add)
+        EXEC_SINKS.update(_normalize_interpreter(str(s)) for s in add)
         if remove:
             sys.stderr.write("nah: warning: exec_sinks.remove weakens composition rules\n")
             EXEC_SINKS.difference_update(str(s) for s in remove)
@@ -303,6 +332,11 @@ def classify_tokens(
     base = os.path.basename(tokens[0])
     if base and base != tokens[0]:
         tokens = [base] + tokens[1:]
+
+    # Version normalization — python3.12 → python3 (nah-1o5)
+    normalized = _normalize_interpreter(tokens[0])
+    if normalized != tokens[0]:
+        tokens = [normalized] + tokens[1:]
 
     # --- Phase 1: Global table override (trusted user config) ---
     # Non-git: check global table on raw tokens.
@@ -970,7 +1004,7 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
     if not tokens:
         return False, None
 
-    cmd = tokens[0]
+    cmd = _normalize_interpreter(tokens[0])
 
     if cmd in _SHELL_WRAPPERS:
         # bash/sh/dash/zsh [flags...] -c "inner"
@@ -1006,7 +1040,7 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
 def is_exec_sink(token: str) -> bool:
     """Check if a token is an exec sink (for pipe composition rules)."""
     _ensure_exec_sinks_merged()
-    return token in EXEC_SINKS
+    return _normalize_interpreter(os.path.basename(token)) in EXEC_SINKS
 
 
 def is_decode_stage(tokens: list[str]) -> bool:
