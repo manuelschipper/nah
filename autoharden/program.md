@@ -148,6 +148,36 @@ Compare code behavior against documentation and fix drift:
 
 Run ONE cycle, then stop:
 
+### 0. SYNC
+
+Pull latest main and check for stale PRs:
+```bash
+cd /home/pn/nah
+git checkout main
+git fetch origin
+git reset --hard origin/main
+```
+
+Check if any open autoharden PRs need rebasing:
+```bash
+gh pr list --repo manuelschipper/nah --author creatbot-ai --state open --json number,mergeable --jq '.[] | select(.mergeable == "CONFLICTING") | "#\(.number)"'
+```
+
+If any PRs have conflicts, rebase them one at a time:
+```bash
+# For each conflicting PR:
+gh pr checkout <number>
+git rebase origin/main
+# If rebase succeeds:
+git push creatbot --force-with-lease
+git checkout main
+# If rebase fails (conflicts): skip it, move on
+git rebase --abort
+git checkout main
+```
+
+Then proceed to scan.
+
 ### 1. SCAN
 
 Read the scoreboard and pick work:
