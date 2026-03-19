@@ -29,14 +29,20 @@ def _mock_llm_return(decision, reason="test"):
 def _handle_with_mock_llm(tool_name, tool_input, llm_return):
     """Run handle_write/handle_edit with a mocked _try_llm_write."""
     import nah.hook as hook_mod
+    from nah.config import get_config
+
     original = hook_mod._try_llm_write
+    cfg = get_config()
+    original_llm = cfg.llm
     hook_mod._try_llm_write = lambda tn, ti, d: llm_return
+    cfg.llm = {"enabled": True}
     try:
         if tool_name == "Write":
             return hook_mod.handle_write(tool_input)
         else:
             return hook_mod.handle_edit(tool_input)
     finally:
+        cfg.llm = original_llm
         hook_mod._try_llm_write = original
 
 
@@ -188,7 +194,7 @@ class TestVetoGate:
 
     def test_llm_uncertain_escalates_to_ask(self, project_root):
         """LLM uncertain → escalate to ask (human should decide)."""
-        from nah.llm import LLMCallResult, ProviderAttempt
+        from nah.config import get_config
 
         # Simulate uncertain: decision=None but cascade has entries
         def mock_try(tool_name, tool_input, decision):
@@ -199,7 +205,10 @@ class TestVetoGate:
 
         import nah.hook as hook_mod
         original = hook_mod._try_llm_write
+        cfg = get_config()
+        original_llm = cfg.llm
         hook_mod._try_llm_write = mock_try
+        cfg.llm = {"enabled": True}
         try:
             result = hook_mod.handle_write({
                 "file_path": os.path.join(project_root, "app.py"),
@@ -207,6 +216,7 @@ class TestVetoGate:
             })
             assert result["decision"] == taxonomy.ASK
         finally:
+            cfg.llm = original_llm
             hook_mod._try_llm_write = original
 
 
