@@ -86,15 +86,24 @@ os._exit(0)
 '''
 
 
+def _shell_safe_path(pathlike: os.PathLike[str] | str) -> str:
+    """Normalize paths for hook shell commands across POSIX and Windows inputs."""
+    raw = os.fspath(pathlike)
+    if "\\" in raw:
+        return raw.replace("\\", "/")
+    return Path(raw).as_posix()
+
+
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
     # Use POSIX forward-slash paths: safe in both bash and cmd.exe on Windows.
     # shlex.quote() produces POSIX single-quoting which only works when the
     # command is interpreted by a POSIX shell. Claude Code may invoke hooks
     # via cmd.exe or direct OS spawn, where single quotes are literal chars.
-    # as_posix() eliminates backslashes at the source, sidestepping the issue.
-    exe = Path(sys.executable).as_posix()
-    script = _HOOK_SCRIPT.as_posix()
+    # Normalize Windows-looking inputs before quoting so mocked/interpolated
+    # interpreter paths do not leak backslashes on non-Windows hosts.
+    exe = _shell_safe_path(sys.executable)
+    script = _shell_safe_path(_HOOK_SCRIPT)
     return f'"{exe}" "{script}"'
 
 
