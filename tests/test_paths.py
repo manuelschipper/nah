@@ -589,3 +589,9 @@ class TestSettingsJsonProtection:
         resolved = paths.resolve_path("~/.claude/settings.json")
         matched, _, _ = paths.is_sensitive(resolved)
         assert matched is False
+
+
+def test_sensitive_system_shadow_is_blocked() -> None:
+    paths.reset_sensitive_paths()
+    decision = paths.check_path_basic_raw("/etc/shadow")
+    assert decision == ("block", "targets sensitive path: /etc/shadow")
