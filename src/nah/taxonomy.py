@@ -111,7 +111,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 
 # Commands with Phase 2 flag classifiers (flag-dependent classification).
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
-                          "tar", "git", "curl", "wget",
+                          "tar", "git", "gh", "curl", "wget",
                           "http", "https", "xh", "xhs",
                           "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem",
                           "python", "python3", "node", "ruby", "perl",
@@ -380,6 +380,9 @@ def classify_tokens(
             action = _classify_git(tokens)
             if action is not None:
                 return action
+        action = _classify_gh_api(tokens)
+        if action is not None:
+            return action
         action = _classify_curl(tokens)
         if action is not None:
             return action
@@ -971,6 +974,82 @@ def _classify_git(tokens: list[str]) -> str | None:
         return GIT_WRITE if "--staged" in args else GIT_DISCARD
 
     return None
+
+
+_GH_API_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_GH_API_SAFE_METHODS = {"GET", "HEAD"}
+_GH_API_METHOD_FLAGS = {"--method", "-X"}
+_GH_API_PAYLOAD_FLAGS = {"--field", "-F", "--raw-field", "-f", "--input"}
+
+
+def _classify_gh_api(tokens: list[str]) -> str | None:
+    """Flag-dependent classification for `gh api`.
+
+    Read-only REST requests default to git_safe. Explicit write methods and
+    implicit-body forms (`--field`, `--raw-field`, `--input`) escalate to
+    git_remote_write. GraphQL and ambiguous method forms fall back to the
+    existing conservative `gh api` lang_exec rule.
+    """
+    if len(tokens) < 2 or tokens[0] != "gh" or tokens[1] != "api":
+        return None
+
+    args = tokens[2:]
+    explicit_method: str | None = None
+    has_payload = False
+    endpoint: str | None = None
+
+    i = 0
+    while i < len(args):
+        tok = args[i]
+
+        if tok in _GH_API_METHOD_FLAGS:
+            if i + 1 >= len(args):
+                return None
+            explicit_method = args[i + 1].upper()
+            i += 2
+            continue
+        if tok.startswith("--method="):
+            explicit_method = tok.split("=", 1)[1].upper()
+            i += 1
+            continue
+
+        if tok in _GH_API_PAYLOAD_FLAGS:
+            has_payload = True
+            if i + 1 >= len(args):
+                return None
+            i += 2
+            continue
+        if (
+            tok.startswith("--field=")
+            or tok.startswith("--raw-field=")
+            or tok.startswith("--input=")
+        ):
+            has_payload = True
+            i += 1
+            continue
+
+        if tok.startswith("-"):
+            i += 1
+            continue
+
+        if endpoint is None:
+            endpoint = tok
+        i += 1
+
+    if endpoint == "graphql":
+        return None
+
+    if explicit_method in _GH_API_SAFE_METHODS:
+        return GIT_SAFE
+    if explicit_method in _GH_API_WRITE_METHODS:
+        return GIT_REMOTE_WRITE
+    if explicit_method is not None:
+        return None
+    if has_payload:
+        return GIT_REMOTE_WRITE
+    if endpoint is None:
+        return None
+    return GIT_SAFE
 
 
 def load_type_descriptions() -> dict[str, str]:

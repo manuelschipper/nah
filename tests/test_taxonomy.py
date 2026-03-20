@@ -61,6 +61,15 @@ class TestClassifyTokens:
     def test_git_safe(self, tokens):
         assert _ct(tokens) == "git_safe"
 
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "repos/manuelschipper/nah/pulls?state=open"],
+        ["gh", "api", "--method", "GET", "repos/manuelschipper/nah/pulls?state=open"],
+        ["gh", "api", "-X", "HEAD", "repos/manuelschipper/nah"],
+        ["gh", "api", "--method", "GET", "repos/manuelschipper/nah/issues", "-F", "state=open"],
+    ])
+    def test_gh_api_read_only_requests_are_git_safe(self, tokens):
+        assert _ct(tokens) == "git_safe"
+
     # git_write
     @pytest.mark.parametrize("tokens", [
         ["git", "add", "."],
@@ -78,6 +87,19 @@ class TestClassifyTokens:
     # git_remote_write
     def test_git_push_remote_write(self):
         assert _ct(["git", "push"]) == "git_remote_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "--method", "POST", "repos/manuelschipper/nah/issues"],
+        ["gh", "api", "--method=PATCH", "repos/manuelschipper/nah/issues/1"],
+        ["gh", "api", "repos/manuelschipper/nah/issues", "-F", "title=test"],
+        ["gh", "api", "repos/manuelschipper/nah/issues", "--raw-field", "title=test"],
+        ["gh", "api", "repos/manuelschipper/nah/issues", "--input", "body.json"],
+    ])
+    def test_gh_api_writes_are_git_remote_write(self, tokens):
+        assert _ct(tokens) == "git_remote_write"
+
+    def test_gh_api_graphql_stays_conservative_lang_exec(self):
+        assert _ct(["gh", "api", "graphql", "-f", "query=query { viewer { login } }"]) == "lang_exec"
 
     # git_history_rewrite
     @pytest.mark.parametrize("tokens", [
@@ -1277,9 +1299,9 @@ class TestGhCommands:
     def test_gh_filesystem_write(self, tokens):
         assert _ct(tokens) == "filesystem_write"
 
-    # lang_exec — runs arbitrary code
+    # lang_exec — runs arbitrary code or conservative gh api fallbacks
     @pytest.mark.parametrize("tokens", [
-        ["gh", "api", "/repos/owner/repo"],
+        ["gh", "api", "graphql", "-f", "query=query { viewer { login } }"],
         ["gh", "extension", "exec", "my-ext"],
     ])
     def test_gh_lang_exec(self, tokens):
