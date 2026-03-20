@@ -1750,8 +1750,32 @@ def _check_redirect(target: str) -> tuple[str, str]:
     return context.resolve_filesystem_context(target)
 
 
+def _is_process_sub_placeholder(tok: str) -> bool:
+    """Return True when *tok* is exactly a ``__nah_psub_N__`` placeholder."""
+    if not tok.startswith(_PSUB_PREFIX) or not tok.endswith(_PSUB_SUFFIX):
+        return False
+    core = tok[len(_PSUB_PREFIX):-len(_PSUB_SUFFIX)]
+    return core.isdigit()
+
+
+def _has_only_process_sub_targets(tokens: list[str]) -> bool:
+    """True when all non-flag args are process-substitution placeholders."""
+    saw_placeholder = False
+    for tok in tokens[1:]:
+        if tok.startswith("-"):
+            continue
+        if _is_process_sub_placeholder(tok):
+            saw_placeholder = True
+            continue
+        return False
+    return saw_placeholder
+
+
 def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
+    if action_type == taxonomy.FILESYSTEM_WRITE and _has_only_process_sub_targets(tokens):
+        return taxonomy.ALLOW, "filesystem_write: process substitution target"
+
     target_path = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):

