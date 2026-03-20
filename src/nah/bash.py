@@ -1369,6 +1369,36 @@ def _strip_xargs(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _strip_find_exec(tokens: list[str]) -> list[str] | None:
+    """Extract the inner command from simple find -exec/-execdir forms.
+
+    Supports a single trailing `-exec ... \;` or `-exec ... +` clause.
+    Returns None for malformed or more complex layouts so callers can fail closed.
+    """
+    if not tokens or os.path.basename(tokens[0]) != "find":
+        return None
+
+    exec_indexes = [i for i, tok in enumerate(tokens) if tok in {"-exec", "-execdir"}]
+    if not exec_indexes:
+        return None
+    if len(exec_indexes) != 1:
+        return None
+
+    inner = tokens[exec_indexes[0] + 1 :]
+    if not inner:
+        return None
+
+    terminators = [i for i, tok in enumerate(inner) if tok in {";", "+"}]
+    if len(terminators) != 1:
+        return None
+    terminator_idx = terminators[0]
+    if terminator_idx != len(inner) - 1:
+        return None
+
+    inner = inner[:terminator_idx]
+    return inner if inner else None
+
+
 def _unwrap_shell(
     stage: Stage,
     depth: int,
@@ -1437,10 +1467,47 @@ def _unwrap_shell(
             sr.reason = f"xargs wraps exec sink: {inner_tokens[0]}"
             return sr
         inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
-        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
-                               builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile,
-                               trust_project=trust_project)
+        return _classify_stage(
+            inner_stage,
+            depth + 1,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            profile=profile,
+            trust_project=trust_project,
+        )
+
+    # find -exec unwrap
+    if tokens and os.path.basename(tokens[0]) == "find":
+        has_exec = any(tok in {"-exec", "-execdir"} for tok in tokens)
+        if has_exec:
+            inner_tokens = _strip_find_exec(tokens)
+            if inner_tokens is None:
+                sr = StageResult(tokens=tokens)
+                sr.action_type = taxonomy.UNKNOWN
+                sr.default_policy = taxonomy.get_policy(taxonomy.UNKNOWN, user_actions)
+                _apply_policy(sr)
+                sr.reason = "unsupported find -exec form"
+                return sr
+            if taxonomy.is_exec_sink(inner_tokens[0]):
+                sr = StageResult(tokens=tokens)
+                sr.action_type = taxonomy.LANG_EXEC
+                sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
+                _apply_policy(sr)
+                sr.reason = f"find -exec wraps exec sink: {inner_tokens[0]}"
+                return sr
+            inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
+            return _classify_stage(
+                inner_stage,
+                depth + 1,
+                global_table=global_table,
+                builtin_table=builtin_table,
+                project_table=project_table,
+                user_actions=user_actions,
+                profile=profile,
+                trust_project=trust_project,
+            )
 
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
     if not is_wrapper or inner is None:

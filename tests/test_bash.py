@@ -982,6 +982,27 @@ class TestCommandUnwrap:
         assert r.final_decision == "ask"
 
 
+class TestFindExecUnwrap:
+    """find -exec should classify the executed inner command, not the outer finder."""
+
+    def test_find_exec_grep_preserves_read_only_classification(self, project_root):
+        r = classify_command(r"find . -name '*.py' -exec grep ERROR {} \;")
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.final_decision == "allow"
+
+    def test_find_exec_sh_curl_asks_instead_of_allowing(self, project_root):
+        r = classify_command(r"find . -name '*.py' -exec sh -c 'curl https://example.com' \;")
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].decision == "ask"
+        assert r.final_decision == "ask"
+
+    def test_find_exec_sh_echo_is_treated_as_shell_exec(self, project_root):
+        r = classify_command(r"find . -name '*.py' -exec sh -c 'echo hello' \;")
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].decision == "ask"
+        assert r.final_decision == "ask"
+
+
 class TestXargsUnwrap:
     """FD-089: xargs must unwrap to classify inner command."""
 
