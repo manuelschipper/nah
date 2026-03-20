@@ -739,13 +739,17 @@ class TestDockerHints:
         "docker run --rm -it ubuntu bash",
         "docker cp container:/app/file.txt /tmp/",
         "docker logs container",
-        "docker inspect container",
     ])
     def test_docker_unknown_classify(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "ask"
         assert hint is not None
         assert "nah classify" in hint
+
+    def test_docker_inspect_now_allow(self):
+        decision, hint = _hint("docker inspect container")
+        assert decision == "allow"
+        assert hint is None
 
 
 # ===================================================================
