@@ -376,6 +376,23 @@ class TestClassifyTokens:
         assert _ct(["dolt", "sql"]) == "db_write"
         assert _ct(["dolt", "status"]) == "db_read"
 
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "get", "pods"],
+        ["kubectl", "describe", "pod", "foo"],
+        ["kubectl", "cluster-info"],
+        ["kubectl", "config", "get-contexts"],
+        ["kubectl", "config", "current-context"],
+    ])
+    def test_kubectl_read_commands_db_read(self, tokens):
+        assert _ct(tokens) == "db_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "apply", "-f", "deploy.yaml"],
+        ["kubectl", "delete", "pod", "foo"],
+    ])
+    def test_kubectl_mutations_remain_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
     # db companion tools → filesystem_write
     @pytest.mark.parametrize("tokens", [
         ["pg_dump", "mydb"],
