@@ -250,8 +250,23 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "block"
 
+    def test_sensitive_block_parent_traversal(self):
+        result = paths.check_path("Read", "~/.ssh/../.ssh/id_rsa")
+        assert result is not None
+        assert result["decision"] == "block"
+
+    def test_sensitive_block_home_env_with_parent_traversal(self):
+        result = paths.check_path("Read", "$HOME/.ssh/../.ssh/id_rsa")
+        assert result is not None
+        assert result["decision"] == "block"
+
     def test_sensitive_ask_home_glob(self):
         result = paths.check_path("Read", "/home/*/.aws/credentials")
+        assert result is not None
+        assert result["decision"] == "ask"
+
+    def test_sensitive_ask_parent_traversal(self):
+        result = paths.check_path("Read", "~/.aws/../.aws/credentials")
         assert result is not None
         assert result["decision"] == "ask"
 
