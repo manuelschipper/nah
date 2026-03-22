@@ -11,6 +11,27 @@ from nah.content import scan_content, format_content_message
 
 _MAX_UNWRAP_DEPTH = 5
 
+# Windows paths: trailing backslash before quote ("C:\path\") confuses shlex
+# which interprets \" as escaped quote rather than path separator + close quote.
+_WIN_TRAILING_BACKSLASH_QUOTED = re.compile(r'([A-Za-z]:\\[^"]*?)\\"')
+# Unquoted Windows path ending with trailing backslash (ls D:\path\)
+_WIN_TRAILING_BACKSLASH_BARE = re.compile(r'([A-Za-z]:\\[^\s]*?)\\(\s|$)')
+
+
+def _fix_windows_trailing_backslash(s: str) -> str:
+    """Fix Windows paths where trailing \\ breaks shlex.
+
+    Handles two cases:
+    - Quoted: 'ls "D:\\path\\"' → 'ls "D:\\path"' (strip \\ before closing ")
+    - Bare:   'ls D:\\path\\'   → 'ls D:\\path'   (strip trailing \\)
+    Only active on Windows.
+    """
+    if sys.platform != "win32":
+        return s
+    s = _WIN_TRAILING_BACKSLASH_QUOTED.sub(r'\1"', s)
+    s = _WIN_TRAILING_BACKSLASH_BARE.sub(r'\1\2', s)
+    return s
+
 # Safe redirect sinks — /dev/ special files that are not real file writes.
 # Excludes block devices (/dev/sda, /dev/disk*) which are dangerous.
 _REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty"})
@@ -76,8 +97,18 @@ def classify_command(command: str) -> ClassifyResult:
     try:
         raw_stages = _split_on_operators(sanitized)
     except ValueError:
-        result.final_decision = taxonomy.ASK
-        result.reason = "unparseable command (shlex error)"
+        # Windows fallback: trailing backslash before quote in paths
+        fixed = _fix_windows_trailing_backslash(sanitized)
+        if fixed != sanitized:
+            try:
+                raw_stages = _split_on_operators(fixed)
+            except ValueError:
+                result.final_decision = taxonomy.ASK
+                result.reason = "unparseable command (shlex error)"
+                return result
+        else:
+            result.final_decision = taxonomy.ASK
+            result.reason = "unparseable command (shlex error)"
         return result
 
     # Load config for custom classify/actions — three-table lookup
@@ -153,9 +184,19 @@ def classify_command(command: str) -> ClassifyResult:
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
-            result.final_decision = taxonomy.ASK
-            result.reason = "unparseable command (shlex error)"
-            return result
+            # Windows fallback: trailing backslash before quote in paths
+            fixed = _fix_windows_trailing_backslash(stage_str)
+            if fixed != stage_str:
+                try:
+                    tokens = shlex.split(fixed)
+                except ValueError:
+                    result.final_decision = taxonomy.ASK
+                    result.reason = "unparseable command (shlex error)"
+                    return result
+            else:
+                result.final_decision = taxonomy.ASK
+                result.reason = "unparseable command (shlex error)"
+                return result
         if tokens:
             stages.extend(_decompose(
                 tokens,
