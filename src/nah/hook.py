@@ -47,6 +47,11 @@ def _should_llm_inspect_write(tool_input: dict) -> bool:
         cfg = get_config()
         if not cfg.llm or not cfg.llm.get("enabled", False):
             return False
+        # Respect filesystem_write action policy: if user has set "allow",
+        # skip LLM veto — content inspection still runs deterministically.
+        actions = cfg.actions if hasattr(cfg, "actions") and cfg.actions else {}
+        if actions.get("filesystem_write") == taxonomy.ALLOW:
+            return False
     except Exception:
         return False
     # LLM inspects all writes when enabled — the value is catching

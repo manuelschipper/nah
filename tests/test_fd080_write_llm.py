@@ -30,7 +30,9 @@ def _handle_with_mock_llm(tool_name, tool_input, llm_return):
     """Run handle_write/handle_edit with a mocked _try_llm_write."""
     import nah.hook as hook_mod
     original = hook_mod._try_llm_write
+    original_should = hook_mod._should_llm_inspect_write
     hook_mod._try_llm_write = lambda tn, ti, d: llm_return
+    hook_mod._should_llm_inspect_write = lambda ti: True
     try:
         if tool_name == "Write":
             return hook_mod.handle_write(tool_input)
@@ -38,6 +40,7 @@ def _handle_with_mock_llm(tool_name, tool_input, llm_return):
             return hook_mod.handle_edit(tool_input)
     finally:
         hook_mod._try_llm_write = original
+        hook_mod._should_llm_inspect_write = original_should
 
 
 def _openrouter_key() -> str:
@@ -199,7 +202,9 @@ class TestVetoGate:
 
         import nah.hook as hook_mod
         original = hook_mod._try_llm_write
+        original_should = hook_mod._should_llm_inspect_write
         hook_mod._try_llm_write = mock_try
+        hook_mod._should_llm_inspect_write = lambda ti: True
         try:
             result = hook_mod.handle_write({
                 "file_path": os.path.join(project_root, "app.py"),
@@ -208,6 +213,7 @@ class TestVetoGate:
             assert result["decision"] == taxonomy.ASK
         finally:
             hook_mod._try_llm_write = original
+            hook_mod._should_llm_inspect_write = original_should
 
 
 # ===================================================================
