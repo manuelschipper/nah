@@ -601,12 +601,47 @@ def _call_anthropic(
     return _parse_response(content)
 
 
+def _call_azure(
+    config: dict, prompt: PromptParts,
+) -> LLMResult | None:
+    """Call Azure Foundry OpenAI chat completions API.
+
+    Uses api-key header auth (not Bearer token).
+    URL should point to the Azure resource endpoint, e.g.:
+      https://{resource}.cognitiveservices.azure.com/openai/v1/chat/completions
+    """
+    url = config.get("url", "")
+    if not url:
+        return None
+    key_env = config.get("key_env", "AZURE_OPENAI_API_KEY")
+    key = os.environ.get(key_env, "")
+    if not key:
+        return None
+    model = config.get("model", "")
+    timeout = config.get("timeout", _TIMEOUT_REMOTE)
+
+    payload: dict = {"messages": _prompt_as_messages(prompt)}
+    if model:
+        payload["model"] = model
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "api-key": key,
+    })
+
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    content = data["choices"][0]["message"]["content"]
+    return _parse_response(content)
+
+
 _PROVIDERS = {
     "ollama": _call_ollama,
     "cortex": _call_cortex,
     "openrouter": _call_openrouter,
     "openai": _call_openai,
     "anthropic": _call_anthropic,
+    "azure": _call_azure,
 }
 
 
@@ -645,6 +680,7 @@ _DEFAULT_MODELS = {
     "openrouter": "google/gemini-3.1-flash-lite-preview",
     "openai": "gpt-5.3-codex",
     "anthropic": "claude-haiku-4-5",
+    "azure": "",
 }
 
 

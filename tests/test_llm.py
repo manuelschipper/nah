@@ -438,6 +438,113 @@ class TestCortexProvider:
         assert result.decision is None
 
 
+# -- Azure Foundry provider tests --
+
+
+class TestAzureProvider:
+    def _azure_config(self, **overrides):
+        cfg = {
+            "backends": ["azure"],
+            "azure": {
+                "url": "https://myresource.cognitiveservices.azure.com/openai/v1/chat/completions",
+                "model": "gpt-5.3-chat",
+            },
+        }
+        cfg["azure"].update(overrides)
+        return cfg
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_backend_allow(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "safe"}'}}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), self._azure_config())
+        assert result.decision["decision"] == "allow"
+        assert result.provider == "azure"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_api_key_header(self, mock_urlopen):
+        """Verify api-key header is sent (not Bearer token)."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "test-azure-key"}):
+            try_llm(_make_default_result(), self._azure_config())
+        assert len(captured) == 1
+        req = captured[0]
+        assert req.get_header("Api-key") == "test-azure-key"
+        assert req.get_header("Authorization") is None
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_custom_key_env(self, mock_urlopen):
+        """Custom key_env overrides default AZURE_OPENAI_API_KEY."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = self._azure_config(key_env="MY_AZURE_KEY")
+        with patch.dict("os.environ", {"MY_AZURE_KEY": "custom-key"}):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision["decision"] == "allow"
+
+    def test_azure_no_key_skips(self):
+        """Missing AZURE_OPENAI_API_KEY → provider skipped."""
+        config = self._azure_config()
+        env = {k: v for k, v in os.environ.items() if k != "AZURE_OPENAI_API_KEY"}
+        with patch.dict("os.environ", env, clear=True):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision is None
+
+    def test_azure_no_url_skips(self):
+        """Missing url → provider skipped."""
+        config = {"backends": ["azure"], "azure": {"model": "gpt-5.3-chat"}}
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision is None
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_model_optional(self, mock_urlopen):
+        """Model field is optional — Azure uses deployment in URL."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        config = {
+            "backends": ["azure"],
+            "azure": {
+                "url": "https://myresource.cognitiveservices.azure.com/openai/v1/chat/completions",
+            },
+        }
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), config)
+        assert result.decision["decision"] == "allow"
+        body = json.loads(captured[0].data)
+        assert "model" not in body
+
+
 # -- _format_tool_use_summary tests --
 
 

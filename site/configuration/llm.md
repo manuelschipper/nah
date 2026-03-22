@@ -10,7 +10,7 @@ The deterministic layer always runs first. The LLM only sees leftover `ask` deci
 
 ## Providers
 
-nah supports 5 LLM providers. Configure one or more in cascade order -- first success wins.
+nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
 
 | Provider | API | Default model | Auth env var |
 |----------|-----|---------------|-------------|
@@ -19,6 +19,7 @@ nah supports 5 LLM providers. Configure one or more in cascade order -- first su
 | `openai` | Responses API (`/v1/responses`) | `gpt-5.3-codex` | `OPENAI_API_KEY` |
 | `anthropic` | Messages API (`/v1/messages`) | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
 | `cortex` | Snowflake Cortex REST | `claude-haiku-4-5` | `SNOWFLAKE_PAT` |
+| `azure` | Azure OpenAI chat completions | *(deployment-dependent)* | `AZURE_OPENAI_API_KEY` |
 
 All providers use `urllib.request` (stdlib) -- no external HTTP dependencies.
 
@@ -101,6 +102,20 @@ llm:
         key_env: SNOWFLAKE_PAT
         model: claude-haiku-4-5
     ```
+
+=== "Azure Foundry"
+
+    ```yaml
+    llm:
+      enabled: true
+      providers: [azure]
+      azure:
+        url: https://{resource}.cognitiveservices.azure.com/openai/v1/chat/completions
+        key_env: AZURE_OPENAI_API_KEY
+        model: gpt-5.3-chat   # optional if deployment is in the URL
+    ```
+
+    Azure uses `api-key` header auth (not Bearer token). The `url` is required -- there is no default since it depends on your resource name and deployment. The `model` field is optional; Azure deployments often encode the model in the URL path.
 
 ## LLM options
 
