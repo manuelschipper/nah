@@ -263,6 +263,144 @@ class TestCheckPath:
         assert paths.check_path("Read", "") is None
 
 
+# --- Symlink regression tests (GitHub #57) ---
+
+
+class TestSymlinkResolution:
+    """Symlinks to sensitive targets must be caught by path classification."""
+
+    def test_symlink_to_ssh_blocked(self, tmp_path):
+        """Symlink to ~/.ssh → sensitive path detected."""
+        target = tmp_path / "fake_ssh"
+        target.mkdir()
+        link = tmp_path / "innocent.txt"
+        link.symlink_to(target)
+        # Pretend target is ~/.ssh by patching sensitive dirs
+        resolved_target = str(target.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved_target, "~/.ssh", "block"))
+        try:
+            result = paths.check_path("Read", str(link))
+            assert result is not None
+            assert result["decision"] == "block"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+    def test_symlink_to_sensitive_dir_file(self, tmp_path):
+        """Symlink to a file inside a sensitive directory."""
+        sensitive_dir = tmp_path / "sensitive"
+        sensitive_dir.mkdir()
+        secret = sensitive_dir / "key.pem"
+        secret.write_text("secret")
+        link = tmp_path / "harmless.pem"
+        link.symlink_to(secret)
+        resolved_dir = str(sensitive_dir.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved_dir, "~/sensitive", "ask"))
+        try:
+            result = paths.check_path("Read", str(link))
+            assert result is not None
+            assert result["decision"] == "ask"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+    def test_chained_symlinks(self, tmp_path):
+        """Chain: link1 → link2 → sensitive. realpath resolves the full chain."""
+        sensitive = tmp_path / "secrets"
+        sensitive.mkdir()
+        link2 = tmp_path / "stage2"
+        link2.symlink_to(sensitive)
+        link1 = tmp_path / "stage1"
+        link1.symlink_to(link2)
+        resolved = str(sensitive.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved, "~/secrets", "block"))
+        try:
+            result = paths.check_path("Read", str(link1))
+            assert result is not None
+            assert result["decision"] == "block"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+    def test_relative_symlink(self, tmp_path):
+        """Relative symlink (../../sensitive) resolved correctly."""
+        sensitive = tmp_path / "sensitive"
+        sensitive.mkdir()
+        subdir = tmp_path / "a" / "b"
+        subdir.mkdir(parents=True)
+        link = subdir / "link"
+        link.symlink_to(os.path.relpath(sensitive, subdir))
+        resolved = str(sensitive.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved, "~/sensitive", "block"))
+        try:
+            result = paths.check_path("Read", str(link))
+            assert result is not None
+            assert result["decision"] == "block"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+    def test_broken_symlink_not_sensitive(self, tmp_path):
+        """Broken symlink (target doesn't exist) — not sensitive, should allow."""
+        link = tmp_path / "broken"
+        link.symlink_to("/nonexistent/path/that/does/not/exist")
+        result = paths.check_path("Read", str(link))
+        assert result is None  # not sensitive
+
+    def test_symlink_clean_path_still_allowed(self, tmp_path):
+        """Symlink to a non-sensitive target — should allow."""
+        target = tmp_path / "safe_dir"
+        target.mkdir()
+        safe_file = target / "data.txt"
+        safe_file.write_text("hello")
+        link = tmp_path / "link.txt"
+        link.symlink_to(safe_file)
+        result = paths.check_path("Read", str(link))
+        assert result is None
+
+    def test_symlink_write_tool(self, tmp_path):
+        """Write through symlink to sensitive target → caught."""
+        sensitive = tmp_path / "protected"
+        sensitive.mkdir()
+        link = tmp_path / "writable.txt"
+        link.symlink_to(sensitive / "config")
+        resolved = str(sensitive.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved, "~/protected", "ask"))
+        try:
+            result = paths.check_path("Write", str(link))
+            assert result is not None
+            assert result["decision"] == "ask"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+    def test_symlink_with_allow_paths_no_bypass(self, tmp_path):
+        """allow_paths on the symlink dir must NOT exempt a sensitive target."""
+        sensitive = tmp_path / "gnupg"
+        sensitive.mkdir()
+        secret = sensitive / "key"
+        secret.write_text("private")
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        link = allowed_dir / "harmless"
+        link.symlink_to(secret)
+
+        resolved_sensitive = str(sensitive.resolve())
+        original = list(paths._SENSITIVE_DIRS)
+        paths._SENSITIVE_DIRS.append((resolved_sensitive, "~/.gnupg", "block"))
+        paths.set_project_root(str(tmp_path))
+        fake_config = config.NahConfig()
+        fake_config.allow_paths = {str(allowed_dir): [str(tmp_path)]}
+        try:
+            with patch("nah.config.get_config", return_value=fake_config):
+                result = paths.check_path("Read", str(link))
+                assert result is not None
+                assert result["decision"] == "block", \
+                    "allow_paths on symlink dir must not bypass sensitive target"
+        finally:
+            paths._SENSITIVE_DIRS[:] = original
+
+
 # --- set/reset/get project root ---
 
 
