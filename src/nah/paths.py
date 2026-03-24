@@ -267,7 +267,7 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         return None
 
     # Tools where hook-path access is hard-blocked (self-protection).
-    hook_block_tools = {"Write", "Edit"}
+    hook_block_tools = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
     resolved = resolve_path(raw_path)
 

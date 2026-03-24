@@ -269,6 +269,10 @@ def _format_tool_use_summary(block: dict) -> str:
         return f"[Write: {inp.get('file_path', '')}]"
     if name == "Edit":
         return f"[Edit: {inp.get('file_path', '')}]"
+    if name == "MultiEdit":
+        return f"[MultiEdit: {inp.get('file_path', '')}]"
+    if name == "NotebookEdit":
+        return f"[NotebookEdit: {inp.get('notebook_path', '')}]"
     if name in ("Glob", "glob"):
         return f"[Glob: {inp.get('pattern', '')}]"
     if name in ("Grep", "grep"):
@@ -763,8 +767,8 @@ def _build_write_prompt(
     deterministic_decision: dict,
     transcript_context: str = "",
 ) -> PromptParts:
-    """Build LLM prompt for Write/Edit content inspection."""
-    file_path = tool_input.get("file_path", "unknown")
+    """Build LLM prompt for Write/Edit/MultiEdit/NotebookEdit content inspection."""
+    file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "unknown")
     cwd, inside_project = _resolve_cwd_context()
 
     parts = [
@@ -787,6 +791,29 @@ def _build_write_prompt(
         parts.append("---")
         parts.append(new[:half])
         parts.append("---")
+    elif tool_name == "MultiEdit":
+        edits = tool_input.get("edits", [])
+        per_edit = _MAX_WRITE_CONTENT_CHARS // max(len(edits), 1)
+        parts.append(f"Multiple edits ({len(edits)}):")
+        for i, edit in enumerate(edits):
+            if not isinstance(edit, dict):
+                continue
+            old = str(edit.get("old_string") or "")[:per_edit]
+            new = str(edit.get("new_string") or "")[:per_edit]
+            parts.append(f"--- Edit {i + 1} ---")
+            parts.append(f"Replacing: {old}")
+            parts.append(f"With: {new}")
+    elif tool_name == "NotebookEdit":
+        action = tool_input.get("action", "")
+        cell_idx = tool_input.get("cell_index", "?")
+        parts.append(f"Action: {action} (cell {cell_idx})")
+        if action != "delete":
+            source = str(tool_input.get("new_source") or "")
+            truncated = source[:_MAX_WRITE_CONTENT_CHARS]
+            parts.append("Cell source:")
+            parts.append("---")
+            parts.append(truncated)
+            parts.append("---")
     else:
         content = tool_input.get("content", "")
         truncated = content[:_MAX_WRITE_CONTENT_CHARS]

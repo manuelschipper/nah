@@ -158,8 +158,8 @@ def redact_input(tool: str, tool_input: dict) -> str:
         pattern = tool_input.get("pattern", "")
         return f"pattern={pattern} path={path}" if path else f"pattern={pattern}"
 
-    if tool in ("Write", "Edit"):
-        return tool_input.get("file_path", "")
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        return tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
 
     if tool.startswith("mcp__"):
         for key, val in tool_input.items():
