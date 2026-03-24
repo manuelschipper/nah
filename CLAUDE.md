@@ -146,19 +146,22 @@ bd children <id>                              # list child beads
 - `build` — signed off, ready to implement
 
 ### Lifecycle
-`/monew` → `/moready` → implement → `/moreview` → `/moclose`
+`/monew` → `/modesign` → `/moready` → implement → `/moreview` → `/moclose`
 
 ### Skills
 | Skill | Purpose |
 |-------|---------|
 | `/monew` | Create bead (label: design) + working file |
+| `/modesign` | Design copilot — explore, propose, critique specs |
 | `/moready` | Pre-flight + label design→build + delete working file |
 | `/moclose` | Close bead + changelog + commit |
-| `/mostatus` | Dashboard grouped by phase |
 | `/moexplore` | Project overview + bead state + activity |
-| `/moreview` | Adversarial review + quality gate |
-| `/modeep` | 4-agent parallel analysis (Claude Code only) |
-| `/modemo` | Full lifecycle test + onboarding walkthrough |
+| `/moreview` | Spec compliance + code quality + verification |
+| `/modeep` | Deep parallel research (Claude Code only) |
+| `/modebrief` | Full context offload — conversation → mold |
+
+### CLI
+`molds status` — bead dashboard grouped by phase (no LLM needed)
 
 ### Inline Annotations (`%%`)
 Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
