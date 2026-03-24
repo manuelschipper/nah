@@ -15,6 +15,7 @@ _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
 
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
+# -*- coding: utf-8 -*-
 """nah guard — thin shim that imports from the installed nah package."""
 import sys, json, os, io
 
@@ -169,18 +170,19 @@ def _write_hook_script() -> None:
     # Skip write if content is identical
     if _HOOK_SCRIPT.exists():
         try:
-            if _HOOK_SCRIPT.read_text() == shim_content:
+            if _HOOK_SCRIPT.read_text(encoding="utf-8") == shim_content:
                 return
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             # Read is best-effort optimization; if it fails (race with
-            # deletion, permissions, disk), the safe default is to fall
-            # through to the write path which will surface real errors.
+            # deletion, permissions, disk, or encoding mismatch from a
+            # pre-UTF-8 install), the safe default is to fall through to
+            # the write path which will surface real errors.
             pass
 
     if _HOOK_SCRIPT.exists():
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    with open(_HOOK_SCRIPT, "w") as f:
+    with open(_HOOK_SCRIPT, "w", encoding="utf-8") as f:
         f.write(shim_content)
 
     os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
@@ -265,13 +267,17 @@ def cmd_update(args: argparse.Namespace) -> None:
                 if _is_nah_hook(entry):
                     entry["hooks"] = [{"type": "command", "command": command}]
                     updated += 1
-                    # Add missing tool matchers from current AGENT_TOOL_MATCHERS
-                    expected = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
-                    current = set(entry.get("matcher", {}).get("tool_name", []))
-                    missing = expected - current
-                    if missing:
-                        entry.setdefault("matcher", {})["tool_name"] = sorted(current | expected)
-                        added_matchers = len(missing)
+                    # Add missing tool matchers from current AGENT_TOOL_MATCHERS.
+                    # Only applies to object-style matchers ({"tool_name": [...]});
+                    # string-style matchers ("Bash") use one entry per tool.
+                    matcher = entry.get("matcher")
+                    if isinstance(matcher, dict):
+                        expected = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
+                        current = set(matcher.get("tool_name", []))
+                        missing = expected - current
+                        if missing:
+                            matcher["tool_name"] = sorted(current | expected)
+                            added_matchers = len(missing)
             if updated:
                 _write_settings(settings_file, settings)
                 msg = f"{updated} hooks updated"
