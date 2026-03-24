@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>Safeguard your vibes.</strong><br>
-  Keep your flow state.
+  <strong>Context aware safety guard for Claude Code.</strong><br>
+  Because allow and deny isn't enough.
 </p>
 
 ---
