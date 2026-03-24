@@ -84,49 +84,75 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         return None, {}
 
 
+def _scan_and_decide(tool_name: str, content: str) -> dict:
+    """Scan content and return deterministic decision dict."""
+    if not content:
+        return {"decision": taxonomy.ALLOW}
+    matches = scan_content(content)
+    if matches:
+        decision = max(
+            (m.policy for m in matches),
+            key=lambda p: taxonomy.STRICTNESS.get(p, 2),
+        )
+        return {
+            "decision": decision,
+            "reason": format_content_message(tool_name, matches),
+            "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
+            "_hint": "(content varies per call — cannot be remembered)",
+        }
+    return {"decision": taxonomy.ALLOW}
+
+
+def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
+    """LLM veto gate for write-like tools. Escalates if LLM is stricter.
+
+    Mutates det_result in-place to attach _system_message when LLM warns.
+    Returns det_result (possibly augmented) or capped (LLM-escalated).
+    """
+    if not _should_llm_inspect_write(tool_input):
+        return det_result
+    llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
+    if llm_decision is None:
+        return det_result
+    capped = _cap_llm_decision(llm_decision)
+    capped_d = capped.get("decision")
+    structural_d = det_result.get("decision", taxonomy.ALLOW)
+
+    # Surface LLM warning to user via systemMessage (always, not just escalation)
+    llm_reason = capped.get("reason", "")
+    if llm_reason and capped_d in (taxonomy.BLOCK, taxonomy.ASK):
+        # Strip wrapper prefixes to get clean LLM reasoning
+        clean = llm_reason
+        for prefix in (
+            f"LLM suggested {capped_d}: ",
+            f"LLM suggested block: ",
+            f"LLM suggested ask: ",
+            f"{tool_name} (LLM): ",
+            "LLM: ",
+        ):
+            if clean.startswith(prefix):
+                clean = clean[len(prefix):]
+        clean = clean.strip()
+        if clean:
+            det_result["_system_message"] = f"nah! ⚠️ {clean}"
+
+    # Only escalate decision when LLM is strictly stricter than structural
+    if (capped_d in (taxonomy.BLOCK, taxonomy.ASK)
+            and taxonomy.STRICTNESS.get(capped_d, 2) > taxonomy.STRICTNESS.get(structural_d, 0)):
+        capped.setdefault("_meta", {}).update(llm_meta)
+        capped["_system_message"] = det_result.get("_system_message", "")
+        return capped
+    # LLM is same or weaker — keep structural decision (with warning attached)
+
+    return det_result
+
+
 def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
     """Shared Write/Edit handler: deterministic check + LLM veto gate (FD-080)."""
-    decision = _check_write_content(tool_name, tool_input, content_field)
-
-    # Block decisions return immediately — no LLM needed
-    if decision.get("decision") == taxonomy.BLOCK:
-        return decision
-
-    # LLM veto gate: inspect content when LLM enabled
-    if _should_llm_inspect_write(tool_input):
-        llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, decision)
-        if llm_decision is not None:
-            capped = _cap_llm_decision(llm_decision)
-            capped_d = capped.get("decision")
-            structural_d = decision.get("decision", taxonomy.ALLOW)
-
-            # Surface LLM warning to user via systemMessage (always, not just escalation)
-            llm_reason = capped.get("reason", "")
-            if llm_reason and capped_d in (taxonomy.BLOCK, taxonomy.ASK):
-                # Strip wrapper prefixes to get clean LLM reasoning
-                clean = llm_reason
-                for prefix in (
-                    f"LLM suggested {capped_d}: ",
-                    f"LLM suggested block: ",
-                    f"LLM suggested ask: ",
-                    f"{tool_name} (LLM): ",
-                    "LLM: ",
-                ):
-                    if clean.startswith(prefix):
-                        clean = clean[len(prefix):]
-                clean = clean.strip()
-                if clean:
-                    decision["_system_message"] = f"nah! ⚠️ {clean}"
-
-            # Only escalate decision when LLM is strictly stricter than structural
-            if (capped_d in (taxonomy.BLOCK, taxonomy.ASK)
-                    and taxonomy.STRICTNESS.get(capped_d, 2) > taxonomy.STRICTNESS.get(structural_d, 0)):
-                capped.setdefault("_meta", {}).update(llm_meta)
-                capped["_system_message"] = decision.get("_system_message", "")
-                return capped
-            # LLM is same or weaker — keep structural decision (with warning attached)
-
-    return decision
+    det_result = _check_write_content(tool_name, tool_input, content_field)
+    if det_result.get("decision") == taxonomy.BLOCK:
+        return det_result
+    return _llm_veto_gate(tool_name, tool_input, det_result)
 
 
 def handle_write(tool_input: dict) -> dict:
@@ -135,6 +161,40 @@ def handle_write(tool_input: dict) -> dict:
 
 def handle_edit(tool_input: dict) -> dict:
     return _handle_write_with_llm("Edit", tool_input, "new_string")
+
+
+def handle_multiedit(tool_input: dict) -> dict:
+    """Guard MultiEdit: path + boundary + content check on each edit + LLM veto."""
+    file_path = tool_input.get("file_path", "")
+    path_check = paths.check_path("MultiEdit", file_path)
+    if path_check:
+        return path_check
+    boundary_check = paths.check_project_boundary("MultiEdit", file_path)
+    if boundary_check:
+        return boundary_check
+    edits = tool_input.get("edits", [])
+    combined = "\n".join(str(e.get("new_string") or "") for e in edits if isinstance(e, dict))
+    det_result = _scan_and_decide("MultiEdit", combined)
+    if det_result.get("decision") == taxonomy.BLOCK:
+        return det_result
+    return _llm_veto_gate("MultiEdit", tool_input, det_result)
+
+
+def handle_notebookedit(tool_input: dict) -> dict:
+    """Guard NotebookEdit: path + boundary + content check on cell source + LLM veto."""
+    file_path = tool_input.get("notebook_path", "")
+    path_check = paths.check_path("NotebookEdit", file_path)
+    if path_check:
+        return path_check
+    boundary_check = paths.check_project_boundary("NotebookEdit", file_path)
+    if boundary_check:
+        return boundary_check
+    action = tool_input.get("action", "")
+    content = "" if action == "delete" else str(tool_input.get("new_source") or "")
+    det_result = _scan_and_decide("NotebookEdit", content)
+    if det_result.get("decision") == taxonomy.BLOCK:
+        return det_result
+    return _llm_veto_gate("NotebookEdit", tool_input, det_result)
 
 
 def handle_glob(tool_input: dict) -> dict:
@@ -412,6 +472,8 @@ HANDLERS = {
     "Read": handle_read,
     "Write": handle_write,
     "Edit": handle_edit,
+    "MultiEdit": handle_multiedit,
+    "NotebookEdit": handle_notebookedit,
     "Glob": handle_glob,
     "Grep": handle_grep,
 }

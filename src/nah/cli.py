@@ -260,13 +260,24 @@ def cmd_update(args: argparse.Namespace) -> None:
             hooks = settings.get("hooks", {})
             pre_tool_use = hooks.get("PreToolUse", [])
             updated = 0
+            added_matchers = 0
             for entry in pre_tool_use:
                 if _is_nah_hook(entry):
                     entry["hooks"] = [{"type": "command", "command": command}]
                     updated += 1
+                    # Add missing tool matchers from current AGENT_TOOL_MATCHERS
+                    expected = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
+                    current = set(entry.get("matcher", {}).get("tool_name", []))
+                    missing = expected - current
+                    if missing:
+                        entry.setdefault("matcher", {})["tool_name"] = sorted(current | expected)
+                        added_matchers = len(missing)
             if updated:
                 _write_settings(settings_file, settings)
-                print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({updated} hooks updated)")
+                msg = f"{updated} hooks updated"
+                if added_matchers:
+                    msg += f", {added_matchers} new tool matchers added"
+                print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({msg})")
 
     print(f"nah {__version__} updated:")
     print(f"  Hook script: {_HOOK_SCRIPT} (re-locked read-only)")
@@ -372,14 +383,24 @@ def cmd_test(args: argparse.Namespace) -> None:
                             print(f"LLM decision: (uncertain or unavailable) [{statuses}]")
                         else:
                             print("LLM decision: (no providers responded)")
-    elif tool in ("Write", "Edit"):
-        # Write/Edit: path + content inspection
-        from nah.hook import handle_write, handle_edit
+    elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        # Write-like tools: path + content inspection
+        from nah.hook import handle_write, handle_edit, handle_multiedit, handle_notebookedit
         file_path = getattr(args, "path", None) or " ".join(input_args)
         content = getattr(args, "content", None) or ""
-        content_field = "content" if tool == "Write" else "new_string"
-        handler = handle_write if tool == "Write" else handle_edit
-        decision = handler({"file_path": file_path, content_field: content})
+        if tool == "Write":
+            ti = {"file_path": file_path, "content": content}
+            handler = handle_write
+        elif tool == "Edit":
+            ti = {"file_path": file_path, "new_string": content}
+            handler = handle_edit
+        elif tool == "MultiEdit":
+            ti = {"file_path": file_path, "edits": [{"old_string": "", "new_string": content}] if content else []}
+            handler = handle_multiedit
+        else:  # NotebookEdit
+            ti = {"notebook_path": file_path, "action": "replace", "new_source": content}
+            handler = handle_notebookedit
+        decision = handler(ti)
         print(f"Tool:     {tool}")
         print(f"Path:     {file_path}")
         if content:

@@ -16,6 +16,8 @@ TOOL_MAP: dict[str, str] = {
     "Read": "Read",
     "Write": "Write",
     "Edit": "Edit",
+    "MultiEdit": "MultiEdit",
+    "NotebookEdit": "NotebookEdit",
     "Glob": "Glob",
     "Grep": "Grep",
 }
@@ -90,7 +92,7 @@ def format_error(error: str, agent: str) -> dict:
 
 # Per-agent tool matchers for hook registration.
 AGENT_TOOL_MATCHERS: dict[str, list[str]] = {
-    CLAUDE: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "mcp__.*"],
+    CLAUDE: ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "mcp__.*"],
 }
 
 # Settings/hooks file paths per agent.
