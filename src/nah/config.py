@@ -305,9 +305,17 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
         config.llm_eligible = "default"
 
     # trusted_paths: global config ONLY (project .nah.yaml cannot set)
+    # Default: /tmp (and /private/tmp on macOS) for profile: full — standard
+    # scratch space, prompting on every temp file write is pure friction.
+    _default_trusted = ["/tmp", "/private/tmp"] if config.profile == "full" else []
     g_trusted = global_cfg.get("trusted_paths", [])
     if isinstance(g_trusted, list):
         config.trusted_paths = [str(p) for p in g_trusted]
+    # Merge defaults (user entries take priority, defaults just fill in)
+    existing = set(config.trusted_paths)
+    for p in _default_trusted:
+        if p not in existing:
+            config.trusted_paths.append(p)
 
     # db_targets: global config ONLY — project .nah.yaml silently ignored
     g_targets = global_cfg.get("db_targets", [])
