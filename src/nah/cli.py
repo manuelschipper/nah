@@ -260,23 +260,26 @@ def cmd_update(args: argparse.Namespace) -> None:
             hooks = settings.get("hooks", {})
             pre_tool_use = hooks.get("PreToolUse", [])
             updated = 0
-            added_matchers = 0
             for entry in pre_tool_use:
                 if _is_nah_hook(entry):
                     entry["hooks"] = [{"type": "command", "command": command}]
                     updated += 1
-                    # Add missing tool matchers from current AGENT_TOOL_MATCHERS
-                    expected = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
-                    current = set(entry.get("matcher", {}).get("tool_name", []))
-                    missing = expected - current
-                    if missing:
-                        entry.setdefault("matcher", {})["tool_name"] = sorted(current | expected)
-                        added_matchers = len(missing)
-            if updated:
+            # Add missing tool matchers as new entries
+            existing_matchers = {
+                entry.get("matcher") for entry in pre_tool_use if _is_nah_hook(entry)
+            }
+            expected_matchers = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
+            missing = expected_matchers - existing_matchers
+            for tool_name in sorted(missing):
+                pre_tool_use.append({
+                    "matcher": tool_name,
+                    "hooks": [{"type": "command", "command": command}],
+                })
+            if updated or missing:
                 _write_settings(settings_file, settings)
                 msg = f"{updated} hooks updated"
-                if added_matchers:
-                    msg += f", {added_matchers} new tool matchers added"
+                if missing:
+                    msg += f", {len(missing)} new tool matchers added"
                 print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({msg})")
 
     print(f"nah {__version__} updated:")
