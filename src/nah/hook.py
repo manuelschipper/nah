@@ -112,6 +112,11 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
     if not _should_llm_inspect_write(tool_input):
         return det_result
     llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
+
+    # Always attach LLM metadata when LLM was called (even if it agrees)
+    if llm_meta:
+        det_result.setdefault("_meta", {}).update(llm_meta)
+
     if llm_decision is None:
         return det_result
     capped = _cap_llm_decision(llm_decision)
