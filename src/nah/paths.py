@@ -28,6 +28,7 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".terraformrc")), "~/.terraformrc", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.json")), "~/.claude/settings.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.local.json")), "~/.claude/settings.local.json", "ask"),
+    (os.path.realpath("/etc/shadow"), "/etc/shadow", "block"),
 ]
 
 # Basename patterns: (basename, display_name, policy)
