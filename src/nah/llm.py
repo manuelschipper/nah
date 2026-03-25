@@ -282,6 +282,29 @@ def _format_tool_use_summary(block: dict) -> str:
     return f"[{name}]"
 
 
+def _redact_secrets(text: str) -> str:
+    """Redact credential patterns from text before sending to LLM.
+
+    Reuses content.py's 'secret' category patterns (private keys,
+    AWS keys, GitHub tokens, sk- keys, hardcoded API keys).
+    Returns text unchanged if no patterns are configured (e.g. profile=none).
+    """
+    from nah.content import get_secret_patterns
+
+    secret_patterns = get_secret_patterns()
+    if not secret_patterns:
+        return text
+    lines = text.splitlines()
+    redacted = []
+    for line in lines:
+        for regex, desc in secret_patterns:
+            if regex.search(line):
+                line = f"[redacted: {desc}]"
+                break
+        redacted.append(line)
+    return "\n".join(redacted)
+
+
 def _read_transcript_tail(transcript_path: str, max_chars: int) -> str:
     """Read the tail of the conversation transcript for LLM context.
 
@@ -373,29 +396,6 @@ def _read_transcript_tail(transcript_path: str, max_chars: int) -> str:
         if nl >= 0:
             result = result[nl + 1:]
     return result
-
-
-def _redact_secrets(text: str) -> str:
-    """Redact credential patterns from text before sending to LLM.
-
-    Reuses content.py's 'secret' category patterns (private keys,
-    AWS keys, GitHub tokens, sk- keys, hardcoded API keys).
-    Returns text unchanged if no patterns are configured (e.g. profile=none).
-    """
-    from nah.content import get_secret_patterns
-
-    secret_patterns = get_secret_patterns()
-    if not secret_patterns:
-        return text
-    lines = text.splitlines()
-    redacted = []
-    for line in lines:
-        for regex, desc in secret_patterns:
-            if regex.search(line):
-                line = f"[redacted: {desc}]"
-                break
-        redacted.append(line)
-    return "\n".join(redacted)
 
 
 def _format_transcript_context(transcript_text: str) -> str:
