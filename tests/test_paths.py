@@ -188,16 +188,20 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "block"
 
-    def test_hook_ask_for_read(self):
+    def test_hook_read_allowed(self):
+        """Reading hooks is allowed — only modification is blocked."""
         result = paths.check_path("Read", "~/.claude/hooks/nah_guard.py")
-        assert result is not None
-        assert result["decision"] == "ask"
-        assert "hook directory" in result["reason"]
+        assert result is None
 
-    def test_hook_ask_for_bash(self):
+    def test_hook_glob_allowed(self):
+        """Glob on hooks directory is allowed."""
+        result = paths.check_path("Glob", "~/.claude/hooks/")
+        assert result is None
+
+    def test_hook_bash_allowed(self):
+        """Bash reading hooks is allowed."""
         result = paths.check_path("Bash", "~/.claude/hooks/")
-        assert result is not None
-        assert result["decision"] == "ask"
+        assert result is None
 
     def test_sensitive_block(self):
         result = paths.check_path("Read", "~/.ssh/id_rsa")

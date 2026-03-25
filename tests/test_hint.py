@@ -76,14 +76,10 @@ class TestPathHints:
         assert "nah allow-path" in hint
         assert "~/.aws" in hint
 
-    def test_hook_directory_no_hint(self):
-        """Hook directory ask → no hint (not rememberable)."""
+    def test_hook_directory_read_allowed(self):
+        """Hook directory read → allowed (no decision dict)."""
         result = paths.check_path("Read", "~/.claude/hooks/something.py")
-        assert result is not None
-        assert result["decision"] == taxonomy.ASK
-        # Hook path protection should NOT have a rememberable hint
-        hint = result.get("_hint")
-        assert hint is None
+        assert result is None  # reads on hooks are allowed
 
 
 class TestContentHints:

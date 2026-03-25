@@ -172,9 +172,12 @@ def check_path_basic_raw(raw: str) -> tuple[str, str] | None:
 
 
 def check_path_basic(resolved: str) -> tuple[str, str] | None:
-    """Core path check: hook → nah config → sensitive. Returns (decision, reason) or None."""
-    if is_hook_path(resolved):
-        return (taxonomy.ASK, f"targets hook directory: {friendly_path(resolved)}")
+    """Core path check: nah config → sensitive. Returns (decision, reason) or None.
+
+    Note: hook self-protection (write-block, read-allow) is handled in
+    check_path() which knows the tool name. This function is tool-agnostic
+    and used by Bash token scanning where reads are fine.
+    """
     if is_nah_config_path(resolved):
         return (taxonomy.ASK, f"targets nah config: {friendly_path(resolved)}")
     matched, pattern, policy = is_sensitive(resolved)
@@ -272,17 +275,16 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
 
     resolved = resolve_path(raw_path)
 
-    # Hook self-protection — Write/Edit get block (not just ask)
+    # Hook self-protection — Write/Edit blocked, Read/Glob/Grep allowed.
+    # Reading hooks is harmless and useful for debugging. Only modification
+    # is dangerous (self-protection).
     if is_hook_path(resolved):
         if tool_name in hook_block_tools:
             return {
                 "decision": taxonomy.BLOCK,
                 "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/ (self-modification blocked)",
             }
-        return {
-            "decision": taxonomy.ASK,
-            "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/",
-        }
+        return None  # Read/Glob/Grep on hooks is fine
 
     # Config self-protection — ASK for all tools (users legitimately edit config)
     if is_nah_config_path(resolved):

@@ -1124,9 +1124,10 @@ class TestPathExtraction:
         r = classify_command("cat /home/*/.aws/credentials")
         assert r.final_decision == "ask"
 
-    def test_hook_path_ask(self, project_root):
+    def test_hook_path_read_allowed(self, project_root):
+        """Reading hook directory via Bash is allowed (#44)."""
         r = classify_command("ls ~/.claude/hooks/")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "allow"
 
     def test_multiple_paths_most_restrictive(self, project_root):
         r = classify_command("cp ~/.ssh/id_rsa ~/.aws/backup")

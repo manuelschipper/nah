@@ -62,10 +62,11 @@ class TestResolveFilesystemContext:
         assert decision == "ask"
         assert "sensitive path" in reason
 
-    def test_hook_path(self, project_root):
+    def test_hook_path_not_flagged_as_hook(self, project_root):
+        """Hook path no longer flagged as hook directory — ask is for outside-project."""
         decision, reason = resolve_filesystem_context("~/.claude/hooks/guard.py")
         assert decision == "ask"
-        assert "hook directory" in reason
+        assert "outside project" in reason  # not "hook directory"
 
     def test_empty_path(self, project_root):
         decision, _ = resolve_filesystem_context("")
