@@ -32,18 +32,22 @@ class TestResolveFilesystemContext:
         assert "inside project" in reason
 
     def test_outside_project(self, project_root):
-        decision, reason = resolve_filesystem_context("/tmp/outside.txt")
+        """Path outside project but not trusted → ask."""
+        decision, reason = resolve_filesystem_context("/opt/somewhere/outside.txt")
         assert decision == "ask"
         assert "outside project" in reason
 
+    def test_tmp_trusted_by_default(self, project_root):
+        """/tmp is trusted by default in profile: full."""
+        decision, reason = resolve_filesystem_context("/tmp/scratch.txt")
+        assert decision == "allow"
+        assert "trusted" in reason
+
     def test_no_project_root(self):
-        # No project root set, no git repo → auto-detect may or may not find one.
-        # Force no project root by setting to None explicitly.
+        """Non-trusted path with no project root → ask."""
         paths.set_project_root(None)
-        # set_project_root(None) sets resolved=True, root=None → no project.
-        # Wait — that's what the function does. Let's verify.
         assert paths.get_project_root() is None
-        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+        decision, reason = resolve_filesystem_context("/opt/random/file.txt")
         assert decision == "ask"
         assert "no git root" in reason
 

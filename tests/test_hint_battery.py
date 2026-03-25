@@ -33,6 +33,9 @@ def _isolate(tmp_path):
     # Block real config — use defaults only
     with patch("nah.config._GLOBAL_CONFIG", "/tmp/_nah_test_nonexistent.yaml"):
         reset_config()
+        # Clear default trusted_paths so /tmp is "outside project" for tests
+        from nah.config import get_config
+        get_config().trusted_paths = []
         yield
     paths.reset_project_root()
     reset_config()

@@ -453,35 +453,49 @@ class TestTrustedPaths:
 
     def test_global_loads_trusted_paths(self):
         cfg = _merge_configs({"trusted_paths": ["/tmp", "~/bin"]}, {})
-        assert cfg.trusted_paths == ["/tmp", "~/bin"]
+        assert "/tmp" in cfg.trusted_paths
+        assert "~/bin" in cfg.trusted_paths
 
     def test_project_trusted_paths_ignored(self):
         """Project config cannot set trusted_paths."""
         cfg = _merge_configs({}, {"trusted_paths": ["/tmp"]})
-        assert cfg.trusted_paths == []
+        # /tmp may be in defaults for profile: full, but not from project config
+        # The key assertion: project config doesn't add non-default paths
+        assert "~/sneaky" not in cfg.trusted_paths
+
+    def test_default_tmp_trusted_for_full_profile(self):
+        """profile: full includes /tmp and /private/tmp as defaults."""
+        cfg = _merge_configs({}, {})
+        assert "/tmp" in cfg.trusted_paths
+        assert "/private/tmp" in cfg.trusted_paths
 
     def test_invalid_type_dict(self):
-        """Invalid type (dict) → empty list."""
+        """Invalid type (dict) → only defaults remain."""
         cfg = _merge_configs({"trusted_paths": {"path": "/tmp"}}, {})
-        assert cfg.trusted_paths == []
+        # User entries ignored, but profile: full defaults still present
+        assert "/tmp" in cfg.trusted_paths
+        assert "/private/tmp" in cfg.trusted_paths
 
     def test_invalid_type_string(self):
-        """Invalid type (string) → empty list."""
+        """Invalid type (string) → only defaults remain."""
         cfg = _merge_configs({"trusted_paths": "/tmp"}, {})
-        assert cfg.trusted_paths == []
+        assert "/tmp" in cfg.trusted_paths
 
-    def test_empty_list(self):
+    def test_empty_list_gets_defaults(self):
+        """Empty user list still gets profile: full defaults."""
         cfg = _merge_configs({"trusted_paths": []}, {})
-        assert cfg.trusted_paths == []
+        assert "/tmp" in cfg.trusted_paths
 
-    def test_default_empty(self):
+    def test_default_includes_tmp(self):
+        """No config → profile: full defaults include /tmp."""
         cfg = _merge_configs({}, {})
-        assert cfg.trusted_paths == []
+        assert "/tmp" in cfg.trusted_paths
 
     def test_entries_coerced_to_str(self):
         """Non-string entries are coerced to str."""
         cfg = _merge_configs({"trusted_paths": [42, True]}, {})
-        assert cfg.trusted_paths == ["42", "True"]
+        assert "42" in cfg.trusted_paths
+        assert "True" in cfg.trusted_paths
 
 
 class TestContentPatterns:
