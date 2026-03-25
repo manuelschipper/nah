@@ -232,3 +232,9 @@ def is_credential_search(pattern: str) -> bool:
     if not pattern:
         return False
     return any(regex.search(pattern) for regex in _CREDENTIAL_SEARCH_PATTERNS)
+
+
+def get_secret_patterns() -> list[tuple[re.Pattern, str]]:
+    """Return compiled secret-category patterns for external use (e.g., LLM redaction)."""
+    _ensure_content_patterns_merged()
+    return list(_CONTENT_PATTERNS.get("secret", []))

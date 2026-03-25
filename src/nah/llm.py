@@ -220,24 +220,23 @@ def _build_generic_prompt(
 
 
 def _parse_response(raw: str) -> LLMResult | None:
-    """Parse LLM response JSON into LLMResult."""
+    """Parse LLM response JSON into LLMResult.
+
+    Only accepts clean JSON or markdown-fenced JSON. The previous
+    find("{")/rfind("}") fallback was removed to prevent echo attacks
+    where injected JSON in transcript/file content could be extracted
+    as the real decision (FD-068).
+    """
     raw = raw.strip()
     if raw.startswith("```"):
         lines = raw.split("\n")
         raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
+        raw = raw.strip()
 
     try:
         obj = json.loads(raw)
     except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start >= 0 and end > start:
-            try:
-                obj = json.loads(raw[start:end])
-            except json.JSONDecodeError:
-                return None
-        else:
-            return None
+        return None
 
     decision = obj.get("decision", "").lower()
     if decision not in ("allow", "block", "uncertain"):
@@ -249,7 +248,7 @@ def _parse_response(raw: str) -> LLMResult | None:
 
 # -- Transcript context --
 
-_DEFAULT_CONTEXT_CHARS = 12000
+_DEFAULT_CONTEXT_CHARS = 4000  # was 12000; reduced to limit credential exposure (FD-068)
 
 
 def _format_tool_use_summary(block: dict) -> str:
@@ -361,12 +360,42 @@ def _read_transcript_tail(transcript_path: str, max_chars: int) -> str:
         return ""
 
     result = "\n".join(messages)
+    try:
+        result = _redact_secrets(result)
+    except Exception as exc:
+        # Secret redaction is best-effort defense. If it fails, the LLM
+        # path continues — secrets may leak but the safety classification
+        # still runs. Log so the user knows redaction failed.
+        sys.stderr.write(f"nah: llm: secret redaction failed: {exc}\n")
     if len(result) > max_chars:
         result = result[len(result) - max_chars:]
         nl = result.find("\n")
         if nl >= 0:
             result = result[nl + 1:]
     return result
+
+
+def _redact_secrets(text: str) -> str:
+    """Redact credential patterns from text before sending to LLM.
+
+    Reuses content.py's 'secret' category patterns (private keys,
+    AWS keys, GitHub tokens, sk- keys, hardcoded API keys).
+    Returns text unchanged if no patterns are configured (e.g. profile=none).
+    """
+    from nah.content import get_secret_patterns
+
+    secret_patterns = get_secret_patterns()
+    if not secret_patterns:
+        return text
+    lines = text.splitlines()
+    redacted = []
+    for line in lines:
+        for regex, desc in secret_patterns:
+            if regex.search(line):
+                line = f"[redacted: {desc}]"
+                break
+        redacted.append(line)
+    return "\n".join(redacted)
 
 
 def _format_transcript_context(transcript_text: str) -> str:
@@ -780,16 +809,15 @@ def _build_write_prompt(
     ]
 
     if tool_name == "Edit":
-        old = tool_input.get("old_string", "")
-        new = tool_input.get("new_string", "")
-        half = _MAX_WRITE_CONTENT_CHARS // 2
+        old = _redact_secrets(tool_input.get("old_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2])
+        new = _redact_secrets(tool_input.get("new_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2])
         parts.append("Replacing:")
         parts.append("---")
-        parts.append(old[:half])
+        parts.append(old)
         parts.append("---")
         parts.append("With:")
         parts.append("---")
-        parts.append(new[:half])
+        parts.append(new)
         parts.append("---")
     elif tool_name == "MultiEdit":
         edits = tool_input.get("edits", [])
@@ -798,8 +826,8 @@ def _build_write_prompt(
         for i, edit in enumerate(edits):
             if not isinstance(edit, dict):
                 continue
-            old = str(edit.get("old_string") or "")[:per_edit]
-            new = str(edit.get("new_string") or "")[:per_edit]
+            old = _redact_secrets(str(edit.get("old_string") or "")[:per_edit])
+            new = _redact_secrets(str(edit.get("new_string") or "")[:per_edit])
             parts.append(f"--- Edit {i + 1} ---")
             parts.append(f"Replacing: {old}")
             parts.append(f"With: {new}")
@@ -809,14 +837,14 @@ def _build_write_prompt(
         parts.append(f"Action: {action} (cell {cell_idx})")
         if action != "delete":
             source = str(tool_input.get("new_source") or "")
-            truncated = source[:_MAX_WRITE_CONTENT_CHARS]
+            truncated = _redact_secrets(source[:_MAX_WRITE_CONTENT_CHARS])
             parts.append("Cell source:")
             parts.append("---")
             parts.append(truncated)
             parts.append("---")
     else:
         content = tool_input.get("content", "")
-        truncated = content[:_MAX_WRITE_CONTENT_CHARS]
+        truncated = _redact_secrets(content[:_MAX_WRITE_CONTENT_CHARS])
         parts.append("Content about to be written:")
         parts.append("---")
         parts.append(truncated)
