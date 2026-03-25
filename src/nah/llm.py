@@ -248,7 +248,7 @@ def _parse_response(raw: str) -> LLMResult | None:
 
 # -- Transcript context --
 
-_DEFAULT_CONTEXT_CHARS = 4000  # was 12000; reduced to limit credential exposure (FD-068)
+_DEFAULT_CONTEXT_CHARS = 12000
 
 
 def _format_tool_use_summary(block: dict) -> str:
