@@ -48,13 +48,11 @@ class TestTaxonomyConstants:
 
 
 class TestCheckPathBasic:
-    def test_hook_path_returns_ask(self):
+    def test_hook_path_not_in_basic(self):
+        """Hook path protection moved to check_path (tool-aware). check_path_basic skips it."""
         hooks_dir = paths.resolve_path("~/.claude/hooks/guard.py")
         result = paths.check_path_basic(hooks_dir)
-        assert result is not None
-        decision, reason = result
-        assert decision == taxonomy.ASK
-        assert "hook directory" in reason
+        assert result is None  # hooks not checked here — check_path handles it
 
     def test_sensitive_path_block(self):
         ssh_path = paths.resolve_path("~/.ssh/id_rsa")
