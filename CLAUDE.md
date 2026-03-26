@@ -165,3 +165,20 @@ bd children <id>                              # list child beads
 
 ### Inline Annotations (`%%`)
 Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
+
+---
+
+## Release Checklist
+
+When cutting a new release:
+
+1. **Run full test suite** — `pytest tests/ --ignore=tests/test_llm_live.py`
+2. **Bump version in BOTH places:**
+   - `pyproject.toml` → `version = "X.Y.Z"`
+   - `src/nah/__init__.py` → `__version__ = "X.Y.Z"`
+3. **Update CHANGELOG.md** — change `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`
+4. **Commit** — `git commit -m "vX.Y.Z — <summary>"`
+5. **Tag** — `git tag vX.Y.Z`
+6. **Push** — `git push origin main --tags`
+7. **Verify** — `gh run watch` to confirm PyPI publish + GitHub Release succeed
+8. **Post-release** — `pip install --upgrade nah` and verify `nah --version` matches
