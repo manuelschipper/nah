@@ -470,10 +470,12 @@ def _call_openai_compat(
     """Call an OpenAI-compatible chat completions API."""
     url = config.get("url", default_url)
     if not url:
+        sys.stderr.write("nah: LLM: no URL configured\n")
         return None
     key_env = config.get("key_env", default_key_env)
     key = os.environ.get(key_env, "")
     if not key:
+        sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
     model = config.get("model", default_model)
     timeout = config.get("timeout", timeout)
@@ -508,6 +510,7 @@ def _call_cortex(
             or os.environ.get("SNOWFLAKE_ACCOUNT", "")
         )
         if not account:
+            sys.stderr.write("nah: LLM: cortex — no account or URL configured\n")
             return None
         url = (
             f"https://{account}.snowflakecomputing.com"
@@ -517,6 +520,7 @@ def _call_cortex(
     key_env = config.get("key_env", "SNOWFLAKE_PAT")
     pat = os.environ.get(key_env, "")
     if not pat:
+        sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
 
     model = config.get("model", "claude-haiku-4-5")
@@ -564,10 +568,12 @@ def _call_openai_responses(
     """Call OpenAI Responses API (/v1/responses)."""
     url = config.get("url", default_url)
     if not url:
+        sys.stderr.write("nah: LLM: no URL configured\n")
         return None
     key_env = config.get("key_env", default_key_env)
     key = os.environ.get(key_env, "")
     if not key:
+        sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
     model = config.get("model", default_model)
     timeout = config.get("timeout", timeout)
@@ -612,6 +618,7 @@ def _call_anthropic(
     key_env = config.get("key_env", "ANTHROPIC_API_KEY")
     key = os.environ.get(key_env, "")
     if not key:
+        sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
     model = config.get("model", "claude-haiku-4-5")
     timeout = config.get("timeout", _TIMEOUT_REMOTE)
@@ -654,6 +661,8 @@ def _call_provider(
     try:
         result = fn(config, prompt)
         elapsed = int((time.monotonic() - t0) * 1000)
+        if result is None:
+            return None, elapsed, f"provider returned None (missing key or config)"
         return result, elapsed, ""
     except (URLError, OSError, TimeoutError) as exc:
         elapsed = int((time.monotonic() - t0) * 1000)

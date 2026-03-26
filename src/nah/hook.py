@@ -64,7 +64,6 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         from nah.config import get_config
         cfg = get_config()
         if not cfg.llm or not cfg.llm.get("enabled", False):
-            sys.stderr.write(f"nah: LLM write: skipped (not enabled)\n")
             return None, {}
         from nah.llm import try_llm_write
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
@@ -77,7 +76,8 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         # LLM said uncertain (reached but undecided) — escalate to ask
         if llm_call.cascade:
             attempts = "; ".join(
-                f"{a.provider}={a.status}({a.latency_ms}ms)" for a in llm_call.cascade
+                f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
+                for a in llm_call.cascade
             )
             sys.stderr.write(f"nah: LLM write: uncertain [{attempts}]\n")
             ask = {
@@ -85,10 +85,9 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
                 "reason": f"{tool_name} (LLM): uncertain — {llm_call.reasoning or 'human review needed'}",
             }
             return ask, _build_llm_meta(llm_call, cfg)
-        sys.stderr.write(f"nah: LLM write: no providers responded\n")
+        sys.stderr.write(f"nah: LLM write: no providers responded for {tool_name}\n")
         return None, {}
     except ImportError:
-        sys.stderr.write(f"nah: LLM write: skipped (import error)\n")
         return None, {}
     except Exception as exc:
         sys.stderr.write(f"nah: LLM write error: {exc}\n")
