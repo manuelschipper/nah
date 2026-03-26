@@ -748,6 +748,9 @@ def _try_providers(
         call_result.cascade.append(
             ProviderAttempt(provider_name, "uncertain", elapsed, model),
         )
+        call_result.provider = provider_name
+        call_result.model = model
+        call_result.latency_ms = elapsed
         call_result.reasoning = result.reasoning
         return call_result
 

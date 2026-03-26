@@ -64,20 +64,31 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         from nah.config import get_config
         cfg = get_config()
         if not cfg.llm or not cfg.llm.get("enabled", False):
+            sys.stderr.write(f"nah: LLM write: skipped (not enabled)\n")
             return None, {}
         from nah.llm import try_llm_write
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
         if llm_call.decision is not None:
+            sys.stderr.write(
+                f"nah: LLM write: {llm_call.provider} → {llm_call.decision.get('decision', '?')}"
+                f" ({llm_call.latency_ms}ms)\n"
+            )
             return llm_call.decision, _build_llm_meta(llm_call, cfg)
         # LLM said uncertain (reached but undecided) — escalate to ask
         if llm_call.cascade:
+            attempts = "; ".join(
+                f"{a.provider}={a.status}({a.latency_ms}ms)" for a in llm_call.cascade
+            )
+            sys.stderr.write(f"nah: LLM write: uncertain [{attempts}]\n")
             ask = {
                 "decision": taxonomy.ASK,
                 "reason": f"{tool_name} (LLM): uncertain — {llm_call.reasoning or 'human review needed'}",
             }
             return ask, _build_llm_meta(llm_call, cfg)
+        sys.stderr.write(f"nah: LLM write: no providers responded\n")
         return None, {}
     except ImportError:
+        sys.stderr.write(f"nah: LLM write: skipped (import error)\n")
         return None, {}
     except Exception as exc:
         sys.stderr.write(f"nah: LLM write error: {exc}\n")
@@ -112,6 +123,8 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
     if not _should_llm_inspect_write(tool_input):
         return det_result
     llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
+    if llm_decision is None and not llm_meta:
+        sys.stderr.write(f"nah: LLM veto gate: no result for {tool_name}\n")
 
     # Always attach LLM metadata when LLM was called (even if it agrees)
     if llm_meta:
@@ -339,6 +352,16 @@ def _try_llm(classify_result) -> tuple[dict | None, dict]:
             return None, {}
         from nah.llm import try_llm
         llm_call = try_llm(classify_result, cfg.llm, _transcript_path)
+        if llm_call.decision is not None:
+            sys.stderr.write(
+                f"nah: LLM bash: {llm_call.provider} → {llm_call.decision.get('decision', '?')}"
+                f" ({llm_call.latency_ms}ms)\n"
+            )
+        elif llm_call.cascade:
+            attempts = "; ".join(
+                f"{a.provider}={a.status}({a.latency_ms}ms)" for a in llm_call.cascade
+            )
+            sys.stderr.write(f"nah: LLM bash: no decision [{attempts}]\n")
         return llm_call.decision, _build_llm_meta(llm_call, cfg)
     except ImportError:
         return None, {}
