@@ -1279,11 +1279,83 @@ class TestGhCommands:
 
     # lang_exec — runs arbitrary code
     @pytest.mark.parametrize("tokens", [
-        ["gh", "api", "/repos/owner/repo"],
         ["gh", "extension", "exec", "my-ext"],
     ])
     def test_gh_lang_exec(self, tokens):
         assert _ct(tokens) == "lang_exec"
+
+    # gh api — flag classifier (Phase 2) distinguishes read vs write vs destructive
+    @pytest.mark.parametrize("tokens,expected", [
+        # --- git_safe: read-only ---
+        pytest.param(["gh", "api", "/repos/owner/repo"], "git_safe", id="bare-endpoint"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--jq", ".name"], "git_safe", id="jq-filter"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--paginate"], "git_safe", id="paginate"),
+        pytest.param(["gh", "api"], "git_safe", id="bare-api-no-endpoint"),
+        # Explicit safe methods (-X GET, -X HEAD, --method GET, --method=GET)
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "GET"], "git_safe", id="explicit-GET"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method", "GET"], "git_safe", id="method-GET"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=GET"], "git_safe", id="method-joined-GET"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "HEAD"], "git_safe", id="explicit-HEAD"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method", "HEAD"], "git_safe", id="method-HEAD"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=HEAD"], "git_safe", id="method-joined-HEAD"),
+        # Data flags with explicit safe method → query params, not a write
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "GET", "-f", "per_page=100"], "git_safe", id="GET-with-f"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-f", "per_page=100", "-X", "GET"], "git_safe", id="f-then-GET"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=GET", "-f", "per_page=100"], "git_safe", id="method-joined-GET-with-f"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "HEAD", "-f", "per_page=100"], "git_safe", id="HEAD-with-f"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--jq", "[.]", "-X", "GET", "-f", "per_page=100", "-f", "since=2025-01-01"], "git_safe", id="GET-multi-f-jq"),
+        # Unknown method defaults safe
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "FOOBAR"], "git_safe", id="unknown-method"),
+        # --- git_write: mutating (POST/PUT/PATCH) ---
+        # Standalone data flags (each triggers implicit POST)
+        pytest.param(["gh", "api", "repos/owner/repo/issues", "-f", "title=bug"], "git_write", id="data-f"),
+        pytest.param(["gh", "api", "repos/owner/repo/issues", "-F", "title=bug"], "git_write", id="data-F"),
+        pytest.param(["gh", "api", "repos/owner/repo/issues", "--field", "title=bug"], "git_write", id="data-field"),
+        pytest.param(["gh", "api", "repos/owner/repo/issues", "--raw-field", "body=hello"], "git_write", id="data-raw-field"),
+        pytest.param(["gh", "api", "repos/owner/repo/issues", "--input", "body.json"], "git_write", id="data-input"),
+        # Data flag before endpoint
+        pytest.param(["gh", "api", "-f", "title=bug", "repos/owner/repo/issues"], "git_write", id="f-before-endpoint"),
+        # Joined data flags
+        pytest.param(["gh", "api", "repos/owner/repo", "-f=key=val"], "git_write", id="joined-f"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-F=key=val"], "git_write", id="joined-F"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--field=body=test"], "git_write", id="joined-field"),
+        pytest.param(["gh", "api", "graphql", "--raw-field=query={viewer{login}}"], "git_write", id="joined-raw-field"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--input=body.json"], "git_write", id="joined-input"),
+        # Explicit write methods (without data flags)
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "POST"], "git_write", id="explicit-POST"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "PUT"], "git_write", id="explicit-PUT"),
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "PATCH"], "git_write", id="explicit-PATCH"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method", "POST"], "git_write", id="method-POST"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=POST"], "git_write", id="method-joined-POST"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=PATCH"], "git_write", id="method-joined-PATCH"),
+        # Write method + data flag
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "POST", "-f", "title=bug"], "git_write", id="POST-with-f"),
+        # --- git_history_rewrite: destructive (DELETE) ---
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "DELETE"], "git_history_rewrite", id="explicit-DELETE"),
+        pytest.param(["gh", "api", "-X", "DELETE", "repos/owner/repo"], "git_history_rewrite", id="DELETE-before-endpoint"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method", "DELETE"], "git_history_rewrite", id="method-DELETE"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method=DELETE"], "git_history_rewrite", id="method-joined-DELETE"),
+        # DELETE + data flag: destructive wins
+        pytest.param(["gh", "api", "repos/owner/repo", "-X", "DELETE", "-f", "confirm=true"], "git_history_rewrite", id="DELETE-with-f"),
+        # --- Boundary: truncated method flag with no following token ---
+        pytest.param(["gh", "api", "repos/owner/repo", "-X"], "git_safe", id="truncated-X"),
+        pytest.param(["gh", "api", "repos/owner/repo", "--method"], "git_safe", id="truncated-method"),
+    ])
+    def test_gh_api_flag_classifier(self, tokens, expected):
+        assert _ct(tokens) == expected
+
+    # gh --help — always safe regardless of subcommand or other flags
+    @pytest.mark.parametrize("tokens", [
+        pytest.param(["gh", "--help"], id="gh-help"),
+        pytest.param(["gh", "api", "--help"], id="api-help"),
+        pytest.param(["gh", "pr", "--help"], id="pr-help"),
+        pytest.param(["gh", "repo", "autolink", "--help"], id="nested-help"),
+        pytest.param(["gh", "-h"], id="gh-h"),
+        pytest.param(["gh", "api", "--help", "-f", "title=bug"], id="help-wins-over-data"),
+        pytest.param(["gh", "api", "-X", "DELETE", "--help"], id="help-wins-over-delete"),
+    ])
+    def test_gh_help(self, tokens):
+        assert _ct(tokens) == "git_safe"
 
 
 # --- Profiles (FD-032) ---

@@ -389,6 +389,9 @@ def classify_tokens(
         action = _classify_httpie(tokens)
         if action is not None:
             return action
+        action = _classify_gh(tokens)
+        if action is not None:
+            return action
         action = _classify_global_install(tokens)
         if action is not None:
             return action
@@ -796,6 +799,93 @@ def _classify_httpie(tokens: list[str]) -> str | None:
     if has_data_item:
         return NETWORK_WRITE
     return NETWORK_OUTBOUND
+
+
+# gh api: flags that send a request body (gh defaults to POST when present).
+_GH_API_DATA_FLAGS = {"-f", "-F", "--raw-field", "--field", "--input"}
+_GH_API_DATA_JOINED_PREFIXES = ("-f=", "-F=", "--raw-field=", "--field=", "--input=")
+_GH_API_METHOD_FLAGS = {"-X", "--method"}
+# Separated from _WRITE_METHODS — DELETE maps to git_history_rewrite (irreversible).
+_GH_API_DESTRUCTIVE_METHODS = {"DELETE"}
+_GH_API_SAFE_METHODS = {"GET", "HEAD"}
+
+
+def _classify_gh(tokens: list[str]) -> str | None:
+    """Flag-dependent: gh api with write flags -> git_write; without -> git_safe.
+
+    Only handles ``gh api`` subcommand.  Other ``gh`` subcommands (pr, issue,
+    search ...) are left to prefix tables and return *None*.
+    """
+    if len(tokens) < 2 or tokens[0] != "gh":
+        return None
+
+    # Early return: --help/-h on ANY gh command is safe (not just gh api).
+    # gh uses -h for help (unlike curl where -h is --header).
+    if "--help" in tokens or "-h" in tokens:
+        return GIT_SAFE
+
+    if tokens[1] != "api":
+        return None
+
+    has_data = False
+    has_write_method = False
+    has_destructive_method = False
+    has_safe_method = False
+
+    i = 2  # skip "gh api"
+    while i < len(tokens):
+        tok = tokens[i]
+
+        # Standalone data flags (-f, -F, --field, --raw-field, --input)
+        if tok in _GH_API_DATA_FLAGS:
+            has_data = True
+            i += 2  # skip flag + value
+            continue
+
+        # Joined data flags: --raw-field=KEY=VALUE, --field=KEY=VALUE, --input=FILE
+        if any(tok.startswith(p) for p in _GH_API_DATA_JOINED_PREFIXES):
+            has_data = True
+            i += 1
+            continue
+
+        # Method flags: -X METHOD, --method METHOD
+        if tok in _GH_API_METHOD_FLAGS:
+            if i + 1 < len(tokens):
+                method = tokens[i + 1].upper()
+                if method in _GH_API_DESTRUCTIVE_METHODS:
+                    has_destructive_method = True
+                elif method in _WRITE_METHODS:
+                    has_write_method = True
+                elif method in _GH_API_SAFE_METHODS:
+                    has_safe_method = True
+            i += 2
+            continue
+
+        # Joined method flag: --method=DELETE
+        if tok.startswith("--method="):
+            method = tok.split("=", 1)[1].upper()
+            if method in _GH_API_DESTRUCTIVE_METHODS:
+                has_destructive_method = True
+            elif method in _WRITE_METHODS:
+                has_write_method = True
+            elif method in _GH_API_SAFE_METHODS:
+                has_safe_method = True
+            i += 1
+            continue
+
+        i += 1
+
+    # DELETE is irreversible — treated as git_history_rewrite, analogous to
+    # gh repo/issue delete in the prefix tables.
+    if has_destructive_method:
+        return GIT_HISTORY_REWRITE
+    # Explicit write method (-X POST/PUT/PATCH) escalates even without data flags.
+    if has_write_method:
+        return GIT_WRITE
+    # Data flags (-f/-F) imply POST unless overridden by -X GET/HEAD.
+    if has_data and not has_safe_method:
+        return GIT_WRITE
+    return GIT_SAFE
 
 
 def _classify_global_install(tokens: list[str]) -> str | None:
