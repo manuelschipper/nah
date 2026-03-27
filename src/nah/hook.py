@@ -465,15 +465,16 @@ def handle_bash(tool_input: dict) -> dict:
 
 
 def _has_lang_exec_script(result) -> bool:
-    """Check if result has a lang_exec stage where a script file was inspected.
+    """Check if result has a lang_exec stage where content was inspected.
 
-    Returns True only when the context resolver successfully read and scanned
-    the script (reason starts with 'script clean:'). Returns False for inline
-    code, nonexistent files, and outside-project scripts — those either have
-    no content for the LLM, or already resolved to ask.
+    Returns True when the context resolver successfully scanned content —
+    either a script file ('script clean:') or inline code ('inline clean').
+    Returns False for nonexistent files and outside-project scripts.
     """
     for sr in result.stages:
-        if sr.action_type == taxonomy.LANG_EXEC and sr.reason.startswith("script clean:"):
+        if sr.action_type == taxonomy.LANG_EXEC and (
+            sr.reason.startswith("script clean:") or sr.reason == "lang_exec: inline clean"
+        ):
             return True
     return False
 

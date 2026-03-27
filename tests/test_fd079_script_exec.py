@@ -390,10 +390,11 @@ class TestVetoGate:
         finally:
             os.chdir(old_cwd)
 
-    def test_has_script_false_for_inline(self):
+    def test_has_script_true_for_inline_clean(self):
+        """Clean inline code now triggers veto gate (nah-koi.1)."""
         from nah.hook import _has_lang_exec_script
         result = classify_command("python -c 'print(1)'")
-        assert _has_lang_exec_script(result) is False
+        assert _has_lang_exec_script(result) is True
 
     def test_has_script_false_for_not_found(self, project_root):
         from nah.hook import _has_lang_exec_script
@@ -489,13 +490,12 @@ class TestVetoGate:
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_does_not_reach_script_veto_gate(self, project_root):
-        """Inline code is allowed via content scan, not the script veto gate.
-        _has_lang_exec_script returns False because reason is 'inline clean' not 'script clean'."""
+    def test_inline_reaches_veto_gate(self, project_root):
+        """Clean inline code triggers LLM veto gate, same as clean script files."""
         from nah.hook import _has_lang_exec_script
         result = classify_command("python -c 'print(1)'")
         assert result.final_decision == "allow"
-        assert _has_lang_exec_script(result) is False
+        assert _has_lang_exec_script(result) is True
 
     def test_veto_gate_skips_not_found(self, project_root):
         old_cwd = os.getcwd()
