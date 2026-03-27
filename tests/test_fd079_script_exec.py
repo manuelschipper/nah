@@ -324,10 +324,11 @@ class TestPipelineIntegration:
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_code_asks(self):
+    def test_inline_code_clean_allows(self):
+        """Safe inline code is allowed via content inspection (nah-koi.1)."""
         r = classify_command("python -c 'print(1)'")
-        assert r.final_decision == "ask"
-        assert "inline execution" in r.reason
+        assert r.final_decision == "allow"
+        assert "inline clean" in r.reason
 
     def test_nonexistent_asks(self, project_root):
         old_cwd = os.getcwd()
@@ -488,12 +489,12 @@ class TestVetoGate:
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_does_not_reach_veto_gate(self, project_root):
-        """Inline code goes through ask path, not veto gate.
-        Verified by checking _has_lang_exec_script returns False."""
+    def test_inline_does_not_reach_script_veto_gate(self, project_root):
+        """Inline code is allowed via content scan, not the script veto gate.
+        _has_lang_exec_script returns False because reason is 'inline clean' not 'script clean'."""
         from nah.hook import _has_lang_exec_script
         result = classify_command("python -c 'print(1)'")
-        assert result.final_decision == "ask"
+        assert result.final_decision == "allow"
         assert _has_lang_exec_script(result) is False
 
     def test_veto_gate_skips_not_found(self, project_root):
@@ -556,11 +557,13 @@ class TestPromptEnrichment:
         finally:
             os.chdir(old_cwd)
 
-    def test_prompt_no_content_for_inline(self):
+    def test_prompt_includes_inline_code(self):
+        """Inline code is now included in LLM prompt for enrichment (nah-koi.1)."""
         from nah.llm import _build_prompt
         result = classify_command("python -c 'print(1)'")
         prompt = _build_prompt(result)
-        assert "Script about to execute:" not in prompt.user
+        assert "Script about to execute:" in prompt.user
+        assert "print(1)" in prompt.user
 
     def test_prompt_no_content_for_nonexistent(self, project_root):
         old_cwd = os.getcwd()
@@ -586,9 +589,10 @@ class TestReadScriptForLlm:
         content = _read_script_for_llm(["python", path])
         assert content == "print('hello')\n"
 
-    def test_inline_returns_none(self):
+    def test_inline_returns_code_string(self):
+        """Inline code is now returned for LLM enrichment (nah-koi.1)."""
         from nah.llm import _read_script_for_llm
-        assert _read_script_for_llm(["python", "-c", "print(1)"]) is None
+        assert _read_script_for_llm(["python", "-c", "print(1)"]) == "print(1)"
 
     def test_module_returns_none(self):
         from nah.llm import _read_script_for_llm

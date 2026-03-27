@@ -1753,12 +1753,16 @@ def _check_redirect(target: str) -> tuple[str, str]:
 def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
     target_path = None
+    inline_code = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         target_path = _extract_primary_target(tokens)
     elif action_type == taxonomy.LANG_EXEC:
         target_path = _resolve_script_path(tokens)
-    return context.resolve_context(action_type, tokens=tokens, target_path=target_path)
+        if target_path is None:
+            inline_code = _extract_inline_code(tokens)
+    return context.resolve_context(action_type, tokens=tokens, target_path=target_path,
+                                   inline_code=inline_code)
 
 
 def _extract_primary_target(tokens: list[str]) -> str:
@@ -1824,6 +1828,42 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     if cmd != tokens[0]:
         return os.path.realpath(tokens[0]) if os.path.isfile(tokens[0]) else tokens[0]
 
+    return None
+
+
+def _extract_inline_code(tokens: list[str]) -> str | None:
+    """Extract inline code string from interpreter tokens (python -c '...', node -e '...').
+
+    Returns the code string following an inline flag, or None if no inline
+    flag found or no code argument follows it.
+    """
+    if not tokens or len(tokens) < 2:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+
+    from nah.taxonomy import _INLINE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
+    cmd = _normalize_interpreter(cmd)
+
+    inline = _INLINE_FLAGS.get(cmd, set())
+    if not inline:
+        return None
+    value_flags = _VALUE_FLAGS.get(cmd, set())
+
+    skip_next = False
+    for i, tok in enumerate(tokens[1:], 1):
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in value_flags:
+            skip_next = True
+            continue
+        if tok in inline:
+            if i + 1 < len(tokens):
+                return tokens[i + 1]
+            return None  # bare flag with no code argument
+        if tok.startswith("-"):
+            continue
     return None
 
 

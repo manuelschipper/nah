@@ -59,6 +59,7 @@ def resolve_context(
     tokens: list[str] | None = None,
     tool_input: dict | None = None,
     target_path: str | None = None,
+    inline_code: str | None = None,
 ) -> tuple[str, str]:
     """Dispatch context resolution by action type.
 
@@ -83,7 +84,7 @@ def resolve_context(
         return taxonomy.ALLOW, f"{action_type}: no target path"
 
     if action_type == taxonomy.LANG_EXEC:
-        return resolve_lang_exec_context(target_path)
+        return resolve_lang_exec_context(target_path, inline_code=inline_code)
 
     return taxonomy.ASK, f"{action_type}: no context resolver"
 
@@ -461,15 +462,31 @@ def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | N
     return positionals[0] if positionals else None
 
 
-def resolve_lang_exec_context(target_path: str | None) -> tuple[str, str]:
+def resolve_lang_exec_context(
+    target_path: str | None,
+    *,
+    inline_code: str | None = None,
+) -> tuple[str, str]:
     """Resolve lang_exec context by checking script path and contents.
 
-    For inline code (python -c) target_path is None → ask.
+    For inline code (python -c) with extractable code string: scans content.
+    For inline code without extractable string: ask.
     For script files: checks path sensitivity, reads file, inspects contents.
     Content inspection runs even for trusted/in-project paths — being inside
     the project is necessary but not sufficient for lang_exec.
     """
     if not target_path:
+        if inline_code:
+            from nah.content import scan_content, format_content_message
+            matches = scan_content(inline_code)
+            if matches:
+                worst = "ask"
+                for m in matches:
+                    if m.policy == "block":
+                        worst = "block"
+                        break
+                return worst, format_content_message("inline", matches)
+            return taxonomy.ALLOW, "lang_exec: inline clean"
         return taxonomy.ASK, "lang_exec: inline execution"
 
     from nah.config import get_config

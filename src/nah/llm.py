@@ -175,12 +175,15 @@ def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None
         return _try_read(path, max_chars)
 
     skip_next = False
-    for tok in tokens[1:]:
+    for i, tok in enumerate(tokens[1:], 1):
         if skip_next:
             skip_next = False
             continue
         if tok in inline:
-            return None  # inline code, no file to read
+            # Return inline code string for LLM prompt enrichment (nah-koi.1)
+            if i + 1 < len(tokens):
+                return tokens[i + 1][:max_chars]
+            return None
         if tok in module:
             return None  # module mode, no single file to read
         if tok in value_flags:

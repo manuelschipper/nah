@@ -39,9 +39,10 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "ask"
         assert "outside project" in r.reason
 
-    def test_python_c_ask(self, project_root):
+    def test_python_c_inline_clean_allow(self, project_root):
+        """Safe inline code is now allowed via content inspection (nah-koi.1)."""
         r = classify_command("python -c 'print(1)'")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "allow"
         assert r.stages[0].action_type == "lang_exec"
 
     def test_npm_test_allow(self, project_root):

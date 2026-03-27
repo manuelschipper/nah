@@ -160,9 +160,8 @@ class TestActionPolicyHints:
         ("brew uninstall jq", "package_uninstall"),
         ("pip uninstall requests", "package_uninstall"),
         ("npm uninstall express", "package_uninstall"),
-        # lang_exec
-        ("python3 -c 'import os'", "lang_exec"),
-        ("node -e 'console.log(1)'", "lang_exec"),
+        # lang_exec — safe inline now allowed (nah-koi.1), use script file for ask
+        ("python3 nonexistent_script.py", "lang_exec"),
         # db_write
         ("psql -c SELECT", "db_write"),
         ("mysql -e SHOW", "db_write"),
@@ -961,15 +960,27 @@ class TestLangExecHints:
     """Language runtime execution — lang_exec hint."""
 
     @pytest.mark.parametrize("cmd", [
-        "python3 -c 'print(1)'",
-        "node -e 'console.log(1)'",
-        "ruby -e 'puts 1'",
-        "perl -e 'print 1'",
+        # Safe inline code is now allowed (nah-koi.1), use script files for ask hints
+        "python3 nonexistent_script.py",
+        "node nonexistent_script.js",
+        "ruby nonexistent_script.rb",
+        "perl nonexistent_script.pl",
     ])
     def test_lang_exec_hint(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "ask"
         assert "nah allow lang_exec" in hint
+
+    @pytest.mark.parametrize("cmd", [
+        "python3 -c 'print(1)'",
+        "node -e 'console.log(1)'",
+        "ruby -e 'puts 1'",
+        "perl -e 'print 1'",
+    ])
+    def test_inline_clean_allows(self, cmd):
+        """Safe inline code is allowed after content scan (nah-koi.1)."""
+        decision, hint = _hint(cmd)
+        assert decision == "allow"
 
     def test_python_module_lang_exec(self):
         """python3 -m is lang_exec (module execution, FD-079)."""
