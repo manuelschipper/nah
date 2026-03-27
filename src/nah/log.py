@@ -103,19 +103,19 @@ def build_entry(
             classify["redirect_target"] = redir
         entry["classify"] = classify
 
-    # Detail: llm
-    llm_provider = meta.get("llm_provider")
-    if llm_provider:
+    # Detail: llm — log whenever LLM was attempted (provider set or cascade exists)
+    llm_provider = meta.get("llm_provider", "")
+    llm_cascade = meta.get("llm_cascade")
+    if llm_provider or llm_cascade:
         llm: dict = {
-            "provider": llm_provider,
+            "provider": llm_provider or "(none)",
             "model": meta.get("llm_model", ""),
             "ms": meta.get("llm_latency_ms", 0),
             "decision": meta.get("llm_decision", ""),
             "reasoning": meta.get("llm_reasoning", ""),
         }
-        cascade = meta.get("llm_cascade")
-        if cascade:
-            llm["cascade"] = cascade
+        if llm_cascade:
+            llm["cascade"] = llm_cascade
         prompt = meta.get("llm_prompt")
         if prompt:
             llm["prompt"] = prompt
