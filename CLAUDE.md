@@ -86,88 +86,6 @@ nah status               # show all custom rules
 nah forget <type>        # remove a rule
 ```
 
----
-
-## Design Workflow (molds)
-
-Design specs use beads with working files in `.molds/` (gitignored). A background watcher automatically syncs `.molds/` files with the beads database every second — no manual sync needed. Edit a file and it pushes to beads; change a bead remotely and it pulls to the file.
-
-### Beads (`bd`)
-
-Beads is the task database underneath molds. Bead IDs look like `<prefix>-<hash>` (e.g., `nah-a3f8`, `molds-yz9`). The prefix matches the project.
-
-**Statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`
-**Priority:** 0-4 (P0 = highest, P2 = default)
-
-#### Common commands
-
-```bash
-# Querying
-bd list                          # open beads (default view)
-bd list --pretty                 # tree view with status symbols
-bd list --status open --json     # JSON output for parsing
-bd list --all                    # include closed
-bd list --label <label>          # filter by label
-bd ready                         # unblocked beads ready to work on
-bd ready --label design          # design-phase beads
-bd ready --label build           # build-phase beads
-bd show <id>                     # full bead details
-bd show <id> --json              # JSON output
-bd search "query"                # full-text search
-
-# Creating & updating
-bd create "<title>" --json                    # create bead, get ID
-bd create "<title>" -p 1 -d "description"     # with priority and description
-bd update <id> --body-file - < file.md        # set body from file
-bd update <id> --add-label <label>            # add label
-bd update <id> --remove-label <label>         # remove label
-bd update <id> --status in_progress           # change status
-bd update <id> --priority 1                   # change priority
-bd update <id> --assignee "<name>"            # assign
-bd update <id> --claim                        # atomically claim (assign + in_progress)
-
-# Closing & lifecycle
-bd close <id> --reason "Completed"            # close with reason
-bd reopen <id>                                # reopen closed bead
-bd delete <id>                                # permanently delete
-
-# Labels & comments
-bd label list-all                             # all labels in database
-bd comments <id>                              # view comments
-bd comments add <id> "comment text"           # add comment
-
-# Dependencies
-bd update <id> --deps "blocks:<other-id>"     # add dependency
-bd children <id>                              # list child beads
-```
-
-### Labels
-- `design` — spec phase (working file exists in `.molds/`)
-- `build` — signed off, ready to implement
-
-### Lifecycle
-`/monew` → `/modesign` → `/moready` → implement → `/moreview` → `/moclose`
-
-### Skills
-| Skill | Purpose |
-|-------|---------|
-| `/monew` | Create bead (label: design) + working file |
-| `/modesign` | Design copilot — explore, propose, critique specs |
-| `/moready` | Pre-flight + label design→build + delete working file |
-| `/moclose` | Close bead + changelog + commit |
-| `/moexplore` | Project overview + bead state + activity |
-| `/moreview` | Spec compliance + code quality + verification |
-| `/modeep` | Deep parallel research (Claude Code only) |
-| `/modebrief` | Full context offload — conversation → mold |
-
-### CLI
-`molds status` — bead dashboard grouped by phase (no LLM needed)
-
-### Inline Annotations (`%%`)
-Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
-
----
-
 ## Release Checklist
 
 When cutting a new release:
@@ -182,3 +100,41 @@ When cutting a new release:
 6. **Push** — `git push origin main --tags`
 7. **Verify** — `gh run watch` to confirm PyPI publish + GitHub Release succeed
 8. **Post-release** — `pip install --upgrade nah` and verify `nah --version` matches
+
+---
+
+## Design Workflow (molds)
+
+Design specs live in `.molds/` as markdown files. Each spec goes through a lifecycle: design → build → archive.
+
+### Statuses
+- `design` — spec is being written (working file in `.molds/`)
+- `build` — spec signed off, ready to implement (file stays in `.molds/`)
+
+### Lifecycle
+`/new-mold` → `/design-mold` → `/ready-mold` → `/build-mold` → `/review-code` → `/close-mold`
+
+### Skills
+| Skill | Purpose |
+|-------|---------|
+| `/new-mold` | Create mold + scaffolded working file |
+| `/design-mold` | Design copilot — explore, propose, critique specs |
+| `/ready-mold` | Pre-flight checks + sign off design → build |
+| `/build-mold` | Spec-driven implementation — walks Files to Modify, commits, verifies |
+| `/close-mold` | Close mold + archive + changelog |
+| `/explore-project` | Project overview + mold state + activity |
+| `/review-code` | Adversarial code review against spec |
+| `/deep-analysis` | Deep parallel research (Claude Code only) |
+| `/handoff` | Context dump to mold for next session |
+| `/groom-molds` | Audit open molds against codebase — detect stale/done/superseded |
+
+### CLI
+```bash
+molds create "<title>"            # create a new mold
+molds update <id> --status <s>    # update mold status
+molds close <id>                  # close and archive
+molds status                      # dashboard
+```
+
+### Inline Annotations (`%%`)
+Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
