@@ -127,11 +127,32 @@ class TestIsSensitive:
         assert pattern == "~/.config/gh"
         assert policy == "ask"
 
-    def test_docker_config_ask(self):
+    def test_docker_dir_ask(self):
         resolved = paths.resolve_path("~/.docker/config.json")
         matched, pattern, policy = paths.is_sensitive(resolved)
         assert matched is True
-        assert pattern == "~/.docker/config.json"
+        assert pattern == "~/.docker"
+        assert policy == "ask"
+
+    def test_kube_ask(self):
+        resolved = paths.resolve_path("~/.kube/config")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.kube"
+        assert policy == "ask"
+
+    def test_az_cli_ask(self):
+        resolved = paths.resolve_path("~/.config/az/accessTokens.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.config/az"
+        assert policy == "ask"
+
+    def test_heroku_ask(self):
+        resolved = paths.resolve_path("~/.config/heroku/credentials")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.config/heroku"
         assert policy == "ask"
 
     def test_terraform_credentials_ask(self):
@@ -189,6 +210,18 @@ class TestIsSensitive:
     def test_shell_init_dir_ask(self, dotdir, display):
         resolved = paths.resolve_path(f"~/{dotdir}/custom.sh")
         matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == display
+        assert policy == "ask"
+
+    # Sensitive basenames (nah-brq V2)
+    @pytest.mark.parametrize("basename,display", [
+        (".pgpass", ".pgpass"),
+        (".boto", ".boto"),
+        ("terraform.tfvars", "terraform.tfvars"),
+    ])
+    def test_credential_basename_ask(self, basename, display):
+        matched, pattern, policy = paths.is_sensitive(f"/project/{basename}")
         assert matched is True
         assert pattern == display
         assert policy == "ask"
@@ -267,7 +300,7 @@ class TestCheckPath:
         result = paths.check_path("Read", "~/.docker/config.json")
         assert result is not None
         assert result["decision"] == "ask"
-        assert "~/.docker/config.json" in result["reason"]
+        assert "~/.docker" in result["reason"]
 
     def test_sensitive_ask_terraform_credentials(self):
         result = paths.check_path("Read", "~/.terraform.d/credentials.tfrc.json")
