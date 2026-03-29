@@ -26,7 +26,12 @@ scripts/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
-.beads/
+# Beads: ignore contents, track config files
+.beads/*
+!.beads/.gitignore
+!.beads/config.yaml
+!.beads/metadata.json
+!.beads/README.md
 .molds/
 
 # Beads / Dolt files (added by bd init)
