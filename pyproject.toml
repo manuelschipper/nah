@@ -26,6 +26,10 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
+dependencies = [
+    "keyring>=25.0",
+]
+
 [project.optional-dependencies]
 dev = ["pytest"]
 config = ["pyyaml>=6.0"]
@@ -55,3 +59,7 @@ packages = ["src/nah"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: tests that use the real OS keyring (run with: pytest -m integration)",
+]

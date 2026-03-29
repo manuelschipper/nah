@@ -1,6 +1,7 @@
 """Shared fixtures for nah tests."""
 
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -39,6 +40,33 @@ def _reset_state():
     content._content_patterns_merged = True
     reset_config()
     hook._transcript_path = ""
+
+
+@pytest.fixture(autouse=True)
+def _mock_keyring(request):
+    """Isolate tests from the real OS keyring.
+
+    All tests get a keyring that returns None by default.
+    Tests marked with @pytest.mark.integration skip this mock
+    and use the real OS keyring.
+    """
+    if request.node.get_closest_marker("integration"):
+        yield MagicMock()  # yield a dummy (unused) to keep fixture signature
+        return
+    mock_kr = MagicMock()
+    mock_kr.get_password.return_value = None
+    mock_kr.set_password.return_value = None
+    with patch("nah.llm.keyring", mock_kr):
+        yield mock_kr
+
+
+@pytest.fixture(autouse=True)
+def _reset_migrated():
+    """Clear the keyring auto-migration dedup set between tests."""
+    from nah.llm import _migrated
+    _migrated.clear()
+    yield
+    _migrated.clear()
 
 
 @pytest.fixture

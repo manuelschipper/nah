@@ -9,8 +9,54 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 from urllib.error import URLError
 
+import keyring
+
 _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
+
+_KEYRING_SERVICE = "nah"
+_migrated: set[str] = set()
+
+
+def _resolve_key(key_env: str) -> str:
+    """Resolve API key: keyring → env var (auto-migrate) → empty string.
+
+    When a key exists in env var but not in keyring, it is automatically
+    copied into the OS keyring and a one-time hint is printed to stderr
+    (visible to the user, not captured by the calling agent) suggesting
+    the user remove the env var.
+    """
+    # 1. Try keyring
+    try:
+        keyring_val = keyring.get_password(_KEYRING_SERVICE, key_env) or ""
+    except Exception as exc:
+        keyring_val = ""
+        sys.stderr.write(f"nah: keyring: read failed for {key_env}: {exc}\n")
+
+    if keyring_val:
+        return keyring_val
+
+    # 2. Fallback to env var
+    env_val = os.environ.get(key_env, "")
+    if not env_val:
+        return ""
+
+    # 3. Auto-migrate: copy env var → keyring, hint to remove env var
+    if key_env not in _migrated:
+        _migrated.add(key_env)
+        try:
+            keyring.set_password(_KEYRING_SERVICE, key_env, env_val)
+            sys.stderr.write(
+                f"nah: keyring: migrated {key_env} — "
+                f"you can now remove the env var\n"
+            )
+        except Exception:
+            sys.stderr.write(
+                f"nah: keyring: write failed for {key_env} — "
+                f"store with: python -m keyring set nah {key_env}\n"
+            )
+
+    return env_val
 
 
 class PromptParts(NamedTuple):
@@ -472,7 +518,7 @@ def _call_openai_compat(
     if not url:
         return None
     key_env = config.get("key_env", default_key_env)
-    key = os.environ.get(key_env, "")
+    key = _resolve_key(key_env)
     if not key:
         return None
     model = config.get("model", default_model)
@@ -515,7 +561,7 @@ def _call_cortex(
         )
 
     key_env = config.get("key_env", "SNOWFLAKE_PAT")
-    pat = os.environ.get(key_env, "")
+    pat = _resolve_key(key_env)
     if not pat:
         return None
 
@@ -566,7 +612,7 @@ def _call_openai_responses(
     if not url:
         return None
     key_env = config.get("key_env", default_key_env)
-    key = os.environ.get(key_env, "")
+    key = _resolve_key(key_env)
     if not key:
         return None
     model = config.get("model", default_model)
@@ -610,7 +656,7 @@ def _call_anthropic(
     """Call Anthropic Messages API."""
     url = config.get("url", "https://api.anthropic.com/v1/messages")
     key_env = config.get("key_env", "ANTHROPIC_API_KEY")
-    key = os.environ.get(key_env, "")
+    key = _resolve_key(key_env)
     if not key:
         return None
     model = config.get("model", "claude-haiku-4-5")
