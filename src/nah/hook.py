@@ -69,6 +69,14 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
         if llm_call.decision is not None:
             return llm_call.decision, _build_llm_meta(llm_call, cfg)
+        # All providers errored (missing keys, network) — fail-open to deterministic
+        if llm_call.cascade and all(a.status == "error" for a in llm_call.cascade):
+            attempts = "; ".join(
+                f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
+                for a in llm_call.cascade
+            )
+            sys.stderr.write(f"nah: LLM write: all providers failed [{attempts}]\n")
+            return None, _build_llm_meta(llm_call, cfg)
         # LLM said uncertain (reached but undecided) — escalate to ask
         if llm_call.cascade:
             attempts = "; ".join(
