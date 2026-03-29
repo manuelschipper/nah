@@ -193,7 +193,7 @@ _SCRIPT_EXTENSIONS = {".py", ".js", ".rb", ".sh", ".pl", ".ts", ".php", ".tsx"}
 # Exec sinks for pipe composition.
 _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
                          "node", "ruby", "perl", "php", "bun", "deno", "fish", "pwsh",
-                         "env"}
+                         "env", "lua", "R", "Rscript", "make", "julia", "swift"}
 EXEC_SINKS: set[str] = set(_EXEC_SINKS_DEFAULTS)
 _exec_sinks_merged = False
 
@@ -259,6 +259,15 @@ _DECODE_COMMANDS_DEFAULTS: list[tuple[str, str | None]] = [
     ("base64", "--decode"),
     ("xxd", "-r"),
     ("uudecode", None),
+    ("gzip", "-d"),
+    ("gzip", "-dc"),
+    ("zcat", None),
+    ("bzip2", "-d"),
+    ("bzcat", None),
+    ("xz", "-d"),
+    ("xzcat", None),
+    ("openssl", "enc"),
+    ("unzip", "-p"),
 ]
 DECODE_COMMANDS: list[tuple[str, str | None]] = list(_DECODE_COMMANDS_DEFAULTS)
 _decode_commands_merged = False

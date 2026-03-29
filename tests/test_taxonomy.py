@@ -742,7 +742,8 @@ class TestIsExecSink:
     """Exec sink detection for pipe composition."""
 
     @pytest.mark.parametrize("token", ["bash", "sh", "dash", "zsh", "eval",
-                                        "python", "python3", "node", "ruby", "perl", "php"])
+                                        "python", "python3", "node", "ruby", "perl", "php",
+                                        "lua", "R", "Rscript", "make", "julia", "swift"])
     def test_sinks(self, token):
         assert is_exec_sink(token) is True
 
@@ -765,6 +766,38 @@ class TestIsDecodeStage:
 
     def test_xxd_r(self):
         assert is_decode_stage(["xxd", "-r"]) is True
+
+    # Compression decode commands (nah-brq V4)
+    def test_gzip_d(self):
+        assert is_decode_stage(["gzip", "-d"]) is True
+
+    def test_gzip_dc(self):
+        assert is_decode_stage(["gzip", "-dc"]) is True
+
+    def test_zcat(self):
+        assert is_decode_stage(["zcat", "file.gz"]) is True
+
+    def test_bzip2_d(self):
+        assert is_decode_stage(["bzip2", "-d"]) is True
+
+    def test_bzcat(self):
+        assert is_decode_stage(["bzcat", "file.bz2"]) is True
+
+    def test_xz_d(self):
+        assert is_decode_stage(["xz", "-d"]) is True
+
+    def test_xzcat(self):
+        assert is_decode_stage(["xzcat", "file.xz"]) is True
+
+    def test_openssl_enc(self):
+        assert is_decode_stage(["openssl", "enc", "-d", "-aes-256-cbc"]) is True
+
+    def test_unzip_p(self):
+        assert is_decode_stage(["unzip", "-p", "archive.zip"]) is True
+
+    def test_gzip_compress_not_decode(self):
+        """gzip without -d is compress, not decode."""
+        assert is_decode_stage(["gzip", "file"]) is False
 
     def test_base64_encode_not_decode(self):
         assert is_decode_stage(["base64"]) is False

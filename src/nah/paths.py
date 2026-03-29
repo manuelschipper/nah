@@ -23,7 +23,10 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".azure")), "~/.azure", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gcloud")), "~/.config/gcloud", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gh")), "~/.config/gh", "ask"),
-    (os.path.realpath(os.path.join(_HOME, ".docker", "config.json")), "~/.docker/config.json", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".docker")), "~/.docker", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".kube")), "~/.kube", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".config", "az")), "~/.config/az", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".config", "heroku")), "~/.config/heroku", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".terraform.d", "credentials.tfrc.json")), "~/.terraform.d/credentials.tfrc.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".terraformrc")), "~/.terraformrc", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.json")), "~/.claude/settings.json", "ask"),
@@ -52,6 +55,9 @@ _SENSITIVE_BASENAMES: list[tuple[str, str, str]] = [
     (".env.production", ".env.production", "ask"),
     (".npmrc", ".npmrc", "ask"),
     (".pypirc", ".pypirc", "ask"),
+    (".pgpass", ".pgpass", "ask"),
+    (".boto", ".boto", "ask"),
+    ("terraform.tfvars", "terraform.tfvars", "ask"),
 ]
 
 _project_root: str | None = None
