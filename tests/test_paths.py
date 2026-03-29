@@ -161,6 +161,43 @@ class TestIsSensitive:
         assert pattern == ".env.local"
         assert policy == "ask"
 
+    # Shell init file protection (nah-wdd)
+    @pytest.mark.parametrize("dotfile,display", [
+        (".bashrc", "~/.bashrc"),
+        (".bash_profile", "~/.bash_profile"),
+        (".bash_aliases", "~/.bash_aliases"),
+        (".bash_login", "~/.bash_login"),
+        (".bash_logout", "~/.bash_logout"),
+        (".profile", "~/.profile"),
+        (".zshrc", "~/.zshrc"),
+        (".zshenv", "~/.zshenv"),
+        (".zprofile", "~/.zprofile"),
+        (".zlogin", "~/.zlogin"),
+        (".zlogout", "~/.zlogout"),
+    ])
+    def test_shell_init_file_ask(self, dotfile, display):
+        resolved = paths.resolve_path(f"~/{dotfile}")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == display
+        assert policy == "ask"
+
+    @pytest.mark.parametrize("dotdir,display", [
+        (".bashrc.d", "~/.bashrc.d"),
+        (".zshrc.d", "~/.zshrc.d"),
+    ])
+    def test_shell_init_dir_ask(self, dotdir, display):
+        resolved = paths.resolve_path(f"~/{dotdir}/custom.sh")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == display
+        assert policy == "ask"
+
+    def test_shell_init_not_in_project(self):
+        """A .bashrc inside a project dir should NOT trigger sensitive path."""
+        matched, _, _ = paths.is_sensitive("/tmp/myproject/.bashrc")
+        assert matched is False
+
     def test_normal_path(self):
         matched, _, _ = paths.is_sensitive("/tmp/normal.txt")
         assert matched is False

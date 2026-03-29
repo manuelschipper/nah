@@ -28,6 +28,20 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".terraformrc")), "~/.terraformrc", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.json")), "~/.claude/settings.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.local.json")), "~/.claude/settings.local.json", "ask"),
+    # Shell init files — alias injection persistence vector (nah-wdd)
+    (os.path.realpath(os.path.join(_HOME, ".bashrc")), "~/.bashrc", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".bash_profile")), "~/.bash_profile", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".bash_aliases")), "~/.bash_aliases", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".bash_login")), "~/.bash_login", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".bash_logout")), "~/.bash_logout", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".profile")), "~/.profile", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zshrc")), "~/.zshrc", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zshenv")), "~/.zshenv", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zprofile")), "~/.zprofile", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zlogin")), "~/.zlogin", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zlogout")), "~/.zlogout", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".bashrc.d")), "~/.bashrc.d", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".zshrc.d")), "~/.zshrc.d", "ask"),
     (os.path.realpath("/etc/shadow"), "/etc/shadow", "block"),
 ]
 
