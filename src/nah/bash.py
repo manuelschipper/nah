@@ -249,6 +249,61 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
             i += 2
             continue
 
+        # Heredoc operator: << or <<- followed by a delimiter.
+        # The body (up to the closing delimiter line) must not be split on
+        # operators — consume it as part of the current stage.
+        if c == '<' and i + 1 < n and command[i + 1] == '<' and not (i + 2 < n and command[i + 2] == '<'):
+            # Consume << or <<-
+            current.append(c)
+            current.append(command[i + 1])
+            j = i + 2
+            if j < n and command[j] == '-':
+                current.append(command[j])
+                j += 1
+            # Skip whitespace between operator and delimiter
+            while j < n and command[j] in (' ', '\t'):
+                current.append(command[j])
+                j += 1
+            # Extract delimiter (may be quoted: 'DELIM', "DELIM", or bare)
+            delim_start = j
+            if j < n and command[j] in ("'", '"'):
+                quote_char = command[j]
+                current.append(command[j])
+                j += 1
+                while j < n and command[j] != quote_char:
+                    current.append(command[j])
+                    j += 1
+                if j < n:
+                    current.append(command[j])
+                    j += 1
+                delim = command[delim_start + 1:j - 1]
+            else:
+                while j < n and command[j] not in (' ', '\t', '\n', ';', '|', '&', '<', '>'):
+                    current.append(command[j])
+                    j += 1
+                delim = command[delim_start:j]
+            # Consume everything through the closing delimiter line
+            if delim:
+                while j < n:
+                    current.append(command[j])
+                    if command[j] == '\n':
+                        # Check if the next line is the closing delimiter
+                        line_start = j + 1
+                        line_end = line_start
+                        while line_end < n and command[line_end] != '\n':
+                            line_end += 1
+                        line = command[line_start:line_end]
+                        # <<- strips leading tabs
+                        if line.lstrip('\t') == delim or line == delim:
+                            # Consume the closing delimiter line
+                            for k in range(line_start, line_end):
+                                current.append(command[k])
+                            j = line_end
+                            break
+                    j += 1
+            i = j
+            continue
+
         # Shell comment: # at word boundary → consume to end of line (nah-2zt)
         # Keeps content in stage string (heredoc-safe) but skips quote tracking.
         if c == '#':
@@ -541,6 +596,23 @@ def _decompose(
             i += 1
             continue
 
+        # Heredoc redirect: strip the << operator and delimiter token.
+        # shlex.split doesn't understand heredocs, so the operator, delimiter,
+        # and body all appear as flat tokens. The body is already captured in
+        # heredoc_literal (extracted from the raw stage string upstream).
+        # We only strip the operator + delimiter here — body tokens remain in
+        # the token list but are harmless: for interpreter heredocs, the
+        # _classify_stage bypass block returns before _check_extracted_paths;
+        # for non-interpreter heredocs (cat), redirect detection still needs
+        # to process tokens that may follow on the same first line.
+        if tok in ("<<", "<<-"):
+            i += 2  # skip operator + delimiter
+            continue
+        if tok.startswith("<<") and tok not in ("<<<",):
+            # Glued form: <<DELIM, <<-DELIM, <<'DELIM', <<-'DELIM'
+            i += 1  # skip the single glued token
+            continue
+
         # Redirect detection: > foo, >> foo, >| foo, >foo, >>foo, >|foo,
         # fd-prefixed variants like 1> foo or 2>>foo, and fully glued shell
         # forms like ok>foo where shlex leaves the redirect attached to argv.
@@ -729,6 +801,23 @@ def _classify_stage(
                               trust_project=trust_project)
     if unwrapped is not None:
         return _apply_redirect_guard(stage, unwrapped, user_actions=user_actions)
+
+    # Heredoc-fed interpreter: python3 << EOF ... EOF
+    # The heredoc body is already in stage.heredoc_literal (extracted upstream).
+    # Bypass classify_tokens (which would see bare 'python3' as unknown) and
+    # _apply_policy (which would call _resolve_context without the heredoc body).
+    if stage.heredoc_literal and tokens:
+        cmd = taxonomy._normalize_interpreter(os.path.basename(tokens[0]))
+        if cmd in taxonomy._SCRIPT_INTERPRETERS:
+            sr.action_type = taxonomy.LANG_EXEC
+            sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
+            if sr.default_policy == taxonomy.CONTEXT:
+                sr.decision, sr.reason = context.resolve_context(
+                    taxonomy.LANG_EXEC, tokens=tokens,
+                    target_path=None, inline_code=stage.heredoc_literal)
+            else:
+                _apply_policy(sr)
+            return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
