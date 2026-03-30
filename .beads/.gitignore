@@ -62,6 +62,7 @@ backup/
 hashes/
 watcher.log
 watcher.pid
+sync-health.json
 
 # Legacy files (from pre-Dolt versions)
 *.db
