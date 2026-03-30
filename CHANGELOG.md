@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Inline code inspection** — `python3 -c 'print(1)'`, `node -e`, `ruby -e`, `perl -e`, `php -r` inline code is now content-scanned instead of blindly prompting. Safe inline → allow, dangerous patterns → ask/block. LLM veto gate fires on clean inline code (same defense-in-depth as script files). LLM prompt now includes inline code for enrichment (nah-koi.1)
+- **Shell init file protection** — `~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.zshenv`, `~/.bash_aliases`, and 8 more shell init files now guarded as sensitive paths (`ask` policy). Prevents silent alias injection persistence. Includes `.bashrc.d/` and `.zshrc.d/` directories (nah-wdd)
+- **Safety list hardening** — expanded coverage for credential directories (`~/.kube`, `~/.docker`, `~/.config/az`, `~/.config/heroku`), sensitive basenames (`.pgpass`, `.boto`, `terraform.tfvars`), exec sinks (`lua`, `R`, `Rscript`, `make`, `julia`, `swift`), and decode-to-exec pipe detection (`gzip -d`, `zcat`, `bzip2 -d`, `openssl enc`, `unzip -p`, and more) (nah-brq)
 
 ### Fixed
 
