@@ -2172,3 +2172,102 @@ class TestShellCommentParsing:
         """Comments inside heredoc should not break parsing."""
         r = classify_command("cat <<'EOF'\n# there's heredoc content\nactual line\nEOF")
         assert "shlex" not in (r.reason or "")
+
+
+class TestHeredocInterpreter:
+    """Heredoc-fed interpreters (python3 << EOF) should be classified as lang_exec
+    with content scanning via heredoc_literal."""
+
+    # --- Token stripping + classification ---
+
+    @pytest.mark.parametrize("command,expected_tokens_prefix", [
+        ("python3 << 'PYEOF'\nimport json\nprint('hello')\nPYEOF", ["python3"]),
+        ("python3 <<EOF\nprint('hi')\nEOF", ["python3"]),
+        ("python3 <<-EOF\n\tprint('hi')\nEOF", ["python3"]),
+        ("python3 -u << EOF\nprint('hi')\nEOF", ["python3", "-u"]),
+    ])
+    def test_heredoc_tokens_stripped_from_stage(self, project_root, command, expected_tokens_prefix):
+        """Heredoc operator + delimiter should be stripped; body tokens may remain
+        but the first tokens should be the interpreter (+ flags)."""
+        r = classify_command(command)
+        actual = r.stages[0].tokens[:len(expected_tokens_prefix)]
+        assert actual == expected_tokens_prefix
+
+    # --- Clean heredoc → lang_exec → allow ---
+
+    @pytest.mark.parametrize("command", [
+        "python3 << 'EOF'\nprint('hello')\nEOF",
+        "python3 <<EOF\nprint('hi')\nEOF",
+        "python3 <<-EOF\n\tprint('hi')\nEOF",
+        "python3 -u << EOF\nprint('hi')\nEOF",
+        "node << 'EOF'\nconsole.log('hello')\nEOF",
+        "ruby << 'EOF'\nputs 'hello'\nEOF",
+        "perl << 'EOF'\nprint \"hello\\n\";\nEOF",
+    ])
+    def test_clean_heredoc_interpreter_allows(self, project_root, command):
+        r = classify_command(command)
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.final_decision == "allow"
+        assert "inline clean" in r.reason
+
+    # --- Dangerous heredoc content → lang_exec → ask ---
+
+    def test_heredoc_with_destructive_content_asks(self, project_root):
+        r = classify_command("python3 << 'EOF'\nimport os; os.remove('/etc/passwd')\nEOF")
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.final_decision == "ask"
+        assert "os.remove" in r.reason
+
+    def test_heredoc_with_private_key_asks(self, project_root):
+        r = classify_command("python3 << 'EOF'\nkey = '-----BEGIN RSA PRIVATE KEY-----'\nEOF")
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.final_decision == "ask"
+        assert "content inspection" in r.reason
+
+    # --- Semicolons in heredoc body must not split stages ---
+
+    def test_heredoc_body_semicolons_not_split(self, project_root):
+        """Semicolons inside heredoc body should not cause stage splitting."""
+        r = classify_command("python3 << 'EOF'\na = 1; b = 2; print(a + b)\nEOF")
+        assert len(r.stages) == 1
+        assert r.stages[0].action_type == "lang_exec"
+
+    def test_heredoc_body_pipe_not_split(self, project_root):
+        """Pipes inside heredoc body should not cause stage splitting."""
+        r = classify_command("python3 << 'EOF'\ndata = 'a|b|c'\nprint(data)\nEOF")
+        assert len(r.stages) == 1
+        assert r.stages[0].action_type == "lang_exec"
+
+    def test_heredoc_body_and_not_split(self, project_root):
+        """&& inside heredoc body should not cause stage splitting."""
+        r = classify_command("python3 << 'EOF'\nif True and False:\n    pass\nEOF")
+        assert len(r.stages) == 1
+
+    # --- Non-interpreter heredocs unaffected ---
+
+    def test_cat_heredoc_not_affected(self, project_root):
+        """cat << EOF should not be classified as lang_exec."""
+        r = classify_command("cat << EOF\nhello world\nEOF")
+        assert r.stages[0].action_type != "lang_exec"
+        assert r.final_decision == "allow"
+
+    # --- Regression: existing paths must not break ---
+
+    def test_python_c_still_works(self, project_root):
+        r = classify_command("python3 -c 'print(1)'")
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.final_decision == "allow"
+
+    def test_here_string_still_works(self, project_root):
+        """bash <<< should use existing here-string path, not heredoc."""
+        r = classify_command("bash <<< 'echo hello'")
+        assert r.final_decision == "allow"
+
+    # --- Existing cat heredoc redirect tests still pass ---
+
+    def test_cat_heredoc_redirect_still_inspects_content(self, project_root):
+        """cat <<'EOF' > file with secrets should still be caught."""
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"cat <<'EOF' > {target}\n-----BEGIN PRIVATE KEY-----\nEOF")
+        assert r.final_decision == "ask"
+        assert "content inspection" in r.reason
