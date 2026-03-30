@@ -125,10 +125,16 @@ def classify_command(command: str) -> ClassifyResult:
             try:
                 itokens = shlex.split(istage_str)
             except ValueError:
-                inner_results_by_idx[sub_idx] = _obfuscated_result(
-                    [inner_cmd], "unparseable substitution", user_actions)
-                _inner_ok = False
-                break
+                try:
+                    itokens = shlex.split(istage_str, comments=True)
+                except ValueError:
+                    inner_results_by_idx[sub_idx] = _obfuscated_result(
+                        [inner_cmd], "unparseable substitution", user_actions)
+                    _inner_ok = False
+                    break
+            # Pure-comment stage: # at start means shell comment (nah-2zt)
+            if itokens and itokens[0] == '#':
+                itokens = []
             if itokens:
                 inner_stages.extend(_decompose(
                     itokens, operator=iop,
@@ -151,9 +157,15 @@ def classify_command(command: str) -> ClassifyResult:
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
-            result.final_decision = taxonomy.ASK
-            result.reason = "unparseable command (shlex error)"
-            return result
+            try:
+                tokens = shlex.split(stage_str, comments=True)
+            except ValueError:
+                result.final_decision = taxonomy.ASK
+                result.reason = "unparseable command (shlex error)"
+                return result
+        # Pure-comment stage: # at start means shell comment (nah-2zt)
+        if tokens and tokens[0] == '#':
+            tokens = []
         if tokens:
             stages.extend(_decompose(
                 tokens,
@@ -236,6 +248,16 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
             current.append(command[i:i + 2])
             i += 2
             continue
+
+        # Shell comment: # at word boundary → consume to end of line (nah-2zt)
+        # Keeps content in stage string (heredoc-safe) but skips quote tracking.
+        if c == '#':
+            at_word_boundary = (i == 0 or command[i - 1] in (' ', '\t', '\n'))
+            if at_word_boundary:
+                while i < n and command[i] != '\n':
+                    current.append(command[i])
+                    i += 1
+                continue
 
         # Check for operators (order matters: && and || before | to avoid partial match)
         if c == '&' and i + 1 < n and command[i + 1] == '&':

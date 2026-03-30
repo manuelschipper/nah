@@ -2133,3 +2133,42 @@ class TestExtractSubstitutions:
         assert len(proc) == 1
         # The ) inside quotes should not close the process sub
         assert 'echo "hello)"' == proc[0][0]
+
+
+# --- nah-2zt: shell comment parsing ---
+
+
+class TestShellCommentParsing:
+    """Shell comments with apostrophes should not cause shlex errors."""
+
+    def test_comment_with_apostrophe(self, project_root):
+        """# Check if there's any fix → should not be shlex error."""
+        r = classify_command("# Check if there's any fix\nls -la /tmp")
+        assert r.final_decision != "ask" or "shlex" not in r.reason
+
+    def test_multiple_comments_with_apostrophes(self, project_root):
+        r = classify_command("# here's a comment\n# another one\necho hello")
+        assert r.final_decision == "allow"
+
+    def test_pure_comment_command(self, project_root):
+        """Command that is only comments → empty → allow."""
+        r = classify_command("# only comments\n# nothing else")
+        assert r.final_decision == "allow"
+        assert r.reason == "empty command"
+
+    def test_hash_in_quotes_not_treated_as_comment(self, project_root):
+        r = classify_command("echo '# not a comment'")
+        assert r.final_decision == "allow"
+
+    def test_inline_comment_with_apostrophe(self, project_root):
+        r = classify_command("echo foo  # it's a comment")
+        assert r.final_decision == "allow"
+
+    def test_midword_hash_not_comment(self, project_root):
+        r = classify_command("echo foo#bar")
+        assert r.final_decision == "allow"
+
+    def test_heredoc_with_comment_lines(self, project_root):
+        """Comments inside heredoc should not break parsing."""
+        r = classify_command("cat <<'EOF'\n# there's heredoc content\nactual line\nEOF")
+        assert "shlex" not in (r.reason or "")
