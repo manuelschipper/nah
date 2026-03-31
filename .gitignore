@@ -33,6 +33,7 @@ scripts/
 !.beads/metadata.json
 !.beads/README.md
 .molds/
+.worktrees/
 
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
