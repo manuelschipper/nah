@@ -191,6 +191,8 @@ def read_log(filters: dict | None = None, limit: int = 50) -> list[dict]:
                     continue
                 if "tool" in filters and entry.get("tool") != filters["tool"]:
                     continue
+                if filters.get("llm") and "llm" not in entry:
+                    continue
 
                 entries.append(entry)
     except OSError:

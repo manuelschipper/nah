@@ -33,7 +33,7 @@ class NahConfig:
     credential_patterns_add: list = field(default_factory=list)
     credential_patterns_suppress: list = field(default_factory=list)
     llm: dict = field(default_factory=dict)
-    llm_max_decision: str = "ask"  # default: LLM can't escalate past ask
+    llm_mode: str = "off"
     llm_eligible: str | list = "default"
     trusted_paths: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
@@ -290,10 +290,19 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     # llm: global config ONLY — project .nah.yaml silently ignored
     config.llm = _validate_dict(global_cfg.get("llm", {}))
 
-    # llm.max_decision: cap on LLM escalation (global only)
-    raw_max = config.llm.get("max_decision", "")
-    if raw_max and raw_max in _STRICTNESS:
-        config.llm_max_decision = raw_max
+    # llm.mode: global only. Backward compat for legacy llm.enabled=true.
+    raw_mode = config.llm.get("mode", "")
+    if raw_mode in ("off", "on"):
+        config.llm_mode = raw_mode
+    elif "mode" not in config.llm and bool(config.llm.get("enabled", False)):
+        config.llm_mode = "on"
+
+    # Deprecation warning for removed llm.max_decision
+    if config.llm.get("max_decision"):
+        sys.stderr.write(
+            "nah: llm.max_decision is deprecated and ignored"
+            " — LLM decisions are now capped to ask\n"
+        )
 
     # llm.eligible: which ask categories are LLM-eligible (global only)
     raw_eligible = config.llm.get("eligible", "default")

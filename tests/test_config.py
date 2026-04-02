@@ -299,20 +299,28 @@ class TestProfile:
         assert cfg.profile == "minimal"
 
 
-class TestLlmMaxDecision:
-    """llm.max_decision config loading."""
+class TestLlmMode:
+    """llm.mode config loading."""
 
-    def test_llm_max_decision_from_global(self):
-        cfg = _merge_configs({"llm": {"max_decision": "ask"}}, {})
-        assert cfg.llm_max_decision == "ask"
+    def test_llm_mode_from_global(self):
+        cfg = _merge_configs({"llm": {"mode": "on"}}, {})
+        assert cfg.llm_mode == "on"
 
-    def test_llm_max_decision_invalid_ignored(self):
-        cfg = _merge_configs({"llm": {"max_decision": "turbo"}}, {})
-        assert cfg.llm_max_decision == "ask"  # keeps default
+    def test_llm_mode_invalid_ignored(self):
+        cfg = _merge_configs({"llm": {"mode": "turbo"}}, {})
+        assert cfg.llm_mode == "off"
 
-    def test_llm_max_decision_default_ask(self):
+    def test_llm_mode_default_off(self):
         cfg = _merge_configs({}, {})
-        assert cfg.llm_max_decision == "ask"
+        assert cfg.llm_mode == "off"
+
+    def test_llm_enabled_true_back_compat(self):
+        cfg = _merge_configs({"llm": {"enabled": True}}, {})
+        assert cfg.llm_mode == "on"
+
+    def test_project_llm_ignored(self):
+        cfg = _merge_configs({}, {"llm": {"mode": "on"}})
+        assert cfg.llm_mode == "off"
 
 
 class TestLlmEligible:

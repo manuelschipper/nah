@@ -228,6 +228,13 @@ class TestReadLog:
         assert len(entries) == 1
         assert entries[0]["tool"] == "Bash"
 
+    def test_filter_by_llm(self, tmp_path):
+        log.log_decision({"decision": "allow", "tool": "Bash"})
+        log.log_decision({"decision": "ask", "tool": "Bash", "llm": {"provider": "openrouter"}})
+        entries = log.read_log(filters={"llm": True})
+        assert len(entries) == 1
+        assert "llm" in entries[0]
+
     def test_limit(self, tmp_path):
         for i in range(20):
             log.log_decision({"decision": "allow", "i": i})
@@ -325,6 +332,7 @@ class TestBuildEntry:
             "llm_provider": "openrouter",
             "llm_model": "gemini-flash",
             "llm_latency_ms": 500,
+            "llm_decision": "uncertain",
             "llm_reasoning": "safe",
             "llm_cascade": [{"provider": "openrouter", "status": "success"}],
         }
@@ -333,6 +341,7 @@ class TestBuildEntry:
         assert entry["llm"]["provider"] == "openrouter"
         assert entry["llm"]["model"] == "gemini-flash"
         assert entry["llm"]["ms"] == 500
+        assert entry["llm"]["decision"] == "uncertain"
         assert entry["llm"]["reasoning"] == "safe"
         assert entry["llm"]["cascade"][0]["status"] == "success"
 
