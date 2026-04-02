@@ -297,6 +297,13 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     elif "mode" not in config.llm and bool(config.llm.get("enabled", False)):
         config.llm_mode = "on"
 
+    # Deprecation warning for removed llm.max_decision
+    if config.llm.get("max_decision"):
+        sys.stderr.write(
+            "nah: llm.max_decision is deprecated and ignored"
+            " — LLM decisions are now capped to ask\n"
+        )
+
     # llm.eligible: which ask categories are LLM-eligible (global only)
     raw_eligible = config.llm.get("eligible", "default")
     if raw_eligible == "all":
