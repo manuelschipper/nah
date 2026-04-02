@@ -77,7 +77,7 @@ def handle_read(tool_input: dict) -> dict:
     return paths.check_path("Read", tool_input.get("file_path", "")) or {"decision": taxonomy.ALLOW}
 
 
-def _should_llm_inspect_write(tool_input: dict) -> bool:
+def _should_llm_inspect_write() -> bool:
     """Check if LLM should inspect this write (FD-080)."""
     try:
         from nah.config import get_config
@@ -106,27 +106,14 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
         if llm_call.decision is not None:
             return llm_call.decision, _build_llm_meta(llm_call, cfg)
-        # All providers errored (missing keys, network) — fail-open to deterministic
-        if llm_call.cascade and all(a.status == "error" for a in llm_call.cascade):
+        # All providers errored or none configured — fail-open to deterministic
+        if llm_call.cascade:
             attempts = "; ".join(
                 f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
                 for a in llm_call.cascade
             )
             sys.stderr.write(f"nah: LLM write: all providers failed [{attempts}]\n")
             return None, _build_llm_meta(llm_call, cfg)
-        # LLM said uncertain (reached but undecided) — escalate to ask
-        if llm_call.cascade:
-            attempts = "; ".join(
-                f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
-                for a in llm_call.cascade
-            )
-            sys.stderr.write(f"nah: LLM write: uncertain [{attempts}]\n")
-            ask = {
-                "decision": taxonomy.ASK,
-                "reason": f"{tool_name} (LLM): uncertain — {llm_call.reasoning or 'human review needed'}",
-            }
-            return ask, _build_llm_meta(llm_call, cfg)
-        sys.stderr.write(f"nah: LLM write: no providers responded for {tool_name}\n")
         return None, {}
     except ImportError:
         return None, {}
@@ -156,7 +143,7 @@ def _scan_and_decide(tool_name: str, content: str) -> dict:
 
 def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
     """LLM veto gate for write-like tools. Can only escalate allow -> ask."""
-    if not _should_llm_inspect_write(tool_input):
+    if not _should_llm_inspect_write():
         return det_result
     llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
 
