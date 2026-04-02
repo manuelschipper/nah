@@ -92,9 +92,10 @@ def _hook_command() -> str:
     # shlex.quote() produces POSIX single-quoting which only works when the
     # command is interpreted by a POSIX shell. Claude Code may invoke hooks
     # via cmd.exe or direct OS spawn, where single quotes are literal chars.
-    # as_posix() eliminates backslashes at the source, sidestepping the issue.
-    exe = Path(sys.executable).as_posix()
-    script = _HOOK_SCRIPT.as_posix()
+    # Replace backslashes explicitly because Path(...).as_posix() does not
+    # normalize Windows-style strings when running on POSIX.
+    exe = str(sys.executable).replace("\\", "/")
+    script = str(_HOOK_SCRIPT).replace("\\", "/")
     return f'"{exe}" "{script}"'
 
 
@@ -313,7 +314,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  credential_patterns_suppress: {cfg.credential_patterns_suppress or '[]'}")
         print(f"  db_targets:            {cfg.db_targets or '[]'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
-        print(f"  llm_max_decision:      {cfg.llm_max_decision}")
+        print(f"  llm_mode:              {cfg.llm_mode}")
         print(f"  llm_eligible:          {cfg.llm_eligible}")
         print(f"  log:                   {cfg.log or '{}'}")
         print(f"  active_allow:          {cfg.active_allow}")
@@ -368,11 +369,27 @@ def cmd_test(args: argparse.Namespace) -> None:
                 cfg = get_config()
                 if not cfg.llm:
                     print("LLM config:   not configured")
-                elif not cfg.llm.get("enabled", False):
-                    print("LLM config:   disabled (set enabled: true to activate)")
+                elif cfg.llm_mode != "on":
+                    print("LLM config:   disabled (set mode: on to activate)")
                 else:
-                    from nah.llm import try_llm
-                    llm_call = try_llm(result, cfg.llm)
+                    from nah.llm import try_llm_unified
+                    from nah.log import redact_input
+
+                    action_type = ""
+                    for stage in result.stages:
+                        if stage.decision == "ask":
+                            action_type = stage.action_type
+                            break
+                    if not action_type and result.stages:
+                        action_type = result.stages[0].action_type
+
+                    llm_call = try_llm_unified(
+                        "Bash",
+                        redact_input("Bash", {"command": command}),
+                        action_type or "unknown",
+                        result.reason,
+                        cfg.llm,
+                    )
                     if llm_call.decision is not None:
                         d = llm_call.decision.get("decision", "uncertain")
                         print(f"LLM decision: {d.upper()}")
@@ -782,6 +799,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         filters["decision"] = "block"
     elif getattr(args, "asks", False):
         filters["decision"] = "ask"
+    if getattr(args, "llm", False):
+        filters["llm"] = True
     tool = getattr(args, "tool", None)
     if tool:
         filters["tool"] = tool
@@ -893,6 +912,7 @@ def main():
     log_parser = sub.add_parser("log", help="Show recent hook decisions")
     log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
     log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
+    log_parser.add_argument("--llm", action="store_true", help="Show only entries with LLM metadata")
     log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
     log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
     log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")

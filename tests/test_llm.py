@@ -10,8 +10,8 @@ from nah.content import get_secret_patterns, reset_content_patterns
 from nah.llm import (
     LLMResult,
     PromptParts,
-    _build_generic_prompt,
-    _build_prompt,
+    _UNIFIED_SYSTEM_TEMPLATE,
+    _build_unified_prompt,
     _build_write_prompt,
     _format_tool_use_summary,
     _format_transcript_context,
@@ -19,7 +19,7 @@ from nah.llm import (
     _read_transcript_tail,
     _redact_secrets,
     _SYSTEM_TEMPLATE,
-    try_llm,
+    try_llm_unified,
 )
 
 
@@ -34,7 +34,7 @@ class TestParseResponse:
 
     def test_block(self):
         r = _parse_response('{"decision": "block", "reasoning": "dangerous"}')
-        assert r.decision == "block"
+        assert r.decision == "uncertain"
         assert r.reasoning == "dangerous"
 
     def test_uncertain(self):
@@ -105,15 +105,15 @@ class TestBuildPrompt:
     def test_returns_prompt_parts(self):
         prompt = _build_prompt(self._make_result())
         assert isinstance(prompt, PromptParts)
-        assert prompt.system == _SYSTEM_TEMPLATE
+        assert prompt.system == _UNIFIED_SYSTEM_TEMPLATE
 
     def test_contains_command(self):
         prompt = _build_prompt(self._make_result(command="foobar --baz"))
         assert "foobar --baz" in prompt.user
 
-    def test_command_in_code_block(self):
+    def test_contains_input_field(self):
         prompt = _build_prompt(self._make_result(command="foobar --baz"))
-        assert "```\nfoobar --baz\n```" in prompt.user
+        assert "Input: foobar --baz" in prompt.user
 
     def test_contains_action_type(self):
         prompt = _build_prompt(self._make_result(action_type="lang_exec"))
@@ -139,7 +139,7 @@ class TestBuildPrompt:
             command="test", stages=[], final_decision="ask", reason="test",
         )
         prompt = _build_prompt(result)
-        assert "unknown" in prompt.user
+        assert "Classification: unknown" in prompt.user
 
     def test_finds_driving_ask_stage(self):
         allow_stage = StageResult(
@@ -172,6 +172,46 @@ def _make_default_result():
         reason="unknown command",
     )
     return ClassifyResult(command="foobar", stages=[sr], final_decision=taxonomy.ASK, reason="unknown command")
+
+
+def _ask_action_type(result):
+    for stage in result.stages:
+        if stage.decision == taxonomy.ASK:
+            return stage.action_type
+    return result.stages[0].action_type if result.stages else "unknown"
+
+
+def _build_prompt(result, transcript_context: str = ""):
+    return _build_unified_prompt(
+        "Bash",
+        result.command,
+        _ask_action_type(result),
+        result.reason,
+        transcript_context,
+        "",
+    )
+
+
+def _build_generic_prompt(tool_name: str, reason: str, transcript_context: str = ""):
+    return _build_unified_prompt(
+        tool_name,
+        reason,
+        "unknown",
+        reason,
+        transcript_context,
+        "",
+    )
+
+
+def try_llm(result, llm_config: dict, transcript_path: str = ""):
+    return try_llm_unified(
+        "Bash",
+        result.command,
+        _ask_action_type(result),
+        result.reason,
+        llm_config,
+        transcript_path,
+    )
 
 
 # -- try_llm tests --
@@ -210,7 +250,7 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(_make_default_result(), self._ollama_config())
-        assert result.decision["decision"] == "block"
+        assert result.decision["decision"] == "uncertain"
         assert "LLM" in result.decision["reason"]
 
     @patch("nah.llm.urllib.request.urlopen")
@@ -222,7 +262,7 @@ class TestTryLlm:
         mock_urlopen.return_value = mock_resp
 
         result = try_llm(_make_default_result(), self._ollama_config())
-        assert result.decision is None
+        assert result.decision["decision"] == "uncertain"
         assert len(result.cascade) == 1
         assert result.cascade[0].status == "uncertain"
 
@@ -815,7 +855,7 @@ class TestBuildGenericPrompt:
 
     def test_shared_system_message(self):
         prompt = _build_generic_prompt("Write", "outside project")
-        assert prompt.system == _SYSTEM_TEMPLATE
+        assert prompt.system == _UNIFIED_SYSTEM_TEMPLATE
 
     def test_user_contains_tool_and_reason(self):
         prompt = _build_generic_prompt("Write", "writing to /etc/hosts")

@@ -9,6 +9,43 @@ from nah.bash import classify_command
 from nah.content import scan_content, format_content_message, is_credential_search
 
 _transcript_path: str = ""  # set per-invocation by main()
+_AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
+
+
+def _auto_state_path(transcript_path: str) -> str | None:
+    """Return the session state file path for unified ask refinement."""
+    if not transcript_path:
+        return None
+    session_id = os.path.basename(transcript_path)
+    if not session_id:
+        return None
+    return os.path.join(_AUTO_STATE_DIR, session_id)
+
+
+def _read_auto_state(transcript_path: str) -> tuple[int, bool]:
+    """Read (deny_count, disabled) from session state, defaulting safely."""
+    path = _auto_state_path(transcript_path)
+    if not path:
+        return 0, False
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return int(data.get("deny_count", 0)), bool(data.get("disabled", False))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return 0, False
+
+
+def _write_auto_state(transcript_path: str, deny_count: int, disabled: bool) -> None:
+    """Persist unified ask-refinement state across hook invocations."""
+    path = _auto_state_path(transcript_path)
+    if not path:
+        return
+    try:
+        os.makedirs(_AUTO_STATE_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"deny_count": deny_count, "disabled": disabled}, f)
+    except OSError as exc:
+        sys.stderr.write(f"nah: auto-state write: {exc}\n")
 
 
 def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -> dict:
@@ -45,7 +82,7 @@ def _should_llm_inspect_write(tool_input: dict) -> bool:
     try:
         from nah.config import get_config
         cfg = get_config()
-        if not cfg.llm or not cfg.llm.get("enabled", False):
+        if cfg.llm_mode != "on" or not cfg.llm:
             return False
     except Exception:
         return False
@@ -63,7 +100,7 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
     try:
         from nah.config import get_config
         cfg = get_config()
-        if not cfg.llm or not cfg.llm.get("enabled", False):
+        if cfg.llm_mode != "on" or not cfg.llm:
             return None, {}
         from nah.llm import try_llm_write
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
@@ -118,11 +155,7 @@ def _scan_and_decide(tool_name: str, content: str) -> dict:
 
 
 def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
-    """LLM veto gate for write-like tools. Escalates if LLM is stricter.
-
-    Mutates det_result in-place to attach _system_message when LLM warns.
-    Returns det_result (possibly augmented) or capped (LLM-escalated).
-    """
+    """LLM veto gate for write-like tools. Can only escalate allow -> ask."""
     if not _should_llm_inspect_write(tool_input):
         return det_result
     llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
@@ -133,19 +166,15 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
 
     if llm_decision is None:
         return det_result
-    capped = _cap_llm_decision(llm_decision)
-    capped_d = capped.get("decision")
     structural_d = det_result.get("decision", taxonomy.ALLOW)
+    llm_d = llm_decision.get("decision")
 
     # Surface LLM warning to user via systemMessage (always, not just escalation)
-    llm_reason = capped.get("reason", "")
-    if llm_reason and capped_d in (taxonomy.BLOCK, taxonomy.ASK):
+    llm_reason = llm_decision.get("reason", "")
+    if llm_reason and llm_d != taxonomy.ALLOW:
         # Strip wrapper prefixes to get clean LLM reasoning
         clean = llm_reason
         for prefix in (
-            f"LLM suggested {capped_d}: ",
-            f"LLM suggested block: ",
-            f"LLM suggested ask: ",
             f"{tool_name} (LLM): ",
             "LLM: ",
         ):
@@ -155,13 +184,17 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
         if clean:
             det_result["_system_message"] = f"nah! ⚠️ {clean}"
 
-    # Only escalate decision when LLM is strictly stricter than structural
-    if (capped_d in (taxonomy.BLOCK, taxonomy.ASK)
-            and taxonomy.STRICTNESS.get(capped_d, 2) > taxonomy.STRICTNESS.get(structural_d, 0)):
-        capped.setdefault("_meta", {}).update(llm_meta)
-        capped["_system_message"] = det_result.get("_system_message", "")
-        return capped
-    # LLM is same or weaker — keep structural decision (with warning attached)
+    # Content veto never blocks and never relaxes: only allow -> ask.
+    if structural_d == taxonomy.ALLOW and llm_d != taxonomy.ALLOW:
+        ask = {
+            "decision": taxonomy.ASK,
+            "reason": llm_reason or f"{tool_name} (LLM): human review needed",
+            "_meta": dict(det_result.get("_meta", {})),
+        }
+        ask["_meta"]["llm_veto"] = True
+        if det_result.get("_system_message"):
+            ask["_system_message"] = det_result["_system_message"]
+        return ask
 
     return det_result
 
@@ -275,8 +308,56 @@ def _format_bash_reason(result) -> str:
     return f"Bash: {reason}"
 
 
+def _is_llm_eligible_stages(
+    action_type: str,
+    stages: list[dict],
+    eligible,
+    composition_rule: str = "",
+) -> bool:
+    """Check if an ask decision could benefit from unified LLM analysis."""
+    if eligible == "all":
+        return True
+
+    if isinstance(eligible, list):
+        # Structural gate: composition
+        if composition_rule and "composition" not in eligible:
+            return False
+        for sr in stages:
+            if sr.get("decision") != taxonomy.ASK:
+                continue
+            # Sensitive exclusion (context-policy stages only)
+            reason = sr.get("reason", "")
+            if sr.get("policy") == taxonomy.CONTEXT and "sensitive" in reason.lower():
+                if "sensitive" not in eligible:
+                    continue
+            # Direct action type match
+            stage_action_type = sr.get("action_type", "")
+            if stage_action_type in eligible or action_type in eligible:
+                return True
+            # "context" keyword: any context-policy type
+            if "context" in eligible and sr.get("policy") == taxonomy.CONTEXT:
+                return True
+        return False
+
+    # "default" — equivalent to [unknown, lang_exec, context]
+    # Compositions are evaluated stage-by-stage like everything else —
+    # if any ask stage qualifies, the whole command goes to the LLM.
+    for sr in stages:
+        if sr.get("decision") != taxonomy.ASK:
+            continue
+        stage_action_type = sr.get("action_type", "")
+        reason = sr.get("reason", "")
+        if stage_action_type == taxonomy.UNKNOWN:
+            return True
+        if stage_action_type == taxonomy.LANG_EXEC:
+            return True
+        if sr.get("policy") == taxonomy.CONTEXT and "sensitive" not in reason.lower():
+            return True
+    return False
+
+
 def _is_llm_eligible(result) -> bool:
-    """Check if an ask decision could benefit from LLM analysis."""
+    """Check if a bash ask decision could benefit from LLM analysis."""
     try:
         from nah.config import get_config
         eligible = get_config().llm_eligible
@@ -284,41 +365,25 @@ def _is_llm_eligible(result) -> bool:
         sys.stderr.write(f"nah: config: llm_eligible: {exc}\n")
         eligible = "default"
 
-    if eligible == "all":
-        return True
-
-    if isinstance(eligible, list):
-        # Structural gate: composition
-        if result.composition_rule and "composition" not in eligible:
-            return False
-        for sr in result.stages:
-            if sr.decision != taxonomy.ASK:
-                continue
-            # Sensitive exclusion (context-policy stages only)
-            if sr.default_policy == taxonomy.CONTEXT and "sensitive" in sr.reason.lower():
-                if "sensitive" not in eligible:
-                    continue
-            # Direct action type match
-            if sr.action_type in eligible:
-                return True
-            # "context" keyword: any context-policy type
-            if "context" in eligible and sr.default_policy == taxonomy.CONTEXT:
-                return True
-        return False
-
-    # "default" — equivalent to [unknown, lang_exec, context]
-    # Compositions are evaluated stage-by-stage like everything else —
-    # if any ask stage qualifies, the whole command goes to the LLM.
-    for sr in result.stages:
-        if sr.decision != taxonomy.ASK:
-            continue
-        if sr.action_type == taxonomy.UNKNOWN:
-            return True
-        if sr.action_type == taxonomy.LANG_EXEC:
-            return True
-        if sr.default_policy == taxonomy.CONTEXT and "sensitive" not in sr.reason.lower():
-            return True
-    return False
+    stages = [
+        {
+            "action_type": sr.action_type,
+            "decision": sr.decision,
+            "policy": sr.default_policy,
+            "reason": sr.reason,
+        }
+        for sr in result.stages
+    ]
+    action_type = ""
+    for stage in stages:
+        if stage["decision"] == taxonomy.ASK:
+            action_type = stage["action_type"]
+            break
+    if not action_type and stages:
+        action_type = stages[0]["action_type"]
+    return _is_llm_eligible_stages(
+        action_type, stages, eligible, result.composition_rule,
+    )
 
 
 def _build_llm_meta(llm_call, cfg) -> dict:
@@ -329,6 +394,10 @@ def _build_llm_meta(llm_call, cfg) -> dict:
             "llm_provider": llm_call.provider,
             "llm_model": llm_call.model,
             "llm_latency_ms": llm_call.latency_ms,
+            "llm_decision": (
+                llm_call.decision.get("decision", "")
+                if llm_call.decision is not None else ""
+            ),
             "llm_reasoning": llm_call.reasoning,
             "llm_cascade": [
                 {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
@@ -344,39 +413,22 @@ def _build_llm_meta(llm_call, cfg) -> dict:
     return llm_meta
 
 
-def _try_llm(classify_result) -> tuple[dict | None, dict]:
-    """Attempt LLM resolution for bash ClassifyResult. Returns (decision, llm_meta)."""
+def _try_llm_script_veto(classify_result) -> tuple[dict | None, dict]:
+    """Attempt content veto for clean lang_exec commands."""
     try:
         from nah.config import get_config
         cfg = get_config()
-        if not cfg.llm or not cfg.llm.get("enabled", False):
+        if cfg.llm_mode != "on" or not cfg.llm:
             return None, {}
-        from nah.llm import try_llm
-        llm_call = try_llm(classify_result, cfg.llm, _transcript_path)
+        from nah.llm import _try_llm_script_veto as run_script_veto
+
+        llm_call = run_script_veto(classify_result, cfg.llm, _transcript_path)
         return llm_call.decision, _build_llm_meta(llm_call, cfg)
     except ImportError:
         return None, {}
     except Exception as exc:
-        sys.stderr.write(f"nah: LLM error: {exc}\n")
+        sys.stderr.write(f"nah: LLM script veto error: {exc}\n")
         return None, {}
-
-
-def _cap_llm_decision(llm_decision: dict) -> dict:
-    """Apply llm.max_decision cap. Downgrades but preserves reasoning."""
-    try:
-        from nah.config import get_config
-        cap = get_config().llm_max_decision
-    except Exception as exc:
-        sys.stderr.write(f"nah: config: llm_max_decision: {exc}\n")
-        return llm_decision
-    if not cap:
-        return llm_decision
-    decision = llm_decision.get("decision", taxonomy.ASK)
-    if taxonomy.STRICTNESS.get(decision, 2) > taxonomy.STRICTNESS.get(cap, 3):
-        original_reason = llm_decision.get("reason", "")
-        llm_decision["decision"] = cap
-        llm_decision["reason"] = f"LLM suggested {decision}: {original_reason}"
-    return llm_decision
 
 
 def _build_bash_hint(result) -> str | None:
@@ -428,7 +480,7 @@ def _classify_meta(result) -> dict:
 
 
 def handle_bash(tool_input: dict) -> dict:
-    """Full Bash handler: structural classification -> LLM layer -> decision."""
+    """Full Bash handler: structural classification + content veto."""
     command = tool_input.get("command", "")
     if not command:
         return {"decision": taxonomy.ALLOW}
@@ -444,30 +496,26 @@ def handle_bash(tool_input: dict) -> dict:
         if hint:
             meta["hint"] = hint
 
-        if _is_llm_eligible(result):
-            llm_decision, llm_meta = _try_llm(result)
-            meta.update(llm_meta)
-            if llm_decision is not None:
-                llm_decision = _cap_llm_decision(llm_decision)
-                llm_decision["_meta"] = meta
-                return llm_decision
-
         decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
         if hint:
             decision["_hint"] = hint
         return decision
 
     # LLM veto gate for lang_exec scripts (FD-079): even when the deterministic
-    # layer allows, the LLM inspects script content and can block.
+    # layer allows, the LLM inspects script content and can escalate to ask.
     if _has_lang_exec_script(result):
-        llm_decision, llm_meta = _try_llm(result)
+        llm_decision, llm_meta = _try_llm_script_veto(result)
         meta.update(llm_meta)
         if llm_decision is not None:
-            capped = _cap_llm_decision(llm_decision)
-            if capped.get("decision") == taxonomy.BLOCK:
-                capped["_meta"] = meta
-                return capped
-            # LLM says allow or uncertain — keep structural allow
+            llm_d = llm_decision.get("decision")
+            if llm_d != taxonomy.ALLOW:
+                meta["llm_veto"] = True
+                return {
+                    "decision": taxonomy.ASK,
+                    "reason": llm_decision.get("reason", "Bash (LLM): human review needed"),
+                    "_meta": meta,
+                }
+            # LLM says allow — keep structural allow
 
     return {"decision": taxonomy.ALLOW, "_meta": meta}
 
@@ -605,6 +653,17 @@ def _is_active_allow(tool_name: str) -> bool:
     return True
 
 
+def _extract_action_type(meta: dict) -> str:
+    """Extract the primary ask-driving action type from hook metadata."""
+    stages = meta.get("stages", [])
+    for stage in stages:
+        if stage.get("decision") == taxonomy.ASK:
+            return stage.get("action_type", "")
+    if stages:
+        return stages[0].get("action_type", "")
+    return ""
+
+
 def main():
     agent = agents.CLAUDE  # default until we can detect
     try:
@@ -627,6 +686,55 @@ def main():
             decision = handler(tool_input)
 
         d = decision.get("decision", taxonomy.ALLOW)
+        meta = decision.setdefault("_meta", {})
+
+        if d == taxonomy.ASK and not meta.get("llm_veto"):
+            try:
+                from nah.config import get_config
+                from nah.llm import try_llm_unified
+                from nah.log import redact_input
+
+                cfg = get_config()
+                if cfg.llm_mode == "on" and cfg.llm:
+                    deny_count, disabled = _read_auto_state(_transcript_path)
+                    if not disabled:
+                        stages = meta.get("stages", [])
+                        action_type = _extract_action_type(meta)
+                        if _is_llm_eligible_stages(
+                            action_type,
+                            stages,
+                            cfg.llm_eligible,
+                            meta.get("composition_rule", ""),
+                        ):
+                            llm_call = try_llm_unified(
+                                canonical,
+                                redact_input(canonical, tool_input),
+                                action_type or taxonomy.UNKNOWN,
+                                decision.get("reason", ""),
+                                cfg.llm,
+                                _transcript_path,
+                            )
+                            meta.update(_build_llm_meta(llm_call, cfg))
+                            if llm_call.decision is None:
+                                pass
+                            elif llm_call.decision.get("decision") == taxonomy.ALLOW:
+                                _write_auto_state(_transcript_path, 0, False)
+                                decision = {
+                                    **llm_call.decision,
+                                    "_meta": meta,
+                                }
+                                d = taxonomy.ALLOW
+                            else:
+                                deny_count += 1
+                                _write_auto_state(
+                                    _transcript_path,
+                                    deny_count,
+                                    deny_count >= 3,
+                                )
+            except ImportError:
+                pass
+            except Exception as exc:
+                sys.stderr.write(f"nah: unified LLM error: {exc}\n")
 
         if d != taxonomy.ALLOW or _is_active_allow(canonical):
             json.dump(_to_hook_output(decision, agent), sys.stdout)
