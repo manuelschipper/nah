@@ -18,7 +18,7 @@ from nah.llm import (
     _parse_response,
     _read_transcript_tail,
     _redact_secrets,
-    _SYSTEM_TEMPLATE,
+    _VETO_SYSTEM_TEMPLATE,
     try_llm_unified,
 )
 
@@ -822,25 +822,19 @@ class TestTryLlmWithTranscript:
 # -- System template tests --
 
 
-class TestSystemTemplate:
+class TestVetoSystemTemplate:
     def test_contains_rules(self):
-        assert "allow:" in _SYSTEM_TEMPLATE
-        assert "block:" in _SYSTEM_TEMPLATE
-        assert "uncertain:" in _SYSTEM_TEMPLATE
+        assert "allow" in _VETO_SYSTEM_TEMPLATE
+        assert "uncertain" in _VETO_SYSTEM_TEMPLATE
 
-    def test_contains_examples(self):
-        assert "pytest tests/ -v" in _SYSTEM_TEMPLATE
-        assert "curl -X POST" in _SYSTEM_TEMPLATE
-        assert 'subprocess.run' in _SYSTEM_TEMPLATE
-
-    def test_json_enum_format(self):
-        assert "<allow|block|uncertain>" in _SYSTEM_TEMPLATE
-        # Old ambiguous format should not be present
-        assert '"allow" or "block"' not in _SYSTEM_TEMPLATE
+    def test_no_block_option(self):
+        """Veto template should not offer block — LLM can only allow or uncertain."""
+        assert "<allow|uncertain>" in _VETO_SYSTEM_TEMPLATE
+        assert "<allow|block" not in _VETO_SYSTEM_TEMPLATE
 
     def test_format_instruction_last(self):
         """JSON format spec should be at the end of the system message."""
-        lines = _SYSTEM_TEMPLATE.strip().split("\n")
+        lines = _VETO_SYSTEM_TEMPLATE.strip().split("\n")
         last_line = lines[-1]
         assert '"reasoning"' in last_line
 
