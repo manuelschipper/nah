@@ -11,10 +11,10 @@ import stat
 import pytest
 from unittest.mock import MagicMock, patch
 
-from nah import paths, taxonomy
+from nah import config, paths, taxonomy
 from nah.bash import classify_command, _resolve_script_path, _resolve_module_path
 from nah.context import resolve_lang_exec_context
-from nah.config import reset_config
+from nah.config import NahConfig, reset_config
 
 
 # Helper: classify tokens via taxonomy (Phase 2 flag classifier path)
@@ -26,6 +26,13 @@ def _write(path, content="print('hello')\n"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(content)
+
+
+def _enable_llm_mode():
+    config._cached_config = NahConfig(
+        llm_mode="on",
+        llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+    )
 
 
 # ===================================================================
@@ -420,19 +427,17 @@ class TestVetoGate:
             os.chdir(old_cwd)
 
     def _handle_with_mock_llm(self, command, llm_return, project_root=None):
-        """Run handle_bash with a mocked _try_llm."""
+        """Run handle_bash with a mocked script-veto LLM call."""
         import nah.hook as hook_mod
-        original = hook_mod._try_llm
-        hook_mod._try_llm = lambda result: llm_return
+        original = hook_mod._try_llm_script_veto
+        hook_mod._try_llm_script_veto = lambda result: llm_return
         try:
             return hook_mod.handle_bash({"command": command})
         finally:
-            hook_mod._try_llm = original
+            hook_mod._try_llm_script_veto = original
 
     def test_veto_gate_llm_blocks(self, project_root):
-        from nah.config import get_config
-        # Override llm_max_decision to allow block (default caps at ask)
-        get_config().llm_max_decision = "block"
+        _enable_llm_mode()
         path = os.path.join(project_root, "sneaky.py")
         _write(path, "# looks clean but LLM disagrees\nprint('hi')\n")
         old_cwd = os.getcwd()
@@ -442,12 +447,13 @@ class TestVetoGate:
                 "python sneaky.py",
                 ({"decision": "block", "reason": "LLM threat"}, {"llm_provider": "test"}),
             )
-            assert result["decision"] == "block"
+            assert result["decision"] == "ask"
         finally:
             os.chdir(old_cwd)
 
     def test_veto_gate_llm_block_capped_to_ask(self, project_root):
-        """Default llm_max_decision=ask means LLM block is capped to ask."""
+        """Lang_exec content veto always escalates concern to ask."""
+        _enable_llm_mode()
         path = os.path.join(project_root, "sneaky.py")
         _write(path, "print('hi')\n")
         old_cwd = os.getcwd()
@@ -457,12 +463,12 @@ class TestVetoGate:
                 "python sneaky.py",
                 ({"decision": "block", "reason": "LLM threat"}, {"llm_provider": "test"}),
             )
-            # With default cap=ask, block is downgraded — veto gate doesn't fire
-            assert result["decision"] == "allow"
+            assert result["decision"] == "ask"
         finally:
             os.chdir(old_cwd)
 
     def test_veto_gate_llm_allows(self, project_root):
+        _enable_llm_mode()
         path = os.path.join(project_root, "safe.py")
         _write(path)
         old_cwd = os.getcwd()
@@ -477,6 +483,7 @@ class TestVetoGate:
             os.chdir(old_cwd)
 
     def test_veto_gate_llm_error_keeps_allow(self, project_root):
+        _enable_llm_mode()
         path = os.path.join(project_root, "safe.py")
         _write(path)
         old_cwd = os.getcwd()
@@ -518,9 +525,9 @@ class TestPromptEnrichment:
     """Script content and content inspection results in LLM prompt."""
 
     def _build_prompt_for(self, command, project_root=None):
-        from nah.llm import _build_prompt
+        from nah.llm import _build_script_veto_prompt
         result = classify_command(command)
-        return _build_prompt(result)
+        return _build_script_veto_prompt(result)
 
     def test_prompt_includes_script_content(self, project_root):
         path = os.path.join(project_root, "hello.py")
@@ -559,9 +566,9 @@ class TestPromptEnrichment:
 
     def test_prompt_includes_inline_code(self):
         """Inline code is now included in LLM prompt for enrichment (nah-koi.1)."""
-        from nah.llm import _build_prompt
+        from nah.llm import _build_script_veto_prompt
         result = classify_command("python -c 'print(1)'")
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "Script about to execute:" in prompt.user
         assert "print(1)" in prompt.user
 

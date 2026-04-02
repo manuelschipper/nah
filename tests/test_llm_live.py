@@ -14,13 +14,23 @@ import pytest
 from nah.bash import ClassifyResult, StageResult
 from nah import taxonomy
 from nah.llm import (
-    _build_prompt,
+    _build_unified_prompt,
+    _build_script_veto_prompt,
     _parse_response,
     _call_ollama,
     _call_openai_compat,
-    try_llm,
+    try_llm_unified,
     _TIMEOUT_REMOTE,
 )
+
+
+def _build_prompt_from_result(result):
+    """Adapter: build a unified prompt from a ClassifyResult for live tests."""
+    stage = result.stages[0] if result.stages else None
+    action_type = stage.action_type if stage else "unknown"
+    return _build_unified_prompt(
+        "Bash", result.command[:500], action_type, result.reason,
+    )
 
 # Thinking models (qwen3.5) need much longer than 2s
 _TEST_TIMEOUT_LOCAL = 120
@@ -91,12 +101,9 @@ class TestBuildPromptLive:
 
     def test_prompt_structure(self):
         result = _make_unknown_result("terraform destroy --auto-approve")
-        prompt = _build_prompt(result)
+        prompt = _build_prompt_from_result(result)
         assert "terraform destroy --auto-approve" in prompt.user
         assert "security classifier" in prompt.system
-        assert "allow" in prompt.system
-        assert "block" in prompt.system
-        assert "uncertain" in prompt.system
         full = f"{prompt.system}\n\n{prompt.user}"
         print(f"\n--- Prompt ---\n{full}")
 
@@ -131,33 +138,34 @@ class TestOllamaLive:
     def test_call_ollama_safe_command(self):
         """Ollama should classify 'pytest tests/ -v' as allow or uncertain."""
         result = _make_safe_result()
-        prompt = _build_prompt(result)
+        prompt = _build_prompt_from_result(result)
         llm_result = _call_ollama(_OLLAMA_TEST_CONFIG, prompt)
         print(f"\nOllama result for 'pytest tests/ -v': {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None, "Ollama returned None — check raw response format"
         assert llm_result.decision in ("allow", "uncertain")
 
     def test_call_ollama_dangerous_command(self):
-        """Ollama should classify 'rm -rf /' as block or uncertain."""
+        """Ollama should classify 'rm -rf /' as uncertain (block is remapped)."""
         result = _make_dangerous_result()
-        prompt = _build_prompt(result)
+        prompt = _build_prompt_from_result(result)
         llm_result = _call_ollama(_OLLAMA_TEST_CONFIG, prompt)
         print(f"\nOllama result for 'rm -rf /': {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None, "Ollama returned None — check raw response format"
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
-    def test_try_llm_with_ollama(self):
-        """Full pipeline: try_llm with Ollama provider."""
+    def test_try_llm_unified_with_ollama(self):
+        """Full pipeline: try_llm_unified with Ollama provider."""
         llm_config = {
             "providers": ["ollama"],
             "ollama": dict(_OLLAMA_TEST_CONFIG),
         }
         result = _make_safe_result()
-        call_result = try_llm(result, llm_config)
-        print(f"\ntry_llm (Ollama, safe): {call_result}")
-        # allow -> dict, uncertain -> None, both acceptable
+        call_result = try_llm_unified(
+            "Bash", result.command, "unknown", result.reason, llm_config,
+        )
+        print(f"\ntry_llm_unified (Ollama, safe): {call_result}")
         if call_result.decision is not None:
-            assert call_result.decision["decision"] in ("allow", "block")
+            assert call_result.decision["decision"] in ("allow", "uncertain")
             assert call_result.provider == "ollama"
             assert len(call_result.cascade) >= 1
 
@@ -189,7 +197,7 @@ class TestOpenRouterLive:
     def test_call_openrouter_safe_command(self):
         """OpenRouter should classify 'pytest tests/ -v' as allow or uncertain."""
         result = _make_safe_result()
-        prompt = _build_prompt(result)
+        prompt = _build_prompt_from_result(result)
         config = {
             "url": "https://openrouter.ai/api/v1/chat/completions",
             "key_env": "OPENROUTER_API_KEY",
@@ -206,9 +214,9 @@ class TestOpenRouterLive:
         assert llm_result.decision in ("allow", "uncertain")
 
     def test_call_openrouter_dangerous_command(self):
-        """OpenRouter should classify 'rm -rf /' as block or uncertain."""
+        """OpenRouter should classify 'rm -rf /' as uncertain (block is remapped)."""
         result = _make_dangerous_result()
-        prompt = _build_prompt(result)
+        prompt = _build_prompt_from_result(result)
         config = {
             "url": "https://openrouter.ai/api/v1/chat/completions",
             "key_env": "OPENROUTER_API_KEY",
@@ -222,10 +230,10 @@ class TestOpenRouterLive:
         )
         print(f"\nOpenRouter result for 'rm -rf /': {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None, "OpenRouter returned None — check raw response format"
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
-    def test_try_llm_with_openrouter(self):
-        """Full pipeline: try_llm with OpenRouter provider."""
+    def test_try_llm_unified_with_openrouter(self):
+        """Full pipeline: try_llm_unified with OpenRouter provider."""
         llm_config = {
             "providers": ["openrouter"],
             "openrouter": {
@@ -235,10 +243,12 @@ class TestOpenRouterLive:
             },
         }
         result = _make_safe_result()
-        call_result = try_llm(result, llm_config)
-        print(f"\ntry_llm (OpenRouter, safe): {call_result}")
+        call_result = try_llm_unified(
+            "Bash", result.command, "unknown", result.reason, llm_config,
+        )
+        print(f"\ntry_llm_unified (OpenRouter, safe): {call_result}")
         if call_result.decision is not None:
-            assert call_result.decision["decision"] in ("allow", "block")
+            assert call_result.decision["decision"] in ("allow", "uncertain")
 
 
 # -- Fallthrough test --
@@ -260,11 +270,11 @@ class TestProviderFallthrough:
             },
         }
         result = _make_safe_result()
-        call_result = try_llm(result, llm_config)
+        call_result = try_llm_unified(
+            "Bash", result.command, "unknown", result.reason, llm_config,
+        )
         print(f"\nFallthrough (bad Ollama -> OpenRouter): {call_result}")
-        # Should get a response from OpenRouter (or None if uncertain)
-        # The key thing: it didn't crash and it tried the second provider
-        assert len(call_result.cascade) >= 1  # at least one provider tried
+        assert len(call_result.cascade) >= 1
 
 
 # -- FD-079: Script Execution Inspection (live LLM) --
@@ -301,7 +311,7 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script content inspection: no flags",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         print(f"\nPrompt user:\n{prompt.user[:500]}")
         assert "Script about to execute:" in prompt.user
         assert "print('hello world')" in prompt.user
@@ -331,7 +341,7 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script content inspection [destructive]: os.remove",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "os.remove('/etc/passwd')" in prompt.user
         assert "Content inspection: os.remove" in prompt.user
 
@@ -348,7 +358,7 @@ class TestFD079ScriptExecLive:
         )
         print(f"\nLLM result for dangerous script: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
     def test_obfuscated_script_llm_catches(self, tmp_path):
         """LLM should catch obfuscated code that deterministic patterns miss."""
@@ -364,7 +374,7 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script clean: sneaky.py",  # deterministic missed it
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "importlib.import_module" in prompt.user
         assert "Content inspection: no flags" in prompt.user  # deterministic missed it
 
@@ -382,7 +392,7 @@ class TestFD079ScriptExecLive:
         print(f"\nLLM result for obfuscated script: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
         # LLM should catch the obfuscated import + system call
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
     def _call_openrouter(self, prompt):
         config = {
@@ -409,7 +419,7 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script content inspection [credential_access]: ~/.ssh/ access",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "subprocess.run" in prompt.user
         # Deterministic catches the ~/.ssh/ path literal
         assert "~/.ssh/ access" in prompt.user
@@ -417,7 +427,7 @@ class TestFD079ScriptExecLive:
         llm_result = self._call_openrouter(prompt)
         print(f"\nLLM result for subprocess exfil: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
     def test_socket_exfiltration(self, tmp_path):
         """Raw socket data theft — no content pattern covers socket."""
@@ -432,13 +442,13 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script clean: sock.py",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "socket.create_connection" in prompt.user
 
         llm_result = self._call_openrouter(prompt)
         print(f"\nLLM result for socket exfil: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
     def test_getattr_obfuscation(self, tmp_path):
         """getattr + string concat to hide os.system — pure evasion."""
@@ -450,14 +460,14 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script clean: sneaky2.py",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert "getattr" in prompt.user
         assert "Content inspection: no flags" in prompt.user
 
         llm_result = self._call_openrouter(prompt)
         print(f"\nLLM result for getattr obfuscation: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
 
     def test_env_file_pipeline(self, tmp_path):
         """Innocent-looking 'data processing' that exfiltrates .env contents."""
@@ -474,10 +484,10 @@ class TestFD079ScriptExecLive:
             f"python {script}", ["python", str(script)],
             "script clean: process_data.py",
         )
-        prompt = _build_prompt(result)
+        prompt = _build_script_veto_prompt(result)
         assert ".env" in prompt.user
 
         llm_result = self._call_openrouter(prompt)
         print(f"\nLLM result for env exfil pipeline: {llm_result and (llm_result.decision, llm_result.reasoning)}")
         assert llm_result is not None
-        assert llm_result.decision in ("block", "uncertain")
+        assert llm_result.decision in ("uncertain",)
