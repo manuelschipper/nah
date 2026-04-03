@@ -240,6 +240,7 @@ class TestHookIntegration:
         assert hook._read_auto_state("session.jsonl") == (0, False)
 
     def test_three_consecutive_uncertain_disables_session(self):
+        """deny_limit must be explicitly set to enable session disabling."""
         uncertain = LLMCallResult(
             decision={"decision": "uncertain", "reason": "Bash (LLM): not clear enough"},
             provider="ollama",
@@ -248,8 +249,13 @@ class TestHookIntegration:
             reasoning="not clear enough",
             cascade=[ProviderAttempt("ollama", "uncertain", 12, "qwen3")],
         )
+        cfg = NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}, "deny_limit": 3},
+            llm_eligible=["filesystem_delete"],
+        )
 
-        with patch("nah.config.get_config", return_value=self._cfg()), \
+        with patch("nah.config.get_config", return_value=cfg), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
              patch("nah.llm.try_llm_unified", return_value=uncertain) as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
