@@ -182,6 +182,8 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
         ask["_meta"]["llm_veto"] = True
         if det_result.get("_system_message"):
             ask["_system_message"] = det_result["_system_message"]
+        if det_result.get("_llm_reason"):
+            ask["_llm_reason"] = det_result["_llm_reason"]
         return ask
 
     return det_result
