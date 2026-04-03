@@ -134,7 +134,7 @@ def _build_unified_prompt(
         "",
         "## Decision",
         'Respond with exactly one JSON object:',
-        '{"decision": "<allow|uncertain>", "reasoning": "brief explanation"}',
+        '{"decision": "<allow|uncertain>", "reasoning": "<max 50 chars>"}',
         "",
         '- "allow" - clearly safe AND matches user intent. Auto-approve silently.',
         '- "uncertain" - not clear enough, or potentially dangerous. Ask the user.',
@@ -227,7 +227,7 @@ def _parse_response(raw: str) -> LLMResult | None:
     if decision == "block":
         decision = "uncertain"
 
-    reasoning = str(obj.get("reasoning", ""))[:200]
+    reasoning = str(obj.get("reasoning", ""))[:80]
     return LLMResult(decision, reasoning)
 
 

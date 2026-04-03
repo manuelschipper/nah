@@ -73,7 +73,7 @@ class TestParseResponse:
     def test_reasoning_truncated(self):
         long_reason = "x" * 300
         r = _parse_response(f'{{"decision": "allow", "reasoning": "{long_reason}"}}')
-        assert len(r.reasoning) == 200
+        assert len(r.reasoning) == 80
 
     def test_empty_string(self):
         assert _parse_response("") is None
