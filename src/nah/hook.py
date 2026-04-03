@@ -713,6 +713,11 @@ def main():
                                 }
                                 d = taxonomy.ALLOW
                             else:
+                                # Surface LLM reasoning to user
+                                if llm_call.reasoning:
+                                    decision["_system_message"] = (
+                                        f"nah LLM: {llm_call.reasoning}"
+                                    )
                                 deny_count += 1
                                 if deny_limit > 0:
                                     _write_auto_state(
