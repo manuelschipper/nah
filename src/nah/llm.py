@@ -136,12 +136,12 @@ def _build_unified_prompt(
         'Respond with exactly one JSON object:',
         '{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}',
         "",
-        '- "allow" - clearly safe AND matches user intent. Auto-approve silently.',
-        '- "uncertain" - not clear enough, or potentially dangerous. Ask the user.',
-        "- A false allow is worse than a false uncertain.",
-        '- If the user clearly asked for this action, that is strong evidence for allow.',
-        "- If the action targets sensitive paths, credentials, or has destructive",
-        "  scope beyond what the user described, lean toward uncertain.",
+        '- "allow" - the user clearly intended this action. Auto-approve silently.',
+        '- "uncertain" - not enough context to confirm user intent. Ask the user.',
+        "- The conversation context is your primary signal. If the user asked for",
+        "  this action or it follows naturally from their request, choose allow.",
+        "- Only choose uncertain when the action goes beyond what the user described,",
+        "  or when there is no conversation context to judge from.",
         "- When in doubt, choose uncertain. The user will simply be prompted.",
     ])
     return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
