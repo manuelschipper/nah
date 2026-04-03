@@ -59,7 +59,7 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "brief explanation"}\
+{"decision": "<allow|uncertain>", "reasoning": "<max 50 chars>"}\
 """
 
 _UNIFIED_SYSTEM_TEMPLATE = (
