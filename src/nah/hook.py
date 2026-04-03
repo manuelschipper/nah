@@ -169,7 +169,8 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
                 clean = clean[len(prefix):]
         clean = clean.strip()
         if clean:
-            det_result["_system_message"] = f"nah! ⚠️ {clean}"
+            det_result["_llm_reason"] = clean
+            det_result["_system_message"] = f"nah: {clean}"
 
     # Content veto never blocks and never relaxes: only allow -> ask.
     if structural_d == taxonomy.ALLOW and llm_d != taxonomy.ALLOW:
