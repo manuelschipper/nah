@@ -541,6 +541,9 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
     if d == taxonomy.BLOCK:
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
+        llm_reason = decision.get("_llm_reason", "")
+        if llm_reason:
+            reason = f"{reason}\n     LLM: {llm_reason}"
         hint = decision.get("_hint")
         if hint:
             reason = f"{reason}\n     {hint}"
@@ -713,11 +716,9 @@ def main():
                                 }
                                 d = taxonomy.ALLOW
                             else:
-                                # Surface LLM reasoning to user
+                                # Surface LLM reasoning in the prompt
                                 if llm_call.reasoning:
-                                    decision["_system_message"] = (
-                                        f"nah LLM: {llm_call.reasoning}"
-                                    )
+                                    decision["_llm_reason"] = llm_call.reasoning
                                 deny_count += 1
                                 if deny_limit > 0:
                                     _write_auto_state(
