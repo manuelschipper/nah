@@ -59,7 +59,7 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "<max 50 chars>"}\
+{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}\
 """
 
 _UNIFIED_SYSTEM_TEMPLATE = (
@@ -134,7 +134,7 @@ def _build_unified_prompt(
         "",
         "## Decision",
         'Respond with exactly one JSON object:',
-        '{"decision": "<allow|uncertain>", "reasoning": "<max 50 chars>"}',
+        '{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}',
         "",
         '- "allow" - clearly safe AND matches user intent. Auto-approve silently.',
         '- "uncertain" - not clear enough, or potentially dangerous. Ask the user.',
