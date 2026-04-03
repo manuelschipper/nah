@@ -309,6 +309,11 @@ def _is_llm_eligible_stages(
         return True
 
     if isinstance(eligible, list):
+        # Expand "default" keyword to the default bundle
+        if "default" in eligible:
+            expanded = [e for e in eligible if e != "default"]
+            expanded.extend(["unknown", "lang_exec", "context"])
+            eligible = expanded
         # Structural gate: composition
         if composition_rule and "composition" not in eligible:
             return False
