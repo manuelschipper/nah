@@ -684,7 +684,8 @@ def main():
                 cfg = get_config()
                 if cfg.llm_mode == "on" and cfg.llm:
                     deny_count, disabled = _read_auto_state(_transcript_path)
-                    if not disabled:
+                    deny_limit = int(cfg.llm.get("deny_limit", 0))
+                    if not disabled or deny_limit <= 0:
                         stages = meta.get("stages", [])
                         action_type = _extract_action_type(meta)
                         if _is_llm_eligible_stages(
@@ -713,11 +714,12 @@ def main():
                                 d = taxonomy.ALLOW
                             else:
                                 deny_count += 1
-                                _write_auto_state(
-                                    _transcript_path,
-                                    deny_count,
-                                    deny_count >= 3,
-                                )
+                                if deny_limit > 0:
+                                    _write_auto_state(
+                                        _transcript_path,
+                                        deny_count,
+                                        deny_count >= deny_limit,
+                                    )
             except ImportError:
                 pass
             except Exception as exc:
