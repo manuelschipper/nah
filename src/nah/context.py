@@ -170,7 +170,7 @@ def extract_host(tokens: list[str]) -> str | None:
         return _extract_url_host(args)
     if cmd in ("http", "https", "xh", "xhs"):
         return _extract_httpie_host(args)
-    if cmd in ("ssh", "scp", "sftp"):
+    if cmd in ("ssh", "scp", "sftp", "rsync", "ssh-copy-id"):
         return _extract_ssh_host(cmd, args)
     if cmd in ("nc", "ncat", "telnet"):
         return _extract_positional_host(args, {"-p", "-w", "-s"})
@@ -417,8 +417,8 @@ def _extract_ssh_host(cmd: str, args: list[str]) -> str | None:
             host_part = arg.split("@", 1)[1]
             return _strip_host_from_colon_suffix(host_part) if ":" in host_part else host_part
 
-    # Pass 2 (scp/sftp): look for host:path (colon indicates remote)
-    if cmd in ("scp", "sftp"):
+    # Pass 2 (scp/sftp/rsync): look for host:path (colon indicates remote)
+    if cmd in ("scp", "sftp", "rsync"):
         for arg in positionals:
             if ":" in arg:
                 return _strip_host_from_colon_suffix(arg)

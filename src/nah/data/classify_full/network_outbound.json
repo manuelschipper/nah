@@ -1,5 +1,6 @@
 [
   "ssh",
+  "ssh-copy-id",
   "scp",
   "rsync",
   "nc",
