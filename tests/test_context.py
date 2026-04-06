@@ -127,6 +127,18 @@ class TestResolveNetworkContext:
         assert decision == "ask"
         assert "unknown host" in reason
 
+    def test_rsync_remote_host(self):
+        decision, reason = resolve_network_context(
+            ["rsync", "-avz", "./local/", "user@host.com:/remote/"]
+        )
+        assert decision == "ask"
+        assert "host.com" in reason
+
+    def test_ssh_copy_id_host(self):
+        decision, reason = resolve_network_context(["ssh-copy-id", "user@myserver.com"])
+        assert decision == "ask"
+        assert "myserver.com" in reason
+
 
 # --- extract_host ---
 
@@ -230,6 +242,29 @@ class TestExtractHostSSH:
 
     def test_sftp_host_colon_path(self):
         assert extract_host(["sftp", "host.com:/path"]) == "host.com"
+
+    # rsync host extraction
+    def test_rsync_remote_user_at(self):
+        assert extract_host(["rsync", "-avz", "./local/", "user@host.com:/remote/"]) == "host.com"
+
+    def test_rsync_remote_with_rsh_flag(self):
+        assert extract_host(["rsync", "-e", "ssh", "file.txt", "user@host.com:/path"]) == "host.com"
+
+    def test_rsync_remote_source(self):
+        assert extract_host(["rsync", "user@host.com:/remote/", "./local/"]) == "host.com"
+
+    def test_rsync_host_colon_path(self):
+        assert extract_host(["rsync", "host.com:/remote/", "./local/"]) == "host.com"
+
+    def test_rsync_daemon_module(self):
+        assert extract_host(["rsync", "host.com::module/path", "./local/"]) == "host.com"
+
+    # ssh-copy-id host extraction
+    def test_ssh_copy_id_user_at_host(self):
+        assert extract_host(["ssh-copy-id", "user@myserver.com"]) == "myserver.com"
+
+    def test_ssh_copy_id_i_flag(self):
+        assert extract_host(["ssh-copy-id", "-i", "~/.ssh/id_rsa.pub", "user@myserver.com"]) == "myserver.com"
 
 
 # --- FD-022: Network write context ---
