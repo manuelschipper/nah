@@ -737,6 +737,12 @@ class TestGetPolicy:
         ("service_read", "allow"),
         ("service_write", "ask"),
         ("service_destructive", "ask"),
+        ("browser_read", "allow"),
+        ("browser_interact", "allow"),
+        ("browser_state", "allow"),
+        ("browser_navigate", "context"),
+        ("browser_exec", "ask"),
+        ("browser_file", "context"),
         ("db_read", "allow"),
         ("db_write", "context"),
         ("beads_safe", "allow"),
@@ -1428,6 +1434,12 @@ class TestProfiles:
         assert "service_read" in action_types
         assert "service_write" in action_types
         assert "service_destructive" in action_types
+        assert "browser_read" in action_types
+        assert "browser_interact" in action_types
+        assert "browser_state" in action_types
+        assert "browser_navigate" in action_types
+        assert "browser_exec" in action_types
+        assert "browser_file" in action_types
         assert "lang_exec" in action_types
         assert "package_install" in action_types
         assert "db_write" in action_types
@@ -1447,12 +1459,18 @@ class TestProfiles:
         assert "process_signal" in action_types
         assert "container_read" in action_types
         assert "service_read" in action_types
+        assert "browser_read" in action_types
         # Minimal keeps read-only container/service coverage only.
         assert "container_write" not in action_types
         assert "container_exec" not in action_types
         assert "container_destructive" not in action_types
         assert "service_write" not in action_types
         assert "service_destructive" not in action_types
+        assert "browser_interact" not in action_types
+        assert "browser_state" not in action_types
+        assert "browser_navigate" not in action_types
+        assert "browser_exec" not in action_types
+        assert "browser_file" not in action_types
         assert "lang_exec" not in action_types
         assert "package_install" not in action_types
         assert "package_run" not in action_types

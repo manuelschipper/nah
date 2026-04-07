@@ -402,6 +402,30 @@ class TestResolveContext:
         assert decision == "ask"
         assert "outside project" in reason
 
+    def test_browser_navigate_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_navigate",
+            tool_input={"url": "https://example.com"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_navigate: url extraction pending"
+
+    def test_browser_exec_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_exec",
+            tool_input={"expression": "document.cookie"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_exec: code extraction pending"
+
+    def test_browser_file_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_file",
+            tool_input={"path": "/tmp/state.json"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_file: path extraction pending"
+
     def test_unknown_action_type_ask(self):
         decision, reason = resolve_context("unknown")
         assert decision == "ask"
