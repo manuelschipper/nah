@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Docker and podman read-only inspection commands like `ps`, `images`, `logs`, `inspect`, and compose read ops now classify as `container_read` instead of `filesystem_read`. Default behavior stays `allow`; logs and `nah types` now use the container-specific action type.
+- Transcript-derived LLM context now reformats slash-command skill invocations, labels Claude Code skill meta blocks as `Skill expansion`, deduplicates repeated expansions by skill name, and caps each captured skill body to 2048 chars (mold-3)
 
 ### Fixed
 
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shell comment parsing** — `#` comment lines with apostrophes (e.g. `# Check if there's a fix`) no longer cause shlex parse errors. Layer 1 skips quote tracking inside comments in `_split_on_operators`; Layer 2 retries `shlex.split` with `comments=True` on `ValueError`. Pure-comment commands correctly classify as empty/allow (nah-2zt)
 - **LLM cascade failure no longer overrides deterministic allow** — when all LLM providers fail (missing API keys, network errors), Write/Edit now returns the deterministic decision instead of escalating to `ask`. Previously every edit prompted for confirmation even when content was safe and path was trusted. Cascade metadata preserved in logs for debugging (nah-yt9)
 - **LLM observability for write-like tools** — LLM metadata (provider, model, latency, reasoning) now always logged for Write/Edit/NotebookEdit/MultiEdit, even when LLM agrees with the deterministic decision or all providers fail. Missing API keys now logged to stderr (`nah: LLM: OPENROUTER_API_KEY not set`) and to the structured log with `provider: (none)` and cascade errors. Previously missing keys caused silent 34ms "uncertain — human review needed" with no trace of why
+- String-content transcript messages are no longer dropped, so slash-command invocations and other non-list transcript entries now reach the LLM context formatter (mold-3)
 
 ## [0.5.5] - 2026-03-26
 

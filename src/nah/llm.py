@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -11,6 +12,14 @@ from urllib.error import URLError
 
 _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
+_SKILL_BASE_DIR_PREFIX = "Base directory for this skill: "
+_SKILL_BODY_MAX_CHARS = 2048
+_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_COMMAND_NAME_RE = re.compile(r"<command-name>(?P<name>[^<]+)</command-name>")
+_COMMAND_ARGS_RE = re.compile(
+    r"<command-args>(?P<args>.*?)</command-args>",
+    re.DOTALL,
+)
 
 
 class PromptParts(NamedTuple):
@@ -290,6 +299,54 @@ def _redact_secrets(text: str) -> str:
     return "\n".join(redacted)
 
 
+def _normalize_transcript_content(content: object) -> list[dict] | None:
+    """Normalize transcript message content into Claude-style blocks."""
+    if isinstance(content, list):
+        return content
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return None
+
+
+def _format_skill_invocation_text(text: str) -> str | None:
+    """Return a clean slash-command label for string-content messages."""
+    name_match = _COMMAND_NAME_RE.search(text)
+    if name_match is None:
+        return None
+    command_name = name_match.group("name").strip()
+    if not command_name.startswith("/"):
+        return None
+    args_match = _COMMAND_ARGS_RE.search(text)
+    command_args = args_match.group("args").strip() if args_match else ""
+    if command_args:
+        return f"User invoked skill: {command_name} [args: {command_args}]"
+    return f"User invoked skill: {command_name}"
+
+
+def _parse_skill_meta_text(text: str) -> tuple[str, str] | None:
+    """Extract (skill_name, skill_body) from Claude Code skill meta text."""
+    if not text.startswith(_SKILL_BASE_DIR_PREFIX):
+        return None
+    header, _, body = text.partition("\n")
+    skill_dir = header[len(_SKILL_BASE_DIR_PREFIX):].strip()
+    if not skill_dir:
+        return None
+    skill_name = os.path.basename(skill_dir.rstrip("/\\").replace("\\", "/"))
+    if not skill_name or _SKILL_NAME_RE.fullmatch(skill_name) is None:
+        return None
+    return skill_name, body.lstrip("\n")
+
+
+def _cap_skill_body(text: str) -> str:
+    """Limit skill bodies so one expansion cannot dominate the transcript."""
+    if len(text) <= _SKILL_BODY_MAX_CHARS:
+        return text
+    return (
+        f"{text[:_SKILL_BODY_MAX_CHARS]}\n"
+        f"[truncated to {_SKILL_BODY_MAX_CHARS} of {len(text)} chars]"
+    )
+
+
 def _read_transcript_tail(
     transcript_path: str,
     max_chars: int,
@@ -321,6 +378,7 @@ def _read_transcript_tail(
         return ""
 
     messages: list[str] = []
+    latest_skill_index: dict[str, int] = {}
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -337,20 +395,25 @@ def _read_transcript_tail(
         message = entry.get("message")
         if not isinstance(message, dict):
             continue
-        content_blocks = message.get("content")
-        if not isinstance(content_blocks, list):
+        raw_content = message.get("content")
+        content_blocks = _normalize_transcript_content(raw_content)
+        if content_blocks is None:
             continue
 
         text_parts: list[str] = []
         tool_parts: list[str] = []
+        allow_text = roles is None or msg_type in roles
         for block in content_blocks:
             if not isinstance(block, dict):
                 continue
             btype = block.get("type")
             if btype == "text":
-                if roles is not None and msg_type not in roles:
+                if not allow_text:
                     continue
-                t = block.get("text", "").strip()
+                raw_text = block.get("text", "")
+                if not isinstance(raw_text, str):
+                    continue
+                t = raw_text.strip()
                 if t:
                     text_parts.append(t)
             elif btype == "tool_use":
@@ -358,7 +421,29 @@ def _read_transcript_tail(
                 if s:
                     tool_parts.append(s)
 
+        if isinstance(raw_content, str) and allow_text:
+            clean_invocation = _format_skill_invocation_text(raw_content)
+            if clean_invocation:
+                text_parts = [clean_invocation]
+
         if not text_parts and not tool_parts:
+            continue
+        skill_meta = None
+        if entry.get("isMeta") is True and text_parts:
+            skill_meta = _parse_skill_meta_text("\n\n".join(text_parts))
+        if skill_meta is not None:
+            skill_name, skill_body = skill_meta
+            msg_line = f"Skill expansion: {skill_name}"
+            capped_body = _cap_skill_body(skill_body)
+            if capped_body:
+                msg_line += "\n" + capped_body
+            if tool_parts:
+                msg_line += "\n" + "\n".join(f"  {tp}" for tp in tool_parts)
+            prev_index = latest_skill_index.get(skill_name)
+            if prev_index is not None:
+                messages[prev_index] = f"Skill expansion: {skill_name} (see below)"
+            messages.append(msg_line)
+            latest_skill_index[skill_name] = len(messages) - 1
             continue
         role = "User" if msg_type == "user" else "Assistant"
         msg_line = (
