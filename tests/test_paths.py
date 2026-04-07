@@ -134,6 +134,21 @@ class TestIsSensitive:
         assert pattern == "~/.docker"
         assert policy == "ask"
 
+    @pytest.mark.parametrize("raw,display", [
+        ("/etc/docker/daemon.json", "/etc/docker"),
+        ("/var/run/docker.sock", "/var/run/docker.sock"),
+        ("/run/podman/podman.sock", "/run/podman/podman.sock"),
+        ("/etc/systemd/system/foo.service", "/etc/systemd"),
+        ("/lib/systemd/system/ssh.service", "/lib/systemd"),
+        ("~/.config/systemd/user/bar.service", "~/.config/systemd/user"),
+    ])
+    def test_container_and_systemd_paths_ask(self, raw, display):
+        resolved = paths.resolve_path(raw)
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == display
+        assert policy == "ask"
+
     def test_kube_ask(self):
         resolved = paths.resolve_path("~/.kube/config")
         matched, pattern, policy = paths.is_sensitive(resolved)
@@ -301,6 +316,20 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "ask"
         assert "~/.docker" in result["reason"]
+
+    @pytest.mark.parametrize("raw,display", [
+        ("/etc/docker/daemon.json", "/etc/docker"),
+        ("/var/run/docker.sock", "/var/run/docker.sock"),
+        ("/run/podman/podman.sock", "/run/podman/podman.sock"),
+        ("/etc/systemd/system/foo.service", "/etc/systemd"),
+        ("/lib/systemd/system/ssh.service", "/lib/systemd"),
+        ("~/.config/systemd/user/bar.service", "~/.config/systemd/user"),
+    ])
+    def test_sensitive_ask_container_and_systemd_paths(self, raw, display):
+        result = paths.check_path("Read", raw)
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert display in result["reason"]
 
     def test_sensitive_ask_terraform_credentials(self):
         result = paths.check_path("Read", "~/.terraform.d/credentials.tfrc.json")
