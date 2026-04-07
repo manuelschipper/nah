@@ -379,6 +379,29 @@ class TestResolveContext:
         decision, reason = resolve_context("filesystem_read")
         assert decision == "allow"
 
+    def test_container_write_uses_workspace_context(self, project_root):
+        config._cached_config = NahConfig(profile="minimal")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(project_root)
+            decision, reason = resolve_context("container_write")
+        finally:
+            os.chdir(old_cwd)
+        assert decision == "allow"
+        assert "inside project" in reason
+
+    def test_container_write_without_git_root_asks(self, tmp_path):
+        config._cached_config = NahConfig(profile="minimal")
+        paths.set_project_root(None)
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            decision, reason = resolve_context("container_write")
+        finally:
+            os.chdir(old_cwd)
+        assert decision == "ask"
+        assert "outside project" in reason
+
     def test_unknown_action_type_ask(self):
         decision, reason = resolve_context("unknown")
         assert decision == "ask"
