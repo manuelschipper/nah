@@ -663,7 +663,7 @@ class TestReadTranscriptTail:
         f = tmp_path / "t.jsonl"
         entry = {"type": "user", "message": {"content": "just a string"}}
         f.write_text(json.dumps(entry) + "\n")
-        assert _read_transcript_tail(str(f), 4000) == ""
+        assert _read_transcript_tail(str(f), 4000) == "User: just a string"
 
     def test_missing_message_field(self, tmp_path):
         f = tmp_path / "t.jsonl"
