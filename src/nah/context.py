@@ -89,6 +89,21 @@ def resolve_context(
         scope_path = target_path or os.getcwd()
         return resolve_filesystem_context(scope_path)
 
+    if action_type == taxonomy.BROWSER_NAVIGATE:
+        # Playwright MCP passes the URL in structured tool_input. Keep the gap
+        # explicit in logs until browser URL extraction lands.
+        return taxonomy.ASK, "browser_navigate: url extraction pending"
+
+    if action_type == taxonomy.BROWSER_EXEC:
+        # browser_evaluate/browser_run_code carry the JS payload in tool_input.
+        # Ask explicitly until inline code extraction is wired up.
+        return taxonomy.ASK, "browser_exec: code extraction pending"
+
+    if action_type == taxonomy.BROWSER_FILE:
+        # File uploads, traces, and storage state bridge to the host filesystem.
+        # Ask explicitly until path extraction is implemented.
+        return taxonomy.ASK, "browser_file: path extraction pending"
+
     if action_type == taxonomy.LANG_EXEC:
         return resolve_lang_exec_context(target_path, inline_code=inline_code)
 
