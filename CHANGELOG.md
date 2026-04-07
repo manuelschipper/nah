@@ -9,10 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Container + systemd taxonomy expansion** — added 6 new action types: `container_read`, `container_write`, `container_exec`, `service_read`, `service_write`, and `service_destructive`. Full-profile docker/podman coverage now includes logs/inspect/stats/build/exec/compose/service flows, `systemctl`/`journalctl` no longer fall through to `unknown`, minimal profile gains read-only container/service coverage, and sensitive path defaults now cover Docker daemon and systemd config/socket paths (mold-2)
 - **Unified LLM mode** — merged 4 fragmented LLM entry points into 2 clean paths. Path 1 (ask refinement): combined safety+intent prompt runs in `main()` for ask decisions, uses user-only transcript and CLAUDE.md for context, can only relax ask→allow. Path 2 (content veto): stays in handlers for write/script inspection, hard-capped to ask. Config simplified to `llm.mode: off|on` (one switch). LLM can never block — only allow or ask. Session state tracks consecutive denials (3→disable). `nah log --llm` filter, `nah test` uses unified path. Backward compat: `llm.enabled: true` still works. Deprecation warning for removed `llm.max_decision` (nah-5no)
 - **Inline code inspection** — `python3 -c 'print(1)'`, `node -e`, `ruby -e`, `perl -e`, `php -r` inline code is now content-scanned instead of blindly prompting. Safe inline → allow, dangerous patterns → ask/block. LLM veto gate fires on clean inline code (same defense-in-depth as script files). LLM prompt now includes inline code for enrichment (nah-koi.1)
 - **Shell init file protection** — `~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.zshenv`, `~/.bash_aliases`, and 8 more shell init files now guarded as sensitive paths (`ask` policy). Prevents silent alias injection persistence. Includes `.bashrc.d/` and `.zshrc.d/` directories (nah-wdd)
 - **Safety list hardening** — expanded coverage for credential directories (`~/.kube`, `~/.docker`, `~/.config/az`, `~/.config/heroku`), sensitive basenames (`.pgpass`, `.boto`, `terraform.tfvars`), exec sinks (`lua`, `R`, `Rscript`, `make`, `julia`, `swift`), and decode-to-exec pipe detection (`gzip -d`, `zcat`, `bzip2 -d`, `openssl enc`, `unzip -p`, and more) (nah-brq)
+
+### Changed
+
+- Docker and podman read-only inspection commands like `ps`, `images`, `logs`, `inspect`, and compose read ops now classify as `container_read` instead of `filesystem_read`. Default behavior stays `allow`; logs and `nah types` now use the container-specific action type.
 
 ### Fixed
 

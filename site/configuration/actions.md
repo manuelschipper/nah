@@ -1,6 +1,6 @@
 # Action Types
 
-Every command nah classifies maps to one of 20 **action types**. Each type has a default **policy** that determines the decision.
+Every command nah classifies maps to one of 30 **action types**. Each type has a default **policy** that determines the decision.
 
 ## Policy levels
 
@@ -22,6 +22,7 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `filesystem_delete` | context | Delete files or directories |
 | `git_safe` | allow | Read-only git operations (status, log, diff) |
 | `git_write` | allow | Git operations that modify the working tree or index |
+| `git_remote_write` | ask | Remote git mutations (gh pr merge, gh issue create, git push) |
 | `git_discard` | ask | Discard uncommitted changes (reset --hard, checkout .) |
 | `git_history_rewrite` | ask | Rewrite published history (force push, rebase -i) |
 | `network_outbound` | context | Outbound network requests (curl, wget, ssh) |
@@ -32,9 +33,18 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `package_uninstall` | ask | Remove packages (npm uninstall, pip uninstall) |
 | `lang_exec` | context | Execute code via language runtimes (python, node) |
 | `process_signal` | ask | Send signals to processes (kill, pkill) |
+| `container_read` | allow | Read-only container and image inspection (logs, inspect, stats, ps) |
+| `container_write` | context | Container state mutations (start, stop, build, tag, create) |
+| `container_exec` | ask | Execute or copy data in containers (exec, run, attach, cp) |
 | `container_destructive` | ask | Destructive container operations (docker rm, docker system prune) |
+| `service_read` | allow | Read-only service inspection (systemctl status, cat, journalctl) |
+| `service_write` | ask | Service and systemd mutations (restart, enable, daemon-reload) |
+| `service_destructive` | ask | Machine-level service actions (reboot, poweroff, isolate) |
 | `db_read` | allow | Read-only database operations (SELECT, introspection) |
-| `db_write` | ask | Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER) |
+| `db_write` | context | Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER) |
+| `beads_safe` | allow | Read-only beads queries and diagnostics (bd list, bd show, bd ready) |
+| `beads_write` | allow | Beads workflow operations that modify data (bd create, bd update, bd close) |
+| `beads_destructive` | ask | Irreversible beads operations (bd delete, bd purge, bd admin) |
 | `obfuscated` | block | Obfuscated or encoded commands (base64 \| bash) |
 | `unknown` | ask | Unrecognized command or tool -- not in any classify table |
 
@@ -68,6 +78,7 @@ Types with `context` as their default policy delegate to a **context resolver**:
 
 - **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
+- **Container writes** (`container_write`) -- use the same context resolver pattern as filesystem/database writes, so in-project trusted workflows can proceed while higher-risk cases still prompt.
 
 ## CLI
 
