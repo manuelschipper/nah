@@ -354,6 +354,15 @@ def classify_tokens(
             if result != UNKNOWN:
                 return result
 
+    # kubectl: strip global flags (e.g. -n ns, --context=ctx) before matching.
+    # Without this, `kubectl -n namespace logs pod` fails to match `kubectl logs`.
+    if tokens[0] == "kubectl":
+        tokens = _strip_kubectl_global_flags(tokens)
+        if global_table:
+            result = _prefix_match(tokens, global_table)
+            if result != UNKNOWN:
+                return result
+
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     # Skipped entirely when profile == "none".
     if profile != "none":
@@ -471,6 +480,82 @@ def _git_has_short_flag(args: list[str], flag: str) -> bool:
         if arg.startswith("-") and not arg.startswith("--") and flag in arg[1:]:
             return True
     return False
+
+
+# kubectl global flags that take a value argument and appear before the subcommand.
+_KUBECTL_VALUE_FLAGS = {
+    "-n", "--namespace",
+    "--context",
+    "--kubeconfig",
+    "--cluster",
+    "--user",
+    "-s", "--server",
+    "--token",
+    "--as",
+    "--as-group",
+    "--as-uid",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--cache-dir",
+    "--request-timeout",
+    "--tls-server-name",
+}
+
+# kubectl global boolean flags (no value argument).
+_KUBECTL_BOOLEAN_FLAGS = {
+    "--insecure-skip-tls-verify",
+    "--warnings-as-errors",
+}
+
+# kubectl global flags in --flag=value form (prefix match).
+_KUBECTL_VALUE_FLAG_PREFIXES = (
+    "--namespace=",
+    "--context=",
+    "--kubeconfig=",
+    "--cluster=",
+    "--user=",
+    "--server=",
+    "--token=",
+    "--as=",
+    "--as-group=",
+    "--as-uid=",
+    "--certificate-authority=",
+    "--client-certificate=",
+    "--client-key=",
+    "--cache-dir=",
+    "--request-timeout=",
+    "--tls-server-name=",
+)
+
+
+def _strip_kubectl_global_flags(tokens: list[str]) -> list[str]:
+    """Strip kubectl global flags (e.g. -n ns, --context=ctx) from token list.
+
+    Preserves 'kubectl' as first token followed by the subcommand and its args.
+    Malformed value-taking flags stop stripping so classification fails closed.
+    """
+    result = [tokens[0]]  # keep "kubectl"
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _KUBECTL_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                # Flag without value — fail closed.
+                result.extend(tokens[i:])
+                break
+            i += 2  # skip flag + its value
+        elif any(tok.startswith(prefix) for prefix in _KUBECTL_VALUE_FLAG_PREFIXES):
+            i += 1  # skip =joined value flag
+        elif tok in _KUBECTL_BOOLEAN_FLAGS:
+            i += 1  # skip boolean flag
+        elif tok.startswith("-v=") or (len(tok) > 2 and tok.startswith("-v") and tok[2:].isdigit()):
+            i += 1  # skip verbosity flag (-v=3, -v3)
+        else:
+            # Reached the subcommand — append rest as-is.
+            result.extend(tokens[i:])
+            break
+    return result
 
 
 def _strip_git_global_flags(tokens: list[str]) -> list[str]:

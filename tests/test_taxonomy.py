@@ -486,6 +486,83 @@ class TestClassifyTokens:
     def test_basename_normalization(self):
         assert _ct(["/usr/bin/rm", "-rf", "/"]) == "filesystem_delete"
 
+    # kubectl global flag stripping
+    # kubectl is not in the builtin table — it's user-config only.
+    # Tests use global_table to mirror the real code path.
+
+    def _kubectl_table(self):
+        """Minimal kubectl global_table matching the typical user config."""
+        return build_user_table({
+            "filesystem_read": ["kubectl logs", "kubectl get", "kubectl describe"],
+            "network_write": ["kubectl apply", "kubectl create", "kubectl patch"],
+            "lang_exec": ["kubectl exec"],
+        })
+
+    def test_kubectl_n_flag_stripped(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "-n", "mynamespace", "logs", "pod"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "filesystem_read"
+
+    def test_kubectl_namespace_long_flag_stripped(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "--namespace", "mynamespace", "logs", "pod"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "filesystem_read"
+
+    def test_kubectl_namespace_equals_joined_stripped(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "--namespace=mynamespace", "logs", "pod"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "filesystem_read"
+
+    def test_kubectl_context_flag_stripped(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "--context=prod", "get", "pods"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "filesystem_read"
+
+    def test_kubectl_multiple_global_flags_stripped(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "--context=prod", "-n", "kube-system", "get", "pods"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "filesystem_read"
+
+    def test_kubectl_n_before_apply_still_network_write(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "-n", "mynamespace", "apply", "-f", "deploy.yaml"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "network_write"
+
+    def test_kubectl_n_before_exec_still_lang_exec(self):
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "-n", "mynamespace", "exec", "-it", "pod", "--", "bash"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "lang_exec"
+
+    def test_kubectl_global_flags_work_with_global_overrides(self):
+        tbl = build_user_table({"testing": ["kubectl logs"]})
+        assert classify_tokens(
+            ["kubectl", "-n", "mynamespace", "logs", "pod"],
+            global_table=tbl,
+            builtin_table=_FULL,
+        ) == "testing"
+
+    def test_kubectl_n_flag_missing_value_fails_closed(self):
+        # -n without value — fail closed (no subcommand to classify)
+        tbl = self._kubectl_table()
+        assert classify_tokens(
+            ["kubectl", "-n"],
+            global_table=tbl, builtin_table=_FULL,
+        ) == "unknown"
+
     def test_basename_curl(self):
         assert _ct(["/usr/local/bin/curl", "-X", "POST", "url"]) == "network_write"
 
