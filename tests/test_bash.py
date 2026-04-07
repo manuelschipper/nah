@@ -49,6 +49,21 @@ class TestAcceptanceCriteria:
         r = classify_command("npm test")
         assert r.final_decision == "allow"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm create vite@latest .",
+            "npm create next-app@latest my-app",
+            "pnpm create vite@latest .",
+            "yarn create vite",
+            "bun create vite",
+        ],
+    )
+    def test_package_manager_create_scaffolds_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+
 
 class TestPassthroughWrappers:
     @pytest.mark.parametrize(
