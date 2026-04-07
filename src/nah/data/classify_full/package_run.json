@@ -2,6 +2,7 @@
   "npm test",
   "npm run",
   "npm exec",
+  "npm create",
   "npm start",
   "npm stop",
   "npm restart",
