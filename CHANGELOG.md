@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Heredoc apostrophes inside `$()` no longer false-block as "unbalanced substitution"** — `_match_parens` and `_extract_substitutions` now recognize `<<EOF` heredoc operators (and `<<-EOF`, `<<'EOF'`, `<<"EOF"` variants) and skip past their bodies as opaque literal content. A new `_strip_heredoc_bodies` helper removes heredoc bodies before `shlex.split` so the inner stage is shlex-friendly even when the body contains unbalanced apostrophes, backticks, or parens. This unblocks the Claude Code git-commit pattern `git commit -m "$(cat <<EOF\n…can't…\nEOF\n)"` which was previously hard-blocked any time the commit body contained a contraction (mold-9)
 - **lang_exec veto silently ignored** — when the LLM flagged a script as dangerous, `max_decision` cap converted block→ask, then the veto check (`== block`) failed, silently allowing the script. Now escalates to ask unconditionally when the LLM flags concern (nah-5no)
 - **LLM decision always empty in logs** — `_build_llm_meta()` never set the `llm_decision` field, so every log entry had `"decision": ""` in the llm block. Now populated from the actual LLM response (nah-5no)
 - **SSH-style host extraction now covers `rsync` and `ssh-copy-id`** — `rsync user@host:path` and `rsync host::module` now resolve the remote host correctly for network context, and `ssh-copy-id` is classified as `network_outbound` with SSH host extraction instead of falling through to `unknown` or malformed URL parsing (nah-vcz)
