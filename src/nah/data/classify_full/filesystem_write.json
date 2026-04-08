@@ -42,7 +42,5 @@
   "pg_dump",
   "pg_dumpall",
   "mysqldump",
-  "make install",
-  "gmake install",
   "cmake --install"
 ]

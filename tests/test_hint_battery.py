@@ -391,13 +391,18 @@ class TestDevNullRedirects:
         "git stash 2>/dev/null",
         "git log --oneline 2>/dev/null | head -5",
         "git stash > /dev/null",
-        "make clean 2>/dev/null",
     ])
     def test_dev_null_should_not_ask(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "allow", (
             f"should allow but got {decision} with hint: {hint}"
         )
+
+    def test_make_clean_dev_null_still_asks_for_lang_exec(self):
+        decision, hint = _hint("make clean 2>/dev/null")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -612,11 +617,11 @@ class TestProportionality:
         assert "nah allow filesystem_write" not in (hint or "")
 
     def test_tee_outside_hints_path_not_type(self):
-        """make | tee /tmp/build.log — hint the path, not the type."""
+        """make | tee /tmp/build.log now hints lang_exec before tee trust."""
         decision, hint = _hint("make 2>&1 | tee /tmp/build.log")
         assert decision == "ask"
         assert hint is not None
-        assert "nah trust" in hint
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -692,7 +697,6 @@ class TestTeeHints:
     @pytest.mark.parametrize("cmd", [
         "echo hello | tee /tmp/out.txt",
         "cat file.txt | tee ~/backup.txt",
-        "make | tee /tmp/build.log",
         "git log | tee /tmp/gitlog.txt",
         "echo test | tee -a /tmp/append.log",
     ])
@@ -702,6 +706,12 @@ class TestTeeHints:
         assert hint is not None
         assert "nah trust" in hint
         assert "nah allow filesystem" not in hint
+
+    def test_make_pipe_tee_hints_lang_exec(self):
+        decision, hint = _hint("make | tee /tmp/build.log")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -881,20 +891,22 @@ class TestRsyncHints:
 # 25. MAKE INSTALL — broad hint
 # ===================================================================
 class TestMakeInstallHints:
-    """make install triggers filesystem_write — check hint quality."""
+    """make install now routes through lang_exec, not filesystem_write."""
 
-    @pytest.mark.xfail(reason="nah-4tk: make install hints broad filesystem_write")
     def test_make_install_not_broad(self):
-        """make install should not suggest nah allow filesystem_write."""
+        """make install should hint lang_exec, not broad filesystem_write."""
         decision, hint = _hint("make install")
+        assert decision == "ask"
+        assert hint is not None
         assert "nah allow filesystem_write" not in (hint or "")
+        assert "nah allow lang_exec" in hint
 
-    def test_make_install_destdir_hints_trust(self):
-        """make install DESTDIR=/tmp/staging — should hint trust."""
+    def test_make_install_destdir_hints_lang_exec(self):
+        """make install DESTDIR=/tmp/staging no longer hints trust on DESTDIR."""
         decision, hint = _hint("make install DESTDIR=/tmp/staging")
         assert decision == "ask"
         assert hint is not None
-        assert "nah trust" in hint
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -1375,13 +1387,18 @@ class TestPackageManagerHints:
         "bun run script.ts",
         "bun install",
         "pnpm exec jest",
-        "npx -y ts-node script.ts",
         "npm run test -- --coverage",
     ])
     def test_package_allowed(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "allow"
         assert hint is None
+
+    def test_npx_ts_node_missing_script_hints_lang_exec(self):
+        decision, hint = _hint("npx -y ts-node script.ts")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
     @pytest.mark.parametrize("cmd", [
         "deno run script.ts",

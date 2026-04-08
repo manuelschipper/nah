@@ -1177,15 +1177,15 @@
     {
       "id": 88,
       "story": "destructive_operations",
-      "narration": "Running make install inside the project. nah resolves 'install' as a path target inside the project.",
+      "narration": "Running make install inside the project. make executes a local makefile, so nah routes it through script inspection instead of treating 'install' like a path.",
       "category": "bash_package_build",
       "tool": "Bash",
       "input": {
         "command": "make install"
       },
-      "expected": "allow",
+      "expected": "ask",
       "mode": "dry_run",
-      "description": "filesystem_write → context → inside project (install resolves as path)"
+      "description": "lang_exec → ask when no single inspectable Makefile is found"
     },
     {
       "id": 89,
