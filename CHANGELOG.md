@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Threat-model coverage audit** — added `nah audit-threat-model` CLI subcommand backed by `src/nah/audit_threat_model.py`, with module-level rule tests, `TestContainerDestructiveCoverage`, and `TestPackageEscalationCoverage` so threat-model claims can be mapped back to concrete pytest coverage and the container/package escalation gaps are exercised explicitly. Output formats: `markdown` (default), `json`, `summary` (mold-8)
 - **Playwright MCP browser taxonomy expansion** — added 6 new action types: `browser_read`, `browser_interact`, `browser_state`, `browser_navigate`, `browser_exec`, and `browser_file`. Bundled classification now covers both `mcp__plugin_playwright_playwright__browser_*` and `mcp__playwright__browser_*` tool names, eliminating prompts for the 58 read/interact/state tools while keeping navigate/exec/file tools on explicit ask paths with browser-specific reasons (mold-10)
 - **Container + systemd taxonomy expansion** — added 6 new action types: `container_read`, `container_write`, `container_exec`, `service_read`, `service_write`, and `service_destructive`. Full-profile docker/podman coverage now includes logs/inspect/stats/build/exec/compose/service flows, `systemctl`/`journalctl` no longer fall through to `unknown`, minimal profile gains read-only container/service coverage, and sensitive path defaults now cover Docker daemon and systemd config/socket paths (mold-2)
 - **Unified LLM mode** — merged 4 fragmented LLM entry points into 2 clean paths. Path 1 (ask refinement): combined safety+intent prompt runs in `main()` for ask decisions, uses user-only transcript and CLAUDE.md for context, can only relax ask→allow. Path 2 (content veto): stays in handlers for write/script inspection, hard-capped to ask. Config simplified to `llm.mode: off|on` (one switch). LLM can never block — only allow or ask. Session state tracks consecutive denials (3→disable). `nah log --llm` filter, `nah test` uses unified path. Backward compat: `llm.enabled: true` still works. Deprecation warning for removed `llm.max_decision` (nah-5no)
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- GitHub Actions now publishes a non-gating threat-model coverage report to the job summary after the main pytest run, so PRs show per-category audit counts without changing the enforcement gate (`pytest tests/`) (mold-8)
 - Docker and podman read-only inspection commands like `ps`, `images`, `logs`, `inspect`, and compose read ops now classify as `container_read` instead of `filesystem_read`. Default behavior stays `allow`; logs and `nah types` now use the container-specific action type.
 - Transcript-derived LLM context now reformats slash-command skill invocations, labels Claude Code skill meta blocks as `Skill expansion`, deduplicates repeated expansions by skill name, and caps each captured skill body to 2048 chars (mold-3)
 
