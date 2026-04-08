@@ -1,6 +1,8 @@
 """Unit tests for nah.bash — full classification pipeline, no subprocess."""
 
+import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -1425,6 +1427,83 @@ class TestNewActionTypes:
         r = classify_command("git checkout main")
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "git_write"
+
+
+_CONTAINER_DESTRUCTIVE_PARAMS = (
+    "docker rm",
+    "docker rmi",
+    "docker system prune",
+    "docker container prune",
+    "docker image prune",
+    "docker volume prune",
+    "docker network prune",
+    "docker builder prune",
+    "docker buildx prune",
+    "docker compose down",
+    "docker compose rm",
+    "docker stack rm",
+    "docker swarm leave",
+    "docker secret rm",
+    "docker config rm",
+    "docker node rm",
+    "docker service rm",
+    "docker plugin rm",
+    "docker manifest rm",
+    "docker context rm",
+    "docker buildx rm",
+    "docker volume rm",
+    "docker container rm",
+    "docker image rm",
+    "docker network rm",
+    "podman rm",
+    "podman rmi",
+    "podman system prune",
+    "podman container prune",
+    "podman image prune",
+    "podman volume prune",
+    "podman network prune",
+    "podman pod prune",
+    "podman compose down",
+    "podman compose rm",
+    "podman manifest rm",
+    "podman volume rm",
+    "podman container rm",
+    "podman image rm",
+    "podman network rm",
+    "podman pod rm",
+    "podman machine rm",
+    "podman secret rm",
+)
+
+
+class TestContainerDestructiveCoverage:
+    """Every destructive docker/podman taxonomy entry stays on ask."""
+
+    @pytest.mark.parametrize("command", _CONTAINER_DESTRUCTIVE_PARAMS)
+    def test_container_destructive_entries_ask(self, project_root, command):
+        r = classify_command(command)
+        assert r.stages[0].action_type == "container_destructive"
+        assert r.final_decision == "ask"
+
+    def test_parametrize_list_matches_taxonomy_file(self):
+        entries = set(
+            json.loads(
+                (
+                    Path(__file__).resolve().parent.parent
+                    / "src"
+                    / "nah"
+                    / "data"
+                    / "classify_full"
+                    / "container_destructive.json"
+                ).read_text()
+            )
+        )
+        covered = set(_CONTAINER_DESTRUCTIVE_PARAMS)
+        missing = sorted(entries - covered)
+        extra = sorted(covered - entries)
+        assert not missing and not extra, (
+            f"container_destructive test list drifted: missing={missing}, extra={extra}"
+        )
 
 
 class TestFD017Regressions:

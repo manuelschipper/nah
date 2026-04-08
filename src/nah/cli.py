@@ -790,6 +790,17 @@ def cmd_types(args: argparse.Namespace) -> None:
             print(f"    \u21b3 {note}")
 
 
+def cmd_audit_threat_model(args: argparse.Namespace) -> None:
+    """Run the threat-model coverage audit and print the report."""
+    from nah import audit_threat_model
+
+    try:
+        audit_threat_model.run(args.format)
+    except RuntimeError as exc:
+        sys.stderr.write(f"nah: audit-threat-model: {exc}\n")
+        sys.exit(1)
+
+
 def cmd_log(args: argparse.Namespace) -> None:
     """Display recent decision log entries."""
     from nah.log import read_log
@@ -939,6 +950,16 @@ def main():
     forget_parser.add_argument("--global", dest="global_flag", action="store_true", help="Search only global config")
     sub.add_parser("types", help="List all action types with descriptions and default policies")
     sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
+    audit_parser = sub.add_parser(
+        "audit-threat-model",
+        help="Audit threat-model coverage across the pytest suite",
+    )
+    audit_parser.add_argument(
+        "--format",
+        choices=("markdown", "json", "summary"),
+        default="markdown",
+        help="Output format (default: markdown)",
+    )
 
     # Manual intercept: "nah claude ..." bypasses argparse for user_args
     # because argparse.REMAINDER fails when first arg starts with "--".
@@ -976,6 +997,8 @@ def main():
         cmd_forget(args)
     elif args.command == "types":
         cmd_types(args)
+    elif args.command == "audit-threat-model":
+        cmd_audit_threat_model(args)
     else:
         parser.print_help()
 
