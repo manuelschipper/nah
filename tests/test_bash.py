@@ -2050,8 +2050,19 @@ class TestProcessSubstitutionInspection:
         assert r.final_decision == "allow"
 
     def test_output_process_sub_allow(self, project_root):
-        r = classify_command("tee >(cat -n)")
-        assert r.final_decision == "allow"
+        # tee writes to its argument; the process-sub placeholder needs
+        # to resolve inside the project so the path-context check
+        # produces a deterministic ALLOW. Without the chdir, the
+        # placeholder resolves against the developer's actual cwd which
+        # may or may not be in trusted_paths depending on user config —
+        # CI exposed this leak. Pin cwd to the temp project root.
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(project_root)
+            r = classify_command("tee >(cat -n)")
+            assert r.final_decision == "allow"
+        finally:
+            os.chdir(old_cwd)
 
     # --- Dangerous: inner network → ask ---
 
