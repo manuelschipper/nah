@@ -2102,6 +2102,87 @@ def _extract_primary_target(tokens: list[str]) -> str:
     return candidates[-1] if candidates else last_non_flag
 
 
+def _unwrap_lang_exec_wrapper(tokens: list[str]) -> list[str] | None:
+    """Return canonical inner lang-exec-ish tokens for supported wrappers."""
+    if not tokens:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+    if cmd in {"make", "gmake"}:
+        return [cmd, *tokens[1:]] if cmd != tokens[0] else list(tokens)
+
+    return taxonomy._extract_package_exec_inner(tokens)
+
+
+def _resolve_makefile_path(tokens: list[str]) -> str | None:
+    """Resolve the makefile path for make/gmake execution."""
+    if not tokens:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+    if cmd not in {"make", "gmake"}:
+        return None
+
+    def _join(base_dir: str, value: str) -> str:
+        if os.path.isabs(value):
+            return value
+        return os.path.join(base_dir, value)
+
+    effective_dir = os.getcwd()
+    makefiles: list[str] = []
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in {"-E", "--eval"} or tok.startswith("--eval="):
+            return None
+        if tok == "-C":
+            if i + 1 >= len(tokens):
+                return None
+            effective_dir = _join(effective_dir, tokens[i + 1])
+            i += 2
+            continue
+        if tok.startswith("-C") and len(tok) > 2:
+            effective_dir = _join(effective_dir, tok[2:])
+            i += 1
+            continue
+        if tok == "--directory":
+            if i + 1 >= len(tokens):
+                return None
+            effective_dir = _join(effective_dir, tokens[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--directory="):
+            effective_dir = _join(effective_dir, tok.split("=", 1)[1])
+            i += 1
+            continue
+        if tok in {"-f", "--file", "--makefile"}:
+            if i + 1 >= len(tokens):
+                return None
+            makefiles.append(_join(effective_dir, tokens[i + 1]))
+            i += 2
+            continue
+        if tok.startswith("-f") and len(tok) > 2:
+            makefiles.append(_join(effective_dir, tok[2:]))
+            i += 1
+            continue
+        if tok.startswith("--file=") or tok.startswith("--makefile="):
+            makefiles.append(_join(effective_dir, tok.split("=", 1)[1]))
+            i += 1
+            continue
+        i += 1
+
+    if len(makefiles) > 1:
+        return None
+    if len(makefiles) == 1:
+        return makefiles[0]
+
+    for name in ("GNUmakefile", "makefile", "Makefile"):
+        candidate = os.path.join(effective_dir, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _resolve_script_path(tokens: list[str]) -> str | None:
     """Extract script file path from interpreter command tokens.
 
@@ -2113,10 +2194,17 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     if not tokens:
         return None
 
+    unwrapped = _unwrap_lang_exec_wrapper(tokens)
+    if unwrapped is not None:
+        tokens = unwrapped
+
     cmd = os.path.basename(tokens[0])
 
     from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
     cmd = _normalize_interpreter(cmd)
+
+    if cmd in {"make", "gmake"}:
+        return _resolve_makefile_path(tokens)
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
@@ -2159,10 +2247,17 @@ def _extract_inline_code(tokens: list[str]) -> str | None:
     if not tokens or len(tokens) < 2:
         return None
 
+    unwrapped = _unwrap_lang_exec_wrapper(tokens)
+    if unwrapped is not None:
+        tokens = unwrapped
+
     cmd = os.path.basename(tokens[0])
 
     from nah.taxonomy import _INLINE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
     cmd = _normalize_interpreter(cmd)
+
+    if cmd in {"make", "gmake"}:
+        return None
 
     inline = _INLINE_FLAGS.get(cmd, set())
     if not inline:
