@@ -761,14 +761,19 @@ class TestDockerHints:
 # 20. SUDO / PRIVILEGE ESCALATION
 # ===================================================================
 class TestSudoHints:
-    """sudo commands — currently unknown, classify hint."""
+    """sudo hints should follow the inner command classification."""
 
-    @pytest.mark.parametrize("cmd", [
-        "sudo rm -rf /tmp/cache",
-        "sudo apt update",
+    @pytest.mark.parametrize("cmd, expected_hint", [
+        ("sudo systemctl restart nginx", "nah allow service_write"),
+        ("sudo docker exec -it container bash", "nah allow container_exec"),
     ])
-    def test_sudo_classify(self, cmd):
+    def test_sudo_known_inner_action_hint(self, cmd, expected_hint):
         decision, hint = _hint(cmd)
+        assert decision == "ask"
+        assert expected_hint in hint
+
+    def test_sudo_unknown_inner_command_still_gets_classify_hint(self):
+        decision, hint = _hint("sudo terraform apply")
         assert decision == "ask"
         assert "nah classify" in hint
 
