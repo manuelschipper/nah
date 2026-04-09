@@ -919,7 +919,8 @@ def _make_stage(
     else:
         # All tokens were env assignments
         return Stage(tokens=tokens, operator=operator,
-                     action_hint=action_hint, action_reason=action_reason)
+                     action_hint=taxonomy.FILESYSTEM_READ,
+                     action_reason="env-only assignment")
     return Stage(tokens=tokens[start:], operator=operator,
                  action_hint=action_hint, action_reason=action_reason)
 
