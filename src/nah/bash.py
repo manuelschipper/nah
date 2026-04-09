@@ -1145,6 +1145,7 @@ _SUDO_VALUE_SAFE = {
 _SUDO_FAIL_CLOSED = {
     "-e", "--edit",
     "-h", "--help",
+    "--host",
     "-i", "--login",
     "-K", "--remove-timestamp",
     "-l", "--list",

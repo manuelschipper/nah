@@ -403,6 +403,17 @@ class TestPassthroughWrappers:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "filesystem_read"
 
+    def test_sudo_passthrough_preserves_trust_project_override(self, project_root):
+        config._cached_config = NahConfig(
+            trust_project_config=True,
+            classify_project={"filesystem_read": ["mytool"]},
+        )
+
+        r = classify_command("sudo mytool --do-thing")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason.startswith("sudo: ")
+
 
 class TestSudoWrapper:
     @pytest.mark.parametrize(
@@ -494,6 +505,7 @@ class TestSudoWrapper:
             "sudo -s",
             "sudo -u postgres psql",
             "sudo -D /tmp ls /etc",
+            "sudo --host remote ls",
             "sudo -R /chroot ls",
             "sudo --bogus cmd",
             "sudo",
