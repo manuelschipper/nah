@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LLM transcript tail reads no longer lose all context on giant JSONL lines** — `_read_transcript_tail()` now walks backward from EOF in newline-aligned chunks with a safety cap, so large `tool_result` lines no longer consume the entire read window and produce `(not available)` conversation context in LLM prompts (mold-27)
 - **Inspectable wrapper execution no longer slips through `package_run`** — `uv run`, `uvx` / `uv tool run`, `npx`, and `npm exec` now re-route inspectable local code execution into `lang_exec`, while `make` / `gmake` execution paths also route to `lang_exec` via Makefile resolution. Read-only make forms remain `filesystem_read`, and ordinary package-run fallthroughs stay unchanged (nah-vhy)
 - **Env-only shell stages no longer default to `unknown -> ask`** — stages made entirely of `NAME=value` assignments now classify from an allow floor unless an env value is itself an exec sink or a substitution inner is stricter, so benign cases like `TOKEN=abc123` and `FOO=$(printf ok)` no longer prompt spuriously (mold-17)
+- **`npm create` no longer falls through to `unknown -> ask`** — `npm create ...` is now classified as `package_run`, matching the existing `pnpm create`, `yarn create`, and `bun create` scaffolding behavior so common forms like `npm create vite@latest` no longer prompt unnecessarily (mold-4)
 
 ## [0.5.5] - 2026-03-26
 
