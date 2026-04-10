@@ -1796,8 +1796,25 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
 
     cmd = os.path.basename(tokens[0])
 
-    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
+    from nah.taxonomy import (
+        _INLINE_FLAGS,
+        _MODULE_FLAGS,
+        _SCRIPT_INTERPRETERS,
+        _VALUE_FLAGS,
+        _normalize_interpreter,
+    )
     cmd = _normalize_interpreter(cmd)
+
+    # Direct script execution (./script.sh, /abs/path/script.py, script.sh):
+    # tokens[0] IS the script, and tokens[1:] are its positional arguments.
+    # Without this branch, the loop below would treat the first non-flag
+    # argument as the script path, producing false-positive "script not found"
+    # asks for commands like `./bin/release.sh 2.0.0 prerelease` (issue #70).
+    if cmd not in _SCRIPT_INTERPRETERS:
+        raw = tokens[0]
+        if os.path.isabs(raw):
+            return raw
+        return os.path.realpath(raw) if os.path.isfile(raw) else os.path.join(os.getcwd(), raw)
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
@@ -1823,10 +1840,6 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
             return tok
         cwd = os.getcwd()
         return os.path.join(cwd, tok)
-
-    # ./script.py — tokens[0] is the script itself (direct execution)
-    if cmd != tokens[0]:
-        return os.path.realpath(tokens[0]) if os.path.isfile(tokens[0]) else tokens[0]
 
     return None
 

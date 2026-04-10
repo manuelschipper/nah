@@ -291,6 +291,58 @@ class TestScriptPathResolution:
         result = _resolve_script_path(["python", "-v"])
         assert result is None
 
+    # --- Direct script execution (issue #70) -----------------------------
+    # When tokens[0] is not an interpreter, it IS the script, and tokens[1:]
+    # are its positional arguments. Earlier behaviour misread the first arg
+    # as the script path, producing "script not found" asks for commands
+    # like `./bin/release.sh 2.0.0 prerelease`.
+
+    def test_direct_script_absolute_no_args(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/bash\necho ok\n")
+        result = _resolve_script_path([path])
+        assert result == path
+
+    def test_direct_script_absolute_with_args(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/bash\necho \"$@\"\n")
+        result = _resolve_script_path([path, "2.0.0", "prerelease"])
+        assert result == path, "tokens[0] is the script; args must not be treated as the path"
+
+    def test_direct_script_relative_with_args_issue_70(self, project_root):
+        """Exact repro of issue #70: ./bin/script.sh 2.0.0 prerelease."""
+        os.makedirs(os.path.join(project_root, "bin"), exist_ok=True)
+        script = os.path.join(project_root, "bin", "resolve-release-version.sh")
+        _write(script, "#!/bin/bash\necho \"$1\"\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["./bin/resolve-release-version.sh", "2.0.0", "prerelease"])
+            assert result is not None
+            assert result.endswith("bin/resolve-release-version.sh"), (
+                f"expected path ending in bin/resolve-release-version.sh, got {result!r}"
+            )
+            assert "2.0.0" not in result, "positional arg must not be treated as the script path"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_direct_script_bare_relative_name(self, project_root):
+        """Bare relative name like `script.sh arg` resolves via cwd, not arg."""
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["script.sh", "arg1"])
+            assert result is not None
+            assert result.endswith("script.sh")
+            assert "arg1" not in result
+        finally:
+            os.chdir(old_cwd)
+
+    def test_direct_script_nonexistent_returns_script_path(self):
+        """Nonexistent direct script still returns script path, not the first arg."""
+        result = _resolve_script_path(["/var/empty/nonexistent.sh", "some-arg"])
+        assert result == "/var/empty/nonexistent.sh"
+
 
 # ===================================================================
 # 4. FULL PIPELINE INTEGRATION (classify_command)
@@ -367,6 +419,41 @@ class TestPipelineIntegration:
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
             assert "script clean:" in r.stages[0].reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_direct_script_with_args_allowed_issue_70(self, project_root):
+        """Issue #70: direct script invocation with positional args must not be
+        misclassified as 'script not found: <arg>'."""
+        os.makedirs(os.path.join(project_root, "bin"), exist_ok=True)
+        script = os.path.join(project_root, "bin", "release.sh")
+        _write(script, "#!/bin/bash\necho \"$1\"\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("./bin/release.sh 2.0.0 prerelease")
+            assert r.final_decision == "allow", (
+                f"expected allow (script clean) but got {r.final_decision!r}: {r.reason!r}"
+            )
+            assert r.stages[0].action_type == "lang_exec"
+            assert "script clean:" in r.stages[0].reason
+            # The resolved path must name the script, not the positional arg.
+            assert "release.sh" in r.stages[0].reason
+            assert "2.0.0" not in r.stages[0].reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_direct_script_missing_names_script_not_arg(self, project_root):
+        """Missing direct script: 'script not found' reason must name the script,
+        not a positional argument (fail-closed behaviour preserved)."""
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("./bin/does-not-exist.sh 2.0.0 prerelease")
+            assert r.final_decision == "ask"
+            assert "script not found" in r.reason
+            assert "does-not-exist.sh" in r.reason
+            assert "2.0.0" not in r.reason
         finally:
             os.chdir(old_cwd)
 
