@@ -40,6 +40,22 @@ def _ask_result(command="rm -rf dist/") -> ClassifyResult:
     )
 
 
+def _ask_result_for_action(action_type: str, policy: str = taxonomy.ASK, reason: str = "policy ask") -> ClassifyResult:
+    stage = StageResult(
+        tokens=[action_type],
+        action_type=action_type,
+        default_policy=policy,
+        decision=taxonomy.ASK,
+        reason=reason,
+    )
+    return ClassifyResult(
+        command=action_type,
+        stages=[stage],
+        final_decision=taxonomy.ASK,
+        reason=reason,
+    )
+
+
 def _set_llm_config(llm_eligible="default"):
     config._cached_config = NahConfig(
         llm_mode="on",
@@ -105,6 +121,53 @@ class TestIsLlmEligible:
         )
         result = ClassifyResult(command="cat ~/.ssh/id_rsa", stages=[sr], final_decision=taxonomy.ASK, reason="sensitive")
         assert hook._is_llm_eligible(result) is True
+
+    def test_default_includes_middle_ground_ask_types(self):
+        for action_type in ("package_uninstall", "container_exec", "browser_exec"):
+            result = _ask_result_for_action(action_type)
+            assert hook._is_llm_eligible(result) is True
+
+    def test_default_excludes_high_risk_ask_types(self):
+        excluded = (
+            "process_signal",
+            "service_write",
+            "git_remote_write",
+            "git_discard",
+            "git_history_rewrite",
+            "container_destructive",
+            "service_destructive",
+        )
+        for action_type in excluded:
+            result = _ask_result_for_action(action_type)
+            assert hook._is_llm_eligible(result) is False
+
+    def test_default_excludes_composition(self):
+        sr = StageResult(tokens=["foobar"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(
+            command="foobar | bash",
+            stages=[sr],
+            final_decision=taxonomy.ASK,
+            reason="pipe",
+            composition_rule="unknown | lang_exec",
+        )
+        assert hook._is_llm_eligible(result) is False
+
+    def test_strict_preserves_conservative_bundle(self):
+        config._cached_config = NahConfig(llm_eligible="strict")
+
+        assert hook._is_llm_eligible(_ask_result_for_action(taxonomy.UNKNOWN)) is True
+        assert hook._is_llm_eligible(_ask_result_for_action(taxonomy.LANG_EXEC)) is True
+        assert hook._is_llm_eligible(
+            _ask_result_for_action("filesystem_delete", taxonomy.CONTEXT, "outside project")
+        ) is True
+        assert hook._is_llm_eligible(_ask_result_for_action("package_uninstall")) is False
+
+    def test_list_expands_presets(self):
+        config._cached_config = NahConfig(llm_eligible=["strict", "git_discard"])
+
+        assert hook._is_llm_eligible(_ask_result_for_action(taxonomy.UNKNOWN)) is True
+        assert hook._is_llm_eligible(_ask_result_for_action("git_discard")) is True
+        assert hook._is_llm_eligible(_ask_result_for_action("package_uninstall")) is False
 
 
 class TestHandleBash:
@@ -197,6 +260,43 @@ class TestMainUnifiedLlm:
             llm_eligible=["db_write"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
+             patch("nah.llm.try_llm_unified") as mock_try_llm, \
+             patch("nah.hook._log_hook_decision"):
+            result = _run_hook(self._payload())
+
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        mock_try_llm.assert_not_called()
+
+    def test_main_default_refines_middle_ground_action(self):
+        allow = LLMCallResult(
+            decision={"decision": "allow", "reason": "Bash (LLM): user asked to uninstall"},
+            provider="ollama",
+            model="qwen3",
+            latency_ms=10,
+            reasoning="user asked to uninstall",
+            cascade=[ProviderAttempt("ollama", "success", 10, "qwen3")],
+        )
+
+        with patch("nah.config.get_config", return_value=NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+            llm_eligible="default",
+        )), \
+             patch("nah.hook.classify_command", return_value=_ask_result_for_action("package_uninstall")), \
+             patch("nah.llm.try_llm_unified", return_value=allow) as mock_try_llm, \
+             patch("nah.hook._log_hook_decision"):
+            result = _run_hook(self._payload())
+
+        assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+        mock_try_llm.assert_called_once()
+
+    def test_main_default_skips_excluded_action(self):
+        with patch("nah.config.get_config", return_value=NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+            llm_eligible="default",
+        )), \
+             patch("nah.hook.classify_command", return_value=_ask_result_for_action("service_write")), \
              patch("nah.llm.try_llm_unified") as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())

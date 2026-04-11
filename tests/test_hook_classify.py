@@ -36,6 +36,12 @@ class TestClassifyUnknownTool:
         )
         d = _classify_unknown_tool("DbTool")
         assert d["decision"] == "ask"
+        assert d["_meta"]["stages"] == [{
+            "action_type": "db_write",
+            "decision": "ask",
+            "policy": "context",
+            "reason": "unknown database target",
+        }]
 
     def test_mcp_skips_project_classify(self):
         config._cached_config = NahConfig(
@@ -266,6 +272,12 @@ class TestPlaywrightMcpClassification:
         d = _classify_unknown_tool(tool)
         assert d["decision"] == "ask"
         assert d["reason"] == "browser_exec → ask"
+        assert d["_meta"]["stages"] == [{
+            "action_type": "browser_exec",
+            "decision": "ask",
+            "policy": "ask",
+            "reason": "browser_exec → ask",
+        }]
 
     @pytest.mark.parametrize("tool", [
         "mcp__plugin_playwright_playwright__browser_file_upload",
