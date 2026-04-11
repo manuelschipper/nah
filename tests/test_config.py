@@ -334,6 +334,10 @@ class TestLlmEligible:
         cfg = _merge_configs({"llm": {"eligible": "default"}}, {})
         assert cfg.llm_eligible == "default"
 
+    def test_strict(self):
+        cfg = _merge_configs({"llm": {"eligible": "strict"}}, {})
+        assert cfg.llm_eligible == "strict"
+
     def test_all(self):
         cfg = _merge_configs({"llm": {"eligible": "all"}}, {})
         assert cfg.llm_eligible == "all"
@@ -341,6 +345,10 @@ class TestLlmEligible:
     def test_list(self):
         cfg = _merge_configs({"llm": {"eligible": ["unknown", "composition"]}}, {})
         assert cfg.llm_eligible == ["unknown", "composition"]
+
+    def test_list_with_preset(self):
+        cfg = _merge_configs({"llm": {"eligible": ["strict", "git_discard"]}}, {})
+        assert cfg.llm_eligible == ["strict", "git_discard"]
 
     def test_invalid_string_falls_back(self):
         cfg = _merge_configs({"llm": {"eligible": "turbo"}}, {})
