@@ -521,6 +521,20 @@ class TestSudoWrapper:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "sudo --close-from= systemctl restart nginx",
+            "sudo --prompt= systemctl restart nginx",
+            "sudo --command-timeout= docker ps",
+            "sudo --preserve-env= docker ps",
+        ],
+    )
+    def test_sudo_empty_attached_value_options_fail_closed(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
 
 # --- Composition rules ---
 
