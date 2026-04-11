@@ -23,12 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM eligibility presets** — `llm.eligible: strict` preserves the old conservative default, `default` now includes `unknown`, `lang_exec`, non-sensitive `context`, `package_uninstall`, `container_exec`, and `browser_exec`, and `all` remains the opt-in route for every ask decision. Classified fallback/MCP tools now include stage metadata so taxonomy eligibility applies consistently (nah-856)
 - GitHub Actions now publishes a non-gating threat-model coverage report to the job summary after the main pytest run, so PRs show per-category audit counts without changing the enforcement gate (`pytest tests/`) (mold-8)
 - Docker and podman read-only inspection commands like `ps`, `images`, `logs`, `inspect`, and compose read ops now classify as `container_read` instead of `filesystem_read`. Default behavior stays `allow`; logs and `nah types` now use the container-specific action type.
 - Transcript-derived LLM context now reformats slash-command skill invocations, labels Claude Code skill meta blocks as `Skill expansion`, deduplicates repeated expansions by skill name, and caps each captured skill body to 2048 chars (mold-3)
 
 ### Fixed
 
+- **Sudo wrapper classification** — `sudo`-wrapped Bash commands now unwrap to the inner action type with a `sudo:` reason prefix, preserving targeted hints, redirect/content inspection, `trust_project` passthrough behavior, composition rules, and fail-closed parsing for unsupported or malformed sudo options (mold-12)
 - **Heredoc apostrophes inside `$()` no longer false-block as "unbalanced substitution"** — `_match_parens` and `_extract_substitutions` now recognize `<<EOF` heredoc operators (and `<<-EOF`, `<<'EOF'`, `<<"EOF"` variants) and skip past their bodies as opaque literal content. A new `_strip_heredoc_bodies` helper removes heredoc bodies before `shlex.split` so the inner stage is shlex-friendly even when the body contains unbalanced apostrophes, backticks, or parens. This unblocks the Claude Code git-commit pattern `git commit -m "$(cat <<EOF\n…can't…\nEOF\n)"` which was previously hard-blocked any time the commit body contained a contraction (mold-9)
 - **lang_exec veto silently ignored** — when the LLM flagged a script as dangerous, `max_decision` cap converted block→ask, then the veto check (`== block`) failed, silently allowing the script. Now escalates to ask unconditionally when the LLM flags concern (nah-5no)
 - **LLM decision always empty in logs** — `_build_llm_meta()` never set the `llm_decision` field, so every log entry had `"decision": ""` in the llm block. Now populated from the actual LLM response (nah-5no)
