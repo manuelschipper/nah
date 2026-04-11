@@ -1213,8 +1213,15 @@ def _strip_sudo_wrapper(tokens: list[str]) -> list[str] | None:
             i += 2
             continue
 
-        if any(tok.startswith(prefix) for prefix in _SUDO_SAFE_VALUE_PREFIXES):
-            i += 1
+        matched_safe_prefix = False
+        for prefix in _SUDO_SAFE_VALUE_PREFIXES:
+            if tok.startswith(prefix):
+                if len(tok) == len(prefix):
+                    return None
+                i += 1
+                matched_safe_prefix = True
+                break
+        if matched_safe_prefix:
             continue
 
         if any(tok.startswith(flag) and len(tok) > len(flag) for flag in {"-C", "-p", "-T"}):
