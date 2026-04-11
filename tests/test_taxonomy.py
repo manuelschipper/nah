@@ -441,50 +441,6 @@ class TestClassifyTokens:
     def test_db_write(self, tokens):
         assert _ct(tokens) == "db_write"
 
-    # beads_safe
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "list"],
-        ["bd", "show", "nah-123"],
-        ["bd", "ready"],
-        ["bd", "doctor"],
-        ["bd", "info"],
-        ["bd", "status"],
-        ["bd", "label", "list"],
-        ["bd", "duplicates"],
-    ])
-    def test_beads_safe(self, tokens):
-        assert _ct(tokens) == "beads_safe"
-
-    # beads_write
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "create", "foo"],
-        ["bd", "update", "nah-123"],
-        ["bd", "close", "nah-123"],
-        ["bd", "label", "add", "nah-123", "design"],
-        ["bd", "dolt", "push"],
-        ["bd", "gate", "check"],
-        ["bd", "doctor", "--fix"],
-        ["bd", "duplicates", "--auto-merge"],
-        ["bd", "backup"],
-    ])
-    def test_beads_write(self, tokens):
-        assert _ct(tokens) == "beads_write"
-
-    # beads_destructive
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "delete", "nah-123"],
-        ["bd", "sql", "SELECT 1"],
-        ["bd", "init"],
-        ["bd", "purge"],
-        ["bd", "admin", "reset"],
-        ["bd", "backup", "restore"],
-    ])
-    def test_beads_destructive(self, tokens):
-        assert _ct(tokens) == "beads_destructive"
-
-    def test_bd_dolt_start_stays_process_signal(self):
-        assert _ct(["bd", "dolt", "start"]) == "process_signal"
-
     def test_bare_dolt_stays_db(self):
         assert _ct(["dolt", "sql"]) == "db_write"
         assert _ct(["dolt", "status"]) == "db_read"
@@ -772,9 +728,6 @@ class TestGetPolicy:
         ("browser_file", "context"),
         ("db_read", "allow"),
         ("db_write", "context"),
-        ("beads_safe", "allow"),
-        ("beads_write", "allow"),
-        ("beads_destructive", "ask"),
         ("obfuscated", "block"),
         ("unknown", "ask"),
     ])
@@ -1470,9 +1423,6 @@ class TestProfiles:
         assert "lang_exec" in action_types
         assert "package_install" in action_types
         assert "db_write" in action_types
-        assert "beads_safe" in action_types
-        assert "beads_write" in action_types
-        assert "beads_destructive" in action_types
 
     def test_profile_minimal_subset(self):
         table = get_builtin_table("minimal")
@@ -1502,9 +1452,6 @@ class TestProfiles:
         assert "package_install" not in action_types
         assert "package_run" not in action_types
         assert "db_write" not in action_types
-        assert "beads_safe" not in action_types
-        assert "beads_write" not in action_types
-        assert "beads_destructive" not in action_types
 
     def test_profile_none_empty(self):
         table = get_builtin_table("none")
