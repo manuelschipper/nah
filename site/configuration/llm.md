@@ -1,12 +1,12 @@
 # LLM Layer
 
-nah can optionally consult an LLM to resolve ambiguous `ask` decisions that the deterministic classifier can't handle.
+nah can optionally consult an LLM for decisions that need judgment after deterministic classification.
 
 ```
 Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions → execute
 ```
 
-The deterministic layer always runs first. The LLM only sees leftover `ask` decisions. If no LLM is configured or available, the decision stays `ask` and the user is prompted.
+The deterministic layer always runs first. Unified ask-refinement only sees eligible `ask` decisions; write/script inspection can also call the LLM as a veto path. The LLM cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
 
 ## Providers
 
@@ -110,29 +110,27 @@ Control which `ask` categories route to the LLM:
 
 ```yaml
 llm:
-  eligible: default    # default: unknown, lang_exec, context (excludes composition and sensitive)
-  eligible: all        # route all ask decisions to LLM
-  eligible:            # explicit list
-    - unknown
-    - lang_exec
-    - context
-    - composition      # must be explicitly added
-    - sensitive        # must be explicitly added
+  eligible: default    # strict | default | all
 ```
 
-The `default` set routes `unknown`, `lang_exec`, and `context` to the LLM. Categories like `composition` and `sensitive` are excluded by default (they involve pipe safety or sensitive paths and should generally prompt the user). Add them explicitly if you want LLM resolution for those too.
-
-### max_decision
-
-Cap the LLM's escalation power:
+Or use an explicit list:
 
 ```yaml
 llm:
-  max_decision: ask    # default: LLM can allow or ask, never block
-  max_decision: block  # LLM can block (full trust)
+  eligible:
+    - strict
+    - git_discard
+    - composition      # opt in to composition asks
+    - sensitive        # opt in to sensitive context asks
 ```
 
-When the LLM suggests `block` but `max_decision` is `ask`, the decision is downgraded to `ask` with the LLM's reasoning preserved in the prompt.
+`strict` routes `unknown`, `lang_exec`, and non-sensitive `context` asks to the LLM.
+
+`default` adds `package_uninstall`, `container_exec`, and `browser_exec`. It keeps `process_signal`, service writes, destructive container/service actions, git discard/history/remote writes, `composition`, and `sensitive` prompts human-gated by default.
+
+Explicit lists can combine presets and action types. `composition` and `sensitive` are gates: add them explicitly, or use top-level `eligible: all`, if you want those asks routed to the LLM.
+
+Provider responses of `block` are treated as `uncertain`, so the LLM can allow an eligible ask or leave it as an ask; it cannot block through ask-refinement.
 
 ### context_chars
 
@@ -150,7 +148,7 @@ The transcript is read from Claude Code's JSONL conversation file. It includes u
 ## How the cascade works
 
 1. nah tries each provider in the order listed in `providers:`
-2. If a provider returns `allow` or `block`, that decision is used
+2. If a provider returns `allow`, that decision is used
 3. If a provider returns `uncertain`, the cascade **stops** (doesn't try the next provider)
 4. If a provider errors (timeout, auth failure), nah tries the next provider
 5. If all providers fail or return uncertain, the decision stays `ask`
