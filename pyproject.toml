@@ -55,3 +55,9 @@ packages = ["src/nah"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Ensure the repo-local `src/` is on sys.path before any editable install.
+# Without this, a git worktree running `pytest` would import `nah` from the
+# main checkout via the editable .pth file instead of the worktree's source,
+# silently testing the wrong code. Pytest resolves this entry relative to
+# rootdir, so it Just Works in worktrees.
+pythonpath = ["src"]

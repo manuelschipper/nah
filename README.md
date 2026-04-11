@@ -168,7 +168,7 @@ classify:
     - migrate-prod
 ```
 
-nah classifies commands by **action type**, not by command name. Run `nah types` to see all 23 built-in action types with their default policies.
+nah classifies commands by **action type**, not by command name. Run `nah types` to see all 30 built-in action types with their default policies.
 
 ### Action types
 

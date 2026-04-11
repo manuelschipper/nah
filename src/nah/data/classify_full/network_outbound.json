@@ -1,5 +1,6 @@
 [
   "ssh",
+  "ssh-copy-id",
   "scp",
   "rsync",
   "nc",
@@ -10,5 +11,12 @@
   "sftp",
   "git daemon",
   "git http-backend",
-  "openssl s_client"
+  "openssl s_client",
+  "docker pull",
+  "docker image pull",
+  "docker compose pull",
+  "docker buildx pull",
+  "podman pull",
+  "podman image pull",
+  "podman compose pull"
 ]

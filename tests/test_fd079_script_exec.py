@@ -193,6 +193,7 @@ class TestContextResolver:
         assert "private key" in reason
 
     def test_script_outside_project(self, project_root, tmp_path):
+        config._cached_config = NahConfig(trusted_paths=[])
         outside = str(tmp_path / "outside.py")
         _write(outside, "print('safe')\n")
         decision, reason = resolve_lang_exec_context(outside)

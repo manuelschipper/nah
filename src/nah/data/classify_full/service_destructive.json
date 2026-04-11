@@ -1,0 +1,18 @@
+[
+  "systemctl reboot",
+  "systemctl poweroff",
+  "systemctl halt",
+  "systemctl kexec",
+  "systemctl soft-reboot",
+  "systemctl exit",
+  "systemctl switch-root",
+  "systemctl emergency",
+  "systemctl rescue",
+  "systemctl default",
+  "systemctl isolate",
+  "systemctl kill",
+  "systemctl suspend",
+  "systemctl hibernate",
+  "systemctl hybrid-sleep",
+  "systemctl suspend-then-hibernate"
+]

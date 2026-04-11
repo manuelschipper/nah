@@ -32,5 +32,19 @@
   "gradlew uploadArchives",
   "mvn deploy",
   "mvn site-deploy",
-  "mvn release:perform"
+  "mvn release:perform",
+  "docker push",
+  "docker image push",
+  "docker manifest push",
+  "docker compose push",
+  "docker compose publish",
+  "docker plugin push",
+  "docker login",
+  "docker logout",
+  "podman push",
+  "podman image push",
+  "podman manifest push",
+  "podman compose push",
+  "podman login",
+  "podman logout"
 ]

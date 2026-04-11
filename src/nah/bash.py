@@ -122,11 +122,12 @@ def classify_command(command: str) -> ClassifyResult:
             if not istage_str:
                 continue
             iheredoc = _extract_heredoc_literal(istage_str)
+            istage_for_split = _strip_heredoc_bodies(istage_str)
             try:
-                itokens = shlex.split(istage_str)
+                itokens = shlex.split(istage_for_split)
             except ValueError:
                 try:
-                    itokens = shlex.split(istage_str, comments=True)
+                    itokens = shlex.split(istage_for_split, comments=True)
                 except ValueError:
                     inner_results_by_idx[sub_idx] = _obfuscated_result(
                         [inner_cmd], "unparseable substitution", user_actions)
@@ -154,11 +155,12 @@ def classify_command(command: str) -> ClassifyResult:
         if not stage_str:
             continue
         heredoc_literal = _extract_heredoc_literal(stage_str)
+        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            tokens = shlex.split(stage_str)
+            tokens = shlex.split(stage_for_split)
         except ValueError:
             try:
-                tokens = shlex.split(stage_str, comments=True)
+                tokens = shlex.split(stage_for_split, comments=True)
             except ValueError:
                 result.final_decision = taxonomy.ASK
                 result.reason = "unparseable command (shlex error)"
@@ -350,6 +352,101 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
     return stages
 
 
+def _skip_heredoc(command: str, start: int) -> int:
+    """Skip past a heredoc body that starts at *start*.
+
+    *start* must point at the first ``<`` of a ``<<`` bigram. Returns the
+    index of the first character after the terminator line, or ``len(command)``
+    if no terminator is found (fail-open — caller treats the rest of the
+    command as opaque body, matching shell behavior). Returns *start*
+    unchanged if the bigram is not a heredoc operator (for example, ``<<<``
+    here-strings, or a malformed marker), so the caller can fall through to
+    normal character handling.
+
+    Heredoc bodies are opaque literal content as far as the shell is
+    concerned, so apostrophes, backticks, and unbalanced parens inside the
+    body must not break nah's substitution parser.
+    """
+    n = len(command)
+    if start + 1 >= n or command[start] != "<" or command[start + 1] != "<":
+        return start
+    # Here-string ``<<<`` is a different syntax with no body — bail.
+    if start + 2 < n and command[start + 2] == "<":
+        return start
+
+    i = start + 2  # past the ``<<``
+
+    # ``<<-`` strips leading tabs from the terminator.
+    strip_tabs = False
+    if i < n and command[i] == "-":
+        strip_tabs = True
+        i += 1
+
+    # Skip whitespace between the operator and the marker word.
+    while i < n and command[i] in " \t":
+        i += 1
+
+    if i >= n:
+        return start
+
+    # Read the marker word. It may be wrapped in matching ``'`` or ``"``
+    # quotes; the quoting flavor controls parameter expansion inside the
+    # body, which nah does not care about. Either way, the marker word
+    # itself is the same.
+    quote_char: str | None = None
+    if command[i] in ("'", '"'):
+        quote_char = command[i]
+        i += 1
+        marker_start = i
+        while i < n and command[i] != quote_char:
+            i += 1
+        if i >= n:
+            # Unclosed quote — let the caller fall through; the existing
+            # quote-tracking code will surface the actual error.
+            return start
+        marker = command[marker_start:i]
+        i += 1  # consume the closing quote
+    else:
+        marker_start = i
+        # Marker word ends at any shell metacharacter or whitespace.
+        while i < n and command[i] not in " \t;&|<>()\n":
+            i += 1
+        marker = command[marker_start:i]
+
+    if not marker:
+        return start
+
+    # The body begins on the line after the operator. Find the next newline.
+    nl = command.find("\n", i)
+    if nl < 0:
+        # No newline at all — there is no body. Treat the rest of the
+        # command as opaque so apostrophes after the marker do not trip
+        # the caller.
+        return n
+
+    # Walk line-by-line until we find the terminator line. The terminator
+    # is a line that contains exactly the marker (with leading tabs
+    # optionally stripped when ``<<-`` was used).
+    pos = nl + 1
+    while pos < n:
+        line_end = command.find("\n", pos)
+        if line_end < 0:
+            line_end = n
+        line = command[pos:line_end]
+        if strip_tabs:
+            line = line.lstrip("\t")
+        if line == marker:
+            # Return the position immediately after the terminator line,
+            # including its trailing newline if present.
+            return line_end + 1 if line_end < n else n
+        pos = line_end + 1
+
+    # No terminator found — fail-open to end of input. The shell would
+    # error out, but nah only needs to avoid the false-block on
+    # apostrophes inside the body.
+    return n
+
+
 def _match_parens(command: str, start: int) -> int:
     """Find the matching close-paren for an opening paren at *start*.
 
@@ -362,6 +459,20 @@ def _match_parens(command: str, start: int) -> int:
     n = len(command)
     while i < n:
         c = command[i]
+        # Heredoc bodies are opaque literal content; skip past them so
+        # apostrophes, backticks, and unbalanced parens inside the body
+        # do not corrupt depth tracking. Must come before the single-quote
+        # branch below.
+        if (
+            c == "<"
+            and i + 1 < n
+            and command[i + 1] == "<"
+            and (i + 2 >= n or command[i + 2] != "<")
+        ):
+            new_i = _skip_heredoc(command, i)
+            if new_i > i:
+                i = new_i
+                continue
         if c == "'":
             # Skip single-quoted region (no escapes inside)
             j = command.find("'", i + 1)
@@ -406,6 +517,20 @@ def _extract_substitutions(command: str) -> list[tuple[str, int, int, str]]:
     n = len(command)
     while i < n:
         c = command[i]
+        # Heredoc bodies are opaque literal content. Skip past them before
+        # the single-quote branch so an apostrophe inside the body does not
+        # open a fake quoted region. Must come before the single-quote
+        # skip below.
+        if (
+            c == "<"
+            and i + 1 < n
+            and command[i + 1] == "<"
+            and (i + 2 >= n or command[i + 2] != "<")
+        ):
+            new_i = _skip_heredoc(command, i)
+            if new_i > i:
+                i = new_i
+                continue
         # Skip single-quoted regions entirely
         if c == "'":
             j = command.find("'", i + 1)
@@ -560,6 +685,87 @@ def _extract_heredoc_literal(stage_str: str) -> str:
             return "\n".join(body_lines)
         body_lines.append(line)
     return ""
+
+
+def _strip_heredoc_bodies(stage_str: str) -> str:
+    """Remove heredoc bodies and terminators from a stage string.
+
+    The heredoc operator and marker word are preserved on the first line
+    so the post-shlex.split token-stripping logic in :func:`_decompose`
+    still sees them. The body content (between the operator line and the
+    terminator) plus the terminator line itself are removed so that
+    :func:`shlex.split` can tokenize the result without choking on
+    apostrophes, backticks, or other unescaped characters in the body
+    that would otherwise be parsed as shell syntax.
+
+    The body content is captured separately by :func:`_extract_heredoc_literal`
+    upstream, so removing it here does not lose information that the
+    classifier needs.
+
+    Quote-aware: a ``<<`` sequence inside a single- or double-quoted
+    region is not a heredoc operator and is left untouched. ``<<<``
+    here-strings are also left untouched.
+    """
+    if "<<" not in stage_str:
+        return stage_str
+    n = len(stage_str)
+    out: list[str] = []
+    i = 0
+    while i < n:
+        c = stage_str[i]
+        # Single-quoted region — copy literally; no heredoc detection inside.
+        if c == "'":
+            j = stage_str.find("'", i + 1)
+            end = j + 1 if j >= 0 else n
+            out.append(stage_str[i:end])
+            i = end
+            continue
+        # Double-quoted region — copy literally (with backslash escapes).
+        if c == '"':
+            out.append(c)
+            i += 1
+            while i < n:
+                if stage_str[i] == "\\" and i + 1 < n:
+                    out.append(stage_str[i : i + 2])
+                    i += 2
+                    continue
+                if stage_str[i] == '"':
+                    out.append(stage_str[i])
+                    i += 1
+                    break
+                out.append(stage_str[i])
+                i += 1
+            continue
+        # Backslash escape outside quotes
+        if c == "\\" and i + 1 < n:
+            out.append(stage_str[i : i + 2])
+            i += 2
+            continue
+        # Heredoc detection — same guard as _skip_heredoc.
+        if (
+            c == "<"
+            and i + 1 < n
+            and stage_str[i + 1] == "<"
+            and (i + 2 >= n or stage_str[i + 2] != "<")
+        ):
+            new_i = _skip_heredoc(stage_str, i)
+            if new_i > i:
+                # Keep the operator line up to and including its newline,
+                # then jump past the body and the terminator line.
+                first_nl = stage_str.find("\n", i)
+                if 0 <= first_nl < new_i:
+                    out.append(stage_str[i : first_nl + 1])
+                    i = new_i
+                    continue
+                # No newline before the helper's stop position — copy
+                # whatever the helper consumed and resume after it.
+                out.append(stage_str[i:new_i])
+                i = new_i
+                continue
+        # Default: copy character
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _decompose(
@@ -1599,8 +1805,9 @@ def _unwrap_shell(
             if not pstage_str:
                 continue
             pheredoc = _extract_heredoc_literal(pstage_str)
+            pstage_for_split = _strip_heredoc_bodies(pstage_str)
             try:
-                ptokens = shlex.split(pstage_str)
+                ptokens = shlex.split(pstage_for_split)
             except ValueError:
                 inner_sub_results[psub_idx] = _obfuscated_result(
                     [psub_cmd], "unparseable substitution", user_actions)
@@ -1624,8 +1831,9 @@ def _unwrap_shell(
         if not stage_str:
             continue
         heredoc_literal = _extract_heredoc_literal(stage_str)
+        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            inner_tokens = shlex.split(stage_str)
+            inner_tokens = shlex.split(stage_for_split)
         except ValueError:
             return _obfuscated_result(tokens, "unparseable inner command", user_actions)
         if inner_tokens:

@@ -127,6 +127,18 @@ class TestResolveNetworkContext:
         assert decision == "ask"
         assert "unknown host" in reason
 
+    def test_rsync_remote_host(self):
+        decision, reason = resolve_network_context(
+            ["rsync", "-avz", "./local/", "user@host.com:/remote/"]
+        )
+        assert decision == "ask"
+        assert "host.com" in reason
+
+    def test_ssh_copy_id_host(self):
+        decision, reason = resolve_network_context(["ssh-copy-id", "user@myserver.com"])
+        assert decision == "ask"
+        assert "myserver.com" in reason
+
 
 # --- extract_host ---
 
@@ -230,6 +242,29 @@ class TestExtractHostSSH:
 
     def test_sftp_host_colon_path(self):
         assert extract_host(["sftp", "host.com:/path"]) == "host.com"
+
+    # rsync host extraction
+    def test_rsync_remote_user_at(self):
+        assert extract_host(["rsync", "-avz", "./local/", "user@host.com:/remote/"]) == "host.com"
+
+    def test_rsync_remote_with_rsh_flag(self):
+        assert extract_host(["rsync", "-e", "ssh", "file.txt", "user@host.com:/path"]) == "host.com"
+
+    def test_rsync_remote_source(self):
+        assert extract_host(["rsync", "user@host.com:/remote/", "./local/"]) == "host.com"
+
+    def test_rsync_host_colon_path(self):
+        assert extract_host(["rsync", "host.com:/remote/", "./local/"]) == "host.com"
+
+    def test_rsync_daemon_module(self):
+        assert extract_host(["rsync", "host.com::module/path", "./local/"]) == "host.com"
+
+    # ssh-copy-id host extraction
+    def test_ssh_copy_id_user_at_host(self):
+        assert extract_host(["ssh-copy-id", "user@myserver.com"]) == "myserver.com"
+
+    def test_ssh_copy_id_i_flag(self):
+        assert extract_host(["ssh-copy-id", "-i", "~/.ssh/id_rsa.pub", "user@myserver.com"]) == "myserver.com"
 
 
 # --- FD-022: Network write context ---
@@ -343,6 +378,53 @@ class TestResolveContext:
     def test_filesystem_read_no_target_allow(self):
         decision, reason = resolve_context("filesystem_read")
         assert decision == "allow"
+
+    def test_container_write_uses_workspace_context(self, project_root):
+        config._cached_config = NahConfig(profile="minimal")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(project_root)
+            decision, reason = resolve_context("container_write")
+        finally:
+            os.chdir(old_cwd)
+        assert decision == "allow"
+        assert "inside project" in reason
+
+    def test_container_write_without_git_root_asks(self, tmp_path):
+        config._cached_config = NahConfig(profile="minimal")
+        paths.set_project_root(None)
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            decision, reason = resolve_context("container_write")
+        finally:
+            os.chdir(old_cwd)
+        assert decision == "ask"
+        assert "outside project" in reason
+
+    def test_browser_navigate_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_navigate",
+            tool_input={"url": "https://example.com"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_navigate: url extraction pending"
+
+    def test_browser_exec_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_exec",
+            tool_input={"expression": "document.cookie"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_exec: code extraction pending"
+
+    def test_browser_file_stub_reason(self):
+        decision, reason = resolve_context(
+            "browser_file",
+            tool_input={"path": "/tmp/state.json"},
+        )
+        assert decision == "ask"
+        assert reason == "browser_file: path extraction pending"
 
     def test_unknown_action_type_ask(self):
         decision, reason = resolve_context("unknown")
