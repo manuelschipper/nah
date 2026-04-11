@@ -1,6 +1,8 @@
 """Unit tests for nah.bash — full classification pipeline, no subprocess."""
 
+import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -48,6 +50,21 @@ class TestAcceptanceCriteria:
     def test_npm_test_allow(self, project_root):
         r = classify_command("npm test")
         assert r.final_decision == "allow"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm create vite@latest .",
+            "npm create next-app@latest my-app",
+            "pnpm create vite@latest .",
+            "yarn create vite",
+            "bun create vite",
+        ],
+    )
+    def test_package_manager_create_scaffolds_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
 
 
 class TestPassthroughWrappers:
@@ -1412,6 +1429,83 @@ class TestNewActionTypes:
         assert r.stages[0].action_type == "git_write"
 
 
+_CONTAINER_DESTRUCTIVE_PARAMS = (
+    "docker rm",
+    "docker rmi",
+    "docker system prune",
+    "docker container prune",
+    "docker image prune",
+    "docker volume prune",
+    "docker network prune",
+    "docker builder prune",
+    "docker buildx prune",
+    "docker compose down",
+    "docker compose rm",
+    "docker stack rm",
+    "docker swarm leave",
+    "docker secret rm",
+    "docker config rm",
+    "docker node rm",
+    "docker service rm",
+    "docker plugin rm",
+    "docker manifest rm",
+    "docker context rm",
+    "docker buildx rm",
+    "docker volume rm",
+    "docker container rm",
+    "docker image rm",
+    "docker network rm",
+    "podman rm",
+    "podman rmi",
+    "podman system prune",
+    "podman container prune",
+    "podman image prune",
+    "podman volume prune",
+    "podman network prune",
+    "podman pod prune",
+    "podman compose down",
+    "podman compose rm",
+    "podman manifest rm",
+    "podman volume rm",
+    "podman container rm",
+    "podman image rm",
+    "podman network rm",
+    "podman pod rm",
+    "podman machine rm",
+    "podman secret rm",
+)
+
+
+class TestContainerDestructiveCoverage:
+    """Every destructive docker/podman taxonomy entry stays on ask."""
+
+    @pytest.mark.parametrize("command", _CONTAINER_DESTRUCTIVE_PARAMS)
+    def test_container_destructive_entries_ask(self, project_root, command):
+        r = classify_command(command)
+        assert r.stages[0].action_type == "container_destructive"
+        assert r.final_decision == "ask"
+
+    def test_parametrize_list_matches_taxonomy_file(self):
+        entries = set(
+            json.loads(
+                (
+                    Path(__file__).resolve().parent.parent
+                    / "src"
+                    / "nah"
+                    / "data"
+                    / "classify_full"
+                    / "container_destructive.json"
+                ).read_text()
+            )
+        )
+        covered = set(_CONTAINER_DESTRUCTIVE_PARAMS)
+        missing = sorted(entries - covered)
+        extra = sorted(covered - entries)
+        assert not missing and not extra, (
+            f"container_destructive test list drifted: missing={missing}, extra={extra}"
+        )
+
+
 class TestFD017Regressions:
     """FD-017: Integration tests for flag-dependent git classification bug fixes."""
 
@@ -1956,8 +2050,19 @@ class TestProcessSubstitutionInspection:
         assert r.final_decision == "allow"
 
     def test_output_process_sub_allow(self, project_root):
-        r = classify_command("tee >(cat -n)")
-        assert r.final_decision == "allow"
+        # tee writes to its argument; the process-sub placeholder needs
+        # to resolve inside the project so the path-context check
+        # produces a deterministic ALLOW. Without the chdir, the
+        # placeholder resolves against the developer's actual cwd which
+        # may or may not be in trusted_paths depending on user config —
+        # CI exposed this leak. Pin cwd to the temp project root.
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(project_root)
+            r = classify_command("tee >(cat -n)")
+            assert r.final_decision == "allow"
+        finally:
+            os.chdir(old_cwd)
 
     # --- Dangerous: inner network → ask ---
 
@@ -2271,3 +2376,149 @@ class TestHeredocInterpreter:
         r = classify_command(f"cat <<'EOF' > {target}\n-----BEGIN PRIVATE KEY-----\nEOF")
         assert r.final_decision == "ask"
         assert "content inspection" in r.reason
+
+
+class TestHeredocInSubstitution:
+    """mold-9: heredoc bodies inside $() command substitutions and at the
+    top level must not have their apostrophes, backticks, or unbalanced
+    parens parsed as shell syntax. The shell treats heredoc bodies as
+    opaque literal content; nah now matches that behavior."""
+
+    # --- The reported user-facing bug ---
+
+    def test_apostrophe_in_substituted_heredoc_allows(self, project_root):
+        """git commit -m \"$(cat <<EOF\\n...can't...\\nEOF\\n)\" must allow."""
+        cmd = (
+            "git commit -m \"$(cat <<EOF\n"
+            "- rationale for why it\n"
+            "  can't live upstream yet\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_realistic_claude_commit_with_contractions_allows(self, project_root):
+        """Multi-paragraph commit body with several contractions and a
+        parenthetical aside — exactly the shape Claude Code emits."""
+        cmd = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "Fix a thing that wasn't working\n"
+            "\n"
+            "The parser didn't account for apostrophes inside heredocs (which\n"
+            "are common in commit prose).\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    # --- Heredoc body content forms inside $(...) ---
+
+    def test_backtick_in_substituted_heredoc_allows(self, project_root):
+        """A backtick inside the body must not start a backtick substitution."""
+        cmd = (
+            "git commit -m \"$(cat <<EOF\n"
+            "use `git status` to inspect\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_balanced_parens_in_substituted_heredoc_allows(self, project_root):
+        """Parens in the body must not affect outer paren depth tracking."""
+        cmd = (
+            "git commit -m \"$(cat <<EOF\n"
+            "Fix the parser (the inner one)\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_unbalanced_parens_in_substituted_heredoc_allows(self, project_root):
+        """Even structurally unbalanced parens in the body are opaque."""
+        cmd = (
+            "git commit -m \"$(cat <<EOF\n"
+            "Note: this line has an unmatched ( in prose\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    # --- Top-level heredocs (not inside $(...)) ---
+
+    def test_top_level_heredoc_with_apostrophe_allows(self, project_root):
+        """cat <<EOF\\n...body's text...\\nEOF without surrounding $(...)."""
+        cmd = "cat <<EOF\nthe body's text\nEOF"
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert "unbalanced" not in (r.reason or "")
+        assert "obfuscated" not in (r.reason or "")
+
+    # --- Marker variants ---
+
+    def test_dash_heredoc_with_apostrophe_allows(self, project_root):
+        """<<-EOF (tab-stripping form) with apostrophe in body."""
+        cmd = (
+            "git commit -m \"$(cat <<-EOF\n"
+            "\tthe body's text\n"
+            "\tEOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_single_quoted_marker_with_apostrophe_allows(self, project_root):
+        """<<'EOF' single-quoted marker, body has apostrophe."""
+        cmd = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "the body's text\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_double_quoted_marker_with_apostrophe_allows(self, project_root):
+        """<<\"EOF\" double-quoted marker, body has apostrophe."""
+        cmd = (
+            "git commit -m \"$(cat <<\"EOF\"\n"
+            "the body's text\n"
+            "EOF\n"
+            ")\""
+        )
+        r = classify_command(cmd)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    # --- Here-string regression guard ---
+
+    def test_here_string_not_treated_as_heredoc(self, project_root):
+        """<<<'literal' is a here-string, not a heredoc — must classify
+        cleanly via the existing here-string path, not the new heredoc skip."""
+        r = classify_command("cat <<<'hello'")
+        assert r.final_decision == "allow"
+        assert "unbalanced" not in (r.reason or "")
+        assert "obfuscated" not in (r.reason or "")
+
+    # --- Precision boundary: real unbalanced substitutions still fail ---
+
+    def test_real_unbalanced_substitution_still_blocks(self, project_root):
+        """A genuinely unbalanced $() (no closing paren) must still block.
+        The fix only opens the heredoc-body case, not the broader paren
+        balance check."""
+        r = classify_command('echo "$(cat unclosed')
+        # The stage is unbalanced; nah should not allow it.
+        assert r.final_decision in ("block", "ask")
+        assert ("unbalanced" in (r.reason or "")
+                or "obfuscated" in (r.reason or ""))

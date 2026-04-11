@@ -83,6 +83,27 @@ def resolve_context(
             return taxonomy.ASK, f"{action_type}: no target path extracted"
         return taxonomy.ALLOW, f"{action_type}: no target path"
 
+    if action_type == taxonomy.CONTAINER_WRITE:
+        # Container mutations are scoped by the active workspace rather than a
+        # concrete target path, so reuse the project/trusted-path boundary on cwd.
+        scope_path = target_path or os.getcwd()
+        return resolve_filesystem_context(scope_path)
+
+    if action_type == taxonomy.BROWSER_NAVIGATE:
+        # Playwright MCP passes the URL in structured tool_input. Keep the gap
+        # explicit in logs until browser URL extraction lands.
+        return taxonomy.ASK, "browser_navigate: url extraction pending"
+
+    if action_type == taxonomy.BROWSER_EXEC:
+        # browser_evaluate/browser_run_code carry the JS payload in tool_input.
+        # Ask explicitly until inline code extraction is wired up.
+        return taxonomy.ASK, "browser_exec: code extraction pending"
+
+    if action_type == taxonomy.BROWSER_FILE:
+        # File uploads, traces, and storage state bridge to the host filesystem.
+        # Ask explicitly until path extraction is implemented.
+        return taxonomy.ASK, "browser_file: path extraction pending"
+
     if action_type == taxonomy.LANG_EXEC:
         return resolve_lang_exec_context(target_path, inline_code=inline_code)
 
@@ -109,18 +130,20 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     if basic:
         return basic
 
-    # Trusted paths check — before project root so it works with no git root (FD-107)
+    # Project root check — prefer the more precise "inside project" reason when
+    # a project root exists, even if that root also lives under a trusted path.
+    project_root = paths.get_project_root()
+    if project_root is not None:
+        real_root = os.path.realpath(project_root)
+        if resolved == real_root or resolved.startswith(real_root + os.sep):
+            return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
+
+    # Trusted paths should still allow when there is no git root (FD-107).
     if paths.is_trusted_path(resolved):
         return taxonomy.ALLOW, f"trusted path: {paths.friendly_path(resolved)}"
 
-    # Project root check
-    project_root = paths.get_project_root()
     if project_root is None:
         return taxonomy.ASK, f"outside project (no git root): {paths.friendly_path(resolved)}"
-
-    real_root = os.path.realpath(project_root)
-    if resolved == real_root or resolved.startswith(real_root + os.sep):
-        return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
 
     return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 
@@ -170,7 +193,7 @@ def extract_host(tokens: list[str]) -> str | None:
         return _extract_url_host(args)
     if cmd in ("http", "https", "xh", "xhs"):
         return _extract_httpie_host(args)
-    if cmd in ("ssh", "scp", "sftp"):
+    if cmd in ("ssh", "scp", "sftp", "rsync", "ssh-copy-id"):
         return _extract_ssh_host(cmd, args)
     if cmd in ("nc", "ncat", "telnet"):
         return _extract_positional_host(args, {"-p", "-w", "-s"})
@@ -417,8 +440,8 @@ def _extract_ssh_host(cmd: str, args: list[str]) -> str | None:
             host_part = arg.split("@", 1)[1]
             return _strip_host_from_colon_suffix(host_part) if ":" in host_part else host_part
 
-    # Pass 2 (scp/sftp): look for host:path (colon indicates remote)
-    if cmd in ("scp", "sftp"):
+    # Pass 2 (scp/sftp/rsync): look for host:path (colon indicates remote)
+    if cmd in ("scp", "sftp", "rsync"):
         for arg in positionals:
             if ":" in arg:
                 return _strip_host_from_colon_suffix(arg)

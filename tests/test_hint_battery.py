@@ -730,24 +730,31 @@ class TestConditionalChainHints:
 
 
 # ===================================================================
-# 19. DOCKER — unknown, classify hints
+# 19. DOCKER — taxonomy-specific hints
 # ===================================================================
 class TestDockerHints:
-    """Docker commands not in classify table → unknown, classify hint."""
+    """Docker commands use taxonomy-specific ask/allow behavior."""
 
     @pytest.mark.parametrize("cmd", [
         "docker exec -it container bash",
         "docker run -v /tmp:/data alpine",
         "docker run --rm -it ubuntu bash",
         "docker cp container:/app/file.txt /tmp/",
-        "docker logs container",
-        "docker inspect container",
     ])
-    def test_docker_unknown_classify(self, cmd):
+    def test_docker_exec_policy_hint(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "ask"
         assert hint is not None
-        assert "nah classify" in hint
+        assert "nah allow container_exec" in hint
+
+    @pytest.mark.parametrize("cmd", [
+        "docker logs container",
+        "docker inspect container",
+    ])
+    def test_docker_read_ops_allow_without_hint(self, cmd):
+        decision, hint = _hint(cmd)
+        assert decision == "allow"
+        assert hint is None
 
 
 # ===================================================================
@@ -770,14 +777,28 @@ class TestSudoHints:
 # 21. SYSTEM SERVICES
 # ===================================================================
 class TestSystemServiceHints:
-    """systemctl/service — unknown, classify hint."""
+    """System service commands use the service taxonomy when supported."""
 
     @pytest.mark.parametrize("cmd", [
         "systemctl restart nginx",
+    ])
+    def test_system_service_write_hint(self, cmd):
+        decision, hint = _hint(cmd)
+        assert decision == "ask"
+        assert "nah allow service_write" in hint
+
+    @pytest.mark.parametrize("cmd", [
         "systemctl status sshd",
+    ])
+    def test_system_service_read_allow(self, cmd):
+        decision, hint = _hint(cmd)
+        assert decision == "allow"
+        assert hint is None
+
+    @pytest.mark.parametrize("cmd", [
         "service apache2 start",
     ])
-    def test_system_service_classify(self, cmd):
+    def test_legacy_service_still_needs_classify_hint(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "ask"
         assert "nah classify" in hint

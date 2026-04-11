@@ -3,6 +3,8 @@
 import json
 import os
 
+import pytest
+
 from nah.hook import _classify_unknown_tool, handle_write, handle_edit, handle_read
 from nah import config, paths
 from nah.config import NahConfig
@@ -214,6 +216,65 @@ class TestClassifyUnknownToolContext:
         )
         assert d["decision"] == "allow"
         assert "allowed target" in d.get("reason", "")
+
+
+class TestPlaywrightMcpClassification:
+    def setup_method(self):
+        config._cached_config = NahConfig()
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_snapshot",
+        "mcp__playwright__browser_snapshot",
+    ])
+    def test_browser_read_allow(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "allow"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_click",
+        "mcp__playwright__browser_click",
+    ])
+    def test_browser_interact_allow(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "allow"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_cookie_set",
+        "mcp__playwright__browser_cookie_set",
+    ])
+    def test_browser_state_allow(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "allow"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_navigate",
+        "mcp__playwright__browser_navigate",
+    ])
+    def test_browser_navigate_asks_with_browser_reason(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "ask"
+        assert d["reason"] == "browser_navigate: url extraction pending"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_evaluate",
+        "mcp__playwright__browser_evaluate",
+    ])
+    def test_browser_exec_asks_with_browser_reason(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "ask"
+        assert d["reason"] == "browser_exec → ask"
+
+    @pytest.mark.parametrize("tool", [
+        "mcp__plugin_playwright_playwright__browser_file_upload",
+        "mcp__playwright__browser_file_upload",
+    ])
+    def test_browser_file_asks_with_browser_reason(self, tool):
+        d = _classify_unknown_tool(tool)
+        assert d["decision"] == "ask"
+        assert d["reason"] == "browser_file: path extraction pending"
 
 
 # --- FD-054: Write/Edit project boundary tests ---
