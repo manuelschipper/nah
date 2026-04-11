@@ -74,7 +74,7 @@ When both configs exist, nah merges them with these rules:
 | `decode_commands` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `content_patterns` | dict (add/suppress) | both | [Content inspection](content.md) |
 | `credential_patterns` | dict (add/suppress) | global | [Content inspection](content.md) |
-| `llm` | dict (providers, `max_decision`, `eligible`, `context_chars`) | global | [LLM layer](llm.md) |
+| `llm` | dict (providers, `eligible`, `context_chars`) | global | [LLM layer](llm.md) |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |
 | `active_allow` | `true`, `false`, or list of tool names | global | [Install](../install.md#active_allow) |
