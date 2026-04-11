@@ -30,9 +30,6 @@
   "browser_file": "context",
   "db_read": "allow",
   "db_write": "context",
-  "beads_safe": "allow",
-  "beads_write": "allow",
-  "beads_destructive": "ask",
   "obfuscated": "block",
   "unknown": "ask"
 }

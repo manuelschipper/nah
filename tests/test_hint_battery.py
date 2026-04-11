@@ -139,23 +139,9 @@ class TestActionPolicyHints:
         ("kill -9 1234", "process_signal"),
         ("pkill -f myprocess", "process_signal"),
         ("killall node", "process_signal"),
-        ("bd dolt start", "process_signal"),
-        ("bd dolt stop", "process_signal"),
-        ("bd dolt killall", "process_signal"),
         # container_destructive
         ("docker rm container1", "container_destructive"),
         ("docker system prune -a", "container_destructive"),
-        # beads_destructive
-        ("bd delete nah-123", "beads_destructive"),
-        ("bd sql SELECT", "beads_destructive"),
-        ("bd admin reset", "beads_destructive"),
-        ("bd init", "beads_destructive"),
-        ("bd purge", "beads_destructive"),
-        ("bd backup restore", "beads_destructive"),
-        ("bd mol burn mol-123", "beads_destructive"),
-        ("bd flatten", "beads_destructive"),
-        ("bd gc", "beads_destructive"),
-        ("bd migrate", "beads_destructive"),
         # package_uninstall
         ("brew uninstall jq", "package_uninstall"),
         ("pip uninstall requests", "package_uninstall"),
@@ -487,18 +473,6 @@ class TestAllowNoHint:
         "pip install -e .",
         "npm run build",
         "gem install --no-user-install bundler",
-        # beads_safe
-        "bd list",
-        "bd show nah-123",
-        "bd ready",
-        "bd doctor",
-        "bd info",
-        # beads_write
-        "bd create test",
-        "bd update nah-123",
-        "bd close nah-123",
-        "bd dolt push",
-        "bd label add nah-123 build",
         # misc
         "echo hello",
         "find . -name '*.py'",
@@ -530,12 +504,6 @@ class TestChainedCommandHints:
         decision, hint = _hint("psql -c SELECT && curl example.com")
         assert decision == "ask"
         assert "nah allow db_write" in hint
-
-    def test_destructive_beads_then_safe(self):
-        """bd delete; bd list — beads_destructive hint wins."""
-        decision, hint = _hint("bd delete x; bd list")
-        assert decision == "ask"
-        assert "nah allow beads_destructive" in hint
 
     def test_chained_deletes_same_dir(self):
         """rm /tmp/a && rm /tmp/b — trust hint for the directory."""
@@ -1024,29 +992,6 @@ class TestLangExecHints:
 
 # ===================================================================
 # 30. BEADS PIPED TO TOOLS
-# ===================================================================
-class TestBeadsPipedHints:
-    """Beads output piped to tools — safe if pipe target is safe."""
-
-    def test_bd_list_pipe_head_allowed(self):
-        """bd list | head — both safe, allowed."""
-        decision, hint = _hint("bd list --json | head -1")
-        assert decision == "allow"
-        assert hint is None
-
-    def test_bd_ready_pipe_head_allowed(self):
-        decision, hint = _hint("bd ready --json | head -1")
-        assert decision == "allow"
-        assert hint is None
-
-    def test_bd_show_pipe_jq(self):
-        """bd show | jq — jq is unknown, gets classify hint."""
-        decision, hint = _hint("bd show nah-123 --json | jq .title")
-        assert decision == "ask"
-        assert "nah classify" in hint
-        assert "jq" in hint
-
-
 # ===================================================================
 # 31. SIGNAL VARIANTS
 # ===================================================================

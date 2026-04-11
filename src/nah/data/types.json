@@ -30,9 +30,6 @@
   "browser_file": "Browser actions that read from or write to the host filesystem",
   "db_read": "Read-only database operations (SELECT, introspection)",
   "db_write": "Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER)",
-  "beads_safe": "Read-only beads queries and diagnostics (bd list, bd show, bd ready)",
-  "beads_write": "Beads workflow operations that modify data (bd create, bd update, bd close)",
-  "beads_destructive": "Irreversible beads operations (bd delete, bd purge, bd admin)",
   "obfuscated": "Obfuscated or encoded commands (base64 | bash)",
   "unknown": "Unrecognized command or tool — not in any classify table"
 }
