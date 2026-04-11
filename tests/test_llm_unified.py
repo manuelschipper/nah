@@ -188,6 +188,28 @@ class TestEligibility:
             "filesystem_read", stages, "default",
         ) is False
 
+    def test_default_includes_package_uninstall(self):
+        stages = [{
+            "action_type": "package_uninstall",
+            "decision": "ask",
+            "policy": taxonomy.ASK,
+            "reason": "package_uninstall → ask",
+        }]
+        assert hook._is_llm_eligible_stages(
+            "package_uninstall", stages, "default",
+        ) is True
+
+    def test_default_excludes_service_write(self):
+        stages = [{
+            "action_type": "service_write",
+            "decision": "ask",
+            "policy": taxonomy.ASK,
+            "reason": "service_write → ask",
+        }]
+        assert hook._is_llm_eligible_stages(
+            "service_write", stages, "default",
+        ) is False
+
 
 class TestHookIntegration:
     def _payload(self, transcript_path="session.jsonl"):
@@ -279,3 +301,52 @@ class TestHookIntegration:
             result = _run_hook(self._payload())
 
         assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+    def test_browser_exec_fallback_is_eligible_under_default(self):
+        allow = LLMCallResult(
+            decision={"decision": "allow", "reason": "Bash (LLM): browser debugging"},
+            provider="ollama",
+            model="qwen3",
+            latency_ms=12,
+            reasoning="browser debugging",
+            cascade=[ProviderAttempt("ollama", "success", 12, "qwen3")],
+        )
+        cfg = NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+            llm_eligible="default",
+        )
+        payload = {
+            "tool_name": "mcp__playwright__browser_evaluate",
+            "tool_input": {"code": "document.title"},
+            "transcript_path": "session.jsonl",
+        }
+
+        with patch("nah.config.get_config", return_value=cfg), \
+             patch("nah.llm.try_llm_unified", return_value=allow) as mock_try_llm, \
+             patch("nah.hook._log_hook_decision"):
+            result = _run_hook(payload)
+
+        assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+        mock_try_llm.assert_called_once()
+
+    def test_service_write_fallback_is_not_eligible_under_default(self):
+        cfg = NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+            llm_eligible="default",
+            classify_global={"service_write": ["CustomServiceTool"]},
+        )
+        payload = {
+            "tool_name": "CustomServiceTool",
+            "tool_input": {},
+            "transcript_path": "session.jsonl",
+        }
+
+        with patch("nah.config.get_config", return_value=cfg), \
+             patch("nah.llm.try_llm_unified") as mock_try_llm, \
+             patch("nah.hook._log_hook_decision"):
+            result = _run_hook(payload)
+
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        mock_try_llm.assert_not_called()

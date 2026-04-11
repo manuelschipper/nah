@@ -11,6 +11,11 @@ from nah.content import scan_content, format_content_message, is_credential_sear
 _transcript_path: str = ""  # set per-invocation by main()
 _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
 
+_LLM_ELIGIBLE_PRESETS = {
+    "strict": (taxonomy.UNKNOWN, taxonomy.LANG_EXEC, taxonomy.CONTEXT),
+    "default": ("strict", taxonomy.PACKAGE_UNINSTALL, taxonomy.CONTAINER_EXEC, taxonomy.BROWSER_EXEC),
+}
+
 
 def _auto_state_path(transcript_path: str) -> str | None:
     """Return the session state file path for unified ask refinement."""
@@ -305,50 +310,58 @@ def _is_llm_eligible_stages(
     composition_rule: str = "",
 ) -> bool:
     """Check if an ask decision could benefit from unified LLM analysis."""
-    if eligible == "all":
+    all_eligible, expanded = _expand_llm_eligible(eligible)
+    if all_eligible:
         return True
 
-    if isinstance(eligible, list):
-        # Expand "default" keyword to the default bundle
-        if "default" in eligible:
-            expanded = [e for e in eligible if e != "default"]
-            expanded.extend(["unknown", "lang_exec", "context"])
-            eligible = expanded
-        # Structural gate: composition
-        if composition_rule and "composition" not in eligible:
-            return False
-        for sr in stages:
-            if sr.get("decision") != taxonomy.ASK:
-                continue
-            # Sensitive exclusion (context-policy stages only)
-            reason = sr.get("reason", "")
-            if sr.get("policy") == taxonomy.CONTEXT and "sensitive" in reason.lower():
-                if "sensitive" not in eligible:
-                    continue
-            # Direct action type match
-            stage_action_type = sr.get("action_type", "")
-            if stage_action_type in eligible or action_type in eligible:
-                return True
-            # "context" keyword: any context-policy type
-            if "context" in eligible and sr.get("policy") == taxonomy.CONTEXT:
-                return True
+    if composition_rule and "composition" not in expanded:
         return False
 
-    # "default" — equivalent to [unknown, lang_exec, context]
-    # Compositions are evaluated stage-by-stage like everything else —
-    # if any ask stage qualifies, the whole command goes to the LLM.
     for sr in stages:
         if sr.get("decision") != taxonomy.ASK:
             continue
         stage_action_type = sr.get("action_type", "")
         reason = sr.get("reason", "")
-        if stage_action_type == taxonomy.UNKNOWN:
+
+        if sr.get("policy") == taxonomy.CONTEXT and "sensitive" in reason.lower():
+            if "sensitive" not in expanded:
+                continue
+
+        if stage_action_type in expanded or action_type in expanded:
             return True
-        if stage_action_type == taxonomy.LANG_EXEC:
-            return True
-        if sr.get("policy") == taxonomy.CONTEXT and "sensitive" not in reason.lower():
+        if taxonomy.CONTEXT in expanded and sr.get("policy") == taxonomy.CONTEXT:
             return True
     return False
+
+
+def _expand_llm_eligible(eligible) -> tuple[bool, set[str]]:
+    """Expand llm.eligible presets and keywords into a membership set."""
+    if eligible == "all":
+        return True, set()
+
+    raw_items = eligible if isinstance(eligible, list) else [eligible]
+    expanded: set[str] = set()
+    seen: set[str] = set()
+
+    def add_item(item) -> bool:
+        name = str(item)
+        if name == "all":
+            return True
+        if name in _LLM_ELIGIBLE_PRESETS:
+            if name in seen:
+                return False
+            seen.add(name)
+            for preset_item in _LLM_ELIGIBLE_PRESETS[name]:
+                if add_item(preset_item):
+                    return True
+            return False
+        expanded.add(name)
+        return False
+
+    for item in raw_items:
+        if add_item(item):
+            return True, set()
+    return False, expanded
 
 
 def _is_llm_eligible(result) -> bool:
@@ -625,16 +638,34 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
                                            trust_project=cfg.trust_project_config)
 
     policy = taxonomy.get_policy(action_type, user_actions)
+    stage_reason = (
+        f"unrecognized tool: {canonical}"
+        if action_type == taxonomy.UNKNOWN
+        else f"{action_type} → {policy}"
+    )
+
+    def with_stage(decision: str, reason: str = "") -> dict:
+        result = {"decision": decision}
+        if reason:
+            result["reason"] = reason
+        result["_meta"] = {
+            "stages": [{
+                "action_type": action_type,
+                "decision": decision,
+                "policy": policy,
+                "reason": reason or stage_reason,
+            }],
+        }
+        return result
+
     if policy == taxonomy.ALLOW:
-        return {"decision": taxonomy.ALLOW}
+        return with_stage(taxonomy.ALLOW)
     if policy == taxonomy.BLOCK:
-        reason = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
-        return {"decision": taxonomy.BLOCK, "reason": reason}
+        return with_stage(taxonomy.BLOCK, stage_reason)
     if policy == taxonomy.CONTEXT:
         decision, reason = context.resolve_context(action_type, tool_input=tool_input)
-        return {"decision": decision, "reason": reason}
-    msg = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
-    return {"decision": taxonomy.ASK, "reason": msg}
+        return with_stage(decision, reason)
+    return with_stage(taxonomy.ASK, stage_reason)
 
 
 def _is_active_allow(tool_name: str) -> bool:
