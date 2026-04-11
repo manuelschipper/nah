@@ -1125,6 +1125,125 @@ def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+_SUDO_NOARG_SAFE = {
+    "-A", "--askpass",
+    "-B", "--bell",
+    "-b", "--background",
+    "-E", "--preserve-env",
+    "-H", "--set-home",
+    "-k", "--reset-timestamp",
+    "-N", "--no-update",
+    "-n", "--non-interactive",
+    "-P", "--preserve-groups",
+    "-S", "--stdin",
+    "--",
+}
+_SUDO_VALUE_SAFE = {
+    "-C", "--close-from",
+    "-p", "--prompt",
+    "-T", "--command-timeout",
+}
+_SUDO_FAIL_CLOSED = {
+    "-e", "--edit",
+    "-h", "--help",
+    "--host",
+    "-i", "--login",
+    "-K", "--remove-timestamp",
+    "-l", "--list",
+    "-s", "--shell",
+    "-V", "--version",
+    "-v", "--validate",
+    "-D", "--chdir",
+    "-g", "--group",
+    "-R", "--chroot",
+    "-r", "--role",
+    "-t", "--type",
+    "-U", "--other-user",
+    "-u", "--user",
+}
+_SUDO_SAFE_CLUSTER_FLAGS = frozenset("ABbEHkNnPS")
+_SUDO_SAFE_VALUE_PREFIXES = (
+    "--preserve-env=",
+    "--close-from=",
+    "--prompt=",
+    "--command-timeout=",
+)
+_SUDO_FAIL_CLOSED_PREFIXES = (
+    "--chdir=",
+    "--group=",
+    "--host=",
+    "--chroot=",
+    "--role=",
+    "--type=",
+    "--other-user=",
+    "--user=",
+)
+_SUDO_FAIL_CLOSED_SHORT_VALUE_FLAGS = {"-D", "-g", "-h", "-R", "-r", "-t", "-U", "-u"}
+
+
+def _strip_sudo_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip supported sudo wrapper flags, returning inner command tokens."""
+    if not tokens or os.path.basename(tokens[0]) != "sudo":
+        return None
+
+    i = 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+
+        if tok == "--":
+            i += 1
+            break
+
+        if _is_env_assignment(tok):
+            break
+
+        if tok in _SUDO_NOARG_SAFE:
+            i += 1
+            continue
+
+        if tok in _SUDO_FAIL_CLOSED or any(tok.startswith(prefix) for prefix in _SUDO_FAIL_CLOSED_PREFIXES):
+            return None
+
+        if any(tok.startswith(flag) and len(tok) > len(flag) for flag in _SUDO_FAIL_CLOSED_SHORT_VALUE_FLAGS):
+            return None
+
+        if tok in _SUDO_VALUE_SAFE:
+            if i + 1 >= n:
+                return None
+            i += 2
+            continue
+
+        matched_safe_prefix = False
+        for prefix in _SUDO_SAFE_VALUE_PREFIXES:
+            if tok.startswith(prefix):
+                if len(tok) == len(prefix):
+                    return None
+                i += 1
+                matched_safe_prefix = True
+                break
+        if matched_safe_prefix:
+            continue
+
+        if any(tok.startswith(flag) and len(tok) > len(flag) for flag in {"-C", "-p", "-T"}):
+            i += 1
+            continue
+
+        if tok.startswith("-") and len(tok) > 2 and not tok.startswith("--"):
+            if set(tok[1:]) <= _SUDO_SAFE_CLUSTER_FLAGS:
+                i += 1
+                continue
+            return None
+
+        if tok.startswith("-"):
+            return None
+
+        break
+
+    inner = tokens[i:]
+    return inner if inner else None
+
+
 def _strip_nice_wrapper(tokens: list[str]) -> list[str] | None:
     """Strip nice wrapper and supported flags, returning inner command tokens."""
     if not tokens or os.path.basename(tokens[0]) != "nice":
@@ -1598,6 +1717,7 @@ def _strip_passthrough_wrapper(tokens: list[str]) -> list[str] | None:
 
     return (
         _strip_env_wrapper(tokens)
+        or _strip_sudo_wrapper(tokens)
         or _strip_nice_wrapper(tokens)
         or _strip_time_wrapper(tokens)
         or _strip_nohup_wrapper(tokens)
@@ -1723,12 +1843,30 @@ def _unwrap_shell(
             )
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
-                                   user_actions=user_actions, profile=profile)
+                                   user_actions=user_actions, profile=profile,
+                                   trust_project=trust_project)
         sr = StageResult(tokens=tokens)
         sr.action_type = taxonomy.UNKNOWN
         sr.default_policy = taxonomy.get_policy(taxonomy.UNKNOWN, user_actions)
         _apply_policy(sr)
         sr.reason = "unsupported time wrapper flags"
+        return sr
+
+    # sudo passthrough — dedicated branch so the reason can retain the
+    # privilege boundary while still classifying the inner command.
+    if tokens and os.path.basename(tokens[0]) == "sudo":
+        inner_tokens = _strip_sudo_wrapper(tokens)
+        if inner_tokens is None:
+            return None
+        inner_stage = _make_stage(inner_tokens, stage.operator) or Stage(
+            tokens=inner_tokens, operator=stage.operator
+        )
+        sr = _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                             builtin_table=builtin_table, project_table=project_table,
+                             user_actions=user_actions, profile=profile,
+                             trust_project=trust_project)
+        if sr.reason and not sr.reason.startswith("sudo: "):
+            sr.reason = f"sudo: {sr.reason}"
         return sr
 
     # env/nice passthrough wrappers
@@ -1739,7 +1877,8 @@ def _unwrap_shell(
         )
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile)
+                               user_actions=user_actions, profile=profile,
+                               trust_project=trust_project)
 
     # xargs unwrap (FD-089)
     if tokens and tokens[0] == "xargs":
