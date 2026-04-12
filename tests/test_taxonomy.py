@@ -846,6 +846,8 @@ class TestCodexClassifier:
         ["codex", "frobnicate", "arg"],
         ["codex", "exec", "--cd"],
         ["codex", "--cd"],
+        ["codex", "exec", "--cd", "--sandbox", "read-only", "inspect"],
+        ["codex", "exec", "--cd", "--dangerously-bypass-approvals-and-sandbox", "fix"],
         ["codex", "cloud", "frobnicate"],
         ["codex", "mcp", "frobnicate"],
         ["codex", "features", "frobnicate"],
