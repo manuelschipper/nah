@@ -47,6 +47,24 @@ class TestBashHints:
         assert "nah classify" in hint
         assert "nah types" in hint
 
+    def test_export_assignment_chain_does_not_hint_classify_export(self):
+        """Benign export assignment should not be the ask/hint source."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "export PATH=/opt/bin:$PATH && zzz_unknown_tool_xyz"})
+        assert decision["decision"] == taxonomy.ASK
+        hint = decision.get("_hint", "")
+        assert "nah classify zzz_unknown_tool_xyz" in hint
+        assert "nah classify export" not in hint
+
+    def test_export_p_does_not_get_benign_export_allow_hint(self):
+        """Non-assignment export forms remain unknown, not export-assignment allows."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "export -p"})
+        assert decision["decision"] == taxonomy.ASK
+        hint = decision.get("_hint", "")
+        assert "nah classify export" in hint
+        assert "nah allow filesystem_read" not in hint
+
     def test_sensitive_path_hint(self):
         """Bash ask for sensitive path → reason contains 'nah allow-path'."""
         from nah.hook import handle_bash
