@@ -2340,11 +2340,23 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
 
     cmd = os.path.basename(tokens[0])
 
-    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
+    from nah.taxonomy import (
+        _INLINE_FLAGS,
+        _MODULE_FLAGS,
+        _VALUE_FLAGS,
+        _extract_source_operand,
+        _normalize_interpreter,
+    )
     cmd = _normalize_interpreter(cmd)
 
     if cmd in {"make", "gmake"}:
         return _resolve_makefile_path(tokens)
+
+    sourced = _extract_source_operand(tokens)
+    if sourced is not None:
+        if os.path.isabs(sourced):
+            return sourced
+        return os.path.join(os.getcwd(), sourced)
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
