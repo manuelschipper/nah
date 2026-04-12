@@ -1,6 +1,6 @@
 # Content Inspection
 
-nah scans the content of Write, Edit, and Grep operations for dangerous patterns. This catches threats that path-based checks alone can't detect.
+nah scans the content of Write, Edit, MultiEdit, NotebookEdit, and Grep operations for dangerous patterns. This catches threats that path-based checks alone can't detect.
 
 ## What gets scanned
 
@@ -8,6 +8,8 @@ nah scans the content of Write, Edit, and Grep operations for dangerous patterns
 |------|---------------|
 | **Write** | `content` (the full file content being written) |
 | **Edit** | `new_string` (the replacement text) |
+| **MultiEdit** | each edit's `new_string` |
+| **NotebookEdit** | `new_source` for changed notebook cells |
 | **Grep** | `pattern` (the search query -- checked for credential searches) |
 
 ## Built-in content patterns
@@ -106,7 +108,7 @@ content_patterns:
     obfuscation: block         # block obfuscation patterns
 ```
 
-Valid values: `ask`, `block`. Project config can only tighten.
+Valid values: `ask`, `block`. Project config can only tighten by default, unless global config explicitly sets `trust_project_config: true`.
 
 ### Suppress credential search patterns
 

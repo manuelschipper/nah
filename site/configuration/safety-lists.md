@@ -51,9 +51,9 @@ known_registries:
 
 Executables that trigger pipe composition rules. When a network or decode command pipes into an exec sink, nah blocks it.
 
-**Built-in defaults (15):**
+**Built-in defaults (22):**
 
-`bash`, `sh`, `dash`, `zsh`, `eval`, `python`, `python3`, `node`, `ruby`, `perl`, `php`, `bun`, `deno`, `fish`, `pwsh`
+`bash`, `sh`, `dash`, `zsh`, `eval`, `python`, `python3`, `node`, `ruby`, `perl`, `php`, `bun`, `deno`, `fish`, `pwsh`, `env`, `lua`, `R`, `Rscript`, `make`, `julia`, `swift`
 
 **Config:**
 
@@ -73,7 +73,7 @@ exec_sinks:
 
 Filenames that trigger sensitive path detection regardless of directory.
 
-**Built-in defaults (5):**
+**Built-in defaults (8):**
 
 | Basename | Default policy |
 |----------|:--------------:|
@@ -82,6 +82,9 @@ Filenames that trigger sensitive path detection regardless of directory.
 | `.env.production` | ask |
 | `.npmrc` | ask |
 | `.pypirc` | ask |
+| `.pgpass` | ask |
+| `.boto` | ask |
+| `terraform.tfvars` | ask |
 
 **Config:**
 
@@ -96,7 +99,7 @@ sensitive_basenames:
 
 Commands that trigger obfuscation detection in pipe composition. When a decode command pipes into an exec sink, nah blocks the chain.
 
-**Built-in defaults (4):**
+**Built-in defaults (13):**
 
 | Command | Flag | Detects |
 |---------|------|---------|
@@ -104,6 +107,15 @@ Commands that trigger obfuscation detection in pipe composition. When a decode c
 | `base64` | `--decode` | `base64 --decode \| bash` |
 | `xxd` | `-r` | `xxd -r \| bash` |
 | `uudecode` | *(any)* | `uudecode \| bash` |
+| `gzip` | `-d` | `gzip -d \| bash` |
+| `gzip` | `-dc` | `gzip -dc \| bash` |
+| `zcat` | *(any)* | `zcat \| bash` |
+| `bzip2` | `-d` | `bzip2 -d \| bash` |
+| `bzcat` | *(any)* | `bzcat \| bash` |
+| `xz` | `-d` | `xz -d \| bash` |
+| `xzcat` | *(any)* | `xzcat \| bash` |
+| `openssl` | `enc` | `openssl enc ... \| bash` |
+| `unzip` | `-p` | `unzip -p archive.zip script.sh \| bash` |
 
 **Config:**
 

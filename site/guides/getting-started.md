@@ -9,7 +9,7 @@ pip install nah
 nah install
 ```
 
-That's it. nah is now guarding every tool call in Claude Code.
+That's it. nah is now guarding the supported Claude Code tools.
 
 !!! note "Optional: YAML config support"
     ```bash

@@ -14,7 +14,7 @@ profile: none
 This disables:
 
 - All built-in classify tables
-- All flag classifiers
+- All built-in classifier functions
 - All safety lists (known registries, exec sinks, etc.)
 - Built-in sensitive paths and basenames
 - Built-in content patterns
@@ -73,7 +73,7 @@ trusted_paths:
   - ~/corp-scripts
 ```
 
-Without this, Write/Edit operations to these paths trigger `ask` (project boundary check).
+Without this, Write/Edit/MultiEdit/NotebookEdit operations to these paths trigger `ask` (project boundary check).
 
 !!! note
     `profile: none` disables the project boundary check entirely, so `trusted_paths` is unnecessary in that case. It only matters when using `full` or `minimal` profiles.
@@ -86,7 +86,7 @@ If you previously had LLM configured and want to explicitly disable it:
 
 ```yaml
 llm:
-  enabled: false
+  mode: off
 ```
 
 ## Full example

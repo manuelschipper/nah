@@ -1,6 +1,6 @@
 # How it Works
 
-nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts every tool call before it executes. The core classifier is deterministic — no LLM needed, runs in milliseconds.
+nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts guarded tool calls before they execute. The core classifier is deterministic — no LLM needed, runs in milliseconds.
 
 ## Architecture
 
@@ -16,8 +16,8 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
   ┌───────────────┐     ┌────────────────────────────────┐
   │  Bash         │────▶│  tokenize → unwrap → decompose │
   │  Read / Write │     │  classify → compose → aggregate│
-  │  Edit / Glob  │     │  context resolution            │
-  │  Grep / MCP   │     └────────────────────────────────┘
+  │  Edit / Multi │     │  context resolution            │
+  │  Glob/Grep/MCP│     └────────────────────────────────┘
   └───────┬───────┘
           │
           ▼
@@ -25,7 +25,7 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
           │
           ▼
   ┌───────────────┐
-  │  LLM (opt.)   │  only for unresolved "ask" decisions
+  │  LLM (opt.)   │  eligible asks, script veto, write review
   └───────┬───────┘
           │
           ▼
@@ -40,6 +40,8 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
 | **Write** | Path check + project boundary + content inspection |
 | **Edit** | Path check + project boundary + content inspection on replacement |
+| **MultiEdit** | Path check + project boundary + content inspection across replacements |
+| **NotebookEdit** | Path check + project boundary + content inspection on notebook cell source |
 | **Glob** | Sensitive path detection on target directory |
 | **Grep** | Credential search pattern detection |
 | **MCP** | Generic classification for third-party tool servers (`mcp__*`) |
@@ -80,14 +82,17 @@ Each stage's tokens are classified through three tables in order:
 | Phase | Table | Source |
 |:-----:|-------|--------|
 | 1 | Global config | Your `classify:` entries (trusted, highest priority) |
-| 2 | Flag classifiers | Built-in flag-dependent logic (10 classifiers) |
+| 2 | Built-in classifiers | Flag-, wrapper-, and execution-aware classifier functions |
 | 3 | Built-in + Project | Built-in prefix tables, then project `classify:` entries |
 
-First match wins. If nothing matches → `unknown`.
+Global config wins first. Phase 2 classifier functions run next. In Phase 3,
+built-in and project prefix tables are evaluated independently; project entries
+can add or tighten classifications, but cannot weaken built-ins unless
+`trust_project_config: true` is set globally. If nothing matches → `unknown`.
 
-### Flag classifiers
+### Built-in classifiers
 
-Ten built-in classifiers handle commands where the action type depends on flags:
+Built-in classifiers handle commands where the action type depends on flags, wrappers, or execution context:
 
 | Command | Logic |
 |---------|-------|
@@ -100,6 +105,10 @@ Ten built-in classifiers handle commands where the action type depends on flags:
 | `wget` | `--post-data`, `--post-file`, `--method POST/...` → `network_write`; else → `network_outbound` |
 | `httpie` | `http`/`https`/`xh`/`xhs` with write method or data items → `network_write`; else → `network_outbound` |
 | `codex` | read-only status/help/list commands → `agent_read`; local/cloud agent runs → `agent_exec_*`; bypass flag → `agent_exec_bypass` |
+| `codex companion` | trusted companion scripts and variable-discovered companion paths → `agent_exec_*` |
+| `package exec wrappers` | inspectable `uv run`, `uvx`, `npx`, `npm exec`, and similar wrapper execution → `lang_exec` when local code is executed |
+| `make` | read-only forms stay `filesystem_read`; targets that execute local project code route through `lang_exec` |
+| `script execution` | language runtimes, shell scripts, `source`, POSIX dot-source, inline code, and heredoc-fed interpreters → `lang_exec` when inspectable |
 | `global_install` | `-g`, `--global`, `--system`, `--target`, `--root` on npm/pip/cargo/gem → `unknown` (ask) |
 
 ### 5. Composition rules
@@ -133,6 +142,8 @@ For `context` policies, nah checks the environment:
 - **Filesystem**: Is the path inside the project? In a trusted path? Targeting a sensitive location?
 - **Network**: Is the host localhost? A known registry? An unknown host?
 - **Database**: Does the target match a `db_targets` entry?
+- **Language execution**: Is the script inside the project or trusted path, and does its content pass inspection?
+- **Browser navigation/file tools**: Does the tool input expose a URL or path that can be checked safely?
 
 ## Decision format
 

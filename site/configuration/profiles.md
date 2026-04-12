@@ -11,8 +11,8 @@ profile: full      # full | minimal | none
 
 Comprehensive coverage across all tool categories.
 
-- **17 classification files** covering shell builtins, coreutils, git, package managers, containers, databases, network tools, and more
-- **10 flag classifiers** for commands that need flag-dependent classification (find, sed, awk, tar, git, curl, wget, httpie, codex, global_install)
+- **31 classification files** covering shell builtins, coreutils, git, package managers, containers, databases, browser/agent tools, network tools, and more
+- **Built-in classifier functions** for commands that need flag-, wrapper-, or execution-aware classification
 - **All safety lists** populated with defaults (known registries, exec sinks, sensitive basenames, decode commands)
 - **All sensitive paths** active
 
@@ -22,8 +22,8 @@ Best for: most users. Start here and tune as needed.
 
 Curated essentials only — the commands most likely to be dangerous.
 
-- **10 classification files** with fewer prefix entries
-- **Same 10 flag classifiers** as full
+- **13 classification files** with fewer prefix entries
+- **Same built-in classifier functions** as full
 - **All safety lists** populated with defaults
 - **All sensitive paths** active
 
@@ -36,7 +36,7 @@ Best for: users who want a lighter touch and are comfortable with more `ask` pro
 Blank slate. Clears everything:
 
 - **Empty classify tables** — no commands are recognized
-- **Flag classifiers disabled** — no flag-dependent classification
+- **Built-in classifier functions disabled** — no flag-, wrapper-, or execution-aware classification
 - **All safety lists cleared** — no known registries, exec sinks, decode commands, or sensitive basenames
 - **Sensitive directories cleared** — no built-in sensitive paths (hook self-protection still active)
 - **Content patterns cleared** — no built-in content inspection
@@ -68,14 +68,14 @@ known_registries:
 
 ## How profiles interact with user rules
 
-Your `classify:` entries in global config are **always Phase 1** (checked first), regardless of profile. They override both built-in tables and flag classifiers.
+Your `classify:` entries in global config are **always Phase 1** (checked first), regardless of profile. They override both built-in tables and built-in classifier functions.
 
-The profile controls what's available in **Phase 2** (flag classifiers) and **Phase 3** (built-in tables):
+The profile controls what's available in **Phase 2** (built-in classifier functions) and **Phase 3** (built-in tables):
 
 | Phase | Source | `full` | `minimal` | `none` |
 |:-----:|--------|:------:|:---------:|:------:|
 | 1 | Global config `classify:` | active | active | active |
-| 2 | Flag classifiers | active | active | **skipped** |
+| 2 | Built-in classifier functions | active | active | **skipped** |
 | 3 | Built-in tables | full set | minimal set | **empty** |
 | 3 | Project config `classify:` | active | active | active |
 
