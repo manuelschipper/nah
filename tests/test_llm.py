@@ -17,6 +17,7 @@ from nah.llm import (
     _format_transcript_context,
     _parse_response,
     _read_transcript_tail,
+    _read_transcript_tail_bytes,
     _redact_secrets,
     _VETO_SYSTEM_TEMPLATE,
     try_llm_unified,
@@ -576,6 +577,79 @@ def _progress_msg():
     return {"type": "progress", "data": {"status": "running"}}
 
 
+def _write_fixed_size_lines(path, count, size, prefix="line"):
+    with open(path, "wb") as f:
+        for i in range(count):
+            header = f"{prefix}{i:04d}".encode()
+            line = header + (b"x" * max(0, size - len(header) - 1)) + b"\n"
+            f.write(line)
+
+
+class TestTranscriptTailBytes:
+    def test_empty_file(self, tmp_path):
+        p = tmp_path / "empty.jsonl"
+        p.touch()
+        assert _read_transcript_tail_bytes(str(p), 48_000) == b""
+
+    def test_file_smaller_than_target_returns_whole_file(self, tmp_path):
+        p = tmp_path / "small.jsonl"
+        p.write_bytes(b"line1\nline2\nline3\n")
+        assert _read_transcript_tail_bytes(str(p), 48_000) == b"line1\nline2\nline3\n"
+
+    def test_normal_file_returns_aligned_tail(self, tmp_path):
+        p = tmp_path / "normal.jsonl"
+        _write_fixed_size_lines(p, count=1_000, size=200)
+        result = _read_transcript_tail_bytes(str(p), 48_000)
+        assert result.startswith(b"line")
+        assert len(result) >= 48_000
+
+    def test_giant_line_middle_small_tail(self, tmp_path):
+        p = tmp_path / "mixed.jsonl"
+        with open(p, "wb") as f:
+            for i in range(200):
+                f.write(f"before{i:04d}\n".encode())
+            f.write(b"G" * 100_000 + b"\n")
+            for i in range(7_000):
+                f.write(f"tail{i:04d}\n".encode())
+        result = _read_transcript_tail_bytes(str(p), 48_000)
+        assert result.startswith(b"tail")
+        assert b"G" * 100 not in result
+        assert len(result) >= 48_000
+
+    def test_giant_line_at_eof_no_newline(self, tmp_path):
+        p = tmp_path / "giant_eof.jsonl"
+        giant = b"G" * 200_000
+        with open(p, "wb") as f:
+            f.write(b"before\n")
+            f.write(giant)
+        result = _read_transcript_tail_bytes(str(p), 48_000)
+        assert result == giant
+
+    def test_safety_cap_pathological_single_line(self, tmp_path):
+        p = tmp_path / "pathological.jsonl"
+        with open(p, "wb") as f:
+            f.write(b"P" * (5 * 1024 * 1024))
+        result = _read_transcript_tail_bytes(str(p), 48_000)
+        assert 0 < len(result) <= 4 * 1024 * 1024
+
+    def test_earliest_newline_late_in_buffer_reads_past_target(self, tmp_path):
+        p = tmp_path / "late_nl.jsonl"
+        with open(p, "wb") as f:
+            for i in range(300):
+                f.write(f"before{i:04d}\n".encode())
+            f.write(b"L" * 40_000 + b"\n")
+            for _ in range(1_500):
+                f.write(b"aaaaa\n")
+        result = _read_transcript_tail_bytes(str(p), 48_000)
+        assert len(result) >= 48_000
+        assert b"before" in result
+
+    def test_file_start_reached_mid_read_keeps_first_line(self, tmp_path):
+        p = tmp_path / "tiny.jsonl"
+        p.write_bytes(b"only_line\n")
+        assert _read_transcript_tail_bytes(str(p), 48_000) == b"only_line\n"
+
+
 class TestReadTranscriptTail:
     def test_basic_user_assistant(self, tmp_path):
         f = tmp_path / "t.jsonl"
@@ -689,6 +763,15 @@ class TestReadTranscriptTail:
         f.write_bytes(b"\xff\xfe bad bytes\n" + good_line + b"\n")
         result = _read_transcript_tail(str(f), 4000)
         assert "User: good" in result
+
+    def test_giant_assistant_line_at_eof_still_returns_context(self, tmp_path):
+        f = tmp_path / "t.jsonl"
+        giant_reply = {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": ("x" * 80_000) + " tail marker"},
+        ]}}
+        f.write_text(_jsonl(_user_msg("before"), giant_reply))
+        result = _read_transcript_tail(str(f), 4000)
+        assert "tail marker" in result
 
 
 # -- _format_transcript_context tests --
