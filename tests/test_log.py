@@ -334,6 +334,7 @@ class TestBuildEntry:
             "llm_latency_ms": 500,
             "llm_decision": "uncertain",
             "llm_reasoning": "safe",
+            "llm_reasoning_long": "safe because the command is read-only and matches the request",
             "llm_cascade": [{"provider": "openrouter", "status": "success"}],
         }
         entry = self._build(meta=meta)
@@ -343,6 +344,7 @@ class TestBuildEntry:
         assert entry["llm"]["ms"] == 500
         assert entry["llm"]["decision"] == "uncertain"
         assert entry["llm"]["reasoning"] == "safe"
+        assert entry["llm"]["reasoning_long"] == "safe because the command is read-only and matches the request"
         assert entry["llm"]["cascade"][0]["status"] == "success"
 
     def test_llm_absent_without_provider(self):

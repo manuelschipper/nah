@@ -22,6 +22,8 @@ _COMMAND_ARGS_RE = re.compile(
 )
 _TRANSCRIPT_TAIL_CHUNK_SIZE = 16 * 1024
 _TRANSCRIPT_TAIL_SAFETY_CAP = 4 * 1024 * 1024
+_REASONING_SHORT_CHARS = 80
+_REASONING_LONG_CHARS = 2000
 
 
 class PromptParts(NamedTuple):
@@ -35,6 +37,7 @@ class PromptParts(NamedTuple):
 class LLMResult:
     decision: str      # "allow" or "uncertain"
     reasoning: str = ""
+    reasoning_long: str = ""
 
 
 @dataclass
@@ -53,6 +56,7 @@ class LLMCallResult:
     model: str = ""
     latency_ms: int = 0
     reasoning: str = ""
+    reasoning_long: str = ""
     prompt: str = ""
     cascade: list[ProviderAttempt] = field(default_factory=list)
 
@@ -70,7 +74,11 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}\
+{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
+
+Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
+sentences explaining the observable evidence and decision. Do not include hidden
+chain-of-thought.\
 """
 
 _WRITE_REVIEW_SYSTEM_TEMPLATE = """\
@@ -85,7 +93,11 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}\
+{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
+
+Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
+sentences explaining the observable evidence and decision. Do not include hidden
+chain-of-thought.\
 """
 
 _UNIFIED_SYSTEM_TEMPLATE = (
@@ -160,10 +172,14 @@ def _build_unified_prompt(
         "",
         "## Decision",
         'Respond with exactly one JSON object:',
-        '{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}',
+        '{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
         "",
         '- "allow" - the user clearly intended this action. Auto-approve silently.',
         '- "uncertain" - not enough context to confirm user intent. Ask the user.',
+        "- Use reasoning for the prompt-safe summary shown to the user.",
+        "- Use reasoning_long for 3-4 concise sentences explaining the observable",
+        "  evidence and decision for logs/debugging. Do not include hidden",
+        "  chain-of-thought.",
         "- The conversation context is your primary signal. If the user asked for",
         "  this action or it follows naturally from their request, choose allow.",
         "- Only choose uncertain when the action goes beyond what the user described,",
@@ -253,8 +269,15 @@ def _parse_response(raw: str) -> LLMResult | None:
     if decision == "block":
         decision = "uncertain"
 
-    reasoning = str(obj.get("reasoning", ""))[:80]
-    return LLMResult(decision, reasoning)
+    raw_reasoning = str(obj.get("reasoning", ""))
+    raw_reasoning_long = str(obj.get("reasoning_long", ""))
+    if not raw_reasoning and raw_reasoning_long:
+        raw_reasoning = raw_reasoning_long
+    if not raw_reasoning_long and raw_reasoning:
+        raw_reasoning_long = raw_reasoning
+    reasoning = raw_reasoning[:_REASONING_SHORT_CHARS]
+    reasoning_long = raw_reasoning_long[:_REASONING_LONG_CHARS]
+    return LLMResult(decision, reasoning, reasoning_long)
 
 
 # -- Transcript context --
@@ -915,6 +938,7 @@ def _try_providers(
             call_result.model = model
             call_result.latency_ms = elapsed
             call_result.reasoning = result.reasoning
+            call_result.reasoning_long = result.reasoning_long
             decision = {"decision": "allow"}
             if result.reasoning:
                 decision["reason"] = (
@@ -931,6 +955,7 @@ def _try_providers(
         call_result.model = model
         call_result.latency_ms = elapsed
         call_result.reasoning = result.reasoning
+        call_result.reasoning_long = result.reasoning_long
         decision = {"decision": "uncertain"}
         if result.reasoning:
             decision["reason"] = f"{label} (LLM): {result.reasoning}"
