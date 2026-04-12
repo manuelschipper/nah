@@ -73,6 +73,21 @@ Respond with exactly one JSON object, no other text:
 {"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}\
 """
 
+_WRITE_REVIEW_SYSTEM_TEMPLATE = """\
+You are a security classifier for a CLI tool safety guard. \
+A write-like tool operation passed the deterministic classifier and needs safety + intent review. \
+Decide: allow or uncertain.
+
+Rules:
+- allow: the edit is clearly safe, narrow, and aligned with the recent user request
+- uncertain: intent is unclear or content may contain credentials, destructive actions, exfiltration, persistence, auth weakening, or other security risks
+- You cannot block. Use uncertain when a human should decide.
+- A false allow is worse than a false uncertain. When in doubt, say uncertain.
+
+Respond with exactly one JSON object, no other text:
+{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>"}\
+"""
+
 _UNIFIED_SYSTEM_TEMPLATE = (
     "You are a security classifier for a coding assistant. "
     "Respond with exactly one JSON object."
@@ -978,7 +993,7 @@ def _build_write_prompt(
     deterministic_decision: dict,
     transcript_context: str = "",
 ) -> PromptParts:
-    """Build LLM prompt for Write/Edit/MultiEdit/NotebookEdit content inspection."""
+    """Build LLM prompt for Write/Edit/MultiEdit/NotebookEdit review."""
     file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "unknown")
     cwd, inside_project = _resolve_cwd_context()
 
@@ -1037,17 +1052,42 @@ def _build_write_prompt(
                 f" of {len(content)} characters)"
             )
 
+    det_decision = deterministic_decision.get("decision", "allow")
     det_reason = deterministic_decision.get("reason", "")
+    parts.extend([
+        "",
+        "## Deterministic Result",
+        f"Decision: {det_decision}",
+        f"Reason: {det_reason or 'no flags'}",
+    ])
     if det_reason:
         parts.append(f"Content inspection: {det_reason}")
     else:
         parts.append("Content inspection: no flags")
 
+    parts.extend([
+        "",
+        "## Allow Criteria",
+        "- The recent user request clearly asked for this exact edit or directly implied this alias/config change.",
+        "- The target path and edited lines match that request.",
+        "- The edit is narrow.",
+        "- No new literal credential, token, key, or password is added.",
+        "- Existing secret-variable references such as ${EXISTING_SECRET_VAR} may be safe when used only as an alias/reference.",
+        "- No secret is printed, transmitted, copied to a less protected place, or broadened in scope.",
+        "- No destructive, exfiltration, persistence, hook, auth-weakening, or safety bypass behavior is introduced.",
+        "",
+        "## Uncertain Criteria",
+        "- User intent is absent, vague, or conflicts with the edit.",
+        "- The deterministic reason is sensitive path, nah config, or content inspection.",
+        "- The edit adds or exposes literal credential material.",
+        "- The edit changes shell startup, agent hooks, auth files, package lifecycle scripts, deploy/release automation, or other persistence/execution surfaces in a risky way.",
+    ])
+
     if transcript_context:
         parts.append("")
         parts.append(transcript_context)
 
-    return PromptParts(system=_VETO_SYSTEM_TEMPLATE, user="\n".join(parts))
+    return PromptParts(system=_WRITE_REVIEW_SYSTEM_TEMPLATE, user="\n".join(parts))
 
 
 def try_llm_write(
@@ -1057,7 +1097,7 @@ def try_llm_write(
     llm_config: dict,
     transcript_path: str = "",
 ) -> LLMCallResult:
-    """Try LLM providers for Write/Edit content inspection (FD-080)."""
+    """Try LLM providers for Write/Edit safety + intent review."""
     context_chars = llm_config.get("context_chars", _DEFAULT_CONTEXT_CHARS)
     transcript_text = _read_transcript_tail(transcript_path, context_chars)
     transcript_context = _format_transcript_context(transcript_text)
