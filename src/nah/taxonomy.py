@@ -868,6 +868,7 @@ _CODEX_TOP_LEVEL_INTERACTIVE_FLAGS = _CODEX_VALUE_FLAGS | {
     _CODEX_BYPASS_FLAG,
     "--full-auto",
 }
+_CODEX_TOP_LEVEL_READ_FLAGS = {"--help", "-h", "--version", "-V"}
 _CODEX_READ_COMMANDS = {"completion"}
 _CODEX_WRITE_COMMANDS = {"login", "logout", "apply", "a"}
 _CODEX_AGENT_RUN_COMMANDS = {"exec", "e", "review", "resume", "fork"}
@@ -934,6 +935,8 @@ def _strip_codex_global_options(tokens: list[str]) -> tuple[list[str], bool]:
                 return cleaned, True
             i += 2
             continue
+        if tok in _CODEX_TOP_LEVEL_READ_FLAGS:
+            return cleaned + tokens[i:], False
         if tok.startswith("-"):
             i += 1
             continue
@@ -1005,7 +1008,7 @@ def _classify_codex(tokens: list[str]) -> str | None:
     if len(tokens) == 1:
         return AGENT_EXEC_WRITE
 
-    if tokens[1] in {"--help", "-h", "--version", "-V", "help"}:
+    if tokens[1] in _CODEX_TOP_LEVEL_READ_FLAGS or tokens[1] == "help":
         return AGENT_READ
 
     cleaned, malformed = _strip_codex_global_options(tokens)
@@ -1017,7 +1020,7 @@ def _classify_codex(tokens: list[str]) -> str | None:
     sub = cleaned[1]
     args = cleaned[2:]
 
-    if sub in {"--help", "-h", "--version", "-V", "help"}:
+    if sub in _CODEX_TOP_LEVEL_READ_FLAGS or sub == "help":
         return AGENT_READ
     if _codex_args_malformed(args):
         return UNKNOWN
