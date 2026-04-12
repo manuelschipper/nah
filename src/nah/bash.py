@@ -4,7 +4,7 @@ import os.path
 import re
 import shlex
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nah import context, paths, taxonomy
 from nah.content import scan_content, format_content_message
@@ -159,6 +159,8 @@ def classify_command(command: str) -> ClassifyResult:
         result.final_decision = taxonomy.ALLOW
         result.reason = "empty command"
         return result
+
+    stages = _apply_trusted_script_vars(stages, active_subs)
 
     # Classify each stage
     for stage in stages:
@@ -1087,6 +1089,11 @@ def _make_stage(
 
 _PSUB_PREFIX = "__nah_psub_"
 _PSUB_SUFFIX = "__"
+_CODEX_COMPANION_GLOB = "~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs"
+_CODEX_COMPANION_SENTINEL = (
+    "~/.claude/plugins/cache/openai-codex/codex/__nah_trusted__/scripts/codex-companion.mjs"
+)
+_SHELL_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _tighten_from_inner(
@@ -1132,6 +1139,169 @@ def _tighten_from_inner(
         sr.default_policy = worst.default_policy
         sr.decision = worst.decision
         sr.reason = f"substitution: {worst.reason}"
+
+
+def _env_assignment_parts(tok: str) -> tuple[str, str] | None:
+    """Return ``(name, value)`` for shell-style env assignments."""
+    if not _is_env_assignment(tok):
+        return None
+    return tok.split("=", 1)
+
+
+def _placeholder_sub_index(value: str) -> int | None:
+    """Return the substitution index for an exact ``__nah_psub_N__`` value."""
+    if not value.startswith(_PSUB_PREFIX) or not value.endswith(_PSUB_SUFFIX):
+        return None
+    raw_idx = value[len(_PSUB_PREFIX) : -len(_PSUB_SUFFIX)]
+    if not raw_idx.isdigit():
+        return None
+    return int(raw_idx)
+
+
+def _norm_shell_path(path: str) -> str:
+    return path.replace("\\", "/")
+
+
+def _trusted_codex_companion_globs() -> set[str]:
+    return {
+        _norm_shell_path(_CODEX_COMPANION_GLOB),
+        _norm_shell_path(os.path.expanduser(_CODEX_COMPANION_GLOB)),
+    }
+
+
+def _is_stderr_devnull_redirect(tokens: list[str]) -> bool:
+    """Return True for a single optional ``2>/dev/null`` redirect."""
+    if not tokens:
+        return True
+    if len(tokens) > 2:
+        return False
+
+    parsed = _parse_output_redirect(tokens[0])
+    if parsed is None:
+        return False
+
+    fd, append, target, needs_target, kind = parsed
+    if needs_target:
+        if len(tokens) != 2:
+            return False
+        target = tokens[1]
+    elif len(tokens) != 1:
+        return False
+
+    return fd == "2" and not append and target == "/dev/null" and kind == "file"
+
+
+def _is_trusted_codex_companion_discovery(inner_cmd: str) -> bool:
+    """Recognize the narrow ``ls <companion-glob> [2>/dev/null] | head -1`` idiom."""
+    try:
+        raw_stages = [(s.strip(), op) for s, op in _split_on_operators(inner_cmd) if s.strip()]
+    except ValueError:
+        return False
+
+    if len(raw_stages) != 2 or raw_stages[0][1] != "|" or raw_stages[1][1] != "":
+        return False
+
+    try:
+        left = _split_stage_tokens(raw_stages[0][0])
+        right = _split_stage_tokens(raw_stages[1][0])
+    except ValueError:
+        return False
+
+    if len(left) < 2 or os.path.basename(left[0]) != "ls":
+        return False
+    if _norm_shell_path(left[1]) not in _trusted_codex_companion_globs():
+        return False
+    if not taxonomy.is_codex_companion_script(left[1]):
+        return False
+    if not _is_stderr_devnull_redirect(left[2:]):
+        return False
+
+    return len(right) == 2 and os.path.basename(right[0]) == "head" and right[1] == "-1"
+
+
+def _trusted_script_var_binding(
+    token: str,
+    active_subs: list[tuple[str, int, int, str]],
+) -> tuple[str, str] | None:
+    """Return a trusted script variable binding from an env-only assignment token."""
+    parts = _env_assignment_parts(token)
+    if parts is None:
+        return None
+
+    name, value = parts
+    sub_idx = _placeholder_sub_index(value)
+    if sub_idx is None or sub_idx >= len(active_subs):
+        return None
+
+    inner_cmd, _start, _end, kind = active_subs[sub_idx]
+    if kind != "command":
+        return None
+    if not _is_trusted_codex_companion_discovery(inner_cmd.strip()):
+        return None
+    return name, _CODEX_COMPANION_SENTINEL
+
+
+def _variable_ref_name(token: str) -> str | None:
+    """Return the variable name for ``$NAME`` or ``${NAME}`` tokens."""
+    if token.startswith("${") and token.endswith("}"):
+        name = token[2:-1]
+    elif token.startswith("$"):
+        name = token[1:]
+    else:
+        return None
+    return name if _SHELL_VAR_RE.fullmatch(name) else None
+
+
+def _rewrite_trusted_node_script(stage: Stage, trusted_script_vars: dict[str, str]) -> Stage:
+    """Rewrite only ``node`` script argv when it references a trusted variable."""
+    if len(stage.tokens) < 2 or os.path.basename(stage.tokens[0]) != "node":
+        return stage
+
+    var_name = _variable_ref_name(stage.tokens[1])
+    if var_name is None or var_name not in trusted_script_vars:
+        return stage
+
+    tokens = list(stage.tokens)
+    tokens[1] = trusted_script_vars[var_name]
+    return replace(
+        stage,
+        tokens=tokens,
+        action_reason=f"Codex companion delegation via trusted {stage.tokens[1]}",
+    )
+
+
+def _apply_trusted_script_vars(
+    stages: list[Stage],
+    active_subs: list[tuple[str, int, int, str]],
+) -> list[Stage]:
+    """Carry trusted same-command script variables into later stage classification.
+
+    This intentionally recognizes only the Codex companion discovery pattern
+    used by molds. It does not perform general shell evaluation.
+    """
+    trusted_script_vars: dict[str, str] = {}
+    rewritten: list[Stage] = []
+
+    for stage in stages:
+        current = _rewrite_trusted_node_script(stage, trusted_script_vars)
+        rewritten.append(current)
+
+        if stage.action_hint == taxonomy.FILESYSTEM_READ and stage.action_reason == "env-only assignment":
+            for token in stage.tokens:
+                parts = _env_assignment_parts(token)
+                if parts is None:
+                    continue
+                name, _value = parts
+                binding = _trusted_script_var_binding(token, active_subs)
+                if binding is None:
+                    trusted_script_vars.pop(name, None)
+                else:
+                    trusted_script_vars[binding[0]] = binding[1]
+
+        if stage.operator not in {"&&", ";"}:
+            trusted_script_vars.clear()
+
+    return rewritten
 
 
 def _classify_stage(
@@ -1197,6 +1367,8 @@ def _classify_stage(
 
     # Apply policy → decision
     _apply_policy(sr)
+    if stage.action_reason and sr.action_type.startswith("agent_"):
+        sr.reason = stage.action_reason
 
     # Path extraction + checking (regardless of policy)
     path_decision, path_reason = _check_extracted_paths(tokens)
