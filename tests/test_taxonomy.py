@@ -798,6 +798,8 @@ class TestCodexClassifier:
         ["codex", "exec", "-s", "read-only", "inspect this"],
         ["codex", "--sandbox", "read-only", "exec", "inspect this"],
         ["codex", "e", "--sandbox=read-only", "inspect this"],
+        ["codex", "--sandbox", "read-only"],
+        ["codex", "--sandbox=read-only"],
     ])
     def test_codex_read_only_agent_runs(self, tokens):
         assert _ct(tokens) == "agent_exec_read"
@@ -825,6 +827,8 @@ class TestCodexClassifier:
     @pytest.mark.parametrize("tokens", [
         ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "rm -rf /"],
         ["codex", "exec", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox", "inspect"],
+        ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+        ["codex", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox"],
         ["codex", "cloud", "exec", "--dangerously-bypass-approvals-and-sandbox", "fix lint"],
     ])
     def test_codex_bypass_wins(self, tokens):
