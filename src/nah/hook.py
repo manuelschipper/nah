@@ -494,6 +494,8 @@ def _build_bash_hint(result) -> str | None:
             continue
         if sr.action_type == taxonomy.UNKNOWN:
             cmd = sr.tokens[0] if sr.tokens else "command"
+            if cmd.startswith(("(", "{")) or sr.reason == "subshell pipe pending":
+                return None
             return f"To classify: nah classify {cmd} <type>\n     See available types: nah types"
         if sr.action_type == taxonomy.NETWORK_WRITE:
             return f"To always allow: nah allow network_write"
