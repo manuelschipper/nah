@@ -47,17 +47,17 @@ class TestBashHints:
         assert "nah classify" in hint
         assert "nah types" in hint
 
-    def test_missing_source_has_no_unknown_classify_hint(self):
+    def test_missing_source_has_no_unknown_classify_hint(self, tmp_path):
         from nah.hook import handle_bash
-        decision = handle_bash({"command": "source ./missing.sh"})
+        decision = handle_bash({"command": f"source {tmp_path / 'missing.sh'}"})
         assert decision["decision"] == taxonomy.ASK
         assert "script not found" in decision["reason"]
         hint = decision.get("_hint", "")
         assert "nah classify source" not in hint
 
-    def test_missing_dot_source_has_no_unknown_classify_hint(self):
+    def test_missing_dot_source_has_no_unknown_classify_hint(self, tmp_path):
         from nah.hook import handle_bash
-        decision = handle_bash({"command": ". ./missing.sh"})
+        decision = handle_bash({"command": f". {tmp_path / 'missing.sh'}"})
         assert decision["decision"] == taxonomy.ASK
         assert "script not found" in decision["reason"]
         hint = decision.get("_hint", "")
