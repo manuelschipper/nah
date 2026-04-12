@@ -397,8 +397,9 @@ def cmd_test(args: argparse.Namespace) -> None:
                         print(f"LLM latency:  {llm_call.latency_ms}ms")
                         if llm_call.reasoning:
                             print(f"LLM reason:   {llm_call.reasoning}")
-                        if llm_call.reasoning_long and llm_call.reasoning_long != llm_call.reasoning:
-                            print(f"LLM detail:   {llm_call.reasoning_long}")
+                        reasoning_long = getattr(llm_call, "reasoning_long", "")
+                        if reasoning_long and reasoning_long != llm_call.reasoning:
+                            print(f"LLM detail:   {reasoning_long}")
                     else:
                         if llm_call.cascade:
                             statuses = ", ".join(f"{a.provider}={a.status}" for a in llm_call.cascade)
