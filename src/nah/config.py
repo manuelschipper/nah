@@ -306,8 +306,8 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
 
     # llm.eligible: which ask categories are LLM-eligible (global only)
     raw_eligible = config.llm.get("eligible", "default")
-    if raw_eligible == "all":
-        config.llm_eligible = "all"
+    if raw_eligible in ("strict", "default", "all"):
+        config.llm_eligible = raw_eligible
     elif isinstance(raw_eligible, list):
         config.llm_eligible = [str(v) for v in raw_eligible]
     else:

@@ -131,13 +131,13 @@ The same command gets different decisions based on context:
 
 ### Optional LLM layer
 
-For commands the classifier can't resolve, nah can optionally consult an LLM:
+For decisions that need judgment, nah can optionally consult an LLM:
 
 ```
 Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions → execute
 ```
 
-The deterministic layer always runs first — the LLM only resolves leftover "ask" decisions. If no LLM is configured or available, the decision stays "ask" and the user is prompted.
+The deterministic layer always runs first. The LLM can refine eligible `ask` decisions, and it can inspect write/script content as a veto path. It cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
 
 Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake Cortex.
 
@@ -200,7 +200,7 @@ profile: full      # full | minimal | none
 # ~/.config/nah/config.yaml
 llm:
   enabled: true
-  max_decision: ask              # cap: LLM can't escalate past "ask"
+  eligible: default              # strict | default | all, or an explicit list
   providers: [openrouter]        # cascade order
   openrouter:
     url: https://openrouter.ai/api/v1/chat/completions
