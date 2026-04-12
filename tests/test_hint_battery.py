@@ -153,6 +153,13 @@ class TestActionPolicyHints:
         ("mysql -e SHOW", "db_write"),
         ("dolt sql SELECT", "db_write"),
         ("sqlite3 /tmp/test.db", "db_write"),
+        # agent CLI asks
+        ("codex exec 'echo hi'", "agent_exec_write"),
+        ("codex exec --sandbox read-only 'inspect this'", "agent_exec_read"),
+        ("codex exec --dangerously-bypass-approvals-and-sandbox 'echo hi'", "agent_exec_bypass"),
+        ("codex cloud exec --env env_123 'fix lint'", "agent_exec_remote"),
+        ("codex apply task_123", "agent_write"),
+        ("codex mcp-server", "agent_server"),
     ])
     def test_action_policy_hint(self, cmd, expected_type):
         decision, hint = _hint(cmd)
@@ -1575,16 +1582,27 @@ class TestShellSyntaxHints:
     """Shell syntax tokens classified as unknown — classify hint is nonsensical."""
 
     def test_subshell_syntax(self):
-        """(cd /tmp && ls) — '(cd' as command name is nonsensical."""
+        """(cd /tmp && ls) should not hint '(cd' as a command name."""
         decision, hint = _hint("(cd /tmp && ls)")
-        assert decision == "ask"
-        # The classify hint for "(cd" is technically correct but useless
-        # Just verify it doesn't crash
+        assert decision == "allow"
+        assert hint is None
 
     def test_brace_group(self):
-        """{ echo a; echo b; } — '{' as command name."""
+        """{ echo a; echo b; } still asks, but should not suggest classifying '{'."""
         decision, hint = _hint("{ echo a; echo b; }")
         assert decision == "ask"
+        assert "nah classify {" not in (hint or "")
+
+    def test_reported_flock_check(self):
+        """The reported subshell-group command should classify cleanly."""
+        decision, hint = _hint(
+            "which flock 2>&1 || "
+            "(brew list util-linux --prefix 2>/dev/null; "
+            "ls /opt/homebrew/opt/util-linux/bin/flock 2>/dev/null; "
+            "ls /usr/local/opt/util-linux/bin/flock 2>/dev/null) 2>&1"
+        )
+        assert decision == "allow"
+        assert hint is None
 
 
 # ===================================================================

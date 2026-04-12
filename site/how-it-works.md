@@ -80,14 +80,14 @@ Each stage's tokens are classified through three tables in order:
 | Phase | Table | Source |
 |:-----:|-------|--------|
 | 1 | Global config | Your `classify:` entries (trusted, highest priority) |
-| 2 | Flag classifiers | Built-in flag-dependent logic (9 classifiers) |
+| 2 | Flag classifiers | Built-in flag-dependent logic (10 classifiers) |
 | 3 | Built-in + Project | Built-in prefix tables, then project `classify:` entries |
 
 First match wins. If nothing matches → `unknown`.
 
 ### Flag classifiers
 
-Nine built-in classifiers handle commands where the action type depends on flags:
+Ten built-in classifiers handle commands where the action type depends on flags:
 
 | Command | Logic |
 |---------|-------|
@@ -99,6 +99,7 @@ Nine built-in classifiers handle commands where the action type depends on flags
 | `curl` | `-d`, `--data`, `--data-raw`, `--json`, `-F`, `--form`, `-T`, `--upload-file`, `-X POST/PUT/DELETE/PATCH` → `network_write`; else → `network_outbound` |
 | `wget` | `--post-data`, `--post-file`, `--method POST/...` → `network_write`; else → `network_outbound` |
 | `httpie` | `http`/`https`/`xh`/`xhs` with write method or data items → `network_write`; else → `network_outbound` |
+| `codex` | read-only status/help/list commands → `agent_read`; local/cloud agent runs → `agent_exec_*`; bypass flag → `agent_exec_bypass` |
 | `global_install` | `-g`, `--global`, `--system`, `--target`, `--root` on npm/pip/cargo/gem → `unknown` (ask) |
 
 ### 5. Composition rules

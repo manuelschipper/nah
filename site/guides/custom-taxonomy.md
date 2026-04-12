@@ -31,7 +31,7 @@ nah classify "terraform destroy" filesystem_delete
 
 ## Creating custom action types
 
-You can use any string as an action type — it doesn't have to be one of the 20 built-in types:
+You can use any string as an action type — it doesn't have to be one of the 40 built-in types:
 
 ```bash
 nah classify "terraform" infra_modify
@@ -60,7 +60,7 @@ classify:
 
 ### Phase 2: Flag classifiers (built-in)
 
-Nine commands have flag-dependent classification (find, sed, awk, tar, git, curl, wget, httpie, global_install). These run after global config but before the built-in prefix tables.
+Ten command families have flag-dependent classification (find, sed, awk, tar, git, curl, wget, httpie, codex, global_install). These run after global config but before the built-in prefix tables.
 
 Skipped entirely when `profile: none`.
 

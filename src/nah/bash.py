@@ -4,7 +4,7 @@ import os.path
 import re
 import shlex
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nah import context, paths, taxonomy
 from nah.content import scan_content, format_content_message
@@ -73,9 +73,14 @@ def classify_command(command: str) -> ClassifyResult:
     # then shlex.split each stage independently (FD-095).
     try:
         raw_stages = _split_on_operators(sanitized)
-    except ValueError:
+    except ValueError as exc:
         result.final_decision = taxonomy.ASK
-        result.reason = "unparseable command (shlex error)"
+        detail = str(exc)
+        result.reason = (
+            f"unparseable command ({detail})"
+            if detail == "unbalanced subshell group"
+            else f"unparseable command (shlex error{': ' + detail if detail else ''})"
+        )
         return result
 
     # Load config for custom classify/actions — three-table lookup
@@ -118,29 +123,13 @@ def classify_command(command: str) -> ClassifyResult:
         inner_stages: list[Stage] = []
         _inner_ok = True
         for istage_str, iop in inner_raw:
-            istage_str = istage_str.strip()
-            if not istage_str:
-                continue
-            iheredoc = _extract_heredoc_literal(istage_str)
-            istage_for_split = _strip_heredoc_bodies(istage_str)
             try:
-                itokens = shlex.split(istage_for_split)
+                inner_stages.extend(_raw_stage_to_stages(istage_str, iop))
             except ValueError:
-                try:
-                    itokens = shlex.split(istage_for_split, comments=True)
-                except ValueError:
-                    inner_results_by_idx[sub_idx] = _obfuscated_result(
-                        [inner_cmd], "unparseable substitution", user_actions)
-                    _inner_ok = False
-                    break
-            # Pure-comment stage: # at start means shell comment (nah-2zt)
-            if itokens and itokens[0] == '#':
-                itokens = []
-            if itokens:
-                inner_stages.extend(_decompose(
-                    itokens, operator=iop,
-                    heredoc_literal=iheredoc,
-                ))
+                inner_results_by_idx[sub_idx] = _obfuscated_result(
+                    [inner_cmd], "unparseable substitution", user_actions)
+                _inner_ok = False
+                break
         if not _inner_ok:
             continue
         if inner_stages:
@@ -154,31 +143,24 @@ def classify_command(command: str) -> ClassifyResult:
         stage_str = stage_str.strip()
         if not stage_str:
             continue
-        heredoc_literal = _extract_heredoc_literal(stage_str)
-        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            tokens = shlex.split(stage_for_split)
-        except ValueError:
-            try:
-                tokens = shlex.split(stage_for_split, comments=True)
-            except ValueError:
-                result.final_decision = taxonomy.ASK
-                result.reason = "unparseable command (shlex error)"
-                return result
-        # Pure-comment stage: # at start means shell comment (nah-2zt)
-        if tokens and tokens[0] == '#':
-            tokens = []
-        if tokens:
-            stages.extend(_decompose(
-                tokens,
-                operator=op,
-                heredoc_literal=heredoc_literal,
-            ))
+            stages.extend(_raw_stage_to_stages(stage_str, op))
+        except ValueError as exc:
+            result.final_decision = taxonomy.ASK
+            detail = str(exc) or "shlex error"
+            result.reason = (
+                f"unparseable command ({detail})"
+                if detail == "unbalanced subshell group"
+                else f"unparseable command (shlex error{': ' + detail if detail else ''})"
+            )
+            return result
 
     if not stages:
         result.final_decision = taxonomy.ALLOW
         result.reason = "empty command"
         return result
+
+    stages = _apply_trusted_script_vars(stages, active_subs)
 
     # Classify each stage
     for stage in stages:
@@ -315,6 +297,16 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
                     current.append(command[i])
                     i += 1
                 continue
+
+        # Leading subshell group: consume the balanced group as shell
+        # structure so inner operators do not split the outer command.
+        if c == '(' and ''.join(current).strip() == "":
+            close = _match_parens(command, i)
+            if close < 0:
+                raise ValueError("unbalanced subshell group")
+            current.append(command[i:close + 1])
+            i = close + 1
+            continue
 
         # Check for operators (order matters: && and || before | to avoid partial match)
         if c == '&' and i + 1 < n and command[i + 1] == '&':
@@ -768,6 +760,146 @@ def _strip_heredoc_bodies(stage_str: str) -> str:
     return "".join(out)
 
 
+def _extract_subshell_group(stage_str: str) -> tuple[str, str] | None:
+    """Return ``(inner, suffix)`` for a leading ``(...)`` subshell group.
+
+    Only leading groups are recognized. Parentheses that appear later in a
+    normal argv word are left to the ordinary tokenizer.
+    """
+    start = len(stage_str) - len(stage_str.lstrip())
+    if start >= len(stage_str) or stage_str[start] != "(":
+        return None
+
+    close = _match_parens(stage_str, start)
+    if close < 0:
+        raise ValueError("unbalanced subshell group")
+
+    suffix = stage_str[close + 1:]
+    if _parse_subshell_redirects(suffix) is None:
+        return None
+
+    return stage_str[start + 1:close], suffix
+
+
+def _split_stage_tokens(stage_str: str) -> list[str]:
+    """Split a raw stage with the same comment fallback used historically."""
+    try:
+        return shlex.split(stage_str)
+    except ValueError as first_error:
+        try:
+            return shlex.split(stage_str, comments=True)
+        except ValueError:
+            raise first_error
+
+
+def _parse_subshell_redirects(suffix: str) -> list[tuple[str, bool, str]] | None:
+    """Parse group-level output redirects, ignoring descriptor duplication.
+
+    Returns ``None`` when *suffix* contains anything other than redirects and
+    whitespace, allowing callers to fall back to conservative ordinary parsing.
+    """
+    if not suffix.strip():
+        return []
+
+    tokens = _split_stage_tokens(suffix)
+    redirects: list[tuple[str, bool, str]] = []
+    i = 0
+    while i < len(tokens):
+        parsed_redirect = _parse_output_redirect(tokens[i])
+        if parsed_redirect is None:
+            return None
+
+        redirect_fd, redirect_append, target, needs_target, redirect_kind = parsed_redirect
+        step = 1
+        if needs_target:
+            if i + 1 >= len(tokens):
+                raise ValueError("unparseable subshell redirect")
+            target = tokens[i + 1]
+            step = 2
+            if redirect_kind == "dup_or_file":
+                if target == "-" or target.isdigit():
+                    redirect_kind = "dup"
+                else:
+                    redirect_kind = "file"
+                    if redirect_fd in ("", "1"):
+                        redirect_fd = "&"
+
+        if redirect_kind == "file":
+            redirects.append((redirect_fd, redirect_append, target))
+        i += step
+
+    return redirects
+
+
+def _apply_outer_operator(stages: list[Stage], op: str) -> None:
+    """Attach an outer shell operator to the final stage in a flattened group."""
+    if stages:
+        stages[-1].operator = op
+
+
+def _raw_stage_to_stages(
+    stage_str: str,
+    op: str,
+    *,
+    heredoc_literal: str = "",
+) -> list[Stage]:
+    """Convert one raw shell stage string into decomposed classifier stages."""
+    stage_str = stage_str.strip()
+    if not stage_str:
+        return []
+
+    group = _extract_subshell_group(stage_str)
+    if group is not None:
+        inner, suffix = group
+        if op == "|":
+            return [
+                Stage(
+                    tokens=["subshell"],
+                    operator=op,
+                    action_hint=taxonomy.UNKNOWN,
+                    action_reason="subshell pipe pending",
+                )
+            ]
+
+        raw_inner = _split_on_operators(inner)
+        stages: list[Stage] = []
+        for inner_stage, inner_op in raw_inner:
+            stages.extend(_raw_stage_to_stages(inner_stage, inner_op))
+        _apply_outer_operator(stages, op)
+
+        redirects = _parse_subshell_redirects(suffix)
+        if redirects is None:
+            return []
+        if redirects and stages:
+            redirect_tokens = stages[-1].tokens
+            for redirect_fd, redirect_append, target in redirects:
+                stages.append(
+                    Stage(
+                        tokens=list(redirect_tokens),
+                        redirect_fd=redirect_fd,
+                        redirect_target=target,
+                        redirect_append=redirect_append,
+                    )
+                )
+        return stages
+
+    heredoc_literal = heredoc_literal or _extract_heredoc_literal(stage_str)
+    stage_for_split = _strip_heredoc_bodies(stage_str)
+    tokens = _split_stage_tokens(stage_for_split)
+
+    # Pure-comment stage: # at start means shell comment (nah-2zt)
+    if tokens and tokens[0] == "#":
+        tokens = []
+    if not tokens:
+        return []
+
+    return _decompose(
+        tokens,
+        operator=op,
+        heredoc_literal=heredoc_literal,
+    )
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
@@ -891,6 +1023,36 @@ def _env_var_has_exec(value: str) -> bool:
     return taxonomy.is_exec_sink(base)
 
 
+def _classify_export_assignment(
+    stage: Stage,
+    user_actions: dict[str, str] | None,
+) -> StageResult | None:
+    """Classify benign ``export NAME=value`` shell-builtin stages."""
+    tokens = stage.tokens
+    if not tokens or os.path.basename(tokens[0]) != "export" or len(tokens) == 1:
+        return None
+
+    for tok in tokens[1:]:
+        if tok.startswith("-") or not _is_env_assignment(tok):
+            return None
+
+    action_type = taxonomy.FILESYSTEM_READ
+    reason = "export assignment"
+    for tok in tokens[1:]:
+        _, value = tok.split("=", 1)
+        if _env_var_has_exec(value):
+            action_type = taxonomy.LANG_EXEC
+            reason = "export assignment exec sink"
+            break
+
+    sr = StageResult(tokens=tokens)
+    sr.action_type = action_type
+    sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+    _apply_policy(sr)
+    sr.reason = reason
+    return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+
 def _make_stage(
     tokens: list[str],
     operator: str,
@@ -927,6 +1089,11 @@ def _make_stage(
 
 _PSUB_PREFIX = "__nah_psub_"
 _PSUB_SUFFIX = "__"
+_CODEX_COMPANION_GLOB = "~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs"
+_CODEX_COMPANION_SENTINEL = (
+    "~/.claude/plugins/cache/openai-codex/codex/__nah_trusted__/scripts/codex-companion.mjs"
+)
+_SHELL_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _tighten_from_inner(
@@ -974,6 +1141,169 @@ def _tighten_from_inner(
         sr.reason = f"substitution: {worst.reason}"
 
 
+def _env_assignment_parts(tok: str) -> tuple[str, str] | None:
+    """Return ``(name, value)`` for shell-style env assignments."""
+    if not _is_env_assignment(tok):
+        return None
+    return tok.split("=", 1)
+
+
+def _placeholder_sub_index(value: str) -> int | None:
+    """Return the substitution index for an exact ``__nah_psub_N__`` value."""
+    if not value.startswith(_PSUB_PREFIX) or not value.endswith(_PSUB_SUFFIX):
+        return None
+    raw_idx = value[len(_PSUB_PREFIX) : -len(_PSUB_SUFFIX)]
+    if not raw_idx.isdigit():
+        return None
+    return int(raw_idx)
+
+
+def _norm_shell_path(path: str) -> str:
+    return path.replace("\\", "/")
+
+
+def _trusted_codex_companion_globs() -> set[str]:
+    return {
+        _norm_shell_path(_CODEX_COMPANION_GLOB),
+        _norm_shell_path(os.path.expanduser(_CODEX_COMPANION_GLOB)),
+    }
+
+
+def _is_stderr_devnull_redirect(tokens: list[str]) -> bool:
+    """Return True for a single optional ``2>/dev/null`` redirect."""
+    if not tokens:
+        return True
+    if len(tokens) > 2:
+        return False
+
+    parsed = _parse_output_redirect(tokens[0])
+    if parsed is None:
+        return False
+
+    fd, append, target, needs_target, kind = parsed
+    if needs_target:
+        if len(tokens) != 2:
+            return False
+        target = tokens[1]
+    elif len(tokens) != 1:
+        return False
+
+    return fd == "2" and not append and target == "/dev/null" and kind == "file"
+
+
+def _is_trusted_codex_companion_discovery(inner_cmd: str) -> bool:
+    """Recognize the narrow ``ls <companion-glob> [2>/dev/null] | head -1`` idiom."""
+    try:
+        raw_stages = [(s.strip(), op) for s, op in _split_on_operators(inner_cmd) if s.strip()]
+    except ValueError:
+        return False
+
+    if len(raw_stages) != 2 or raw_stages[0][1] != "|" or raw_stages[1][1] != "":
+        return False
+
+    try:
+        left = _split_stage_tokens(raw_stages[0][0])
+        right = _split_stage_tokens(raw_stages[1][0])
+    except ValueError:
+        return False
+
+    if len(left) < 2 or os.path.basename(left[0]) != "ls":
+        return False
+    if _norm_shell_path(left[1]) not in _trusted_codex_companion_globs():
+        return False
+    if not taxonomy.is_codex_companion_script(left[1]):
+        return False
+    if not _is_stderr_devnull_redirect(left[2:]):
+        return False
+
+    return len(right) == 2 and os.path.basename(right[0]) == "head" and right[1] == "-1"
+
+
+def _trusted_script_var_binding(
+    token: str,
+    active_subs: list[tuple[str, int, int, str]],
+) -> tuple[str, str] | None:
+    """Return a trusted script variable binding from an env-only assignment token."""
+    parts = _env_assignment_parts(token)
+    if parts is None:
+        return None
+
+    name, value = parts
+    sub_idx = _placeholder_sub_index(value)
+    if sub_idx is None or sub_idx >= len(active_subs):
+        return None
+
+    inner_cmd, _start, _end, kind = active_subs[sub_idx]
+    if kind != "command":
+        return None
+    if not _is_trusted_codex_companion_discovery(inner_cmd.strip()):
+        return None
+    return name, _CODEX_COMPANION_SENTINEL
+
+
+def _variable_ref_name(token: str) -> str | None:
+    """Return the variable name for ``$NAME`` or ``${NAME}`` tokens."""
+    if token.startswith("${") and token.endswith("}"):
+        name = token[2:-1]
+    elif token.startswith("$"):
+        name = token[1:]
+    else:
+        return None
+    return name if _SHELL_VAR_RE.fullmatch(name) else None
+
+
+def _rewrite_trusted_node_script(stage: Stage, trusted_script_vars: dict[str, str]) -> Stage:
+    """Rewrite only ``node`` script argv when it references a trusted variable."""
+    if len(stage.tokens) < 2 or os.path.basename(stage.tokens[0]) != "node":
+        return stage
+
+    var_name = _variable_ref_name(stage.tokens[1])
+    if var_name is None or var_name not in trusted_script_vars:
+        return stage
+
+    tokens = list(stage.tokens)
+    tokens[1] = trusted_script_vars[var_name]
+    return replace(
+        stage,
+        tokens=tokens,
+        action_reason=f"Codex companion delegation via trusted {stage.tokens[1]}",
+    )
+
+
+def _apply_trusted_script_vars(
+    stages: list[Stage],
+    active_subs: list[tuple[str, int, int, str]],
+) -> list[Stage]:
+    """Carry trusted same-command script variables into later stage classification.
+
+    This intentionally recognizes only the Codex companion discovery pattern
+    used by molds. It does not perform general shell evaluation.
+    """
+    trusted_script_vars: dict[str, str] = {}
+    rewritten: list[Stage] = []
+
+    for stage in stages:
+        current = _rewrite_trusted_node_script(stage, trusted_script_vars)
+        rewritten.append(current)
+
+        if stage.action_hint == taxonomy.FILESYSTEM_READ and stage.action_reason == "env-only assignment":
+            for token in stage.tokens:
+                parts = _env_assignment_parts(token)
+                if parts is None:
+                    continue
+                name, _value = parts
+                binding = _trusted_script_var_binding(token, active_subs)
+                if binding is None:
+                    trusted_script_vars.pop(name, None)
+                else:
+                    trusted_script_vars[binding[0]] = binding[1]
+
+        if stage.operator not in {"&&", ";"}:
+            trusted_script_vars.clear()
+
+    return rewritten
+
+
 def _classify_stage(
     stage: Stage,
     depth: int = 0,
@@ -1000,6 +1330,10 @@ def _classify_stage(
         _apply_policy(sr)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+    export_assignment = _classify_export_assignment(stage, user_actions)
+    if export_assignment is not None:
+        return export_assignment
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
@@ -1033,6 +1367,8 @@ def _classify_stage(
 
     # Apply policy → decision
     _apply_policy(sr)
+    if stage.action_reason and sr.action_type.startswith("agent_"):
+        sr.reason = stage.action_reason
 
     # Path extraction + checking (regardless of policy)
     path_decision, path_reason = _check_extracted_paths(tokens)
@@ -1941,23 +2277,13 @@ def _unwrap_shell(
         psub_stages: list[Stage] = []
         _psub_ok = True
         for pstage_str, pop in psub_raw:
-            pstage_str = pstage_str.strip()
-            if not pstage_str:
-                continue
-            pheredoc = _extract_heredoc_literal(pstage_str)
-            pstage_for_split = _strip_heredoc_bodies(pstage_str)
             try:
-                ptokens = shlex.split(pstage_for_split)
+                psub_stages.extend(_raw_stage_to_stages(pstage_str, pop))
             except ValueError:
                 inner_sub_results[psub_idx] = _obfuscated_result(
                     [psub_cmd], "unparseable substitution", user_actions)
                 _psub_ok = False
                 break
-            if ptokens:
-                psub_stages.extend(_decompose(
-                    ptokens, operator=pop,
-                    heredoc_literal=pheredoc,
-                ))
         if not _psub_ok:
             continue
         if psub_stages:
@@ -1967,21 +2293,11 @@ def _unwrap_shell(
 
     inner_stages: list[Stage] = []
     for stage_str, op in raw_stages:
-        stage_str = stage_str.strip()
-        if not stage_str:
-            continue
-        heredoc_literal = _extract_heredoc_literal(stage_str)
-        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            inner_tokens = shlex.split(stage_for_split)
-        except ValueError:
-            return _obfuscated_result(tokens, "unparseable inner command", user_actions)
-        if inner_tokens:
-            inner_stages.extend(_decompose(
-                inner_tokens,
-                operator=op,
-                heredoc_literal=heredoc_literal,
-            ))
+            inner_stages.extend(_raw_stage_to_stages(stage_str, op))
+        except ValueError as exc:
+            detail = str(exc) or "shlex error"
+            return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)
 
     if inner_stages:
         return _classify_inner(inner_stages, stage, depth + 1,
@@ -2340,11 +2656,23 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
 
     cmd = os.path.basename(tokens[0])
 
-    from nah.taxonomy import _INLINE_FLAGS, _MODULE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
+    from nah.taxonomy import (
+        _INLINE_FLAGS,
+        _MODULE_FLAGS,
+        _VALUE_FLAGS,
+        _extract_source_operand,
+        _normalize_interpreter,
+    )
     cmd = _normalize_interpreter(cmd)
 
     if cmd in {"make", "gmake"}:
         return _resolve_makefile_path(tokens)
+
+    sourced = _extract_source_operand(tokens)
+    if sourced is not None:
+        if os.path.isabs(sourced):
+            return sourced
+        return os.path.join(os.getcwd(), sourced)
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())

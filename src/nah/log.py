@@ -116,6 +116,9 @@ def build_entry(
         }
         if llm_cascade:
             llm["cascade"] = llm_cascade
+        review = meta.get("llm_review")
+        if review:
+            llm["review"] = review
         prompt = meta.get("llm_prompt")
         if prompt:
             llm["prompt"] = prompt

@@ -30,6 +30,13 @@
   "browser_file": "context",
   "db_read": "allow",
   "db_write": "context",
+  "agent_read": "allow",
+  "agent_write": "ask",
+  "agent_exec_read": "ask",
+  "agent_exec_write": "ask",
+  "agent_exec_remote": "ask",
+  "agent_server": "ask",
+  "agent_exec_bypass": "ask",
   "obfuscated": "block",
   "unknown": "ask"
 }

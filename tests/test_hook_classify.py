@@ -459,3 +459,82 @@ class TestActiveAllowEmission:
         assert output.strip(), "BLOCK should always emit"
         result = json.loads(output)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def _run_hook_with_write_llm_allow(self, tool_name: str, tool_input: dict) -> str:
+        """Run hook.main() with write LLM mocked to allow."""
+        import nah.hook as hook_mod
+
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda tn, ti, d: (
+            {"decision": "allow", "reason": "safe"},
+            {"llm_provider": "test"},
+        )
+        try:
+            return self._run_hook(tool_name, tool_input)
+        finally:
+            hook_mod._try_llm_write = original
+
+    def test_llm_refined_write_allow_emits_when_active_allowed(self, project_root):
+        """LLM-refined Write allow emits JSON when Write is in active_allow."""
+        config._cached_config = NahConfig(
+            active_allow=["Write"],
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+        )
+        output = self._run_hook_with_write_llm_allow(
+            "Write",
+            {"file_path": "/tmp/outside.txt", "content": "alias ads='ads-tool'\n"},
+        )
+        assert output.strip(), "Expected refined Write allow to emit for active Write"
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    def test_llm_refined_write_allow_falls_through_when_not_active_allowed(self, project_root):
+        """LLM-refined Write allow emits nothing when Write is not in active_allow."""
+        config._cached_config = NahConfig(
+            active_allow=["Bash"],
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+        )
+        output = self._run_hook_with_write_llm_allow(
+            "Write",
+            {"file_path": "/tmp/outside.txt", "content": "alias ads='ads-tool'\n"},
+        )
+        assert not output.strip(), "Expected refined Write allow to fall through"
+
+    def test_write_review_ask_does_not_fall_through_to_unified_llm(self):
+        """Write asks left by write review cannot be relaxed by unified LLM."""
+        import nah.hook as hook_mod
+        import nah.llm as llm_mod
+        from nah.llm import LLMCallResult
+
+        config._cached_config = NahConfig(
+            llm_mode="on",
+            llm_eligible="all",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+        )
+        called = []
+        original_write = hook_mod._try_llm_write
+        original_unified = llm_mod.try_llm_unified
+        hook_mod._try_llm_write = lambda tn, ti, d: (
+            {"decision": "allow", "reason": "safe"},
+            {"llm_provider": "test"},
+        )
+
+        def fake_unified(*args, **kwargs):
+            called.append(True)
+            return LLMCallResult(decision={"decision": "allow", "reason": "unified allow"})
+
+        llm_mod.try_llm_unified = fake_unified
+        try:
+            output = self._run_hook(
+                "Write",
+                {"file_path": "~/.aws/credentials", "content": "region = us-east-1\n"},
+            )
+        finally:
+            hook_mod._try_llm_write = original_write
+            llm_mod.try_llm_unified = original_unified
+
+        assert called == []
+        result = json.loads(output)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"

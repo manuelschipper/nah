@@ -1,6 +1,6 @@
 # Action Types
 
-Every command nah classifies maps to one of 30 **action types**. Each type has a default **policy** that determines the decision.
+Every command nah classifies maps to one of 40 **action types**. Each type has a default **policy** that determines the decision.
 
 ## Policy levels
 
@@ -31,7 +31,7 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `package_install` | allow | Install packages (npm install, pip install) |
 | `package_run` | allow | Run package scripts (npm run, npx, just) |
 | `package_uninstall` | ask | Remove packages (npm uninstall, pip uninstall) |
-| `lang_exec` | context | Execute code via language runtimes (python, node) |
+| `lang_exec` | context | Execute code via language runtimes or shell-sourced scripts (python, node, source) |
 | `process_signal` | ask | Send signals to processes (kill, pkill) |
 | `container_read` | allow | Read-only container and image inspection (logs, inspect, stats, ps) |
 | `container_write` | context | Container state mutations (start, stop, build, tag, create) |
@@ -40,11 +40,21 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `service_read` | allow | Read-only service inspection (systemctl status, cat, journalctl) |
 | `service_write` | ask | Service and systemd mutations (restart, enable, daemon-reload) |
 | `service_destructive` | ask | Machine-level service actions (reboot, poweroff, isolate) |
+| `browser_read` | allow | Read-only browser inspection (snapshots, screenshots, console, network, assertions) |
+| `browser_interact` | allow | In-page browser interactions (click, type, resize, mouse, navigation controls) |
+| `browser_state` | allow | Browser state mutations (cookies, storage, routes, console/network state) |
+| `browser_navigate` | context | Navigate a browser page to a new URL |
+| `browser_exec` | ask | Execute arbitrary code in the browser page context |
+| `browser_file` | context | Browser actions that read from or write to the host filesystem |
 | `db_read` | allow | Read-only database operations (SELECT, introspection) |
 | `db_write` | context | Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER) |
-| `beads_safe` | allow | Read-only beads queries and diagnostics (bd list, bd show, bd ready) |
-| `beads_write` | allow | Beads workflow operations that modify data (bd create, bd update, bd close) |
-| `beads_destructive` | ask | Irreversible beads operations (bd delete, bd purge, bd admin) |
+| `agent_read` | allow | Read-only agent CLI metadata, status, help, or generated output |
+| `agent_write` | ask | Agent CLI state mutations without launching a coding run |
+| `agent_exec_read` | ask | Launch a local agent run intended for inspection or review |
+| `agent_exec_write` | ask | Launch a local agent run that can edit workspace state |
+| `agent_exec_remote` | ask | Submit or continue an agentic run in a remote agent service |
+| `agent_server` | ask | Start an agent protocol server or app server |
+| `agent_exec_bypass` | ask | Launch an agent run while explicitly bypassing approvals or sandboxing |
 | `obfuscated` | block | Obfuscated or encoded commands (base64 \| bash) |
 | `unknown` | ask | Unrecognized command or tool -- not in any classify table |
 
