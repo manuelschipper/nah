@@ -116,6 +116,6 @@ nah trust ~/shared-builds
 
 ## Next steps
 
-- [Action types](../configuration/actions.md) — see all 20 types and their defaults
+- [Action types](../configuration/actions.md) — see all 40 types and their defaults
 - [Configuration overview](../configuration/index.md) — global vs project config
 - [Custom taxonomy](custom-taxonomy.md) — build your own classification rules

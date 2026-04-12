@@ -43,6 +43,13 @@ BROWSER_EXEC = "browser_exec"
 BROWSER_FILE = "browser_file"
 DB_READ = "db_read"
 DB_WRITE = "db_write"
+AGENT_READ = "agent_read"
+AGENT_WRITE = "agent_write"
+AGENT_EXEC_READ = "agent_exec_read"
+AGENT_EXEC_WRITE = "agent_exec_write"
+AGENT_EXEC_REMOTE = "agent_exec_remote"
+AGENT_SERVER = "agent_server"
+AGENT_EXEC_BYPASS = "agent_exec_bypass"
 OBFUSCATED = "obfuscated"
 UNKNOWN = "unknown"
 
@@ -122,6 +129,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
+                          "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
                           "python", "python3", "node", "ruby", "perl",
@@ -419,6 +427,12 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_httpie(tokens)
+        if action is not None:
+            return action
+        action = _classify_codex(tokens)
+        if action is not None:
+            return action
+        action = _classify_codex_companion(tokens)
         if action is not None:
             return action
         action = _classify_global_install(tokens)
@@ -841,6 +855,237 @@ def _classify_httpie(tokens: list[str]) -> str | None:
     if has_data_item:
         return NETWORK_WRITE
     return NETWORK_OUTBOUND
+
+
+_CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
+_CODEX_VALUE_FLAGS = {
+    "-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
+    "-i", "--image", "-m", "--model", "--local-provider", "-p", "--profile",
+    "-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd", "--add-dir",
+}
+_CODEX_LONG_VALUE_FLAGS = {flag for flag in _CODEX_VALUE_FLAGS if flag.startswith("--")}
+_CODEX_READ_COMMANDS = {"completion"}
+_CODEX_WRITE_COMMANDS = {"login", "logout", "apply", "a"}
+_CODEX_AGENT_RUN_COMMANDS = {"exec", "e", "review", "resume", "fork"}
+
+
+def _codex_has_bypass(tokens: list[str]) -> bool:
+    """Return True if the Codex bypass flag appears anywhere in argv."""
+    return _CODEX_BYPASS_FLAG in tokens
+
+
+def _codex_flag_takes_value(tok: str) -> bool:
+    """Return True for Codex flags whose value is expected as the next token."""
+    if tok in _CODEX_VALUE_FLAGS:
+        return True
+    return False
+
+
+def _codex_is_joined_value_flag(tok: str) -> bool:
+    """Return True for --flag=value forms of known Codex value flags."""
+    if not tok.startswith("--") or "=" not in tok:
+        return False
+    name = tok.split("=", 1)[0]
+    return name in _CODEX_LONG_VALUE_FLAGS
+
+
+def _codex_args_malformed(args: list[str]) -> bool:
+    """Detect missing values for known Codex value-taking flags."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if _codex_is_joined_value_flag(tok):
+            i += 1
+            continue
+        if _codex_flag_takes_value(tok):
+            if i + 1 >= len(args):
+                return True
+            i += 2
+            continue
+        i += 1
+    return False
+
+
+def _strip_codex_global_options(tokens: list[str]) -> tuple[list[str], bool]:
+    """Strip Codex global options while finding the first subcommand.
+
+    Returns (cleaned_tokens, malformed). Unknown boolean-looking options are
+    skipped while searching for the subcommand because Codex adds flags more
+    quickly than nah should need parser updates.
+    """
+    if not tokens:
+        return [], False
+
+    cleaned = [tokens[0]]
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return cleaned + tokens[i + 1:], False
+        if _codex_is_joined_value_flag(tok):
+            i += 1
+            continue
+        if _codex_flag_takes_value(tok):
+            if i + 1 >= len(tokens):
+                return cleaned, True
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        cleaned.extend(tokens[i:])
+        return cleaned, False
+    return cleaned, False
+
+
+def _codex_option_value(args: list[str], names: set[str]) -> str | None:
+    """Return the value for a Codex option, supporting --name value and --name=value."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in names:
+            return args[i + 1] if i + 1 < len(args) else None
+        if tok.startswith("--") and "=" in tok:
+            name, value = tok.split("=", 1)
+            if name in names:
+                return value
+        i += 1
+    return None
+
+
+def _codex_has_help_flag(args: list[str]) -> bool:
+    """Return True when a subcommand is invoked for help only."""
+    return "--help" in args or "-h" in args
+
+
+def _classify_codex(tokens: list[str]) -> str | None:
+    """Classify OpenAI Codex CLI invocations by agent safety class."""
+    if not tokens or tokens[0] != "codex":
+        return None
+
+    if len(tokens) == 1:
+        return AGENT_EXEC_WRITE
+
+    if tokens[1] in {"--help", "-h", "--version", "-V", "help"}:
+        return AGENT_READ
+
+    cleaned, malformed = _strip_codex_global_options(tokens)
+    if malformed:
+        return UNKNOWN
+    if len(cleaned) < 2:
+        return AGENT_EXEC_WRITE
+
+    sub = cleaned[1]
+    args = cleaned[2:]
+
+    if sub in {"--help", "-h", "--version", "-V", "help"}:
+        return AGENT_READ
+    if _codex_has_help_flag(args):
+        return AGENT_READ
+    if _codex_args_malformed(args):
+        return UNKNOWN
+
+    if sub in _CODEX_READ_COMMANDS:
+        return AGENT_READ
+
+    if sub == "login":
+        return AGENT_READ if args and args[0] == "status" else AGENT_WRITE
+    if sub in _CODEX_WRITE_COMMANDS:
+        return AGENT_WRITE
+
+    if sub == "mcp":
+        if not args:
+            return UNKNOWN
+        mcp_sub = args[0]
+        if mcp_sub in {"list", "get"}:
+            return AGENT_READ
+        if mcp_sub in {"add", "remove", "login", "logout"}:
+            return AGENT_WRITE
+        return UNKNOWN
+
+    if sub == "features":
+        if not args:
+            return UNKNOWN
+        features_sub = args[0]
+        if features_sub == "list":
+            return AGENT_READ
+        if features_sub in {"enable", "disable"}:
+            return AGENT_WRITE
+        return UNKNOWN
+
+    if sub == "cloud":
+        if not args:
+            return UNKNOWN
+        cloud_sub = args[0]
+        cloud_args = args[1:]
+        if _codex_has_help_flag(cloud_args):
+            return AGENT_READ
+        if cloud_sub in {"list", "status", "diff"}:
+            return AGENT_READ
+        if cloud_sub == "apply":
+            return AGENT_WRITE
+        if cloud_sub == "exec":
+            return AGENT_EXEC_BYPASS if _codex_has_bypass(tokens) else AGENT_EXEC_REMOTE
+        return UNKNOWN
+
+    if sub in {"mcp-server", "app-server"}:
+        return AGENT_SERVER
+    if sub == "debug":
+        return AGENT_SERVER if args and args[0] == "app-server" else UNKNOWN
+
+    if sub == "sandbox":
+        return UNKNOWN
+
+    if sub in _CODEX_AGENT_RUN_COMMANDS:
+        if _codex_has_bypass(tokens):
+            return AGENT_EXEC_BYPASS
+        if sub in {"exec", "e"}:
+            sandbox = (
+                _codex_option_value(args, {"-s", "--sandbox"})
+                or _codex_option_value(tokens[1:], {"-s", "--sandbox"})
+            )
+            return AGENT_EXEC_READ if sandbox == "read-only" else AGENT_EXEC_WRITE
+        if sub == "review":
+            return AGENT_EXEC_READ
+        return AGENT_EXEC_WRITE
+
+    return UNKNOWN
+
+
+def _is_codex_companion_script(path: str) -> bool:
+    """Return True for installed OpenAI Codex plugin companion scripts."""
+    normalized = path.replace("\\", "/")
+    return (
+        os.path.basename(normalized) == "codex-companion.mjs"
+        and "openai-codex/codex/" in normalized
+    )
+
+
+def _classify_codex_companion(tokens: list[str]) -> str | None:
+    """Classify Codex plugin companion invocations before generic node script exec."""
+    if len(tokens) < 3 or tokens[0] != "node":
+        return None
+    if not _is_codex_companion_script(tokens[1]):
+        return None
+
+    sub = tokens[2]
+    args = tokens[3:]
+
+    if sub == "setup":
+        if "--enable-review-gate" in args or "--disable-review-gate" in args:
+            return AGENT_WRITE
+        return AGENT_READ
+    if sub in {"review", "adversarial-review"}:
+        return AGENT_EXEC_READ
+    if sub == "task":
+        return AGENT_EXEC_WRITE if "--write" in args else AGENT_EXEC_READ
+    if sub == "task-worker":
+        return AGENT_EXEC_WRITE
+    if sub in {"status", "result", "task-resume-candidate"}:
+        return AGENT_READ
+    if sub == "cancel":
+        return AGENT_WRITE
+    return UNKNOWN
 
 
 def _classify_global_install(tokens: list[str]) -> str | None:

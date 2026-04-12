@@ -728,6 +728,13 @@ class TestGetPolicy:
         ("browser_file", "context"),
         ("db_read", "allow"),
         ("db_write", "context"),
+        ("agent_read", "allow"),
+        ("agent_write", "ask"),
+        ("agent_exec_read", "ask"),
+        ("agent_exec_write", "ask"),
+        ("agent_exec_remote", "ask"),
+        ("agent_server", "ask"),
+        ("agent_exec_bypass", "ask"),
         ("obfuscated", "block"),
         ("unknown", "ask"),
     ])
@@ -736,6 +743,174 @@ class TestGetPolicy:
 
     def test_unknown_type_falls_back_to_ask(self):
         assert get_policy("totally_made_up") == "ask"
+
+    def test_policy_and_type_metadata_match(self):
+        assert set(taxonomy.POLICIES) == set(taxonomy.load_type_descriptions())
+
+
+# --- Codex agent CLI classifiers ---
+
+
+class TestCodexClassifier:
+    """Codex CLI Phase 2 classification."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "--help"],
+        ["codex", "-h"],
+        ["codex", "--version"],
+        ["codex", "-V"],
+        ["codex", "help"],
+        ["codex", "help", "exec"],
+        ["codex", "exec", "--help"],
+        ["codex", "exec", "-h"],
+        ["/usr/local/bin/codex", "--version"],
+        ["codex", "completion", "bash"],
+        ["codex", "login", "status"],
+        ["codex", "mcp", "list"],
+        ["codex", "mcp", "get", "server"],
+        ["codex", "features", "list"],
+        ["codex", "cloud", "list", "--json"],
+        ["codex", "cloud", "status", "task_123"],
+        ["codex", "cloud", "diff", "task_123"],
+    ])
+    def test_codex_read_forms(self, tokens):
+        assert _ct(tokens) == "agent_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "login"],
+        ["codex", "logout"],
+        ["codex", "mcp", "add", "local"],
+        ["codex", "mcp", "remove", "local"],
+        ["codex", "mcp", "login", "local"],
+        ["codex", "mcp", "logout", "local"],
+        ["codex", "features", "enable", "foo"],
+        ["codex", "features", "disable", "foo"],
+        ["codex", "apply", "task_123"],
+        ["codex", "a", "task_123"],
+        ["codex", "cloud", "apply", "task_123"],
+    ])
+    def test_codex_write_forms(self, tokens):
+        assert _ct(tokens) == "agent_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "review", "--diff"],
+        ["codex", "exec", "--sandbox", "read-only", "inspect this"],
+        ["codex", "exec", "-s", "read-only", "inspect this"],
+        ["codex", "--sandbox", "read-only", "exec", "inspect this"],
+        ["codex", "e", "--sandbox=read-only", "inspect this"],
+    ])
+    def test_codex_read_only_agent_runs(self, tokens):
+        assert _ct(tokens) == "agent_exec_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "exec", "--cd", "/tmp", "echo hi"],
+        ["codex", "e", "--cd", ".worktrees/mold-2", "echo hello"],
+        ["codex", "resume", "task_123"],
+        ["codex", "fork", "task_123"],
+    ])
+    def test_codex_write_agent_runs(self, tokens):
+        assert _ct(tokens) == "agent_exec_write"
+
+    def test_codex_cloud_exec_remote(self):
+        assert _ct(["codex", "cloud", "exec", "--env", "env_123", "fix lint"]) == "agent_exec_remote"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "mcp-server"],
+        ["codex", "app-server"],
+        ["codex", "debug", "app-server", "--stdio"],
+    ])
+    def test_codex_server_forms(self, tokens):
+        assert _ct(tokens) == "agent_server"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "rm -rf /"],
+        ["codex", "exec", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox", "inspect"],
+        ["codex", "cloud", "exec", "--dangerously-bypass-approvals-and-sandbox", "fix lint"],
+    ])
+    def test_codex_bypass_wins(self, tokens):
+        assert _ct(tokens) == "agent_exec_bypass"
+
+    @pytest.mark.parametrize("tokens", [
+        ["codex", "sandbox", "read-only", "echo", "hi"],
+        ["codex", "frobnicate"],
+        ["codex", "exec", "--cd"],
+        ["codex", "--cd"],
+        ["codex", "cloud", "frobnicate"],
+        ["codex", "mcp", "frobnicate"],
+        ["codex", "features", "frobnicate"],
+    ])
+    def test_codex_unknown_or_malformed_forms(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    @pytest.mark.parametrize("profile", ["minimal", "full"])
+    def test_codex_classifier_runs_in_builtin_profiles(self, profile):
+        assert classify_tokens(
+            ["codex", "exec", "echo hi"],
+            builtin_table=get_builtin_table(profile),
+            profile=profile,
+        ) == "agent_exec_write"
+
+    def test_codex_classifier_skips_profile_none(self):
+        assert classify_tokens(
+            ["codex", "exec", "echo hi"],
+            builtin_table=get_builtin_table("none"),
+            profile="none",
+        ) == "unknown"
+
+
+class TestCodexCompanionClassifier:
+    """OpenAI Codex plugin companion classifier used by molds --codex skills."""
+
+    SCRIPT = "/home/dev/.claude/plugins/cache/openai-codex/codex/1.0.1/scripts/codex-companion.mjs"
+
+    def tokens(self, *args: str) -> list[str]:
+        return ["node", self.SCRIPT, *args]
+
+    @pytest.mark.parametrize("args", [
+        ("setup", "--json"),
+        ("status", "task-abc123"),
+        ("result", "task-abc123", "--json"),
+        ("task-resume-candidate", "--json"),
+    ])
+    def test_companion_read_forms(self, args):
+        assert _ct(self.tokens(*args)) == "agent_read"
+
+    @pytest.mark.parametrize("args", [
+        ("setup", "--enable-review-gate", "--json"),
+        ("setup", "--disable-review-gate", "--json"),
+        ("cancel", "task-abc123"),
+    ])
+    def test_companion_write_forms(self, args):
+        assert _ct(self.tokens(*args)) == "agent_write"
+
+    @pytest.mark.parametrize("args", [
+        ("review", "--background", "review this"),
+        ("adversarial-review", "--background", "review this"),
+        ("task", "--background", "review mold-15"),
+    ])
+    def test_companion_read_agent_runs(self, args):
+        assert _ct(self.tokens(*args)) == "agent_exec_read"
+
+    @pytest.mark.parametrize("args", [
+        ("task", "--background", "--write", "implement mold-15"),
+        ("task-worker", "task-abc123"),
+    ])
+    def test_companion_write_agent_runs(self, args):
+        assert _ct(self.tokens(*args)) == "agent_exec_write"
+
+    def test_companion_unknown_subcommand_fails_closed(self):
+        assert _ct(self.tokens("frobnicate")) == "unknown"
+
+    def test_companion_path_must_match_plugin_cache(self):
+        tokens = ["node", "/tmp/codex-companion.mjs", "task", "--background", "review"]
+        assert _ct(tokens) == "lang_exec"
+
+    def test_companion_classifier_skips_profile_none(self):
+        assert classify_tokens(
+            self.tokens("task", "--background", "review"),
+            builtin_table=get_builtin_table("none"),
+            profile="none",
+        ) == "unknown"
 
 
 # --- is_shell_wrapper ---

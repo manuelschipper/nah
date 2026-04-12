@@ -123,11 +123,13 @@ class TestIsLlmEligible:
         assert hook._is_llm_eligible(result) is True
 
     def test_default_includes_middle_ground_ask_types(self):
-        for action_type in ("package_uninstall", "container_exec", "browser_exec"):
+        config._cached_config = NahConfig(llm_eligible="default")
+        for action_type in ("package_uninstall", "container_exec", "browser_exec", "agent_exec_read"):
             result = _ask_result_for_action(action_type)
             assert hook._is_llm_eligible(result) is True
 
     def test_default_excludes_high_risk_ask_types(self):
+        config._cached_config = NahConfig(llm_eligible="default")
         excluded = (
             "process_signal",
             "service_write",
@@ -136,10 +138,20 @@ class TestIsLlmEligible:
             "git_history_rewrite",
             "container_destructive",
             "service_destructive",
+            "agent_write",
+            "agent_exec_write",
+            "agent_exec_remote",
+            "agent_server",
+            "agent_exec_bypass",
         )
         for action_type in excluded:
             result = _ask_result_for_action(action_type)
             assert hook._is_llm_eligible(result) is False
+
+    def test_eligible_all_includes_agent_bypass_and_write(self):
+        config._cached_config = NahConfig(llm_eligible="all")
+        assert hook._is_llm_eligible(_ask_result_for_action("agent_exec_bypass")) is True
+        assert hook._is_llm_eligible(_ask_result_for_action("agent_exec_write")) is True
 
     def test_default_excludes_composition(self):
         sr = StageResult(tokens=["foobar"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
