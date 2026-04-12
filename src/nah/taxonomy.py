@@ -864,6 +864,10 @@ _CODEX_VALUE_FLAGS = {
     "-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd", "--add-dir",
 }
 _CODEX_LONG_VALUE_FLAGS = {flag for flag in _CODEX_VALUE_FLAGS if flag.startswith("--")}
+_CODEX_TOP_LEVEL_INTERACTIVE_FLAGS = _CODEX_VALUE_FLAGS | {
+    _CODEX_BYPASS_FLAG,
+    "--full-auto",
+}
 _CODEX_READ_COMMANDS = {"completion"}
 _CODEX_WRITE_COMMANDS = {"login", "logout", "apply", "a"}
 _CODEX_AGENT_RUN_COMMANDS = {"exec", "e", "review", "resume", "fork"}
@@ -958,6 +962,41 @@ def _codex_has_help_flag(args: list[str]) -> bool:
     return "--help" in args or "-h" in args
 
 
+def _codex_has_top_level_interactive_option(tokens: list[str]) -> bool:
+    """Return True when a known top-level option makes following text a prompt."""
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return False
+        if _codex_is_joined_value_flag(tok):
+            return tok.split("=", 1)[0] in _CODEX_TOP_LEVEL_INTERACTIVE_FLAGS
+        if _codex_flag_takes_value(tok):
+            return tok in _CODEX_TOP_LEVEL_INTERACTIVE_FLAGS
+        if tok in _CODEX_TOP_LEVEL_INTERACTIVE_FLAGS:
+            return True
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return False
+    return False
+
+
+def _codex_prompt_arg_is_clear_prompt(arg: str) -> bool:
+    """Return True for shell-quoted prompt text preserved as one token."""
+    return any(ch.isspace() for ch in arg)
+
+
+def _classify_codex_interactive(tokens: list[str]) -> str:
+    """Classify Codex's top-level interactive prompt form."""
+    if _codex_has_bypass(tokens):
+        return AGENT_EXEC_BYPASS
+    sandbox = _codex_option_value(tokens[1:], {"-s", "--sandbox"})
+    if sandbox == "read-only":
+        return AGENT_EXEC_READ
+    return AGENT_EXEC_WRITE
+
+
 def _classify_codex(tokens: list[str]) -> str | None:
     """Classify OpenAI Codex CLI invocations by agent safety class."""
     if not tokens or tokens[0] != "codex":
@@ -973,12 +1012,7 @@ def _classify_codex(tokens: list[str]) -> str | None:
     if malformed:
         return UNKNOWN
     if len(cleaned) < 2:
-        if _codex_has_bypass(tokens):
-            return AGENT_EXEC_BYPASS
-        sandbox = _codex_option_value(tokens[1:], {"-s", "--sandbox"})
-        if sandbox == "read-only":
-            return AGENT_EXEC_READ
-        return AGENT_EXEC_WRITE
+        return _classify_codex_interactive(tokens)
 
     sub = cleaned[1]
     args = cleaned[2:]
@@ -1053,6 +1087,12 @@ def _classify_codex(tokens: list[str]) -> str | None:
         if sub == "review":
             return AGENT_EXEC_READ
         return AGENT_EXEC_WRITE
+
+    if (
+        _codex_has_top_level_interactive_option(tokens)
+        or _codex_prompt_arg_is_clear_prompt(sub)
+    ):
+        return _classify_codex_interactive(tokens)
 
     return UNKNOWN
 

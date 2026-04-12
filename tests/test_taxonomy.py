@@ -800,6 +800,8 @@ class TestCodexClassifier:
         ["codex", "e", "--sandbox=read-only", "inspect this"],
         ["codex", "--sandbox", "read-only"],
         ["codex", "--sandbox=read-only"],
+        ["codex", "--sandbox", "read-only", "inspect this"],
+        ["codex", "--sandbox=read-only", "inspect this"],
     ])
     def test_codex_read_only_agent_runs(self, tokens):
         assert _ct(tokens) == "agent_exec_read"
@@ -809,6 +811,9 @@ class TestCodexClassifier:
         ["codex", "e", "--cd", ".worktrees/mold-2", "echo hello"],
         ["codex", "resume", "task_123"],
         ["codex", "fork", "task_123"],
+        ["codex", "--full-auto", "fix lint"],
+        ["codex", "--cd", "/tmp", "fix lint"],
+        ["codex", "fix lint"],
     ])
     def test_codex_write_agent_runs(self, tokens):
         assert _ct(tokens) == "agent_exec_write"
@@ -829,6 +834,7 @@ class TestCodexClassifier:
         ["codex", "exec", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox", "inspect"],
         ["codex", "--dangerously-bypass-approvals-and-sandbox"],
         ["codex", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox"],
+        ["codex", "--dangerously-bypass-approvals-and-sandbox", "fix lint"],
         ["codex", "cloud", "exec", "--dangerously-bypass-approvals-and-sandbox", "fix lint"],
     ])
     def test_codex_bypass_wins(self, tokens):
@@ -837,6 +843,7 @@ class TestCodexClassifier:
     @pytest.mark.parametrize("tokens", [
         ["codex", "sandbox", "read-only", "echo", "hi"],
         ["codex", "frobnicate"],
+        ["codex", "frobnicate", "arg"],
         ["codex", "exec", "--cd"],
         ["codex", "--cd"],
         ["codex", "cloud", "frobnicate"],
