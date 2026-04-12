@@ -106,6 +106,14 @@ class TestParseResponse:
         assert r.reasoning == ""
         assert r.reasoning_long == ""
 
+    def test_null_reasoning_fields_are_empty(self):
+        r = _parse_response(
+            '{"decision": "allow", "reasoning": null, "reasoning_long": null}'
+        )
+        assert r.decision == "allow"
+        assert r.reasoning == ""
+        assert r.reasoning_long == ""
+
     def test_whitespace_around(self):
         r = _parse_response('  \n {"decision": "allow", "reasoning": "ok"} \n  ')
         assert r.decision == "allow"
@@ -163,6 +171,13 @@ class TestBuildPrompt:
         )
         prompt = _build_prompt(result)
         assert "Classification: unknown" in prompt.user
+
+    def test_unified_prompt_requests_short_and_long_reasoning(self):
+        prompt = _build_prompt(self._make_result())
+        assert '"reasoning"' in prompt.user
+        assert '"reasoning_long"' in prompt.user
+        assert "prompt-safe summary" in prompt.user
+        assert "logs/debugging" in prompt.user
 
     def test_finds_driving_ask_stage(self):
         allow_stage = StageResult(
@@ -1126,6 +1141,16 @@ class TestRedactSecretsInWritePrompt:
         return _build_write_prompt(
             tool_name, tool_input, {"decision": "ask", "reason": "test"},
         ).user
+
+    def test_write_prompt_requests_short_and_long_reasoning(self):
+        prompt = _build_write_prompt(
+            "Write",
+            {"file_path": "/tmp/test.py", "content": "print('ok')"},
+            {"decision": "ask", "reason": "test"},
+        )
+        assert '"reasoning"' in prompt.system
+        assert '"reasoning_long"' in prompt.system
+        assert "prompt-safe summary" in prompt.system
 
     def test_write_content_secret_redacted(self):
         prompt = self._prompt_user("Write", {

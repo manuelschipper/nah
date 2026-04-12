@@ -269,8 +269,8 @@ def _parse_response(raw: str) -> LLMResult | None:
     if decision == "block":
         decision = "uncertain"
 
-    raw_reasoning = str(obj.get("reasoning", ""))
-    raw_reasoning_long = str(obj.get("reasoning_long", ""))
+    raw_reasoning = _response_string(obj.get("reasoning", ""))
+    raw_reasoning_long = _response_string(obj.get("reasoning_long", ""))
     if not raw_reasoning and raw_reasoning_long:
         raw_reasoning = raw_reasoning_long
     if not raw_reasoning_long and raw_reasoning:
@@ -278,6 +278,15 @@ def _parse_response(raw: str) -> LLMResult | None:
     reasoning = raw_reasoning[:_REASONING_SHORT_CHARS]
     reasoning_long = raw_reasoning_long[:_REASONING_LONG_CHARS]
     return LLMResult(decision, reasoning, reasoning_long)
+
+
+def _response_string(value: object) -> str:
+    """Return a normalized string value from an LLM JSON field."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
 
 
 # -- Transcript context --
