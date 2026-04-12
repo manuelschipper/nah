@@ -902,7 +902,7 @@ def _codex_args_malformed(args: list[str]) -> bool:
             i += 1
             continue
         if _codex_flag_takes_value(tok):
-            if i + 1 >= len(args):
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
                 return True
             i += 2
             continue
@@ -930,7 +930,7 @@ def _strip_codex_global_options(tokens: list[str]) -> tuple[list[str], bool]:
             i += 1
             continue
         if _codex_flag_takes_value(tok):
-            if i + 1 >= len(tokens):
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
                 return cleaned, True
             i += 2
             continue

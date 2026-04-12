@@ -126,7 +126,7 @@ llm:
 
 `strict` routes `unknown`, `lang_exec`, and non-sensitive `context` asks to the LLM.
 
-`default` adds `package_uninstall`, `container_exec`, and `browser_exec`. It keeps `process_signal`, service writes, destructive container/service actions, git discard/history/remote writes, `composition`, and `sensitive` prompts human-gated by default.
+`default` adds `package_uninstall`, `container_exec`, `browser_exec`, and `agent_exec_read`. It keeps `process_signal`, service writes, destructive container/service actions, git discard/history/remote writes, agent write/remote/server/bypass actions, `composition`, and `sensitive` prompts human-gated by default.
 
 Explicit lists can combine presets and action types. `composition` and `sensitive` are gates: add them explicitly, or use top-level `eligible: all`, if you want those asks routed to the LLM.
 
