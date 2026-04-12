@@ -12,14 +12,19 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from nah import config, paths, taxonomy
-from nah.bash import classify_command, _resolve_script_path, _resolve_module_path
+from nah.bash import (
+    classify_command,
+    _resolve_makefile_path,
+    _resolve_module_path,
+    _resolve_script_path,
+)
 from nah.context import resolve_lang_exec_context
 from nah.config import NahConfig, reset_config
 
 
 # Helper: classify tokens via taxonomy (Phase 2 flag classifier path)
 def _ct(tokens):
-    return taxonomy.classify_tokens(tokens)
+    return taxonomy.classify_tokens(tokens, builtin_table=taxonomy.get_builtin_table("full"))
 
 
 def _write(path, content="print('hello')\n"):
@@ -101,6 +106,28 @@ class TestFlagClassifier:
     def test_python3_m_pytest_full_pipeline_is_package_run(self):
         r = classify_command("python3 -m pytest")
         assert r.stages[0].action_type == "package_run"
+
+    @pytest.mark.parametrize("tokens", [
+        ["uv", "run", "script.py"],
+        ["uv", "run", "python", "script.py"],
+        ["uv", "run", "--script", "script.py"],
+        ["uv", "run", "-m", "http.server"],
+        ["npx", "tsx", "script.ts"],
+        ["npx", "-y", "ts-node", "script.ts"],
+        ["npm", "exec", "--", "tsx", "script.ts"],
+        ["make", "test"],
+        ["gmake", "test"],
+    ])
+    def test_wrappers_and_make_classify_as_lang_exec(self, tokens):
+        assert _ct(tokens) == "lang_exec"
+
+    @pytest.mark.parametrize("tokens", [
+        ["uv", "run", "-m", "pytest"],
+        ["npx", "create-react-app", "myapp"],
+        ["uvx", "ruff", "check", "."],
+    ])
+    def test_non_exec_wrapper_shapes_fall_back(self, tokens):
+        assert _ct(tokens) == "package_run"
 
     # Value-taking flags
     def test_value_flag_W_skipped(self):
@@ -299,6 +326,76 @@ class TestScriptPathResolution:
         result = _resolve_script_path(["python", "-v"])
         assert result is None
 
+    def test_uv_run_relative_script_resolves(self, project_root):
+        path = os.path.join(project_root, "script.py")
+        _write(path)
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["uv", "run", "script.py"])
+            assert result == path
+        finally:
+            os.chdir(old_cwd)
+
+    def test_npx_tsx_resolves_script(self, project_root):
+        path = os.path.join(project_root, "script.ts")
+        _write(path, "console.log('hi')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["npx", "tsx", "script.ts"])
+            assert result == path
+        finally:
+            os.chdir(old_cwd)
+
+    def test_makefile_resolution_default(self, project_root):
+        makefile = os.path.join(project_root, "Makefile")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_makefile_path(["make", "test"]) == makefile
+            assert _resolve_script_path(["make", "test"]) == makefile
+        finally:
+            os.chdir(old_cwd)
+
+    def test_makefile_resolution_subdir(self, project_root):
+        subdir = os.path.join(project_root, "subdir")
+        makefile = os.path.join(subdir, "Makefile")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path(["make", "-C", "subdir", "test"]) == makefile
+        finally:
+            os.chdir(old_cwd)
+
+    def test_makefile_resolution_explicit_f(self, project_root):
+        makefile = os.path.join(project_root, "alt.mk")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path(["make", "-f", "alt.mk", "test"]) == makefile
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_multiple_f_returns_none(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path(["make", "-f", "a.mk", "-f", "b.mk", "test"]) is None
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_eval_returns_none(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path(["make", "--eval", "all:; echo hi"]) is None
+        finally:
+            os.chdir(old_cwd)
+
 
 # ===================================================================
 # 4. FULL PIPELINE INTEGRATION (classify_command)
@@ -375,6 +472,130 @@ class TestPipelineIntegration:
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
             assert "script clean:" in r.stages[0].reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_uv_run_clean_script_allows(self, project_root):
+        path = os.path.join(project_root, "safe.py")
+        _write(path, "print('hello')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("uv run safe.py")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_uv_run_dangerous_script_asks(self, project_root):
+        path = os.path.join(project_root, "evil.py")
+        _write(path, "import shutil\nshutil.rmtree('/')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("uv run evil.py")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "content inspection" in r.reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_uv_run_module_pytest_stays_package_run(self, project_root):
+        r = classify_command("uv run -m pytest")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+
+    def test_npx_tsx_clean_script_allows(self, project_root):
+        path = os.path.join(project_root, "script.ts")
+        _write(path, "console.log('ok')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("npx tsx script.ts")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_npx_create_react_app_stays_package_run(self, project_root):
+        r = classify_command("npx create-react-app myapp")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+
+    def test_make_clean_makefile_allows(self, project_root):
+        makefile = os.path.join(project_root, "Makefile")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make test")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_dangerous_makefile_asks(self, project_root):
+        makefile = os.path.join(project_root, "Makefile")
+        _write(makefile, "test:\n\trm -rf /\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make test")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "content inspection" in r.reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_subdir_uses_subdir_makefile(self, project_root):
+        subdir = os.path.join(project_root, "subdir")
+        makefile = os.path.join(subdir, "Makefile")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make -C subdir test")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "subdir/Makefile" in r.stages[0].reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_explicit_file_uses_alt_makefile(self, project_root):
+        makefile = os.path.join(project_root, "alt.mk")
+        _write(makefile, "test:\n\t@echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make -f alt.mk test")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_multiple_files_asks(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("make -f a.mk -f b.mk test")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason == "lang_exec: inline execution"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_make_eval_asks(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command('make --eval "all:; echo hi"')
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason == "lang_exec: inline execution"
         finally:
             os.chdir(old_cwd)
 

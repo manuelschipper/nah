@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shell init file protection** — `~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.zshenv`, `~/.bash_aliases`, and 8 more shell init files now guarded as sensitive paths (`ask` policy). Prevents silent alias injection persistence. Includes `.bashrc.d/` and `.zshrc.d/` directories (nah-wdd)
 - **Safety list hardening** — expanded coverage for credential directories (`~/.kube`, `~/.docker`, `~/.config/az`, `~/.config/heroku`), sensitive basenames (`.pgpass`, `.boto`, `terraform.tfvars`), exec sinks (`lua`, `R`, `Rscript`, `make`, `julia`, `swift`), and decode-to-exec pipe detection (`gzip -d`, `zcat`, `bzip2 -d`, `openssl enc`, `unzip -p`, and more) (nah-brq)
 
+### Removed
+
+- **Beads taxonomy** — removed `beads_safe`, `beads_write`, and `beads_destructive` action types plus all `bd` classify entries and `bd dolt start/stop/killall` process_signal entries. The beads CLI (`bd`) is superseded by `molds`; users who classified molds commands under beads types should reclassify under generic types (`filesystem_read`, `filesystem_write`, `filesystem_delete`).
+
 ### Changed
 
 - GitHub Actions now publishes a non-gating threat-model coverage report to the job summary after the main pytest run, so PRs show per-category audit counts without changing the enforcement gate (`pytest tests/`) (mold-8)
@@ -34,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LLM cascade failure no longer overrides deterministic allow** — when all LLM providers fail (missing API keys, network errors), Write/Edit now returns the deterministic decision instead of escalating to `ask`. Previously every edit prompted for confirmation even when content was safe and path was trusted. Cascade metadata preserved in logs for debugging (nah-yt9)
 - **LLM observability for write-like tools** — LLM metadata (provider, model, latency, reasoning) now always logged for Write/Edit/NotebookEdit/MultiEdit, even when LLM agrees with the deterministic decision or all providers fail. Missing API keys now logged to stderr (`nah: LLM: OPENROUTER_API_KEY not set`) and to the structured log with `provider: (none)` and cascade errors. Previously missing keys caused silent 34ms "uncertain — human review needed" with no trace of why
 - String-content transcript messages are no longer dropped, so slash-command invocations and other non-list transcript entries now reach the LLM context formatter (mold-3)
+- **LLM transcript tail reads no longer lose all context on giant JSONL lines** — `_read_transcript_tail()` now walks backward from EOF in newline-aligned chunks with a safety cap, so large `tool_result` lines no longer consume the entire read window and produce `(not available)` conversation context in LLM prompts (mold-27)
+- **Inspectable wrapper execution no longer slips through `package_run`** — `uv run`, `uvx` / `uv tool run`, `npx`, and `npm exec` now re-route inspectable local code execution into `lang_exec`, while `make` / `gmake` execution paths also route to `lang_exec` via Makefile resolution. Read-only make forms remain `filesystem_read`, and ordinary package-run fallthroughs stay unchanged (nah-vhy)
+- **Env-only shell stages no longer default to `unknown -> ask`** — stages made entirely of `NAME=value` assignments now classify from an allow floor unless an env value is itself an exec sink or a substitution inner is stricter, so benign cases like `TOKEN=abc123` and `FOO=$(printf ok)` no longer prompt spuriously (mold-17)
+- **`npm create` no longer falls through to `unknown -> ask`** — `npm create ...` is now classified as `package_run`, matching the existing `pnpm create`, `yarn create`, and `bun create` scaffolding behavior so common forms like `npm create vite@latest` no longer prompt unnecessarily (mold-4)
 
 ## [0.5.5] - 2026-03-26
 

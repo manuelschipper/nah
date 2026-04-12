@@ -144,7 +144,7 @@ class TestClassifyTokens:
     @pytest.mark.parametrize("tokens", [
         ["npx", "create-react-app"],
         ["pytest", "-v"],
-        ["make", "build"],
+        ["uv", "run", "-m", "pytest"],
         ["npm", "test"],
         ["npm", "run", "dev"],
         ["cargo", "test"],
@@ -172,6 +172,30 @@ class TestClassifyTokens:
     ])
     def test_lang_exec(self, tokens):
         assert _ct(tokens) == "lang_exec"
+
+    @pytest.mark.parametrize("tokens", [
+        ["uv", "run", "script.py"],
+        ["uv", "run", "python", "script.py"],
+        ["uv", "run", "--script", "script.py"],
+        ["uv", "run", "-m", "http.server"],
+        ["npx", "tsx", "script.ts"],
+        ["npx", "-y", "ts-node", "script.ts"],
+        ["npm", "exec", "--", "tsx", "script.ts"],
+        ["make", "build"],
+        ["gmake", "all"],
+    ])
+    def test_wrapper_and_make_lang_exec(self, tokens):
+        assert _ct(tokens) == "lang_exec"
+
+    @pytest.mark.parametrize("tokens, expected", [
+        (["uv", "run", "-m", "pytest"], ["python", "-m", "pytest"]),
+        (["uv", "run", "--script", "script.py"], ["python", "script.py"]),
+        (["uv", "run", "script.py"], ["python", "script.py"]),
+        (["npx", "-y", "ts-node", "script.ts"], ["tsx", "script.ts"]),
+        (["npm", "exec", "--", "tsx", "script.ts"], ["tsx", "script.ts"]),
+    ])
+    def test_extract_package_exec_inner(self, tokens, expected):
+        assert taxonomy._extract_package_exec_inner(tokens) == expected
 
     # find — special case
     def test_find_read(self):
@@ -417,50 +441,6 @@ class TestClassifyTokens:
     def test_db_write(self, tokens):
         assert _ct(tokens) == "db_write"
 
-    # beads_safe
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "list"],
-        ["bd", "show", "nah-123"],
-        ["bd", "ready"],
-        ["bd", "doctor"],
-        ["bd", "info"],
-        ["bd", "status"],
-        ["bd", "label", "list"],
-        ["bd", "duplicates"],
-    ])
-    def test_beads_safe(self, tokens):
-        assert _ct(tokens) == "beads_safe"
-
-    # beads_write
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "create", "foo"],
-        ["bd", "update", "nah-123"],
-        ["bd", "close", "nah-123"],
-        ["bd", "label", "add", "nah-123", "design"],
-        ["bd", "dolt", "push"],
-        ["bd", "gate", "check"],
-        ["bd", "doctor", "--fix"],
-        ["bd", "duplicates", "--auto-merge"],
-        ["bd", "backup"],
-    ])
-    def test_beads_write(self, tokens):
-        assert _ct(tokens) == "beads_write"
-
-    # beads_destructive
-    @pytest.mark.parametrize("tokens", [
-        ["bd", "delete", "nah-123"],
-        ["bd", "sql", "SELECT 1"],
-        ["bd", "init"],
-        ["bd", "purge"],
-        ["bd", "admin", "reset"],
-        ["bd", "backup", "restore"],
-    ])
-    def test_beads_destructive(self, tokens):
-        assert _ct(tokens) == "beads_destructive"
-
-    def test_bd_dolt_start_stays_process_signal(self):
-        assert _ct(["bd", "dolt", "start"]) == "process_signal"
-
     def test_bare_dolt_stays_db(self):
         assert _ct(["dolt", "sql"]) == "db_write"
         assert _ct(["dolt", "status"]) == "db_read"
@@ -624,8 +604,8 @@ class TestClassifyTokens:
             profile="none",
         ) == "container_destructive"
 
-    def test_project_table_overrides_builtin_prefix_with_full_profile(self):
-        """Override also works with profile='full' (flag classifiers enabled)."""
+    def test_flag_classifier_beats_project_table_with_full_profile(self):
+        """Phase 2 make reclassification runs before Phase 3 project entries."""
         tbl = build_user_table({"container_destructive": ["make docker-clean"]})
         builtin = get_builtin_table("full")
         assert classify_tokens(
@@ -633,7 +613,7 @@ class TestClassifyTokens:
             builtin_table=builtin,
             project_table=tbl,
             profile="full",
-        ) == "container_destructive"
+        ) == "lang_exec"
 
     def test_project_cannot_loosen_builtin_without_trust(self):
         """Without trust_project, project classify cannot weaken a builtin."""
@@ -748,9 +728,6 @@ class TestGetPolicy:
         ("browser_file", "context"),
         ("db_read", "allow"),
         ("db_write", "context"),
-        ("beads_safe", "allow"),
-        ("beads_write", "allow"),
-        ("beads_destructive", "ask"),
         ("obfuscated", "block"),
         ("unknown", "ask"),
     ])
@@ -1446,9 +1423,6 @@ class TestProfiles:
         assert "lang_exec" in action_types
         assert "package_install" in action_types
         assert "db_write" in action_types
-        assert "beads_safe" in action_types
-        assert "beads_write" in action_types
-        assert "beads_destructive" in action_types
 
     def test_profile_minimal_subset(self):
         table = get_builtin_table("minimal")
@@ -1478,9 +1452,6 @@ class TestProfiles:
         assert "package_install" not in action_types
         assert "package_run" not in action_types
         assert "db_write" not in action_types
-        assert "beads_safe" not in action_types
-        assert "beads_write" not in action_types
-        assert "beads_destructive" not in action_types
 
     def test_profile_none_empty(self):
         table = get_builtin_table("none")
@@ -1512,6 +1483,24 @@ class TestProfiles:
     def test_profile_minimal_curl_still_classified(self):
         table = get_builtin_table("minimal")
         assert classify_tokens(["curl", "example.com"], builtin_table=table) == "network_outbound"
+
+    def test_profile_minimal_wrapper_lang_exec_subset(self):
+        table = get_builtin_table("minimal")
+        assert classify_tokens(
+            ["uv", "run", "script.py"],
+            builtin_table=table,
+            profile="minimal",
+        ) == "lang_exec"
+        assert classify_tokens(
+            ["make", "test"],
+            builtin_table=table,
+            profile="minimal",
+        ) == "lang_exec"
+        assert classify_tokens(
+            ["uvx", "ruff", "check", "."],
+            builtin_table=table,
+            profile="minimal",
+        ) == "unknown"
 
     def test_profile_none_everything_unknown(self):
         """With none profile, table-only commands are unknown."""
@@ -2441,7 +2430,6 @@ class TestFD019PackageRun:
         ["bun", "create", "react-app"],
         ["bun", "repl"],
         ["bunx", "create-react-app"],
-        ["uv", "run", "python", "script.py"],
         ["uv", "tool", "run", "ruff"],
         ["uvx", "ruff"],
         ["cargo", "bench"],
@@ -2463,8 +2451,6 @@ class TestFD019PackageRun:
         ["mvn", "exec:java"],
         ["mvn", "exec:exec"],
         ["ctest"],
-        ["gmake"],
-        ["gmake", "all"],
     ])
     def test_package_run(self, tokens):
         assert _ct(tokens) == "package_run"
@@ -2684,15 +2670,26 @@ class TestFD019FilesystemRead:
 
 
 class TestFD019FilesystemWrite:
-    """FD-019: filesystem_write for make/cmake install."""
+    """FD-019: filesystem_write for cmake install."""
 
     @pytest.mark.parametrize("tokens", [
-        ["make", "install"],
-        ["gmake", "install"],
         ["cmake", "--install", "build/"],
     ])
     def test_filesystem_write(self, tokens):
         assert _ct(tokens) == "filesystem_write"
+
+
+class TestMakeClassification:
+    """make/gmake read-only forms stay read, everything else becomes lang_exec."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["make", "install"],
+        ["gmake", "install"],
+        ["make", "test"],
+        ["gmake", "test"],
+    ])
+    def test_make_lang_exec(self, tokens):
+        assert _ct(tokens) == "lang_exec"
 
 
 class TestFD019NetworkWrite:
@@ -2738,11 +2735,11 @@ class TestFD019PrefixPriority:
         assert _ct(["npm", "audit", "fix"]) == "package_install"
 
     def test_make_vs_make_install(self):
-        assert _ct(["make"]) == "package_run"
-        assert _ct(["make", "install"]) == "filesystem_write"
+        assert _ct(["make"]) == "lang_exec"
+        assert _ct(["make", "install"]) == "lang_exec"
 
     def test_make_vs_make_dry_run(self):
-        assert _ct(["make"]) == "package_run"
+        assert _ct(["make"]) == "lang_exec"
         assert _ct(["make", "-n"]) == "filesystem_read"
 
     def test_cargo_fmt_vs_fmt_check(self):
@@ -2754,11 +2751,11 @@ class TestFD019PrefixPriority:
         assert _ct(["cmake", "--install", "build/"]) == "filesystem_write"
 
     def test_gmake_vs_gmake_install(self):
-        assert _ct(["gmake"]) == "package_run"
-        assert _ct(["gmake", "install"]) == "filesystem_write"
+        assert _ct(["gmake"]) == "lang_exec"
+        assert _ct(["gmake", "install"]) == "lang_exec"
 
     def test_gmake_vs_gmake_dry_run(self):
-        assert _ct(["gmake"]) == "package_run"
+        assert _ct(["gmake"]) == "lang_exec"
         assert _ct(["gmake", "-n"]) == "filesystem_read"
 
     def test_ctest_vs_ctest_N(self):

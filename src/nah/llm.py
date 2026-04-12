@@ -20,6 +20,8 @@ _COMMAND_ARGS_RE = re.compile(
     r"<command-args>(?P<args>.*?)</command-args>",
     re.DOTALL,
 )
+_TRANSCRIPT_TAIL_CHUNK_SIZE = 16 * 1024
+_TRANSCRIPT_TAIL_SAFETY_CAP = 4 * 1024 * 1024
 
 
 class PromptParts(NamedTuple):
@@ -347,6 +349,41 @@ def _cap_skill_body(text: str) -> str:
     )
 
 
+def _read_transcript_tail_bytes(transcript_path: str, target_bytes: int) -> bytes:
+    """Read a transcript tail aligned to full JSONL line boundaries."""
+    if target_bytes <= 0:
+        return b""
+    try:
+        size = os.path.getsize(transcript_path)
+    except OSError:
+        # Missing or unreadable transcripts are non-fatal here; the LLM
+        # falls back to empty context rather than breaking the hook path.
+        return b""
+    if size == 0:
+        return b""
+
+    try:
+        with open(transcript_path, "rb") as f:
+            pos = size
+            buf = b""
+            while pos > 0 and len(buf) < _TRANSCRIPT_TAIL_SAFETY_CAP:
+                read_size = min(_TRANSCRIPT_TAIL_CHUNK_SIZE, pos)
+                pos -= read_size
+                f.seek(pos)
+                buf = f.read(read_size) + buf
+                nl = buf.find(b"\n")
+                if nl >= 0 and (len(buf) - nl - 1) >= target_bytes:
+                    return buf[nl + 1:]
+            if pos == 0:
+                return buf
+            nl = buf.find(b"\n")
+            return buf[nl + 1:] if nl >= 0 else buf
+    except OSError:
+        # Transcript reads are best-effort prompt enrichment. If the
+        # file races with rotation/deletion, fall back to no context.
+        return b""
+
+
 def _read_transcript_tail(
     transcript_path: str,
     max_chars: int,
@@ -359,23 +396,10 @@ def _read_transcript_tail(
     """
     if not transcript_path or max_chars <= 0:
         return ""
-    try:
-        size = os.path.getsize(transcript_path)
-    except OSError:
+    raw = _read_transcript_tail_bytes(transcript_path, max_chars * 4)
+    if not raw:
         return ""
-    if size == 0:
-        return ""
-
-    try:
-        read_size = max_chars * 4
-        with open(transcript_path, "rb") as f:
-            if size > read_size:
-                f.seek(size - read_size)
-                f.readline()  # discard partial first line
-            raw = f.read()
-        text = raw.decode("utf-8", errors="replace")
-    except OSError:
-        return ""
+    text = raw.decode("utf-8", errors="replace")
 
     messages: list[str] = []
     latest_skill_index: dict[str, int] = {}

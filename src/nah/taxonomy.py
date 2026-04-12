@@ -43,9 +43,6 @@ BROWSER_EXEC = "browser_exec"
 BROWSER_FILE = "browser_file"
 DB_READ = "db_read"
 DB_WRITE = "db_write"
-BEADS_SAFE = "beads_safe"
-BEADS_WRITE = "beads_write"
-BEADS_DESTRUCTIVE = "beads_destructive"
 OBFUSCATED = "obfuscated"
 UNKNOWN = "unknown"
 
@@ -125,7 +122,8 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
-                          "npm", "pnpm", "bun", "pip", "pip3", "cargo", "gem",
+                          "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
+                          "pip3", "cargo", "gem", "make", "gmake",
                           "python", "python3", "node", "ruby", "perl",
                           "bash", "sh", "dash", "zsh", "php", "tsx"}
 
@@ -201,6 +199,19 @@ _VALUE_FLAGS: dict[str, set[str]] = {
 
 # Script file extensions for shebang/extension detection.
 _SCRIPT_EXTENSIONS = {".py", ".js", ".rb", ".sh", ".pl", ".ts", ".php", ".tsx"}
+
+_UV_RUN_VALUE_FLAGS = {
+    "-w", "--with", "--with-editable", "--with-requirements", "--env-file",
+    "--group", "--no-group", "--package", "--python", "--directory", "--project",
+}
+_UV_RUN_VALUE_FLAG_PREFIXES = (
+    "--with=", "--with-editable=", "--with-requirements=", "--env-file=",
+    "--group=", "--no-group=", "--package=", "--python=", "--directory=", "--project=",
+)
+_NPX_BOOL_FLAGS = {"-y", "--yes"}
+_NPX_VALUE_FLAGS = {"-p", "--package"}
+_NPX_VALUE_FLAG_PREFIXES = ("--package=",)
+_NPX_UNSUPPORTED_FLAGS = {"-c", "--call"}
 
 # Exec sinks for pipe composition.
 _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
@@ -411,6 +422,19 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_global_install(tokens)
+        if action is not None:
+            return action
+        action = _classify_make(tokens)
+        if action is not None:
+            return action
+        action = _classify_package_exec_wrapper(
+            tokens,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            profile=profile,
+            trust_project=trust_project,
+        )
         if action is not None:
             return action
         action = _classify_script_exec(tokens)
@@ -831,6 +855,198 @@ def _classify_global_install(tokens: list[str]) -> str | None:
         if tokens[0] in {"pip", "pip3"} and tok == "-t":
             return UNKNOWN
     return None
+
+
+def _looks_like_script_path(token: str) -> bool:
+    """Return True when a wrapper payload token is plausibly a local script path."""
+    if not token or token == "-":
+        return False
+    if "/" in token or token.startswith(("~", ".")):
+        return True
+    _, ext = os.path.splitext(token)
+    return ext in _SCRIPT_EXTENSIONS
+
+
+def _canonicalize_wrapper_payload(payload: list[str]) -> list[str] | None:
+    """Return inner tokens for wrapper payloads, or None when unsupported."""
+    if not payload:
+        return None
+
+    if payload[0] == "ts-node":
+        if len(payload) >= 2 and not payload[1].startswith("-"):
+            return ["tsx", payload[1], *payload[2:]]
+        return None
+
+    return payload
+
+
+def _extract_uv_run_inner(args: list[str]) -> list[str] | None:
+    """Return canonical inner tokens for `uv run`, else None."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            i += 1
+            break
+        if tok == "-m":
+            if i + 1 >= len(args):
+                return None
+            return ["python", "-m", args[i + 1]]
+        if tok.startswith("-m") and len(tok) > 2:
+            return ["python", "-m", tok[2:]]
+        if tok == "--module":
+            if i + 1 >= len(args):
+                return None
+            return ["python", "-m", args[i + 1]]
+        if tok.startswith("--module="):
+            return ["python", "-m", tok.split("=", 1)[1]]
+        if tok == "-s":
+            if i + 1 >= len(args):
+                return None
+            return ["python", args[i + 1], *args[i + 2:]]
+        if tok.startswith("-s") and len(tok) > 2:
+            return ["python", tok[2:], *args[i + 1:]]
+        if tok == "--script":
+            if i + 1 >= len(args):
+                return None
+            return ["python", args[i + 1], *args[i + 2:]]
+        if tok.startswith("--script="):
+            return ["python", tok.split("=", 1)[1], *args[i + 1:]]
+        if tok in _UV_RUN_VALUE_FLAGS:
+            if i + 1 >= len(args):
+                return None
+            i += 2
+            continue
+        if tok.startswith("-w") and len(tok) > 2:
+            i += 1
+            continue
+        if any(tok.startswith(prefix) for prefix in _UV_RUN_VALUE_FLAG_PREFIXES):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        break
+
+    payload = args[i:]
+    if not payload:
+        return None
+    if _looks_like_script_path(payload[0]):
+        return ["python", *payload]
+    return _canonicalize_wrapper_payload(payload)
+
+
+def _extract_uv_tool_run_inner(args: list[str]) -> list[str] | None:
+    """Return canonical inner tokens for `uv tool run`/`uvx`, else None."""
+    if not args:
+        return None
+    if args[0] == "--":
+        args = args[1:]
+    if not args or args[0].startswith("-"):
+        return None
+    return _canonicalize_wrapper_payload(args)
+
+
+def _extract_npx_inner(args: list[str]) -> list[str] | None:
+    """Return canonical inner tokens for `npx`/`npm exec`, else None."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            i += 1
+            break
+        if tok in _NPX_UNSUPPORTED_FLAGS or any(tok.startswith(flag + "=") for flag in _NPX_UNSUPPORTED_FLAGS):
+            return None
+        if tok in _NPX_BOOL_FLAGS:
+            i += 1
+            continue
+        if tok in _NPX_VALUE_FLAGS:
+            if i + 1 >= len(args):
+                return None
+            i += 2
+            continue
+        if any(tok.startswith(prefix) for prefix in _NPX_VALUE_FLAG_PREFIXES):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        break
+
+    payload = args[i:]
+    if not payload:
+        return None
+    return _canonicalize_wrapper_payload(payload)
+
+
+def _extract_package_exec_inner(tokens: list[str]) -> list[str] | None:
+    """Return canonical inner tokens for wrapper executors, else None."""
+    if not tokens:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+    if cmd == "uv":
+        if len(tokens) >= 3 and tokens[1:3] == ["tool", "run"]:
+            return _extract_uv_tool_run_inner(tokens[3:])
+        if len(tokens) >= 2 and tokens[1] == "run":
+            return _extract_uv_run_inner(tokens[2:])
+        return None
+    if cmd == "uvx":
+        return _extract_uv_tool_run_inner(tokens[1:])
+    if cmd == "npx":
+        return _extract_npx_inner(tokens[1:])
+    if cmd == "npm" and len(tokens) >= 2 and tokens[1] == "exec":
+        return _extract_npx_inner(tokens[2:])
+    return None
+
+
+def _classify_package_exec_wrapper(
+    tokens: list[str],
+    *,
+    global_table: list | None = None,
+    builtin_table: list | None = None,
+    project_table: list | None = None,
+    profile: str = "full",
+    trust_project: bool = False,
+) -> str | None:
+    """Reclassify package wrappers only when the inner payload is lang_exec."""
+    inner = _extract_package_exec_inner(tokens)
+    if not inner:
+        return None
+
+    if inner[0] in {"uv", "uvx", "npx", "make", "gmake"}:
+        return None
+    if len(inner) >= 2 and inner[:2] == ["npm", "exec"]:
+        return None
+
+    inner_action = classify_tokens(
+        inner,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        profile=profile,
+        trust_project=trust_project,
+    )
+    if inner_action == LANG_EXEC:
+        return LANG_EXEC
+    return None
+
+
+def _classify_make(tokens: list[str]) -> str | None:
+    """Classify `make`/`gmake` read-only forms, else route to lang_exec."""
+    if not tokens or tokens[0] not in {"make", "gmake"}:
+        return None
+
+    readonly_long = {
+        "--dry-run", "--help", "--version", "--just-print",
+        "--print-data-base", "--question",
+    }
+    for tok in tokens[1:]:
+        if tok in readonly_long:
+            return FILESYSTEM_READ
+        if tok.startswith("-") and not tok.startswith("--"):
+            letters = tok[1:]
+            if any(flag in letters for flag in ("n", "p", "q")):
+                return FILESYSTEM_READ
+    return LANG_EXEC
 
 
 def _classify_script_exec(tokens: list[str]) -> str | None:
