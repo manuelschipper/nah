@@ -199,6 +199,27 @@ _VALUE_FLAGS: dict[str, set[str]] = {
 
 # Script file extensions for shebang/extension detection.
 _SCRIPT_EXTENSIONS = {".py", ".js", ".rb", ".sh", ".pl", ".ts", ".php", ".tsx"}
+_SOURCE_COMMANDS = {"source", "."}
+
+
+def _extract_source_operand(tokens: list[str]) -> str | None:
+    """Return the sourced file operand for `source` / `.` commands."""
+    if not tokens:
+        return None
+
+    cmd = os.path.basename(tokens[0]) or tokens[0]
+    if cmd not in _SOURCE_COMMANDS:
+        return None
+
+    end_of_options = False
+    for tok in tokens[1:]:
+        if tok == "--" and not end_of_options:
+            end_of_options = True
+            continue
+        if not end_of_options and tok.startswith("-"):
+            continue
+        return tok
+    return None
 
 _UV_RUN_VALUE_FLAGS = {
     "-w", "--with", "--with-editable", "--with-requirements", "--env-file",
@@ -1061,6 +1082,9 @@ def _classify_script_exec(tokens: list[str]) -> str | None:
 
     cmd = tokens[0]
 
+    if cmd in _SOURCE_COMMANDS:
+        return LANG_EXEC if _extract_source_operand(tokens) is not None else None
+
     # Shebang / extension detection: ./script.py, /path/to/script.sh
     # Note: classify_tokens() normalizes paths via basename before calling
     # flag classifiers, so ./script.py becomes script.py. Check extension
@@ -1268,7 +1292,8 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
     if cmd == "eval" and len(tokens) >= 2:
         return True, " ".join(tokens[1:])
 
-    # source / . (not unwrapped — classify as lang_exec)
+    # source / . execute a file in the current shell; classification and
+    # context resolution handle them as lang_exec without shell unwrapping.
     if cmd in ("source", "."):
         return False, None
 

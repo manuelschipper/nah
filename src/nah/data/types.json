@@ -13,7 +13,7 @@
   "package_install": "Install packages (npm install, pip install)",
   "package_run": "Run package scripts (npm run, npx, just)",
   "package_uninstall": "Remove packages (npm uninstall, pip uninstall)",
-  "lang_exec": "Execute code via language runtimes (python, node)",
+  "lang_exec": "Execute code via language runtimes or shell-sourced scripts (python, node, source)",
   "process_signal": "Send signals to processes (kill, pkill)",
   "container_read": "Read-only container and image inspection (logs, inspect, stats, ps)",
   "container_write": "Container state mutations (start, stop, build, tag, create)",
