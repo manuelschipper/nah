@@ -56,7 +56,7 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `agent_server` | ask | Start an agent protocol server or app server |
 | `agent_exec_bypass` | ask | Launch an agent run while explicitly bypassing approvals or sandboxing |
 | `obfuscated` | block | Obfuscated or encoded commands (base64 \| bash) |
-| `unknown` | ask | Unrecognized command or tool -- not in any classify table |
+| `unknown` | ask | Unrecognized command or tool — not in any classify table |
 
 ## Overriding policies
 
@@ -70,7 +70,7 @@ actions:
   lang_exec: allow               # trust inline scripts
 ```
 
-Project `.nah.yaml` can only **tighten** policies (raise strictness), never relax them. For example, a project config can escalate `git_write` from `allow` to `ask`, but cannot lower `git_discard` from `ask` to `allow`.
+Project `.nah.yaml` can only **tighten** policies (raise strictness) by default. For example, a project config can escalate `git_write` from `allow` to `ask`, but cannot lower `git_discard` from `ask` to `allow` unless global config explicitly sets `trust_project_config: true`.
 
 ### The `unknown` type
 
@@ -89,6 +89,9 @@ Types with `context` as their default policy delegate to a **context resolver**:
 - **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
 - **Container writes** (`container_write`) -- use the same context resolver pattern as filesystem/database writes, so in-project trusted workflows can proceed while higher-risk cases still prompt.
+- **Language execution** (`lang_exec`) -- inspect script paths, inline code, heredoc-fed interpreters, sourced files, and script content before allowing project-local execution.
+- **Database writes** (`db_write`) -- check extracted database/schema targets against `db_targets`; unknown write targets still ask.
+- **Browser context types** (`browser_navigate`, `browser_file`) -- use URL/path-aware reasons when the tool input exposes enough context; otherwise fail closed to `ask` with an extraction-pending reason.
 
 ## CLI
 

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Public docs readiness** — refreshed README and site docs for the current guarded tool surface, LLM configuration/mechanics, database target behavior, safety-list defaults, profile counts, and `nah test --tool` support.
 - **LLM reasoning observability** — LLM responses now carry both a short prompt-safe `reasoning` summary and a longer `reasoning_long` explanation for logs and `nah test`, while Claude-visible prompts continue to use the compact summary.
 - **Write/Edit LLM review mechanics** — Write/Edit, MultiEdit, and NotebookEdit LLM handling can now relax eligible project-boundary asks to allow when the edit is narrow, safe, and clearly intended, while still escalating risky deterministic allows to ask and keeping sensitive/config/content-pattern asks human-gated (nah-858)
 - **LLM eligibility presets** — `llm.eligible: strict` preserves the old conservative default, `default` now includes `unknown`, `lang_exec`, non-sensitive `context`, `package_uninstall`, `container_exec`, and `browser_exec`, and `all` remains the opt-in route for every ask decision. Classified fallback/MCP tools now include stage metadata so taxonomy eligibility applies consistently (nah-856)

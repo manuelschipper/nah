@@ -27,7 +27,7 @@ All providers use `urllib.request` (stdlib) -- no external HTTP dependencies.
 ```yaml
 # ~/.config/nah/config.yaml
 llm:
-  enabled: true
+  mode: on
   providers: [ollama, openrouter]   # cascade order
   ollama:
     url: http://localhost:11434/api/chat
@@ -40,13 +40,15 @@ llm:
     timeout: 10
 ```
 
+`llm.enabled: true` is still accepted for backward compatibility, but `llm.mode: on` is the current form.
+
 ### Provider examples
 
 === "Ollama (local)"
 
     ```yaml
     llm:
-      enabled: true
+      mode: on
       providers: [ollama]
       ollama:
         url: http://localhost:11434/api/chat
@@ -58,7 +60,7 @@ llm:
 
     ```yaml
     llm:
-      enabled: true
+      mode: on
       providers: [openrouter]
       openrouter:
         url: https://openrouter.ai/api/v1/chat/completions
@@ -70,7 +72,7 @@ llm:
 
     ```yaml
     llm:
-      enabled: true
+      mode: on
       providers: [openai]
       openai:
         url: https://api.openai.com/v1/responses
@@ -82,7 +84,7 @@ llm:
 
     ```yaml
     llm:
-      enabled: true
+      mode: on
       providers: [anthropic]
       anthropic:
         url: https://api.anthropic.com/v1/messages
@@ -94,7 +96,7 @@ llm:
 
     ```yaml
     llm:
-      enabled: true
+      mode: on
       providers: [cortex]
       cortex:
         account: myorg-myaccount   # or set SNOWFLAKE_ACCOUNT env var
@@ -176,7 +178,9 @@ The transcript is read from Claude Code's JSONL conversation file. It includes u
 2. If a provider returns `allow`, that decision is used
 3. If a provider returns `uncertain`, the cascade **stops** (doesn't try the next provider)
 4. If a provider errors (timeout, auth failure), nah tries the next provider
-5. If all providers fail or return uncertain, the decision stays `ask`
+5. If all providers fail, the deterministic decision stands; for ask-refinement, that means the decision stays `ask`
+
+Provider `uncertain` responses stop the cascade. In ask-refinement they leave the decision as `ask`; in write-like review they are treated as non-allow, so risky content stays human-gated.
 
 ## Testing
 

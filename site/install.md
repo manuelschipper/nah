@@ -31,7 +31,7 @@ The core hook has **zero external dependencies** — it runs on Python's stdlib 
 
 ## How permissions work
 
-When active (via `nah claude` or `nah install`), nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
+When active (via `nah claude` or `nah install`), nah takes over permissions for Bash, Read, Write, Edit, MultiEdit, NotebookEdit, Glob, Grep, and matching MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
 
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 
@@ -46,11 +46,11 @@ Sometimes you want nah's protection (blocking dangerous commands, flagging sensi
 ```yaml
 # ~/.config/nah/config.yaml
 
-# nah handles Bash/Read/Glob/Grep; Write/Edit fall back to Claude Code's prompts
+# nah handles Bash/Read/Glob/Grep; write-like tools fall back to Claude Code's prompts
 active_allow: [Bash, Read, Glob, Grep]
 ```
 
-nah still classifies **all** tool calls regardless of this setting — it will still block or ask for dangerous operations on Write/Edit. The only difference is that *safe* Write/Edit calls won't get an automatic allow from nah, so Claude Code shows its normal permission prompt.
+nah still classifies **all** guarded tool calls regardless of this setting — it will still block or ask for dangerous operations on Write/Edit/MultiEdit/NotebookEdit and matching MCP tools. The only difference is that safe calls for tools outside the list won't get an automatic allow from nah, so Claude Code shows its normal permission prompt.
 
 | Value | Behavior |
 |-------|----------|
@@ -58,7 +58,7 @@ nah still classifies **all** tool calls regardless of this setting — it will s
 | `false` | Never actively allow — nah only blocks and asks |
 | list of tool names | Actively allow only the listed tools |
 
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`.
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names.
 
 ## Update
 
@@ -107,4 +107,3 @@ cd nah
   <code>--dangerously-skip-permissions?</code><br><br>
   <img src="../assets/logo_hammock.png" alt="nah" width="280" class="invertible">
 </p>
-

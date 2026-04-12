@@ -1,26 +1,23 @@
 # Database Targets
 
-nah can auto-allow `db_write` operations to specific databases when the target matches a configured allowlist. This requires opting in with a `context` policy.
+nah can auto-allow `db_write` operations to specific databases when the target matches a configured allowlist. `db_write` uses the `context` policy by default, so `db_targets` is the main opt-in.
 
 !!! note "Supported databases"
     Currently **PostgreSQL** (`psql`) and **Snowflake** (`snowsql`, `snow sql`, MCP). Target configs are shared across both — there's no way to scope a `db_targets` entry to a single database engine.
 
 ## Setup
 
-Two-step activation:
+Configure allowed database targets:
 
 ```yaml
 # ~/.config/nah/config.yaml
-actions:
-  db_write: context          # 1. route db_write through context resolver
-
-db_targets:                   # 2. define allowed targets
+db_targets:
   - database: ANALYTICS_DEV
     schema: PUBLIC
   - database: STAGING
 ```
 
-Without `db_write: context`, the default policy (`ask`) applies to all database writes regardless of `db_targets`.
+If you override `db_write` to `ask` or `block`, that stricter policy applies before target matching and `db_targets` won't auto-allow writes.
 
 ## Target matching
 

@@ -24,7 +24,7 @@ Claude Code’s permission system is allow-or-deny per tool, but that doesn’t 
 
 We needed something like --dangerously-skip-permissions that doesn’t nuke your untracked files, exfiltrate your keys, or install malware.
 
-`nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+`nah` classifies every guarded tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 `git push` — Sure.<br>
 `git push --force` — **nah?**
@@ -60,14 +60,14 @@ By default nah actively allows safe operations for all guarded tools. To keep na
 ```yaml
 # ~/.config/nah/config.yaml
 
-# Only actively allow these tools (Write/Edit fall back to Claude Code's prompts)
+# Only actively allow these tools (write-like tools fall back to Claude Code's prompts)
 active_allow: [Bash, Read, Glob, Grep]
 
 # Or disable active allow entirely
 active_allow: false
 ```
 
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`. See [configuration docs](https://schipper.ai/nah/configuration/).
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names. See [configuration docs](https://schipper.ai/nah/configuration/).
 
 To uninstall: `nah uninstall && pip uninstall nah`.
 
@@ -86,7 +86,7 @@ cd nah
 
 ## What it guards
 
-nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts **every** tool call before it executes:
+nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts guarded tool calls before they execute:
 
 | Tool | What nah checks |
 |------|----------------|
@@ -94,13 +94,15 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
 | **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
 | **Edit** | Path check + project boundary + content inspection on the replacement string |
+| **MultiEdit** | Same path, boundary, content, and LLM review checks as Edit across all replacements |
+| **NotebookEdit** | Same path, boundary, content, and LLM review checks for notebook cell source |
 | **Glob** | Guards directory scanning of sensitive locations |
 | **Grep** | Catches credential search patterns outside the project |
-| **MCP tools** | Generic classification for third-party tool servers (`mcp__*`) |
+| **MCP tools** | Generic classification for third-party tool servers (`mcp__*`), with bundled coverage for known servers |
 
 ## How it works
 
-Every tool call hits a deterministic structural classifier first, no LLMs involved.
+Every guarded tool call hits a deterministic structural classifier first, no LLMs involved.
 
 ```
 Claude: Edit → ~/.claude/hooks/nah_guard.py
@@ -147,7 +149,7 @@ Works out of the box with zero config. When you want to tune it:
 
 ```yaml
 # ~/.config/nah/config.yaml  (global)
-# .nah.yaml                  (per-project, can only tighten)
+# .nah.yaml                  (per-project, tighten-only by default)
 
 # Override default policies for action types
 actions:
@@ -199,7 +201,7 @@ profile: full      # full | minimal | none
 ```yaml
 # ~/.config/nah/config.yaml
 llm:
-  enabled: true
+  mode: on
   eligible: default              # strict | default | all, or an explicit list
   providers: [openrouter]        # cascade order
   openrouter:
@@ -210,7 +212,7 @@ llm:
 
 ### Supply-chain safety
 
-Project `.nah.yaml` can **add** classifications and **tighten** policies, but can never relax them. A malicious repo can't use `.nah.yaml` to allowlist dangerous commands — only your global config has that power.
+Project `.nah.yaml` can **add** classifications and **tighten** policies, but cannot relax them by default. A malicious repo can't use `.nah.yaml` to allowlist dangerous commands unless you explicitly opt in from your global config with `trust_project_config: true`.
 
 ## CLI
 

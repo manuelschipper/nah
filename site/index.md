@@ -25,7 +25,7 @@
 
 ---
 
-`nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+`nah` classifies every guarded tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 ## Quick install
 
@@ -60,20 +60,22 @@ Claude: Bash → base64 -d payload | bash
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
 | **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
 | **Edit** | Path check + project boundary + content inspection on the replacement string |
+| **MultiEdit** | Same path, boundary, content, and LLM review checks as Edit across all replacements |
+| **NotebookEdit** | Same path, boundary, content, and LLM review checks for notebook cell source |
 | **Glob** | Guards directory scanning of sensitive locations |
 | **Grep** | Catches credential search patterns outside the project |
-| **MCP** | Generic classification for third-party tool servers |
+| **MCP** | Generic classification for third-party tool servers, with bundled coverage for known servers |
 
 ## Choose what nah handles
 
-By default nah actively allows safe operations for all tools. Want Claude Code's normal prompts for writes and edits, but nah's protection for everything else?
+By default nah actively allows safe operations for all guarded tools. Want Claude Code's normal prompts for write-like tools, but nah's protection for everything else?
 
 ```yaml
 # ~/.config/nah/config.yaml
 active_allow: [Bash, Read, Glob, Grep]
 ```
 
-nah still blocks and asks for dangerous operations on all tools — this only controls which safe operations get automatic allow. See [active_allow](install.md#active_allow) for details.
+nah still blocks and asks for dangerous operations on all guarded tools, including Write/Edit/MultiEdit/NotebookEdit and MCP tools. This only controls which safe operations get automatic allow. See [active_allow](install.md#active_allow) for details.
 
 ---
 
