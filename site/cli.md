@@ -116,7 +116,7 @@ Shows the full classification pipeline: stages, action types, policies, composit
 
 ### nah types
 
-List all 30 action types with their descriptions and default policies.
+List all 40 action types with their descriptions and default policies.
 
 ```bash
 nah types

@@ -13,7 +13,7 @@
   "package_install": "Install packages (npm install, pip install)",
   "package_run": "Run package scripts (npm run, npx, just)",
   "package_uninstall": "Remove packages (npm uninstall, pip uninstall)",
-  "lang_exec": "Execute code via language runtimes (python, node)",
+  "lang_exec": "Execute code via language runtimes or shell-sourced scripts (python, node, source)",
   "process_signal": "Send signals to processes (kill, pkill)",
   "container_read": "Read-only container and image inspection (logs, inspect, stats, ps)",
   "container_write": "Container state mutations (start, stop, build, tag, create)",
@@ -30,6 +30,13 @@
   "browser_file": "Browser actions that read from or write to the host filesystem",
   "db_read": "Read-only database operations (SELECT, introspection)",
   "db_write": "Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER)",
+  "agent_read": "Read-only agent CLI metadata, status, help, or generated output",
+  "agent_write": "Agent CLI state mutations without launching a coding run",
+  "agent_exec_read": "Launch a local agent run intended for inspection or review",
+  "agent_exec_write": "Launch a local agent run that can edit workspace state",
+  "agent_exec_remote": "Submit or continue an agentic run in a remote agent service",
+  "agent_server": "Start an agent protocol server or app server",
+  "agent_exec_bypass": "Launch an agent run while explicitly bypassing approvals or sandboxing",
   "obfuscated": "Obfuscated or encoded commands (base64 | bash)",
   "unknown": "Unrecognized command or tool — not in any classify table"
 }

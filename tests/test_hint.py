@@ -47,6 +47,40 @@ class TestBashHints:
         assert "nah classify" in hint
         assert "nah types" in hint
 
+    def test_missing_source_has_no_unknown_classify_hint(self):
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "source ./missing.sh"})
+        assert decision["decision"] == taxonomy.ASK
+        assert "script not found" in decision["reason"]
+        hint = decision.get("_hint", "")
+        assert "nah classify source" not in hint
+
+    def test_missing_dot_source_has_no_unknown_classify_hint(self):
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": ". ./missing.sh"})
+        assert decision["decision"] == taxonomy.ASK
+        assert "script not found" in decision["reason"]
+        hint = decision.get("_hint", "")
+        assert "nah classify ." not in hint
+
+    def test_export_assignment_chain_does_not_hint_classify_export(self):
+        """Benign export assignment should not be the ask/hint source."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "export PATH=/opt/bin:$PATH && zzz_unknown_tool_xyz"})
+        assert decision["decision"] == taxonomy.ASK
+        hint = decision.get("_hint", "")
+        assert "nah classify zzz_unknown_tool_xyz" in hint
+        assert "nah classify export" not in hint
+
+    def test_export_p_does_not_get_benign_export_allow_hint(self):
+        """Non-assignment export forms remain unknown, not export-assignment allows."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "export -p"})
+        assert decision["decision"] == taxonomy.ASK
+        hint = decision.get("_hint", "")
+        assert "nah classify export" in hint
+        assert "nah allow filesystem_read" not in hint
+
     def test_sensitive_path_hint(self):
         """Bash ask for sensitive path → reason contains 'nah allow-path'."""
         from nah.hook import handle_bash
@@ -62,6 +96,19 @@ class TestBashHints:
         # Composition rules may block or ask
         hint = decision.get("_hint")
         assert hint is None
+
+    def test_subshell_syntax_does_not_hint_parenthesized_command(self):
+        """Subshell groups should not produce `nah classify (cmd <type>` hints."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "(cd /tmp && ls)"})
+        assert "nah classify (cd" not in decision.get("_hint", "")
+
+    def test_brace_group_does_not_hint_brace_command(self):
+        """Unsupported brace groups should ask without suggesting `nah classify { <type>`."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "{ echo a; echo b; }"})
+        assert decision["decision"] == taxonomy.ASK
+        assert "nah classify {" not in decision.get("_hint", "")
 
 
 class TestPathHints:

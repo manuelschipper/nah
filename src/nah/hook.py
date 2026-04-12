@@ -13,7 +13,13 @@ _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-
 
 _LLM_ELIGIBLE_PRESETS = {
     "strict": (taxonomy.UNKNOWN, taxonomy.LANG_EXEC, taxonomy.CONTEXT),
-    "default": ("strict", taxonomy.PACKAGE_UNINSTALL, taxonomy.CONTAINER_EXEC, taxonomy.BROWSER_EXEC),
+    "default": (
+        "strict",
+        taxonomy.PACKAGE_UNINSTALL,
+        taxonomy.CONTAINER_EXEC,
+        taxonomy.BROWSER_EXEC,
+        taxonomy.AGENT_EXEC_READ,
+    ),
 }
 
 
@@ -83,7 +89,7 @@ def handle_read(tool_input: dict) -> dict:
 
 
 def _should_llm_inspect_write() -> bool:
-    """Check if LLM should inspect this write (FD-080)."""
+    """Check if LLM should review this write-like operation."""
     try:
         from nah.config import get_config
         cfg = get_config()
@@ -97,10 +103,10 @@ def _should_llm_inspect_write() -> bool:
 
 
 def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[dict | None, dict]:
-    """LLM veto gate for Write/Edit. Returns (decision, llm_meta).
+    """LLM review gate for Write/Edit. Returns (decision, llm_meta).
 
     Fail-open: any exception → (None, {}) → structural decision stands.
-    Uncertain → escalate to ask (human should decide).
+    Uncertain → keep/escalate to ask (human should decide).
     """
     try:
         from nah.config import get_config
@@ -146,8 +152,31 @@ def _scan_and_decide(tool_name: str, content: str) -> dict:
     return {"decision": taxonomy.ALLOW}
 
 
-def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
-    """LLM veto gate for write-like tools. Can only escalate allow -> ask."""
+def _is_project_boundary_ask(tool_name: str, det_result: dict) -> bool:
+    """Return True for the narrow project-boundary ask class the LLM can relax."""
+    reason = det_result.get("reason", "")
+    return (
+        det_result.get("decision") == taxonomy.ASK
+        and (
+            reason.startswith(f"{tool_name} outside project:")
+            or reason.startswith(f"{tool_name} outside project (no git root):")
+        )
+    )
+
+
+def _is_write_llm_allow_eligible(tool_name: str, det_result: dict) -> bool:
+    """Return True when a write-like LLM allow may become the final decision."""
+    if det_result.get("decision") == taxonomy.ALLOW:
+        return True
+    return _is_project_boundary_ask(tool_name, det_result)
+
+
+def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
+    """LLM review gate for write-like tools.
+
+    The LLM can escalate deterministic allows to asks and can relax only
+    explicit project-boundary asks to allow. Blocks remain deterministic-only.
+    """
     if not _should_llm_inspect_write():
         return det_result
     llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
@@ -177,7 +206,8 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
             det_result["_llm_reason"] = clean
             det_result["_system_message"] = f"nah: {clean}"
 
-    # Content veto never blocks and never relaxes: only allow -> ask.
+    # Write review never returns a final block. Non-allow provider decisions
+    # keep or escalate to ask for human review.
     if structural_d == taxonomy.ALLOW and llm_d != taxonomy.ALLOW:
         ask = {
             "decision": taxonomy.ASK,
@@ -191,15 +221,27 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
             ask["_llm_reason"] = det_result["_llm_reason"]
         return ask
 
+    if (
+        structural_d == taxonomy.ASK
+        and llm_d == taxonomy.ALLOW
+        and _is_write_llm_allow_eligible(tool_name, det_result)
+    ):
+        allow = {
+            "decision": taxonomy.ALLOW,
+            "_meta": dict(det_result.get("_meta", {})),
+        }
+        allow["_meta"]["llm_review"] = "ask_to_allow"
+        return allow
+
     return det_result
 
 
 def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared Write/Edit handler: deterministic check + LLM veto gate (FD-080)."""
+    """Shared Write/Edit handler: deterministic check + LLM write review."""
     det_result = _check_write_content(tool_name, tool_input, content_field)
     if det_result.get("decision") == taxonomy.BLOCK:
         return det_result
-    return _llm_veto_gate(tool_name, tool_input, det_result)
+    return _llm_write_review_gate(tool_name, tool_input, det_result)
 
 
 def handle_write(tool_input: dict) -> dict:
@@ -211,37 +253,41 @@ def handle_edit(tool_input: dict) -> dict:
 
 
 def handle_multiedit(tool_input: dict) -> dict:
-    """Guard MultiEdit: path + boundary + content check on each edit + LLM veto."""
+    """Guard MultiEdit: path + boundary + content check on each edit + LLM review."""
     file_path = tool_input.get("file_path", "")
     path_check = paths.check_path("MultiEdit", file_path)
     if path_check:
-        return path_check
+        if path_check.get("decision") == taxonomy.BLOCK:
+            return path_check
+        return _llm_write_review_gate("MultiEdit", tool_input, path_check)
     boundary_check = paths.check_project_boundary("MultiEdit", file_path)
     if boundary_check:
-        return boundary_check
+        return _llm_write_review_gate("MultiEdit", tool_input, boundary_check)
     edits = tool_input.get("edits", [])
     combined = "\n".join(str(e.get("new_string") or "") for e in edits if isinstance(e, dict))
     det_result = _scan_and_decide("MultiEdit", combined)
     if det_result.get("decision") == taxonomy.BLOCK:
         return det_result
-    return _llm_veto_gate("MultiEdit", tool_input, det_result)
+    return _llm_write_review_gate("MultiEdit", tool_input, det_result)
 
 
 def handle_notebookedit(tool_input: dict) -> dict:
-    """Guard NotebookEdit: path + boundary + content check on cell source + LLM veto."""
+    """Guard NotebookEdit: path + boundary + content check on cell source + LLM review."""
     file_path = tool_input.get("notebook_path", "")
     path_check = paths.check_path("NotebookEdit", file_path)
     if path_check:
-        return path_check
+        if path_check.get("decision") == taxonomy.BLOCK:
+            return path_check
+        return _llm_write_review_gate("NotebookEdit", tool_input, path_check)
     boundary_check = paths.check_project_boundary("NotebookEdit", file_path)
     if boundary_check:
-        return boundary_check
+        return _llm_write_review_gate("NotebookEdit", tool_input, boundary_check)
     action = tool_input.get("action", "")
     content = "" if action == "delete" else str(tool_input.get("new_source") or "")
     det_result = _scan_and_decide("NotebookEdit", content)
     if det_result.get("decision") == taxonomy.BLOCK:
         return det_result
-    return _llm_veto_gate("NotebookEdit", tool_input, det_result)
+    return _llm_write_review_gate("NotebookEdit", tool_input, det_result)
 
 
 def handle_glob(tool_input: dict) -> dict:
@@ -448,6 +494,8 @@ def _build_bash_hint(result) -> str | None:
             continue
         if sr.action_type == taxonomy.UNKNOWN:
             cmd = sr.tokens[0] if sr.tokens else "command"
+            if cmd.startswith(("(", "{")) or sr.reason == "subshell pipe pending":
+                return None
             return f"To classify: nah classify {cmd} <type>\n     See available types: nah types"
         if sr.action_type == taxonomy.NETWORK_WRITE:
             return f"To always allow: nah allow network_write"
@@ -553,6 +601,8 @@ HANDLERS = {
     "Glob": handle_glob,
     "Grep": handle_grep,
 }
+
+_WRITE_LIKE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 
 def _to_hook_output(decision: dict, agent: str) -> dict:
@@ -717,7 +767,7 @@ def main():
         d = decision.get("decision", taxonomy.ALLOW)
         meta = decision.setdefault("_meta", {})
 
-        if d == taxonomy.ASK and not meta.get("llm_veto"):
+        if d == taxonomy.ASK and canonical not in _WRITE_LIKE_TOOLS and not meta.get("llm_veto"):
             try:
                 from nah.config import get_config
                 from nah.llm import try_llm_unified

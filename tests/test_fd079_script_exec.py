@@ -93,6 +93,27 @@ class TestFlagClassifier:
         """python -m → flag classifier returns None (Phase 3 table handles)."""
         assert taxonomy._classify_script_exec(["python", "-m", "http.server"]) is None
 
+    def test_source_classifies_as_lang_exec(self):
+        assert taxonomy._classify_script_exec(["source", "script.sh"]) == "lang_exec"
+
+    def test_dot_source_classifies_as_lang_exec(self):
+        assert taxonomy._classify_script_exec([".", "script.sh"]) == "lang_exec"
+
+    def test_source_without_operand_returns_none(self):
+        assert taxonomy._classify_script_exec(["source"]) is None
+
+    def test_dot_source_without_operand_returns_none(self):
+        assert taxonomy._classify_script_exec(["."]) is None
+
+    def test_source_operand_helper_uses_first_non_flag(self):
+        assert taxonomy._extract_source_operand(["source", "script.sh", "arg1"]) == "script.sh"
+
+    def test_source_operand_helper_skips_double_dash(self):
+        assert taxonomy._extract_source_operand(["source", "--", "script.sh"]) == "script.sh"
+
+    def test_source_operand_helper_returns_none_for_flags_only(self):
+        assert taxonomy._extract_source_operand(["source", "-p"]) is None
+
     def test_python_m_full_pipeline_is_lang_exec(self):
         """python -m http.server → full pipeline → lang_exec (via classify table)."""
         r = classify_command("python -m http.server")
@@ -396,6 +417,26 @@ class TestScriptPathResolution:
         finally:
             os.chdir(old_cwd)
 
+    def test_source_resolves_first_operand(self, project_root):
+        path = os.path.join(project_root, "script.sh")
+        _write(path, "echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path(["source", "script.sh", "arg1"]) == path
+        finally:
+            os.chdir(old_cwd)
+
+    def test_dot_source_resolves_first_operand(self, project_root):
+        path = os.path.join(project_root, "script.sh")
+        _write(path, "echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            assert _resolve_script_path([".", "script.sh", "arg1"]) == path
+        finally:
+            os.chdir(old_cwd)
+
 
 # ===================================================================
 # 4. FULL PIPELINE INTEGRATION (classify_command)
@@ -596,6 +637,81 @@ class TestPipelineIntegration:
             assert r.final_decision == "ask"
             assert r.stages[0].action_type == "lang_exec"
             assert r.stages[0].reason == "lang_exec: inline execution"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_clean_source_allows(self, project_root):
+        path = os.path.join(project_root, "safe.sh")
+        _write(path, "echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("source safe.sh")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_clean_dot_source_allows(self, project_root):
+        path = os.path.join(project_root, "safe.sh")
+        _write(path, "echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command(". safe.sh")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert r.stages[0].reason.startswith("script clean:")
+        finally:
+            os.chdir(old_cwd)
+
+    def test_dangerous_source_asks(self, project_root):
+        path = os.path.join(project_root, "evil.sh")
+        _write(path, "rm -rf /\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("source evil.sh")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "content inspection" in r.reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_missing_source_asks(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("source missing.sh")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "script not found" in r.reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_outside_project_source_asks(self, project_root, tmp_path):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = tmp_path / "outside.sh"
+        outside.write_text("echo ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command(f"source {outside}")
+            assert r.final_decision == "ask"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "script outside project" in r.reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_sensitive_source_path_asks(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("source ~/.ssh/id_rsa")
+            assert r.final_decision in ("ask", "block")
+            assert r.stages[0].action_type == "lang_exec"
+            assert "sensitive path" in r.reason
         finally:
             os.chdir(old_cwd)
 
