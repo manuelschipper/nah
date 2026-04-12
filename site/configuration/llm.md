@@ -132,6 +132,8 @@ Explicit lists can combine presets and action types. `composition` and `sensitiv
 
 Provider responses of `block` are treated as `uncertain`, so the LLM can allow an eligible ask or leave it as an ask; it cannot block through ask-refinement.
 
+LLM responses include a short prompt-safe `reasoning` summary and a longer `reasoning_long` explanation for observability. Claude-visible prompts use the short summary; structured logs and `nah test` can show the longer explanation for debugging.
+
 ## Write/Edit review
 
 When LLM mode is enabled, Write/Edit/MultiEdit/NotebookEdit operations are reviewed after deterministic checks. Deterministic `block` results skip the LLM and stay blocked.

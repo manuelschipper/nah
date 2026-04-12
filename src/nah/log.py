@@ -113,6 +113,7 @@ def build_entry(
             "ms": meta.get("llm_latency_ms", 0),
             "decision": meta.get("llm_decision", ""),
             "reasoning": meta.get("llm_reasoning", ""),
+            "reasoning_long": meta.get("llm_reasoning_long", ""),
         }
         if llm_cascade:
             llm["cascade"] = llm_cascade

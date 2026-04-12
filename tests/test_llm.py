@@ -32,6 +32,7 @@ class TestParseResponse:
         r = _parse_response('{"decision": "allow", "reasoning": "safe"}')
         assert r.decision == "allow"
         assert r.reasoning == "safe"
+        assert r.reasoning_long == "safe"
 
     def test_block(self):
         r = _parse_response('{"decision": "block", "reasoning": "dangerous"}')
@@ -75,6 +76,26 @@ class TestParseResponse:
         long_reason = "x" * 300
         r = _parse_response(f'{{"decision": "allow", "reasoning": "{long_reason}"}}')
         assert len(r.reasoning) == 80
+        assert len(r.reasoning_long) == 300
+
+    def test_reasoning_long_preserved_and_capped(self):
+        long_detail = "y" * 2500
+        r = _parse_response(
+            json.dumps({
+                "decision": "uncertain",
+                "reasoning": "short reason",
+                "reasoning_long": long_detail,
+            })
+        )
+        assert r.reasoning == "short reason"
+        assert len(r.reasoning_long) == 2000
+
+    def test_reasoning_falls_back_to_long(self):
+        r = _parse_response(
+            '{"decision": "uncertain", "reasoning_long": "long-only detail"}'
+        )
+        assert r.reasoning == "long-only detail"
+        assert r.reasoning_long == "long-only detail"
 
     def test_empty_string(self):
         assert _parse_response("") is None
@@ -83,6 +104,7 @@ class TestParseResponse:
         r = _parse_response('{"decision": "allow"}')
         assert r.decision == "allow"
         assert r.reasoning == ""
+        assert r.reasoning_long == ""
 
     def test_whitespace_around(self):
         r = _parse_response('  \n {"decision": "allow", "reasoning": "ok"} \n  ')
@@ -229,7 +251,11 @@ class TestTryLlm:
     def test_backend_returns_allow(self, mock_urlopen):
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({
-            "response": '{"decision": "allow", "reasoning": "safe cmd"}'
+            "response": json.dumps({
+                "decision": "allow",
+                "reasoning": "safe cmd",
+                "reasoning_long": "The command is read-only. It matches the requested inspection. It does not touch credentials or destructive targets.",
+            })
         }).encode()
         mock_urlopen.return_value = mock_resp
 
@@ -239,6 +265,8 @@ class TestTryLlm:
         assert result.provider == "ollama"
         assert result.model == "test"
         assert result.latency_ms >= 0
+        assert result.reasoning == "safe cmd"
+        assert result.reasoning_long.startswith("The command is read-only.")
         assert len(result.cascade) == 1
         assert result.cascade[0].status == "success"
 
@@ -915,11 +943,10 @@ class TestVetoSystemTemplate:
         assert "<allow|uncertain>" in _VETO_SYSTEM_TEMPLATE
         assert "<allow|block" not in _VETO_SYSTEM_TEMPLATE
 
-    def test_format_instruction_last(self):
-        """JSON format spec should be at the end of the system message."""
-        lines = _VETO_SYSTEM_TEMPLATE.strip().split("\n")
-        last_line = lines[-1]
-        assert '"reasoning"' in last_line
+    def test_format_instruction_includes_short_and_long_reasoning(self):
+        """JSON format spec should request prompt-safe and observability fields."""
+        assert '"reasoning"' in _VETO_SYSTEM_TEMPLATE
+        assert '"reasoning_long"' in _VETO_SYSTEM_TEMPLATE
 
 
 # -- Generic prompt tests --

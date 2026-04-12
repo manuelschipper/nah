@@ -453,6 +453,7 @@ def _build_llm_meta(llm_call, cfg) -> dict:
                 if llm_call.decision is not None else ""
             ),
             "llm_reasoning": llm_call.reasoning,
+            "llm_reasoning_long": llm_call.reasoning_long,
             "llm_cascade": [
                 {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
                  **({"error": a.error} if a.error else {})}
