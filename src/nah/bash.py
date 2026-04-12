@@ -1021,6 +1021,36 @@ def _env_var_has_exec(value: str) -> bool:
     return taxonomy.is_exec_sink(base)
 
 
+def _classify_export_assignment(
+    stage: Stage,
+    user_actions: dict[str, str] | None,
+) -> StageResult | None:
+    """Classify benign ``export NAME=value`` shell-builtin stages."""
+    tokens = stage.tokens
+    if not tokens or os.path.basename(tokens[0]) != "export" or len(tokens) == 1:
+        return None
+
+    for tok in tokens[1:]:
+        if tok.startswith("-") or not _is_env_assignment(tok):
+            return None
+
+    action_type = taxonomy.FILESYSTEM_READ
+    reason = "export assignment"
+    for tok in tokens[1:]:
+        _, value = tok.split("=", 1)
+        if _env_var_has_exec(value):
+            action_type = taxonomy.LANG_EXEC
+            reason = "export assignment exec sink"
+            break
+
+    sr = StageResult(tokens=tokens)
+    sr.action_type = action_type
+    sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+    _apply_policy(sr)
+    sr.reason = reason
+    return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+
 def _make_stage(
     tokens: list[str],
     operator: str,
@@ -1130,6 +1160,10 @@ def _classify_stage(
         _apply_policy(sr)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+    export_assignment = _classify_export_assignment(stage, user_actions)
+    if export_assignment is not None:
+        return export_assignment
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
