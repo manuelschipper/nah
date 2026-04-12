@@ -50,6 +50,20 @@ class TestClassifyTokens:
     def test_filesystem_delete(self, cmd):
         assert _ct([cmd, "file"]) == "filesystem_delete"
 
+    @pytest.mark.parametrize("tokens", [
+        ["source", "script.sh"],
+        [".", "script.sh"],
+    ])
+    def test_source_commands_are_lang_exec(self, tokens):
+        assert _ct(tokens) == "lang_exec"
+
+    @pytest.mark.parametrize("tokens", [
+        ["source"],
+        ["."],
+    ])
+    def test_source_commands_without_operand_stay_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
     # git_safe
     @pytest.mark.parametrize("tokens", [
         ["git", "status"],
@@ -965,10 +979,12 @@ class TestIsShellWrapper:
     def test_source_not_wrapper(self):
         is_w, _ = is_shell_wrapper(["source", "script.sh"])
         assert is_w is False
+        assert _ct(["source", "script.sh"]) == "lang_exec"
 
     def test_dot_not_wrapper(self):
         is_w, _ = is_shell_wrapper([".", "script.sh"])
         assert is_w is False
+        assert _ct([".", "script.sh"]) == "lang_exec"
 
     def test_bash_without_c_not_wrapper(self):
         is_w, _ = is_shell_wrapper(["bash", "script.sh"])
