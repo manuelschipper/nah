@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex companion script variables** — same-command discovery patterns like `CODEX_SCRIPT=$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1) && node "$CODEX_SCRIPT" ...` now classify as Codex companion delegation instead of generic missing-script `lang_exec` asks (nah-859)
 - **Benign `export NAME=value` assignments** — `export PATH=/opt/bin:$PATH` and similar assignment-only shell stages now classify as benign environment setup instead of `unknown`, while exec-sink values, substitutions, redirects, and non-assignment export forms still take the stricter existing paths (nah-862)
 - **Shell `source` classification** — `source <file>` and POSIX `. <file>` now classify as `lang_exec` and use the existing script path/content inspection path instead of falling through to `unknown` (nah-860)
 - **Subshell group parsing** — parenthesized command groups such as `cmd || (brew list ...; ls ...) 2>&1` now classify by their inner commands, preserve group redirects, fail closed for grouped pipes, and no longer suggest invalid `nah classify (cmd <type>` hints (nah-861)
