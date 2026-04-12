@@ -1019,10 +1019,10 @@ def _classify_codex(tokens: list[str]) -> str | None:
 
     if sub in {"--help", "-h", "--version", "-V", "help"}:
         return AGENT_READ
-    if _codex_has_help_flag(args):
-        return AGENT_READ
     if _codex_args_malformed(args):
         return UNKNOWN
+    if _codex_has_help_flag(args):
+        return AGENT_READ
 
     if sub in _CODEX_READ_COMMANDS:
         return AGENT_READ
