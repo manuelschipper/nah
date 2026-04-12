@@ -848,6 +848,8 @@ class TestCodexClassifier:
         ["codex", "--cd"],
         ["codex", "exec", "--cd", "--sandbox", "read-only", "inspect"],
         ["codex", "exec", "--cd", "--dangerously-bypass-approvals-and-sandbox", "fix"],
+        ["codex", "exec", "--cd", "--help"],
+        ["codex", "exec", "-C", "-h"],
         ["codex", "cloud", "frobnicate"],
         ["codex", "mcp", "frobnicate"],
         ["codex", "features", "frobnicate"],
