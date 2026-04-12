@@ -153,6 +153,13 @@ class TestActionPolicyHints:
         ("mysql -e SHOW", "db_write"),
         ("dolt sql SELECT", "db_write"),
         ("sqlite3 /tmp/test.db", "db_write"),
+        # agent CLI asks
+        ("codex exec 'echo hi'", "agent_exec_write"),
+        ("codex exec --sandbox read-only 'inspect this'", "agent_exec_read"),
+        ("codex exec --dangerously-bypass-approvals-and-sandbox 'echo hi'", "agent_exec_bypass"),
+        ("codex cloud exec --env env_123 'fix lint'", "agent_exec_remote"),
+        ("codex apply task_123", "agent_write"),
+        ("codex mcp-server", "agent_server"),
     ])
     def test_action_policy_hint(self, cmd, expected_type):
         decision, hint = _hint(cmd)

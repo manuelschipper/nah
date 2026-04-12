@@ -13,7 +13,13 @@ _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-
 
 _LLM_ELIGIBLE_PRESETS = {
     "strict": (taxonomy.UNKNOWN, taxonomy.LANG_EXEC, taxonomy.CONTEXT),
-    "default": ("strict", taxonomy.PACKAGE_UNINSTALL, taxonomy.CONTAINER_EXEC, taxonomy.BROWSER_EXEC),
+    "default": (
+        "strict",
+        taxonomy.PACKAGE_UNINSTALL,
+        taxonomy.CONTAINER_EXEC,
+        taxonomy.BROWSER_EXEC,
+        taxonomy.AGENT_EXEC_READ,
+    ),
 }
 
 
