@@ -973,6 +973,11 @@ def _classify_codex(tokens: list[str]) -> str | None:
     if malformed:
         return UNKNOWN
     if len(cleaned) < 2:
+        if _codex_has_bypass(tokens):
+            return AGENT_EXEC_BYPASS
+        sandbox = _codex_option_value(tokens[1:], {"-s", "--sandbox"})
+        if sandbox == "read-only":
+            return AGENT_EXEC_READ
         return AGENT_EXEC_WRITE
 
     sub = cleaned[1]
