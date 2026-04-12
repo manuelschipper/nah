@@ -73,9 +73,14 @@ def classify_command(command: str) -> ClassifyResult:
     # then shlex.split each stage independently (FD-095).
     try:
         raw_stages = _split_on_operators(sanitized)
-    except ValueError:
+    except ValueError as exc:
         result.final_decision = taxonomy.ASK
-        result.reason = "unparseable command (shlex error)"
+        detail = str(exc)
+        result.reason = (
+            f"unparseable command ({detail})"
+            if detail == "unbalanced subshell group"
+            else f"unparseable command (shlex error{': ' + detail if detail else ''})"
+        )
         return result
 
     # Load config for custom classify/actions — three-table lookup
@@ -118,29 +123,13 @@ def classify_command(command: str) -> ClassifyResult:
         inner_stages: list[Stage] = []
         _inner_ok = True
         for istage_str, iop in inner_raw:
-            istage_str = istage_str.strip()
-            if not istage_str:
-                continue
-            iheredoc = _extract_heredoc_literal(istage_str)
-            istage_for_split = _strip_heredoc_bodies(istage_str)
             try:
-                itokens = shlex.split(istage_for_split)
+                inner_stages.extend(_raw_stage_to_stages(istage_str, iop))
             except ValueError:
-                try:
-                    itokens = shlex.split(istage_for_split, comments=True)
-                except ValueError:
-                    inner_results_by_idx[sub_idx] = _obfuscated_result(
-                        [inner_cmd], "unparseable substitution", user_actions)
-                    _inner_ok = False
-                    break
-            # Pure-comment stage: # at start means shell comment (nah-2zt)
-            if itokens and itokens[0] == '#':
-                itokens = []
-            if itokens:
-                inner_stages.extend(_decompose(
-                    itokens, operator=iop,
-                    heredoc_literal=iheredoc,
-                ))
+                inner_results_by_idx[sub_idx] = _obfuscated_result(
+                    [inner_cmd], "unparseable substitution", user_actions)
+                _inner_ok = False
+                break
         if not _inner_ok:
             continue
         if inner_stages:
@@ -154,26 +143,17 @@ def classify_command(command: str) -> ClassifyResult:
         stage_str = stage_str.strip()
         if not stage_str:
             continue
-        heredoc_literal = _extract_heredoc_literal(stage_str)
-        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            tokens = shlex.split(stage_for_split)
-        except ValueError:
-            try:
-                tokens = shlex.split(stage_for_split, comments=True)
-            except ValueError:
-                result.final_decision = taxonomy.ASK
-                result.reason = "unparseable command (shlex error)"
-                return result
-        # Pure-comment stage: # at start means shell comment (nah-2zt)
-        if tokens and tokens[0] == '#':
-            tokens = []
-        if tokens:
-            stages.extend(_decompose(
-                tokens,
-                operator=op,
-                heredoc_literal=heredoc_literal,
-            ))
+            stages.extend(_raw_stage_to_stages(stage_str, op))
+        except ValueError as exc:
+            result.final_decision = taxonomy.ASK
+            detail = str(exc) or "shlex error"
+            result.reason = (
+                f"unparseable command ({detail})"
+                if detail == "unbalanced subshell group"
+                else f"unparseable command (shlex error{': ' + detail if detail else ''})"
+            )
+            return result
 
     if not stages:
         result.final_decision = taxonomy.ALLOW
@@ -315,6 +295,16 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
                     current.append(command[i])
                     i += 1
                 continue
+
+        # Leading subshell group: consume the balanced group as shell
+        # structure so inner operators do not split the outer command.
+        if c == '(' and ''.join(current).strip() == "":
+            close = _match_parens(command, i)
+            if close < 0:
+                raise ValueError("unbalanced subshell group")
+            current.append(command[i:close + 1])
+            i = close + 1
+            continue
 
         # Check for operators (order matters: && and || before | to avoid partial match)
         if c == '&' and i + 1 < n and command[i + 1] == '&':
@@ -766,6 +756,146 @@ def _strip_heredoc_bodies(stage_str: str) -> str:
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def _extract_subshell_group(stage_str: str) -> tuple[str, str] | None:
+    """Return ``(inner, suffix)`` for a leading ``(...)`` subshell group.
+
+    Only leading groups are recognized. Parentheses that appear later in a
+    normal argv word are left to the ordinary tokenizer.
+    """
+    start = len(stage_str) - len(stage_str.lstrip())
+    if start >= len(stage_str) or stage_str[start] != "(":
+        return None
+
+    close = _match_parens(stage_str, start)
+    if close < 0:
+        raise ValueError("unbalanced subshell group")
+
+    suffix = stage_str[close + 1:]
+    if _parse_subshell_redirects(suffix) is None:
+        return None
+
+    return stage_str[start + 1:close], suffix
+
+
+def _split_stage_tokens(stage_str: str) -> list[str]:
+    """Split a raw stage with the same comment fallback used historically."""
+    try:
+        return shlex.split(stage_str)
+    except ValueError as first_error:
+        try:
+            return shlex.split(stage_str, comments=True)
+        except ValueError:
+            raise first_error
+
+
+def _parse_subshell_redirects(suffix: str) -> list[tuple[str, bool, str]] | None:
+    """Parse group-level output redirects, ignoring descriptor duplication.
+
+    Returns ``None`` when *suffix* contains anything other than redirects and
+    whitespace, allowing callers to fall back to conservative ordinary parsing.
+    """
+    if not suffix.strip():
+        return []
+
+    tokens = _split_stage_tokens(suffix)
+    redirects: list[tuple[str, bool, str]] = []
+    i = 0
+    while i < len(tokens):
+        parsed_redirect = _parse_output_redirect(tokens[i])
+        if parsed_redirect is None:
+            return None
+
+        redirect_fd, redirect_append, target, needs_target, redirect_kind = parsed_redirect
+        step = 1
+        if needs_target:
+            if i + 1 >= len(tokens):
+                raise ValueError("unparseable subshell redirect")
+            target = tokens[i + 1]
+            step = 2
+            if redirect_kind == "dup_or_file":
+                if target == "-" or target.isdigit():
+                    redirect_kind = "dup"
+                else:
+                    redirect_kind = "file"
+                    if redirect_fd in ("", "1"):
+                        redirect_fd = "&"
+
+        if redirect_kind == "file":
+            redirects.append((redirect_fd, redirect_append, target))
+        i += step
+
+    return redirects
+
+
+def _apply_outer_operator(stages: list[Stage], op: str) -> None:
+    """Attach an outer shell operator to the final stage in a flattened group."""
+    if stages:
+        stages[-1].operator = op
+
+
+def _raw_stage_to_stages(
+    stage_str: str,
+    op: str,
+    *,
+    heredoc_literal: str = "",
+) -> list[Stage]:
+    """Convert one raw shell stage string into decomposed classifier stages."""
+    stage_str = stage_str.strip()
+    if not stage_str:
+        return []
+
+    group = _extract_subshell_group(stage_str)
+    if group is not None:
+        inner, suffix = group
+        if op == "|":
+            return [
+                Stage(
+                    tokens=["subshell"],
+                    operator=op,
+                    action_hint=taxonomy.UNKNOWN,
+                    action_reason="subshell pipe pending",
+                )
+            ]
+
+        raw_inner = _split_on_operators(inner)
+        stages: list[Stage] = []
+        for inner_stage, inner_op in raw_inner:
+            stages.extend(_raw_stage_to_stages(inner_stage, inner_op))
+        _apply_outer_operator(stages, op)
+
+        redirects = _parse_subshell_redirects(suffix)
+        if redirects is None:
+            return []
+        if redirects and stages:
+            redirect_tokens = stages[-1].tokens
+            for redirect_fd, redirect_append, target in redirects:
+                stages.append(
+                    Stage(
+                        tokens=list(redirect_tokens),
+                        redirect_fd=redirect_fd,
+                        redirect_target=target,
+                        redirect_append=redirect_append,
+                    )
+                )
+        return stages
+
+    heredoc_literal = heredoc_literal or _extract_heredoc_literal(stage_str)
+    stage_for_split = _strip_heredoc_bodies(stage_str)
+    tokens = _split_stage_tokens(stage_for_split)
+
+    # Pure-comment stage: # at start means shell comment (nah-2zt)
+    if tokens and tokens[0] == "#":
+        tokens = []
+    if not tokens:
+        return []
+
+    return _decompose(
+        tokens,
+        operator=op,
+        heredoc_literal=heredoc_literal,
+    )
 
 
 def _decompose(
@@ -1941,23 +2071,13 @@ def _unwrap_shell(
         psub_stages: list[Stage] = []
         _psub_ok = True
         for pstage_str, pop in psub_raw:
-            pstage_str = pstage_str.strip()
-            if not pstage_str:
-                continue
-            pheredoc = _extract_heredoc_literal(pstage_str)
-            pstage_for_split = _strip_heredoc_bodies(pstage_str)
             try:
-                ptokens = shlex.split(pstage_for_split)
+                psub_stages.extend(_raw_stage_to_stages(pstage_str, pop))
             except ValueError:
                 inner_sub_results[psub_idx] = _obfuscated_result(
                     [psub_cmd], "unparseable substitution", user_actions)
                 _psub_ok = False
                 break
-            if ptokens:
-                psub_stages.extend(_decompose(
-                    ptokens, operator=pop,
-                    heredoc_literal=pheredoc,
-                ))
         if not _psub_ok:
             continue
         if psub_stages:
@@ -1967,21 +2087,11 @@ def _unwrap_shell(
 
     inner_stages: list[Stage] = []
     for stage_str, op in raw_stages:
-        stage_str = stage_str.strip()
-        if not stage_str:
-            continue
-        heredoc_literal = _extract_heredoc_literal(stage_str)
-        stage_for_split = _strip_heredoc_bodies(stage_str)
         try:
-            inner_tokens = shlex.split(stage_for_split)
-        except ValueError:
-            return _obfuscated_result(tokens, "unparseable inner command", user_actions)
-        if inner_tokens:
-            inner_stages.extend(_decompose(
-                inner_tokens,
-                operator=op,
-                heredoc_literal=heredoc_literal,
-            ))
+            inner_stages.extend(_raw_stage_to_stages(stage_str, op))
+        except ValueError as exc:
+            detail = str(exc) or "shlex error"
+            return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)
 
     if inner_stages:
         return _classify_inner(inner_stages, stage, depth + 1,

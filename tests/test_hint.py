@@ -63,6 +63,19 @@ class TestBashHints:
         hint = decision.get("_hint")
         assert hint is None
 
+    def test_subshell_syntax_does_not_hint_parenthesized_command(self):
+        """Subshell groups should not produce `nah classify (cmd <type>` hints."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "(cd /tmp && ls)"})
+        assert "nah classify (cd" not in decision.get("_hint", "")
+
+    def test_brace_group_does_not_hint_brace_command(self):
+        """Unsupported brace groups should ask without suggesting `nah classify { <type>`."""
+        from nah.hook import handle_bash
+        decision = handle_bash({"command": "{ echo a; echo b; }"})
+        assert decision["decision"] == taxonomy.ASK
+        assert "nah classify {" not in decision.get("_hint", "")
+
 
 class TestPathHints:
     """Path ask decisions should include actionable hints."""
