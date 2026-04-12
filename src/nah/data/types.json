@@ -22,5 +22,6 @@
   "beads_write": "Beads workflow operations that modify data (bd create, bd update, bd close)",
   "beads_destructive": "Irreversible beads operations (bd delete, bd purge, bd admin)",
   "obfuscated": "Obfuscated or encoded commands (base64 | bash)",
+  "shell_noop": "Shell no-op — bare VAR=value assignments with no command",
   "unknown": "Unrecognized command or tool — not in any classify table"
 }

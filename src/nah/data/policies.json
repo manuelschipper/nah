@@ -22,5 +22,6 @@
   "beads_write": "allow",
   "beads_destructive": "ask",
   "obfuscated": "block",
+  "shell_noop": "allow",
   "unknown": "ask"
 }

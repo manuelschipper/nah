@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`shell_noop` action type** — bare `VAR=value` assignments with no trailing command are now classified as `shell_noop` (default: `allow`) instead of `unknown` (ask). Visible via `nah types` and `nah classify`. Prevents chained commands like `STAGE=/tmp/x && mkdir -p "$STAGE"` from triggering unnecessary prompts when the chain is otherwise safe
+- **Intra-chain variable expansion** — when a `shell_noop` stage sets `VAR=value`, subsequent stages in the same `&&`/`||`/`;` chain have `$VAR` and `${VAR}` references expanded before trusted-path and sensitive-path checks. Only literal same-chain assignments are expanded (no env lookup, no command substitution, no nested expansion). Pipe `|` boundaries clear the variable map. This also improves safety: `BAD=/etc/shadow && cat "$BAD"` now correctly triggers the sensitive-path check where previously the literal `$BAD` token was invisible to it
 - **Inline code inspection** — `python3 -c 'print(1)'`, `node -e`, `ruby -e`, `perl -e`, `php -r` inline code is now content-scanned instead of blindly prompting. Safe inline → allow, dangerous patterns → ask/block. LLM veto gate fires on clean inline code (same defense-in-depth as script files). LLM prompt now includes inline code for enrichment (nah-koi.1)
 
 ### Fixed

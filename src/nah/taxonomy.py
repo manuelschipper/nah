@@ -35,6 +35,7 @@ BEADS_SAFE = "beads_safe"
 BEADS_WRITE = "beads_write"
 BEADS_DESTRUCTIVE = "beads_destructive"
 OBFUSCATED = "obfuscated"
+SHELL_NOOP = "shell_noop"
 UNKNOWN = "unknown"
 
 # Decision constants

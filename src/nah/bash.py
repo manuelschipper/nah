@@ -166,10 +166,19 @@ def classify_command(command: str) -> ClassifyResult:
         result.reason = "empty command"
         return result
 
-    # Classify each stage
+    # Classify each stage. Maintain a chain-local variable map built from
+    # shell_noop stages (bare `VAR=value` assignments) so later stages can
+    # have `$VAR` / `${VAR}` references expanded before path checks.
+    # Pipe `|` clears the map — piped stages run in subshells and do not
+    # inherit parent shell variables.
+    var_map: dict[str, str] = {}
     for stage in stages:
-        sr = _classify_stage(stage, **_kw)
+        sr = _classify_stage(stage, var_map=var_map, **_kw)
         result.stages.append(sr)
+        if sr.action_type == taxonomy.SHELL_NOOP:
+            var_map = {**var_map, **_parse_shell_noop_vars(stage.tokens)}
+        if stage.operator == "|":
+            var_map = {}
 
     # --- FD-103: tighten outer results from inner process sub classifications ---
     if inner_results_by_idx:
@@ -617,9 +626,11 @@ def _make_stage(
             return Stage(tokens=tokens, operator=operator,
                          action_hint=taxonomy.LANG_EXEC)
     else:
-        # All tokens were env assignments
+        # All tokens were env assignments — shell no-op (no command follows).
+        final_hint = action_hint or taxonomy.SHELL_NOOP
+        final_reason = action_reason or "shell no-op: bare assignments"
         return Stage(tokens=tokens, operator=operator,
-                     action_hint=action_hint, action_reason=action_reason)
+                     action_hint=final_hint, action_reason=final_reason)
     return Stage(tokens=tokens[start:], operator=operator,
                  action_hint=action_hint, action_reason=action_reason)
 
@@ -683,6 +694,7 @@ def _classify_stage(
     user_actions: dict[str, str] | None = None,
     profile: str = "full",
     trust_project: bool = False,
+    var_map: dict[str, str] | None = None,
 ) -> StageResult:
     """Classify a single pipeline stage."""
     tokens = stage.tokens
@@ -692,12 +704,15 @@ def _classify_stage(
         sr.reason = "empty stage"
         return sr
 
-    # Pre-set action type (e.g. env var with exec sink)
+    # Pre-set action type (e.g. env var with exec sink, shell no-op)
     if stage.action_hint:
         sr.action_type = stage.action_hint
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
-        _apply_policy(sr)
-        sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
+        _apply_policy(sr, var_map=var_map)
+        if sr.action_type == taxonomy.SHELL_NOOP:
+            sr.reason = stage.action_reason or "shell no-op: bare assignments"
+        else:
+            sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
     # Shell unwrapping
@@ -714,10 +729,10 @@ def _classify_stage(
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Apply policy → decision
-    _apply_policy(sr)
+    _apply_policy(sr, var_map=var_map)
 
     # Path extraction + checking (regardless of policy)
-    path_decision, path_reason = _check_extracted_paths(tokens)
+    path_decision, path_reason = _check_extracted_paths(tokens, var_map=var_map)
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
         sr.reason = path_reason
@@ -766,6 +781,47 @@ def _is_env_assignment(tok: str) -> bool:
     return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
         ch.isalnum() or ch == "_" for ch in name
     )
+
+
+# Intra-chain variable expansion — only matches $VAR and ${VAR} forms.
+# Deliberately narrow: no ${VAR:-default}, no $(...), no arithmetic.
+_VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+def _parse_shell_noop_vars(tokens: list[str]) -> dict[str, str]:
+    """Extract ``NAME=value`` bindings from a shell_noop stage.
+
+    Values containing ``$``, backticks, or command substitution are
+    deliberately dropped — we only propagate fully-literal bindings so
+    the classifier never performs recursive or unsafe expansion.
+    """
+    bindings: dict[str, str] = {}
+    for tok in tokens:
+        if not _is_env_assignment(tok):
+            continue
+        name, value = tok.split("=", 1)
+        if "$" in value or "`" in value:
+            continue
+        bindings[name] = value
+    return bindings
+
+
+def _expand_intra_chain_vars(text: str, var_map: dict[str, str] | None) -> str:
+    """Substitute ``$VAR`` / ``${VAR}`` references from *var_map*.
+
+    Unknown variables are left unexpanded so downstream checks retain
+    the safe-by-default behavior for unknown tokens. Only the original
+    classifier view of the string is rewritten; the stage tokens that
+    would actually execute are never mutated.
+    """
+    if not var_map or not text or "$" not in text:
+        return text
+
+    def _sub(match: re.Match) -> str:
+        name = match.group(1) or match.group(2)
+        return var_map.get(name, match.group(0))
+
+    return _VAR_REF_RE.sub(_sub, text)
 
 
 def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
@@ -1585,13 +1641,13 @@ def _classify_inner(
     return worst
 
 
-def _apply_policy(sr: StageResult) -> None:
+def _apply_policy(sr: StageResult, *, var_map: dict[str, str] | None = None) -> None:
     """Map default_policy to decision + reason. Mutates sr in place."""
     if sr.default_policy in (taxonomy.ALLOW, taxonomy.BLOCK, taxonomy.ASK):
         sr.decision = sr.default_policy
         sr.reason = f"{sr.action_type} → {sr.default_policy}"
     elif sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, sr.reason = _resolve_context(sr.action_type, sr.tokens)
+        sr.decision, sr.reason = _resolve_context(sr.action_type, sr.tokens, var_map=var_map)
     else:
         sr.decision = taxonomy.ASK
         sr.reason = f"unknown policy: {sr.default_policy}"
@@ -1750,15 +1806,24 @@ def _check_redirect(target: str) -> tuple[str, str]:
     return context.resolve_filesystem_context(target)
 
 
-def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
+def _resolve_context(
+    action_type: str,
+    tokens: list[str],
+    *,
+    var_map: dict[str, str] | None = None,
+) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
     target_path = None
     inline_code = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         target_path = _extract_primary_target(tokens)
+        if target_path and var_map:
+            target_path = _expand_intra_chain_vars(target_path, var_map)
     elif action_type == taxonomy.LANG_EXEC:
         target_path = _resolve_script_path(tokens)
+        if target_path and var_map:
+            target_path = _expand_intra_chain_vars(target_path, var_map)
         if target_path is None:
             inline_code = _extract_inline_code(tokens)
     return context.resolve_context(action_type, tokens=tokens, target_path=target_path,
@@ -1879,8 +1944,21 @@ def _resolve_module_path(module_name: str) -> str | None:
     return None
 
 
-def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
-    """Check all path-like tokens against sensitive paths. Most restrictive wins."""
+def _check_extracted_paths(
+    tokens: list[str],
+    *,
+    var_map: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Check all path-like tokens against sensitive paths. Most restrictive wins.
+
+    When *var_map* is provided, each token is first expanded via
+    ``_expand_intra_chain_vars`` so references to variables set earlier
+    in the same chain (shell_noop stages) are resolved before the
+    sensitive-path lookup. This both allows otherwise-safe chains to
+    clear trusted-path checks and catches dangerous references like
+    ``BAD=/etc/shadow && cat "$BAD"`` that would otherwise slip through
+    the literal-token scan.
+    """
     from nah.config import is_path_allowed  # lazy import to avoid circular
 
     block_result = None
@@ -1890,12 +1968,13 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
     for tok in tokens[1:]:
         if tok.startswith("-"):
             continue
-        if "/" in tok or tok.startswith("~") or tok.startswith("."):
-            basic = paths.check_path_basic_raw(tok)
+        expanded = _expand_intra_chain_vars(tok, var_map) if var_map else tok
+        if "/" in expanded or expanded.startswith("~") or expanded.startswith("."):
+            basic = paths.check_path_basic_raw(expanded)
             if basic:
                 decision, reason = basic
                 # Check allow_paths exemption (same as check_path does for file tools)
-                if is_path_allowed(tok, project_root):
+                if is_path_allowed(expanded, project_root):
                     continue  # exempted
                 if decision == taxonomy.BLOCK:
                     block_result = (taxonomy.BLOCK, reason)
