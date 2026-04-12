@@ -1123,6 +1123,11 @@ def _classify_codex(tokens: list[str]) -> str | None:
 
 def _is_codex_companion_script(path: str) -> bool:
     """Return True for installed OpenAI Codex plugin companion scripts."""
+    return is_codex_companion_script(path)
+
+
+def is_codex_companion_script(path: str) -> bool:
+    """Return True for installed OpenAI Codex plugin companion scripts."""
     normalized = path.replace("\\", "/")
     return (
         os.path.basename(normalized) == "codex-companion.mjs"
