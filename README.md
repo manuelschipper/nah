@@ -155,7 +155,7 @@ Works out of the box with zero config. When you want to tune it:
 actions:
   filesystem_delete: ask         # always confirm deletes
   git_history_rewrite: block     # never allow force push
-  lang_exec: allow               # trust inline scripts
+  lang_exec: ask                 # always confirm script/runtime execution
 
 # Guard sensitive directories
 sensitive_paths:
@@ -182,6 +182,18 @@ Every command maps to an action type, and every action type has a default policy
 | `context` | Check path/project context, then decide | `filesystem_write`, `filesystem_delete`, `network_outbound`, `lang_exec` |
 | `ask` | Always prompt the user | `git_history_rewrite`, `git_remote_write`, `process_signal` |
 | `block` | Always reject | `obfuscated` |
+
+Default action policies:
+
+| Policy | Action types |
+|--------|--------------|
+| `allow` | `filesystem_read`, `git_safe`, `git_write`, `network_diagnostic`, `package_install`, `package_run`, `container_read`, `service_read`, `browser_read`, `browser_interact`, `browser_state`, `db_read`, `agent_read` |
+| `context` | `filesystem_write`, `filesystem_delete`, `network_outbound`, `network_write`, `lang_exec`, `container_write`, `browser_navigate`, `browser_file`, `db_write` |
+| `ask` | `git_remote_write`, `git_discard`, `git_history_rewrite`, `package_uninstall`, `process_signal`, `container_exec`, `container_destructive`, `service_write`, `service_destructive`, `browser_exec`, `agent_write`, `agent_exec_read`, `agent_exec_write`, `agent_exec_remote`, `agent_server`, `agent_exec_bypass`, `unknown` |
+| `block` | `obfuscated` |
+
+`context` is not the same as `allow`. For `lang_exec`, nah checks script path,
+project boundary, and inspectable inline or file content before deciding.
 
 ### Taxonomy profiles
 
