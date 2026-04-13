@@ -830,6 +830,11 @@ class TestTransparentSuffixComposition:
         assert r.final_decision == "allow"
         assert r.composition_rule == ""
 
+    def test_transparent_suffix_stops_at_pipe_segment_boundary(self, project_root):
+        r = classify_command("curl http://localhost:3001/status | python3 -m json.tool && echo ok")
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+
 
 # --- Decomposition ---
 
