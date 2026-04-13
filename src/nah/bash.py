@@ -64,6 +64,13 @@ class ClassifyResult:
     composition_rule: str = ""
 
 
+@dataclass
+class EnvWrapperParse:
+    inner: list[str] | None = None
+    risk_reason: str = ""
+    unsupported: bool = False
+
+
 def classify_command(command: str) -> ClassifyResult:
     """Main entry point: classify a bash command string."""
     result = ClassifyResult(command=command)
@@ -1040,22 +1047,30 @@ def _decompose(
     return stages
 
 
-def _env_var_has_exec(value: str) -> bool:
-    """Check if an env var value contains an exec sink as its base command.
+_SHELL_FUNCTION_ENV_RE = re.compile(r"^\s*\(\)\s*\{")
 
-    Returns True (fail-closed) on parse errors to avoid silently allowing
-    malformed values through.
-    """
+
+def _env_var_risk_reason(value: str) -> str:
+    """Return a reason when an env var value should fail closed."""
     if not value:
-        return False
+        return ""
+    if _SHELL_FUNCTION_ENV_RE.search(value):
+        return "env var shell function"
     try:
         tokens = shlex.split(value)
     except ValueError:
-        return True  # Fail-closed: unparseable value → escalate
+        return "env var parse error"
     if not tokens:
-        return False
+        return ""
     base = os.path.basename(tokens[0])
-    return taxonomy.is_exec_sink(base)
+    if taxonomy.is_exec_sink(base):
+        return f"env var exec sink: {base}"
+    return ""
+
+
+def _env_var_has_exec(value: str) -> bool:
+    """Check if an env var value contains an execution risk."""
+    return bool(_env_var_risk_reason(value))
 
 
 def _classify_export_assignment(
@@ -1075,9 +1090,14 @@ def _classify_export_assignment(
     reason = "export assignment"
     for tok in tokens[1:]:
         _, value = tok.split("=", 1)
-        if _env_var_has_exec(value):
+        risk_reason = _env_var_risk_reason(value)
+        if risk_reason:
             action_type = taxonomy.LANG_EXEC
-            reason = "export assignment exec sink"
+            reason = (
+                "export assignment exec sink"
+                if risk_reason.startswith("env var exec sink")
+                else f"export assignment {risk_reason}"
+            )
             break
 
     sr = StageResult(tokens=tokens)
@@ -1106,16 +1126,26 @@ def _make_stage(
     start = 0
     python_risk_vars: list[str] = []
     for start, tok in enumerate(tokens):
-        if "=" not in tok or tok.startswith("-"):
+        parts = _env_assignment_parts(tok)
+        if parts is None:
+            if "=" in tok and not tok.startswith(("-", "=")):
+                _, value = tok.split("=", 1)
+                risk_reason = _env_var_risk_reason(value)
+                if risk_reason:
+                    return Stage(
+                        tokens=tokens, operator=operator,
+                        action_hint=taxonomy.LANG_EXEC, action_reason=risk_reason,
+                    )
             break
-        name, value = tok.split("=", 1)
+        name, value = parts
         if name in _PYTHON_ENV_RISK_VARS:
             python_risk_vars.append(name)
-        # Inspect the value portion for exec sinks
-        if _env_var_has_exec(value):
-            # Dangerous env var — flag as lang_exec
-            return Stage(tokens=tokens, operator=operator,
-                         action_hint=taxonomy.LANG_EXEC)
+        risk_reason = _env_var_risk_reason(value)
+        if risk_reason:
+            return Stage(
+                tokens=tokens, operator=operator,
+                action_hint=taxonomy.LANG_EXEC, action_reason=risk_reason,
+            )
     else:
         # All tokens were env assignments
         return Stage(tokens=tokens, operator=operator,
@@ -1600,8 +1630,8 @@ def _is_env_assignment(tok: str) -> bool:
     )
 
 
-def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
-    """Strip env wrapper and supported flags, returning inner command tokens."""
+def _parse_env_wrapper(tokens: list[str]) -> EnvWrapperParse | None:
+    """Parse env(1) wrapper operands without discarding risky assignments."""
     if not tokens or os.path.basename(tokens[0]) != "env":
         return None
 
@@ -1614,15 +1644,29 @@ def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
             i += 1
             break
 
-        if _is_env_assignment(tok):
+        parts = _env_assignment_parts(tok)
+        if parts is not None:
+            _, value = parts
+            risk_reason = _env_var_risk_reason(value)
+            if risk_reason:
+                return EnvWrapperParse(risk_reason=risk_reason)
             i += 1
             continue
+
+        if "=" in tok and not tok.startswith(("-", "=")):
+            _, value = tok.split("=", 1)
+            risk_reason = _env_var_risk_reason(value)
+            return EnvWrapperParse(
+                risk_reason=risk_reason or "unsupported env assignment"
+            )
 
         if tok in _ENV_NOARG_FLAGS:
             i += 1
             continue
 
         if tok in _ENV_ARG_FLAGS:
+            if i + 1 >= n:
+                return EnvWrapperParse(unsupported=True)
             i += 2
             continue
 
@@ -1631,12 +1675,20 @@ def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
             continue
 
         if tok.startswith("-"):
-            return None
+            return EnvWrapperParse(unsupported=True)
 
         break
 
     inner = tokens[i:]
-    return inner if inner else None
+    return EnvWrapperParse(inner=inner if inner else None)
+
+
+def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
+    """Strip safe env wrapper forms, returning inner command tokens."""
+    parsed = _parse_env_wrapper(tokens)
+    if parsed is None or parsed.risk_reason or parsed.unsupported:
+        return None
+    return parsed.inner
 
 
 _SUDO_NOARG_SAFE = {
@@ -2385,15 +2437,42 @@ def _unwrap_shell(
             sr.reason = f"sudo: {sr.reason}"
         return sr
 
-    # env/nice passthrough wrappers
+    # env passthrough — dedicated branch so risky env assignments are not
+    # discarded before classifying the inner command.
+    if tokens and os.path.basename(tokens[0]) == "env":
+        parsed_env = _parse_env_wrapper(tokens)
+        if parsed_env is None or parsed_env.unsupported:
+            return None
+        if parsed_env.risk_reason:
+            sr = StageResult(tokens=tokens)
+            sr.action_type = taxonomy.LANG_EXEC
+            sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+            _apply_policy(sr)
+            sr.reason = (
+                f"env wrapper {parsed_env.risk_reason}: "
+                f"{sr.action_type} → {sr.decision}"
+            )
+            return sr
+        if parsed_env.inner is None:
+            return None
+        inner_stage = _make_stage(parsed_env.inner, stage.operator) or Stage(
+            tokens=parsed_env.inner, operator=stage.operator
+        )
+        inner_stage = _copy_python_metadata(
+            inner_stage, stage, env_risk=_env_wrapper_python_risk(tokens)
+        )
+        return _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                               builtin_table=builtin_table, project_table=project_table,
+                               user_actions=user_actions, profile=profile,
+                               trust_project=trust_project)
+
+    # nice and other passthrough wrappers
     passthrough_tokens = _strip_passthrough_wrapper(tokens)
     if passthrough_tokens is not None:
         inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
             tokens=passthrough_tokens, operator=stage.operator
         )
-        inner_stage = _copy_python_metadata(
-            inner_stage, stage, env_risk=_env_wrapper_python_risk(tokens)
-        )
+        inner_stage = _copy_python_metadata(inner_stage, stage)
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
                                user_actions=user_actions, profile=profile,
