@@ -1453,7 +1453,7 @@
       "id": "V14",
       "tool": "Write",
       "input": {
-        "file_path": "/tmp/test.txt",
+        "file_path": "/var/tmp/test.txt",
         "content": "hello"
       },
       "expected": "allow",
@@ -1461,7 +1461,7 @@
       "feature": "FD-051",
       "config": {
         "trusted_paths": [
-          "/tmp"
+          "/var/tmp"
         ]
       },
       "description": "Trusted path bypasses project boundary"
