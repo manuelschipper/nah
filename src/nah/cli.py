@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,7 +22,19 @@ import sys, json, os, io
 # Capture real stdout immediately — before anything can reassign it.
 _REAL_STDOUT = sys.stdout
 _ASK = '{{"hookSpecificOutput": {{"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "nah: error, requesting confirmation"}}}}\\n'
-_LOG_PATH = os.path.join(os.path.expanduser("~"), ".config", "nah", "hook-errors.log")
+def _nah_config_dir():
+    appdata = os.environ.get("APPDATA") if sys.platform == "win32" else ""
+    if appdata:
+        return os.path.join(appdata, "nah")
+    return os.path.join(os.path.expanduser("~"), ".config", "nah")
+
+if sys.platform == "win32" and hasattr(_REAL_STDOUT, "reconfigure"):
+    try:
+        _REAL_STDOUT.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+_LOG_PATH = os.path.join(_nah_config_dir(), "hook-errors.log")
 _LOG_MAX = 1_000_000  # 1 MB
 
 def _log_error(tool_name, error):
@@ -38,10 +51,10 @@ def _log_error(tool_name, error):
         except OSError:
             size = 0
         if size > _LOG_MAX:
-            with open(_LOG_PATH, "w") as f:
+            with open(_LOG_PATH, "w", encoding="utf-8") as f:
                 f.write(line)
         else:
-            with open(_LOG_PATH, "a") as f:
+            with open(_LOG_PATH, "a", encoding="utf-8") as f:
                 f.write(line)
     except Exception:
         pass
@@ -114,7 +127,7 @@ def _build_hooks_settings() -> dict:
 def _read_settings(settings_file: Path) -> dict:
     """Read a settings.json file, return empty structure if missing."""
     if settings_file.exists():
-        with open(settings_file) as f:
+        with open(settings_file, encoding="utf-8") as f:
             return json.load(f)
     return {}
 
@@ -123,13 +136,13 @@ def _write_settings(settings_file: Path, data: dict) -> None:
     """Write settings.json with backup."""
     backup = settings_file.with_suffix(".json.bak")
     if settings_file.exists():
-        with open(settings_file) as f:
+        with open(settings_file, encoding="utf-8") as f:
             backup_content = f.read()
-        with open(backup, "w") as f:
+        with open(backup, "w", encoding="utf-8") as f:
             f.write(backup_content)
 
     settings_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(settings_file, "w") as f:
+    with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
 
@@ -170,7 +183,7 @@ def _write_hook_script() -> None:
     # Skip write if content is identical
     if _HOOK_SCRIPT.exists():
         try:
-            if _HOOK_SCRIPT.read_text() == shim_content:
+            if _HOOK_SCRIPT.read_text(encoding="utf-8") == shim_content:
                 return
         except OSError:
             # Read is best-effort optimization; if it fails (race with
@@ -178,13 +191,19 @@ def _write_hook_script() -> None:
             # through to the write path which will surface real errors.
             pass
 
-    if _HOOK_SCRIPT.exists():
+    if _HOOK_SCRIPT.exists() and _supports_posix_chmod():
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    with open(_HOOK_SCRIPT, "w") as f:
+    with open(_HOOK_SCRIPT, "w", encoding="utf-8") as f:
         f.write(shim_content)
 
-    os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
+    if _supports_posix_chmod():
+        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
+
+
+def _supports_posix_chmod() -> bool:
+    """Return False on Windows where Unix mode bits do not protect hooks."""
+    return os.name != "nt"
 
 
 def _install_for_agent(agent_key: str) -> None:
@@ -888,11 +907,22 @@ def cmd_claude(user_args: list[str]) -> None:
                 break
 
     if already_installed:
-        os.execvp(claude_path, ["claude"] + user_args)
+        args = [claude_path] + user_args if os.name == "nt" else ["claude"] + user_args
+        if os.name == "nt":
+            raise SystemExit(subprocess.call(args))
+        os.execvp(claude_path, args)
+
     else:
         _write_hook_script()
         settings_json = json.dumps(_build_hooks_settings())
-        os.execvp(claude_path, ["claude", "--settings", settings_json] + user_args)
+        args = (
+            [claude_path, "--settings", settings_json] + user_args
+            if os.name == "nt"
+            else ["claude", "--settings", settings_json] + user_args
+        )
+        if os.name == "nt":
+            raise SystemExit(subprocess.call(args))
+        os.execvp(claude_path, args)
 
 
 def main():

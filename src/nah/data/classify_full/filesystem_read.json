@@ -372,5 +372,11 @@
   "gmake -q",
   "gmake --question",
   "gmake --version",
-  "gmake --help"
+  "gmake --help",
+  "dir",
+  "findstr",
+  "tasklist",
+  "where",
+  "wmic",
+  "systeminfo"
 ]

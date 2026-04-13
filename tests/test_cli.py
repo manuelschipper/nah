@@ -439,6 +439,21 @@ class TestWriteHookScriptOptimization:
         cli_mod._write_hook_script()
         assert "stale" not in hook_path.read_text()
 
+    def test_windows_skips_posix_chmod(self, tmp_path, monkeypatch):
+        """Windows hook writes do not rely on Unix mode bits."""
+        import nah.cli as cli_mod
+        hook_path = tmp_path / "nah_guard.py"
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+        monkeypatch.setattr(cli_mod.os, "name", "nt")
+
+        chmod_calls = []
+        monkeypatch.setattr(cli_mod.os, "chmod", lambda *args: chmod_calls.append(args))
+
+        cli_mod._write_hook_script()
+        assert hook_path.exists()
+        assert chmod_calls == []
+
 
 class TestCmdClaude:
     """Tests for nah claude — per-session launcher."""
@@ -575,6 +590,29 @@ class TestCmdClaude:
         args = exec_calls[0][1]
         assert "--resume" in args
         assert "--verbose" in args
+
+    def test_windows_uses_subprocess_call(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import agents
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+        monkeypatch.setattr(cli_mod.os, "name", "nt")
+
+        calls = []
+        monkeypatch.setattr(cli_mod.subprocess, "call", lambda args: calls.append(args) or 7)
+        monkeypatch.setattr(cli_mod.os, "execvp", lambda *_args: pytest.fail("execvp should not run on Windows"))
+
+        with patch("shutil.which", return_value=r"C:\Tools\claude.exe"):
+            with pytest.raises(SystemExit) as exc:
+                cli_mod.cmd_claude(["--resume"])
+
+        assert exc.value.code == 7
+        assert calls[0][0] == r"C:\Tools\claude.exe"
+        assert "--settings" in calls[0]
+        assert "--resume" in calls[0]
 
 
 class TestHookCommand:

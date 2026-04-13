@@ -30,6 +30,10 @@ _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
         (re.compile(r"\bshutil\.rmtree\b"), "shutil.rmtree"),
         (re.compile(r"\bos\.remove\b"), "os.remove"),
         (re.compile(r"\bos\.unlink\b"), "os.unlink"),
+        (re.compile(r"\bRemove-Item\b[^\n\r;|&]*-Recurse\b", re.IGNORECASE), "Remove-Item -Recurse"),
+        (re.compile(r"\brd\s+/s\b", re.IGNORECASE), "rd /s"),
+        (re.compile(r"\brmdir\s+/s\b", re.IGNORECASE), "rmdir /s"),
+        (re.compile(r"\bdel\s+/f\b", re.IGNORECASE), "del /f"),
     ],
     "exfiltration": [
         (re.compile(r"\bcurl\s+.*-[a-zA-Z]*X\s+POST\b"), "curl -X POST"),
