@@ -15,6 +15,18 @@ _MAX_UNWRAP_DEPTH = 5
 # Excludes block devices (/dev/sda, /dev/disk*) which are dangerous.
 _REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty"})
 
+_PYTHON_READ_ONLY_MODULES = frozenset({"json.tool", "tabnanny", "tokenize"})
+_PYTHON_WRITE_MODULES = frozenset({"py_compile", "compileall"})
+_PYTHON_SAFE_MODULES = _PYTHON_READ_ONLY_MODULES | _PYTHON_WRITE_MODULES
+_PYTHON_ENV_RISK_VARS = frozenset({
+    "HOME",
+    "PATH",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONPYCACHEPREFIX",
+    "PYTHONUSERBASE",
+})
+
 
 @dataclass
 class Stage:
@@ -26,6 +38,9 @@ class Stage:
     heredoc_literal: str = ""
     action_hint: str = ""  # Pre-set action type (e.g. env var exec sink)
     action_reason: str = ""
+    python_env_risk: str = ""
+    python_prior_env_risk: str = ""
+    python_prior_cwd_risk: bool = False
 
 
 @dataclass
@@ -36,6 +51,8 @@ class StageResult:
     decision: str = taxonomy.ASK
     reason: str = ""
     redirect_target: str = ""
+    python_module: str = ""
+    transparent_python_formatter: bool = False
 
 
 @dataclass
@@ -162,10 +179,28 @@ def classify_command(command: str) -> ClassifyResult:
 
     stages = _apply_trusted_script_vars(stages, active_subs)
 
-    # Classify each stage
-    for stage in stages:
+    # Classify each stage. Track shell-local state that can make a later
+    # allowlisted python -m invocation resolve non-stdlib code.
+    python_prior_env_risk = ""
+    python_prior_cwd_risk = False
+    for idx, stage in enumerate(stages):
+        if python_prior_env_risk or python_prior_cwd_risk:
+            stage = replace(
+                stage,
+                python_prior_env_risk=python_prior_env_risk,
+                python_prior_cwd_risk=python_prior_cwd_risk,
+            )
+            stages[idx] = stage
+
         sr = _classify_stage(stage, **_kw)
         result.stages.append(sr)
+
+        if stage.operator != "|":
+            env_risk = _stage_python_env_update_risk(stage)
+            if env_risk:
+                python_prior_env_risk = env_risk
+            if _stage_can_change_cwd(stage):
+                python_prior_cwd_risk = True
 
     # --- FD-103: tighten outer results from inner process sub classifications ---
     if inner_results_by_idx:
@@ -1069,11 +1104,14 @@ def _make_stage(
         return None
     # Skip leading env assignments (FOO=bar cmd ...)
     start = 0
+    python_risk_vars: list[str] = []
     for start, tok in enumerate(tokens):
         if "=" not in tok or tok.startswith("-"):
             break
+        name, value = tok.split("=", 1)
+        if name in _PYTHON_ENV_RISK_VARS:
+            python_risk_vars.append(name)
         # Inspect the value portion for exec sinks
-        _, value = tok.split("=", 1)
         if _env_var_has_exec(value):
             # Dangerous env var — flag as lang_exec
             return Stage(tokens=tokens, operator=operator,
@@ -1083,8 +1121,12 @@ def _make_stage(
         return Stage(tokens=tokens, operator=operator,
                      action_hint=taxonomy.FILESYSTEM_READ,
                      action_reason="env-only assignment")
-    return Stage(tokens=tokens[start:], operator=operator,
-                 action_hint=action_hint, action_reason=action_reason)
+
+    stage = Stage(tokens=tokens[start:], operator=operator,
+                  action_hint=action_hint, action_reason=action_reason)
+    if python_risk_vars:
+        stage.python_env_risk = "python env assignment: " + ",".join(sorted(set(python_risk_vars)))
+    return stage
 
 
 _PSUB_PREFIX = "__nah_psub_"
@@ -1360,6 +1402,10 @@ def _classify_stage(
                 _apply_policy(sr)
             return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
+    safe_python = _safe_python_module_result(stage, user_actions=user_actions, profile=profile)
+    if safe_python is not None:
+        return _apply_redirect_guard(stage, safe_python, user_actions=user_actions)
+
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
                                               profile=profile, trust_project=trust_project)
@@ -1405,6 +1451,138 @@ def _strip_command_builtin(tokens: list[str]) -> list[str] | None:
     if i < len(tokens):
         return tokens[i:]
     return None
+
+
+
+def _combine_python_risks(*risks: str) -> str:
+    return "; ".join(risk for risk in risks if risk)
+
+
+def _copy_python_metadata(inner_stage: Stage, outer_stage: Stage, *, env_risk: str = "") -> Stage:
+    inner_stage.python_env_risk = _combine_python_risks(
+        inner_stage.python_env_risk,
+        outer_stage.python_env_risk,
+        env_risk,
+    )
+    inner_stage.python_prior_env_risk = _combine_python_risks(
+        inner_stage.python_prior_env_risk,
+        outer_stage.python_prior_env_risk,
+    )
+    inner_stage.python_prior_cwd_risk = (
+        inner_stage.python_prior_cwd_risk or outer_stage.python_prior_cwd_risk
+    )
+    return inner_stage
+
+
+def _effective_command_tokens(stage: Stage) -> list[str]:
+    """Return tokens after simple shell-builtin wrappers that keep shell state."""
+    tokens = stage.tokens
+    while tokens and os.path.basename(tokens[0]) in {"command", "builtin"}:
+        if os.path.basename(tokens[0]) == "command":
+            inner = _strip_command_builtin(tokens)
+            if not inner:
+                return tokens
+            tokens = inner
+            continue
+        if len(tokens) <= 1:
+            return tokens
+        tokens = tokens[1:]
+    return tokens
+
+
+def _stage_can_change_cwd(stage: Stage) -> bool:
+    tokens = _effective_command_tokens(stage)
+    if not tokens:
+        return False
+    return os.path.basename(tokens[0]) in {"cd", "pushd", "popd"}
+
+
+def _env_assignment_name(tok: str) -> str:
+    if not _is_env_assignment(tok):
+        return ""
+    return tok.split("=", 1)[0]
+
+
+def _stage_python_env_update_risk(stage: Stage) -> str:
+    """Return a persistent shell-env risk introduced by an assignment/export stage."""
+    tokens = _effective_command_tokens(stage)
+    if not tokens:
+        return ""
+
+    if all(_is_env_assignment(tok) for tok in tokens):
+        names = sorted({
+            _env_assignment_name(tok)
+            for tok in tokens
+            if _env_assignment_name(tok) in _PYTHON_ENV_RISK_VARS
+        })
+        if names:
+            return "python env assignment stage: " + ",".join(names)
+        return ""
+
+    if os.path.basename(tokens[0]) != "export":
+        return ""
+
+    names: set[str] = set()
+    for tok in tokens[1:]:
+        if tok.startswith("-"):
+            continue
+        name = _env_assignment_name(tok) or tok
+        if name in _PYTHON_ENV_RISK_VARS:
+            names.add(name)
+    if names:
+        return "exported python env: " + ",".join(sorted(names))
+    return ""
+
+
+def _env_wrapper_python_risk(tokens: list[str]) -> str:
+    """Detect env(1) forms that alter Python command resolution/startup state."""
+    if not tokens or os.path.basename(tokens[0]) != "env":
+        return ""
+
+    risks: set[str] = set()
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            break
+        if _is_env_assignment(tok):
+            name = tok.split("=", 1)[0]
+            if name in _PYTHON_ENV_RISK_VARS:
+                risks.add(name)
+            i += 1
+            continue
+        if tok in _ENV_NOARG_FLAGS:
+            risks.update(_PYTHON_ENV_RISK_VARS)
+            i += 1
+            continue
+        if tok in {"-u", "--unset"}:
+            if i + 1 < len(tokens) and tokens[i + 1] in _PYTHON_ENV_RISK_VARS:
+                risks.add(tokens[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--unset="):
+            name = tok.split("=", 1)[1]
+            if name in _PYTHON_ENV_RISK_VARS:
+                risks.add(name)
+            i += 1
+            continue
+        if tok in {"-C", "--chdir"} or tok.startswith("--chdir="):
+            risks.add("cwd")
+            i += 2 if tok in {"-C", "--chdir"} else 1
+            continue
+        if tok in {"--argv0"}:
+            i += 2
+            continue
+        if tok.startswith("--argv0="):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            break
+        break
+
+    if risks:
+        return "env wrapper alters python resolution: " + ",".join(sorted(risks))
+    return ""
 
 
 _ENV_NOARG_FLAGS = {"-i", "--ignore-environment"}
@@ -2164,7 +2342,7 @@ def _unwrap_shell(
     if tokens and tokens[0] == "command":
         inner = _strip_command_builtin(tokens)
         if inner:
-            inner_stage = Stage(tokens=inner, operator=stage.operator)
+            inner_stage = _copy_python_metadata(Stage(tokens=inner, operator=stage.operator), stage)
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
                                    user_actions=user_actions, profile=profile,
@@ -2177,6 +2355,7 @@ def _unwrap_shell(
             inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
                 tokens=passthrough_tokens, operator=stage.operator
             )
+            inner_stage = _copy_python_metadata(inner_stage, stage)
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
                                    user_actions=user_actions, profile=profile,
@@ -2197,6 +2376,7 @@ def _unwrap_shell(
         inner_stage = _make_stage(inner_tokens, stage.operator) or Stage(
             tokens=inner_tokens, operator=stage.operator
         )
+        inner_stage = _copy_python_metadata(inner_stage, stage)
         sr = _classify_stage(inner_stage, depth + 1, global_table=global_table,
                              builtin_table=builtin_table, project_table=project_table,
                              user_actions=user_actions, profile=profile,
@@ -2210,6 +2390,9 @@ def _unwrap_shell(
     if passthrough_tokens is not None:
         inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
             tokens=passthrough_tokens, operator=stage.operator
+        )
+        inner_stage = _copy_python_metadata(
+            inner_stage, stage, env_risk=_env_wrapper_python_risk(tokens)
         )
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
@@ -2229,7 +2412,7 @@ def _unwrap_shell(
             _apply_policy(sr)
             sr.reason = f"xargs wraps exec sink: {inner_tokens[0]}"
             return sr
-        inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
+        inner_stage = _copy_python_metadata(Stage(tokens=inner_tokens, operator=stage.operator), stage)
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
                                user_actions=user_actions, profile=profile,
@@ -2300,6 +2483,7 @@ def _unwrap_shell(
             return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)
 
     if inner_stages:
+        inner_stages = [_copy_python_metadata(s, stage) for s in inner_stages]
         return _classify_inner(inner_stages, stage, depth + 1,
                                sub_results=inner_sub_results or None, **_ikw)
 
@@ -2332,11 +2516,31 @@ def _classify_inner(
             _tighten_from_inner(s, sr, sub_results)
         return sr
 
-    # Multiple stages — classify each, check composition, aggregate
+    # Multiple stages — classify each, check composition, aggregate.
+    # Mirror top-level Python resolution state tracking inside unwrapped shells.
     inner_results = []
-    for s in inner_stages:
+    python_prior_env_risk = ""
+    python_prior_cwd_risk = False
+    for idx, s in enumerate(inner_stages):
+        if python_prior_env_risk or python_prior_cwd_risk:
+            s = replace(
+                s,
+                python_prior_env_risk=_combine_python_risks(
+                    s.python_prior_env_risk, python_prior_env_risk
+                ),
+                python_prior_cwd_risk=s.python_prior_cwd_risk or python_prior_cwd_risk,
+            )
+            inner_stages[idx] = s
+
         sr = _classify_stage(s, depth, **kw)
         inner_results.append(sr)
+
+        if s.operator != "|":
+            env_risk = _stage_python_env_update_risk(s)
+            if env_risk:
+                python_prior_env_risk = env_risk
+            if _stage_can_change_cwd(s):
+                python_prior_cwd_risk = True
 
     # FD-103: tighten from inner process sub results before composition
     if sub_results:
@@ -2523,6 +2727,294 @@ def _check_redirect(target: str) -> tuple[str, str]:
         return decision, f"redirect to {display}"
 
     return context.resolve_filesystem_context(target)
+
+
+
+def _python_module_invocation(tokens: list[str]) -> tuple[str, list[str]] | None:
+    """Return (module, args) for exact python/python3 -m invocations."""
+    if len(tokens) < 3:
+        return None
+    cmd = taxonomy._normalize_interpreter(os.path.basename(tokens[0]))
+    if cmd not in {"python", "python3"}:
+        return None
+    if tokens[1] != "-m":
+        return None
+    module = tokens[2]
+    if not module or module.startswith("-"):
+        return None
+    return module, tokens[3:]
+
+
+def _glued_input_redirect_target(tok: str) -> str:
+    if tok.startswith("0<") and not tok.startswith("0<<") and len(tok) > 2:
+        return tok[2:]
+    if tok.startswith("<") and not tok.startswith("<<") and len(tok) > 1:
+        return tok[1:]
+    return ""
+
+
+def _strip_input_redirect_args(args: list[str]) -> list[str] | None:
+    """Remove stdin redirection tokens before parsing module argv."""
+    stripped: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in {"<", "0<", "<<<"}:
+            if i + 1 >= len(args):
+                return None
+            i += 2
+            continue
+        if _glued_input_redirect_target(tok) or tok.startswith("<<<"):
+            i += 1
+            continue
+        stripped.append(tok)
+        i += 1
+    return stripped
+
+
+def _parse_json_tool_args(args: list[str]) -> tuple[str, list[str], bool] | None:
+    args = _strip_input_redirect_args(args)
+    if args is None:
+        return None
+    no_arg_flags = {
+        "--sort-keys", "--no-ensure-ascii", "--json-lines",
+        "--compact", "--tab", "--no-indent",
+    }
+    positionals: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            positionals.extend(args[i + 1:])
+            break
+        if tok in no_arg_flags:
+            i += 1
+            continue
+        if tok == "--indent":
+            if i + 1 >= len(args) or not re.fullmatch(r"-?\d+", args[i + 1]):
+                return None
+            i += 2
+            continue
+        if tok.startswith("--indent="):
+            if not re.fullmatch(r"-?\d+", tok.split("=", 1)[1]):
+                return None
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        positionals.append(tok)
+        i += 1
+
+    if len(positionals) > 2:
+        return None
+    if len(positionals) == 2 and positionals[1] != "-":
+        return taxonomy.FILESYSTEM_WRITE, [positionals[1]], False
+    return taxonomy.FILESYSTEM_READ, [], True
+
+
+def _parse_tokenize_args(args: list[str]) -> tuple[str, list[str], bool] | None:
+    args = _strip_input_redirect_args(args)
+    if args is None:
+        return None
+    positionals: list[str] = []
+    for tok in args:
+        if tok in {"-e", "--exact"}:
+            continue
+        if tok == "--":
+            continue
+        if tok.startswith("-"):
+            return None
+        positionals.append(tok)
+    if len(positionals) > 1:
+        return None
+    return taxonomy.FILESYSTEM_READ, [], False
+
+
+def _parse_tabnanny_args(args: list[str]) -> tuple[str, list[str], bool] | None:
+    args = _strip_input_redirect_args(args)
+    if args is None:
+        return None
+    after_double_dash = False
+    for tok in args:
+        if tok == "--":
+            after_double_dash = True
+            continue
+        if not after_double_dash and tok in {"-v", "--verbose", "-q", "--quiet"}:
+            continue
+        if not after_double_dash and tok.startswith("-"):
+            return None
+    return taxonomy.FILESYSTEM_READ, [], False
+
+
+def _parse_py_compile_args(args: list[str]) -> tuple[str, list[str], bool] | None:
+    args = _strip_input_redirect_args(args)
+    if args is None:
+        return None
+    targets: list[str] = []
+    after_double_dash = False
+    for tok in args:
+        if tok == "--" and not after_double_dash:
+            after_double_dash = True
+            continue
+        if not after_double_dash and tok in {"-q", "--quiet"}:
+            continue
+        if not after_double_dash and tok.startswith("-"):
+            return None
+        targets.append(tok)
+    if not targets:
+        return None
+    return taxonomy.FILESYSTEM_WRITE, targets, False
+
+
+def _parse_compileall_args(args: list[str]) -> tuple[str, list[str], bool] | None:
+    args = _strip_input_redirect_args(args)
+    if args is None:
+        return None
+    no_arg_flags = {"-f", "-q", "-b", "-l", "--force", "--quiet", "--legacy"}
+    value_flags = {
+        "-j", "-r", "-x", "-i", "-s", "-p", "-d",
+        "--workers", "--recursion-limit", "--rx", "--input-file",
+        "--stripdir", "--prependdir", "--ddir", "--invalidation-mode",
+    }
+    targets: list[str] = []
+    i = 0
+    after_double_dash = False
+    while i < len(args):
+        tok = args[i]
+        if tok == "--" and not after_double_dash:
+            after_double_dash = True
+            i += 1
+            continue
+        if not after_double_dash and tok in no_arg_flags:
+            i += 1
+            continue
+        if not after_double_dash and tok in value_flags:
+            if i + 1 >= len(args):
+                return None
+            i += 2
+            continue
+        if not after_double_dash and any(tok.startswith(flag + "=") for flag in value_flags):
+            i += 1
+            continue
+        if not after_double_dash and tok.startswith("-"):
+            return None
+        targets.append(tok)
+        i += 1
+    return taxonomy.FILESYSTEM_WRITE, targets or ["."], False
+
+
+def _parse_safe_python_module_args(module: str, args: list[str]) -> tuple[str, list[str], bool] | None:
+    if module == "json.tool":
+        return _parse_json_tool_args(args)
+    if module == "tokenize":
+        return _parse_tokenize_args(args)
+    if module == "tabnanny":
+        return _parse_tabnanny_args(args)
+    if module == "py_compile":
+        return _parse_py_compile_args(args)
+    if module == "compileall":
+        return _parse_compileall_args(args)
+    return None
+
+
+def _python_module_shadow_exists(module: str) -> bool:
+    top_level = module.split(".", 1)[0]
+    roots = [os.getcwd()]
+    project_root = paths.get_project_root()
+    if project_root:
+        roots.append(project_root)
+
+    seen: set[str] = set()
+    for root in roots:
+        real_root = os.path.realpath(root)
+        if real_root in seen:
+            continue
+        seen.add(real_root)
+        module_file = os.path.join(real_root, top_level + ".py")
+        package_init = os.path.join(real_root, top_level, "__init__.py")
+        if os.path.isfile(module_file) or os.path.isfile(package_init):
+            return True
+    return False
+
+
+def _safe_python_clean_risk(stage: Stage, module: str) -> str:
+    if stage.python_env_risk:
+        return stage.python_env_risk
+    if stage.python_prior_env_risk:
+        return stage.python_prior_env_risk
+    if stage.python_prior_cwd_risk:
+        return "python module resolution after cwd change"
+    if os.environ.get("PYTHONPYCACHEPREFIX"):
+        return "ambient PYTHONPYCACHEPREFIX"
+    if _python_module_shadow_exists(module):
+        return "python module shadow in cwd/project"
+    return ""
+
+
+def _resolve_filesystem_targets_context(targets: list[str]) -> tuple[str, str]:
+    if not targets:
+        return taxonomy.ALLOW, "filesystem_write: no target path"
+
+    worst_decision = taxonomy.ALLOW
+    worst_reason = ""
+    for target in targets:
+        decision, reason = context.resolve_filesystem_context(target)
+        if taxonomy.STRICTNESS.get(decision, 0) > taxonomy.STRICTNESS.get(worst_decision, 0):
+            worst_decision = decision
+            worst_reason = reason
+    return worst_decision, worst_reason
+
+
+def _safe_python_module_result(
+    stage: Stage,
+    *,
+    user_actions: dict[str, str] | None,
+    profile: str = "full",
+) -> StageResult | None:
+    if profile == "none":
+        return None
+
+    invocation = _python_module_invocation(stage.tokens)
+    if invocation is None:
+        return None
+    module, args = invocation
+    if module not in _PYTHON_SAFE_MODULES:
+        return None
+
+    if _safe_python_clean_risk(stage, module):
+        return None
+
+    parsed = _parse_safe_python_module_args(module, args)
+    if parsed is None:
+        return None
+    action_type, write_targets, transparent_formatter = parsed
+
+    sr = StageResult(tokens=stage.tokens)
+    sr.action_type = action_type
+    sr.default_policy = taxonomy.get_policy(action_type, user_actions)
+    sr.python_module = module
+    sr.transparent_python_formatter = transparent_formatter
+
+    if action_type == taxonomy.FILESYSTEM_WRITE and sr.default_policy == taxonomy.CONTEXT:
+        sr.decision, sr.reason = _resolve_filesystem_targets_context(write_targets)
+    else:
+        _apply_policy(sr)
+
+    path_decision, path_reason = _check_extracted_paths(stage.tokens)
+    if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
+        sr.decision = path_decision
+        sr.reason = path_reason
+
+    return sr
+
+
+def _is_transparent_python_formatter(stage: Stage, sr: StageResult) -> bool:
+    return (
+        sr.transparent_python_formatter
+        and sr.action_type == taxonomy.FILESYSTEM_READ
+        and sr.decision == taxonomy.ALLOW
+        and stage.redirect_target == ""
+    )
 
 
 def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
@@ -2770,14 +3262,15 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
     project_root = paths.get_project_root()
 
     for tok in tokens[1:]:
-        if tok.startswith("-"):
+        check_tok = _glued_input_redirect_target(tok) or tok
+        if check_tok.startswith("-"):
             continue
-        if "/" in tok or tok.startswith("~") or tok.startswith("."):
-            basic = paths.check_path_basic_raw(tok)
+        if "/" in check_tok or check_tok.startswith("~") or check_tok.startswith("."):
+            basic = paths.check_path_basic_raw(check_tok)
             if basic:
                 decision, reason = basic
                 # Check allow_paths exemption (same as check_path does for file tools)
-                if is_path_allowed(tok, project_root):
+                if is_path_allowed(check_tok, project_root):
                     continue  # exempted
                 if decision == taxonomy.BLOCK:
                     block_result = (taxonomy.BLOCK, reason)
@@ -2828,9 +3321,10 @@ def _is_sensitive_read(sr: StageResult) -> bool:
     if sr.action_type != taxonomy.FILESYSTEM_READ:
         return False
     for tok in sr.tokens[1:]:
-        if tok.startswith("-"):
+        check_tok = _glued_input_redirect_target(tok) or tok
+        if check_tok.startswith("-"):
             continue
-        basic = paths.check_path_basic_raw(tok)
+        basic = paths.check_path_basic_raw(check_tok)
         if not basic:
             continue
         _decision, reason = basic
