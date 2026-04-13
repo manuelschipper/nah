@@ -3301,19 +3301,97 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
         if _is_sensitive_read(left) and right.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE):
             return taxonomy.BLOCK, f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
 
+        right_is_exec_sink = _is_exec_sink_stage(right)
+        if right_is_exec_sink and _is_transparent_suffix_from(i + 1, stage_results, stages):
+            continue
+
         # network | exec → block (remote code execution)
-        if left.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE) and _is_exec_sink_stage(right):
+        if left.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE) and right_is_exec_sink:
             return taxonomy.BLOCK, f"remote code execution: {right.tokens[0]} receives network input", "network | exec"
 
         # decode | exec → block (obfuscation)
-        if taxonomy.is_decode_stage(left.tokens) and _is_exec_sink_stage(right):
+        if taxonomy.is_decode_stage(left.tokens) and right_is_exec_sink:
             return taxonomy.BLOCK, f"obfuscated execution: {right.tokens[0]} receives decoded input", "decode | exec"
 
         # any_read | exec → ask
-        if left.action_type == taxonomy.FILESYSTEM_READ and _is_exec_sink_stage(right):
+        if left.action_type == taxonomy.FILESYSTEM_READ and right_is_exec_sink:
             return taxonomy.ASK, f"local code execution: {right.tokens[0]} receives file input", "read | exec"
 
     return "", "", ""
+
+
+def _is_transparent_suffix_from(
+    start: int,
+    stage_results: list[StageResult],
+    stages: list[Stage],
+) -> bool:
+    if start >= len(stage_results):
+        return False
+    for idx in range(start, len(stage_results)):
+        if not _is_transparent_suffix_stage(stages[idx], stage_results[idx]):
+            return False
+    return True
+
+
+def _is_transparent_suffix_stage(stage: Stage, sr: StageResult) -> bool:
+    if sr.decision != taxonomy.ALLOW:
+        return False
+    if _is_transparent_python_formatter(stage, sr):
+        return True
+    if stage.redirect_target:
+        return False
+    if not sr.tokens:
+        return False
+
+    cmd = os.path.basename(sr.tokens[0])
+    if cmd in {"tail", "head", "wc", "sort", "uniq"}:
+        return sr.action_type == taxonomy.FILESYSTEM_READ
+    if cmd == "tee":
+        return _is_transparent_tee_stage(sr)
+    return False
+
+
+def _is_transparent_tee_stage(sr: StageResult) -> bool:
+    if sr.action_type != taxonomy.FILESYSTEM_WRITE:
+        return False
+
+    targets: list[str] = []
+    args = sr.tokens[1:]
+    i = 0
+    after_double_dash = False
+    while i < len(args):
+        tok = args[i]
+        if tok == "--" and not after_double_dash:
+            after_double_dash = True
+            i += 1
+            continue
+        if not after_double_dash and tok in {"-a", "--append", "-i", "--ignore-interrupts", "-p"}:
+            i += 1
+            continue
+        if not after_double_dash and tok == "--output-error":
+            if i + 1 >= len(args):
+                return False
+            i += 2
+            continue
+        if not after_double_dash and tok.startswith("--output-error="):
+            i += 1
+            continue
+        if not after_double_dash and tok.startswith("-"):
+            return False
+        targets.append(tok)
+        i += 1
+
+    if not targets:
+        return True
+    for target in targets:
+        if target in _REDIRECT_SAFE_SINKS or target.startswith("/dev/fd/"):
+            continue
+        if paths.resolve_path(target).startswith(os.path.realpath("/tmp") + os.sep):
+            continue
+        decision, _reason = context.resolve_filesystem_context(target)
+        if decision != taxonomy.ALLOW:
+            return False
+    return True
 
 
 def _is_sensitive_read(sr: StageResult) -> bool:
