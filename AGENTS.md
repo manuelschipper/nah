@@ -103,40 +103,15 @@ When cutting a new release:
 
 ---
 
-## Design Workflow (molds)
+## Molds
 
-Molds adds a design-first workflow to your project. Specs live in `.molds/` and move through a simple lifecycle: design → build → archive.
+This repo uses molds. Durable workflow state lives in `.molds/`.
 
-### Statuses
-- `design` — spec is being written (working file in `.molds/`)
-- `build` — spec signed off, ready to implement (file stays in `.molds/`)
+Use these commands instead of assuming mode or automation from this file:
 
-### Core Workflow
-`/new-mold` → `/design-mold` → `/ready-mold` → `/build-mold` → `/qa-mold` → `/close-mold`
-
-### Common Commands
-| Command | Purpose |
-|---------|---------|
-| `/new-mold` | Create a new mold and scaffold its working file |
-| `/design-mold` | Strengthen the spec before implementation |
-| `/ready-mold` | Run pre-flight checks and move design → build |
-| `/build-mold` | Implement the signed-off spec |
-| `/qa-mold` | Verify code quality and spec compliance |
-| `/close-mold` | Archive the mold and record completion |
-| `/explore-project` | Brief yourself on the project and current mold state |
-| `/handoff` | Capture context for the next session |
-
-### CLI
 ```bash
-molds create "<title>"            # create a new mold
-molds update <id> --status <s>    # update mold status
-molds close <id>                  # close and archive
-molds status                      # dashboard
-molds tunnels start|stop|status   # manage SSH tunnels (beads mode)
+molds config get mode
+molds status
 ```
 
-### Runtime Notes
-Available skills depend on the installed provider flavor. Advanced commands may vary by runtime.
-
-### Inline Annotations (`%%`)
-Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
+Detailed workflow guidance is loaded globally from `@MOLDS.md`.
