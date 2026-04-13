@@ -68,6 +68,7 @@ _SENSITIVE_BASENAMES: list[tuple[str, str, str]] = [
 
 _project_root: str | None = None
 _project_root_resolved = False
+_project_boundary_roots: list[str] | None = None
 
 # Snapshot of hardcoded defaults for reset (testing).
 _SENSITIVE_DIRS_DEFAULTS = list(_SENSITIVE_DIRS)
@@ -394,8 +395,7 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
             "reason": f"{tool_name} outside project (no git root): {friendly_path(resolved)}",
             "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
         }
-    real_root = os.path.realpath(project_root)
-    if resolved == real_root or resolved.startswith(real_root + os.sep):
+    if is_inside_project_boundary(resolved):
         return None  # inside project
     if is_trusted_path(resolved):
         return None  # inside trusted directory
@@ -408,16 +408,18 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
 
 def set_project_root(path: str) -> None:
     """Override project root (for testing). Bypasses git auto-detection."""
-    global _project_root, _project_root_resolved
+    global _project_root, _project_root_resolved, _project_boundary_roots
     _project_root = path
     _project_root_resolved = True
+    _project_boundary_roots = None
 
 
 def reset_project_root() -> None:
     """Clear project root override, restoring auto-detection."""
-    global _project_root, _project_root_resolved
+    global _project_root, _project_root_resolved, _project_boundary_roots
     _project_root = None
     _project_root_resolved = False
+    _project_boundary_roots = None
 
 
 def get_project_root() -> str | None:
@@ -436,3 +438,82 @@ def get_project_root() -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         sys.stderr.write("nah: git not available, project root detection skipped\n")
     return _project_root
+
+
+def _append_unique_path(paths: list[str], path: str) -> None:
+    """Append a realpath-normalized path once, preserving order."""
+    resolved = os.path.realpath(path)
+    if resolved not in paths:
+        paths.append(resolved)
+
+
+def _git_output(args: list[str]) -> str | None:
+    """Return stdout for a git rev-parse query, or None on failure.
+
+    Boundary-root expansion is an optimization over the existing project root.
+    If git is unavailable, slow, or outside a repository, callers fail closed to
+    the already-detected root rather than widening trust.
+    """
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True, text=True, timeout=2,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    output = result.stdout.strip()
+    return output or None
+
+
+def get_project_boundary_roots() -> list[str]:
+    """Return roots that count as inside the current project boundary.
+
+    In a linked git worktree, `git rev-parse --show-toplevel` is the worktree
+    root while shared repo files live under the main checkout. Use
+    `--git-common-dir` to add that main checkout root when it can be derived
+    unambiguously.
+    """
+    global _project_boundary_roots
+    if _project_boundary_roots is not None:
+        return list(_project_boundary_roots)
+
+    project_root = get_project_root()
+    if project_root is None:
+        _project_boundary_roots = []
+        return []
+
+    roots: list[str] = []
+    real_project_root = os.path.realpath(project_root)
+    _append_unique_path(roots, real_project_root)
+
+    git_root = _git_output(["git", "rev-parse", "--show-toplevel"])
+    if git_root is None or os.path.realpath(git_root) != real_project_root:
+        _project_boundary_roots = roots
+        return list(roots)
+
+    common_dir = _git_output(["git", "rev-parse", "--git-common-dir"])
+    if common_dir is None:
+        _project_boundary_roots = roots
+        return list(roots)
+
+    if os.path.isabs(common_dir):
+        real_common_dir = os.path.realpath(common_dir)
+    else:
+        real_common_dir = os.path.realpath(os.path.join(os.getcwd(), common_dir))
+
+    if os.path.basename(real_common_dir) == ".git":
+        _append_unique_path(roots, os.path.dirname(real_common_dir))
+
+    _project_boundary_roots = roots
+    return list(roots)
+
+
+def is_inside_project_boundary(resolved_path: str) -> bool:
+    """Check whether a resolved path is inside any project boundary root."""
+    resolved = resolve_path(resolved_path)
+    for root in get_project_boundary_roots():
+        if resolved == root or resolved.startswith(root + os.sep):
+            return True
+    return False
