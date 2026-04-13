@@ -30,6 +30,17 @@ class TestScanContent:
         matches = scan_content("os.unlink('/tmp/file')")
         assert any(m.category == "destructive" for m in matches)
 
+    @pytest.mark.parametrize("content,desc", [
+        (r"Remove-Item -Recurse C:\tmp", "Remove-Item -Recurse"),
+        (r"remove-item C:\tmp -recurse", "Remove-Item -Recurse"),
+        (r"rd /s C:\tmp", "rd /s"),
+        (r"rmdir /s C:\tmp", "rmdir /s"),
+        (r"del /f C:\tmp\file.txt", "del /f"),
+    ])
+    def test_windows_destructive_patterns(self, content, desc):
+        matches = scan_content(content)
+        assert any(m.category == "destructive" and m.pattern_desc == desc for m in matches)
+
     # --- exfiltration ---
 
     def test_curl_post(self):

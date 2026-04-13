@@ -6,5 +6,11 @@
   "less",
   "wc",
   "file",
-  "stat"
+  "stat",
+  "dir",
+  "findstr",
+  "tasklist",
+  "where",
+  "wmic",
+  "systeminfo"
 ]

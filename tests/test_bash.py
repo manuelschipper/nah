@@ -1092,6 +1092,39 @@ class TestDecomposition:
         assert r.final_decision == "block"
         assert r.stages[0].action_type == "filesystem_write"
 
+    @pytest.mark.parametrize("target", ["NUL", "nul", "CON", "con"])
+    def test_windows_redirect_safe_sinks(self, project_root, target):
+        r = classify_command(f"echo ok > {target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_windows_quoted_trailing_backslash_tokenizes(self, project_root):
+        r = classify_command('ls "D:\\path\\"')
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    @pytest.mark.parametrize("command", [
+        'powershell -Command "Get-ChildItem"',
+        "pwsh.exe -EncodedCommand SQBFAFgA",
+        "cmd /c dir",
+    ])
+    def test_windows_shell_inline_does_not_resolve_payload_as_script(self, project_root, command):
+        r = classify_command(command)
+        assert r.stages[0].action_type == "lang_exec"
+        assert "script not found" not in r.reason
+        assert "script outside project" not in r.reason
+
+    @pytest.mark.parametrize("command,pattern", [
+        (r"powershell -Command Remove-Item -Recurse C:\tmp", "Remove-Item -Recurse"),
+        (r"cmd /c del /f C:\tmp\file.txt", "del /f"),
+    ])
+    def test_windows_shell_inline_scans_multi_token_payload(self, project_root, command, pattern):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "content inspection" in r.reason
+        assert pattern in r.reason
+
 
     @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>"])
     def test_glued_redirect_variants_detected_as_write(self, project_root, redirect):

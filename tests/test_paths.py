@@ -55,6 +55,21 @@ class TestResolvePath:
     def test_empty(self):
         assert paths.resolve_path("") == ""
 
+    def test_msys_drive_path_normalizes_on_windows(self, monkeypatch):
+        monkeypatch.setattr(paths.sys, "platform", "win32")
+        assert paths._normalize_msys_drive_path("/d/projects/nah") == "D:/projects/nah"
+
+    def test_msys_drive_path_ignored_on_posix(self, monkeypatch):
+        monkeypatch.setattr(paths.sys, "platform", "linux")
+        assert paths._normalize_msys_drive_path("/d/projects/nah") == "/d/projects/nah"
+
+
+class TestSplitPathParts:
+    def test_splits_windows_and_posix_separators(self):
+        assert paths._split_path_parts(r"/Users\alice/.ssh\id_rsa") == [
+            "Users", "alice", ".ssh", "id_rsa",
+        ]
+
 
 # --- friendly_path ---
 

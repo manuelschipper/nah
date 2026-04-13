@@ -1,5 +1,6 @@
 [
   "kill",
   "killall",
-  "pkill"
+  "pkill",
+  "taskkill"
 ]

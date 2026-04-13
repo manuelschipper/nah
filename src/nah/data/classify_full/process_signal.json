@@ -4,5 +4,6 @@
   "kill -SIGKILL",
   "pkill",
   "killall",
-  "dolt sql-server"
+  "dolt sql-server",
+  "taskkill"
 ]

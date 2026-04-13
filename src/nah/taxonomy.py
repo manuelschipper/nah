@@ -118,8 +118,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
         for prefix_str in prefixes:
             parts = prefix_str.split()
             if parts:
-                parts[0] = os.path.basename(parts[0]) or parts[0]
-                parts[0] = _normalize_interpreter(parts[0])
+                parts[0] = _normalize_command_name(parts[0])
             table.append((tuple(parts), action_type))
     table.sort(key=lambda entry: len(entry[0]), reverse=True)
     return table
@@ -133,7 +132,8 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
                           "python", "python3", "node", "ruby", "perl",
-                          "bash", "sh", "dash", "zsh", "php", "tsx"}
+                          "bash", "sh", "dash", "zsh", "php", "tsx",
+                          "powershell", "pwsh", "cmd"}
 
 # Global-install flags that escalate to unknown (ask).
 _GLOBAL_INSTALL_FLAGS = {"-g", "--global", "--system", "--target", "--root"}
@@ -245,6 +245,7 @@ _NPX_UNSUPPORTED_FLAGS = {"-c", "--call"}
 # Exec sinks for pipe composition.
 _EXEC_SINKS_DEFAULTS = {"bash", "sh", "dash", "zsh", "eval", "python", "python3",
                          "node", "ruby", "perl", "php", "bun", "deno", "fish", "pwsh",
+                         "powershell", "cmd",
                          "env", "lua", "R", "Rscript", "make", "julia", "swift"}
 EXEC_SINKS: set[str] = set(_EXEC_SINKS_DEFAULTS)
 _exec_sinks_merged = False
@@ -254,9 +255,40 @@ _exec_sinks_merged = False
 _CANONICAL_INTERPRETERS = [
     "python3", "python", "pip3", "pip",
     "node", "ruby", "perl", "php", "deno", "bun",
-    "bash", "dash", "zsh", "sh", "fish", "pwsh",
+    "powershell", "bash", "dash", "zsh", "sh", "fish", "pwsh", "cmd",
 ]
 _VERSION_SUFFIX_RE = re.compile(r"^\.?[0-9]+(?:\.[0-9]+)*$")
+_WINDOWS_CASE_INSENSITIVE_COMMANDS = {
+    "cmd",
+    "powershell",
+    "pwsh",
+    "dir",
+    "findstr",
+    "tasklist",
+    "taskkill",
+    "where",
+    "wmic",
+    "systeminfo",
+}
+
+
+def _command_basename(token: str) -> str:
+    """Return a command basename for POSIX or Windows-style command paths."""
+    return re.split(r"[\\/]", token)[-1] if token else token
+
+
+def _strip_windows_exe_suffix(name: str) -> str:
+    """Strip a case-insensitive Windows .exe command suffix."""
+    return name[:-4] if name.lower().endswith(".exe") else name
+
+
+def _normalize_command_name(name: str) -> str:
+    """Normalize command identity without globally lowercasing Unix commands."""
+    base = _strip_windows_exe_suffix(_command_basename(name) or name)
+    lower = base.lower()
+    if lower in _WINDOWS_CASE_INSENSITIVE_COMMANDS:
+        base = lower
+    return _normalize_interpreter(base)
 
 
 def _normalize_interpreter(name: str) -> str:
@@ -289,10 +321,10 @@ def _ensure_exec_sinks_merged():
         if cfg.profile == "none":
             EXEC_SINKS.clear()
         add, remove = _parse_add_remove(cfg.exec_sinks)
-        EXEC_SINKS.update(_normalize_interpreter(str(s)) for s in add)
+        EXEC_SINKS.update(_normalize_command_name(str(s)) for s in add)
         if remove:
             sys.stderr.write("nah: warning: exec_sinks.remove weakens composition rules\n")
-            EXEC_SINKS.difference_update(_normalize_interpreter(str(s)) for s in remove)
+            EXEC_SINKS.difference_update(_normalize_command_name(str(s)) for s in remove)
     except Exception as exc:
         sys.stderr.write(f"nah: config: exec_sinks: {exc}\n")
 
@@ -390,15 +422,10 @@ def classify_tokens(
     if not tokens:
         return UNKNOWN
 
-    # Basename normalization — resolve /usr/bin/rm → rm (FD-065)
-    base = os.path.basename(tokens[0])
+    # Command normalization — resolve /usr/bin/rm, C:\...\cmd.exe, python3.12.
+    base = _normalize_command_name(tokens[0])
     if base and base != tokens[0]:
         tokens = [base] + tokens[1:]
-
-    # Version normalization — python3.12 → python3 (nah-1o5)
-    normalized = _normalize_interpreter(tokens[0])
-    if normalized != tokens[0]:
-        tokens = [normalized] + tokens[1:]
 
     # --- Phase 1: Global table override (trusted user config) ---
     # Non-git: check global table on raw tokens.
@@ -460,6 +487,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_make(tokens)
+        if action is not None:
+            return action
+        action = _classify_windows_shell(tokens)
         if action is not None:
             return action
         action = _classify_package_exec_wrapper(
@@ -1368,6 +1398,23 @@ def _classify_make(tokens: list[str]) -> str | None:
     return LANG_EXEC
 
 
+def _classify_windows_shell(tokens: list[str]) -> str | None:
+    """Flag-dependent classification for Windows shell inline execution."""
+    if len(tokens) < 2:
+        return None
+    cmd = _normalize_command_name(tokens[0])
+    first = tokens[1].lower()
+    if cmd in {"powershell", "pwsh"} and first in {
+        "-command",
+        "-c",
+        "-encodedcommand",
+    }:
+        return LANG_EXEC
+    if cmd == "cmd" and first in {"/c", "/k"}:
+        return LANG_EXEC
+    return None
+
+
 def _classify_script_exec(tokens: list[str]) -> str | None:
     """Flag-dependent: detect interpreter + script file execution → lang_exec.
 
@@ -1564,7 +1611,7 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
     if not tokens:
         return False, None
 
-    cmd = _normalize_interpreter(tokens[0])
+    cmd = _normalize_command_name(tokens[0])
 
     if cmd in _SHELL_WRAPPERS:
         # bash/sh/dash/zsh [flags...] -c "inner"
@@ -1601,7 +1648,7 @@ def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:
 def is_exec_sink(token: str) -> bool:
     """Check if a token is an exec sink (for pipe composition rules)."""
     _ensure_exec_sinks_merged()
-    return _normalize_interpreter(os.path.basename(token)) in EXEC_SINKS
+    return _normalize_command_name(token) in EXEC_SINKS
 
 
 def is_decode_stage(tokens: list[str]) -> bool:

@@ -4,12 +4,13 @@ import os
 import sys
 from dataclasses import dataclass, field
 
+from nah.platform_paths import nah_config_dir
 from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
 
 class ConfigError(Exception):
     """Raised when a config file exists but fails to parse."""
 
-_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah")
+_CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
 
@@ -131,6 +132,18 @@ def apply_override(override_data: dict) -> None:
             cfg.credential_patterns_suppress = cp["suppress"]
         if "add" in cp:
             cfg.credential_patterns_add = cp["add"]
+
+    if "llm" in override_data:
+        cfg.llm = _validate_dict(override_data["llm"])
+        raw_mode = cfg.llm.get("mode", "")
+        if raw_mode in ("off", "on"):
+            cfg.llm_mode = raw_mode
+        elif "mode" not in cfg.llm and bool(cfg.llm.get("enabled", False)):
+            cfg.llm_mode = "on"
+    if "llm_mode" in override_data and override_data["llm_mode"] in ("off", "on"):
+        cfg.llm_mode = override_data["llm_mode"]
+    if "llm_eligible" in override_data:
+        cfg.llm_eligible = override_data["llm_eligible"]
 
     if "active_allow" in override_data:
         raw_aa = override_data["active_allow"]
