@@ -18,6 +18,10 @@ _MAX_SCAN_CHARS = 1_048_576  # 1M characters (~1MB for ASCII)
 _truncation_logged = False
 
 
+# Inline subprocess calls with these tokens are execution or network pivots.
+_SUBPROCESS_DANGEROUS_TOKEN = r"(?:curl|wget|bash|sh|python3?|node|ruby|perl|php)"
+_SUBPROCESS_DANGEROUS_PAYLOAD = rf"[^)]*\b{_SUBPROCESS_DANGEROUS_TOKEN}\b[^)]*"
+
 # Compiled regexes by category. Each entry: (compiled_regex, description).
 _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
     "destructive": [
@@ -33,6 +37,12 @@ _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
         (re.compile(r"\bcurl\s+.*-d\s"), "curl -d"),
         (re.compile(r"\brequests\.post\b"), "requests.post"),
         (re.compile(r"\burllib\.request\.urlopen\b.*data\s*="), "urllib POST"),
+    ],
+    "subprocess_execution": [
+        (re.compile(rf"\bos\.system\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "os.system dangerous command"),
+        (re.compile(rf"\bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "subprocess dangerous command"),
+        (re.compile(rf"\bchild_process\b[\s\S]{{0,200}}\.(?:exec|execFile|spawn|fork)\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "child_process dangerous command"),
+        (re.compile(rf"(?<![\w.])(?:system|exec)\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "system/exec dangerous command"),
     ],
     "credential_access": [
         (re.compile(r"~/\.ssh/"), "~/.ssh/ access"),

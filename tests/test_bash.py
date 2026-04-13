@@ -1679,6 +1679,47 @@ class TestEdgeCases:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 
+    def test_env_var_shell_function_asks(self, project_root):
+        r = classify_command("X='() { :;}; rm -rf /' bash -c echo")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].reason == "env var shell function"
+
+    def test_invalid_shell_function_assignment_asks(self, project_root):
+        r = classify_command("BASH_FUNC_x%%='() { :;}; rm -rf /' bash -c echo")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].reason == "env var shell function"
+
+    def test_env_wrapper_shell_function_asks(self, project_root):
+        r = classify_command("env X='() { :;}; rm -rf /' bash -c echo")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "env wrapper env var shell function" in r.stages[0].reason
+
+    def test_env_wrapper_exec_sink_assignment_asks(self, project_root):
+        r = classify_command("env PAGER='bash -c evil' git help config")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "env wrapper env var exec sink: bash" in r.stages[0].reason
+
+    def test_env_wrapper_invalid_shell_function_assignment_asks(self, project_root):
+        r = classify_command("env BASH_FUNC_x%%='() { :;}; rm -rf /' bash -c echo")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "env wrapper env var shell function" in r.stages[0].reason
+
+    def test_env_wrapper_literal_assignment_allows(self, project_root):
+        r = classify_command("env FOO=bar git status")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+    def test_env_wrapper_invalid_assignment_not_stripped(self, project_root):
+        r = classify_command("env FOO-BAR=ok git status")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "unsupported env assignment" in r.stages[0].reason
+
     # -- mold-17: env-only stages should no longer fall through to unknown ---
 
     def test_env_only_literal_assignment_allows(self, project_root):
