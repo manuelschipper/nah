@@ -1114,6 +1114,17 @@ class TestDecomposition:
         assert "script not found" not in r.reason
         assert "script outside project" not in r.reason
 
+    @pytest.mark.parametrize("command,pattern", [
+        (r"powershell -Command Remove-Item -Recurse C:\tmp", "Remove-Item -Recurse"),
+        (r"cmd /c del /f C:\tmp\file.txt", "del /f"),
+    ])
+    def test_windows_shell_inline_scans_multi_token_payload(self, project_root, command, pattern):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "content inspection" in r.reason
+        assert pattern in r.reason
+
 
     @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>"])
     def test_glued_redirect_variants_detected_as_write(self, project_root, redirect):

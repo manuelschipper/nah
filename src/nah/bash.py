@@ -3248,7 +3248,7 @@ def _extract_inline_code(tokens: list[str]) -> str | None:
 
     windows_idx = _windows_shell_inline_arg_index(tokens)
     if windows_idx is not None:
-        return tokens[windows_idx] if windows_idx >= 0 else None
+        return " ".join(tokens[windows_idx:]) if windows_idx >= 0 else None
 
     inline = _INLINE_FLAGS.get(cmd, set())
     if not inline:
