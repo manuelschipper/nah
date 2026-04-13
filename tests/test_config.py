@@ -7,6 +7,7 @@ import pytest
 
 from nah.config import (
     NahConfig,
+    apply_override,
     get_config,
     reset_config,
     is_path_allowed,
@@ -14,6 +15,7 @@ from nah.config import (
     _load_yaml_file,
 )
 from nah import paths
+from nah.platform_paths import nah_config_dir
 
 
 class TestDefaults:
@@ -35,6 +37,13 @@ class TestDefaults:
         assert cfg.allow_paths == {}
         assert cfg.known_registries == []
 
+    def test_windows_global_config_dir_uses_appdata(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        monkeypatch.setenv("APPDATA", r"C:\Users\test\AppData\Roaming")
+        result = nah_config_dir()
+        assert result.startswith(r"C:\Users\test\AppData\Roaming")
+        assert result.endswith("nah")
+
     def test_config_cached(self, tmp_path):
         """get_config returns same instance on second call."""
         paths.set_project_root(str(tmp_path))
@@ -50,6 +59,15 @@ class TestDefaults:
         reset_config()
         cfg2 = get_config()
         assert cfg1 is not cfg2
+
+    def test_apply_override_can_disable_llm_mode(self, tmp_path):
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        apply_override({"llm": {"mode": "on", "providers": ["ollama"]}})
+        assert get_config().llm_mode == "on"
+        apply_override({"llm_mode": "off", "llm": {}})
+        assert get_config().llm_mode == "off"
+        assert get_config().llm == {}
 
 
 class TestLoadYaml:

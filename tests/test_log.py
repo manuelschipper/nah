@@ -82,6 +82,17 @@ class TestRedactInput:
         assert result == ""
 
 
+class TestWindowsUserFallback:
+    def test_build_entry_uses_username_when_user_missing(self, monkeypatch):
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.setenv("USERNAME", "win-user")
+        entry = log.build_entry(
+            "Bash", "dir", "allow", "filesystem_read -> allow",
+            "claude", "test", 1, {},
+        )
+        assert entry["user"] == "win-user"
+
+
 # -- log_decision --
 
 

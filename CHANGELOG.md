@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Windows compatibility classification** — Windows config/log paths now use `%APPDATA%\nah` when available, hook installation avoids POSIX chmod assumptions on Windows, common Windows read-only/process commands classify deterministically, Windows shell inline execution routes to `lang_exec`, and destructive PowerShell/cmd content patterns are detected without relying on LLM review. Behavior reported in PR #55 by `yingyangyou` (nah-867)
 - **Safe stdlib `python -m` utility classification** — `python -m json.tool`, `tabnanny`, `tokenize`, `py_compile`, and `compileall` now classify as bounded filesystem read/write operations when the invocation is clean, while malformed or import/env/cwd-influenced forms fail closed to `lang_exec` (mold-6)
 
 ### Fixed
