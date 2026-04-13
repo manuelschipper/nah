@@ -1040,6 +1040,18 @@ class TestIsExecSink:
     def test_non_sinks(self, token):
         assert is_exec_sink(token) is False
 
+    @pytest.mark.parametrize("token", [
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh.exe",
+        r"C:\Windows\System32\cmd.exe",
+        "Rscript.exe",
+    ])
+    def test_windows_exe_sinks(self, token):
+        assert is_exec_sink(token) is True
+
 
 # --- is_decode_stage ---
 
@@ -2125,6 +2137,30 @@ class TestSystemInfo:
     def test_system_info_is_read(self, cmd):
         assert _ct(cmd) == "filesystem_read"
 
+    @pytest.mark.parametrize("cmd", [
+        ["dir"],
+        ["findstr", "needle", "file.txt"],
+        ["tasklist"],
+        ["where", "python"],
+        ["wmic", "os", "get", "Caption"],
+        ["systeminfo"],
+    ])
+    def test_windows_system_info_is_read(self, cmd):
+        assert _ct(cmd) == "filesystem_read"
+
+    def test_taskkill_is_process_signal(self):
+        assert _ct(["taskkill", "/PID", "1234"]) == "process_signal"
+
+    @pytest.mark.parametrize("cmd", [
+        ["powershell", "-Command", "Get-ChildItem"],
+        ["powershell.exe", "-c", "Get-ChildItem"],
+        ["pwsh.exe", "-EncodedCommand", "SQBFAFgA"],
+        ["cmd", "/c", "dir"],
+        ["cmd.exe", "/k", "dir"],
+    ])
+    def test_windows_shell_inline_exec(self, cmd):
+        assert _ct(cmd) == "lang_exec"
+
 
 # --- FD-018: expanded coreutils ---
 
@@ -2347,6 +2383,10 @@ class TestExecSinksConfigurable:
 
     def test_new_defaults_pwsh(self):
         assert "pwsh" in taxonomy._EXEC_SINKS_DEFAULTS
+
+    def test_new_defaults_windows_shells(self):
+        assert "powershell" in taxonomy._EXEC_SINKS_DEFAULTS
+        assert "cmd" in taxonomy._EXEC_SINKS_DEFAULTS
 
     def test_add_via_list(self):
         from nah.config import NahConfig

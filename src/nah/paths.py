@@ -1,14 +1,17 @@
 """Path resolution, sensitive path matching, and project root detection."""
 
 import os
+import re
 import subprocess
 import sys
 
+from nah.platform_paths import nah_config_dir, windows_appdata_dir
 from nah import taxonomy
 
 _HOME = os.path.expanduser("~")
 _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
-_NAH_CONFIG_DIR = os.path.realpath(os.path.join(_HOME, ".config", "nah"))
+_NAH_CONFIG_DIR = os.path.realpath(nah_config_dir())
+_WINDOWS_APPDATA_DIR = windows_appdata_dir()
 
 # Sensitive paths: (resolved_dir, display_name, policy)
 # Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list —
@@ -53,6 +56,13 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".zshrc.d")), "~/.zshrc.d", "ask"),
     (os.path.realpath("/etc/shadow"), "/etc/shadow", "block"),
 ]
+if _WINDOWS_APPDATA_DIR:
+    _SENSITIVE_DIRS.extend([
+        (os.path.realpath(os.path.join(_WINDOWS_APPDATA_DIR, "gcloud")),
+         r"%APPDATA%\gcloud", "ask"),
+        (os.path.realpath(os.path.join(_WINDOWS_APPDATA_DIR, "GitHub CLI")),
+         r"%APPDATA%\GitHub CLI", "ask"),
+    ])
 
 # Basename patterns: (basename, display_name, policy)
 _SENSITIVE_BASENAMES: list[tuple[str, str, str]] = [
@@ -80,7 +90,7 @@ def resolve_path(raw: str) -> str:
     """Expand ~ and env vars, then resolve to absolute canonical path."""
     if not raw:
         return ""
-    expanded = os.path.expanduser(os.path.expandvars(raw))
+    expanded = _normalize_msys_drive_path(os.path.expanduser(os.path.expandvars(raw)))
     return os.path.realpath(expanded)
 
 
@@ -131,12 +141,24 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
 
 
 def _split_path_parts(raw: str) -> list[str]:
-    """Split a Unix-like path into normalized components.
+    """Split a Unix or Windows path into normalized components.
 
     This is intentionally string-based so it can reason about wildcard and
     command-substitution-style segments without executing shell syntax.
     """
-    return [part for part in raw.split("/") if part and part != "."]
+    return [part for part in re.split(r"[\\/]+", raw) if part and part != "."]
+
+
+def _normalize_msys_drive_path(raw: str) -> str:
+    """Convert MSYS-style /d/path to D:\\path on Windows."""
+    if sys.platform != "win32":
+        return raw
+    match = re.match(r"^/([A-Za-z])(?:/(.*))?$", raw)
+    if not match:
+        return raw
+    drive = match.group(1).upper()
+    rest = (match.group(2) or "").replace("/", os.sep)
+    return f"{drive}:{os.sep}{rest}" if rest else f"{drive}:{os.sep}"
 
 
 def _home_relative_sensitive_entries() -> list[tuple[tuple[str, ...], str, str]]:

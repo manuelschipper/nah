@@ -14,6 +14,8 @@ _MAX_UNWRAP_DEPTH = 5
 # Safe redirect sinks — /dev/ special files that are not real file writes.
 # Excludes block devices (/dev/sda, /dev/disk*) which are dangerous.
 _REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty"})
+_WINDOWS_REDIRECT_SAFE_SINKS = frozenset({"nul", "con"})
+_WINDOWS_QUOTED_TRAILING_BACKSLASH_RE = re.compile(r"""(["'])([A-Za-z]:\\[^"']*\\)\1""")
 
 _PYTHON_READ_ONLY_MODULES = frozenset({"json.tool", "tabnanny", "tokenize"})
 _PYTHON_WRITE_MODULES = frozenset({"py_compile", "compileall"})
@@ -821,10 +823,26 @@ def _split_stage_tokens(stage_str: str) -> list[str]:
     try:
         return shlex.split(stage_str)
     except ValueError as first_error:
+        fixed = _fix_windows_quoted_trailing_backslash(stage_str, first_error)
+        if fixed != stage_str:
+            try:
+                return shlex.split(fixed)
+            except ValueError:
+                pass
         try:
             return shlex.split(stage_str, comments=True)
         except ValueError:
             raise first_error
+
+
+def _fix_windows_quoted_trailing_backslash(stage_str: str, error: ValueError) -> str:
+    """Double a Windows path's final backslash when it escapes its closing quote."""
+    if "No closing quotation" not in str(error):
+        return stage_str
+    return _WINDOWS_QUOTED_TRAILING_BACKSLASH_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}\\{m.group(1)}",
+        stage_str,
+    )
 
 
 def _parse_subshell_redirects(suffix: str) -> list[tuple[str, bool, str]] | None:
@@ -1054,8 +1072,7 @@ def _env_var_has_exec(value: str) -> bool:
         return True  # Fail-closed: unparseable value → escalate
     if not tokens:
         return False
-    base = os.path.basename(tokens[0])
-    return taxonomy.is_exec_sink(base)
+    return taxonomy.is_exec_sink(tokens[0])
 
 
 def _classify_export_assignment(
@@ -1064,7 +1081,7 @@ def _classify_export_assignment(
 ) -> StageResult | None:
     """Classify benign ``export NAME=value`` shell-builtin stages."""
     tokens = stage.tokens
-    if not tokens or os.path.basename(tokens[0]) != "export" or len(tokens) == 1:
+    if not tokens or taxonomy._normalize_command_name(tokens[0]) != "export" or len(tokens) == 1:
         return None
 
     for tok in tokens[1:]:
@@ -1390,7 +1407,7 @@ def _classify_stage(
     # Bypass classify_tokens (which would see bare 'python3' as unknown) and
     # _apply_policy (which would call _resolve_context without the heredoc body).
     if stage.heredoc_literal and tokens:
-        cmd = taxonomy._normalize_interpreter(os.path.basename(tokens[0]))
+        cmd = taxonomy._normalize_command_name(tokens[0])
         if cmd in taxonomy._SCRIPT_INTERPRETERS:
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
@@ -2699,6 +2716,8 @@ def _apply_redirect_guard(
     """Escalate a stage result when the outer stage redirects output to disk."""
     if not stage.redirect_target:
         return sr
+    if _is_redirect_safe_sink(stage.redirect_target):
+        return sr
 
     redirect_sr = _classify_redirect_write(stage, user_actions)
     redirect_strictness = taxonomy.STRICTNESS.get(redirect_sr.decision, 0)
@@ -2717,7 +2736,7 @@ def _check_redirect(target: str) -> tuple[str, str]:
     """Check redirect target as a filesystem write."""
     if not target:
         return taxonomy.ALLOW, ""
-    if target in _REDIRECT_SAFE_SINKS or target.startswith("/dev/fd/"):
+    if _is_redirect_safe_sink(target):
         return taxonomy.ALLOW, ""
     basic = paths.check_path_basic_raw(target)
     if basic:
@@ -2728,6 +2747,15 @@ def _check_redirect(target: str) -> tuple[str, str]:
 
     return context.resolve_filesystem_context(target)
 
+
+def _is_redirect_safe_sink(target: str) -> bool:
+    """Return True for redirect targets that are not filesystem writes."""
+    normalized_target = target.rstrip(":").lower()
+    return (
+        target in _REDIRECT_SAFE_SINKS
+        or target.startswith("/dev/fd/")
+        or normalized_target in _WINDOWS_REDIRECT_SAFE_SINKS
+    )
 
 
 def _python_module_invocation(tokens: list[str]) -> tuple[str, list[str]] | None:
@@ -3146,19 +3174,20 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     if unwrapped is not None:
         tokens = unwrapped
 
-    cmd = os.path.basename(tokens[0])
-
     from nah.taxonomy import (
         _INLINE_FLAGS,
         _MODULE_FLAGS,
         _VALUE_FLAGS,
         _extract_source_operand,
-        _normalize_interpreter,
+        _normalize_command_name,
     )
-    cmd = _normalize_interpreter(cmd)
+    cmd = _normalize_command_name(tokens[0])
 
     if cmd in {"make", "gmake"}:
         return _resolve_makefile_path(tokens)
+
+    if _windows_shell_inline_arg_index(tokens) is not None:
+        return None
 
     sourced = _extract_source_operand(tokens)
     if sourced is not None:
@@ -3211,13 +3240,15 @@ def _extract_inline_code(tokens: list[str]) -> str | None:
     if unwrapped is not None:
         tokens = unwrapped
 
-    cmd = os.path.basename(tokens[0])
-
-    from nah.taxonomy import _INLINE_FLAGS, _VALUE_FLAGS, _normalize_interpreter
-    cmd = _normalize_interpreter(cmd)
+    from nah.taxonomy import _INLINE_FLAGS, _VALUE_FLAGS, _normalize_command_name
+    cmd = _normalize_command_name(tokens[0])
 
     if cmd in {"make", "gmake"}:
         return None
+
+    windows_idx = _windows_shell_inline_arg_index(tokens)
+    if windows_idx is not None:
+        return tokens[windows_idx] if windows_idx >= 0 else None
 
     inline = _INLINE_FLAGS.get(cmd, set())
     if not inline:
@@ -3238,6 +3269,22 @@ def _extract_inline_code(tokens: list[str]) -> str | None:
             return None  # bare flag with no code argument
         if tok.startswith("-"):
             continue
+    return None
+
+
+def _windows_shell_inline_arg_index(tokens: list[str]) -> int | None:
+    """Return inline payload index for Windows shells, -1 if opaque encoded."""
+    if len(tokens) < 2:
+        return None
+    cmd = taxonomy._normalize_command_name(tokens[0])
+    flag = tokens[1].lower()
+    if cmd in {"powershell", "pwsh"}:
+        if flag in {"-command", "-c"}:
+            return 2 if len(tokens) > 2 else -1
+        if flag == "-encodedcommand":
+            return -1
+    if cmd == "cmd" and flag in {"/c", "/k"}:
+        return 2 if len(tokens) > 2 else -1
     return None
 
 
@@ -3390,7 +3437,7 @@ def _is_transparent_tee_stage(sr: StageResult) -> bool:
     if not targets:
         return True
     for target in targets:
-        if target in _REDIRECT_SAFE_SINKS or target.startswith("/dev/fd/"):
+        if _is_redirect_safe_sink(target):
             continue
         if paths.resolve_path(target).startswith(os.path.realpath("/tmp") + os.sep):
             continue
