@@ -1,13 +1,11 @@
 """Regression tests for the packaged nah demo battery."""
 
-import json
-from pathlib import Path
-
 import pytest
 
 from nah import config, content, context, paths, taxonomy
 from nah.bash import classify_command
 from nah.config import NahConfig, apply_override
+from nah.demo_battery import load_test_battery
 from nah.hook import (
     _classify_unknown_tool,
     handle_edit,
@@ -18,14 +16,7 @@ from nah.hook import (
 )
 
 
-BATTERY_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "nah"
-    / "data"
-    / "test_battery.json"
-)
-BATTERY = json.loads(BATTERY_PATH.read_text())
+BATTERY = load_test_battery()
 
 
 def _case_id(case: dict) -> str:
