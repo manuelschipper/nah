@@ -1,6 +1,7 @@
 """Unit tests for nah.context — filesystem and network context resolution."""
 
 import os
+import subprocess
 
 import pytest
 
@@ -13,10 +14,33 @@ from nah.context import (
     extract_host,
     resolve_context,
     resolve_filesystem_context,
+    resolve_lang_exec_context,
     resolve_network_context,
     reset_known_hosts,
 )
 import nah.context
+
+
+def _make_git_worktree(tmp_path):
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / ".claude" / "skills").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "demo.md").write_text("skill\n", encoding="utf-8")
+    (repo / "script.py").write_text("print('ok')\n", encoding="utf-8")
+    (repo / "file.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    worktree = repo / ".worktrees" / "feature"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature", str(worktree)],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return repo, worktree
 
 
 # --- resolve_filesystem_context ---
@@ -80,6 +104,28 @@ class TestResolveFilesystemContext:
         decision, reason = resolve_filesystem_context(project_root)
         assert decision == "allow"
         assert "inside project" in reason
+
+    def test_main_repo_file_inside_project_from_worktree(self, tmp_path, monkeypatch):
+        repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+        target = repo / ".claude" / "skills" / "demo.md"
+
+        decision, reason = resolve_filesystem_context(str(target))
+
+        assert decision == "allow"
+        assert "inside project" in reason
+
+    def test_lang_exec_main_repo_script_inside_project_from_worktree(self, tmp_path, monkeypatch):
+        repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+        target = repo / "script.py"
+
+        decision, reason = resolve_lang_exec_context(str(target))
+
+        assert decision == "allow"
+        assert "script clean" in reason
 
 
 # --- resolve_network_context ---

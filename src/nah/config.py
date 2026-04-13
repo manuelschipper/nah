@@ -45,6 +45,15 @@ class NahConfig:
 _cached_config: NahConfig | None = None
 
 
+def _roots_are_related(real_root: str, allowed_root: str) -> bool:
+    """Return true for identical or parent/child project roots."""
+    return (
+        real_root == allowed_root
+        or real_root.startswith(allowed_root + os.sep)
+        or allowed_root.startswith(real_root + os.sep)
+    )
+
+
 def get_config() -> NahConfig:
     """Load and return merged config. Cached for process lifetime."""
     global _cached_config
@@ -364,7 +373,7 @@ def is_path_allowed(sensitive_path: str, project_root: str | None) -> bool:
         if real_path == resolved_pattern or real_path.startswith(resolved_pattern + os.sep):
             for root in roots:
                 resolved_root = resolve_path(root)
-                if real_root == resolved_root:
+                if _roots_are_related(real_root, resolved_root):
                     return True
     return False
 

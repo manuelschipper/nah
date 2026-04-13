@@ -233,6 +233,49 @@ class TestIsPathAllowed:
 
         assert is_path_allowed("~/.aws", str(project_dir)) is False
 
+    def test_allowed_from_child_worktree_root(self, tmp_path):
+        """allow_paths scoped to a main repo root apply from child worktrees."""
+        main_root = tmp_path / "repo"
+        worktree_root = main_root / ".worktrees" / "feature"
+        worktree_root.mkdir(parents=True)
+        reset_config()
+
+        from nah import config
+        config._cached_config = NahConfig(
+            allow_paths={"~/.aws": [str(main_root)]},
+        )
+
+        assert is_path_allowed("~/.aws/credentials", str(worktree_root)) is True
+
+    def test_allowed_from_parent_main_root_when_stored_for_worktree(self, tmp_path):
+        """Existing allow_paths stored for a worktree root still apply in the main root."""
+        main_root = tmp_path / "repo"
+        worktree_root = main_root / ".worktrees" / "feature"
+        worktree_root.mkdir(parents=True)
+        reset_config()
+
+        from nah import config
+        config._cached_config = NahConfig(
+            allow_paths={"~/.aws": [str(worktree_root)]},
+        )
+
+        assert is_path_allowed("~/.aws/credentials", str(main_root)) is True
+
+    def test_not_allowed_unrelated_root_after_related_matching(self, tmp_path):
+        """Parent/child matching must not exempt unrelated project roots."""
+        project_dir = tmp_path / "repo"
+        unrelated_dir = tmp_path / "repo-other"
+        project_dir.mkdir()
+        unrelated_dir.mkdir()
+        reset_config()
+
+        from nah import config
+        config._cached_config = NahConfig(
+            allow_paths={"~/.aws": [str(unrelated_dir)]},
+        )
+
+        assert is_path_allowed("~/.aws/credentials", str(project_dir)) is False
+
     def test_no_project_root(self):
         reset_config()
         assert is_path_allowed("~/.aws", None) is False

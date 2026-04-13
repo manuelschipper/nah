@@ -2,12 +2,34 @@
 
 import json
 import os
+import subprocess
 
 import pytest
 
-from nah.hook import _classify_unknown_tool, handle_write, handle_edit, handle_read
+from nah.hook import _classify_unknown_tool, handle_write, handle_edit, handle_read, handle_grep
 from nah import config, paths
 from nah.config import NahConfig
+
+
+def _make_git_worktree(tmp_path):
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / ".claude" / "skills").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "demo.md").write_text("skill\n", encoding="utf-8")
+    (repo / "file.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    worktree = repo / ".worktrees" / "feature"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature", str(worktree)],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return repo, worktree
 
 
 class TestClassifyUnknownTool:
@@ -320,6 +342,43 @@ class TestWriteEditBoundary:
         config._cached_config = NahConfig(trusted_paths=["/tmp"])
         d = handle_write({"file_path": "/tmp/trusted.txt", "content": "hello"})
         assert d["decision"] == "allow"
+
+
+class TestGrepCredentialBoundary:
+    """Credential grep checks use the same worktree-aware project boundary."""
+
+    def setup_method(self):
+        config._cached_config = NahConfig()
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def test_main_repo_path_not_outside_project_from_worktree(self, tmp_path, monkeypatch):
+        repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+
+        d = handle_grep({
+            "path": str(repo / ".claude" / "skills"),
+            "pattern": "password",
+        })
+
+        assert d["decision"] == "allow"
+
+    def test_unrelated_path_still_asks_from_worktree(self, tmp_path, monkeypatch):
+        _repo, worktree = _make_git_worktree(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+
+        d = handle_grep({
+            "path": str(outside),
+            "pattern": "password",
+        })
+
+        assert d["decision"] == "ask"
+        assert "outside project" in d["reason"]
 
     def test_write_sensitive_unchanged(self, project_root):
         """Sensitive paths still block even with boundary check."""
