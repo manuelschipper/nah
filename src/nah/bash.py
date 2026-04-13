@@ -3327,9 +3327,15 @@ def _is_transparent_suffix_from(
 ) -> bool:
     if start >= len(stage_results):
         return False
-    for idx in range(start, len(stage_results)):
+
+    idx = start
+    while idx < len(stage_results):
         if not _is_transparent_suffix_stage(stages[idx], stage_results[idx]):
             return False
+        if idx >= len(stages) - 1 or stages[idx].operator != "|":
+            return True
+        idx += 1
+
     return True
 
 
