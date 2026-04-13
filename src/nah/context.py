@@ -133,10 +133,8 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     # Project root check — prefer the more precise "inside project" reason when
     # a project root exists, even if that root also lives under a trusted path.
     project_root = paths.get_project_root()
-    if project_root is not None:
-        real_root = os.path.realpath(project_root)
-        if resolved == real_root or resolved.startswith(real_root + os.sep):
-            return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
+    if project_root is not None and paths.is_inside_project_boundary(resolved):
+        return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
 
     # Trusted paths should still allow when there is no git root (FD-107).
     if paths.is_trusted_path(resolved):
@@ -524,11 +522,7 @@ def resolve_lang_exec_context(
         return basic
 
     # Project boundary check — outside project always asks
-    project_root = paths.get_project_root()
-    inside_project = False
-    if project_root:
-        real_root = os.path.realpath(project_root)
-        inside_project = resolved == real_root or resolved.startswith(real_root + os.sep)
+    inside_project = paths.is_inside_project_boundary(resolved)
 
     if not inside_project and not paths.is_trusted_path(resolved):
         return taxonomy.ASK, f"script outside project: {paths.friendly_path(resolved)}"
