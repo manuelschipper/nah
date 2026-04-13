@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-13
+
 ### Added
 
 - **Codex and Codex companion taxonomy** — added agent action types plus Phase 2 classification for Codex CLI and Codex companion commands, including read-only metadata, write/state changes, local/remote agent execution, server startup, and bypass-flag escalation (mold-15)
