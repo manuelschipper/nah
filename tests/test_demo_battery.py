@@ -84,3 +84,11 @@ def test_variant_battery_expected_decisions(case, project_root, monkeypatch):
     monkeypatch.chdir(project_root)
 
     assert _decision_for(case) == case["expected"]
+
+
+@pytest.mark.parametrize("case", BATTERY["variants"], ids=_case_id)
+def test_variant_battery_default_expected_decisions(case, project_root, monkeypatch):
+    _reset_runtime_config()
+    monkeypatch.chdir(project_root)
+
+    assert _decision_for(case) == case["default_expected"]
