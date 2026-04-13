@@ -1,12 +1,35 @@
 """Unit tests for nah.paths — path resolution, sensitive checks, project root."""
 
 import os
+import subprocess
 from unittest.mock import patch
 
 import pytest
 
 from nah import config, paths
 from nah.config import NahConfig
+
+
+def _make_git_worktree(tmp_path):
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / ".claude" / "skills").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "demo.md").write_text("skill\n", encoding="utf-8")
+    (repo / "script.py").write_text("print('ok')\n", encoding="utf-8")
+    (repo / "file.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    worktree = repo / ".worktrees" / "feature"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature", str(worktree)],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return repo, worktree
 
 
 # --- resolve_path ---
@@ -527,6 +550,49 @@ class TestProjectRoot:
         # We just verify set/get works from a clean state.
         paths.set_project_root("/test/root")
         assert paths.get_project_root() == "/test/root"
+
+    def test_worktree_boundary_roots_include_main_repo(self, tmp_path, monkeypatch):
+        repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+
+        assert paths.resolve_path(paths.get_project_root()) == paths.resolve_path(str(worktree))
+        assert paths.get_project_boundary_roots() == [
+            paths.resolve_path(str(worktree)),
+            paths.resolve_path(str(repo)),
+        ]
+
+    def test_project_boundary_allows_main_repo_file_from_worktree(self, tmp_path, monkeypatch):
+        repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+
+        target = repo / ".claude" / "skills" / "demo.md"
+        assert paths.check_project_boundary("Write", str(target)) is None
+
+    def test_project_boundary_still_asks_unrelated_path_from_worktree(self, tmp_path, monkeypatch):
+        _repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        paths.reset_project_root()
+        config._cached_config = NahConfig(trusted_paths=[])
+
+        outside = tmp_path / "outside" / "file.txt"
+        outside.parent.mkdir()
+        outside.write_text("x\n", encoding="utf-8")
+        result = paths.check_project_boundary("Write", str(outside))
+
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "outside project" in result["reason"]
+
+    def test_boundary_roots_respect_project_root_override(self, tmp_path, monkeypatch):
+        _repo, worktree = _make_git_worktree(tmp_path)
+        monkeypatch.chdir(worktree)
+        override = tmp_path / "override"
+        override.mkdir()
+        paths.set_project_root(str(override))
+
+        assert paths.get_project_boundary_roots() == [paths.resolve_path(str(override))]
 
 
 class TestTrustedPathNoGitRoot:

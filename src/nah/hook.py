@@ -312,8 +312,7 @@ def handle_grep(tool_input: dict) -> dict:
         project_root = paths.get_project_root()
         if project_root:
             resolved_path = paths.resolve_path(raw_path) if raw_path else ""
-            real_root = paths.resolve_path(project_root)
-            if resolved_path and not (resolved_path == real_root or resolved_path.startswith(real_root + os.sep)):
+            if resolved_path and not paths.is_inside_project_boundary(resolved_path):
                 return {
                     "decision": taxonomy.ASK,
                     "reason": "Grep: credential search pattern outside project root",
