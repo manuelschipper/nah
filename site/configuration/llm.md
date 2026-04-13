@@ -10,13 +10,14 @@ The deterministic layer always runs first. Unified ask-refinement only sees elig
 
 ## Providers
 
-nah supports 5 LLM providers. Configure one or more in cascade order -- first success wins.
+nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
 
 | Provider | API | Default model | Auth env var |
 |----------|-----|---------------|-------------|
 | `ollama` | Chat API (`/api/chat`) | `qwen3.5:9b` | *(none -- local)* |
 | `openrouter` | OpenAI-compatible | `google/gemini-3.1-flash-lite-preview` | `OPENROUTER_API_KEY` |
 | `openai` | Responses API (`/v1/responses`) | `gpt-5.3-codex` | `OPENAI_API_KEY` |
+| `azure` | Azure OpenAI Responses/chat completions | *(deployment-dependent)* | `AZURE_OPENAI_API_KEY` |
 | `anthropic` | Messages API (`/v1/messages`) | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
 | `cortex` | Snowflake Cortex REST | `claude-haiku-4-5` | `SNOWFLAKE_PAT` |
 
@@ -79,6 +80,23 @@ llm:
         key_env: OPENAI_API_KEY
         model: gpt-5.3-codex
     ```
+
+=== "Azure OpenAI"
+
+    ```yaml
+    llm:
+      mode: on
+      providers: [azure]
+      azure:
+        url: https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/responses
+        key_env: AZURE_OPENAI_API_KEY
+        model: your-deployment-name
+    ```
+
+    Azure uses `api-key` header auth, not bearer auth. The `url` is required
+    because it depends on your Azure resource and deployment. For
+    chat-completions deployments, set `url` to the deployment's
+    `/chat/completions` endpoint; nah selects the payload shape from the URL.
 
 === "Anthropic"
 

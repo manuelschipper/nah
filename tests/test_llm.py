@@ -530,6 +530,160 @@ class TestCortexProvider:
         assert result.decision is None
 
 
+# -- Azure OpenAI provider tests --
+
+
+class TestAzureProvider:
+    def _azure_config(self, **overrides):
+        cfg = {
+            "providers": ["azure"],
+            "azure": {
+                "url": "https://myresource.openai.azure.com/openai/v1/responses",
+                "model": "my-deployment",
+            },
+        }
+        cfg["azure"].update(overrides)
+        return cfg
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_responses_allow(self, mock_urlopen):
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "output": [{"type": "message", "content": [
+                    {"type": "output_text", "text": '{"decision": "allow", "reasoning": "safe"}'}
+                ]}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), self._azure_config())
+
+        assert result.decision["decision"] == "allow"
+        assert result.provider == "azure"
+        assert result.model == "my-deployment"
+        body = json.loads(captured[0].data.decode())
+        assert body["model"] == "my-deployment"
+        assert "input" in body
+        assert "instructions" in body
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_api_key_header(self, mock_urlopen):
+        """Verify api-key header is sent, not bearer auth."""
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "output": [{"type": "message", "content": [
+                    {"type": "output_text", "text": '{"decision": "allow", "reasoning": "ok"}'}
+                ]}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "test-azure-key"}):
+            try_llm(_make_default_result(), self._azure_config())
+
+        assert len(captured) == 1
+        req = captured[0]
+        assert req.get_header("Api-key") == "test-azure-key"
+        assert req.get_header("Authorization") is None
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_chat_completions_url(self, mock_urlopen):
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "ok"}'}}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        config = self._azure_config(
+            url="https://myresource.openai.azure.com/openai/deployments/my-deployment/chat/completions?api-version=2024-12-01-preview",
+        )
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        body = json.loads(captured[0].data.decode())
+        assert body["model"] == "my-deployment"
+        assert "messages" in body
+        assert "input" not in body
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_custom_key_env(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "output": [{"type": "message", "content": [
+                {"type": "output_text", "text": '{"decision": "allow", "reasoning": "ok"}'}
+            ]}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = self._azure_config(key_env="MY_AZURE_KEY")
+        with patch.dict("os.environ", {"MY_AZURE_KEY": "custom-key"}):
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+
+    def test_azure_no_key_skips(self):
+        config = self._azure_config()
+        env = {k: v for k, v in os.environ.items() if k != "AZURE_OPENAI_API_KEY"}
+        with patch.dict("os.environ", env, clear=True):
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision is None
+        assert result.cascade[0].provider == "azure"
+        assert result.cascade[0].status == "error"
+
+    def test_azure_no_url_skips(self):
+        config = {"providers": ["azure"], "azure": {"model": "my-deployment"}}
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision is None
+        assert result.cascade[0].provider == "azure"
+        assert result.cascade[0].status == "error"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_model_optional(self, mock_urlopen):
+        captured = []
+
+        def capture(req, **kw):
+            captured.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({
+                "output": [{"type": "message", "content": [
+                    {"type": "output_text", "text": '{"decision": "allow", "reasoning": "ok"}'}
+                ]}]
+            }).encode()
+            return resp
+
+        mock_urlopen.side_effect = capture
+
+        config = self._azure_config(model="")
+        with patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "fake-key"}):
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        assert result.model == ""
+        body = json.loads(captured[0].data.decode())
+        assert "model" not in body
+
+
 # -- _format_tool_use_summary tests --
 
 
