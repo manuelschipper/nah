@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-04-14
+
 ### Added
 
 - **Default-config dry runs** — `nah test --defaults` now ignores user/project config and uses packaged defaults for one dry-run classification, keeping `/nah-demo` base battery results stable under customized local configs while preserving `--config` for explicit variants (nah-jpv)
