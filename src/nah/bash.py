@@ -1518,6 +1518,19 @@ def _classify_stage(
     if safe_python is not None:
         return _apply_redirect_guard(stage, safe_python, user_actions=user_actions)
 
+    find_exec = _classify_find_exec(
+        stage,
+        depth,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        user_actions=user_actions,
+        profile=profile,
+        trust_project=trust_project,
+    )
+    if find_exec is not None:
+        return find_exec
+
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
                                               profile=profile, trust_project=trust_project)
@@ -1535,6 +1548,140 @@ def _classify_stage(
         sr.reason = path_reason
 
     return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+
+_FIND_EXEC_PREDICATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_FIND_EXEC_TERMINATORS = frozenset({";", "+"})
+_FIND_EXPRESSION_STARTERS = frozenset({"(", ")", "!", "not"})
+
+
+def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
+    path_decision, path_reason = _check_extracted_paths(stage.tokens)
+    if path_decision == taxonomy.BLOCK or (
+        path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW
+    ):
+        sr.decision = path_decision
+        sr.reason = path_reason
+
+    if (
+        sr.decision == taxonomy.ALLOW
+        and sr.action_type in (taxonomy.FILESYSTEM_WRITE, taxonomy.FILESYSTEM_DELETE)
+    ):
+        for root in _find_search_roots(stage.tokens):
+            root_decision, root_reason = context.resolve_context(
+                sr.action_type,
+                tokens=stage.tokens,
+                target_path=root,
+            )
+            if taxonomy.STRICTNESS.get(root_decision, 2) > taxonomy.STRICTNESS.get(sr.decision, 2):
+                sr.decision = root_decision
+                sr.reason = root_reason
+    return sr
+
+
+def _find_search_roots(tokens: list[str]) -> list[str]:
+    roots: list[str] = []
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            i += 1
+            continue
+        if tok in _FIND_EXEC_PREDICATES or tok in _FIND_EXPRESSION_STARTERS or tok.startswith("-"):
+            break
+        roots.append(tok)
+        i += 1
+    return roots or ["."]
+
+
+def _find_exec_payloads(tokens: list[str]) -> list[tuple[str, list[str], bool]]:
+    payloads: list[tuple[str, list[str], bool]] = []
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok not in _FIND_EXEC_PREDICATES:
+            i += 1
+            continue
+
+        payload: list[str] = []
+        j = i + 1
+        while j < len(tokens) and tokens[j] not in _FIND_EXEC_TERMINATORS:
+            payload.append(tokens[j])
+            j += 1
+        has_terminator = j < len(tokens) and tokens[j] in _FIND_EXEC_TERMINATORS
+        payloads.append((tok, payload, has_terminator))
+        i = j + 1 if has_terminator else len(tokens)
+    return payloads
+
+
+def _ask_find_exec_result(tokens: list[str], reason: str) -> StageResult:
+    sr = StageResult(tokens=tokens)
+    sr.action_type = taxonomy.UNKNOWN
+    sr.default_policy = taxonomy.ASK
+    sr.decision = taxonomy.ASK
+    sr.reason = reason
+    return sr
+
+
+def _find_delete_result(stage: Stage, user_actions: dict[str, str] | None) -> StageResult:
+    sr = StageResult(tokens=stage.tokens)
+    sr.action_type = taxonomy.FILESYSTEM_DELETE
+    sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_DELETE, user_actions)
+    _apply_policy(sr)
+    return _apply_outer_path_guard(stage, sr)
+
+
+def _classify_find_exec(
+    stage: Stage,
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    profile: str = "full",
+    trust_project: bool = False,
+) -> StageResult | None:
+    tokens = stage.tokens
+    if not tokens or taxonomy._normalize_command_name(tokens[0]) != "find":
+        return None
+
+    payloads = _find_exec_payloads(tokens)
+    if not payloads:
+        return None
+
+    results: list[StageResult] = []
+    if "-delete" in tokens:
+        results.append(_find_delete_result(stage, user_actions))
+
+    for predicate, payload, has_terminator in payloads:
+        if not payload:
+            sr = _ask_find_exec_result(tokens, f"malformed find {predicate}: missing command")
+        elif not has_terminator:
+            sr = _ask_find_exec_result(tokens, f"malformed find {predicate}: missing terminator")
+        else:
+            inner_stage = _make_stage(payload, stage.operator) or Stage(
+                tokens=payload,
+                operator=stage.operator,
+            )
+            inner_stage = _copy_python_metadata(inner_stage, stage)
+            sr = _classify_stage(
+                inner_stage,
+                depth + 1,
+                global_table=global_table,
+                builtin_table=builtin_table,
+                project_table=project_table,
+                user_actions=user_actions,
+                profile=profile,
+                trust_project=trust_project,
+            )
+        results.append(_apply_outer_path_guard(stage, sr))
+
+    worst = results[0]
+    for sr in results[1:]:
+        if taxonomy.STRICTNESS.get(sr.decision, 2) > taxonomy.STRICTNESS.get(worst.decision, 2):
+            worst = sr
+    return _apply_redirect_guard(stage, worst, user_actions=user_actions)
 
 
 def _obfuscated_result(tokens: list[str], reason: str, user_actions: dict[str, str] | None) -> StageResult:
