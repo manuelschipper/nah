@@ -107,7 +107,7 @@ When cutting a new release:
 
 This repo uses molds. Durable workflow state lives in `.molds/`.
 
-Use these commands instead of assuming mode or automation from this file:
+Use these commands instead of assuming mode from this file:
 
 ```bash
 molds config get mode
