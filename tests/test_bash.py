@@ -687,6 +687,22 @@ class TestFindExecUnwrap:
         assert "outside project: /" in r.reason
 
     @pytest.mark.parametrize(
+        "command",
+        [
+            r"find -H / -type f -exec rm {} \;",
+            r"find -L / -type f -exec rm {} \;",
+            r"find -P / -type f -exec rm {} \;",
+            r"find -D tree / -type f -exec rm {} \;",
+            r"find -O3 / -type f -exec rm {} \;",
+        ],
+    )
+    def test_root_rm_after_find_leading_options_asks(self, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_delete"
+        assert "outside project: /" in r.reason
+
+    @pytest.mark.parametrize(
         "command, reason",
         [
             (r"find . -exec \;", "missing command"),
