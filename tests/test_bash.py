@@ -2983,17 +2983,52 @@ class TestShellCommentParsing:
         assert r.final_decision == "allow"
         assert r.reason == "empty command"
 
+    def test_leading_comment_does_not_hide_sensitive_read(self, project_root):
+        r = classify_command("# read shadow\ncat /etc/shadow")
+        assert r.final_decision == "block"
+        assert "sensitive path" in r.reason
+        assert r.stages
+        assert r.stages[0].tokens[:2] == ["cat", "/etc/shadow"]
+
+    def test_leading_comment_does_not_hide_force_push(self, project_root):
+        r = classify_command("# Push changes\ngit push --force origin main")
+        assert r.final_decision == "ask"
+        assert r.stages
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    def test_leading_comment_preserves_safe_following_command(self, project_root):
+        r = classify_command("# Check files\ngit diff main --name-only")
+        assert r.final_decision == "allow"
+        assert r.stages
+        assert r.stages[0].tokens[:2] == ["git", "diff"]
+
+    def test_newline_splits_commands_like_semicolon(self, project_root):
+        r = classify_command("echo ok\nrm -rf /")
+        assert r.final_decision == "ask"
+        assert len(r.stages) == 2
+        assert r.stages[1].tokens[:2] == ["rm", "-rf"]
+
+    def test_inline_comment_does_not_hide_next_line_command(self, project_root):
+        r = classify_command("echo ok  # comment\nrm -rf /")
+        assert r.final_decision == "ask"
+        assert len(r.stages) == 2
+        assert r.stages[0].tokens == ["echo", "ok"]
+        assert r.stages[1].tokens[:2] == ["rm", "-rf"]
+
     def test_hash_in_quotes_not_treated_as_comment(self, project_root):
         r = classify_command("echo '# not a comment'")
         assert r.final_decision == "allow"
+        assert r.stages[0].tokens == ["echo", "# not a comment"]
 
     def test_inline_comment_with_apostrophe(self, project_root):
         r = classify_command("echo foo  # it's a comment")
         assert r.final_decision == "allow"
+        assert r.stages[0].tokens == ["echo", "foo"]
 
     def test_midword_hash_not_comment(self, project_root):
         r = classify_command("echo foo#bar")
         assert r.final_decision == "allow"
+        assert r.stages[0].tokens == ["echo", "foo#bar"]
 
     def test_heredoc_with_comment_lines(self, project_root):
         """Comments inside heredoc should not break parsing."""
