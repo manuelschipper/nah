@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`find -exec` shell-wrapper classification** — Bash classification now unwraps `find -exec` / `-execdir` / `-ok` / `-okdir` payloads through the same inner-command pipeline as direct `sh -c` and `bash -lc`, so hidden network access and `curl | sh` composition no longer collapse to project-local filesystem paths while safe grep and project-local cleanup still allow ([#52](https://github.com/manuelschipper/nah/pull/52), nah-871)
 - **Shell comment prefix bypass** — Bash command classification now treats top-level newlines as command separators and strips shell comments before per-stage tokenization, so comment-prefixed commands such as `# note\ncat /etc/shadow` no longer collapse to `ALLOW` / `empty command` while quoted hashes and heredoc content remain intact ([#71](https://github.com/manuelschipper/nah/issues/71), nah-870)
 
 ## [0.6.1] - 2026-04-14
