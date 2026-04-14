@@ -378,6 +378,11 @@ def _split_on_operators(command: str) -> list[tuple[str, str]]:
             current = []
             i += 1
             continue
+        if c == '\n':
+            stages.append((''.join(current), ';'))
+            current = []
+            i += 1
+            continue
 
         current.append(c)
         i += 1
@@ -804,6 +809,67 @@ def _strip_heredoc_bodies(stage_str: str) -> str:
     return "".join(out)
 
 
+def _strip_shell_comments_for_split(stage_str: str) -> str:
+    """Remove shell comments before shlex tokenization.
+
+    Heredoc bodies must be stripped before this helper runs. Otherwise a line
+    beginning with ``#`` inside heredoc content would be shell data, not a shell
+    comment, and stripping it could hide content from later inspection.
+    """
+    if "#" not in stage_str:
+        return stage_str
+
+    out: list[str] = []
+    i = 0
+    n = len(stage_str)
+    while i < n:
+        c = stage_str[i]
+
+        if c == "'":
+            j = stage_str.find("'", i + 1)
+            end = j + 1 if j >= 0 else n
+            out.append(stage_str[i:end])
+            i = end
+            continue
+
+        if c == '"':
+            out.append(c)
+            i += 1
+            while i < n:
+                if stage_str[i] == "\\" and i + 1 < n:
+                    out.append(stage_str[i : i + 2])
+                    i += 2
+                    continue
+                out.append(stage_str[i])
+                if stage_str[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        if c == "\\" and i + 1 < n:
+            out.append(stage_str[i : i + 2])
+            i += 2
+            continue
+
+        if c == "#":
+            at_word_boundary = i == 0 or stage_str[i - 1] in (" ", "\t", "\n")
+            if at_word_boundary:
+                while i < n and stage_str[i] != "\n":
+                    i += 1
+                if i < n and stage_str[i] == "\n":
+                    out.append("\n")
+                    i += 1
+                else:
+                    out.append(" ")
+                continue
+
+        out.append(c)
+        i += 1
+
+    return "".join(out)
+
+
 def _extract_subshell_group(stage_str: str) -> tuple[str, str] | None:
     """Return ``(inner, suffix)`` for a leading ``(...)`` subshell group.
 
@@ -945,11 +1011,9 @@ def _raw_stage_to_stages(
 
     heredoc_literal = heredoc_literal or _extract_heredoc_literal(stage_str)
     stage_for_split = _strip_heredoc_bodies(stage_str)
+    stage_for_split = _strip_shell_comments_for_split(stage_for_split)
     tokens = _split_stage_tokens(stage_for_split)
 
-    # Pure-comment stage: # at start means shell comment (nah-2zt)
-    if tokens and tokens[0] == "#":
-        tokens = []
     if not tokens:
         return []
 
