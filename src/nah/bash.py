@@ -1553,6 +1553,8 @@ def _classify_stage(
 _FIND_EXEC_PREDICATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 _FIND_EXEC_TERMINATORS = frozenset({";", "+"})
 _FIND_EXPRESSION_STARTERS = frozenset({"(", ")", "!", "not"})
+_FIND_LEADING_FLAGS = frozenset({"-H", "-L", "-P"})
+_FIND_LEADING_VALUE_FLAGS = frozenset({"-D", "-O"})
 
 
 def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
@@ -1585,6 +1587,15 @@ def _find_search_roots(tokens: list[str]) -> list[str]:
     while i < len(tokens):
         tok = tokens[i]
         if tok == "--":
+            i += 1
+            continue
+        if not roots and tok in _FIND_LEADING_FLAGS:
+            i += 1
+            continue
+        if not roots and tok in _FIND_LEADING_VALUE_FLAGS:
+            i += 2
+            continue
+        if not roots and any(tok.startswith(flag) and len(tok) > len(flag) for flag in _FIND_LEADING_VALUE_FLAGS):
             i += 1
             continue
         if tok in _FIND_EXEC_PREDICATES or tok in _FIND_EXPRESSION_STARTERS or tok.startswith("-"):
