@@ -81,6 +81,23 @@ def reset_config() -> None:
     _cached_config = None
 
 
+def _reset_lazy_merge_caches() -> None:
+    """Reset config-derived lazy caches after changing the process config."""
+    from nah import paths, content, context, taxonomy
+    paths.reset_sensitive_paths()
+    content.reset_content_patterns()
+    context.reset_known_hosts()
+    taxonomy.reset_exec_sinks()
+    taxonomy.reset_decode_commands()
+
+
+def use_defaults() -> None:
+    """Use packaged defaults for the current process, ignoring config files."""
+    global _cached_config
+    _cached_config = _merge_configs({}, {})
+    _reset_lazy_merge_caches()
+
+
 def apply_override(override_data: dict) -> None:
     """Apply inline config override for single-shot CLI use (nah test --config).
 
@@ -154,13 +171,8 @@ def apply_override(override_data: dict) -> None:
 
     _cached_config = cfg
 
-    # Reset lazy-merge caches so they re-read from the updated config
-    from nah import paths, content, context, taxonomy
-    paths.reset_sensitive_paths()
-    content.reset_content_patterns()
-    context.reset_known_hosts()
-    taxonomy.reset_exec_sinks()
-    taxonomy.reset_decode_commands()
+    # Reset lazy-merge caches so they re-read from the updated config.
+    _reset_lazy_merge_caches()
 
 
 def _load_yaml_file(path: str) -> dict:

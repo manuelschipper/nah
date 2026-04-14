@@ -10,6 +10,7 @@ from nah.config import (
     apply_override,
     get_config,
     reset_config,
+    use_defaults,
     is_path_allowed,
     _merge_configs,
     _load_yaml_file,
@@ -68,6 +69,44 @@ class TestDefaults:
         apply_override({"llm_mode": "off", "llm": {}})
         assert get_config().llm_mode == "off"
         assert get_config().llm == {}
+
+    def test_use_defaults_ignores_cached_custom_config(self, tmp_path):
+        """use_defaults replaces any active config with merged packaged defaults."""
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        from nah import config
+        try:
+            config._cached_config = NahConfig(
+                profile="none",
+                actions={"git_safe": "block"},
+                trusted_paths=["/custom"],
+            )
+            use_defaults()
+            cfg = get_config()
+            assert cfg.profile == "full"
+            assert cfg.actions == {}
+            assert "/tmp" in cfg.trusted_paths
+            assert "/private/tmp" in cfg.trusted_paths
+            assert "/custom" not in cfg.trusted_paths
+        finally:
+            reset_config()
+
+    def test_use_defaults_resets_lazy_content_cache(self, tmp_path):
+        """use_defaults clears lazy caches already merged from a custom config."""
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        from nah import config
+        from nah.content import reset_content_patterns, scan_content
+        try:
+            config._cached_config = NahConfig(profile="none")
+            reset_content_patterns()
+            assert scan_content("api_secret = 'hunter2hunter2'") == []
+
+            use_defaults()
+            assert scan_content("api_secret = 'hunter2hunter2'")
+        finally:
+            reset_content_patterns()
+            reset_config()
 
 
 class TestLoadYaml:

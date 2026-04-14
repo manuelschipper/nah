@@ -343,6 +343,45 @@ class TestCmdTest:
         out = capsys.readouterr().out
         assert "ASK" in out
 
+    def test_defaults_ignores_cached_config(self, capsys):
+        """--defaults replaces active config for the dry-run process."""
+        from nah import config
+        from nah.cli import cmd_test
+        config._cached_config = config.NahConfig(actions={"git_safe": "block"})
+
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config=None, defaults=True, args=["git", "status"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "git_safe" in out
+        assert "ALLOW" in out
+
+    def test_defaults_keeps_profile_trusted_tmp(self, capsys):
+        """--defaults uses merged defaults, including profile-derived /tmp trust."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool="Write", path="/tmp/test.txt",
+            content="hello", pattern=None, config=None, defaults=True, args=[],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
+    def test_defaults_and_config_conflict(self, capsys):
+        """--defaults and --config are mutually exclusive."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config='{"profile": "none"}', defaults=True, args=["git", "status"],
+        )
+        with pytest.raises(SystemExit):
+            cmd_test(args)
+        err = capsys.readouterr().err
+        assert "--defaults" in err
+        assert "--config" in err
+
 
 # --- Shell quote preservation (FD-085) ---
 

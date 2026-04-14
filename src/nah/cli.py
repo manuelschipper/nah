@@ -348,10 +348,20 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 def cmd_test(args: argparse.Namespace) -> None:
     """Dry-run classification for a command or tool input."""
-    if getattr(args, "config", None):
+    use_default_config = bool(getattr(args, "defaults", False))
+    inline_config = getattr(args, "config", None)
+
+    if use_default_config and inline_config:
+        print("Error: --defaults cannot be used with --config", file=sys.stderr)
+        raise SystemExit(1)
+
+    if use_default_config:
+        from nah.config import use_defaults
+        use_defaults()
+    elif inline_config:
         import json as json_mod
         try:
-            override = json_mod.loads(args.config)
+            override = json_mod.loads(inline_config)
         except json.JSONDecodeError as e:
             print(f"Error: invalid --config JSON: {e}", file=sys.stderr)
             raise SystemExit(1)
@@ -947,7 +957,13 @@ def main():
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
     test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
-    test_parser.add_argument("--config", default=None, help="Inline JSON config override")
+    test_config_group = test_parser.add_mutually_exclusive_group()
+    test_config_group.add_argument("--config", default=None, help="Inline JSON config override")
+    test_config_group.add_argument(
+        "--defaults",
+        action="store_true",
+        help="Ignore user/project config and use packaged defaults",
+    )
     test_parser.add_argument("args", nargs="*", help="Command string or tool input")
     config_parser = sub.add_parser("config", help="Show config info")
     config_sub = config_parser.add_subparsers(dest="config_command")
