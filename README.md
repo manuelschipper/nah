@@ -141,7 +141,7 @@ Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions
 
 The deterministic layer always runs first. The LLM can refine eligible `ask` decisions, and it can review write-like edits for safety and intent. For Write/Edit/MultiEdit/NotebookEdit, it can relax a project-boundary ask when the edit is safe and clearly intended, or escalate a risky deterministic allow to ask. It cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
 
-Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake Cortex.
+Supported providers: Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, Snowflake Cortex.
 
 ## Configure
 
