@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-14
+
 ### Added
 
 - **Azure OpenAI LLM provider** — added `azure` as an optional LLM provider with Azure `api-key` authentication, default `AZURE_OPENAI_API_KEY`, Responses API support, chat-completions URL support, and deployment-specific optional model handling. Behavior reported in PR #56 by `yingyangyou` (nah-869)
