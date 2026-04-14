@@ -49,10 +49,10 @@ If the config is default/empty, say so briefly and move on.
 This is important context for interpreting results during the demo:
 
 - The **test battery expected values assume default config** (full profile, no overrides).
-- **Both live tool calls AND `nah test` use the active config.** There is no way to test "default" behavior while a custom config is active — `nah test` is not a defaults-only mode.
-- If a user's config changes a policy (e.g., adds `~/.ssh` to allowed paths, or relaxes `network_outbound` to allow), the live result will differ from the test battery's expected value. **This is the config working correctly, not a bug in the test battery.**
-- When you encounter a mismatch and the config check found custom settings, attribute it to the config — don't try to "verify" default behavior by running `nah test`, since it will show the same config-influenced result.
-- Only flag a mismatch as a real issue if the user has default config and the result still doesn't match.
+- **Live tool calls use the active config** because they exercise the real hook path. If a user's config changes a policy (e.g., adds `~/.ssh` to allowed paths, or relaxes `network_outbound` to allow), live results may differ from the battery's expected value. **This is the config working correctly, not a bug in the test battery.**
+- **Dry-run base cases use `nah test --defaults`** so they ignore global/project config and compare against packaged defaults.
+- **Config variants use `nah test --config`** because they intentionally test a temporary override. Do not combine `--defaults` and `--config`.
+- Only flag a base-case mismatch as a real issue if it still mismatches under `nah test --defaults`, or if a live-case mismatch cannot be explained by active config.
 
 ### Select mode
 
@@ -157,37 +157,37 @@ Detection:
 
 ### Dry-run cases (`mode: "dry_run"`)
 
-Never execute the real tool. Use `nah test` via the Bash tool for all dry-run cases. Parse the `Decision:` line from output. Map: `ALLOW` → allow, `ASK` → ask, `BLOCK` → block.
+Never execute the real tool. Use `nah test --defaults` via the Bash tool for base/story dry-run cases. Parse the `Decision:` line from output. Map: `ALLOW` → allow, `ASK` → ask, `BLOCK` → block.
 
 **Bash**:
 ```bash
-nah test "the command here"
+nah test --defaults "the command here"
 ```
 
 **Write** (with content inspection):
 ```bash
-nah test --tool Write --path ./config.py --content "AWS_SECRET_ACCESS_KEY=AKIA1234567890ABCDEF"
+nah test --defaults --tool Write --path ./config.py --content "AWS_SECRET_ACCESS_KEY=AKIA1234567890ABCDEF"
 ```
 
 **Edit** (with content inspection):
 ```bash
-nah test --tool Edit --path ./app.py --content "api_secret = \"hunter2hunter2\""
+nah test --defaults --tool Edit --path ./app.py --content "api_secret = \"hunter2hunter2\""
 ```
 
 **Read/Glob** (path-only):
 ```bash
-nah test --tool Read ~/.ssh/id_rsa
-nah test --tool Glob ~/.ssh
+nah test --defaults --tool Read ~/.ssh/id_rsa
+nah test --defaults --tool Glob ~/.ssh
 ```
 
 **Grep** (with search pattern for credential detection):
 ```bash
-nah test --tool Grep --path /tmp --pattern "password\s*="
+nah test --defaults --tool Grep --path /tmp --pattern "password\s*="
 ```
 
 **MCP tools**:
 ```bash
-nah test --tool mcp__example__tool
+nah test --defaults --tool mcp__example__tool
 ```
 
 ---
@@ -221,7 +221,7 @@ These phases run only in `full` mode, after the base battery.
 
 ### Config Variants
 
-Run each variant using `nah test --config` with the variant's `config` object as inline JSON. This applies a temporary config override for that single invocation — no file writes, no backup/restore needed.
+Run each variant using `nah test --config` with the variant's `config` object as inline JSON. This applies a temporary config override for that single invocation — no file writes, no backup/restore needed. Do not add `--defaults`; config variants are intentionally override-based.
 
 For each variant, announce it:
 ```
