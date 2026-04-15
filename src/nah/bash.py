@@ -187,6 +187,7 @@ def classify_command(command: str) -> ClassifyResult:
         return result
 
     stages = _apply_trusted_script_vars(stages, active_subs)
+    stages = _expand_intra_chain_vars(stages)
 
     # Classify each stage. Track shell-local state that can make a later
     # allowlisted python -m invocation resolve non-stdlib code.
@@ -1302,6 +1303,42 @@ def _env_assignment_parts(tok: str) -> tuple[str, str] | None:
     return tok.split("=", 1)
 
 
+def _safe_literal_var_value(value: str) -> bool:
+    """True if *value* is a plain literal safe to propagate across chain stages.
+
+    Rejects anything containing ``$`` (nested variable reference or
+    unexpanded substitution), backticks, or a command-substitution
+    placeholder. Propagating those would require real shell evaluation.
+    """
+    return "$" not in value and "`" not in value and _PSUB_PREFIX not in value
+
+
+_INTRA_CHAIN_VAR_RE = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def _expand_token(token: str, var_map: dict[str, str]) -> str:
+    """Substitute ``$NAME`` and ``${NAME}`` inside *token* using *var_map*.
+
+    Leaves unknown names untouched. Skips tokens carrying a substitution
+    placeholder so ``__nah_psub_N__`` sentinels are never second-pass
+    expanded.
+    """
+    if not var_map or _PSUB_PREFIX in token:
+        return token
+    if "$" not in token:
+        return token
+
+    def _replace(match: "re.Match[str]") -> str:
+        name = match.group(1) or match.group(2)
+        if name in var_map:
+            return var_map[name]
+        return match.group(0)
+
+    return _INTRA_CHAIN_VAR_RE.sub(_replace, token)
+
+
 def _placeholder_sub_index(value: str) -> int | None:
     """Return the substitution index for an exact ``__nah_psub_N__`` value."""
     if not value.startswith(_PSUB_PREFIX) or not value.endswith(_PSUB_SUFFIX):
@@ -1454,6 +1491,74 @@ def _apply_trusted_script_vars(
 
         if stage.operator not in {"&&", ";"}:
             trusted_script_vars.clear()
+
+    return rewritten
+
+
+def _expand_intra_chain_vars(stages: list[Stage]) -> list[Stage]:
+    """Propagate literal env assignments across ``&&`` / ``||`` / ``;`` stages.
+
+    Mirrors ``_apply_trusted_script_vars`` but generalizes to any safe
+    literal value. Closes the sensitive-path bypass where an earlier
+    stage binds a variable and a later stage dereferences it:
+
+        BAD=/etc/shadow && cat "$BAD"
+
+    Two assignment shapes are recognized:
+
+    * Form A: bare ``NAME=value`` stages tagged by ``_make_stage`` as
+      ``FILESYSTEM_READ`` with reason ``"env-only assignment"``.
+    * Form B: ``export NAME=value [NAME2=value2 ...]`` stages. These
+      are not pre-tagged — ``_classify_export_assignment`` runs later
+      inside ``_classify_stage`` — so we detect them structurally.
+
+    The var map clears on pipe ``|`` (subshell semantics) and is
+    preserved across ``&&``, ``||``, and ``;`` to match real bash.
+    Only later consumer stages have their tokens rewritten; the
+    executed command string stored on ``ClassifyResult`` is never
+    touched.
+    """
+    var_map: dict[str, str] = {}
+    rewritten: list[Stage] = []
+
+    for stage in stages:
+        assignment_tokens: list[str] | None = None
+
+        if (
+            stage.action_hint == taxonomy.FILESYSTEM_READ
+            and stage.action_reason == "env-only assignment"
+        ):
+            assignment_tokens = list(stage.tokens)
+        elif (
+            len(stage.tokens) >= 2
+            and taxonomy._normalize_command_name(stage.tokens[0]) == "export"
+            and all(_is_env_assignment(t) for t in stage.tokens[1:])
+        ):
+            assignment_tokens = list(stage.tokens[1:])
+
+        if assignment_tokens is not None:
+            for tok in assignment_tokens:
+                parts = _env_assignment_parts(tok)
+                if parts is None:
+                    continue
+                name, value = parts
+                if _safe_literal_var_value(value):
+                    var_map[name] = value
+                else:
+                    var_map.pop(name, None)
+            rewritten.append(stage)
+        else:
+            if var_map:
+                new_tokens = [_expand_token(t, var_map) for t in stage.tokens]
+                if new_tokens != list(stage.tokens):
+                    rewritten.append(replace(stage, tokens=new_tokens))
+                else:
+                    rewritten.append(stage)
+            else:
+                rewritten.append(stage)
+
+        if stage.operator == "|":
+            var_map.clear()
 
     return rewritten
 
