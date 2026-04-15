@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Intra-chain `$VAR` expansion before sensitive-path checks** — Bash classification now propagates literal env assignments across `&&` / `||` / `;` stages and expands `$NAME` / `${NAME}` in later consumer tokens, so `BAD=/etc/shadow && cat "$BAD"` blocks where it previously allowed. Pipe `|` clears the var map (subshell boundary); unsafe RHS values (`$`, backticks, command substitution) are never propagated; the executed command string is never mutated. Covers bare and `export NAME=value` assignment forms. Bypass identified by srgvg ([#74](https://github.com/manuelschipper/nah/pull/74), nah-874)
+
 ## [0.6.2] - 2026-04-14
 
 ### Added
