@@ -109,19 +109,82 @@ def get_builtin_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]
     return _BUILTIN_TABLES[profile]
 
 
+def _validate_classify_pattern(pattern: str) -> None:
+    """Validate a classify entry. Raise ValueError if malformed.
+
+    Rules:
+    - A single trailing `*` on the last whitespace-split token is allowed.
+    - Leading `*`, mid-string `*`, or `*` on a non-final token is rejected.
+    - A bare `*` (alone or as a whole token) is rejected — too broad.
+    - More than one `*` anywhere in the entry is rejected.
+    """
+    if pattern.count("*") == 0:
+        return
+    if pattern.count("*") > 1:
+        raise ValueError(
+            f"invalid classify pattern {pattern!r}: only a single trailing '*' is supported"
+        )
+    parts = pattern.split()
+    if not parts:
+        raise ValueError(f"invalid classify pattern {pattern!r}: empty pattern")
+    # The single '*' must live on the last token and only as the final char.
+    for i, part in enumerate(parts[:-1]):
+        if "*" in part:
+            raise ValueError(
+                f"invalid classify pattern {pattern!r}: '*' is only allowed on the last token"
+            )
+    last = parts[-1]
+    if last == "*":
+        raise ValueError(
+            f"invalid classify pattern {pattern!r}: bare '*' is not allowed — use a longer prefix"
+        )
+    if not last.endswith("*"):
+        raise ValueError(
+            f"invalid classify pattern {pattern!r}: '*' is only allowed as the final character"
+        )
+
+
+def _has_wildcard(prefix: tuple[str, ...]) -> bool:
+    """Return True when the final element of prefix ends with a wildcard '*'."""
+    return bool(prefix) and prefix[-1].endswith("*")
+
+
 def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[str, ...], str]]:
-    """Build a sorted classify table from user config entries."""
-    table: list[tuple[tuple[str, ...], str]] = []
+    """Build a sorted classify table from user config entries.
+
+    Entries containing an invalid wildcard pattern are skipped with a stderr
+    warning; the hook continues with the remaining entries. Write-time
+    validation in remember.write_classify prevents the CLI from producing
+    malformed entries in the first place — this is defensive for hand-edited
+    YAML only.
+
+    Sort order: longest prefix first (more specific wins); within equal length,
+    exact entries beat wildcard entries so a specific override always beats a
+    server-wide rule; within both equal, stable on insertion order.
+    """
+    entries: list[tuple[tuple[tuple[str, ...], str], int, bool]] = []
+    counter = 0
     for action_type, prefixes in user_classify.items():
         if not isinstance(prefixes, list):
             continue
         for prefix_str in prefixes:
+            try:
+                _validate_classify_pattern(prefix_str)
+            except ValueError as exc:
+                sys.stderr.write(
+                    f"nah: classify: invalid entry {prefix_str!r} for {action_type}: {exc}\n"
+                )
+                continue
             parts = prefix_str.split()
-            if parts:
+            if parts and "*" not in parts[0]:
                 parts[0] = _normalize_command_name(parts[0])
-            table.append((tuple(parts), action_type))
-    table.sort(key=lambda entry: len(entry[0]), reverse=True)
-    return table
+            prefix = tuple(parts)
+            entries.append(((prefix, action_type), counter, _has_wildcard(prefix)))
+            counter += 1
+    # Primary: longer prefixes first. Secondary: exact (not wildcard) before
+    # wildcard at the same length. Tertiary: insertion order (stable).
+    entries.sort(key=lambda e: (-len(e[0][0]), e[2], e[1]))
+    return [entry for entry, _, _ in entries]
 
 
 # Commands with Phase 2 flag classifiers (flag-dependent classification).
@@ -394,10 +457,24 @@ def reset_decode_commands():
 
 
 def _prefix_match(tokens: list[str], table: list[tuple[tuple[str, ...], str]]) -> str:
-    """First prefix match in a single sorted table. Returns action type or UNKNOWN."""
+    """First prefix match in a single sorted table. Returns action type or UNKNOWN.
+
+    Non-wildcard prefixes compare by exact tuple equality on the leading
+    tokens. A prefix whose final element ends with `*` matches by equality on
+    every element except the last, which matches via ``startswith`` on the
+    final element with the trailing `*` stripped.
+    """
     for prefix, action_type in table:
-        if len(tokens) >= len(prefix) and tuple(tokens[:len(prefix)]) == prefix:
-            return action_type
+        plen = len(prefix)
+        if len(tokens) < plen or plen == 0:
+            continue
+        if prefix[-1].endswith("*"):
+            # Wildcard: match leading elements by equality; last element by prefix.
+            if tuple(tokens[: plen - 1]) == prefix[: plen - 1] and tokens[plen - 1].startswith(prefix[-1][:-1]):
+                return action_type
+        else:
+            if tuple(tokens[:plen]) == prefix:
+                return action_type
     return UNKNOWN
 
 

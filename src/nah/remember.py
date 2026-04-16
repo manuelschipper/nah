@@ -135,6 +135,9 @@ def write_classify(command: str, action_type: str, project: bool = False,
                     allow_custom: bool = False) -> str:
     """Write a classify entry. Returns confirmation message."""
     _ensure_yaml()
+    # Validate wildcard syntax before anything else so the error surfaces
+    # immediately rather than on the next hook invocation.
+    taxonomy._validate_classify_pattern(command)
     if not allow_custom:
         valid, close = taxonomy.validate_action_type(action_type)
         if not valid:
