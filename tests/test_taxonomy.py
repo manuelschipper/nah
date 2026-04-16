@@ -715,6 +715,138 @@ class TestClassifyTokens:
         assert _ct(["mawk", 'BEGIN{system("x")}']) == "lang_exec"
 
 
+# --- wildcard classify entries ---
+
+
+class TestValidateClassifyPattern:
+    """_validate_classify_pattern — input sanitation for wildcard entries."""
+
+    def test_no_wildcard_accepted(self):
+        # Plain entries pass validation (no-op).
+        taxonomy._validate_classify_pattern("git push")
+        taxonomy._validate_classify_pattern("mcp__github__get_issue")
+
+    def test_trailing_wildcard_on_single_token(self):
+        taxonomy._validate_classify_pattern("mcp__github*")
+
+    def test_trailing_wildcard_on_multi_token(self):
+        taxonomy._validate_classify_pattern("git push --force*")
+
+    def test_bare_star_rejected(self):
+        with pytest.raises(ValueError, match="bare '\\*'"):
+            taxonomy._validate_classify_pattern("*")
+
+    def test_bare_star_as_final_token_rejected(self):
+        with pytest.raises(ValueError, match="bare '\\*'"):
+            taxonomy._validate_classify_pattern("docker *")
+
+    def test_leading_star_rejected(self):
+        with pytest.raises(ValueError, match="final character"):
+            taxonomy._validate_classify_pattern("*sketchy")
+
+    def test_mid_string_star_rejected(self):
+        with pytest.raises(ValueError, match="final character"):
+            taxonomy._validate_classify_pattern("mcp__*__exfil")
+
+    def test_star_on_non_final_token_rejected(self):
+        with pytest.raises(ValueError, match="only allowed on the last token"):
+            taxonomy._validate_classify_pattern("git* push")
+
+    def test_multiple_stars_rejected(self):
+        with pytest.raises(ValueError, match="single trailing"):
+            taxonomy._validate_classify_pattern("mcp__github**")
+
+    def test_multiple_stars_across_tokens_rejected(self):
+        with pytest.raises(ValueError, match="single trailing"):
+            taxonomy._validate_classify_pattern("git* *")
+
+
+class TestBuildUserTableWildcards:
+    """build_user_table — wildcard handling and sort stability."""
+
+    def test_wildcard_entry_present(self):
+        tbl = build_user_table({"mcp_github": ["mcp__github*"]})
+        assert tbl == [(("mcp__github*",), "mcp_github")]
+
+    def test_wildcard_skips_first_token_normalization(self):
+        # python3* must NOT become python* or python3 via _normalize_command_name.
+        tbl = build_user_table({"lang_exec": ["python3*"]})
+        assert tbl[0][0] == ("python3*",)
+
+    def test_invalid_entry_skipped_with_warning(self, capsys):
+        tbl = build_user_table({"mcp_github": ["mcp__*__exfil", "mcp__github__get_issue"]})
+        err = capsys.readouterr().err
+        assert "invalid entry" in err
+        assert "mcp__*__exfil" in err
+        # Valid entry survives; invalid entry is gone.
+        assert tbl == [(("mcp__github__get_issue",), "mcp_github")]
+
+    def test_exact_beats_wildcard_at_equal_length(self):
+        tbl = build_user_table({
+            "mcp_block": ["mcp__github__delete_repo"],
+            "mcp_allow": ["mcp__github*"],
+        })
+        # Both length 1; exact must come first.
+        assert tbl[0][0] == ("mcp__github__delete_repo",)
+        assert tbl[1][0] == ("mcp__github*",)
+
+    def test_longer_prefix_still_wins_over_shorter_exact(self):
+        tbl = build_user_table({
+            "a": ["git"],
+            "b": ["git push --force"],
+        })
+        assert tbl[0][0] == ("git", "push", "--force")
+
+    def test_insertion_order_tiebreak(self):
+        tbl = build_user_table({
+            "first": ["alpha*"],
+            "second": ["beta*"],
+        })
+        # Both length-1 wildcards; dict iteration preserves insertion order.
+        assert [entry[1] for entry in tbl] == ["first", "second"]
+
+
+class TestPrefixMatchWildcards:
+    """_prefix_match — trailing-* semantics."""
+
+    def test_wildcard_matches_prefix(self):
+        tbl = build_user_table({"mcp_github": ["mcp__github*"]})
+        assert classify_tokens(["mcp__github__get_issue"], global_table=tbl) == "mcp_github"
+        assert classify_tokens(["mcp__github__create_pr"], global_table=tbl) == "mcp_github"
+
+    def test_wildcard_does_not_match_different_server(self):
+        tbl = build_user_table({"mcp_github": ["mcp__github*"]})
+        assert classify_tokens(["mcp__other__tool"], global_table=tbl) == taxonomy.UNKNOWN
+
+    def test_exact_still_does_not_match_prefix(self):
+        # FD-024 adversarial invariant: without a literal '*', no implicit prefix.
+        tbl = build_user_table({"t": ["mcp__postgres"]})
+        assert classify_tokens(["mcp__postgres"], global_table=tbl) == "t"
+        assert classify_tokens(["mcp__postgres__query"], global_table=tbl) == taxonomy.UNKNOWN
+
+    def test_exact_overrides_wildcard(self):
+        tbl = build_user_table({
+            "block": ["mcp__github__delete_repo"],
+            "allow": ["mcp__github*"],
+        })
+        assert classify_tokens(["mcp__github__delete_repo"], global_table=tbl) == "block"
+        assert classify_tokens(["mcp__github__get_issue"], global_table=tbl) == "allow"
+
+    def test_wildcard_on_multi_token_prefix(self):
+        # Use a non-builtin first token so Phase 2 flag classifiers stay out of the way.
+        tbl = build_user_table({"t": ["myapp deploy --force*"]})
+        # Matches literal "--force" and compound variants like "--force-with-lease".
+        assert classify_tokens(["myapp", "deploy", "--force"], global_table=tbl) == "t"
+        assert classify_tokens(["myapp", "deploy", "--force-with-lease"], global_table=tbl) == "t"
+        # Non-matching flag
+        assert classify_tokens(["myapp", "deploy", "origin"], global_table=tbl) == taxonomy.UNKNOWN
+
+    def test_wildcard_requires_enough_tokens(self):
+        # "myapp deploy --force*" is length 3; "myapp deploy" alone should not match.
+        tbl = build_user_table({"t": ["myapp deploy --force*"]})
+        assert classify_tokens(["myapp", "deploy"], global_table=tbl) == taxonomy.UNKNOWN
+
+
 # --- get_policy ---
 
 
