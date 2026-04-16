@@ -170,6 +170,21 @@ classify:
     - migrate-prod
 ```
 
+Classify entries accept a trailing `*` wildcard on the last token. Useful for covering an entire MCP server in one line:
+
+```yaml
+actions:
+  mcp_github: allow          # custom action type with allow policy
+  mcp_danger: block
+classify:
+  mcp_github:
+    - mcp__github*           # every tool under the github MCP server
+  mcp_danger:
+    - mcp__github__delete_repo   # exact entry beats the wildcard above
+```
+
+Wildcards are literal — you don't need to escape them for YAML because `mcp__github*` doesn't start with `*` (YAML aliases only trigger on leading `*`). Exact entries always win over wildcard entries at equal prefix length, so a specific override still beats a server-wide rule.
+
 nah classifies commands by **action type**, not by command name. Run `nah types` to see all 40 built-in action types with their default policies.
 
 ### Action types
