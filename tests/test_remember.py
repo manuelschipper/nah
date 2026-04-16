@@ -124,6 +124,41 @@ class TestWriteClassify:
         msg = write_classify("just", "package_run")
         assert "Already" in msg
 
+    # --- nah-875 wildcard validation at write time ---
+
+    def test_accepts_trailing_wildcard(self, patched_paths, global_cfg):
+        from nah.remember import write_classify, _read_config
+        write_classify("mcp__github*", "package_run")
+        data = _read_config(global_cfg)
+        assert "mcp__github*" in data["classify"]["package_run"]
+
+    def test_accepts_wildcard_on_multi_token_prefix(self, patched_paths, global_cfg):
+        from nah.remember import write_classify, _read_config
+        write_classify("myapp deploy --force*", "package_run")
+        data = _read_config(global_cfg)
+        assert "myapp deploy --force*" in data["classify"]["package_run"]
+
+    @pytest.mark.parametrize("pattern,match", [
+        ("*", "bare '\\*'"),
+        ("docker *", "bare '\\*'"),
+        ("*sketchy", "final character"),
+        ("mcp__*__exfil", "final character"),
+        ("git* push", "only allowed on the last token"),
+        ("mcp__github**", "single trailing"),
+    ])
+    def test_rejects_invalid_wildcard(self, patched_paths, pattern, match):
+        from nah.remember import write_classify
+        with pytest.raises(ValueError, match=match):
+            write_classify(pattern, "package_run")
+
+    def test_invalid_wildcard_does_not_write(self, patched_paths, global_cfg):
+        from nah.remember import write_classify, _read_config
+        with pytest.raises(ValueError):
+            write_classify("mcp__*__x", "package_run")
+        # YAML file must not have been created or populated with the bad entry.
+        data = _read_config(global_cfg)
+        assert "classify" not in data or "mcp__*__x" not in str(data.get("classify", {}))
+
 
 class TestWriteTrustHost:
     def test_appends_to_list(self, patched_paths, global_cfg):

@@ -104,6 +104,48 @@ class TestClassifyUnknownTool:
         d = _classify_unknown_tool("mcp__memory__search")
         assert d["decision"] == "allow"
 
+    # --- nah-875 MCP wildcard classification ---
+
+    def test_mcp_wildcard_allows_server_tools(self):
+        """mcp__github* covers every tool under the github MCP server."""
+        config._cached_config = NahConfig(
+            classify_global={"mcp_github": ["mcp__github*"]},
+            actions={"mcp_github": "allow"},
+        )
+        assert _classify_unknown_tool("mcp__github__get_issue")["decision"] == "allow"
+        assert _classify_unknown_tool("mcp__github__create_pr")["decision"] == "allow"
+        assert _classify_unknown_tool("mcp__github__list_issues")["decision"] == "allow"
+
+    def test_mcp_wildcard_does_not_leak_to_other_servers(self):
+        """mcp__github* must not match tools on a different server."""
+        config._cached_config = NahConfig(
+            classify_global={"mcp_github": ["mcp__github*"]},
+            actions={"mcp_github": "allow"},
+        )
+        d = _classify_unknown_tool("mcp__other__tool")
+        assert d["decision"] == "ask"  # falls through to unknown
+
+    def test_mcp_exact_entry_overrides_wildcard(self):
+        """An exact block entry beats a wildcard allow at equal prefix length."""
+        config._cached_config = NahConfig(
+            classify_global={
+                "mcp_github": ["mcp__github*"],
+                "mcp_danger": ["mcp__github__delete_repo"],
+            },
+            actions={"mcp_github": "allow", "mcp_danger": "block"},
+        )
+        assert _classify_unknown_tool("mcp__github__delete_repo")["decision"] == "block"
+        assert _classify_unknown_tool("mcp__github__get_issue")["decision"] == "allow"
+
+    def test_mcp_wildcard_in_project_still_ignored(self):
+        """FD-024: project config cannot classify MCP tools, wildcards included."""
+        config._cached_config = NahConfig(
+            classify_project={"mcp_evil": ["mcp__github*"]},
+            actions={"mcp_evil": "allow"},
+        )
+        d = _classify_unknown_tool("mcp__github__get_issue")
+        assert d["decision"] == "ask"  # project wildcard ignored for MCP
+
     # --- FD-045 configurable unknown tool policy ---
 
     def test_unknown_default_ask(self):
