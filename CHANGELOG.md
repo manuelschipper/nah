@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Wildcard support in `classify` entries** — classify entries now accept a trailing `*` wildcard on the last token. `mcp__github*` matches every tool under the github MCP server, letting one line cover a whole MCP server instead of enumerating each tool. Exact entries always beat wildcard entries at equal prefix length, so a specific override still wins over a server-wide rule. Invalid patterns (leading `*`, mid-string `*`, bare `*`, multi-`*`) are rejected at `nah classify` write time and skipped with a stderr warning if they appear in hand-edited YAML. FD-024 semantics — implicit prefix matching remains forbidden, wildcards must be written explicitly — are preserved. Requested in [#76](https://github.com/manuelschipper/nah/issues/76) (nah-875)
+
 ### Fixed
 
 - **Intra-chain `$VAR` expansion before sensitive-path checks** — Bash classification now propagates literal env assignments across `&&` / `||` / `;` stages and expands `$NAME` / `${NAME}` in later consumer tokens, so `BAD=/etc/shadow && cat "$BAD"` blocks where it previously allowed. Pipe `|` clears the var map (subshell boundary); unsafe RHS values (`$`, backticks, command substitution) are never propagated; the executed command string is never mutated. Covers bare and `export NAME=value` assignment forms. Bypass identified by srgvg ([#74](https://github.com/manuelschipper/nah/pull/74), nah-874)
