@@ -323,3 +323,151 @@ class TestListRules:
         assert "project" in rules
         assert rules["global"]["actions"]["git_history_rewrite"] == "allow"
         assert "api.example.com" in rules["global"]["known_registries"]
+
+
+# --- nah-876 atomic _write_config ---
+
+
+class TestAtomicWriteConfig:
+    """_write_config must never leave the target in a torn state (#66)."""
+
+    def _list_tmps(self, directory: str) -> list[str]:
+        return [n for n in os.listdir(directory) if n.endswith(".tmp")]
+
+    def test_output_regression(self, tmp_path):
+        """Byte-for-byte identical YAML output vs. a direct yaml.dump."""
+        import yaml
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        data = {"actions": {"git_safe": "allow"}, "classify": {"filesystem_read": ["cat"]}}
+        _write_config(path, data)
+        expected = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        assert open(path, encoding="utf-8").read() == expected
+
+    def test_creates_file_with_default_mode(self, tmp_path):
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        _write_config(path, {"x": 1})
+        mode = os.stat(path).st_mode & 0o777
+        # Default 0o644 modulo the process umask — at minimum read bits set.
+        assert mode & 0o400, f"owner read bit missing: {oct(mode)}"
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX mode semantics only")
+    def test_preserves_explicit_mode(self, tmp_path):
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        _write_config(path, {"x": 1})
+        os.chmod(path, 0o600)
+        _write_config(path, {"x": 2})
+        assert (os.stat(path).st_mode & 0o777) == 0o600
+
+    def test_no_stray_tmp_files_after_success(self, tmp_path):
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        _write_config(path, {"x": 1})
+        assert self._list_tmps(str(tmp_path)) == []
+
+    def test_yaml_dump_failure_leaves_original_intact(self, tmp_path, monkeypatch):
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        _write_config(path, {"original": True})
+        original_bytes = open(path, "rb").read()
+
+        import yaml
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("simulated dump failure")
+        monkeypatch.setattr(yaml, "dump", boom)
+
+        with pytest.raises(RuntimeError, match="simulated dump failure"):
+            _write_config(path, {"new": True})
+
+        assert open(path, "rb").read() == original_bytes
+        assert self._list_tmps(str(tmp_path)) == []
+
+    def test_os_replace_failure_cleans_tmp_and_preserves_target(self, tmp_path, monkeypatch):
+        from nah import remember
+        from nah.remember import _write_config
+        path = str(tmp_path / "config.yaml")
+        _write_config(path, {"original": True})
+        original_bytes = open(path, "rb").read()
+
+        def boom(src, dst):
+            raise OSError("simulated replace failure")
+        monkeypatch.setattr(remember.os, "replace", boom)
+
+        with pytest.raises(OSError, match="simulated replace failure"):
+            _write_config(path, {"new": True})
+
+        assert open(path, "rb").read() == original_bytes
+        assert self._list_tmps(str(tmp_path)) == []
+
+    @pytest.mark.skipif(os.name == "nt", reason="symlinks require admin on Windows")
+    def test_preserves_symlink(self, tmp_path):
+        """Writing through a symlink replaces the real file, not the link."""
+        from nah.remember import _write_config
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        real = real_dir / "config.yaml"
+        link_dir = tmp_path / "link_dir"
+        link_dir.mkdir()
+        link = link_dir / "config.yaml"
+        # Seed the real file, then symlink.
+        _write_config(str(real), {"n": 1})
+        os.symlink(str(real), str(link))
+        assert os.path.islink(str(link))
+
+        # Write through the symlink.
+        _write_config(str(link), {"n": 2})
+
+        # Link is still a symlink pointing at the same real file.
+        assert os.path.islink(str(link))
+        assert os.readlink(str(link)) == str(real)
+        # Real file has the new content.
+        import yaml
+        assert yaml.safe_load(open(str(real), encoding="utf-8")) == {"n": 2}
+        # No tmp leaked into either directory.
+        assert self._list_tmps(str(real_dir)) == []
+        assert self._list_tmps(str(link_dir)) == []
+
+    def test_concurrent_read_invariant(self, tmp_path):
+        """During a write, concurrent readers never see {} or a truncated view.
+
+        Regression test for issue #66: the old open(path, "w") truncated the
+        file to 0 bytes before yaml.dump wrote anything, so a reader in a
+        parallel process could observe an empty file, parse it as None, and
+        later persist a replacement config with only the new key.
+        """
+        import threading
+        import time
+        from nah.remember import _write_config, _read_config
+
+        path = str(tmp_path / "config.yaml")
+        # Seed with a non-trivial baseline.
+        baseline = {"classify": {"filesystem_read": ["cat", "head", "tail", "less"]}}
+        _write_config(path, baseline)
+
+        stop = threading.Event()
+        bad_observations: list[object] = []
+
+        def reader():
+            while not stop.is_set():
+                d = _read_config(path)
+                # Invariants: never empty, never missing the baseline key.
+                if d == {} or "classify" not in d:
+                    bad_observations.append(d)
+                # Tight loop — just enough to race.
+                time.sleep(0)
+
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        try:
+            # Many overlapping writes to widen the window.
+            for i in range(200):
+                payload = {"classify": {"filesystem_read": ["cat", "head", "tail", "less"]},
+                           "actions": {"git_safe": f"v{i}"}}
+                _write_config(path, payload)
+        finally:
+            stop.set()
+            t.join(timeout=2)
+
+        assert bad_observations == [], f"Reader saw torn state: {bad_observations[:3]}"
