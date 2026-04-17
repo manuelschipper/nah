@@ -1,6 +1,7 @@
 """Config writer — CLI commands delegate here to modify config YAML files."""
 
 import os
+import tempfile
 
 from nah import taxonomy
 from nah.config import get_global_config_path, get_project_config_path
@@ -30,12 +31,93 @@ def _read_config(path: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _atomic_write_text(path: str, text: str, *, mode: int = 0o644) -> None:
+    """Atomically write ``text`` to ``path`` as UTF-8.
+
+    Uses the standard write-temp-then-rename pattern:
+
+    1. Resolve symlinks on ``path`` so the real file's directory hosts the temp
+       (same-filesystem rename guarantee) and the symlink node survives the write.
+    2. Create a sibling temp file via ``tempfile.mkstemp`` in the target's directory.
+    3. Write ``text`` with explicit UTF-8 encoding, ``flush`` + ``fsync`` the fd.
+    4. Apply ``mode`` to the temp file before rename so the replaced file has
+       correct permissions atomically.
+    5. ``os.replace`` over the target — atomic on POSIX and Windows.
+    6. ``fsync`` the parent directory on POSIX as a durability hedge; no-op on
+       platforms that don't support it.
+
+    On any failure before rename, the temp file is cleaned up and the original
+    target file is left untouched.
+    """
+    path = os.path.realpath(path)
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".",
+        suffix=".tmp",
+        dir=parent,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+        tmp_path = None  # ownership transferred to path; skip cleanup
+        _fsync_parent_dir(parent)
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                # Cleanup is best-effort — the outer exception already carries
+                # the real error. Re-raising from here would mask it. A stray
+                # .tmp file is strictly better than a swallowed primary error.
+                pass
+
+
+def _fsync_parent_dir(parent: str) -> None:
+    """Fsync a directory on POSIX to persist the rename; no-op on Windows.
+
+    File-level fsync plus rename is enough for atomic visibility. The directory
+    fsync is a durability hedge so the rename itself survives a crash. Windows
+    does not support fsync on a directory handle, so we detect POSIX via
+    ``O_DIRECTORY`` availability and skip otherwise.
+    """
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        dir_fd = os.open(parent, os.O_RDONLY)
+    except OSError:
+        # Opening the parent read-only failed (unusual permission setup).
+        # Atomic visibility is already secured by the file-level fsync and
+        # rename; dir fsync is a durability hedge whose failure does not
+        # warrant aborting the write.
+        return
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        # Same rationale as above — dir fsync is best-effort.
+        pass
+    finally:
+        os.close(dir_fd)
+
+
 def _write_config(path: str, data: dict) -> None:
-    """Write YAML config file. Creates parent dirs if needed."""
+    """Write YAML config file atomically. Creates parent dirs if needed.
+
+    Preserves the target file's existing mode when it exists; new files are
+    created with ``0o644``. See ``_atomic_write_text`` for the full recipe.
+    """
     import yaml
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        mode = 0o644
+    text = yaml.dump(data, default_flow_style=False, sort_keys=False)
+    _atomic_write_text(path, text, mode=mode)
 
 
 def has_comments(path: str) -> bool:
