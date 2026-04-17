@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-04-17
+
 ### Added
 
 - **Wildcard support in `classify` entries** — classify entries now accept a trailing `*` wildcard on the last token. `mcp__github*` matches every tool under the github MCP server, letting one line cover a whole MCP server instead of enumerating each tool. Exact entries always beat wildcard entries at equal prefix length, so a specific override still wins over a server-wide rule. Invalid patterns (leading `*`, mid-string `*`, bare `*`, multi-`*`) are rejected at `nah classify` write time and skipped with a stderr warning if they appear in hand-edited YAML. FD-024 semantics — implicit prefix matching remains forbidden, wildcards must be written explicitly — are preserved. Requested in [#76](https://github.com/manuelschipper/nah/issues/76) (nah-875)
