@@ -2811,6 +2811,20 @@ def _unwrap_shell(
                                user_actions=user_actions, profile=profile,
                                trust_project=trust_project)
 
+    mise_inner = taxonomy._extract_mise_exec_inner(tokens)
+    if mise_inner is not None:
+        inner_stage = _make_stage(mise_inner, stage.operator) or Stage(
+            tokens=mise_inner, operator=stage.operator
+        )
+        inner_stage = _copy_python_metadata(inner_stage, stage)
+        sr = _classify_stage(inner_stage, depth + 1, global_table=global_table,
+                             builtin_table=builtin_table, project_table=project_table,
+                             user_actions=user_actions, profile=profile,
+                             trust_project=trust_project)
+        if sr.reason and not sr.reason.startswith("mise: "):
+            sr.reason = f"mise: {sr.reason}"
+        return sr
+
     # nice and other passthrough wrappers
     passthrough_tokens = _strip_passthrough_wrapper(tokens)
     if passthrough_tokens is not None:
@@ -3041,6 +3055,13 @@ def _extract_redirect_literal(stage: Stage) -> str:
 
     cmd = os.path.basename(tokens[0])
     args = tokens[1:]
+
+    mise_inner = taxonomy._extract_mise_exec_inner(tokens)
+    if mise_inner is not None:
+        inner_stage = _make_stage(mise_inner, stage.operator) or Stage(
+            tokens=mise_inner, operator=stage.operator
+        )
+        return _extract_redirect_literal(inner_stage)
 
     passthrough_tokens = _strip_passthrough_wrapper(tokens)
     if passthrough_tokens is not None:
