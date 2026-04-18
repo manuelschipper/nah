@@ -1754,11 +1754,114 @@ class TestGhCommands:
 
     # lang_exec — runs arbitrary code
     @pytest.mark.parametrize("tokens", [
-        ["gh", "api", "/repos/owner/repo"],
         ["gh", "extension", "exec", "my-ext"],
     ])
     def test_gh_lang_exec(self, tokens):
         assert _ct(tokens) == "lang_exec"
+
+
+class TestGhApiClassifier:
+    """FD-093: full-profile flag classifier for gh api."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "user"],
+        ["gh", "api", "repos/owner/repo/contributors", "--jq", "length"],
+        ["gh", "api", "--method", "GET", "user"],
+        ["gh", "api", "--method=HEAD", "repos/owner/repo"],
+        ["gh", "api", "-X", "OPTIONS", "repos/owner/repo"],
+        ["gh", "api", "-XGET", "search/issues"],
+        ["gh", "api", "--method", "get", "user"],
+    ])
+    def test_gh_api_read_methods_are_git_safe(self, tokens):
+        assert _ct(tokens) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "--method", "POST", "/repos/owner/repo/issues"],
+        ["gh", "api", "--method=put", "/repos/owner/repo/issues/1"],
+        ["gh", "api", "-X", "DELETE", "/repos/owner/repo/issues/1"],
+        ["gh", "api", "-XPATCH", "/repos/owner/repo/issues/1"],
+        ["gh", "api", "--method", "TRACE", "/repos/owner/repo"],
+        ["gh", "api", "--method"],
+        ["gh", "api", "-X"],
+        ["gh", "api", "--method=", "/repos/owner/repo"],
+    ])
+    def test_gh_api_write_unknown_and_malformed_methods_are_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "search/issues", "-f", "q=repo:cli/cli"],
+        ["gh", "api", "search/issues", "-fq=repo:cli/cli"],
+        ["gh", "api", "search/issues", "--raw-field", "q=repo:cli/cli"],
+        ["gh", "api", "search/issues", "--raw-field=q=repo:cli/cli"],
+        ["gh", "api", "gists", "-F", "description=literal"],
+        ["gh", "api", "gists", "-Fdescription=literal"],
+        ["gh", "api", "gists", "--field", "description=literal"],
+        ["gh", "api", "gists", "--field=description=literal"],
+    ])
+    def test_gh_api_fields_without_read_method_are_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "-X", "GET", "search/issues", "-f", "q=repo:cli/cli"],
+        ["gh", "api", "-XGET", "search/issues", "-fq=repo:cli/cli"],
+        ["gh", "api", "--method=GET", "search/issues", "--raw-field", "q=repo:cli/cli"],
+        ["gh", "api", "-X", "GET", "gists", "-F", "description=literal"],
+        ["gh", "api", "-X", "GET", "gists", "-Fdescription=literal"],
+        ["gh", "api", "-X", "GET", "gists", "--field", "description=literal"],
+        ["gh", "api", "-X", "GET", "gists", "--field=description=literal"],
+    ])
+    def test_gh_api_explicit_read_method_allows_literal_fields(self, tokens):
+        assert _ct(tokens) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "-X", "GET", "gists", "-F", "description=@message.md"],
+        ["gh", "api", "-X", "GET", "gists", "-Fdescription=@message.md"],
+        ["gh", "api", "-X", "GET", "gists", "--field", "description=@message.md"],
+        ["gh", "api", "-X", "GET", "gists", "--field=description=@message.md"],
+        ["gh", "api", "-X", "GET", "gists", "--field=description=@-"],
+    ])
+    def test_gh_api_typed_file_fields_are_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "--input", "body.json", "repos/owner/repo/issues"],
+        ["gh", "api", "--input=body.json", "repos/owner/repo/issues"],
+        ["gh", "api", "-X", "GET", "--input", "-", "repos/owner/repo/issues"],
+    ])
+    def test_gh_api_input_is_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["gh", "api", "repos/owner/repo/contributors", "--jq", "--method POST"],
+        ["gh", "api", "repos/owner/repo/contributors", "-q", "--method POST"],
+        ["gh", "api", "repos/owner/repo/contributors", "--template", "{{.method}}"],
+        ["gh", "api", "repos/owner/repo/contributors", "-t", "{{.method}}"],
+        ["gh", "api", "repos/owner/repo/contributors", "--preview", "nebula"],
+        ["gh", "api", "repos/owner/repo/contributors", "-p", "nebula"],
+        ["gh", "api", "repos/owner/repo/contributors", "--header", "X-Test: -X POST"],
+        ["gh", "api", "repos/owner/repo/contributors", "-H", "X-Test: -X POST"],
+        ["gh", "api", "repos/owner/repo/contributors", "--hostname", "github.example"],
+        ["gh", "api", "repos/owner/repo/contributors", "--cache", "1h"],
+    ])
+    def test_gh_api_skips_benign_split_flag_values(self, tokens):
+        assert _ct(tokens) == "git_safe"
+
+    def test_gh_api_global_override_wins_before_classifier(self):
+        global_t = build_user_table({"network_write": ["gh api"]})
+        assert classify_tokens(
+            ["gh", "api", "user"],
+            global_table=global_t,
+            builtin_table=_FULL,
+            profile="full",
+        ) == "network_write"
+
+    def test_gh_api_classifier_is_full_profile_only(self):
+        minimal = get_builtin_table("minimal")
+        assert classify_tokens(
+            ["gh", "api", "user"],
+            builtin_table=minimal,
+            profile="minimal",
+        ) == "unknown"
 
 
 # --- Profiles (FD-032) ---
@@ -2673,6 +2776,10 @@ class TestFindFlagClassifierShadows:
     def test_git_detected(self):
         user = [(("git",), "git_safe")]
         assert ("git",) in find_flag_classifier_shadows(user)
+
+    def test_gh_detected(self):
+        user = [(("gh",), "git_safe")]
+        assert ("gh",) in find_flag_classifier_shadows(user)
 
     def test_find_detected(self):
         user = [(("find",), "filesystem_read")]

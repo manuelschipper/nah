@@ -191,6 +191,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
+                          "gh",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -552,6 +553,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_httpie(tokens)
+        if action is not None:
+            return action
+        action = _classify_gh_api(tokens, profile=profile)
         if action is not None:
             return action
         action = _classify_codex(tokens)
@@ -983,6 +987,143 @@ def _classify_httpie(tokens: list[str]) -> str | None:
     if has_data_item:
         return NETWORK_WRITE
     return NETWORK_OUTBOUND
+
+
+_GH_API_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+_GH_API_METHOD_FLAGS = {"--method", "-X"}
+_GH_API_RAW_FIELD_FLAGS = {"--raw-field", "-f"}
+_GH_API_TYPED_FIELD_FLAGS = {"--field", "-F"}
+_GH_API_SPLIT_VALUE_FLAGS = {
+    "--cache", "--header", "-H", "--hostname", "--jq", "-q",
+    "--preview", "-p", "--template", "-t",
+}
+_GH_API_LONG_VALUE_PREFIXES = (
+    "--cache=", "--header=", "--hostname=", "--jq=",
+    "--preview=", "--template=",
+)
+_GH_API_SHORT_VALUE_PREFIXES = ("-H", "-q", "-p", "-t")
+
+
+def _gh_api_payload_value_is_file_sourced(payload: str | None) -> bool:
+    """Return True when a gh api typed field payload reads local content."""
+    if payload is None:
+        return True
+    _key, sep, value = payload.partition("=")
+    if not sep:
+        return True
+    return value.startswith("@")
+
+
+def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
+    """Flag-dependent: gh api reads are git_safe; writes/bodies are network_write."""
+    if profile != "full" or len(tokens) < 2 or tokens[0] != "gh" or tokens[1] != "api":
+        return None
+
+    explicit_read_method = False
+    write_indicator = False
+    has_field = False
+
+    i = 2
+    while i < len(tokens):
+        tok = tokens[i]
+
+        if tok == "--":
+            break
+
+        if tok in _GH_API_METHOD_FLAGS:
+            if i + 1 >= len(tokens):
+                write_indicator = True
+                i += 1
+                continue
+            method = tokens[i + 1].upper()
+            if method in _GH_API_READ_METHODS:
+                explicit_read_method = True
+            else:
+                write_indicator = True
+            i += 2
+            continue
+        if tok.startswith("--method="):
+            method = tok.split("=", 1)[1].upper()
+            if method in _GH_API_READ_METHODS:
+                explicit_read_method = True
+            else:
+                write_indicator = True
+            i += 1
+            continue
+        if tok.startswith("-X") and tok != "-X" and not tok.startswith("--"):
+            method = tok[2:].upper()
+            if method in _GH_API_READ_METHODS:
+                explicit_read_method = True
+            else:
+                write_indicator = True
+            i += 1
+            continue
+
+        if tok == "--input":
+            write_indicator = True
+            i += 2 if i + 1 < len(tokens) else 1
+            continue
+        if tok.startswith("--input="):
+            write_indicator = True
+            i += 1
+            continue
+
+        if tok in _GH_API_RAW_FIELD_FLAGS:
+            has_field = True
+            if i + 1 >= len(tokens):
+                write_indicator = True
+                i += 1
+            else:
+                i += 2
+            continue
+        if tok.startswith("--raw-field=") or (
+            tok.startswith("-f") and tok != "-f" and not tok.startswith("--")
+        ):
+            has_field = True
+            i += 1
+            continue
+
+        if tok in _GH_API_TYPED_FIELD_FLAGS:
+            has_field = True
+            payload = tokens[i + 1] if i + 1 < len(tokens) else None
+            if _gh_api_payload_value_is_file_sourced(payload):
+                write_indicator = True
+            i += 2 if i + 1 < len(tokens) else 1
+            continue
+        if tok.startswith("--field="):
+            has_field = True
+            if _gh_api_payload_value_is_file_sourced(tok.split("=", 1)[1]):
+                write_indicator = True
+            i += 1
+            continue
+        if tok.startswith("-F") and tok != "-F" and not tok.startswith("--"):
+            has_field = True
+            if _gh_api_payload_value_is_file_sourced(tok[2:]):
+                write_indicator = True
+            i += 1
+            continue
+
+        if tok in _GH_API_SPLIT_VALUE_FLAGS:
+            i += 2 if i + 1 < len(tokens) else 1
+            continue
+        if any(tok.startswith(prefix) for prefix in _GH_API_LONG_VALUE_PREFIXES):
+            i += 1
+            continue
+        if (
+            len(tok) > 2
+            and not tok.startswith("--")
+            and any(tok.startswith(prefix) for prefix in _GH_API_SHORT_VALUE_PREFIXES)
+        ):
+            i += 1
+            continue
+
+        i += 1
+
+    if write_indicator:
+        return NETWORK_WRITE
+    if has_field and not explicit_read_method:
+        return NETWORK_WRITE
+    return GIT_SAFE
 
 
 _CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
