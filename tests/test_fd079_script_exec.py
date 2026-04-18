@@ -426,6 +426,23 @@ class TestScriptPathResolution:
         assert result == os.path.join(project_root, "./bin/does-not-exist.sh")
         assert "2.0.0" not in result
 
+    def test_non_script_lang_exec_command_keeps_operand_scan(self, project_root):
+        """`gh api` is tracked separately; this fix must not treat `gh` as a script."""
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path([
+                "gh",
+                "api",
+                "repos/owner/repo/contributors",
+                "--jq",
+                "length",
+            ])
+        finally:
+            os.chdir(old_cwd)
+
+        assert result == os.path.join(project_root, "api")
+
     def test_uv_run_relative_script_resolves(self, project_root):
         path = os.path.join(project_root, "script.py")
         _write(path)

@@ -3584,6 +3584,7 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     from nah.taxonomy import (
         _INLINE_FLAGS,
         _MODULE_FLAGS,
+        _SCRIPT_EXTENSIONS,
         _SCRIPT_INTERPRETERS,
         _VALUE_FLAGS,
         _extract_source_operand,
@@ -3603,8 +3604,14 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
             return sourced
         return os.path.join(os.getcwd(), sourced)
 
-    if cmd not in _SCRIPT_INTERPRETERS:
-        raw = tokens[0]
+    raw = tokens[0]
+    _, ext = os.path.splitext(cmd)
+    # Only direct script-like commands own tokens[0]. Other table-driven
+    # lang_exec commands (for example `gh api`) keep their existing operand scan.
+    if (
+        cmd not in _SCRIPT_INTERPRETERS
+        and (ext in _SCRIPT_EXTENSIONS or "/" in raw or "\\" in raw)
+    ):
         if os.path.isabs(raw):
             return raw
         if os.path.isfile(raw):
