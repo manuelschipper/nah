@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-04-18
+
 ### Fixed
 
 - **Conservative kubectl read classification with global flag support** — `kubectl -n <ns> logs ...`, `kubectl --namespace=<ns> get pods`, and other known low-risk Kubernetes inspection commands now classify as `container_read` instead of falling through to `unknown`. The classifier strips recognized kubectl global flags before matching subcommands, while malformed flags, mutations, exec/copy/port-forward paths, detailed object dumps (`-o yaml/json`), secrets, configmaps, service accounts, and custom resources remain on the `unknown` ask path. Tracks [#67](https://github.com/manuelschipper/nah/issues/67), superseding the broad prefix-table approach from [#51](https://github.com/manuelschipper/nah/pull/51) and the global-flag stripping branch [#68](https://github.com/manuelschipper/nah/pull/68).
