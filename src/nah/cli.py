@@ -14,6 +14,15 @@ from nah import __version__, agents
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
 
+_COMMANDS_DIR = Path.home() / ".claude" / "commands"
+_SKILLS_SRC = Path(__file__).parent / "commands"
+_SKILL_FILES = [
+    "nah-classify.md",
+    "nah-allow.md",
+    "nah-status.md",
+    "nah-log.md",
+]
+
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
 # -*- coding: utf-8 -*-
@@ -226,6 +235,45 @@ def _write_hook_script() -> None:
         os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
 
 
+def _install_skills(force: bool = False) -> None:
+    """Symlink nah Claude Code command files into ~/.claude/commands/."""
+    if not _SKILLS_SRC.exists():
+        print(f"  Skills source not found: {_SKILLS_SRC}", file=sys.stderr)
+        return
+
+    _COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
+
+    installed = []
+    skipped = []
+    for filename in _SKILL_FILES:
+        src = _SKILLS_SRC / filename
+        dst = _COMMANDS_DIR / filename
+
+        if not src.exists():
+            print(f"  Warning: {filename} not found in package, skipping",
+                  file=sys.stderr)
+            continue
+
+        if dst.exists() or dst.is_symlink():
+            if dst.is_symlink() and dst.resolve() == src.resolve():
+                skipped.append(filename)
+                continue
+            if not force:
+                print(f"    {filename}: already exists (use --force to overwrite)")
+                skipped.append(filename)
+                continue
+            dst.unlink()
+
+        dst.symlink_to(src)
+        installed.append(filename)
+
+    print(f"  Skills: {_COMMANDS_DIR}")
+    for f in installed:
+        print(f"    + {f}")
+    for f in skipped:
+        print(f"    = {f} (already linked)")
+
+
 def _supports_posix_chmod() -> bool:
     """Return False on Windows where Unix mode bits do not protect hooks."""
     return os.name != "nt"
@@ -280,6 +328,9 @@ def cmd_install(args: argparse.Namespace) -> None:
 
     for key in agent_keys:
         _install_for_agent(key)
+
+    if getattr(args, "skills", False):
+        _install_skills(force=getattr(args, "force", False))
 
     print()
     print("Ready. Safe commands go through silently, dangerous ones are")
@@ -987,6 +1038,14 @@ def main():
     agent_help = "Agent to target: claude (default)"
     install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
     install_parser.add_argument("--agent", default=None, help=agent_help)
+    install_parser.add_argument("--skills",
+        action="store_true",
+        help="Also symlink Claude Code slash commands into ~/.claude/commands/",
+    )
+    install_parser.add_argument("--force",
+        action="store_true",
+        help="Overwrite existing skill symlinks",
+    )
     update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
     update_parser.add_argument("--agent", default=None, help=agent_help)
     uninstall_parser = sub.add_parser("uninstall", help="Remove nah hook from coding agents")
