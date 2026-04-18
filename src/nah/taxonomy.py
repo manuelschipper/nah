@@ -546,6 +546,12 @@ def classify_tokens(
             action = _classify_git(tokens)
             if action is not None:
                 return action
+        action = _classify_kubectl(
+            tokens,
+            global_table=global_table,
+        )
+        if action is not None:
+            return action
         action = _classify_curl(tokens)
         if action is not None:
             return action
@@ -709,6 +715,185 @@ def _strip_git_global_flags(tokens: list[str]) -> list[str]:
             result.extend(tokens[i:])
             break
     return result
+
+
+_KUBECTL_SUBCOMMANDS = {
+    "annotate", "api-resources", "api-versions", "apply", "attach", "auth",
+    "autoscale", "cluster-info", "config", "cordon", "cp", "create", "delete",
+    "describe", "diff", "drain", "edit", "exec", "explain", "expose", "get",
+    "label", "logs", "options", "patch", "plugin", "port-forward", "proxy",
+    "replace", "rollout", "run", "scale", "set", "taint", "top", "uncordon",
+    "version", "wait",
+}
+
+_KUBECTL_VALUE_FLAGS = {
+    "-n", "-s", "-v",
+    "--as", "--as-group", "--as-uid", "--cache-dir", "--certificate-authority",
+    "--client-certificate", "--client-key", "--cluster", "--context", "--kubeconfig",
+    "--log-dir", "--log-file", "--log-file-max-size", "--log-flush-frequency",
+    "--namespace", "--profile", "--profile-output", "--request-timeout", "--server",
+    "--tls-server-name", "--token", "--user", "--v", "--vmodule",
+}
+
+_KUBECTL_VALUE_FLAG_PREFIXES = (
+    "-n=", "-s=", "-v=", "--as=", "--as-group=", "--as-uid=", "--cache-dir=",
+    "--certificate-authority=", "--client-certificate=", "--client-key=", "--cluster=",
+    "--context=", "--kubeconfig=", "--log-dir=", "--log-file=",
+    "--log-file-max-size=", "--log-flush-frequency=", "--namespace=", "--profile=",
+    "--profile-output=", "--request-timeout=", "--server=", "--tls-server-name=",
+    "--token=", "--user=", "--v=", "--vmodule=",
+)
+
+_KUBECTL_BOOLEAN_FLAGS = {
+    "--add-dir-header", "--alsologtostderr", "--disable-compression", "--help",
+    "--insecure-skip-tls-verify", "--logtostderr", "--match-server-version",
+    "--warnings-as-errors",
+}
+
+_KUBECTL_SAFE_GET_RESOURCES = {
+    "all", "cronjob", "cronjobs", "cj", "daemonset", "daemonsets", "ds",
+    "deployment", "deployments", "deploy", "endpoints", "endpoint", "ep",
+    "endpointslice", "endpointslices", "event", "events", "ev", "ingress",
+    "ingresses", "ing", "job", "jobs", "namespace", "namespaces", "ns",
+    "node", "nodes", "no", "pod", "pods", "po", "replicaset", "replicasets",
+    "rs", "service", "services", "svc", "statefulset", "statefulsets", "sts",
+}
+
+_KUBECTL_SENSITIVE_RESOURCES = {
+    "cm", "configmap", "configmaps", "sa", "secret", "secrets", "serviceaccount",
+    "serviceaccounts",
+}
+
+_KUBECTL_SAFE_OUTPUTS = {"name", "wide"}
+
+
+def _strip_kubectl_global_flags(tokens: list[str]) -> list[str]:
+    """Strip known kubectl global flags before the subcommand.
+
+    Unknown or malformed pre-subcommand flags fail closed by returning the
+    original token stream, which leaves classification on the `unknown` path.
+    """
+    result = [tokens[0]]
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            if i + 1 >= len(tokens):
+                return tokens
+            result.extend(tokens[i + 1:])
+            break
+        if tok in _KUBECTL_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                return tokens
+            value = tokens[i + 1]
+            if value.startswith("-") or value in _KUBECTL_SUBCOMMANDS:
+                return tokens
+            i += 2
+        elif any(tok.startswith(prefix) for prefix in _KUBECTL_VALUE_FLAG_PREFIXES):
+            _, value = tok.split("=", 1)
+            if not value or value in _KUBECTL_SUBCOMMANDS:
+                return tokens
+            i += 1
+        elif tok in _KUBECTL_BOOLEAN_FLAGS:
+            i += 1
+        elif tok.startswith("-"):
+            return tokens
+        else:
+            result.extend(tokens[i:])
+            break
+    return result
+
+
+def _kubectl_resource_kinds(raw: str) -> list[str]:
+    """Return normalized resource kinds from a kubectl resource operand."""
+    kinds: list[str] = []
+    for part in raw.lower().split(","):
+        part = part.strip()
+        if not part:
+            continue
+        part = part.split("/", 1)[0]
+        part = part.split(".", 1)[0]
+        kinds.append(part)
+    return kinds
+
+
+def _kubectl_get_outputs_are_safe(args: list[str]) -> bool:
+    """Return False for output forms that can dump arbitrary object detail."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        output = None
+        if tok in ("-o", "--output"):
+            if i + 1 >= len(args):
+                return False
+            output = args[i + 1]
+            i += 2
+        elif tok.startswith("-o="):
+            output = tok.split("=", 1)[1]
+            i += 1
+        elif tok.startswith("--output="):
+            output = tok.split("=", 1)[1]
+            i += 1
+        elif tok.startswith("-o") and len(tok) > 2:
+            output = tok[2:]
+            i += 1
+        elif tok in ("--raw", "--template", "--template-file"):
+            return False
+        elif tok.startswith("--template=") or tok.startswith("--template-file="):
+            return False
+        else:
+            i += 1
+
+        if output is not None and output not in _KUBECTL_SAFE_OUTPUTS:
+            return False
+    return True
+
+
+def _classify_kubectl(tokens: list[str], *, global_table: list | None = None) -> str | None:
+    """Conservative kubectl classifier.
+
+    Only low-risk cluster/container inspection paths are allowed. Sensitive
+    resources, detailed object dumps, custom resources, mutations, and malformed
+    global flags stay unknown so the user is asked.
+    """
+    if not tokens or tokens[0] != "kubectl":
+        return None
+
+    stripped = _strip_kubectl_global_flags(tokens)
+    if global_table and stripped != tokens:
+        result = _prefix_match(stripped, global_table)
+        if result != UNKNOWN:
+            return result
+    tokens = stripped
+
+    if len(tokens) < 2 or tokens[1].startswith("-"):
+        return UNKNOWN
+
+    subcommand = tokens[1]
+    if subcommand in {"api-resources", "api-versions", "cluster-info", "options", "version"}:
+        return CONTAINER_READ
+
+    if subcommand == "config" and len(tokens) >= 3:
+        return CONTAINER_READ if tokens[2] in {"current-context", "get-contexts"} else UNKNOWN
+
+    if subcommand == "logs":
+        return CONTAINER_READ if len(tokens) >= 3 and not tokens[2].startswith("-") else UNKNOWN
+
+    if subcommand == "top" and len(tokens) >= 3:
+        kinds = _kubectl_resource_kinds(tokens[2])
+        return CONTAINER_READ if kinds and set(kinds) <= {"node", "nodes", "pod", "pods"} else UNKNOWN
+
+    if subcommand == "get" and len(tokens) >= 3 and not tokens[2].startswith("-"):
+        kinds = _kubectl_resource_kinds(tokens[2])
+        if not kinds:
+            return UNKNOWN
+        if any(kind in _KUBECTL_SENSITIVE_RESOURCES for kind in kinds):
+            return UNKNOWN
+        if not set(kinds) <= _KUBECTL_SAFE_GET_RESOURCES:
+            return UNKNOWN
+        return CONTAINER_READ if _kubectl_get_outputs_are_safe(tokens[3:]) else UNKNOWN
+
+    return UNKNOWN
 
 
 def _classify_find(

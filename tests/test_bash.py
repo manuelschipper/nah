@@ -181,8 +181,21 @@ class TestMiseExecWrapper:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "git_safe"
 
-    def test_mise_exec_nested_env_unknown_payload_still_asks(self, project_root):
+    def test_mise_exec_nested_env_kubectl_payload_allows(self, project_root):
         r = classify_command("mise exec -- env KUBECONFIG=foo kubectl get pods")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "container_read"
+
+    def test_kubectl_global_flags_before_logs_allow(self, project_root):
+        r = classify_command(
+            "KUBECONFIG=/path/to/kubeconfig.yaml "
+            "kubectl -n openclaw logs openclaw-0 -c setup-dev-env"
+        )
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "container_read"
+
+    def test_kubectl_sensitive_resource_still_asks(self, project_root):
+        r = classify_command("kubectl get secrets -o yaml")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
 

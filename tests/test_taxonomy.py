@@ -231,6 +231,7 @@ class TestClassifyTokens:
         (["mise", "exec", "--", "git", "status"], "git_safe"),
         (["mise", "x", "--", "gh", "issue", "list"], "git_safe"),
         (["mise", "watch", "--", "python", "-c", "print(1)"], "lang_exec"),
+        (["mise", "exec", "--", "kubectl", "get", "pods"], "container_read"),
     ])
     def test_mise_exec_wrapper_classifies_inner_payload(self, tokens, expected):
         assert classify_tokens(tokens, builtin_table=_FULL) == expected
@@ -240,7 +241,6 @@ class TestClassifyTokens:
         ["mise", "exec", "--"],
         ["mise", "exec", "--", "-c", "print(1)"],
         ["mise", "exec", "--", "glab", "issue", "list"],
-        ["mise", "exec", "--", "kubectl", "get", "pods"],
     ])
     def test_mise_exec_wrapper_keeps_unsupported_and_unknown_payloads_unknown(self, tokens):
         assert classify_tokens(tokens, builtin_table=_FULL) == "unknown"
@@ -248,6 +248,94 @@ class TestClassifyTokens:
     def test_mise_exec_wrapper_skipped_with_profile_none(self):
         assert classify_tokens(
             ["mise", "exec", "--", "git", "status"],
+            builtin_table=_FULL,
+            profile="none",
+        ) == "unknown"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "logs", "pod-0"],
+        ["kubectl", "-n", "prod", "logs", "pod-0", "-c", "app"],
+        ["kubectl", "--namespace=prod", "logs", "pod-0"],
+        ["kubectl", "--context", "prod", "--kubeconfig", "/tmp/kubeconfig", "logs", "pod-0"],
+        ["kubectl", "-s", "https://cluster.example", "logs", "pod-0"],
+    ])
+    def test_kubectl_logs_classifies_as_container_read(self, tokens):
+        assert _ct(tokens) == "container_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "get", "pods"],
+        ["kubectl", "get", "po/pod-0"],
+        ["kubectl", "get", "deployments"],
+        ["kubectl", "get", "svc", "-o", "wide"],
+        ["kubectl", "get", "nodes", "-o=name"],
+        ["kubectl", "-n", "prod", "get", "events"],
+        ["kubectl", "config", "current-context"],
+        ["kubectl", "config", "get-contexts"],
+        ["kubectl", "cluster-info"],
+        ["kubectl", "api-resources"],
+        ["kubectl", "api-versions"],
+        ["kubectl", "version"],
+        ["kubectl", "top", "pods"],
+        ["kubectl", "top", "node"],
+    ])
+    def test_kubectl_safe_reads_classify_as_container_read(self, tokens):
+        assert _ct(tokens) == "container_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "get", "secrets"],
+        ["kubectl", "get", "secret/api-key"],
+        ["kubectl", "get", "pods,secrets"],
+        ["kubectl", "get", "configmaps"],
+        ["kubectl", "get", "cm/app"],
+        ["kubectl", "get", "serviceaccounts"],
+        ["kubectl", "get", "pods", "-o", "yaml"],
+        ["kubectl", "get", "pods", "-oyaml"],
+        ["kubectl", "get", "pods", "--output=json"],
+        ["kubectl", "get", "pods", "--template", "{{.items}}"],
+        ["kubectl", "get", "widgets.example.com"],
+        ["kubectl", "describe", "pod", "pod-0"],
+        ["kubectl", "describe", "secret", "api-key"],
+        ["kubectl", "config", "view"],
+    ])
+    def test_kubectl_sensitive_or_detailed_reads_stay_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "apply", "-f", "deploy.yaml"],
+        ["kubectl", "delete", "pod", "pod-0"],
+        ["kubectl", "create", "secret", "generic", "x"],
+        ["kubectl", "patch", "deployment", "app"],
+        ["kubectl", "exec", "pod-0", "--", "sh"],
+        ["kubectl", "cp", "pod-0:/etc/passwd", "./passwd"],
+        ["kubectl", "port-forward", "pod/pod-0", "8080:80"],
+        ["kubectl", "rollout", "restart", "deployment/app"],
+        ["kubectl", "scale", "deployment/app", "--replicas", "3"],
+        ["kubectl", "set", "image", "deployment/app", "app=repo/app:v2"],
+    ])
+    def test_kubectl_mutations_and_exec_stay_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "--namespace", "get", "pods"],
+        ["kubectl", "--context", "logs", "pod-0"],
+        ["kubectl", "--kubeconfig=", "logs", "pod-0"],
+        ["kubectl", "--unknown-global", "logs", "pod-0"],
+        ["kubectl", "-n", "logs", "pod-0"],
+    ])
+    def test_kubectl_malformed_global_flags_fail_closed(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    def test_kubectl_global_table_checked_after_global_flags(self):
+        table = build_user_table({"git_safe": ["kubectl custom-read"]})
+        assert classify_tokens(
+            ["kubectl", "-n", "prod", "custom-read"],
+            global_table=table,
+            builtin_table=_FULL,
+        ) == "git_safe"
+
+    def test_kubectl_classifier_skipped_with_profile_none(self):
+        assert classify_tokens(
+            ["kubectl", "get", "pods"],
             builtin_table=_FULL,
             profile="none",
         ) == "unknown"
