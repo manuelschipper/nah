@@ -2575,6 +2575,13 @@ class TestFD022Regressions:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "network_write"
 
+    def test_gh_api_read_does_not_resolve_api_as_script(self, project_root):
+        r = classify_command("gh api repos/owner/repo/contributors --jq length")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+        assert "script not found" not in r.reason
+        assert "script not found" not in r.stages[0].reason
+
 
 # --- FD-095: Backslash-escaped pipe parsing ---
 
