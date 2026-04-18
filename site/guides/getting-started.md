@@ -13,9 +13,12 @@ That's it. nah is now guarding the supported Claude Code tools.
 
 !!! note "Optional: YAML config support"
     ```bash
-    pip install nah[config]
+    pip install "nah[config]"
     ```
-    Installs `pyyaml` for YAML config file parsing. Without it, config files are ignored (stderr warning).
+    The default install keeps nah's core hook/classifier stdlib-only for a
+    smaller supply-chain surface. Install the config extra when you want YAML
+    config files or config-writing commands such as `nah allow`, `nah deny`,
+    `nah classify`, and `nah trust`. With pipx, use `pipx inject nah pyyaml`.
 
 ## See it in action
 

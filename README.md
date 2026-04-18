@@ -45,6 +45,24 @@ pip install nah
 nah claude              # try it — hooks active for this session only
 ```
 
+`pip install nah` keeps the core hook/classifier stdlib-only: no runtime
+dependencies beyond Python itself. This is intentional for users who want a
+small supply-chain surface on a security tool.
+
+For YAML config files and config-writing commands such as `nah allow`,
+`nah deny`, `nah classify`, and `nah trust`, install the config extra:
+
+```bash
+pip install "nah[config]"          # adds PyYAML for config management
+```
+
+If you installed nah with pipx, keep the core install and inject PyYAML only
+when you want config management:
+
+```bash
+pipx inject nah pyyaml
+```
+
 For permanent use:
 
 ```bash
@@ -198,17 +216,11 @@ Every command maps to an action type, and every action type has a default policy
 | `ask` | Always prompt the user | `git_history_rewrite`, `git_remote_write`, `process_signal` |
 | `block` | Always reject | `obfuscated` |
 
-Default action policies:
-
-| Policy | Action types |
-|--------|--------------|
-| `allow` | `filesystem_read`, `git_safe`, `git_write`, `network_diagnostic`, `package_install`, `package_run`, `container_read`, `service_read`, `browser_read`, `browser_interact`, `browser_state`, `db_read`, `agent_read` |
-| `context` | `filesystem_write`, `filesystem_delete`, `network_outbound`, `network_write`, `lang_exec`, `container_write`, `browser_navigate`, `browser_file`, `db_write` |
-| `ask` | `git_remote_write`, `git_discard`, `git_history_rewrite`, `package_uninstall`, `process_signal`, `container_exec`, `container_destructive`, `service_write`, `service_destructive`, `browser_exec`, `agent_write`, `agent_exec_read`, `agent_exec_write`, `agent_exec_remote`, `agent_server`, `agent_exec_bypass`, `unknown` |
-| `block` | `obfuscated` |
-
 `context` is not the same as `allow`. For `lang_exec`, nah checks script path,
 project boundary, and inspectable inline or file content before deciding.
+
+See the [action types documentation](https://schipper.ai/nah/configuration/actions/)
+for the full default-policy table.
 
 ### Taxonomy profiles
 

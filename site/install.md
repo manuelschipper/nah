@@ -13,6 +13,11 @@ nah claude              # try it — hooks active for this session only
 
 `nah claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and passes hooks inline via Claude Code's `--settings` flag, scoped to that process.
 
+The default `pip install nah` path keeps the core hook and classifier
+stdlib-only. nah is a security boundary, so the default install intentionally
+avoids third-party runtime dependencies for users who want the smallest
+supply-chain surface.
+
 ## Permanent install
 
 ```bash
@@ -24,10 +29,18 @@ Registers nah as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-c
 ### Optional dependencies
 
 ```bash
-pip install nah[config]    # YAML config support (pyyaml)
+pip install "nah[config]"    # YAML config support and config-writing commands
 ```
 
-The core hook has **zero external dependencies** — it runs on Python's stdlib only. The `config` extra adds `pyyaml` for YAML config file parsing.
+The `config` extra adds `pyyaml`. Install it when you want YAML config files or
+commands that write config, such as `nah allow`, `nah deny`, `nah classify`, and
+`nah trust`.
+
+For pipx installs, inject PyYAML into the existing nah environment:
+
+```bash
+pipx inject nah pyyaml
+```
 
 ## How permissions work
 
