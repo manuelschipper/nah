@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code slash commands for in-session rule management** — four slash commands
+  let you manage nah rules without leaving Claude Code: `/nah-classify` reviews recent
+  `nah?` prompts and promotes them to permanent rules, `/nah-allow` allows an action
+  type or teaches nah a specific command, `/nah-status` shows current config and all
+  active custom rules, `/nah-log` audits recent hook decisions filtered by type or tool.
+  Commands live in `src/nah/commands/` and are distributed with the package.
+  Install with `nah install --skills` (symlinks into `~/.claude/commands/`);
+  `--force` overwrites existing symlinks.
+
 ## [0.6.4] - 2026-04-18
 
 ### Fixed

@@ -49,16 +49,17 @@ nav:
   - Install: install.md
   - How it works: how-it-works.md
   - Configuration:
-    - Overview: configuration/index.md
-    - Action types: configuration/actions.md
-    - Profiles: configuration/profiles.md
-    - Safety lists: configuration/safety-lists.md
-    - Sensitive paths: configuration/sensitive-paths.md
-    - Content inspection: configuration/content.md
-    - LLM layer: configuration/llm.md
-    - Database targets: configuration/database.md
+      - Overview: configuration/index.md
+      - Action types: configuration/actions.md
+      - Profiles: configuration/profiles.md
+      - Safety lists: configuration/safety-lists.md
+      - Sensitive paths: configuration/sensitive-paths.md
+      - Content inspection: configuration/content.md
+      - LLM layer: configuration/llm.md
+      - Database targets: configuration/database.md
   - CLI reference: cli.md
   - Guides:
-    - Getting started: guides/getting-started.md
-    - Airgapped environments: guides/airgapped.md
-    - Custom taxonomy: guides/custom-taxonomy.md
+      - Getting started: guides/getting-started.md
+      - Airgapped environments: guides/airgapped.md
+      - Custom taxonomy: guides/custom-taxonomy.md
+      - Claude commands: guides/claude-commands.md
