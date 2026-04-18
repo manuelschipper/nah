@@ -494,6 +494,137 @@ class TestWriteHookScriptOptimization:
         assert chmod_calls == []
 
 
+class TestWriteHookScriptEncoding:
+    """Hook shim must be written and read as UTF-8 on all platforms."""
+
+    def test_shim_has_utf8_coding_cookie(self):
+        import nah.cli as cli_mod
+
+        assert "# -*- coding: utf-8 -*-" in cli_mod._SHIM_TEMPLATE
+
+    def test_hook_written_as_utf8(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+
+        hook_path = tmp_path / "nah_guard.py"
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+
+        cli_mod._write_hook_script()
+
+        text = hook_path.read_bytes().decode("utf-8")
+        assert "\u2014" in text
+
+    def test_skip_write_tolerates_non_utf8_existing(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+
+        hook_path = tmp_path / "nah_guard.py"
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+
+        hook_path.write_bytes(b"old \x97 content")
+        hook_path.chmod(0o444)
+
+        cli_mod._write_hook_script()
+
+        text = hook_path.read_text(encoding="utf-8")
+        assert "nah guard" in text
+
+
+class TestCmdUpdateMatchers:
+    """cmd_update must handle both string and object matcher formats."""
+
+    def _make_settings(self, tmp_path, monkeypatch, matchers):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+
+        settings_file = tmp_path / "settings.json"
+        settings_data = {"hooks": {"PreToolUse": matchers}}
+        settings_file.write_text(json_mod.dumps(settings_data), encoding="utf-8")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+        cli_mod._write_hook_script()
+        return settings_file
+
+    def test_string_matchers_update_command(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+
+        entries = [
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "old nah_guard.py"}]},
+            {"matcher": "Read", "hooks": [{"type": "command", "command": "old nah_guard.py"}]},
+        ]
+        settings_file = self._make_settings(tmp_path, monkeypatch, entries)
+
+        cli_mod.cmd_update(argparse.Namespace(agent=None))
+
+        updated = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        for entry in updated["hooks"]["PreToolUse"]:
+            if "nah_guard.py" in entry["hooks"][0]["command"]:
+                assert "old" not in entry["hooks"][0]["command"]
+
+    def test_string_matchers_adds_missing_tools(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+
+        entries = [
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "old nah_guard.py"}]},
+        ]
+        settings_file = self._make_settings(tmp_path, monkeypatch, entries)
+
+        cli_mod.cmd_update(argparse.Namespace(agent=None))
+
+        updated = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        tool_names = {
+            entry["matcher"]
+            for entry in updated["hooks"]["PreToolUse"]
+            if isinstance(entry.get("matcher"), str)
+        }
+        assert set(agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]) <= tool_names
+
+    def test_missing_pre_tool_use_list_gets_created(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+        cli_mod._write_hook_script()
+
+        cli_mod.cmd_update(argparse.Namespace(agent=None))
+
+        updated = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        entries = updated["hooks"]["PreToolUse"]
+        tool_names = {entry["matcher"] for entry in entries}
+        assert set(agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]) <= tool_names
+
+    def test_object_matchers_still_work(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+
+        entries = [
+            {
+                "matcher": {"tool_name": ["Bash"]},
+                "hooks": [{"type": "command", "command": "old nah_guard.py"}],
+            },
+        ]
+        settings_file = self._make_settings(tmp_path, monkeypatch, entries)
+
+        cli_mod.cmd_update(argparse.Namespace(agent=None))
+
+        updated = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        entry = updated["hooks"]["PreToolUse"][0]
+        assert isinstance(entry["matcher"], dict)
+        assert set(agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]) <= set(entry["matcher"]["tool_name"])
+        assert len(updated["hooks"]["PreToolUse"]) == 1
+
+
 class TestCmdClaude:
     """Tests for nah claude — per-session launcher."""
 
