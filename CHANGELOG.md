@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows hook shim and update compatibility** — the generated `nah_guard.py` shim now includes an explicit UTF-8 source cookie and treats old non-UTF-8 hook files as stale during update, rewriting them safely instead of crashing while checking for identical content. `nah update` now handles both current string-style Claude hook matchers and legacy object-style `{"tool_name": [...]}` matchers, preserves object-style entries when present, and creates a missing `hooks.PreToolUse` list before adding new tool matchers. Reported in [#58](https://github.com/manuelschipper/nah/pull/58) by [@zacbrown](https://github.com/zacbrown).
+
 ## [0.6.3] - 2026-04-17
 
 ### Added

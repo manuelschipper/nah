@@ -16,6 +16,7 @@ _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
 
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
+# -*- coding: utf-8 -*-
 """nah guard — thin shim that imports from the installed nah package."""
 import sys, json, os, io
 
@@ -155,6 +156,29 @@ def _is_nah_hook(hook_entry: dict) -> bool:
     return False
 
 
+def _matcher_tool_names(matcher) -> set[str]:
+    """Return tool names covered by a Claude hook matcher."""
+    if isinstance(matcher, str):
+        return {matcher}
+    if isinstance(matcher, dict):
+        raw = matcher.get("tool_name", [])
+        if isinstance(raw, str):
+            return {raw}
+        if isinstance(raw, list):
+            return {name for name in raw if isinstance(name, str)}
+    return set()
+
+
+def _merge_matcher_tool_names(hook_entry: dict, tool_names: set[str]) -> bool:
+    """Merge tool names into a legacy object-style matcher, if present."""
+    matcher = hook_entry.get("matcher")
+    if not isinstance(matcher, dict) or "tool_name" not in matcher:
+        return False
+    current = _matcher_tool_names(matcher)
+    matcher["tool_name"] = sorted(current | tool_names)
+    return True
+
+
 def _resolve_agents(args: argparse.Namespace) -> list[str]:
     """Resolve --agent flag to list of agent keys."""
     agent_arg = getattr(args, "agent", None) or agents.CLAUDE
@@ -185,10 +209,11 @@ def _write_hook_script() -> None:
         try:
             if _HOOK_SCRIPT.read_text(encoding="utf-8") == shim_content:
                 return
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             # Read is best-effort optimization; if it fails (race with
-            # deletion, permissions, disk), the safe default is to fall
-            # through to the write path which will surface real errors.
+            # deletion, permissions, disk, or an old non-UTF-8 shim), the
+            # safe default is to fall through to the write path which will
+            # surface real errors.
             pass
 
     if _HOOK_SCRIPT.exists() and _supports_posix_chmod():
@@ -277,24 +302,38 @@ def cmd_update(args: argparse.Namespace) -> None:
         settings_file = agents.AGENT_SETTINGS[key]
         if settings_file.exists():
             settings = _read_settings(settings_file)
-            hooks = settings.get("hooks", {})
-            pre_tool_use = hooks.get("PreToolUse", [])
+            hooks = settings.setdefault("hooks", {})
+            pre_tool_use = hooks.setdefault("PreToolUse", [])
             updated = 0
-            for entry in pre_tool_use:
-                if _is_nah_hook(entry):
-                    entry["hooks"] = [{"type": "command", "command": command}]
-                    updated += 1
-            # Add missing tool matchers as new entries
-            existing_matchers = {
-                entry.get("matcher") for entry in pre_tool_use if _is_nah_hook(entry)
-            }
+            nah_entries = [entry for entry in pre_tool_use if _is_nah_hook(entry)]
+            for entry in nah_entries:
+                entry["hooks"] = [{"type": "command", "command": command}]
+                updated += 1
+
+            # Add missing tool matchers, preserving legacy object-style
+            # matchers when present and otherwise using one entry per tool.
+            existing_matchers: set[str] = set()
+            for entry in nah_entries:
+                existing_matchers.update(_matcher_tool_names(entry.get("matcher")))
             expected_matchers = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
             missing = expected_matchers - existing_matchers
-            for tool_name in sorted(missing):
-                pre_tool_use.append({
-                    "matcher": tool_name,
-                    "hooks": [{"type": "command", "command": command}],
-                })
+            if missing:
+                object_entry = next(
+                    (
+                        entry for entry in nah_entries
+                        if isinstance(entry.get("matcher"), dict)
+                        and "tool_name" in entry["matcher"]
+                    ),
+                    None,
+                )
+                if object_entry is not None and _merge_matcher_tool_names(object_entry, missing):
+                    pass
+                else:
+                    for tool_name in sorted(missing):
+                        pre_tool_use.append({
+                            "matcher": tool_name,
+                            "hooks": [{"type": "command", "command": command}],
+                        })
             if updated or missing:
                 _write_settings(settings_file, settings)
                 msg = f"{updated} hooks updated"
