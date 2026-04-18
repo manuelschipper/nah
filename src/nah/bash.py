@@ -3584,6 +3584,7 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     from nah.taxonomy import (
         _INLINE_FLAGS,
         _MODULE_FLAGS,
+        _SCRIPT_INTERPRETERS,
         _VALUE_FLAGS,
         _extract_source_operand,
         _normalize_command_name,
@@ -3601,6 +3602,14 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
         if os.path.isabs(sourced):
             return sourced
         return os.path.join(os.getcwd(), sourced)
+
+    if cmd not in _SCRIPT_INTERPRETERS:
+        raw = tokens[0]
+        if os.path.isabs(raw):
+            return raw
+        if os.path.isfile(raw):
+            return os.path.realpath(raw)
+        return os.path.join(os.getcwd(), raw)
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
@@ -3626,10 +3635,6 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
             return tok
         cwd = os.getcwd()
         return os.path.join(cwd, tok)
-
-    # ./script.py — tokens[0] is the script itself (direct execution)
-    if cmd != tokens[0]:
-        return os.path.realpath(tokens[0]) if os.path.isfile(tokens[0]) else tokens[0]
 
     return None
 

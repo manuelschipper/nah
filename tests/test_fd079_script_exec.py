@@ -347,6 +347,85 @@ class TestScriptPathResolution:
         result = _resolve_script_path(["python", "-v"])
         assert result is None
 
+    def test_direct_script_absolute_no_args(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/sh\necho ok\n")
+
+        result = _resolve_script_path([path])
+
+        assert result == path
+
+    def test_direct_script_absolute_with_args(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/sh\necho \"$@\"\n")
+
+        result = _resolve_script_path([path, "2.0.0", "prerelease"])
+
+        assert result == path
+
+    def test_direct_script_relative_with_args_issue_70(self, project_root):
+        path = os.path.join(project_root, "bin", "resolve-release-version.sh")
+        _write(path, "#!/bin/sh\necho \"$1\"\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path([
+                "./bin/resolve-release-version.sh",
+                "2.0.0",
+                "prerelease",
+            ])
+        finally:
+            os.chdir(old_cwd)
+
+        assert result == path
+        assert "2.0.0" not in result
+
+    def test_direct_script_relative_with_option_like_args(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/sh\necho \"$@\"\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["./bin/release.sh", "--label", "rc"])
+        finally:
+            os.chdir(old_cwd)
+
+        assert result == path
+        assert "--label" not in result
+
+    def test_direct_script_bare_relative_name(self, project_root):
+        path = os.path.join(project_root, "script.sh")
+        _write(path, "#!/bin/sh\necho ok\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path(["script.sh", "arg1"])
+        finally:
+            os.chdir(old_cwd)
+
+        assert result == path
+        assert "arg1" not in result
+
+    def test_direct_script_nonexistent_returns_script_path(self):
+        result = _resolve_script_path(["/var/empty/nonexistent.sh", "some-arg"])
+
+        assert result == "/var/empty/nonexistent.sh"
+
+    def test_direct_script_relative_nonexistent_returns_script_path(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            result = _resolve_script_path([
+                "./bin/does-not-exist.sh",
+                "2.0.0",
+                "prerelease",
+            ])
+        finally:
+            os.chdir(old_cwd)
+
+        assert result == os.path.join(project_root, "./bin/does-not-exist.sh")
+        assert "2.0.0" not in result
+
     def test_uv_run_relative_script_resolves(self, project_root):
         path = os.path.join(project_root, "script.py")
         _write(path)
@@ -537,6 +616,35 @@ class TestPipelineIntegration:
             assert "script clean:" in r.stages[0].reason
         finally:
             os.chdir(old_cwd)
+
+    def test_direct_script_with_args_allowed_issue_70(self, project_root):
+        path = os.path.join(project_root, "bin", "release.sh")
+        _write(path, "#!/bin/sh\necho \"$1\"\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("./bin/release.sh 2.0.0 prerelease --label rc")
+        finally:
+            os.chdir(old_cwd)
+
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "lang_exec"
+        assert r.stages[0].reason.startswith("script clean:")
+        assert "release.sh" in r.stages[0].reason
+        assert "2.0.0" not in r.stages[0].reason
+
+    def test_direct_script_missing_names_script_not_arg(self, project_root):
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("./bin/does-not-exist.sh 2.0.0 prerelease")
+        finally:
+            os.chdir(old_cwd)
+
+        assert r.final_decision == "ask"
+        assert "script not found" in r.reason
+        assert "does-not-exist.sh" in r.reason
+        assert "2.0.0" not in r.reason
 
     def test_uv_run_clean_script_allows(self, project_root):
         path = os.path.join(project_root, "safe.py")
