@@ -211,6 +211,47 @@ class TestClassifyTokens:
     def test_extract_package_exec_inner(self, tokens, expected):
         assert taxonomy._extract_package_exec_inner(tokens) == expected
 
+    @pytest.mark.parametrize("subcommand", ["exec", "x", "watch"])
+    def test_extract_mise_exec_inner_supported_subcommands(self, subcommand):
+        assert taxonomy._extract_mise_exec_inner(
+            ["/usr/local/bin/mise", subcommand, "--tool", "node@22", "--", "git", "status"]
+        ) == ["git", "status"]
+
+    @pytest.mark.parametrize("tokens", [
+        ["mise", "exec", "git", "status"],
+        ["mise", "exec", "--"],
+        ["mise", "exec", "--", "-c", "print(1)"],
+        ["mise", "run", "--", "git", "status"],
+        ["mise"],
+    ])
+    def test_extract_mise_exec_inner_rejects_unsupported_forms(self, tokens):
+        assert taxonomy._extract_mise_exec_inner(tokens) is None
+
+    @pytest.mark.parametrize("tokens, expected", [
+        (["mise", "exec", "--", "git", "status"], "git_safe"),
+        (["mise", "x", "--", "gh", "issue", "list"], "git_safe"),
+        (["mise", "watch", "--", "python", "-c", "print(1)"], "lang_exec"),
+    ])
+    def test_mise_exec_wrapper_classifies_inner_payload(self, tokens, expected):
+        assert classify_tokens(tokens, builtin_table=_FULL) == expected
+
+    @pytest.mark.parametrize("tokens", [
+        ["mise", "exec", "git", "status"],
+        ["mise", "exec", "--"],
+        ["mise", "exec", "--", "-c", "print(1)"],
+        ["mise", "exec", "--", "glab", "issue", "list"],
+        ["mise", "exec", "--", "kubectl", "get", "pods"],
+    ])
+    def test_mise_exec_wrapper_keeps_unsupported_and_unknown_payloads_unknown(self, tokens):
+        assert classify_tokens(tokens, builtin_table=_FULL) == "unknown"
+
+    def test_mise_exec_wrapper_skipped_with_profile_none(self):
+        assert classify_tokens(
+            ["mise", "exec", "--", "git", "status"],
+            builtin_table=_FULL,
+            profile="none",
+        ) == "unknown"
+
     # find — special case
     def test_find_read(self):
         assert _ct(["find", ".", "-name", "*.py"]) == "filesystem_read"
@@ -2780,6 +2821,10 @@ class TestFindFlagClassifierShadows:
     def test_gh_detected(self):
         user = [(("gh",), "git_safe")]
         assert ("gh",) in find_flag_classifier_shadows(user)
+
+    def test_mise_detected(self):
+        user = build_user_table({"git_safe": ["mise"]})
+        assert ("mise",) in find_flag_classifier_shadows(user)
 
     def test_find_detected(self):
         user = [(("find",), "filesystem_read")]

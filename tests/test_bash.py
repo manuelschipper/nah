@@ -156,6 +156,72 @@ class TestPackageWrapperLangExec:
             os.chdir(old_cwd)
 
 
+class TestMiseExecWrapper:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "mise exec -- git status",
+            "mise exec -- gh issue list",
+            "mise x -- gh issue list",
+            "mise watch -- gh issue list",
+        ],
+    )
+    def test_mise_exec_safe_inner_commands_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+    def test_mise_exec_unknown_payload_still_asks(self, project_root):
+        r = classify_command("mise exec -- glab issue list")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
+    def test_mise_exec_nested_env_safe_payload_allows(self, project_root):
+        r = classify_command("mise exec -- env FOO=bar git status")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+
+    def test_mise_exec_nested_env_unknown_payload_still_asks(self, project_root):
+        r = classify_command("mise exec -- env KUBECONFIG=foo kubectl get pods")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
+    def test_mise_exec_network_context_uses_inner_host(self, project_root):
+        r = classify_command("mise exec -- curl https://example.invalid")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_outbound"
+        assert "unknown host: example.invalid" in r.reason
+
+    def test_mise_exec_clean_direct_script_allows(self, project_root):
+        script = os.path.join(project_root, "bin", "release.sh")
+        _write(script, "#!/bin/sh\necho release\n")
+        os.chmod(script, 0o755)
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("mise exec -- ./bin/release.sh 2.0.0")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+            assert "script clean:" in r.stages[0].reason
+            assert "2.0.0" not in r.stages[0].reason
+        finally:
+            os.chdir(old_cwd)
+
+    def test_mise_exec_inline_code_uses_inner_payload(self, project_root):
+        r = classify_command("mise exec -- python -c 'print(1)'")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "lang_exec"
+        assert "inline clean" in r.stages[0].reason
+        assert "script not found" not in r.stages[0].reason
+
+    def test_mise_exec_redirect_literal_runs_content_inspection(self, project_root):
+        target = os.path.join(project_root, "key.pem")
+        r = classify_command(f"mise exec -- echo '-----BEGIN PRIVATE KEY-----' > {target}")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" in r.reason
+
+
 class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command",

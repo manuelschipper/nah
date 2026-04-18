@@ -191,7 +191,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
-                          "gh",
+                          "gh", "mise",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -556,6 +556,16 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_gh_api(tokens, profile=profile)
+        if action is not None:
+            return action
+        action = _classify_mise_exec_wrapper(
+            tokens,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            profile=profile,
+            trust_project=trust_project,
+        )
         if action is not None:
             return action
         action = _classify_codex(tokens)
@@ -1563,6 +1573,54 @@ def _extract_package_exec_inner(tokens: list[str]) -> list[str] | None:
     if cmd == "npm" and len(tokens) >= 2 and tokens[1] == "exec":
         return _extract_npx_inner(tokens[2:])
     return None
+
+
+def _extract_mise_exec_inner(tokens: list[str]) -> list[str] | None:
+    """Return explicit-delimiter payload tokens for transparent mise wrappers."""
+    if len(tokens) < 4:
+        return None
+
+    cmd = os.path.basename(tokens[0])
+    if cmd != "mise" or tokens[1] not in {"exec", "x", "watch"}:
+        return None
+
+    delimiter_idx = None
+    for idx in range(2, len(tokens)):
+        if tokens[idx] == "--":
+            delimiter_idx = idx
+            break
+    if delimiter_idx is None:
+        return None
+
+    payload = tokens[delimiter_idx + 1:]
+    if not payload or payload[0].startswith("-"):
+        return None
+    return payload
+
+
+def _classify_mise_exec_wrapper(
+    tokens: list[str],
+    *,
+    global_table: list | None = None,
+    builtin_table: list | None = None,
+    project_table: list | None = None,
+    profile: str = "full",
+    trust_project: bool = False,
+) -> str | None:
+    """Classify supported explicit-delimiter mise wrappers by their payload."""
+    inner = _extract_mise_exec_inner(tokens)
+    if inner is None:
+        return None
+
+    inner_action = classify_tokens(
+        inner,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        profile=profile,
+        trust_project=trust_project,
+    )
+    return inner_action if inner_action != UNKNOWN else UNKNOWN
 
 
 def _classify_package_exec_wrapper(
