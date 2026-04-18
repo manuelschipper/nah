@@ -91,4 +91,8 @@ When both configs exist, nah merges them with these rules:
 
 Both config files use standard YAML. If nah detects comments in a file before a CLI write operation (`nah allow`, `nah classify`, etc.), it warns you that comments will be removed and asks for confirmation.
 
-Optional dependency: `pip install nah[config]` installs `pyyaml`. Without it, config files are ignored (a stderr warning is printed).
+Optional dependency: `pip install "nah[config]"` installs `pyyaml`. The default
+install keeps nah's core hook/classifier stdlib-only for users who want the
+smallest supply-chain surface. Install the config extra when you want YAML config
+files or commands that write config (`nah allow`, `nah deny`, `nah classify`,
+`nah trust`). With pipx, use `pipx inject nah pyyaml`.
