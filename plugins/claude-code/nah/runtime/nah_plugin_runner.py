@@ -6,6 +6,8 @@ import json
 import os
 import sys
 
+sys.dont_write_bytecode = True
+
 _REAL_STDOUT = sys.stdout
 _ASK = (
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse",'
