@@ -24,6 +24,14 @@ def _nah_config_dir():
 
 _LOG_PATH = os.path.join(_nah_config_dir(), "hook-errors.log")
 
+if sys.platform == "win32" and hasattr(_REAL_STDOUT, "reconfigure"):
+    try:
+        _REAL_STDOUT.reconfigure(encoding="utf-8")
+    except Exception:
+        # Windows console encoding setup is best-effort; invalid hook output
+        # would still be caught by JSON validation before writing.
+        pass
+
 
 def _plugin_root():
     root = os.environ.get("CLAUDE_PLUGIN_ROOT")

@@ -40,8 +40,18 @@ for path in dict.fromkeys(paths):
         # SessionStart is advisory only. If a settings file is unreadable or
         # malformed, skip this warning path; PreToolUse still fails closed.
         continue
-    for entry in data.get("hooks", {}).get("PreToolUse", []):
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        continue
+    pre_tool_use = hooks.get("PreToolUse", [])
+    if not isinstance(pre_tool_use, list):
+        continue
+    for entry in pre_tool_use:
+        if not isinstance(entry, dict):
+            continue
         for hook in entry.get("hooks", []):
+            if not isinstance(hook, dict):
+                continue
             command = hook.get("command", "")
             if isinstance(command, str) and "nah_guard.py" in command:
                 legacy_paths.append(str(path))
