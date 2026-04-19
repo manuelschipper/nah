@@ -18,6 +18,13 @@ FORBIDDEN_HOOK_COMMAND_PARTS = (
     "~/.claude/hooks/nah_guard.py",
     str(ROOT),
 )
+EXPECTED_PLUGIN_KEYWORDS = [
+    "claude-code",
+    "hooks",
+    "permissions",
+    "safety",
+    "security",
+]
 
 
 def _run_build(out: Path, *extra: str) -> subprocess.CompletedProcess:
@@ -70,6 +77,25 @@ def _assert_no_bootstrap_commands(hooks: dict) -> None:
             assert forbidden not in command
 
 
+def _assert_submission_ready_metadata(plugin: dict) -> None:
+    assert plugin["name"] == "nah"
+    assert plugin["version"] == __version__
+    assert plugin["description"] == "Context-aware safety guard for Claude Code."
+    assert plugin["homepage"] == "https://github.com/manuelschipper/nah"
+    assert plugin["repository"] == "https://github.com/manuelschipper/nah"
+    assert plugin["license"] == "MIT"
+    assert plugin["keywords"] == EXPECTED_PLUGIN_KEYWORDS
+    assert plugin["author"]["name"] == "Manuel Schipper"
+    assert plugin["author"]["url"] == "https://github.com/manuelschipper"
+
+
+def _assert_marketplace_entry_metadata(entry: dict) -> None:
+    _assert_submission_ready_metadata(entry)
+    assert entry["source"] == "./plugins/nah"
+    assert entry["category"] == "security"
+    assert entry["tags"] == EXPECTED_PLUGIN_KEYWORDS
+
+
 def _run_plugin_hook(root: Path, payload: dict | str, home: Path) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["CLAUDE_PLUGIN_ROOT"] = str(root)
@@ -105,10 +131,15 @@ def test_build_generates_complete_artifact(tmp_path):
     _build(out)
 
     plugin = json.loads((out / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert plugin["name"] == "nah"
-    assert plugin["version"] == __version__
+    _assert_submission_ready_metadata(plugin)
     assert "marketplace" not in plugin
     assert "publisher" not in plugin
+
+    readme = (out / "README.md").read_text(encoding="utf-8")
+    assert "not a marketplace release" not in readme
+    assert "official Anthropic marketplace listing is pending review" in readme
+    assert "does not run `pip`" in readme
+    assert (out / "SUBMISSION.md").exists()
 
     hooks = json.loads((out / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     pre_tool_use = hooks["hooks"]["PreToolUse"]
@@ -139,10 +170,7 @@ def test_marketplace_build_generates_catalog_and_self_contained_plugin(tmp_path)
     assert len(marketplace["plugins"]) == 1
 
     entry = marketplace["plugins"][0]
-    assert entry["name"] == "nah"
-    assert entry["version"] == __version__
-    assert entry["source"] == "./plugins/nah"
-    assert entry["category"] == "security"
+    _assert_marketplace_entry_metadata(entry)
     assert "security" in entry["tags"]
     assert "plugins/claude-code" not in json.dumps(entry)
 
@@ -150,8 +178,9 @@ def test_marketplace_build_generates_catalog_and_self_contained_plugin(tmp_path)
     plugin = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     hooks = json.loads((plugin_root / "hooks" / "hooks.json").read_text(encoding="utf-8"))
 
-    assert plugin["name"] == "nah"
-    assert plugin["version"] == __version__
+    _assert_submission_ready_metadata(plugin)
+    assert (plugin_root / "README.md").exists()
+    assert (plugin_root / "SUBMISSION.md").exists()
     assert (plugin_root / "bin" / "nah-plugin-hook").exists()
     assert (plugin_root / "bin" / "nah-plugin-session-start").exists()
     assert (plugin_root / "runtime" / "nah_plugin_runner.py").exists()

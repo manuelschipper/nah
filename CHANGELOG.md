@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Official Claude plugin marketplace submission prep** — polished the generated Claude Code plugin metadata with repository, author URL, and discovery keywords, rewrote the copied plugin README so release artifacts no longer describe themselves as local-only scaffolds, and added an Anthropic marketplace submission packet covering source refs, runtime behavior, data handling, trust/safety notes, and validation commands. Tests now assert the generated plugin and marketplace artifacts keep this submission-ready metadata and avoid regressing to local-only wording. (nah-883)
+
 ## [0.7.0] - 2026-04-19
 
 ### Added

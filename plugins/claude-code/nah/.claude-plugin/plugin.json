@@ -3,8 +3,17 @@
   "version": "0.0.0",
   "description": "Context-aware safety guard for Claude Code.",
   "author": {
-    "name": "Manuel Schipper"
+    "name": "Manuel Schipper",
+    "url": "https://github.com/manuelschipper"
   },
   "homepage": "https://github.com/manuelschipper/nah",
-  "license": "MIT"
+  "repository": "https://github.com/manuelschipper/nah",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "permissions",
+    "safety",
+    "security"
+  ]
 }
