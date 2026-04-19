@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from nah import __version__, agents
+from nah import __version__, agents, plugin_state
 
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
@@ -150,10 +150,29 @@ def _write_settings(settings_file: Path, data: dict) -> None:
 
 def _is_nah_hook(hook_entry: dict) -> bool:
     """Check if a hook entry belongs to nah."""
-    for hook in hook_entry.get("hooks", []):
-        if "nah_guard.py" in hook.get("command", ""):
-            return True
-    return False
+    return plugin_state.is_legacy_nah_hook(hook_entry)
+
+
+def _settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
+    """Return user/project settings paths to scan for nah install state."""
+    paths: list[Path] = []
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS.get(key)
+        if settings_file is not None:
+            paths.append(settings_file)
+    paths.extend(plugin_state.project_settings_paths())
+    return paths
+
+
+def _detect_install_state(agent_keys: list[str]) -> plugin_state.NahInstallState:
+    return plugin_state.detect_nah_install_state(
+        settings_paths=_settings_paths_for_agent_keys(agent_keys),
+    )
+
+
+def _warn_install_state_errors(state: plugin_state.NahInstallState, command: str) -> None:
+    for error in state.errors:
+        sys.stderr.write(f"nah {command}: could not inspect Claude settings: {error}\n")
 
 
 def _matcher_tool_names(matcher) -> set[str]:
@@ -272,6 +291,23 @@ def cmd_install(args: argparse.Namespace) -> None:
     if not agent_keys:
         return
 
+    state = _detect_install_state(agent_keys)
+    _warn_install_state_errors(state, "install")
+    if state.has_plugin:
+        if getattr(args, "force", False):
+            print(
+                "nah install: plugin-managed nah detected; installing direct hooks because --force was passed.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "nah install: plugin-managed nah is already enabled. "
+                "Disable/uninstall the Claude plugin first, or pass --force "
+                "to install direct hooks anyway.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
     _write_hook_script()
 
     print(f"nah {__version__} installed:")
@@ -288,14 +324,28 @@ def cmd_install(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     """Update hook script: unlock → overwrite → re-lock. Update settings for targeted agents."""
+    agent_keys = _resolve_agents(args)
+    if not agent_keys:
+        return
+
+    state = _detect_install_state(agent_keys)
+    _warn_install_state_errors(state, "update")
+    if state.has_plugin:
+        print(
+            "nah update: plugin-managed nah detected; updating legacy direct hooks only.",
+            file=sys.stderr,
+        )
+
     if not _HOOK_SCRIPT.exists():
         print(f"Hook script not found: {_HOOK_SCRIPT}")
-        print("Run `nah install` first.")
+        if state.has_plugin:
+            print("Plugin-managed nah is unchanged.")
+        else:
+            print("Run `nah install` first.")
         return
 
     _write_hook_script()
 
-    agent_keys = _resolve_agents(args)
     command = _hook_command()
 
     for key in agent_keys:
@@ -542,6 +592,9 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
     if not agent_keys:
         return
 
+    state = _detect_install_state(agent_keys)
+    _warn_install_state_errors(state, "uninstall")
+
     # 1. Remove nah entries from each agent's config
     for key in agent_keys:
         settings_file = agents.AGENT_SETTINGS[key]
@@ -587,6 +640,9 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
         print(f"  Hook script: {_HOOK_SCRIPT} (deleted)")
     else:
         print(f"  Hook script: {_HOOK_SCRIPT} (not found)")
+
+    if state.has_plugin:
+        print("  Plugin-managed nah: still enabled; disable/uninstall it with Claude's plugin manager.")
 
     print("nah uninstalled.")
 
@@ -947,7 +1003,11 @@ def cmd_claude(user_args: list[str]) -> None:
         raise SystemExit(1)
 
     settings_file = agents.AGENT_SETTINGS[agents.CLAUDE]
-    already_installed = False
+    state = plugin_state.detect_nah_install_state(
+        settings_paths=[settings_file] + plugin_state.project_settings_paths(),
+    )
+    _warn_install_state_errors(state, "claude")
+    already_installed = state.has_plugin
     if settings_file.exists():
         settings = _read_settings(settings_file)
         for entry in settings.get("hooks", {}).get("PreToolUse", []):
@@ -987,6 +1047,11 @@ def main():
     agent_help = "Agent to target: claude (default)"
     install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
     install_parser.add_argument("--agent", default=None, help=agent_help)
+    install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Install direct hooks even when the Claude plugin is enabled",
+    )
     update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
     update_parser.add_argument("--agent", default=None, help=agent_help)
     uninstall_parser = sub.add_parser("uninstall", help="Remove nah hook from coding agents")
