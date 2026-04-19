@@ -769,6 +769,12 @@ class TestCmdClaude:
         monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
         monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+        monkeypatch.setattr(cli_mod.plugin_state, "project_settings_paths", lambda *args, **kwargs: [])
+        monkeypatch.setattr(
+            cli_mod.plugin_state,
+            "detect_nah_install_state",
+            lambda *args, **kwargs: cli_mod.plugin_state.NahInstallState(),
+        )
         monkeypatch.setattr(cli_mod.os, "name", "nt")
 
         calls = []
@@ -783,6 +789,107 @@ class TestCmdClaude:
         assert calls[0][0] == r"C:\Tools\claude.exe"
         assert "--settings" in calls[0]
         assert "--resume" in calls[0]
+
+
+class TestCliPluginMode:
+    """CLI behavior when the Claude Code nah plugin is enabled."""
+
+    def _patch_claude_paths(self, tmp_path, monkeypatch, settings_data):
+        import json as json_mod
+        import nah.cli as cli_mod
+        from nah import agents
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text(json_mod.dumps(settings_data), encoding="utf-8")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+        monkeypatch.setattr(cli_mod.plugin_state, "project_settings_paths", lambda *args, **kwargs: [])
+        return settings_file
+
+    def test_install_refuses_when_plugin_enabled(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+
+        self._patch_claude_paths(
+            tmp_path,
+            monkeypatch,
+            {"enabledPlugins": {"nah@local": True}},
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_install(argparse.Namespace(agent=None, force=False))
+
+        assert exc.value.code == 1
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
+
+    def test_install_force_with_plugin_enabled_installs_direct_hooks(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+
+        settings_file = self._patch_claude_paths(
+            tmp_path,
+            monkeypatch,
+            {"enabledPlugins": {"nah@local": True}},
+        )
+
+        cli_mod.cmd_install(argparse.Namespace(agent=None, force=True))
+
+        assert (tmp_path / "hooks" / "nah_guard.py").exists()
+        settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        assert settings["enabledPlugins"]["nah@local"] is True
+        assert settings["hooks"]["PreToolUse"]
+
+    def test_claude_with_plugin_enabled_execs_directly(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+
+        self._patch_claude_paths(
+            tmp_path,
+            monkeypatch,
+            {"enabledPlugins": {"nah@local": True}},
+        )
+
+        exec_calls = []
+
+        def mock_execvp(path, args):
+            exec_calls.append((path, args))
+            raise SystemExit(0)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvp", mock_execvp):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude(["--resume"])
+
+        assert len(exec_calls) == 1
+        assert exec_calls[0][1] == ["claude", "--resume"]
+        assert "--settings" not in exec_calls[0][1]
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
+
+    def test_uninstall_removes_direct_hooks_but_keeps_enabled_plugin(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+
+        settings_file = self._patch_claude_paths(
+            tmp_path,
+            monkeypatch,
+            {
+                "enabledPlugins": {"nah@local": True},
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/nah_guard.py"}],
+                    }]
+                },
+            },
+        )
+        (tmp_path / "hooks").mkdir()
+        (tmp_path / "hooks" / "nah_guard.py").write_text("shim", encoding="utf-8")
+
+        cli_mod.cmd_uninstall(argparse.Namespace(agent=None))
+
+        settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        assert settings["enabledPlugins"]["nah@local"] is True
+        assert settings["hooks"].get("PreToolUse") is None
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
 
 
 class TestHookCommand:

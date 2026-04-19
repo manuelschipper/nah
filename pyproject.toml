@@ -43,6 +43,7 @@ exclude = [
   "docs/",
   "tests/",
   "assets/",
+  "plugins/",
   "site/",
   ".claude/",
   ".github/",

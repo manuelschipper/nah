@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Local Claude Code plugin distribution prep** — added a local-only plugin scaffold and `scripts/build_claude_plugin.py` artifact builder that copies the stdlib-only nah runtime into an ignored `dist/claude-plugin/nah` directory, generates Claude hook matchers from the canonical agent matcher list, and keeps hook commands rooted at `${CLAUDE_PLUGIN_ROOT}` with no package-manager or network bootstrap. CLI install/update/uninstall/`nah claude` paths now detect enabled nah plugins, avoid silent mixed plugin/direct-hook setups, and preserve plugin-managed state during uninstall. (nah-879)
+
 ## [0.6.4] - 2026-04-18
 
 ### Fixed
