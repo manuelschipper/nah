@@ -95,11 +95,27 @@ When cutting a new release:
    - `pyproject.toml` → `version = "X.Y.Z"`
    - `src/nah/__init__.py` → `__version__ = "X.Y.Z"`
 3. **Update CHANGELOG.md** — change `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`
-4. **Commit** — `git commit -m "vX.Y.Z — <summary>"`
-5. **Tag** — `git tag vX.Y.Z`
-6. **Push** — `git push origin main --tags`
-7. **Verify** — `gh run watch` to confirm PyPI publish + GitHub Release succeed
-8. **Post-release** — `pip install --upgrade nah` and verify `nah --version` matches
+4. **Build and validate release artifacts locally:**
+   - `python3 scripts/build_claude_plugin.py --marketplace-out dist/claude-marketplace`
+   - `python3 scripts/build_claude_plugin.py --check --marketplace-out dist/claude-marketplace`
+   - `python3 scripts/check_release.py --tag vX.Y.Z --marketplace-root dist/claude-marketplace`
+   - `claude plugin validate dist/claude-marketplace`
+   - `python3 -m build` in a venv with `build` installed
+5. **Commit** — `git commit -m "vX.Y.Z — <summary>"`
+6. **Tag** — `git tag vX.Y.Z`
+7. **Push main, then the tag** — `git push origin main` followed by `git push origin vX.Y.Z`
+8. **Verify release workflow** — `gh run watch <run-id> --exit-status`
+   - The `publish.yml` workflow publishes PyPI, GitHub Release, `claude-marketplace`, and `claude-plugin-vX.Y.Z`
+   - If the tag workflow fails before publication, rerun the existing tag with `gh workflow run publish.yml --ref main -f release_tag=vX.Y.Z`
+9. **Post-release verify:**
+   - `pip install --upgrade nah` and verify `nah --version` matches
+   - `claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user`
+   - `claude plugin install nah@nah --scope user`
+   - Confirm the installed plugin reports the released version
+
+The self-hosted Claude plugin marketplace lives on the `claude-marketplace`
+branch and uses immutable plugin distribution tags named `claude-plugin-vX.Y.Z`.
+The public source release tag remains `vX.Y.Z`.
 
 ---
 
