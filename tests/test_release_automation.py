@@ -182,7 +182,8 @@ def test_publish_workflow_orders_plugin_release_after_verification_and_before_re
     positions = [workflow.index(step) for step in ordered_steps]
     assert positions == sorted(positions)
     assert "claude-marketplace" in workflow
-    assert "CLAUDE_MARKETPLACE_ROOT" in workflow
-    assert "--marketplace-root \"$CLAUDE_MARKETPLACE_ROOT\"" in workflow
+    assert "release_tag:" in workflow
+    assert "RELEASE_TAG=" in workflow
+    assert "--marketplace-root \"$RUNNER_TEMP/claude-marketplace\"" in workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in workflow
     assert "skip-existing: true" in workflow

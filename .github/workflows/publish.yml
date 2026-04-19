@@ -5,6 +5,11 @@ on:
     tags: ['v*']
 
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,10 +19,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi
-    env:
-      CLAUDE_MARKETPLACE_ROOT: ${{ runner.temp }}/claude-marketplace
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
 
       - uses: actions/setup-python@v6
         with:
@@ -25,10 +30,16 @@ jobs:
 
       - name: Verify tag release
         run: |
-          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != v* ]]; then
-            echo "Publish workflow must run from a v* tag, got ${GITHUB_REF_TYPE}:${GITHUB_REF_NAME}" >&2
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            RELEASE_TAG="${{ inputs.release_tag }}"
+          else
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${RELEASE_TAG}" != v* ]]; then
+            echo "Publish workflow must run from a v* tag, got ${RELEASE_TAG}" >&2
             exit 1
           fi
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
 
       - name: Install build tools
         run: pip install build
@@ -37,13 +48,13 @@ jobs:
         run: python -m build
 
       - name: Build Claude plugin marketplace
-        run: python3 scripts/build_claude_plugin.py --marketplace-out "$CLAUDE_MARKETPLACE_ROOT"
+        run: python3 scripts/build_claude_plugin.py --marketplace-out "$RUNNER_TEMP/claude-marketplace"
 
       - name: Check Claude plugin marketplace freshness
-        run: python3 scripts/build_claude_plugin.py --check --marketplace-out "$CLAUDE_MARKETPLACE_ROOT"
+        run: python3 scripts/build_claude_plugin.py --check --marketplace-out "$RUNNER_TEMP/claude-marketplace"
 
       - name: Verify release metadata
-        run: python3 scripts/check_release.py --tag "$GITHUB_REF_NAME" --marketplace-root "$CLAUDE_MARKETPLACE_ROOT"
+        run: python3 scripts/check_release.py --tag "$RELEASE_TAG" --marketplace-root "$RUNNER_TEMP/claude-marketplace"
 
       - name: Install Claude Code CLI
         run: |
@@ -53,7 +64,7 @@ jobs:
       - name: Validate Claude plugin marketplace
         run: |
           claude --version
-          claude plugin validate "$CLAUDE_MARKETPLACE_ROOT"
+          claude plugin validate "$RUNNER_TEMP/claude-marketplace"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -63,16 +74,16 @@ jobs:
       - name: Publish Claude plugin marketplace
         run: |
           python3 scripts/publish_claude_marketplace.py \
-            --marketplace-root "$CLAUDE_MARKETPLACE_ROOT" \
+            --marketplace-root "$RUNNER_TEMP/claude-marketplace" \
             --remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            --source-tag "$GITHUB_REF_NAME"
+            --source-tag "$RELEASE_TAG"
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Extract changelog for release
         id: changelog
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           # Extract the section between ## [VERSION] and the next ## [
           NOTES=$(awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}" CHANGELOG.md)
           # Write to file to preserve newlines
@@ -80,8 +91,8 @@ jobs:
 
       - name: Create GitHub Release
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "$RELEASE_TAG" \
+            --title "$RELEASE_TAG" \
             --notes-file /tmp/release_notes.md
         env:
           GH_TOKEN: ${{ github.token }}
