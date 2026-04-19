@@ -26,6 +26,34 @@ nah install
 
 Registers nah as a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in Claude Code's `settings.json`. Every `claude` session runs through nah.
 
+## Claude Code plugin beta
+
+Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
+plugin is enabled, normal `claude` sessions load nah without `nah install`.
+
+From a source checkout, build and install the generated self-hosted marketplace:
+
+```bash
+git clone https://github.com/manuelschipper/nah.git
+cd nah
+python3 scripts/build_claude_plugin.py --marketplace-out dist/claude-marketplace
+claude plugin validate dist/claude-marketplace
+claude plugin marketplace add dist/claude-marketplace --scope user
+claude plugin install nah@nah --scope user
+```
+
+If you already installed direct hooks, run `nah uninstall` before enabling the
+plugin so both paths do not fire. The plugin bundles nah's stdlib-only runtime;
+it does not install PyYAML. Keep using `pip install "nah[config]"` or
+`pipx inject nah pyyaml` when you want YAML config-writing commands.
+
+Rollback path:
+
+```bash
+claude plugin uninstall nah@nah
+nah install             # optional: return to direct hooks
+```
+
 ### Optional dependencies
 
 ```bash

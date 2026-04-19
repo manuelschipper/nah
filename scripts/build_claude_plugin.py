@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = ROOT / "plugins" / "claude-code" / "nah"
 DEFAULT_OUT = ROOT / "dist" / "claude-plugin" / "nah"
+DEFAULT_MARKETPLACE_OUT = ROOT / "dist" / "claude-marketplace"
+MARKETPLACE_NAME = "nah"
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -105,6 +107,38 @@ def _generated_hooks() -> dict:
     }
 
 
+def _generated_marketplace(version: str) -> dict:
+    return {
+        "name": MARKETPLACE_NAME,
+        "owner": {
+            "name": "Manuel Schipper",
+        },
+        "metadata": {
+            "description": "Self-hosted marketplace for the nah Claude Code plugin.",
+            "version": version,
+        },
+        "plugins": [{
+            "name": "nah",
+            "description": "Context-aware safety guard for Claude Code.",
+            "version": version,
+            "author": {
+                "name": "Manuel Schipper",
+            },
+            "source": "./plugins/nah",
+            "category": "security",
+            "homepage": "https://github.com/manuelschipper/nah",
+            "license": "MIT",
+            "tags": [
+                "claude-code",
+                "hooks",
+                "permissions",
+                "safety",
+                "security",
+            ],
+        }],
+    }
+
+
 def _copy_artifact_skeleton(out: Path) -> None:
     if out.exists():
         shutil.rmtree(out)
@@ -121,7 +155,7 @@ def _set_executable(path: Path) -> None:
     path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def build(out: Path) -> None:
+def build_plugin(out: Path) -> None:
     version = _package_version()
     _copy_artifact_skeleton(out)
 
@@ -142,6 +176,17 @@ def build(out: Path) -> None:
     _set_executable(out / "bin" / "nah-plugin-session-start")
 
 
+def build_marketplace(out: Path) -> None:
+    version = _package_version()
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    plugin_out = out / "plugins" / "nah"
+    build_plugin(plugin_out)
+    _write_json(out / ".claude-plugin" / "marketplace.json", _generated_marketplace(version))
+
+
 def _files(root: Path) -> dict[str, Path]:
     if not root.exists():
         return {}
@@ -149,6 +194,8 @@ def _files(root: Path) -> dict[str, Path]:
         str(path.relative_to(root)): path
         for path in sorted(root.rglob("*"))
         if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
     }
 
 
@@ -177,10 +224,17 @@ def compare_dirs(expected: Path, actual: Path) -> list[str]:
     return diffs
 
 
-def check(out: Path) -> list[str]:
+def check_plugin(out: Path) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="nah-plugin-check-") as tmp:
         expected = Path(tmp) / "nah"
-        build(expected)
+        build_plugin(expected)
+        return compare_dirs(expected, out)
+
+
+def check_marketplace(out: Path) -> list[str]:
+    with tempfile.TemporaryDirectory(prefix="nah-marketplace-check-") as tmp:
+        expected = Path(tmp) / "marketplace"
+        build_marketplace(expected)
         return compare_dirs(expected, out)
 
 
@@ -197,13 +251,44 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Verify the output directory already matches the generated artifact",
     )
+    parser.add_argument(
+        "--marketplace-out",
+        type=Path,
+        nargs="?",
+        const=DEFAULT_MARKETPLACE_OUT,
+        default=None,
+        help=(
+            "Build or check a full Claude plugin marketplace root "
+            f"(default: {DEFAULT_MARKETPLACE_OUT})"
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.marketplace_out is not None and args.out != DEFAULT_OUT:
+        parser.error("--out cannot be combined with --marketplace-out")
 
-    out = args.out.resolve()
+    marketplace_out = args.marketplace_out.resolve() if args.marketplace_out is not None else None
+    out = (marketplace_out or args.out).resolve()
     try:
         _validate_out(out)
+        if marketplace_out is not None:
+            if args.check:
+                diffs = check_marketplace(out)
+                if diffs:
+                    print(f"Claude plugin marketplace is stale: {out}", file=sys.stderr)
+                    for diff in diffs[:50]:
+                        print(f"  {diff}", file=sys.stderr)
+                    if len(diffs) > 50:
+                        print(f"  ... {len(diffs) - 50} more", file=sys.stderr)
+                    return 1
+                print(f"Claude plugin marketplace is up to date: {out}")
+                return 0
+
+            build_marketplace(out)
+            print(f"Built Claude plugin marketplace: {out}")
+            return 0
+
         if args.check:
-            diffs = check(out)
+            diffs = check_plugin(out)
             if diffs:
                 print(f"Claude plugin artifact is stale: {out}", file=sys.stderr)
                 for diff in diffs[:50]:
@@ -214,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Claude plugin artifact is up to date: {out}")
             return 0
 
-        build(out)
+        build_plugin(out)
         print(f"Built Claude plugin artifact: {out}")
         return 0
     except Exception as exc:
