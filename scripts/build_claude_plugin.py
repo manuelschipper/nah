@@ -123,11 +123,20 @@ def _generated_marketplace(version: str) -> dict:
             "version": version,
             "author": {
                 "name": "Manuel Schipper",
+                "url": "https://github.com/manuelschipper",
             },
             "source": "./plugins/nah",
             "category": "security",
             "homepage": "https://github.com/manuelschipper/nah",
+            "repository": "https://github.com/manuelschipper/nah",
             "license": "MIT",
+            "keywords": [
+                "claude-code",
+                "hooks",
+                "permissions",
+                "safety",
+                "security",
+            ],
             "tags": [
                 "claude-code",
                 "hooks",
