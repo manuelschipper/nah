@@ -736,7 +736,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
 def cmd_trust(args: argparse.Namespace) -> None:
     """Trust a path or network host (global config only)."""
     target = args.target
-    is_path = target.startswith(("/", "~", "."))
+    is_path = target.startswith(("/", "~", ".")) or (len(target) >= 2 and target[1] == ":")
 
     if is_path and getattr(args, "project", False):
         print("trusted_paths is global-only — cannot use --project", file=sys.stderr)
