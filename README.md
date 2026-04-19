@@ -40,6 +40,34 @@ We needed something like --dangerously-skip-permissions that doesn’t nuke your
 
 ## Install
 
+### Claude Code plugin
+
+Recommended for Claude Code:
+
+```bash
+claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
+claude plugin install nah@nah --scope user
+```
+
+Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
+plugin is enabled, normal `claude` sessions load nah automatically without
+`nah install` or `nah claude`.
+
+If you already installed direct hooks, run `nah uninstall` before enabling the
+plugin so both paths do not fire. The plugin bundles nah's stdlib-only runtime;
+it does not install PyYAML or the `nah` shell command. Use the PyPI install
+below when you want CLI commands such as `nah test`, `nah allow`, `nah deny`,
+or direct-hook mode.
+
+Rollback path:
+
+```bash
+claude plugin uninstall nah@nah
+nah install             # optional: return to direct hooks if the CLI is installed
+```
+
+### PyPI CLI install
+
 ```bash
 pip install nah
 nah claude              # try it — hooks active for this session only
@@ -70,34 +98,6 @@ nah install             # hooks in ~/.claude/settings.json, every session
 ```
 
 `nah claude` passes hooks inline via `--settings`, scoped to that process. `nah install` writes to `settings.json` so every `claude` session runs through nah. Undo with `nah uninstall`.
-
-### Claude Code plugin beta
-
-Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
-plugin is enabled, normal `claude` sessions load nah without `nah install`.
-
-From a source checkout, build and install the generated self-hosted marketplace:
-
-```bash
-git clone https://github.com/manuelschipper/nah.git
-cd nah
-python3 scripts/build_claude_plugin.py --marketplace-out dist/claude-marketplace
-claude plugin validate dist/claude-marketplace
-claude plugin marketplace add dist/claude-marketplace --scope user
-claude plugin install nah@nah --scope user
-```
-
-If you already installed direct hooks, run `nah uninstall` before enabling the
-plugin so both paths do not fire. The plugin bundles nah's stdlib-only runtime;
-it does not install PyYAML. Keep using `pip install "nah[config]"` or
-`pipx inject nah pyyaml` when you want YAML config-writing commands.
-
-Rollback path:
-
-```bash
-claude plugin uninstall nah@nah
-nah install             # optional: return to direct hooks
-```
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
