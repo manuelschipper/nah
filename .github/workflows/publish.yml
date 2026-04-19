@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish release
 
 on:
   push:
@@ -14,6 +14,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi
+    env:
+      CLAUDE_MARKETPLACE_ROOT: ${{ runner.temp }}/claude-marketplace
     steps:
       - uses: actions/checkout@v6
 
@@ -21,14 +23,51 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify tag release
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != v* ]]; then
+            echo "Publish workflow must run from a v* tag, got ${GITHUB_REF_TYPE}:${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
       - name: Install build tools
         run: pip install build
 
       - name: Build package
         run: python -m build
 
+      - name: Build Claude plugin marketplace
+        run: python3 scripts/build_claude_plugin.py --marketplace-out "$CLAUDE_MARKETPLACE_ROOT"
+
+      - name: Check Claude plugin marketplace freshness
+        run: python3 scripts/build_claude_plugin.py --check --marketplace-out "$CLAUDE_MARKETPLACE_ROOT"
+
+      - name: Verify release metadata
+        run: python3 scripts/check_release.py --tag "$GITHUB_REF_NAME" --marketplace-root "$CLAUDE_MARKETPLACE_ROOT"
+
+      - name: Install Claude Code CLI
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s stable
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Claude plugin marketplace
+        run: |
+          claude --version
+          claude plugin validate "$CLAUDE_MARKETPLACE_ROOT"
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+      - name: Publish Claude plugin marketplace
+        run: |
+          python3 scripts/publish_claude_marketplace.py \
+            --marketplace-root "$CLAUDE_MARKETPLACE_ROOT" \
+            --remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            --source-tag "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Extract changelog for release
         id: changelog
