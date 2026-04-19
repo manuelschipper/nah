@@ -1,0 +1,417 @@
+"""Config loading — YAML config with global + project merge."""
+
+import os
+import sys
+from dataclasses import dataclass, field
+
+from nah.platform_paths import nah_config_dir
+from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
+
+class ConfigError(Exception):
+    """Raised when a config file exists but fails to parse."""
+
+_CONFIG_DIR = nah_config_dir()
+_GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
+_PROJECT_CONFIG_NAME = ".nah.yaml"
+
+
+@dataclass
+class NahConfig:
+    profile: str = "full"
+    classify_global: dict[str, list[str]] = field(default_factory=dict)
+    classify_project: dict[str, list[str]] = field(default_factory=dict)
+    actions: dict[str, str] = field(default_factory=dict)
+    sensitive_paths_default: str = "ask"
+    sensitive_paths: dict[str, str] = field(default_factory=dict)
+    allow_paths: dict[str, list[str]] = field(default_factory=dict)
+    known_registries: list | dict = field(default_factory=list)
+    exec_sinks: list | dict = field(default_factory=list)
+    sensitive_basenames: dict = field(default_factory=dict)
+    decode_commands: list | dict = field(default_factory=list)
+    content_patterns_add: list = field(default_factory=list)
+    content_patterns_suppress: list = field(default_factory=list)
+    content_policies: dict = field(default_factory=dict)
+    credential_patterns_add: list = field(default_factory=list)
+    credential_patterns_suppress: list = field(default_factory=list)
+    llm: dict = field(default_factory=dict)
+    llm_mode: str = "off"
+    llm_eligible: str | list = "default"
+    trusted_paths: list[str] = field(default_factory=list)
+    db_targets: list[dict] = field(default_factory=list)
+    log: dict = field(default_factory=dict)
+    active_allow: bool | list = True
+    trust_project_config: bool = False
+
+
+_cached_config: NahConfig | None = None
+
+
+def _roots_are_related(real_root: str, allowed_root: str) -> bool:
+    """Return true for identical or parent/child project roots."""
+    return (
+        real_root == allowed_root
+        or real_root.startswith(allowed_root + os.sep)
+        or allowed_root.startswith(real_root + os.sep)
+    )
+
+
+def get_config() -> NahConfig:
+    """Load and return merged config. Cached for process lifetime."""
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
+
+    global_data = _load_yaml_file(_GLOBAL_CONFIG)
+
+    # Find project config via project root
+    project_data: dict = {}
+    from nah.paths import get_project_root  # lazy import to avoid circular
+    project_root = get_project_root()
+    if project_root:
+        project_config_path = os.path.join(project_root, _PROJECT_CONFIG_NAME)
+        project_data = _load_yaml_file(project_config_path)
+
+    _cached_config = _merge_configs(global_data, project_data)
+    return _cached_config
+
+
+def reset_config() -> None:
+    """Clear cached config (for testing)."""
+    global _cached_config
+    _cached_config = None
+
+
+def _reset_lazy_merge_caches() -> None:
+    """Reset config-derived lazy caches after changing the process config."""
+    from nah import paths, content, context, taxonomy
+    paths.reset_sensitive_paths()
+    content.reset_content_patterns()
+    context.reset_known_hosts()
+    taxonomy.reset_exec_sinks()
+    taxonomy.reset_decode_commands()
+
+
+def use_defaults() -> None:
+    """Use packaged defaults for the current process, ignoring config files."""
+    global _cached_config
+    _cached_config = _merge_configs({}, {})
+    _reset_lazy_merge_caches()
+
+
+def apply_override(override_data: dict) -> None:
+    """Apply inline config override for single-shot CLI use (nah test --config).
+
+    Merges override_data onto the current config. No cleanup needed —
+    the override only lives for the process lifetime.
+    """
+    global _cached_config
+    cfg = get_config()  # ensure base is loaded
+
+    if "profile" in override_data:
+        profile = override_data["profile"]
+        if profile in _PROFILES:
+            cfg.profile = profile
+    if "classify" in override_data:
+        cfg.classify_global.update(_validate_dict(override_data["classify"]))
+    if "actions" in override_data:
+        cfg.actions.update(_validate_dict(override_data["actions"]))
+    if "sensitive_paths" in override_data:
+        cfg.sensitive_paths.update(_validate_dict(override_data["sensitive_paths"]))
+    if "trusted_paths" in override_data:
+        tp = override_data["trusted_paths"]
+        if isinstance(tp, list):
+            cfg.trusted_paths = [str(p) for p in tp]
+    if "known_registries" in override_data:
+        cfg.known_registries = override_data["known_registries"]
+    if "exec_sinks" in override_data:
+        cfg.exec_sinks = override_data["exec_sinks"]
+    if "sensitive_basenames" in override_data:
+        cfg.sensitive_basenames.update(_validate_dict(override_data["sensitive_basenames"]))
+    if "decode_commands" in override_data:
+        raw_dc = override_data["decode_commands"]
+        if isinstance(raw_dc, (list, dict)):
+            cfg.decode_commands = raw_dc
+    if "db_targets" in override_data:
+        raw_dt = override_data["db_targets"]
+        if isinstance(raw_dt, list):
+            cfg.db_targets = [t for t in raw_dt if isinstance(t, dict)]
+    if "content_patterns" in override_data:
+        cp = _validate_dict(override_data["content_patterns"])
+        if "suppress" in cp:
+            cfg.content_patterns_suppress = cp["suppress"]
+        if "add" in cp:
+            cfg.content_patterns_add = cp["add"]
+        if "policies" in cp:
+            cfg.content_policies.update(_validate_dict(cp["policies"]))
+    if "credential_patterns" in override_data:
+        cp = _validate_dict(override_data["credential_patterns"])
+        if "suppress" in cp:
+            cfg.credential_patterns_suppress = cp["suppress"]
+        if "add" in cp:
+            cfg.credential_patterns_add = cp["add"]
+
+    if "llm" in override_data:
+        cfg.llm = _validate_dict(override_data["llm"])
+        raw_mode = cfg.llm.get("mode", "")
+        if raw_mode in ("off", "on"):
+            cfg.llm_mode = raw_mode
+        elif "mode" not in cfg.llm and bool(cfg.llm.get("enabled", False)):
+            cfg.llm_mode = "on"
+    if "llm_mode" in override_data and override_data["llm_mode"] in ("off", "on"):
+        cfg.llm_mode = override_data["llm_mode"]
+    if "llm_eligible" in override_data:
+        cfg.llm_eligible = override_data["llm_eligible"]
+
+    if "active_allow" in override_data:
+        raw_aa = override_data["active_allow"]
+        if isinstance(raw_aa, bool):
+            cfg.active_allow = raw_aa
+        elif isinstance(raw_aa, list):
+            cfg.active_allow = [str(t) for t in raw_aa]
+
+    _cached_config = cfg
+
+    # Reset lazy-merge caches so they re-read from the updated config.
+    _reset_lazy_merge_caches()
+
+
+def _load_yaml_file(path: str) -> dict:
+    """Load YAML file. Returns {} if file missing or yaml unavailable."""
+    if not os.path.isfile(path):
+        return {}
+    try:
+        import yaml
+    except ImportError:
+        sys.stderr.write("nah: yaml module not available, config ignored\n")
+        return {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        raise ConfigError(f"config parse error in {path}: {e}") from e
+
+
+def _validate_dict(val) -> dict:
+    """Return val if dict, else empty dict."""
+    return val if isinstance(val, dict) else {}
+
+
+def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
+    """Merge two dicts — project can only tighten (stricter policy wins)."""
+    merged = dict(global_d)
+    for key, val in project_d.items():
+        if key in merged:
+            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(merged[key], 2):
+                merged[key] = val
+        else:
+            # New key: only accept if at least as strict as the built-in default
+            base = defaults.get(key, "ask") if defaults else "ask"
+            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(base, 2):
+                merged[key] = val
+    return merged
+
+
+def _merge_dict_override(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
+    """Merge two dicts — project values override global (any valid policy accepted)."""
+    merged = dict(global_d)
+    for key, val in project_d.items():
+        if val in _STRICTNESS:
+            merged[key] = val
+    return merged
+
+
+def _parse_add_remove(raw) -> tuple[list, list]:
+    """Parse polymorphic config: list = add-only, dict = add/remove."""
+    if isinstance(raw, list):
+        return raw, []
+    if isinstance(raw, dict):
+        add = raw.get("add", [])
+        remove = raw.get("remove", [])
+        return (add if isinstance(add, list) else []), (remove if isinstance(remove, list) else [])
+    return [], []
+
+
+def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
+    """Merge global and project configs with security rules."""
+    config = NahConfig()
+
+    # trust_project_config: global config ONLY — when true, project can loosen policies
+    config.trust_project_config = bool(global_cfg.get("trust_project_config", False))
+    _merge = _merge_dict_override if config.trust_project_config else _merge_dict_tighten
+
+    # profile: global config ONLY, validated
+    profile = global_cfg.get("profile", "full")
+    if profile not in _PROFILES:
+        sys.stderr.write(f"nah: unknown profile '{profile}', using 'full'\n")
+        profile = "full"
+    config.profile = profile
+
+    # classify: keep global and project SEPARATE for three-table lookup
+    config.classify_global = _validate_dict(global_cfg.get("classify", {}))
+    config.classify_project = _validate_dict(project_cfg.get("classify", {}))
+
+    # actions: tighten only (or override if trust_project_config)
+    config.actions = _merge(
+        _validate_dict(global_cfg.get("actions", {})),
+        _validate_dict(project_cfg.get("actions", {})),
+        defaults=_POLICIES,
+    )
+
+    # sensitive_paths_default: use project if stricter (or any valid value if trusted)
+    g_default = global_cfg.get("sensitive_paths_default", "ask")
+    p_default = project_cfg.get("sensitive_paths_default", "")
+    if p_default and config.trust_project_config and p_default in _STRICTNESS:
+        config.sensitive_paths_default = p_default
+    elif p_default and _STRICTNESS.get(p_default, 2) >= _STRICTNESS.get(g_default, 2):
+        config.sensitive_paths_default = p_default
+    else:
+        config.sensitive_paths_default = g_default if g_default in _STRICTNESS else "ask"
+
+    # sensitive_paths: tighten only (or override if trust_project_config)
+    config.sensitive_paths = _merge(
+        _validate_dict(global_cfg.get("sensitive_paths", {})),
+        _validate_dict(project_cfg.get("sensitive_paths", {})),
+    )
+
+    # allow_paths: global config ONLY — project .nah.yaml silently ignored
+    g_allow = global_cfg.get("allow_paths", {})
+    if isinstance(g_allow, dict):
+        config.allow_paths = {k: v for k, v in g_allow.items() if isinstance(v, list)}
+
+    # known_registries: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_kr = global_cfg.get("known_registries", [])
+    if isinstance(raw_kr, (list, dict)):
+        config.known_registries = raw_kr
+    else:
+        config.known_registries = []
+
+    # exec_sinks: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_es = global_cfg.get("exec_sinks", [])
+    if isinstance(raw_es, (list, dict)):
+        config.exec_sinks = raw_es
+    else:
+        config.exec_sinks = []
+
+    # sensitive_basenames: global only, flat dict (name → policy)
+    config.sensitive_basenames = _validate_dict(global_cfg.get("sensitive_basenames", {}))
+
+    # decode_commands: global only, polymorphic (list = add-only, dict = add/remove)
+    raw_dc = global_cfg.get("decode_commands", [])
+    if isinstance(raw_dc, (list, dict)):
+        config.decode_commands = raw_dc
+    else:
+        config.decode_commands = []
+
+    # content_patterns: add/suppress global-only, policies tighten-only
+    g_content = _validate_dict(global_cfg.get("content_patterns", {}))
+    p_content = _validate_dict(project_cfg.get("content_patterns", {}))
+    raw_cp_add = g_content.get("add", [])
+    config.content_patterns_add = raw_cp_add if isinstance(raw_cp_add, list) else []
+    raw_cp_suppress = g_content.get("suppress", [])
+    config.content_patterns_suppress = raw_cp_suppress if isinstance(raw_cp_suppress, list) else []
+    g_policies = _validate_dict(g_content.get("policies", {}))
+    p_policies = _validate_dict(p_content.get("policies", {}))
+    config.content_policies = _merge(g_policies, p_policies)
+
+    # credential_patterns: entirely global-only
+    g_cred = _validate_dict(global_cfg.get("credential_patterns", {}))
+    raw_cred_add = g_cred.get("add", [])
+    config.credential_patterns_add = raw_cred_add if isinstance(raw_cred_add, list) else []
+    raw_cred_suppress = g_cred.get("suppress", [])
+    config.credential_patterns_suppress = raw_cred_suppress if isinstance(raw_cred_suppress, list) else []
+
+    # llm: global config ONLY — project .nah.yaml silently ignored
+    config.llm = _validate_dict(global_cfg.get("llm", {}))
+
+    # llm.mode: global only. Backward compat for legacy llm.enabled=true.
+    raw_mode = config.llm.get("mode", "")
+    if raw_mode in ("off", "on"):
+        config.llm_mode = raw_mode
+    elif "mode" not in config.llm and bool(config.llm.get("enabled", False)):
+        config.llm_mode = "on"
+
+    # Deprecation warning for removed llm.max_decision
+    if config.llm.get("max_decision"):
+        sys.stderr.write(
+            "nah: llm.max_decision is deprecated and ignored"
+            " — LLM decisions are now capped to ask\n"
+        )
+
+    # llm.eligible: which ask categories are LLM-eligible (global only)
+    raw_eligible = config.llm.get("eligible", "default")
+    if raw_eligible in ("strict", "default", "all"):
+        config.llm_eligible = raw_eligible
+    elif isinstance(raw_eligible, list):
+        config.llm_eligible = [str(v) for v in raw_eligible]
+    else:
+        config.llm_eligible = "default"
+
+    # trusted_paths: global config ONLY (project .nah.yaml cannot set)
+    # Default: /tmp (and /private/tmp on macOS) for profile: full — standard
+    # scratch space, prompting on every temp file write is pure friction.
+    _default_trusted = ["/tmp", "/private/tmp"] if config.profile == "full" else []
+    g_trusted = global_cfg.get("trusted_paths", [])
+    if isinstance(g_trusted, list):
+        config.trusted_paths = [str(p) for p in g_trusted]
+    # Merge defaults (user entries take priority, defaults just fill in)
+    existing = set(config.trusted_paths)
+    for p in _default_trusted:
+        if p not in existing:
+            config.trusted_paths.append(p)
+
+    # db_targets: global config ONLY — project .nah.yaml silently ignored
+    g_targets = global_cfg.get("db_targets", [])
+    if isinstance(g_targets, list):
+        config.db_targets = [t for t in g_targets if isinstance(t, dict)]
+
+    # log: global config ONLY — project .nah.yaml silently ignored
+    config.log = _validate_dict(global_cfg.get("log", {}))
+
+    # active_allow: global config ONLY — controls whether ALLOW emits JSON
+    raw_aa = global_cfg.get("active_allow", True)
+    if isinstance(raw_aa, bool):
+        config.active_allow = raw_aa
+    elif isinstance(raw_aa, list):
+        config.active_allow = [str(t) for t in raw_aa]
+    else:
+        config.active_allow = True
+
+    return config
+
+
+def is_path_allowed(sensitive_path: str, project_root: str | None) -> bool:
+    """Check if a sensitive path is exempted via allow_paths for the given project root."""
+    if not project_root:
+        return False
+
+    cfg = get_config()
+    if not cfg.allow_paths:
+        return False
+
+    from nah.paths import resolve_path  # lazy import to avoid circular
+    real_root = resolve_path(project_root)
+    real_path = resolve_path(sensitive_path)
+
+    for pattern, roots in cfg.allow_paths.items():
+        resolved_pattern = resolve_path(pattern)
+        if real_path == resolved_pattern or real_path.startswith(resolved_pattern + os.sep):
+            for root in roots:
+                resolved_root = resolve_path(root)
+                if _roots_are_related(real_root, resolved_root):
+                    return True
+    return False
+
+
+def get_global_config_path() -> str:
+    """Return the global config file path."""
+    return _GLOBAL_CONFIG
+
+
+def get_project_config_path() -> str | None:
+    """Return the project config file path, or None if no project root."""
+    from nah.paths import get_project_root
+    project_root = get_project_root()
+    if project_root:
+        return os.path.join(project_root, _PROJECT_CONFIG_NAME)
+    return None

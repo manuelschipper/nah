@@ -1,0 +1,10 @@
+{
+  "name": "nah",
+  "version": "0.7.0",
+  "description": "Context-aware safety guard for Claude Code.",
+  "author": {
+    "name": "Manuel Schipper"
+  },
+  "homepage": "https://github.com/manuelschipper/nah",
+  "license": "MIT"
+}

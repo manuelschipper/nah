@@ -1,0 +1,6 @@
+[
+  "git reset --hard",
+  "git checkout --",
+  "git clean",
+  "git stash drop"
+]

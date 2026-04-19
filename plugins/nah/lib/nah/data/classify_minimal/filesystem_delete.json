@@ -1,0 +1,6 @@
+[
+  "rm",
+  "rmdir",
+  "unlink",
+  "shred"
+]

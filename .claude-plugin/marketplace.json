@@ -1,0 +1,31 @@
+{
+  "name": "nah",
+  "owner": {
+    "name": "Manuel Schipper"
+  },
+  "metadata": {
+    "description": "Self-hosted marketplace for the nah Claude Code plugin.",
+    "version": "0.7.0"
+  },
+  "plugins": [
+    {
+      "name": "nah",
+      "description": "Context-aware safety guard for Claude Code.",
+      "version": "0.7.0",
+      "author": {
+        "name": "Manuel Schipper"
+      },
+      "source": "./plugins/nah",
+      "category": "security",
+      "homepage": "https://github.com/manuelschipper/nah",
+      "license": "MIT",
+      "tags": [
+        "claude-code",
+        "hooks",
+        "permissions",
+        "safety",
+        "security"
+      ]
+    }
+  ]
+}

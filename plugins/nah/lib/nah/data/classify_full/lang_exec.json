@@ -1,0 +1,11 @@
+[
+  "python -c",
+  "python3 -c",
+  "python -m",
+  "python3 -m",
+  "node -e",
+  "ruby -e",
+  "perl -e",
+  "php -r",
+  "gh extension exec"
+]
