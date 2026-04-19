@@ -82,7 +82,7 @@ def enabled_nah_plugins(settings: dict) -> list[str]:
 
     result = []
     for plugin_id, is_enabled in enabled.items():
-        if not is_enabled or not isinstance(plugin_id, str):
+        if is_enabled is not True or not isinstance(plugin_id, str):
             continue
         plugin_name = plugin_id.split("@", 1)[0]
         if plugin_name == "nah":
@@ -132,7 +132,8 @@ def detect_nah_install_state(
     settings files are reported in ``errors`` so callers can surface the
     diagnostic without silently guessing.
     """
-    paths = _dedupe_paths(settings_paths or default_settings_paths(project_root))
+    raw_paths = default_settings_paths(project_root) if settings_paths is None else settings_paths
+    paths = _dedupe_paths(raw_paths)
     state = NahInstallState()
 
     for path in paths:

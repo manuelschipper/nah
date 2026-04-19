@@ -18,6 +18,7 @@ def test_enabled_nah_plugins_detects_exact_plugin_name():
             "nah": True,
             "nah-tools@local": True,
             "nah@disabled": False,
+            "nah@string": "true",
         }
     }
 
