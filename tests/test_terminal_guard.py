@@ -32,6 +32,7 @@ def test_install_uninstall_bash_managed_block(tmp_path, monkeypatch):
 def test_zsh_snippet_wraps_accept_line():
     snippet = terminal_guard.render_zsh_snippet()
     assert "zle -A accept-line __nah_original_accept_line" in snippet
+    assert "zle -A .accept-line __nah_original_accept_line" in snippet
     assert "zle -N accept-line __nah_terminal_accept_line" in snippet
     assert "_terminal-decision --target zsh" in snippet
 

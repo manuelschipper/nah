@@ -327,9 +327,7 @@ if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-}
   export NAH_TERMINAL_SHELL=zsh
   export NAH_TERMINAL_GUARD_ACTIVE=1
 
-  if zle -l accept-line >/dev/null 2>&1; then
-    zle -A accept-line __nah_original_accept_line
-  fi
+  zle -A accept-line __nah_original_accept_line 2>/dev/null || zle -A .accept-line __nah_original_accept_line
 
   __nah_terminal_accept_line() {
     local line="$BUFFER"
