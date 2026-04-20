@@ -17,6 +17,7 @@ _PROJECT_CONFIG_NAME = ".nah.yaml"
 
 @dataclass
 class NahConfig:
+    target: str = ""
     profile: str = "full"
     classify_global: dict[str, list[str]] = field(default_factory=dict)
     classify_project: dict[str, list[str]] = field(default_factory=dict)
@@ -41,9 +42,13 @@ class NahConfig:
     log: dict = field(default_factory=dict)
     active_allow: bool | list = True
     trust_project_config: bool = False
+    targets: dict = field(default_factory=dict)
+    terminal: dict = field(default_factory=dict)
 
 
 _cached_config: NahConfig | None = None
+_cached_target: str | None = None
+_active_target = ""
 
 
 def _roots_are_related(real_root: str, allowed_root: str) -> bool:
@@ -55,10 +60,25 @@ def _roots_are_related(real_root: str, allowed_root: str) -> bool:
     )
 
 
-def get_config() -> NahConfig:
+def set_active_target(target: str | None) -> None:
+    """Set the process-local target used by get_config()."""
+    global _active_target
+    _active_target = target or ""
+    reset_config()
+
+
+def get_active_target() -> str:
+    """Return the process-local target used by get_config()."""
+    return _active_target
+
+
+def get_config(target: str | None = None) -> NahConfig:
     """Load and return merged config. Cached for process lifetime."""
-    global _cached_config
-    if _cached_config is not None:
+    global _cached_config, _cached_target
+    effective_target = target if target is not None else _active_target
+    if _cached_config is not None and (
+        _cached_target is None or _cached_target == effective_target
+    ):
         return _cached_config
 
     global_data = _load_yaml_file(_GLOBAL_CONFIG)
@@ -71,14 +91,16 @@ def get_config() -> NahConfig:
         project_config_path = os.path.join(project_root, _PROJECT_CONFIG_NAME)
         project_data = _load_yaml_file(project_config_path)
 
-    _cached_config = _merge_configs(global_data, project_data)
+    _cached_config = _merge_configs(global_data, project_data, effective_target)
+    _cached_target = effective_target
     return _cached_config
 
 
 def reset_config() -> None:
     """Clear cached config (for testing)."""
-    global _cached_config
+    global _cached_config, _cached_target
     _cached_config = None
+    _cached_target = None
 
 
 def _reset_lazy_merge_caches() -> None:
@@ -93,8 +115,9 @@ def _reset_lazy_merge_caches() -> None:
 
 def use_defaults() -> None:
     """Use packaged defaults for the current process, ignoring config files."""
-    global _cached_config
-    _cached_config = _merge_configs({}, {})
+    global _cached_config, _cached_target
+    _cached_config = _merge_configs({}, {}, _active_target)
+    _cached_target = _active_target
     _reset_lazy_merge_caches()
 
 
@@ -169,6 +192,18 @@ def apply_override(override_data: dict) -> None:
         elif isinstance(raw_aa, list):
             cfg.active_allow = [str(t) for t in raw_aa]
 
+    if "targets" in override_data:
+        targets = _validate_dict(override_data["targets"])
+        cfg.targets.update(targets)
+        active = cfg.target or _active_target
+        if active:
+            _apply_target_data(
+                cfg,
+                _validate_dict(targets.get(active, {})),
+                trusted=True,
+                explicit_shell_llm=True,
+            )
+
     _cached_config = cfg
 
     # Reset lazy-merge caches so they re-read from the updated config.
@@ -232,9 +267,10 @@ def _parse_add_remove(raw) -> tuple[list, list]:
     return [], []
 
 
-def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
+def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = None) -> NahConfig:
     """Merge global and project configs with security rules."""
     config = NahConfig()
+    config.target = target or ""
 
     # trust_project_config: global config ONLY — when true, project can loosen policies
     config.trust_project_config = bool(global_cfg.get("trust_project_config", False))
@@ -377,7 +413,95 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     else:
         config.active_allow = True
 
+    global_targets = _validate_dict(global_cfg.get("targets", {}))
+    project_targets = _validate_dict(project_cfg.get("targets", {}))
+    config.targets = dict(global_targets)
+    for key, val in project_targets.items():
+        if isinstance(val, dict):
+            merged = dict(_validate_dict(config.targets.get(key, {})))
+            merged.update(val)
+            config.targets[key] = merged
+
+    if target:
+        _apply_target_config(config, target, global_targets, project_targets)
+
     return config
+
+
+def _apply_target_config(
+    config: NahConfig, target: str, global_targets: dict, project_targets: dict,
+) -> None:
+    """Apply target-scoped global/project overrides to an effective config."""
+    global_data = _validate_dict(global_targets.get(target, {}))
+    project_data = _validate_dict(project_targets.get(target, {}))
+
+    shell_target = target in ("bash", "zsh")
+    explicit_shell_llm = _has_target_llm_mode(global_data) or _has_target_llm_mode(project_data)
+
+    _apply_target_data(config, global_data, trusted=True, explicit_shell_llm=True)
+    _apply_target_data(
+        config,
+        project_data,
+        trusted=config.trust_project_config,
+        explicit_shell_llm=True,
+    )
+
+    if shell_target and not explicit_shell_llm:
+        config.llm_mode = "off"
+
+
+def _has_target_llm_mode(data: dict) -> bool:
+    llm_data = _validate_dict(data.get("llm", {}))
+    return llm_data.get("mode") in ("off", "on")
+
+
+def _apply_target_data(
+    config: NahConfig, data: dict, *, trusted: bool, explicit_shell_llm: bool,
+) -> None:
+    """Apply one target override block to ``config``."""
+    if not data:
+        return
+    merge = _merge_dict_override if trusted else _merge_dict_tighten
+
+    actions = _validate_dict(data.get("actions", {}))
+    if actions:
+        config.actions = merge(config.actions, actions, defaults=_POLICIES)
+
+    if "sensitive_paths_default" in data:
+        raw = data.get("sensitive_paths_default")
+        if raw in _STRICTNESS and (
+            trusted
+            or _STRICTNESS.get(raw, 2) >= _STRICTNESS.get(config.sensitive_paths_default, 2)
+        ):
+            config.sensitive_paths_default = raw
+
+    sensitive = _validate_dict(data.get("sensitive_paths", {}))
+    if sensitive:
+        config.sensitive_paths = merge(config.sensitive_paths, sensitive)
+
+    content = _validate_dict(data.get("content_patterns", {}))
+    policies = _validate_dict(content.get("policies", {}))
+    if policies:
+        config.content_policies = merge(config.content_policies, policies)
+
+    terminal = _validate_dict(data.get("terminal", {}))
+    if terminal:
+        merged_terminal = dict(config.terminal)
+        merged_terminal.update(terminal)
+        config.terminal = merged_terminal
+
+    llm = _validate_dict(data.get("llm", {}))
+    if llm:
+        raw_mode = llm.get("mode")
+        if raw_mode in ("off", "on"):
+            if trusted or raw_mode == "off" or config.llm_mode == "on":
+                config.llm_mode = raw_mode
+        if trusted and "eligible" in llm:
+            raw_eligible = llm.get("eligible")
+            if raw_eligible in ("strict", "default", "all"):
+                config.llm_eligible = raw_eligible
+            elif isinstance(raw_eligible, list):
+                config.llm_eligible = [str(v) for v in raw_eligible]
 
 
 def is_path_allowed(sensitive_path: str, project_root: str | None) -> bool:
