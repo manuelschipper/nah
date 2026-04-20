@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Target-first install/update/uninstall commands** — `nah install`, `nah update`, and `nah uninstall` now require an explicit target instead of defaulting to Claude Code. Use `nah install claude`, `nah update claude`, and `nah uninstall claude` for direct Claude hooks; shell and provider targets use the same shape. Bare `nah install` exits nonzero with a guided target list, and the old `--agent` lifecycle shape is no longer the documented product surface. (nah-882)
+
+### Added
+
+- **Opt-in bash and zsh terminal guard** — added `nah install bash` and `nah install zsh` to protect interactive shell sessions with managed rc-file snippets that classify complete single-line commands before execution. The guard supports status/doctor diagnostics, prompt-on-ask behavior, fail-closed handling for unsupported multiline/here-doc/continuation input, explicit bypass via `NAH_TERMINAL_BYPASS=1`, and terminal decision logging for blocks, denied asks, confirmed asks, bypasses, and errors while keeping allowed terminal commands out of the nah log by default. (nah-882)
+- **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
+- **OpenRouter setup target** — added `nah install openrouter` and `nah uninstall openrouter` to configure the existing OpenRouter LLM provider in global user config using `llm.openrouter.key_env: OPENROUTER_API_KEY`, without storing raw API keys or writing project config. (nah-882)
+
 ## [0.7.1] - 2026-04-20
 
 ### Added
