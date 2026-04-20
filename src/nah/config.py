@@ -60,11 +60,12 @@ def _roots_are_related(real_root: str, allowed_root: str) -> bool:
     )
 
 
-def set_active_target(target: str | None) -> None:
+def set_active_target(target: str | None, *, reset_cache: bool = True) -> None:
     """Set the process-local target used by get_config()."""
     global _active_target
     _active_target = target or ""
-    reset_config()
+    if reset_cache:
+        reset_config()
 
 
 def get_active_target() -> str:
