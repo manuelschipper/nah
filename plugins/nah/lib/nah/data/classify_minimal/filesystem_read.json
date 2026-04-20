@@ -1,0 +1,16 @@
+[
+  "cat",
+  "ls",
+  "head",
+  "tail",
+  "less",
+  "wc",
+  "file",
+  "stat",
+  "dir",
+  "findstr",
+  "tasklist",
+  "where",
+  "wmic",
+  "systeminfo"
+]

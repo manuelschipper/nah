@@ -1,0 +1,9 @@
+[
+  "git status",
+  "git log",
+  "git diff",
+  "git branch",
+  "git fetch",
+  "git show",
+  "git remote"
+]

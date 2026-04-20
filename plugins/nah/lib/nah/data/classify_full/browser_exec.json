@@ -1,0 +1,6 @@
+[
+  "mcp__plugin_playwright_playwright__browser_evaluate",
+  "mcp__plugin_playwright_playwright__browser_run_code",
+  "mcp__playwright__browser_evaluate",
+  "mcp__playwright__browser_run_code"
+]

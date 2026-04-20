@@ -1,0 +1,20 @@
+[
+  "mcp__plugin_playwright_playwright__browser_file_upload",
+  "mcp__plugin_playwright_playwright__browser_pdf_save",
+  "mcp__plugin_playwright_playwright__browser_storage_state",
+  "mcp__plugin_playwright_playwright__browser_set_storage_state",
+  "mcp__plugin_playwright_playwright__browser_start_tracing",
+  "mcp__plugin_playwright_playwright__browser_stop_tracing",
+  "mcp__plugin_playwright_playwright__browser_start_video",
+  "mcp__plugin_playwright_playwright__browser_stop_video",
+  "mcp__plugin_playwright_playwright__browser_video_chapter",
+  "mcp__playwright__browser_file_upload",
+  "mcp__playwright__browser_pdf_save",
+  "mcp__playwright__browser_storage_state",
+  "mcp__playwright__browser_set_storage_state",
+  "mcp__playwright__browser_start_tracing",
+  "mcp__playwright__browser_stop_tracing",
+  "mcp__playwright__browser_start_video",
+  "mcp__playwright__browser_stop_video",
+  "mcp__playwright__browser_video_chapter"
+]
