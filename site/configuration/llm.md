@@ -43,6 +43,18 @@ llm:
 
 `llm.enabled: true` is still accepted for backward compatibility, but `llm.mode: on` is the current form.
 
+To configure OpenRouter from the CLI:
+
+```bash
+nah install openrouter
+export OPENROUTER_API_KEY=...
+```
+
+This writes global user config only, adds `openrouter` to the provider cascade,
+stores `key_env: OPENROUTER_API_KEY`, and never stores a raw API key. Install
+`nah[config]` or inject PyYAML into pipx when the command needs YAML write
+support.
+
 ### Provider examples
 
 === "Ollama (local)"
@@ -154,6 +166,40 @@ Provider responses of `block` are treated as `uncertain`, so the LLM can allow a
 
 LLM responses include a short prompt-safe `reasoning` summary and a longer `reasoning_long` explanation for observability. Claude-visible prompts use the short summary; structured logs and `nah test` can show the longer explanation for debugging.
 
+## Target-specific LLM policy
+
+The global provider cascade and credentials are shared across targets. Per-target
+overrides can change whether a runtime uses the LLM and which decisions are
+eligible:
+
+```yaml
+llm:
+  mode: on
+  providers: [openrouter]
+  openrouter:
+    key_env: OPENROUTER_API_KEY
+    model: google/gemini-3.1-flash-lite-preview
+
+targets:
+  claude:
+    llm:
+      mode: on
+  bash:
+    llm:
+      mode: off
+  zsh:
+    llm:
+      mode: off
+```
+
+Bash and zsh default to LLM mode off even when global LLM mode is on. That keeps
+human terminal commands local by default. Turn it on only with an explicit
+target override such as `targets.bash.llm.mode: on`.
+
+Project `.nah.yaml` files can tighten target LLM policy, such as turning a
+target off, but they cannot configure provider credentials or silently loosen
+global policy unless `trust_project_config: true` is set globally.
+
 ## Write/Edit review
 
 When LLM mode is enabled, Write/Edit/MultiEdit/NotebookEdit operations are reviewed after deterministic checks. Deterministic `block` results skip the LLM and stay blocked.
@@ -204,6 +250,7 @@ Provider `uncertain` responses stop the cascade. In ask-refinement they leave th
 
 ```bash
 nah test "python3 -c 'import os; os.system(\"rm -rf /\")'"
+nah test --target bash -- "python3 -c 'print(1)'"
 # Shows: LLM eligible: yes/no, LLM decision (if configured)
 ```
 
