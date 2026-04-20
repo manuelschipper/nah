@@ -756,6 +756,11 @@ def main():
         _transcript_path = data.get("transcript_path", "")
 
         agent = agents.detect_agent(data)
+        try:
+            from nah.config import set_active_target
+            set_active_target(agent)
+        except Exception as exc:
+            sys.stderr.write(f"nah: target config: {exc}\n")
         canonical = agents.normalize_tool(tool_name)
 
         handler = HANDLERS.get(canonical)

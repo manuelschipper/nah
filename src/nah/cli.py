@@ -4,12 +4,13 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
 
-from nah import __version__, agents, plugin_state
+from nah import __version__, agents, plugin_state, targets
 
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
@@ -198,23 +199,25 @@ def _merge_matcher_tool_names(hook_entry: dict, tool_names: set[str]) -> bool:
     return True
 
 
-def _resolve_agents(args: argparse.Namespace) -> list[str]:
-    """Resolve --agent flag to list of agent keys."""
-    agent_arg = getattr(args, "agent", None) or agents.CLAUDE
-    if agent_arg == "all":
-        # Only install for agents whose settings dir exists
-        result = []
-        for key in sorted(agents.INSTALLABLE_AGENTS):
-            settings_file = agents.AGENT_SETTINGS[key]
-            if settings_file.parent.exists():
-                result.append(key)
-        if not result:
-            print("No supported agent directories found.")
-        return result
-    if agent_arg not in agents.INSTALLABLE_AGENTS:
-        print(f"Agent '{agent_arg}' is not installable. Supported: {', '.join(sorted(agents.INSTALLABLE_AGENTS))}")
-        return []
-    return [agent_arg]
+def _target_arg(args: argparse.Namespace) -> str:
+    """Return the lifecycle target argument, or an empty string."""
+    return getattr(args, "target", None) or ""
+
+
+def _require_lifecycle_target(args: argparse.Namespace, command: str) -> targets.Target:
+    """Validate lifecycle target and exit with a product-facing message."""
+    try:
+        return targets.require_target(_target_arg(args), command)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2)
+
+
+def _agent_keys_for_target(target: str) -> list[str]:
+    """Return installable agent keys for an agent target."""
+    if target == targets.CLAUDE:
+        return [agents.CLAUDE]
+    return []
 
 
 def _write_hook_script() -> None:
@@ -286,22 +289,97 @@ def _install_for_agent(agent_key: str) -> None:
         print(f"    Backup:    {backup}")
 
 
-def cmd_install(args: argparse.Namespace) -> None:
-    agent_keys = _resolve_agents(args)
-    if not agent_keys:
+def _install_openrouter() -> None:
+    """Configure the existing OpenRouter LLM provider in global config."""
+    from nah.config import get_global_config_path
+    from nah.remember import _ensure_yaml, _read_config, _write_config
+
+    try:
+        _ensure_yaml()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    _warn_comments(project=False)
+    path = get_global_config_path()
+    data = _read_config(path)
+    llm = data.setdefault("llm", {})
+    if not isinstance(llm, dict):
+        llm = {}
+        data["llm"] = llm
+    providers = llm.get("providers", [])
+    if not isinstance(providers, list):
+        providers = []
+    if "openrouter" not in providers:
+        providers.append("openrouter")
+    llm["providers"] = providers
+    llm["mode"] = "on"
+    openrouter = llm.setdefault("openrouter", {})
+    if not isinstance(openrouter, dict):
+        openrouter = {}
+        llm["openrouter"] = openrouter
+    openrouter.setdefault("key_env", "OPENROUTER_API_KEY")
+    openrouter.setdefault("model", "google/gemini-3.1-flash-lite-preview")
+    _write_config(path, data)
+    print("nah OpenRouter provider configured.")
+    print(f"  Config:  {path}")
+    print("  API key: set OPENROUTER_API_KEY in your shell environment")
+    print("  Note: bash and zsh targets keep LLM mode off unless enabled under targets.<shell>.llm.mode")
+
+
+def _uninstall_openrouter() -> None:
+    """Remove OpenRouter provider config from global config."""
+    from nah.config import get_global_config_path
+    from nah.remember import _ensure_yaml, _read_config, _write_config
+
+    try:
+        _ensure_yaml()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    _warn_comments(project=False)
+    path = get_global_config_path()
+    data = _read_config(path)
+    llm = data.get("llm", {})
+    if not isinstance(llm, dict):
+        print("OpenRouter provider not configured.")
         return
+    providers = llm.get("providers", [])
+    if isinstance(providers, list):
+        llm["providers"] = [p for p in providers if p != "openrouter"]
+    llm.pop("openrouter", None)
+    if not llm.get("providers"):
+        llm["mode"] = "off"
+    data["llm"] = llm
+    _write_config(path, data)
+    print("nah OpenRouter provider removed.")
+    print(f"  Config: {path}")
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    target = _require_lifecycle_target(args, "install")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.install_shell(target.key)
+        print(f"nah {__version__} installed for {target.key}.")
+        print(f"Restart {target.key}, or source your rc file, to activate the guard.")
+        return
+    if target.key == targets.OPENROUTER:
+        _install_openrouter()
+        return
+
+    agent_keys = _agent_keys_for_target(target.key)
 
     state = _detect_install_state(agent_keys)
     _warn_install_state_errors(state, "install")
     if state.has_plugin:
         if getattr(args, "force", False):
             print(
-                "nah install: plugin-managed nah detected; installing direct hooks because --force was passed.",
+                "nah install claude: plugin-managed nah detected; installing direct hooks because --force was passed.",
                 file=sys.stderr,
             )
         else:
             print(
-                "nah install: plugin-managed nah is already enabled. "
+                "nah install claude: plugin-managed nah is already enabled. "
                 "Disable/uninstall the Claude plugin first, or pass --force "
                 "to install direct hooks anyway.",
                 file=sys.stderr,
@@ -324,9 +402,17 @@ def cmd_install(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     """Update hook script: unlock → overwrite → re-lock. Update settings for targeted agents."""
-    agent_keys = _resolve_agents(args)
-    if not agent_keys:
+    target = _require_lifecycle_target(args, "update")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.update_shell(target.key)
+        print(f"nah {__version__} terminal guard updated for {target.key}.")
         return
+    if target.key == targets.OPENROUTER:
+        print("nah update openrouter: OpenRouter has no runtime files to update.", file=sys.stderr)
+        raise SystemExit(2)
+
+    agent_keys = _agent_keys_for_target(target.key)
 
     state = _detect_install_state(agent_keys)
     _warn_install_state_errors(state, "update")
@@ -341,7 +427,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         if state.has_plugin:
             print("Plugin-managed nah is unchanged.")
         else:
-            print("Run `nah install` first.")
+            print("Run `nah install claude` first.")
         return
 
     _write_hook_script()
@@ -403,6 +489,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         from nah.config import get_config
         cfg = get_config()
         print("Effective config (merged):")
+        print(f"  target:                {cfg.target or '(default)'}")
         print(f"  profile:               {cfg.profile}")
         print(f"  classify_global:       {cfg.classify_global or '{}'}")
         print(f"  classify_project:      {cfg.classify_project or '{}'}")
@@ -426,6 +513,8 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  llm_eligible:          {cfg.llm_eligible}")
         print(f"  log:                   {cfg.log or '{}'}")
         print(f"  active_allow:          {cfg.active_allow}")
+        print(f"  targets:               {cfg.targets or '{}'}")
+        print(f"  terminal:              {cfg.terminal or '{}'}")
     elif sub == "path":
         from nah.config import get_global_config_path, get_project_config_path
         print(f"Global:  {get_global_config_path()}")
@@ -439,10 +528,19 @@ def cmd_test(args: argparse.Namespace) -> None:
     """Dry-run classification for a command or tool input."""
     use_default_config = bool(getattr(args, "defaults", False))
     inline_config = getattr(args, "config", None)
+    target = getattr(args, "target", None) or ""
+    json_output = bool(getattr(args, "json", False))
 
     if use_default_config and inline_config:
         print("Error: --defaults cannot be used with --config", file=sys.stderr)
         raise SystemExit(1)
+
+    if target:
+        if targets.get_target(target) is None:
+            print(f"Error: unknown target '{target}'", file=sys.stderr)
+            raise SystemExit(2)
+        from nah.config import set_active_target
+        set_active_target(target)
 
     if use_default_config:
         from nah.config import use_defaults
@@ -468,6 +566,29 @@ def cmd_test(args: argparse.Namespace) -> None:
         from nah.bash import classify_command
         result = classify_command(command)
 
+        if json_output:
+            print(json.dumps({
+                "target": target,
+                "tool": "Bash",
+                "command": result.command,
+                "decision": result.final_decision,
+                "reason": result.reason,
+                "composition_rule": result.composition_rule,
+                "stages": [
+                    {
+                        "tokens": sr.tokens,
+                        "action_type": sr.action_type,
+                        "policy": sr.default_policy,
+                        "decision": sr.decision,
+                        "reason": sr.reason,
+                    }
+                    for sr in result.stages
+                ],
+            }))
+            return
+
+        if target:
+            print(f"Target:   {target}")
         print(f"Command:  {result.command}")
         if result.stages:
             print("Stages:")
@@ -542,6 +663,17 @@ def cmd_test(args: argparse.Namespace) -> None:
             ti = {"notebook_path": file_path, "action": "replace", "new_source": content}
             handler = handle_notebookedit
         decision = handler(ti)
+        if json_output:
+            print(json.dumps({
+                "target": target,
+                "tool": tool,
+                "path": file_path,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+            }))
+            return
+        if target:
+            print(f"Target:   {target}")
         print(f"Tool:     {tool}")
         print(f"Path:     {file_path}")
         if content:
@@ -556,6 +688,18 @@ def cmd_test(args: argparse.Namespace) -> None:
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         pattern = getattr(args, "pattern", None) or ""
         decision = handle_grep({"path": raw_path, "pattern": pattern})
+        if json_output:
+            print(json.dumps({
+                "target": target,
+                "tool": tool,
+                "path": raw_path,
+                "pattern": pattern,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+            }))
+            return
+        if target:
+            print(f"Target:   {target}")
         print(f"Tool:     {tool}")
         print(f"Path:     {raw_path}")
         if pattern:
@@ -568,6 +712,16 @@ def cmd_test(args: argparse.Namespace) -> None:
         # MCP tools: classify via taxonomy
         from nah.hook import _classify_unknown_tool
         decision = _classify_unknown_tool(tool)
+        if json_output:
+            print(json.dumps({
+                "target": target,
+                "tool": tool,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+            }))
+            return
+        if target:
+            print(f"Target:   {target}")
         print(f"Tool:     {tool}")
         print(f"Decision: {decision['decision'].upper()}")
         reason = decision.get("reason", "")
@@ -579,6 +733,17 @@ def cmd_test(args: argparse.Namespace) -> None:
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         check = paths.check_path(tool, raw_path)
         decision = check or {"decision": "allow"}  # JSON protocol
+        if json_output:
+            print(json.dumps({
+                "target": target,
+                "tool": tool,
+                "input": raw_path,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+            }))
+            return
+        if target:
+            print(f"Target:   {target}")
         print(f"Tool:     {tool}")
         print(f"Input:    {raw_path}")
         print(f"Decision: {decision['decision'].upper()}")
@@ -588,9 +753,17 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
-    agent_keys = _resolve_agents(args)
-    if not agent_keys:
+    target = _require_lifecycle_target(args, "uninstall")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.uninstall_shell(target.key)
+        print(f"nah terminal guard uninstalled for {target.key}.")
         return
+    if target.key == targets.OPENROUTER:
+        _uninstall_openrouter()
+        return
+
+    agent_keys = _agent_keys_for_target(target.key)
 
     state = _detect_install_state(agent_keys)
     _warn_install_state_errors(state, "uninstall")
@@ -779,6 +952,11 @@ def cmd_trust(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show all custom rules."""
+    target = getattr(args, "target", None) or ""
+    if target:
+        cmd_target_status(target)
+        return
+
     from nah.remember import list_rules
     try:
         rules = list_rules()
@@ -860,6 +1038,58 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     if not any_rules:
         print("No custom rules configured.")
+
+
+def cmd_target_status(target_key: str) -> None:
+    """Show status for a lifecycle target."""
+    target = targets.get_target(target_key)
+    if target is None:
+        print(f"nah status: unknown target '{target_key}'", file=sys.stderr)
+        raise SystemExit(2)
+    if target.kind == targets.SHELL:
+        from nah import terminal_guard
+        terminal_guard.print_status(target.key)
+        return
+    if target.key == targets.CLAUDE:
+        state = _detect_install_state([agents.CLAUDE])
+        _warn_install_state_errors(state, "status")
+        print("claude:")
+        print(f"  direct hooks: {'installed' if state.has_legacy else 'not installed'}")
+        print(f"  plugin:       {'enabled' if state.has_plugin else 'not detected'}")
+        print(f"  hook script:  {_HOOK_SCRIPT}")
+        return
+    if target.key == targets.OPENROUTER:
+        from nah.config import get_config, get_global_config_path
+        cfg = get_config()
+        llm = cfg.llm if isinstance(cfg.llm, dict) else {}
+        providers = llm.get("providers", [])
+        openrouter = llm.get("openrouter", {})
+        key_env = openrouter.get("key_env", "OPENROUTER_API_KEY") if isinstance(openrouter, dict) else "OPENROUTER_API_KEY"
+        configured = isinstance(providers, list) and "openrouter" in providers and isinstance(openrouter, dict)
+        print("openrouter:")
+        print(f"  configured: {'yes' if configured else 'no'}")
+        print(f"  config:     {get_global_config_path()}")
+        print(f"  key env:    {key_env} ({'set' if os.environ.get(key_env) else 'not set'})")
+        return
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Show deeper diagnostics for a target."""
+    target = _require_lifecycle_target(args, "doctor")
+    if target.kind == targets.SHELL:
+        from nah import terminal_guard
+        terminal_guard.print_doctor(target.key)
+        return
+    if target.key == targets.CLAUDE:
+        cmd_target_status(target.key)
+        settings = agents.AGENT_SETTINGS[agents.CLAUDE]
+        print(f"  settings:     {settings}")
+        print(f"  settings dir: {'exists' if settings.parent.exists() else 'missing'}")
+        print(f"  claude path:  {shutil.which('claude') or '(not on PATH)'}")
+        return
+    if target.key == targets.OPENROUTER:
+        cmd_target_status(target.key)
+        return
 
 
 def cmd_forget(args: argparse.Namespace) -> None:
@@ -1031,10 +1261,49 @@ def cmd_claude(user_args: list[str]) -> None:
         )
         if os.name == "nt":
             raise SystemExit(subprocess.call(args))
-        os.execvp(claude_path, args)
+    os.execvp(claude_path, args)
+
+
+def cmd_terminal_decision(args: argparse.Namespace) -> None:
+    """Hidden shell-snippet decision helper."""
+    raw_args = list(getattr(args, "args", []))
+    if raw_args and raw_args[0] == "--":
+        raw_args = raw_args[1:]
+    if not raw_args:
+        print("nah: _terminal-decision requires a command", file=sys.stderr)
+        raise SystemExit(2)
+    command = raw_args[0] if len(raw_args) == 1 else shlex.join(raw_args)
+    from nah import terminal_guard
+
+    result = terminal_guard.decide_terminal_command(
+        command,
+        getattr(args, "target", ""),
+        confirm=bool(getattr(args, "confirm", False)),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(terminal_guard.decision_to_payload(result)))
+    elif result.exit_code == terminal_guard.EXIT_BLOCK:
+        print(f"nah. {result.reason}", file=sys.stderr)
+    elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED:
+        print(f"nah? {result.reason}", file=sys.stderr)
+    raise SystemExit(result.exit_code)
+
+
+def _run_hidden_terminal_decision(argv: list[str]) -> None:
+    """Parse and run the hidden terminal decision helper."""
+    parser = argparse.ArgumentParser(prog="nah _terminal-decision", add_help=False)
+    parser.add_argument("--target", required=True, choices=("bash", "zsh"))
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("args", nargs=argparse.REMAINDER)
+    cmd_terminal_decision(parser.parse_args(argv))
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "_terminal-decision":
+        _run_hidden_terminal_decision(sys.argv[2:])
+        return
+
     parser = argparse.ArgumentParser(
         prog="nah",
         description="Context-aware safety guard for Claude Code.",
@@ -1044,23 +1313,24 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
-    agent_help = "Agent to target: claude (default)"
-    install_parser = sub.add_parser("install", help="Install nah hook into coding agents")
-    install_parser.add_argument("--agent", default=None, help=agent_help)
+    install_parser = sub.add_parser("install", help="Install nah for a target")
+    install_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
     install_parser.add_argument(
         "--force",
         action="store_true",
         help="Install direct hooks even when the Claude plugin is enabled",
     )
-    update_parser = sub.add_parser("update", help="Update hook script (unlock, overwrite, re-lock)")
-    update_parser.add_argument("--agent", default=None, help=agent_help)
-    uninstall_parser = sub.add_parser("uninstall", help="Remove nah hook from coding agents")
-    uninstall_parser.add_argument("--agent", default=None, help=agent_help)
+    update_parser = sub.add_parser("update", help="Update nah files for a target")
+    update_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    uninstall_parser = sub.add_parser("uninstall", help="Remove nah from a target")
+    uninstall_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
+    test_parser.add_argument("--target", default=None, help="Target policy to simulate")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
     test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("--json", action="store_true", help="Output a stable JSON result")
     test_config_group = test_parser.add_mutually_exclusive_group()
     test_config_group.add_argument("--config", default=None, help="Inline JSON config override")
     test_config_group.add_argument(
@@ -1096,7 +1366,10 @@ def main():
     trust_parser = sub.add_parser("trust", help="Trust a path or network host (global only)")
     trust_parser.add_argument("target", help="Path or hostname to trust")
     trust_parser.add_argument("--project", action="store_true", help="Write to project config (rejected for paths)")
-    sub.add_parser("status", help="Show all custom rules")
+    status_parser = sub.add_parser("status", help="Show custom rules or target status")
+    status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh, openrouter")
+    doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
+    doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")
@@ -1146,6 +1419,8 @@ def main():
         cmd_trust(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "doctor":
+        cmd_doctor(args)
     elif args.command == "forget":
         cmd_forget(args)
     elif args.command == "types":

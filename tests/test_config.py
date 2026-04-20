@@ -163,6 +163,54 @@ class TestMergeConfigs:
         # network_outbound: ask → allow (loosened) — stays at ask
         assert cfg.actions["network_outbound"] == "ask"
 
+    def test_target_actions_apply(self):
+        global_cfg = {
+            "actions": {"network_outbound": "context"},
+            "targets": {"bash": {"actions": {"network_outbound": "ask"}}},
+        }
+        cfg = _merge_configs(global_cfg, {}, target="bash")
+        assert cfg.target == "bash"
+        assert cfg.actions["network_outbound"] == "ask"
+
+    def test_project_target_cannot_loosen(self):
+        global_cfg = {"targets": {"bash": {"actions": {"network_outbound": "ask"}}}}
+        project_cfg = {"targets": {"bash": {"actions": {"network_outbound": "allow"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        assert cfg.actions["network_outbound"] == "ask"
+
+    def test_trusted_project_target_can_loosen(self):
+        global_cfg = {
+            "trust_project_config": True,
+            "targets": {"bash": {"actions": {"network_outbound": "ask"}}},
+        }
+        project_cfg = {"targets": {"bash": {"actions": {"network_outbound": "allow"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        assert cfg.actions["network_outbound"] == "allow"
+
+    def test_terminal_targets_default_llm_off(self):
+        global_cfg = {
+            "llm": {
+                "mode": "on",
+                "providers": ["openrouter"],
+                "openrouter": {"key_env": "OPENROUTER_API_KEY"},
+            }
+        }
+        assert _merge_configs(global_cfg, {}, target="claude").llm_mode == "on"
+        assert _merge_configs(global_cfg, {}, target="bash").llm_mode == "off"
+
+    def test_terminal_target_can_enable_llm_explicitly(self):
+        global_cfg = {
+            "llm": {"mode": "on", "providers": ["openrouter"]},
+            "targets": {"bash": {"llm": {"mode": "on"}}},
+        }
+        cfg = _merge_configs(global_cfg, {}, target="bash")
+        assert cfg.llm_mode == "on"
+
+    def test_target_terminal_options_apply(self):
+        global_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "CUSTOM_BYPASS"}}}}
+        cfg = _merge_configs(global_cfg, {}, target="bash")
+        assert cfg.terminal["bypass_env"] == "CUSTOM_BYPASS"
+
     def test_actions_project_adds_new(self):
         """Project can add new action types."""
         global_cfg = {"actions": {}}
