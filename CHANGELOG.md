@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Bash terminal ask denial clears the prompt line** — answering no at the interactive bash guard prompt now cancels and returns to an empty prompt instead of restoring the same command line and making the shell look stuck. `Ctrl-C` during the prompt also clears the line. (nah-882 follow-up)
+- **Terminal guard reload hint replaces active snippets** — `nah install bash` / `nah update bash` now print a reload command that clears the active guard marker before sourcing the rc file, so an already-running shell can load the updated guard instead of keeping the old in-memory function. (nah-882 follow-up)
 
 ## [0.7.1] - 2026-04-20
 
