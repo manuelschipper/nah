@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
 - **OpenRouter setup target** — added `nah install openrouter` and `nah uninstall openrouter` to configure the existing OpenRouter LLM provider in global user config using `llm.openrouter.key_env: OPENROUTER_API_KEY`, without storing raw API keys or writing project config. (nah-882)
 
+### Fixed
+
+- **Bash terminal ask denial clears the prompt line** — answering no at the interactive bash guard prompt now cancels and returns to an empty prompt instead of restoring the same command line and making the shell look stuck. `Ctrl-C` during the prompt also clears the line. (nah-882 follow-up)
+
 ## [0.7.1] - 2026-04-20
 
 ### Added
