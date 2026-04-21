@@ -548,6 +548,42 @@ def cmd_config(args: argparse.Namespace) -> None:
         print("Usage: nah config {show|path}")
 
 
+def _bash_test_meta(result) -> dict:
+    meta = {
+        "stages": [
+            {
+                "tokens": sr.tokens,
+                "action_type": sr.action_type,
+                "policy": sr.default_policy,
+                "decision": sr.decision,
+                "reason": sr.reason,
+            }
+            for sr in result.stages
+        ],
+    }
+    if result.composition_rule:
+        meta["composition_rule"] = result.composition_rule
+    return meta
+
+
+def _add_human_reason(decision: dict, tool: str) -> dict:
+    from nah.messages import enrich_decision
+
+    return enrich_decision(decision, tool=tool)
+
+
+def _print_user_message(decision: dict) -> None:
+    from nah.messages import brand
+    from nah import taxonomy
+
+    d = decision.get("decision")
+    human = decision.get("human_reason", "")
+    if d == taxonomy.ASK and human:
+        print(f"User message: {brand('nah paused', human)}")
+    elif d == taxonomy.BLOCK and human:
+        print(f"User message: {brand('nah blocked', human)}")
+
+
 def cmd_test(args: argparse.Namespace) -> None:
     """Dry-run classification for a command or tool input."""
     use_default_config = bool(getattr(args, "defaults", False))
@@ -607,6 +643,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                         "composition_rule": "",
                         "stages": [],
                         "bypass": True,
+                        "human_reason": terminal_result.human_reason,
                     }))
                     return
                 if target:
@@ -620,6 +657,12 @@ def cmd_test(args: argparse.Namespace) -> None:
         result = classify_command(command)
 
         if json_output:
+            meta = _bash_test_meta(result)
+            decision = _add_human_reason({
+                "decision": result.final_decision,
+                "reason": result.reason,
+                "_meta": meta,
+            }, "Bash")
             print(json.dumps({
                 "target": target,
                 "tool": "Bash",
@@ -627,6 +670,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "decision": result.final_decision,
                 "reason": result.reason,
                 "composition_rule": result.composition_rule,
+                "human_reason": decision.get("human_reason", ""),
                 "stages": [
                     {
                         "tokens": sr.tokens,
@@ -652,6 +696,12 @@ def cmd_test(args: argparse.Namespace) -> None:
             print(f"Composition: {result.composition_rule} → {result.final_decision.upper()}")
         print(f"Decision:    {result.final_decision.upper()}")
         print(f"Reason:      {result.reason}")
+        decision = _add_human_reason({
+            "decision": result.final_decision,
+            "reason": result.reason,
+            "_meta": _bash_test_meta(result),
+        }, "Bash")
+        _print_user_message(decision)
         if result.final_decision == "ask":
             from nah.hook import _is_llm_eligible
             eligible = _is_llm_eligible(result)
@@ -716,6 +766,7 @@ def cmd_test(args: argparse.Namespace) -> None:
             ti = {"notebook_path": file_path, "action": "replace", "new_source": content}
             handler = handle_notebookedit
         decision = handler(ti)
+        _add_human_reason(decision, tool)
         if json_output:
             print(json.dumps({
                 "target": target,
@@ -723,6 +774,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "path": file_path,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
             }))
             return
         if target:
@@ -735,12 +787,14 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        _print_user_message(decision)
     elif tool == "Grep":
         # Grep: path + credential pattern detection
         from nah.hook import handle_grep
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         pattern = getattr(args, "pattern", None) or ""
         decision = handle_grep({"path": raw_path, "pattern": pattern})
+        _add_human_reason(decision, tool)
         if json_output:
             print(json.dumps({
                 "target": target,
@@ -749,6 +803,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "pattern": pattern,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
             }))
             return
         if target:
@@ -761,16 +816,19 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        _print_user_message(decision)
     elif tool.startswith("mcp__"):
         # MCP tools: classify via taxonomy
         from nah.hook import _classify_unknown_tool
         decision = _classify_unknown_tool(tool)
+        _add_human_reason(decision, tool)
         if json_output:
             print(json.dumps({
                 "target": target,
                 "tool": tool,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
             }))
             return
         if target:
@@ -780,12 +838,14 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        _print_user_message(decision)
     else:
         # Path-only tools (Read, Glob, etc.)
         from nah import paths
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         check = paths.check_path(tool, raw_path)
         decision = check or {"decision": "allow"}  # JSON protocol
+        _add_human_reason(decision, tool)
         if json_output:
             print(json.dumps({
                 "target": target,
@@ -793,6 +853,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "input": raw_path,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
             }))
             return
         if target:
@@ -803,6 +864,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        _print_user_message(decision)
 
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
@@ -1244,7 +1306,7 @@ def cmd_log(args: argparse.Namespace) -> None:
         ts = entry.get("ts", "?")[:19]
         tool_name = entry.get("tool", "?")
         decision = entry.get("decision", "?").upper()
-        reason = entry.get("reason", "")
+        reason = entry.get("human_reason") or entry.get("reason", "")
         summary = entry.get("input", "")
         total_ms = entry.get("ms", "")
 
@@ -1338,9 +1400,11 @@ def cmd_terminal_decision(args: argparse.Namespace) -> None:
     if getattr(args, "json", False):
         print(json.dumps(terminal_guard.decision_to_payload(result)))
     elif result.exit_code == terminal_guard.EXIT_BLOCK:
-        print(f"nah. {result.reason}", file=sys.stderr)
+        from nah.messages import brand
+        print(brand("nah blocked", result.human_reason or result.reason), file=sys.stderr)
     elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED and not getattr(args, "confirm", False):
-        print(f"nah? {result.reason}", file=sys.stderr)
+        from nah.messages import brand
+        print(brand("nah paused", result.human_reason or result.reason), file=sys.stderr)
     raise SystemExit(result.exit_code)
 
 

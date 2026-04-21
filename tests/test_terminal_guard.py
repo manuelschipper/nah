@@ -88,6 +88,7 @@ def test_terminal_decision_block_logs(monkeypatch, tmp_path):
     assert result.exit_code == terminal_guard.EXIT_BLOCK
     assert result.decision == "block"
     assert "remote code execution" in result.reason
+    assert result.human_reason == "this downloads code and runs it in bash"
     assert log_decision.called
 
 
@@ -104,6 +105,7 @@ def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     )
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
     assert result.denied is True
+    assert result.human_reason == "this can rewrite Git history"
 
 
 def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
@@ -122,7 +124,8 @@ def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
     assert result.denied is True
     text = stderr.getvalue()
-    assert text.count("nah?") == 1
+    assert text.count("nah paused:") == 1
+    assert "this can rewrite Git history" in text
     assert text.count("Run anyway? [y/N]") == 1
 
 
@@ -141,6 +144,7 @@ def test_terminal_ask_can_be_confirmed(monkeypatch, tmp_path):
     )
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.confirmed is True
+    assert result.human_reason == "this can rewrite Git history"
     assert stderr.getvalue().count("Run anyway? [y/N]") == 1
 
 
@@ -155,6 +159,7 @@ def test_terminal_ask_can_be_assume_confirmed(monkeypatch, tmp_path):
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.confirmed is True
     assert result.denied is False
+    assert result.human_reason == "this can rewrite Git history"
 
 
 def test_terminal_bypass_env_and_prefix(monkeypatch, tmp_path):
@@ -195,6 +200,7 @@ def test_terminal_rejects_multiline_shapes(monkeypatch, tmp_path):
     result = terminal_guard.decide_terminal_command("cat <<EOF", "bash")
     assert result.exit_code == terminal_guard.EXIT_BLOCK
     assert "here-doc" in result.reason
+    assert result.human_reason == "this shell input is too complex to inspect safely"
 
     result = terminal_guard.decide_terminal_command("echo hello \\", "bash")
     assert result.exit_code == terminal_guard.EXIT_BLOCK

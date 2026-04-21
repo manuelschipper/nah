@@ -254,6 +254,7 @@ class TestCmdTest:
         out = capsys.readouterr().out
         assert '"target": "bash"' in out
         assert '"decision": "block"' in out
+        assert '"human_reason": "this downloads code and runs it in bash"' in out
 
     def test_target_bash_bypass_prefix(self, capsys, monkeypatch):
         from nah.cli import cmd_test
@@ -304,6 +305,7 @@ class TestCmdTest:
         out = capsys.readouterr().out
         assert "ASK" in out
         assert "AWS access key" in out
+        assert "User message: nah paused: this includes content that looks like a secret." in out
 
     def test_write_safe_content(self, tmp_path, capsys):
         from nah.cli import cmd_test
@@ -746,7 +748,9 @@ class TestTargetLifecycleCli:
         with pytest.raises(SystemExit) as exc:
             cli_mod.cmd_terminal_decision(args)
         assert exc.value.code == 20
-        assert '"target": "bash"' in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert '"target": "bash"' in out
+        assert '"human_reason": "this downloads code and runs it in bash"' in out
 
     def test_hidden_terminal_decision_confirm_decline_prints_one_reason(self, monkeypatch, capsys):
         import nah.cli as cli_mod
@@ -768,7 +772,7 @@ class TestTargetLifecycleCli:
 
         assert exc.value.code == 10
         err = capsys.readouterr().err
-        assert err.count("nah?") == 1
+        assert err.count("nah paused:") == 1
         assert err.count("Run anyway? [y/N]") == 1
 
     def test_no_public_terminal_command(self, monkeypatch, capsys):

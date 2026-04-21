@@ -338,6 +338,14 @@ class TestBuildEntry:
         entry = self._build(meta={})
         assert "classify" not in entry
 
+    def test_human_reason_top_level(self):
+        entry = self._build(
+            reason="Bash: git_history_rewrite \u2192 ask",
+            meta={"human_reason": "this can rewrite Git history"},
+        )
+        assert entry["reason"] == "Bash: git_history_rewrite \u2192 ask"
+        assert entry["human_reason"] == "this can rewrite Git history"
+
     def test_llm_nested(self):
         meta = {
             "llm_provider": "openrouter",
