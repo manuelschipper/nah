@@ -208,8 +208,9 @@ NAH_TERMINAL_BYPASS=1 <command>
 export NAH_TERMINAL_BYPASS=1
 ```
 
-In bash, answer ask prompts by typing `y` or `n` on the next prompt line and
-pressing Enter. This avoids reading confirmation input from inside Readline.
+In bash, ask prompts use the hidden nah decision helper, so `y` / `n` answers
+are read immediately without exposing helper commands in the shell prompt or
+history.
 
 ## Security Demo
 

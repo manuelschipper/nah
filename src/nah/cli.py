@@ -1339,7 +1339,7 @@ def cmd_terminal_decision(args: argparse.Namespace) -> None:
         print(json.dumps(terminal_guard.decision_to_payload(result)))
     elif result.exit_code == terminal_guard.EXIT_BLOCK:
         print(f"nah. {result.reason}", file=sys.stderr)
-    elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED:
+    elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED and not getattr(args, "confirm", False):
         print(f"nah? {result.reason}", file=sys.stderr)
     raise SystemExit(result.exit_code)
 

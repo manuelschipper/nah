@@ -46,11 +46,12 @@ def test_bash_snippet_captures_conflict_metadata():
     assert "__nah_terminal_confirm_and_run" not in snippet
     assert "printf -v quoted_line '%q'" not in snippet
     assert 'builtin eval "$run_line"' not in snippet
-    assert "__NAH_TERMINAL_PENDING_COMMAND" in snippet
-    assert "Run anyway? Type y or n, then press Enter." in snippet
+    assert "__NAH_TERMINAL_PENDING_COMMAND" not in snippet
+    assert "Run anyway? Type y or n, then press Enter." not in snippet
     assert "--no-log" in snippet
-    assert "--assume-confirmed" in snippet
-    assert "--target bash --confirm" not in snippet
+    assert '--no-log -- "$line" >/dev/null 2>&1' in snippet
+    assert "--assume-confirmed" not in snippet
+    assert "--target bash --confirm" in snippet
 
 
 def test_zsh_snippet_wraps_accept_line():
@@ -105,20 +106,42 @@ def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     assert result.denied is True
 
 
-def test_terminal_ask_can_be_confirmed(monkeypatch, tmp_path):
+def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     reset_config()
-    stdin = io.StringIO("yes\n")
+    stdin = io.StringIO("n\n")
     stdin.isatty = lambda: True
+    stderr = io.StringIO()
     result = terminal_guard.decide_terminal_command(
         "git push --force",
         "bash",
         confirm=True,
         stdin=stdin,
-        stderr=io.StringIO(),
+        stderr=stderr,
+    )
+    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
+    assert result.denied is True
+    text = stderr.getvalue()
+    assert text.count("nah?") == 1
+    assert text.count("Run anyway? [y/N]") == 1
+
+
+def test_terminal_ask_can_be_confirmed(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    reset_config()
+    stdin = io.StringIO("yes\n")
+    stdin.isatty = lambda: True
+    stderr = io.StringIO()
+    result = terminal_guard.decide_terminal_command(
+        "git push --force",
+        "bash",
+        confirm=True,
+        stdin=stdin,
+        stderr=stderr,
     )
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.confirmed is True
+    assert stderr.getvalue().count("Run anyway? [y/N]") == 1
 
 
 def test_terminal_ask_can_be_assume_confirmed(monkeypatch, tmp_path):
