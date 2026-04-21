@@ -174,7 +174,7 @@ class TestHintInOutput:
         }
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-        assert reason.splitlines()[0] == "nah paused: this needs confirmation before it can run."
+        assert reason.splitlines()[0] == "nah paused: this can rewrite Git history."
         assert "nah allow git_history_rewrite" in reason
         assert "git_history_rewrite \u2192 ask" not in reason.splitlines()[0]
 

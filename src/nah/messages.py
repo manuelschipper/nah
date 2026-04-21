@@ -34,26 +34,38 @@ _COMPOSITION_MESSAGES = {
 }
 
 _ACTION_MESSAGES = {
+    taxonomy.FILESYSTEM_READ: "this reads files",
+    taxonomy.FILESYSTEM_WRITE: "this writes files",
+    taxonomy.FILESYSTEM_DELETE: "this deletes files",
+    taxonomy.GIT_SAFE: "this reads Git information",
+    taxonomy.GIT_WRITE: "this changes local Git state",
     taxonomy.GIT_HISTORY_REWRITE: "this can rewrite Git history",
     taxonomy.GIT_DISCARD: "this can discard local Git changes",
     taxonomy.GIT_REMOTE_WRITE: "this writes to a remote Git repository",
-    taxonomy.FILESYSTEM_WRITE: "this writes files",
-    taxonomy.FILESYSTEM_DELETE: "this deletes files",
     taxonomy.NETWORK_OUTBOUND: "this contacts the network",
     taxonomy.NETWORK_WRITE: "this sends data over the network",
+    taxonomy.NETWORK_DIAGNOSTIC: "this checks network connectivity",
+    taxonomy.PACKAGE_INSTALL: "this installs packages",
+    taxonomy.PACKAGE_RUN: "this runs a package-managed command",
     taxonomy.LANG_EXEC: "this runs code",
     taxonomy.PACKAGE_UNINSTALL: "this uninstalls packages",
     taxonomy.PROCESS_SIGNAL: "this can stop or signal running processes",
+    taxonomy.CONTAINER_READ: "this reads container state",
     taxonomy.CONTAINER_EXEC: "this runs a command inside a container",
     taxonomy.CONTAINER_WRITE: "this changes container state",
     taxonomy.CONTAINER_DESTRUCTIVE: "this can remove or reset containers",
+    taxonomy.SERVICE_READ: "this reads service state",
     taxonomy.SERVICE_WRITE: "this changes service state",
     taxonomy.SERVICE_DESTRUCTIVE: "this can stop or remove services",
+    taxonomy.BROWSER_READ: "this reads browser data",
     taxonomy.BROWSER_EXEC: "this runs code in a browser context",
     taxonomy.BROWSER_INTERACT: "this interacts with a browser",
     taxonomy.BROWSER_STATE: "this changes browser state",
+    taxonomy.BROWSER_NAVIGATE: "this navigates the browser",
     taxonomy.BROWSER_FILE: "this accesses browser-managed files",
+    taxonomy.DB_READ: "this reads from a database",
     taxonomy.DB_WRITE: "this writes to a database",
+    taxonomy.AGENT_READ: "this reads agent state",
     taxonomy.AGENT_WRITE: "this changes agent state",
     taxonomy.AGENT_EXEC_READ: "this runs an agent command that can read data",
     taxonomy.AGENT_EXEC_WRITE: "this runs an agent command that can change data",
@@ -95,9 +107,9 @@ def human_reason(
     if pattern_message:
         return _finalize(pattern_message)
 
-    chosen_action = action_type or _action_from_meta(meta, decision)
-    if chosen_action in _ACTION_MESSAGES:
-        return _finalize(_ACTION_MESSAGES[chosen_action])
+    for chosen_action in (action_type, _action_from_meta(meta, decision), _action_from_reason(clean_reason)):
+        if chosen_action in _ACTION_MESSAGES:
+            return _finalize(_ACTION_MESSAGES[chosen_action])
 
     if decision == taxonomy.BLOCK:
         return "this was blocked before it could run"
@@ -109,14 +121,26 @@ def enrich_decision(decision: dict, *, tool: str = "") -> dict:
     d = decision.get("decision", "")
     if d not in (taxonomy.ASK, taxonomy.BLOCK):
         return decision
-    meta = decision.setdefault("_meta", {})
+    meta = decision.get("_meta")
+    if not isinstance(meta, dict):
+        meta = {}
+        decision["_meta"] = meta
     existing = decision.get("human_reason") or meta.get("human_reason")
     if existing:
         human = _finalize(str(existing))
+        if _looks_technical(human):
+            human = human_reason(
+                human,
+                decision=d,
+                action_type=str(decision.get("action_type") or ""),
+                tool=tool,
+                meta=meta,
+            )
     else:
         human = human_reason(
             decision.get("reason", ""),
             decision=d,
+            action_type=str(decision.get("action_type") or ""),
             tool=tool,
             meta=meta,
         )
@@ -139,9 +163,14 @@ def _terminal_punctuation(text: str) -> str:
 
 def _finalize(text: str) -> str:
     text = _sanitize_text(text)
+    text = re.sub(r"^nah\s+(?:paused|blocked)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"^(?:nah[\s:?.-]+)+", "", text, flags=re.IGNORECASE).strip()
     text = text.rstrip(" .")
     return text
+
+
+def _looks_technical(text: str) -> bool:
+    return bool(_ACTION_ID_RE.search(text) or "\u2192" in text or "->" in text)
 
 
 def _sanitize_text(value: str) -> str:
@@ -208,6 +237,13 @@ def _action_from_meta(meta: dict, decision: str) -> str:
     return ""
 
 
+def _action_from_reason(reason: str) -> str:
+    for action_type in sorted(_ACTION_MESSAGES, key=len, reverse=True):
+        if re.search(rf"(?<![A-Za-z0-9_./-]){re.escape(action_type)}(?![A-Za-z0-9_./-])", reason):
+            return action_type
+    return ""
+
+
 def _reason_pattern_message(reason: str, tool: str) -> str:
     text = _strip_wrappers(reason, tool)
     lower = text.lower()
@@ -249,7 +285,7 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
 
     match = re.search(r"script not found:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
-        return f"this tries to run a script that was not found: {_friendly_path(match.group(1))}"
+        return f"this script path does not exist: {_friendly_path(match.group(1))}"
 
     match = re.search(r"script not readable:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
@@ -265,7 +301,7 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
     if "outside project" in lower:
         return "this writes outside the current project"
 
-    if "terminal guard cannot safely run" in lower:
+    if "terminal guard cannot safely run" in lower or "terminal guard supports complete single-line commands only" in lower:
         return "this shell input is too complex to inspect safely"
 
     match = re.search(r"unrecognized tool:\s*(.+)$", text, flags=re.IGNORECASE)

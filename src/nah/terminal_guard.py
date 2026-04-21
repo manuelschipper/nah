@@ -154,6 +154,7 @@ def decide_terminal_command(
 ) -> TerminalDecision:
     """Classify and optionally prompt for an interactive terminal command."""
     _require_shell(target)
+    command = _strip_accept_line_ending(command)
     stdin = stdin if stdin is not None else sys.stdin
     stderr = stderr if stderr is not None else sys.stderr
 
@@ -251,7 +252,7 @@ def decide_terminal_command(
         human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
         stderr.write(f"{brand('nah paused', human)}\nRun anyway? [y/N] ")
         stderr.flush()
-        answer = stdin.readline().strip().lower()
+        answer = _read_confirmation_answer(stdin, stderr)
         if answer in ("y", "yes"):
             result = TerminalDecision(
                 decision=taxonomy.ASK,
@@ -544,6 +545,125 @@ def _stdin_is_tty(stdin) -> bool:
     return bool(isatty and isatty())
 
 
+def _strip_accept_line_ending(command: str) -> str:
+    """Remove one trailing Readline accept-line newline, but not real multiline input."""
+    if command.endswith("\r\n"):
+        candidate = command[:-2]
+    elif command.endswith(("\n", "\r")):
+        candidate = command[:-1]
+    else:
+        return command
+
+    if "\n" in candidate or "\r" in candidate:
+        return command
+    return candidate
+
+
+def _read_confirmation_answer(stdin, stderr) -> str:
+    """Read a terminal confirmation in both canonical and Readline raw modes."""
+    fileno = getattr(stdin, "fileno", None)
+    if fileno is None:
+        return stdin.readline().strip().lower()
+
+    try:
+        fd = fileno()
+    except (OSError, ValueError):
+        return stdin.readline().strip().lower()
+    if not isinstance(fd, int):
+        return stdin.readline().strip().lower()
+
+    echo_enabled = True
+    try:
+        import termios
+    except ImportError:
+        # Echo detection is best-effort. If termios is unavailable, assume
+        # canonical terminal behavior so normal CLI input is not double-echoed.
+        echo_enabled = True
+    else:
+        try:
+            echo_enabled = bool(termios.tcgetattr(fd)[3] & termios.ECHO)
+        except (OSError, ValueError, termios.error):
+            # Echo detection is best-effort. If it fails, assume canonical
+            # terminal behavior so we do not duplicate visible input in normal
+            # CLI use.
+            echo_enabled = True
+
+    try:
+        raw = os.read(fd, 1)
+    except OSError:
+        return ""
+
+    if not raw:
+        return ""
+
+    if raw in (b" ", b"\t"):
+        raw = _read_nonspace_confirmation_byte(fd, raw)
+        if not raw:
+            return ""
+
+    if raw == b"\x03":
+        if not echo_enabled:
+            stderr.write("^C\n")
+            stderr.flush()
+        return ""
+
+    answer = raw.decode(errors="ignore").lower()
+    if answer in ("\r", "\n"):
+        if not echo_enabled:
+            stderr.write("\n")
+            stderr.flush()
+        return ""
+
+    _drain_confirmation_line(fd)
+    if not echo_enabled:
+        stderr.write(f"{answer}\n")
+        stderr.flush()
+    return answer
+
+
+def _read_nonspace_confirmation_byte(fd: int, fallback: bytes) -> bytes:
+    """Skip leading spaces when the terminal supplied a full canonical line."""
+    try:
+        import select
+
+        current = fallback
+        for _ in range(32):
+            if current not in (b" ", b"\t"):
+                return current
+            ready, _, _ = select.select([fd], [], [], 0.03)
+            if not ready:
+                return fallback
+            current = os.read(fd, 1)
+            if not current:
+                return b""
+            if current in (b"\r", b"\n"):
+                return current
+        return fallback
+    except (OSError, ValueError):
+        # Leading-space normalization is best-effort. If the fd stops being
+        # readable after the first byte, fall back to that byte so the prompt
+        # denies rather than guessing approval.
+        return fallback
+
+
+def _drain_confirmation_line(fd: int) -> None:
+    try:
+        import select
+
+        for _ in range(32):
+            ready, _, _ = select.select([fd], [], [], 0.03)
+            if not ready:
+                return
+            chunk = os.read(fd, 1)
+            if not chunk or chunk in (b"\r", b"\n"):
+                return
+    except (OSError, ValueError):
+        # Draining is best-effort after the confirmation key is captured. If
+        # the fd becomes unreadable, the safe fallback is to stop draining and
+        # return the captured answer.
+        return
+
+
 def _is_bypass_enabled(env_name: str, command: str) -> bool:
     raw = os.environ.get(env_name, "")
     if raw.lower() in ("1", "true", "yes", "on"):
@@ -552,7 +672,7 @@ def _is_bypass_enabled(env_name: str, command: str) -> bool:
 
 
 def _unsupported_line_reason(command: str) -> str:
-    if "\n" in command:
+    if "\n" in command or "\r" in command:
         return "terminal guard supports complete single-line commands only"
     stripped = command.rstrip()
     if stripped.endswith("\\"):
@@ -616,4 +736,7 @@ def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) ->
         try:
             sys.stderr.write(f"nah: terminal log: {exc}\n")
         except Exception:
+            # Terminal decision logging must never break the guarded command
+            # path. If even stderr is unavailable, there is nowhere useful to
+            # report this secondary logging failure.
             pass
