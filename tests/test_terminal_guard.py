@@ -45,8 +45,9 @@ def test_bash_snippet_captures_conflict_metadata():
     assert 'local run_line="$line"' in snippet
     assert "__nah_terminal_confirm_and_run" not in snippet
     assert "printf -v quoted_line '%q'" not in snippet
-    assert 'builtin eval "$run_line"' in snippet
-    assert "Run anyway? [y/N]" in snippet
+    assert 'builtin eval "$run_line"' not in snippet
+    assert "__NAH_TERMINAL_PENDING_COMMAND" in snippet
+    assert "Run anyway? Type y or n, then press Enter." in snippet
     assert "--no-log" in snippet
     assert "--assume-confirmed" in snippet
     assert "--target bash --confirm" not in snippet
