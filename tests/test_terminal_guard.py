@@ -43,8 +43,9 @@ def test_bash_snippet_captures_conflict_metadata():
     assert '\\C-m":"\\C-x\\C-n\\C-x\\C-m' in snippet
     assert "nah-bypass" in snippet
     assert 'local run_line="$line"' in snippet
-    assert "__nah_terminal_confirm_and_run" in snippet
-    assert "printf -v quoted_line '%q'" in snippet
+    assert "__nah_terminal_confirm_and_run" not in snippet
+    assert "printf -v quoted_line '%q'" not in snippet
+    assert 'builtin eval "$run_line"' in snippet
     assert "Run anyway? [y/N]" in snippet
     assert "--no-log" in snippet
     assert "--assume-confirmed" in snippet
