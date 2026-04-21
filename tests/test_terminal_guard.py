@@ -41,6 +41,9 @@ def test_bash_snippet_captures_conflict_metadata():
     assert '\\C-m":"\\C-x\\C-n\\C-x\\C-m' in snippet
     assert "nah-bypass" in snippet
     assert 'local run_line="$line"' in snippet
+    assert "Run anyway? [y/N]" in snippet
+    assert "--no-log" in snippet
+    assert "--assume-confirmed" in snippet
     assert "--target bash --confirm" not in snippet
 
 
@@ -54,6 +57,9 @@ def test_zsh_snippet_wraps_accept_line():
     assert "_terminal-decision --target zsh" in snippet
     assert "nah-bypass" in snippet
     assert 'BUFFER="$run_line"' in snippet
+    assert "Run anyway? [y/N]" in snippet
+    assert "--no-log" in snippet
+    assert "--assume-confirmed" in snippet
     assert "--target zsh --confirm" not in snippet
 
 
@@ -107,6 +113,19 @@ def test_terminal_ask_can_be_confirmed(monkeypatch, tmp_path):
     )
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.confirmed is True
+
+
+def test_terminal_ask_can_be_assume_confirmed(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    reset_config()
+    result = terminal_guard.decide_terminal_command(
+        "git push --force",
+        "bash",
+        assume_confirmed=True,
+    )
+    assert result.exit_code == terminal_guard.EXIT_ALLOW
+    assert result.confirmed is True
+    assert result.denied is False
 
 
 def test_terminal_bypass_env_and_prefix(monkeypatch, tmp_path):

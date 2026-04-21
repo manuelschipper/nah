@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Opt-in bash and zsh terminal guard** — added `nah install bash` and `nah install zsh` to protect interactive shell sessions with managed rc-file snippets that classify complete single-line commands before execution. The guard supports status/doctor diagnostics, fail-closed handling for unsupported multiline/here-doc/continuation input, explicit bypass via `nah-bypass <command>` or `NAH_TERMINAL_BYPASS=1`, and terminal decision logging for blocks, denied asks, bypasses, and errors while keeping allowed terminal commands out of the nah log by default. (nah-882)
+- **Opt-in bash and zsh terminal guard** — added `nah install bash` and `nah install zsh` to protect interactive shell sessions with managed rc-file snippets that classify complete single-line commands before execution. The guard supports status/doctor diagnostics, prompt-on-ask behavior, fail-closed handling for unsupported multiline/here-doc/continuation input, explicit bypass via `nah-bypass <command>` or `NAH_TERMINAL_BYPASS=1`, and terminal decision logging for blocks, denied asks, confirmed asks, bypasses, and errors while keeping allowed terminal commands out of the nah log by default. (nah-882)
 - **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
 - **OpenRouter setup target** — added `nah install openrouter` and `nah uninstall openrouter` to configure the existing OpenRouter LLM provider in global user config using `llm.openrouter.key_env: OPENROUTER_API_KEY`, without storing raw API keys or writing project config. (nah-882)
 
@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Bash terminal ask denials clear the prompt line** — denied ask decisions now cancel and return to an empty prompt instead of restoring the same command line and making the shell look stuck. (nah-882 follow-up)
 - **Terminal guard reload hint replaces active snippets** — `nah install bash` / `nah update bash` now print a reload command that clears terminal guard environment and replaces the shell, so an already-running shell can load the updated guard without running startup files inside the old in-memory Readline hook. (nah-882 follow-up)
-- **Bash terminal guard preserves normal prompt redraws** — bash now filters the Readline buffer and lets Bash execute accepted commands normally, instead of running commands inside the Readline callback. Ask decisions no longer open an in-callback `y/N` prompt; they print the reason, clear the line, and require `nah-bypass <command>` when the user intentionally wants to run them. (nah-882 follow-up)
+- **Bash terminal guard preserves normal prompt redraws** — bash now filters the Readline buffer and lets Bash execute accepted commands normally, instead of running commands inside the Readline callback. Ask prompts are handled by the shell on `/dev/tty`, so `y` / `n` answers work reliably and confirmed commands run through normal Bash execution. (nah-882 follow-up)
+- **`nah update` no longer looks like a project file write** — `nah install` / `nah update` now classify as nah lifecycle commands instead of treating target names such as `bash` or `update` as filesystem paths like `~/bash` or `~/update` when the terminal guard runs outside a Git project. (nah-882 follow-up)
 
 ## [0.7.1] - 2026-04-20
 

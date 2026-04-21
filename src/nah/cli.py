@@ -1324,6 +1324,8 @@ def cmd_terminal_decision(args: argparse.Namespace) -> None:
         command,
         getattr(args, "target", ""),
         confirm=bool(getattr(args, "confirm", False)),
+        assume_confirmed=bool(getattr(args, "assume_confirmed", False)),
+        log=not bool(getattr(args, "no_log", False)),
     )
     if getattr(args, "json", False):
         print(json.dumps(terminal_guard.decision_to_payload(result)))
@@ -1339,6 +1341,8 @@ def _run_hidden_terminal_decision(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(prog="nah _terminal-decision", add_help=False)
     parser.add_argument("--target", required=True, choices=("bash", "zsh"))
     parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--assume-confirmed", action="store_true")
+    parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("args", nargs=argparse.REMAINDER)
     cmd_terminal_decision(parser.parse_args(argv))
