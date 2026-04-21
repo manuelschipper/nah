@@ -63,6 +63,22 @@ class TestAcceptanceCriteria:
         r = classify_command("npm test")
         assert r.final_decision == "allow"
 
+    def test_nah_update_allows_outside_git_root(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        r = classify_command("nah update bash")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "nah update" in r.reason
+        assert "outside project" not in r.reason
+
+    def test_nah_uninstall_asks_without_path_context(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        r = classify_command("nah uninstall bash")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "removes nah protection" in r.reason
+        assert "outside project" not in r.reason
+
     @pytest.mark.parametrize(
         "command",
         [

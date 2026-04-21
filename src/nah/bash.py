@@ -1636,6 +1636,10 @@ def _classify_stage(
     if find_exec is not None:
         return find_exec
 
+    nah_cli = _classify_nah_cli(stage, user_actions=user_actions)
+    if nah_cli is not None:
+        return _apply_redirect_guard(stage, nah_cli, user_actions=user_actions)
+
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
                                               profile=profile, trust_project=trust_project)
@@ -1660,6 +1664,33 @@ _FIND_EXEC_TERMINATORS = frozenset({";", "+"})
 _FIND_EXPRESSION_STARTERS = frozenset({"(", ")", "!", "not"})
 _FIND_LEADING_FLAGS = frozenset({"-H", "-L", "-P"})
 _FIND_LEADING_VALUE_FLAGS = frozenset({"-D", "-O"})
+
+
+def _classify_nah_cli(
+    stage: Stage,
+    *,
+    user_actions: dict[str, str] | None,
+) -> StageResult | None:
+    """Classify nah's own lifecycle commands without treating target names as paths."""
+    tokens = stage.tokens
+    if len(tokens) < 2 or taxonomy._normalize_command_name(tokens[0]) != "nah":
+        return None
+
+    subcommand = tokens[1]
+    if subcommand not in {"install", "update", "uninstall"}:
+        return None
+
+    sr = StageResult(tokens=tokens)
+    sr.action_type = taxonomy.FILESYSTEM_WRITE
+    sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+    if subcommand == "uninstall":
+        sr.decision = taxonomy.ASK
+        sr.reason = "nah uninstall removes nah protection"
+        return sr
+
+    sr.decision = taxonomy.ALLOW
+    sr.reason = f"nah {subcommand} manages nah runtime files"
+    return sr
 
 
 def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
