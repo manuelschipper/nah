@@ -29,7 +29,7 @@ MARKER_START = "# >>> nah terminal guard >>>"
 MARKER_END = "# <<< nah terminal guard <<<"
 
 _BYPASS_PREFIX_RE = re.compile(
-    r"^\s*(?:export\s+)?NAH_TERMINAL_BYPASS=(?:1|true|yes|on)(?:\s+|$)"
+    r"^\s*(?:(?:export\s+)?NAH_TERMINAL_BYPASS=(?:1|true|yes|on)|nah-bypass)(?:\s+|$)"
 )
 _UNSUPPORTED_LINE_RE = re.compile(r"<<-?\s*\S")
 
@@ -145,6 +145,7 @@ def decide_terminal_command(
     target: str,
     *,
     confirm: bool = False,
+    log: bool = True,
     stdin=None,
     stderr=None,
 ) -> TerminalDecision:
@@ -171,7 +172,8 @@ def decide_terminal_command(
             bypass=True,
             meta={"terminal_event": "bypass", "terminal_bypass": True},
         )
-        _log_terminal_decision(result, cfg.log)
+        if log:
+            _log_terminal_decision(result, cfg.log)
         return result
 
     if unsupported:
@@ -183,7 +185,8 @@ def decide_terminal_command(
             target=target,
             meta={"terminal_event": "unsupported"},
         )
-        _log_terminal_decision(result, cfg.log)
+        if log:
+            _log_terminal_decision(result, cfg.log)
         return result
 
     classified = classify_command(command)
@@ -212,7 +215,8 @@ def decide_terminal_command(
             action_type=_first_action_type(meta),
             meta={**meta, "terminal_event": "block"},
         )
-        _log_terminal_decision(result, cfg.log)
+        if log:
+            _log_terminal_decision(result, cfg.log)
         return result
 
     if confirm and _stdin_is_tty(stdin):
@@ -230,7 +234,8 @@ def decide_terminal_command(
                 action_type=_first_action_type(meta),
                 meta={**meta, "terminal_event": "ask_confirmed", "terminal_confirmed": True},
             )
-            _log_terminal_decision(result, cfg.log)
+            if log:
+                _log_terminal_decision(result, cfg.log)
             return result
 
     result = TerminalDecision(
@@ -243,7 +248,8 @@ def decide_terminal_command(
         action_type=_first_action_type(meta),
         meta={**meta, "terminal_event": "ask_denied"},
     )
-    _log_terminal_decision(result, cfg.log)
+    if log:
+        _log_terminal_decision(result, cfg.log)
     return result
 
 
@@ -305,6 +311,9 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
 
   __nah_terminal_accept_line() {
     local line="$READLINE_LINE"
+    local run_line="$line"
+    local prefix_line="$line"
+    local bypass=0
     local status
 
     if [[ -z "${line//[[:space:]]/}" ]]; then
@@ -313,14 +322,34 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
       return 0
     fi
 
+    while [[ "$prefix_line" == [[:space:]]* ]]; do
+      prefix_line="${prefix_line#?}"
+    done
+    if [[ "$prefix_line" == nah-bypass || "$prefix_line" == nah-bypass[[:space:]]* ]]; then
+      bypass=1
+      run_line="${prefix_line#nah-bypass}"
+      while [[ "$run_line" == [[:space:]]* ]]; do
+        run_line="${run_line#?}"
+      done
+      if [[ -z "${run_line//[[:space:]]/}" ]]; then
+        READLINE_LINE=
+        READLINE_POINT=0
+        return 0
+      fi
+    fi
+
     READLINE_LINE=
     READLINE_POINT=0
 
-    command nah _terminal-decision --target bash --confirm -- "$line"
+    if [[ $bypass -eq 1 ]]; then
+      NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target bash --confirm -- "$run_line"
+    else
+      command nah _terminal-decision --target bash --confirm -- "$line"
+    fi
     status=$?
     if [[ $status -eq 0 ]]; then
       history -s -- "$line"
-      builtin eval "$line"
+      builtin eval "$run_line"
       return $?
     fi
 
@@ -358,7 +387,31 @@ if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-}
   if [[ $NAH_TERMINAL_ZSH_ACCEPT_LINE == preserved ]]; then
     __nah_terminal_accept_line() {
       local line="$BUFFER"
-      if command nah _terminal-decision --target zsh --confirm -- "$line"; then
+      local run_line="$line"
+      local prefix_line="$line"
+      local bypass=0
+      while [[ "$prefix_line" == [[:space:]]* ]]; do
+        prefix_line="${prefix_line#?}"
+      done
+      if [[ "$prefix_line" == nah-bypass || "$prefix_line" == nah-bypass[[:space:]]* ]]; then
+        bypass=1
+        run_line="${prefix_line#nah-bypass}"
+        while [[ "$run_line" == [[:space:]]* ]]; do
+          run_line="${run_line#?}"
+        done
+        if [[ -z "${run_line//[[:space:]]/}" ]]; then
+          BUFFER=
+          zle redisplay
+          return
+        fi
+      fi
+      if [[ $bypass -eq 1 ]]; then
+        NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target zsh --confirm -- "$run_line"
+      else
+        command nah _terminal-decision --target zsh --confirm -- "$line"
+      fi
+      if [[ $? -eq 0 ]]; then
+        BUFFER="$run_line"
         zle __nah_original_accept_line
       else
         zle -M "nah: command was not run"

