@@ -1,6 +1,7 @@
 """Tests for CLI UX — custom type confirmation and comment warnings (FD-047)."""
 
 import argparse
+import io
 import os
 from unittest.mock import patch
 
@@ -746,6 +747,29 @@ class TestTargetLifecycleCli:
             cli_mod.cmd_terminal_decision(args)
         assert exc.value.code == 20
         assert '"target": "bash"' in capsys.readouterr().out
+
+    def test_hidden_terminal_decision_confirm_decline_prints_one_reason(self, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        stdin = io.StringIO("n\n")
+        stdin.isatty = lambda: True
+        monkeypatch.setattr("sys.stdin", stdin)
+        args = argparse.Namespace(
+            target="bash",
+            confirm=True,
+            assume_confirmed=False,
+            no_log=False,
+            json=False,
+            args=["--", "git push --force"],
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_terminal_decision(args)
+
+        assert exc.value.code == 10
+        err = capsys.readouterr().err
+        assert err.count("nah?") == 1
+        assert err.count("Run anyway? [y/N]") == 1
 
     def test_no_public_terminal_command(self, monkeypatch, capsys):
         import nah.cli as cli_mod

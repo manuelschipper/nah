@@ -334,32 +334,6 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     local bypass=0
     local status
 
-    if [[ -n ${__NAH_TERMINAL_PENDING_COMMAND+x} ]]; then
-      local pending="$__NAH_TERMINAL_PENDING_COMMAND"
-      local pending_raw="${__NAH_TERMINAL_PENDING_RAW:-$pending}"
-      unset __NAH_TERMINAL_PENDING_COMMAND
-      unset __NAH_TERMINAL_PENDING_RAW
-
-      case "${line//[[:space:]]/}" in
-        [yY]|[yY][eE][sS])
-          command nah _terminal-decision --target bash --assume-confirmed -- "$pending_raw" >/dev/null 2>&1 || true
-          READLINE_LINE="$pending"
-          READLINE_POINT=${#READLINE_LINE}
-          return 0
-          ;;
-        ""|[nN]|[nN][oO])
-          command nah _terminal-decision --target bash -- "$pending_raw" >/dev/null 2>&1 || true
-          READLINE_LINE=
-          READLINE_POINT=0
-          return 0
-          ;;
-        *)
-          command nah _terminal-decision --target bash -- "$pending_raw" >/dev/null 2>&1 || true
-          printf 'nah: pending command cancelled; run it again if needed\n' > /dev/tty
-          ;;
-      esac
-    fi
-
     if [[ -z "${line//[[:space:]]/}" ]]; then
       READLINE_LINE="$line"
       READLINE_POINT=0
@@ -385,7 +359,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     if [[ $bypass -eq 1 ]]; then
       NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target bash -- "$run_line"
     else
-      command nah _terminal-decision --target bash --no-log -- "$line"
+      command nah _terminal-decision --target bash --no-log -- "$line" >/dev/null 2>&1
     fi
     status=$?
     if [[ $status -eq 0 ]]; then
@@ -395,14 +369,18 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     fi
 
     if [[ $status -eq 10 ]]; then
-      __NAH_TERMINAL_PENDING_COMMAND="$run_line"
-      __NAH_TERMINAL_PENDING_RAW="$line"
-      printf 'Run anyway? Type y or n, then press Enter. ' > /dev/tty
-      READLINE_LINE=
-      READLINE_POINT=0
+      if command nah _terminal-decision --target bash --confirm -- "$line"; then
+        READLINE_LINE="$run_line"
+        READLINE_POINT=${#READLINE_LINE}
+      else
+        READLINE_LINE=
+        READLINE_POINT=0
+      fi
       return 0
     elif [[ $status -eq 20 ]]; then
-      command nah _terminal-decision --target bash -- "$line" >/dev/null 2>&1 || true
+      command nah _terminal-decision --target bash -- "$line" || true
+    elif [[ $status -ne 0 ]]; then
+      command nah _terminal-decision --target bash -- "$line" || true
     fi
 
     READLINE_LINE=
