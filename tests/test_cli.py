@@ -218,11 +218,13 @@ def test_shell_reload_hint_clears_active_guard(capsys):
     _print_shell_reload_hint("bash")
 
     out = capsys.readouterr().out
-    assert "NAH_TERMINAL_BYPASS=1 unset NAH_TERMINAL_BYPASS" in out
+    assert "NAH_TERMINAL_BYPASS=1 exec env" in out
+    assert "-u NAH_TERMINAL_BYPASS" in out
     assert "NAH_TERMINAL_GUARD_ACTIVE" in out
     assert "NAH_TERMINAL_GUARD" in out
     assert "NAH_TERMINAL_SHELL" in out
-    assert "exec bash -i" in out
+    assert "exec env" in out
+    assert "bash --rcfile ~/.bashrc -i" in out
 
 
 class TestCmdTest:

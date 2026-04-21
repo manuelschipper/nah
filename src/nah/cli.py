@@ -406,10 +406,18 @@ def _print_shell_reload_hint(shell: str) -> None:
         "NAH_TERMINAL_BYPASS NAH_TERMINAL_GUARD_ACTIVE "
         "NAH_TERMINAL_GUARD NAH_TERMINAL_SHELL"
     )
-    reload_cmd = (
-        f"NAH_TERMINAL_BYPASS=1 unset {guard_vars}; "
-        f"exec {shell} -i"
-    )
+    if shell == "bash":
+        reload_cmd = (
+            f"NAH_TERMINAL_BYPASS=1 exec env "
+            f"{' '.join(f'-u {name}' for name in guard_vars.split())} "
+            "bash --rcfile ~/.bashrc -i"
+        )
+    else:
+        reload_cmd = (
+            f"NAH_TERMINAL_BYPASS=1 exec env "
+            f"{' '.join(f'-u {name}' for name in guard_vars.split())} "
+            f"{shell} -i"
+        )
     print(f"Restart {shell}, or run:")
     print(f"  {reload_cmd}")
     print("After reload, use `nah-bypass <command>` for one-shot bypasses.")
