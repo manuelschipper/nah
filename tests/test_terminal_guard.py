@@ -36,6 +36,8 @@ def test_bash_snippet_captures_conflict_metadata():
     assert "trap -p DEBUG" in snippet
     assert '\\C-j":__nah_terminal_accept_line' in snippet
     assert '\\C-m":__nah_terminal_accept_line' in snippet
+    assert "$status -eq 10" in snippet
+    assert "$status -ge 128" in snippet
 
 
 def test_zsh_snippet_wraps_accept_line():

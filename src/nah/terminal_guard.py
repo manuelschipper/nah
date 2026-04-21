@@ -324,6 +324,12 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
       return $?
     fi
 
+    if [[ $status -eq 10 || $status -ge 128 ]]; then
+      READLINE_LINE=
+      READLINE_POINT=0
+      return 0
+    fi
+
     READLINE_LINE="$line"
     READLINE_POINT=${#READLINE_LINE}
     return 0
