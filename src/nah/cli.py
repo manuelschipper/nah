@@ -361,7 +361,7 @@ def cmd_install(args: argparse.Namespace) -> None:
         from nah import terminal_guard
         terminal_guard.install_shell(target.key)
         print(f"nah {__version__} installed for {target.key}.")
-        print(f"Restart {target.key}, or source your rc file, to activate the guard.")
+        _print_shell_reload_hint(target.key)
         return
     if target.key == targets.OPENROUTER:
         _install_openrouter()
@@ -400,6 +400,13 @@ def cmd_install(args: argparse.Namespace) -> None:
     print("blocked, ambiguous ones ask for confirmation.")
 
 
+def _print_shell_reload_hint(shell: str) -> None:
+    """Print the safe reload command for an installed shell guard."""
+    rc_file = "~/.bashrc" if shell == "bash" else "~/.zshrc"
+    print(f"Restart {shell}, or run:")
+    print(f"  NAH_TERMINAL_BYPASS=1 source {rc_file}")
+
+
 def cmd_update(args: argparse.Namespace) -> None:
     """Update hook script: unlock → overwrite → re-lock. Update settings for targeted agents."""
     target = _require_lifecycle_target(args, "update")
@@ -407,6 +414,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         from nah import terminal_guard
         terminal_guard.update_shell(target.key)
         print(f"nah {__version__} terminal guard updated for {target.key}.")
+        _print_shell_reload_hint(target.key)
         return
     if target.key == targets.OPENROUTER:
         print("nah update openrouter: OpenRouter has no runtime files to update.", file=sys.stderr)
