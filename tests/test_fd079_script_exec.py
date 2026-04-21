@@ -523,6 +523,15 @@ class TestScriptPathResolution:
         finally:
             os.chdir(old_cwd)
 
+    def test_source_expands_home_operand(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        home.mkdir()
+        bashrc = home / ".bashrc"
+        bashrc.write_text("echo ok\n", encoding="utf-8")
+        monkeypatch.setenv("HOME", str(home))
+
+        assert _resolve_script_path(["source", "~/.bashrc"]) == str(bashrc)
+
     def test_dot_source_resolves_first_operand(self, project_root):
         path = os.path.join(project_root, "script.sh")
         _write(path, "echo ok\n")

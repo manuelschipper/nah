@@ -317,13 +317,15 @@ def print_doctor(shell: str) -> None:
 def render_bash_snippet() -> str:
     """Return the managed bash snippet."""
     return """# nah terminal guard for interactive bash
-if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]]; then
+if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
+  if [[ -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]]; then
+    export NAH_TERMINAL_BASH_BIND_CJ="$(bind -p 2>/dev/null | command grep -F '"\\C-j"' || true)"
+    export NAH_TERMINAL_BASH_BIND_CM="$(bind -p 2>/dev/null | command grep -F '"\\C-m"' || true)"
+    export NAH_TERMINAL_BASH_DEBUG_TRAP="$(trap -p DEBUG || true)"
+  fi
   export NAH_TERMINAL_GUARD=1
   export NAH_TERMINAL_SHELL=bash
   export NAH_TERMINAL_GUARD_ACTIVE=1
-  export NAH_TERMINAL_BASH_BIND_CJ="$(bind -p 2>/dev/null | command grep -F '"\\C-j"' || true)"
-  export NAH_TERMINAL_BASH_BIND_CM="$(bind -p 2>/dev/null | command grep -F '"\\C-m"' || true)"
-  export NAH_TERMINAL_BASH_DEBUG_TRAP="$(trap -p DEBUG || true)"
 
   __nah_terminal_filter_line() {
     local line="$READLINE_LINE"

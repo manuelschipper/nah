@@ -31,6 +31,8 @@ def test_install_uninstall_bash_managed_block(tmp_path, monkeypatch):
 
 def test_bash_snippet_captures_conflict_metadata():
     snippet = terminal_guard.render_bash_snippet()
+    assert "&& -z ${NAH_TERMINAL_GUARD_ACTIVE:-}" not in snippet
+    assert "if [[ -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]]; then" in snippet
     assert "NAH_TERMINAL_BASH_BIND_CJ" in snippet
     assert "NAH_TERMINAL_BASH_BIND_CM" in snippet
     assert "trap -p DEBUG" in snippet

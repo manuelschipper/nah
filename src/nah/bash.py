@@ -3652,6 +3652,7 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
 
     sourced = _extract_source_operand(tokens)
     if sourced is not None:
+        sourced = os.path.expanduser(sourced)
         if os.path.isabs(sourced):
             return sourced
         return os.path.join(os.getcwd(), sourced)
