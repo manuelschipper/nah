@@ -60,14 +60,14 @@ class TestFormatBlock:
         result = agents.format_block("dangerous command", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny"
-        assert hso["permissionDecisionReason"] == "nah. dangerous command"
+        assert hso["permissionDecisionReason"] == "nah blocked: dangerous command."
         assert hso["hookEventName"] == "PreToolUse"
 
     def test_claude_empty_reason(self):
         result = agents.format_block("", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny"
-        assert hso["permissionDecisionReason"] == "nah."
+        assert hso["permissionDecisionReason"] == "nah blocked: this was blocked before it could run."
 
 
 class TestFormatAsk:
@@ -75,12 +75,12 @@ class TestFormatAsk:
         result = agents.format_ask("needs confirmation", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "ask"
-        assert hso["permissionDecisionReason"] == "nah? needs confirmation"
+        assert hso["permissionDecisionReason"] == "nah paused: needs confirmation."
 
     def test_empty_reason(self):
         result = agents.format_ask("", "claude")
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecisionReason"] == "nah?"
+        assert hso["permissionDecisionReason"] == "nah paused: this needs confirmation before it can run."
 
 
 class TestFormatAllow:

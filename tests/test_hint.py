@@ -174,8 +174,9 @@ class TestHintInOutput:
         }
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+        assert reason.splitlines()[0] == "nah paused: this needs confirmation before it can run."
         assert "nah allow git_history_rewrite" in reason
-        assert "git_history_rewrite → ask" in reason
+        assert "git_history_rewrite \u2192 ask" not in reason.splitlines()[0]
 
     def test_no_hint_no_change(self):
         """Without _hint, output is unchanged."""
@@ -186,8 +187,7 @@ class TestHintInOutput:
         }
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-        assert "nah?" in reason
-        assert "some reason" in reason
+        assert reason == "nah paused: this needs confirmation before it can run."
 
     def test_hint_in_meta_for_llm_resolved(self):
         """Hint should be in _meta even for LLM-resolved asks."""

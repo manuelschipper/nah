@@ -7,6 +7,7 @@ import sys
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
 from nah.content import scan_content, format_content_message, is_credential_search
+from nah.messages import enrich_decision
 
 _transcript_path: str = ""  # set per-invocation by main()
 _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
@@ -607,9 +608,16 @@ _WRITE_LIKE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 def _to_hook_output(decision: dict, agent: str) -> dict:
     """Convert internal decision to agent-appropriate output format."""
+    enrich_decision(decision)
     d = decision.get("decision", taxonomy.ALLOW)
-    reason = decision.get("reason", "")
+    reason = decision.get("human_reason") or decision.get("reason", "")
     if d == taxonomy.BLOCK:
+        llm_reason = decision.get("_llm_reason", "")
+        if llm_reason:
+            reason = f"{reason}\n     LLM: {llm_reason}"
+        hint = decision.get("_hint")
+        if hint:
+            reason = f"{reason}\n     {hint}"
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
         llm_reason = decision.get("_llm_reason", "")
@@ -831,6 +839,7 @@ def main():
                 sys.stderr.write(f"nah: unified LLM error: {exc}\n")
 
         if d != taxonomy.ALLOW or _is_active_allow(canonical):
+            enrich_decision(decision, tool=canonical)
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()

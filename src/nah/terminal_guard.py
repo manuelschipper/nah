@@ -14,6 +14,7 @@ from pathlib import Path
 
 from nah import __version__, taxonomy
 from nah.bash import classify_command
+from nah.messages import brand, human_reason
 from nah.platform_paths import nah_config_dir
 
 BASH = "bash"
@@ -52,6 +53,7 @@ class TerminalDecision:
     confirmed: bool = False
     denied: bool = False
     action_type: str = ""
+    human_reason: str = ""
     meta: dict | None = None
 
 
@@ -178,14 +180,17 @@ def decide_terminal_command(
         return result
 
     if unsupported:
+        human = human_reason(unsupported, decision=taxonomy.BLOCK, tool="Bash")
         result = TerminalDecision(
             decision=taxonomy.BLOCK,
             reason=unsupported,
             exit_code=EXIT_BLOCK,
             command=command,
             target=target,
+            human_reason=human,
             meta={"terminal_event": "unsupported"},
         )
+        result.meta["human_reason"] = human
         if log:
             _log_terminal_decision(result, cfg.log)
         return result
@@ -207,20 +212,25 @@ def decide_terminal_command(
         )
 
     if decision == taxonomy.BLOCK:
+        action_type = _first_action_type(meta)
+        human = human_reason(reason, decision=taxonomy.BLOCK, action_type=action_type, tool="Bash", meta=meta)
         result = TerminalDecision(
             decision=taxonomy.BLOCK,
             reason=reason,
             exit_code=EXIT_BLOCK,
             command=command,
             target=target,
-            action_type=_first_action_type(meta),
-            meta={**meta, "terminal_event": "block"},
+            action_type=action_type,
+            human_reason=human,
+            meta={**meta, "terminal_event": "block", "human_reason": human},
         )
         if log:
             _log_terminal_decision(result, cfg.log)
         return result
 
     if assume_confirmed:
+        action_type = _first_action_type(meta)
+        human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
         result = TerminalDecision(
             decision=taxonomy.ASK,
             reason=reason,
@@ -228,15 +238,18 @@ def decide_terminal_command(
             command=command,
             target=target,
             confirmed=True,
-            action_type=_first_action_type(meta),
-            meta={**meta, "terminal_event": "ask_confirmed", "terminal_confirmed": True},
+            action_type=action_type,
+            human_reason=human,
+            meta={**meta, "terminal_event": "ask_confirmed", "terminal_confirmed": True, "human_reason": human},
         )
         if log:
             _log_terminal_decision(result, cfg.log)
         return result
 
     if confirm and _stdin_is_tty(stdin):
-        stderr.write(f"nah? {reason}\nRun anyway? [y/N] ")
+        action_type = _first_action_type(meta)
+        human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
+        stderr.write(f"{brand('nah paused', human)}\nRun anyway? [y/N] ")
         stderr.flush()
         answer = stdin.readline().strip().lower()
         if answer in ("y", "yes"):
@@ -247,13 +260,16 @@ def decide_terminal_command(
                 command=command,
                 target=target,
                 confirmed=True,
-                action_type=_first_action_type(meta),
-                meta={**meta, "terminal_event": "ask_confirmed", "terminal_confirmed": True},
+                action_type=action_type,
+                human_reason=human,
+                meta={**meta, "terminal_event": "ask_confirmed", "terminal_confirmed": True, "human_reason": human},
             )
             if log:
                 _log_terminal_decision(result, cfg.log)
             return result
 
+    action_type = _first_action_type(meta)
+    human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
     result = TerminalDecision(
         decision=taxonomy.ASK,
         reason=reason,
@@ -261,8 +277,9 @@ def decide_terminal_command(
         command=command,
         target=target,
         denied=True,
-        action_type=_first_action_type(meta),
-        meta={**meta, "terminal_event": "ask_denied"},
+        action_type=action_type,
+        human_reason=human,
+        meta={**meta, "terminal_event": "ask_denied", "human_reason": human},
     )
     if log:
         _log_terminal_decision(result, cfg.log)
@@ -281,6 +298,7 @@ def decision_to_payload(result: TerminalDecision) -> dict:
         "confirmed": result.confirmed,
         "denied": result.denied,
         "action_type": result.action_type,
+        "human_reason": result.human_reason,
     }
 
 

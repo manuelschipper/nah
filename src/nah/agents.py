@@ -6,6 +6,8 @@ fields and formats output accordingly.
 
 from pathlib import Path
 
+from nah.messages import brand
+
 # ---------------------------------------------------------------------------
 # Tool name → canonical handler name
 # ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ def detect_agent(data) -> str:
 
 def format_block(reason: str, agent: str) -> dict:
     """Format a block/deny response for the given agent."""
-    branded = f"nah. {reason}" if reason else "nah."
+    branded = brand("nah blocked", reason or "this was blocked before it could run")
     result: dict = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny"}}
     if branded:
         result["hookSpecificOutput"]["permissionDecisionReason"] = branded
@@ -59,7 +61,7 @@ def format_block(reason: str, agent: str) -> dict:
 
 def format_ask(reason: str, agent: str, system_message: str = "") -> dict:
     """Format an ask/confirm response for the given agent."""
-    branded = f"nah? {reason}" if reason else "nah?"
+    branded = brand("nah paused", reason or "this needs confirmation before it can run")
     result: dict = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask"}}
     if branded:
         result["hookSpecificOutput"]["permissionDecisionReason"] = branded

@@ -128,6 +128,9 @@ def build_entry(
         entry["llm"] = llm
 
     # Detail: hint, content_match, warning
+    human = meta.get("human_reason")
+    if human:
+        entry["human_reason"] = human
     hint = meta.get("hint")
     if hint:
         entry["hint"] = hint
