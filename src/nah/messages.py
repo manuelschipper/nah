@@ -247,12 +247,6 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
     if match:
         return "this tries to modify Claude Code hooks"
 
-    match = re.search(r"\boutside project(?: \(no git root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
-    if match:
-        return f"this writes outside the current project: {_friendly_path(match.group(1))}"
-    if "outside project" in lower:
-        return "this writes outside the current project"
-
     match = re.search(r"script not found:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
         return f"this tries to run a script that was not found: {_friendly_path(match.group(1))}"
@@ -260,6 +254,16 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
     match = re.search(r"script not readable:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
         return f"this tries to run a script nah cannot read: {_friendly_path(match.group(1))}"
+
+    match = re.search(r"script outside project(?: \(no git root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
+    if match:
+        return f"this runs a script outside the current project: {_friendly_path(match.group(1))}"
+
+    match = re.search(r"\boutside project(?: \(no git root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
+    if match:
+        return f"this writes outside the current project: {_friendly_path(match.group(1))}"
+    if "outside project" in lower:
+        return "this writes outside the current project"
 
     if "terminal guard cannot safely run" in lower:
         return "this shell input is too complex to inspect safely"

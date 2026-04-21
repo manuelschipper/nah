@@ -38,6 +38,7 @@ def test_reason_pattern_messages():
         ("targets sensitive path: ~/.bashrc", "this targets a protected file or folder: ~/.bashrc"),
         ("targets nah config: ~/.config/nah/config.yaml", "this changes nah's own configuration"),
         ("targets hook directory: ~/.claude/hooks/evil.py", "this tries to modify Claude Code hooks"),
+        ("script outside project: /tmp/run-me.sh", "this runs a script outside the current project: /tmp/run-me.sh"),
         ("Write outside project: /tmp/out.txt", "this writes outside the current project: /tmp/out.txt"),
         ("script not found: ./missing.sh", "this tries to run a script that was not found: ./missing.sh"),
         ("terminal guard cannot safely run here-doc input", "this shell input is too complex to inspect safely"),
