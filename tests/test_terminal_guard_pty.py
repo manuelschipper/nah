@@ -75,12 +75,12 @@ def test_bash_guard_helper_confirm_prompt_in_real_pty(tmp_path):
 
         child.sendline("git push --force")
         child.expect_exact("Run anyway? [y/N] ")
-        child.sendline("n")
+        child.send("n\r")
         child.expect_exact("nah-test$ ")
 
         child.sendline("git push --force")
         child.expect_exact("Run anyway? [y/N] ")
-        child.sendline("y")
+        child.send("y\r")
         child.expect("not a git repository")
         child.expect_exact("nah-test$ ")
 

@@ -40,7 +40,8 @@ def test_reason_pattern_messages():
         ("targets hook directory: ~/.claude/hooks/evil.py", "this tries to modify Claude Code hooks"),
         ("script outside project: /tmp/run-me.sh", "this runs a script outside the current project: /tmp/run-me.sh"),
         ("Write outside project: /tmp/out.txt", "this writes outside the current project: /tmp/out.txt"),
-        ("script not found: ./missing.sh", "this tries to run a script that was not found: ./missing.sh"),
+        ("script not found: ./missing.sh", "this script path does not exist: ./missing.sh"),
+        ("terminal guard supports complete single-line commands only", "this shell input is too complex to inspect safely"),
         ("terminal guard cannot safely run here-doc input", "this shell input is too complex to inspect safely"),
         ("unrecognized tool: WeirdTool", "this uses an unrecognized tool: WeirdTool"),
     ]
@@ -81,6 +82,140 @@ def test_action_type_fallbacks_are_human_copy():
         )
         assert fragment == expected
         assert_clean(fragment)
+
+
+def test_all_action_types_have_human_copy_even_when_policy_is_overridden():
+    generic = {
+        "this needs confirmation before it can run",
+        "this was blocked before it could run",
+    }
+    for action_type, policy in taxonomy.POLICIES.items():
+        for decision in (taxonomy.ASK, taxonomy.BLOCK):
+            fragment = messages.human_reason(
+                f"{action_type} \u2192 {policy}",
+                decision=decision,
+                action_type=action_type,
+            )
+            assert fragment not in generic, action_type
+            assert_clean(fragment)
+
+            reason_only = messages.human_reason(f"{action_type} \u2192 {policy}", decision=decision)
+            assert reason_only == fragment
+
+            top_level = messages.enrich_decision(
+                {
+                    "decision": decision,
+                    "reason": f"{action_type} \u2192 {policy}",
+                    "action_type": action_type,
+                }
+            )
+            assert top_level["human_reason"] == fragment
+
+            with_stage = messages.enrich_decision(
+                {
+                    "decision": decision,
+                    "reason": f"{action_type} \u2192 {policy}",
+                    "_meta": {
+                        "stages": [
+                            {
+                                "action_type": action_type,
+                                "decision": decision,
+                                "policy": policy,
+                                "reason": f"{action_type} \u2192 {policy}",
+                            }
+                        ]
+                    },
+                }
+            )
+            assert with_stage["human_reason"] == fragment
+
+            invalid_meta = messages.enrich_decision(
+                {
+                    "decision": decision,
+                    "reason": f"{action_type} \u2192 {policy}",
+                    "_meta": None,
+                }
+            )
+            assert invalid_meta["human_reason"] == fragment
+
+
+def test_enrich_decision_tolerates_missing_or_invalid_meta():
+    decision = messages.enrich_decision(
+        {
+            "decision": taxonomy.ASK,
+            "reason": "package_install \u2192 ask",
+            "action_type": taxonomy.PACKAGE_INSTALL,
+            "_meta": None,
+        }
+    )
+
+    assert decision["human_reason"] == "this installs packages"
+    assert decision["_meta"]["human_reason"] == "this installs packages"
+
+
+def test_enrich_decision_repairs_prefixed_or_technical_human_reason():
+    prefixed = messages.enrich_decision(
+        {
+            "decision": taxonomy.ASK,
+            "reason": "some fallback",
+            "human_reason": "nah paused: this can rewrite Git history.",
+        }
+    )
+    assert prefixed["human_reason"] == "this can rewrite Git history"
+
+    technical = messages.enrich_decision(
+        {
+            "decision": taxonomy.ASK,
+            "reason": "some fallback",
+            "human_reason": "git_history_rewrite \u2192 ask",
+        }
+    )
+    assert technical["human_reason"] == "this can rewrite Git history"
+
+
+def test_raw_reason_fallback_survives_malformed_stage_action_type():
+    decision = messages.enrich_decision(
+        {
+            "decision": taxonomy.BLOCK,
+            "reason": "obfuscated \u2192 block",
+            "_meta": {
+                "stages": [
+                    {
+                        "action_type": 123,
+                        "decision": taxonomy.BLOCK,
+                        "policy": taxonomy.BLOCK,
+                        "reason": "obfuscated \u2192 block",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert decision["human_reason"] == "this hides what will run"
+
+
+def test_raw_reason_action_detection_does_not_match_paths_or_hosts():
+    assert messages.human_reason(
+        "downloaded https://example.com/git_history_rewrite.tar.gz",
+        decision=taxonomy.ASK,
+    ) == "this needs confirmation before it can run"
+    assert messages.human_reason(
+        "looked at /tmp/git_history_rewrite",
+        decision=taxonomy.BLOCK,
+    ) == "this was blocked before it could run"
+
+
+def test_enrich_decision_uses_top_level_action_type_without_stage_meta():
+    decision = messages.enrich_decision(
+        {
+            "decision": taxonomy.ASK,
+            "reason": "git_history_rewrite \u2192 ask",
+            "action_type": taxonomy.GIT_HISTORY_REWRITE,
+        }
+    )
+
+    assert decision["human_reason"] == "this can rewrite Git history"
+    assert decision["_meta"]["human_reason"] == "this can rewrite Git history"
 
 
 def test_value_sanitization_is_bounded_and_one_line():
