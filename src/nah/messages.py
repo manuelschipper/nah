@@ -166,13 +166,11 @@ def _friendly_path(value: str) -> str:
     value = _sanitize_value(value).strip(" \t\r\n<>'\"`()[]{}").rstrip(".,;")
     if value.startswith("~") or value.startswith("."):
         return _sanitize_value(value)
-    try:
+
+    if value.startswith("/"):
         from nah.paths import friendly_path, resolve_path
 
-        if value.startswith("/"):
-            return _sanitize_value(friendly_path(resolve_path(value)))
-    except Exception:
-        pass
+        return _sanitize_value(friendly_path(resolve_path(value)))
     return value
 
 
