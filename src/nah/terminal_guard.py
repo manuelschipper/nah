@@ -327,20 +327,6 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
   export NAH_TERMINAL_SHELL=bash
   export NAH_TERMINAL_GUARD_ACTIVE=1
 
-  __nah_terminal_confirm_and_run() {
-    local cmd="$1"
-    local answer
-    printf 'Run anyway? [y/N] ' > /dev/tty
-    IFS= read -r answer < /dev/tty || answer=
-    if [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]]; then
-      command nah _terminal-decision --target bash --assume-confirmed -- "$cmd" >/dev/null 2>&1 || true
-      builtin eval "$cmd"
-      return $?
-    fi
-    command nah _terminal-decision --target bash -- "$cmd" >/dev/null 2>&1 || true
-    return 1
-  }
-
   __nah_terminal_filter_line() {
     local line="$READLINE_LINE"
     local run_line="$line"
@@ -383,10 +369,17 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     fi
 
     if [[ $status -eq 10 ]]; then
-      local quoted_line
-      printf -v quoted_line '%q' "$run_line"
-      READLINE_LINE="__nah_terminal_confirm_and_run $quoted_line"
-      READLINE_POINT=${#READLINE_LINE}
+      local answer
+      printf 'Run anyway? [y/N] ' > /dev/tty
+      IFS= read -r answer < /dev/tty || answer=
+      READLINE_LINE=
+      READLINE_POINT=0
+      if [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]]; then
+        command nah _terminal-decision --target bash --assume-confirmed -- "$line" >/dev/null 2>&1 || true
+        builtin eval "$run_line"
+        return $?
+      fi
+      command nah _terminal-decision --target bash -- "$line" >/dev/null 2>&1 || true
       return 0
     elif [[ $status -eq 20 ]]; then
       command nah _terminal-decision --target bash -- "$line" >/dev/null 2>&1 || true
