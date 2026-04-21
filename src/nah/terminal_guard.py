@@ -309,7 +309,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
   export NAH_TERMINAL_BASH_BIND_CM="$(bind -p 2>/dev/null | command grep -F '"\\C-m"' || true)"
   export NAH_TERMINAL_BASH_DEBUG_TRAP="$(trap -p DEBUG || true)"
 
-  __nah_terminal_accept_line() {
+  __nah_terminal_filter_line() {
     local line="$READLINE_LINE"
     local run_line="$line"
     local prefix_line="$line"
@@ -317,7 +317,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
     local status
 
     if [[ -z "${line//[[:space:]]/}" ]]; then
-      READLINE_LINE=
+      READLINE_LINE="$line"
       READLINE_POINT=0
       return 0
     fi
@@ -338,34 +338,27 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
       fi
     fi
 
-    READLINE_LINE=
-    READLINE_POINT=0
-
     if [[ $bypass -eq 1 ]]; then
-      NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target bash --confirm -- "$run_line"
+      NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target bash -- "$run_line"
     else
-      command nah _terminal-decision --target bash --confirm -- "$line"
+      command nah _terminal-decision --target bash -- "$line"
     fi
     status=$?
     if [[ $status -eq 0 ]]; then
-      history -s -- "$line"
-      builtin eval "$run_line"
-      return $?
-    fi
-
-    if [[ $status -eq 10 || $status -ge 128 ]]; then
-      READLINE_LINE=
-      READLINE_POINT=0
+      READLINE_LINE="$run_line"
+      READLINE_POINT=${#READLINE_LINE}
       return 0
     fi
 
-    READLINE_LINE="$line"
-    READLINE_POINT=${#READLINE_LINE}
+    READLINE_LINE=
+    READLINE_POINT=0
     return 0
   }
 
-  bind -x '"\\C-j":__nah_terminal_accept_line'
-  bind -x '"\\C-m":__nah_terminal_accept_line'
+  bind -x '"\\C-x\\C-n":__nah_terminal_filter_line'
+  bind '"\\C-x\\C-m": accept-line'
+  bind '"\\C-j":"\\C-x\\C-n\\C-x\\C-m"'
+  bind '"\\C-m":"\\C-x\\C-n\\C-x\\C-m"'
 fi
 """
 
@@ -406,15 +399,17 @@ if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-}
         fi
       fi
       if [[ $bypass -eq 1 ]]; then
-        NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target zsh --confirm -- "$run_line"
+        NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target zsh -- "$run_line"
       else
-        command nah _terminal-decision --target zsh --confirm -- "$line"
+        command nah _terminal-decision --target zsh -- "$line"
       fi
       if [[ $? -eq 0 ]]; then
         BUFFER="$run_line"
         zle __nah_original_accept_line
       else
+        BUFFER=
         zle -M "nah: command was not run"
+        zle redisplay
       fi
     }
 

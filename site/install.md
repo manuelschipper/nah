@@ -66,8 +66,8 @@ nah install zsh
 ```
 
 The installer writes a generated snippet under `~/.config/nah/terminal/` and a
-small managed source block in `~/.bashrc` or `~/.zshrc`. Restart the shell, or
-source the rc file, to activate it.
+small managed source block in `~/.bashrc` or `~/.zshrc`. Restart or replace the
+shell to activate it.
 
 This protects complete single-line commands typed into interactive bash/zsh
 sessions that loaded the snippet. It does not protect unrelated shells, GUI

@@ -37,8 +37,7 @@ entries to Claude Code's `settings.json`.
 
 `nah install bash` and `nah install zsh` write generated shell snippets under
 `~/.config/nah/terminal/` and add a small managed source block to the matching
-rc file. Restart the shell, or source the rc file, before expecting the guard to
-load.
+rc file. Restart or replace the shell before expecting the guard to load.
 
 `nah install openrouter` writes global user config only. It configures
 `llm.providers: [openrouter]`, stores `llm.openrouter.key_env:
@@ -191,15 +190,15 @@ When a guarded interactive shell submits a command:
 | Decision | Shell behavior |
 |----------|----------------|
 | `allow` | Runs the command quietly |
-| `ask` | Prompts on an interactive TTY; defaults to no |
+| `ask` | Prints the reason and does not run; use an explicit bypass if intentional |
 | `block` | Refuses to run without prompting |
 | bypass | Runs and logs the bypass |
 
 The guard treats complete single-line commands as its supported surface. Newline
 input, trailing continuation backslashes, here-doc entry, and incomplete shell
 syntax fail closed with an actionable message. Allowed terminal commands are not
-logged by default; blocks, denied asks, confirmed asks, bypasses, and errors are
-logged with target metadata and normal redaction.
+logged by default; blocks, denied asks, bypasses, and errors are logged with
+target metadata and normal redaction.
 
 Intentional bypass:
 

@@ -34,12 +34,14 @@ def test_bash_snippet_captures_conflict_metadata():
     assert "NAH_TERMINAL_BASH_BIND_CJ" in snippet
     assert "NAH_TERMINAL_BASH_BIND_CM" in snippet
     assert "trap -p DEBUG" in snippet
-    assert '\\C-j":__nah_terminal_accept_line' in snippet
-    assert '\\C-m":__nah_terminal_accept_line' in snippet
+    assert '__nah_terminal_filter_line' in snippet
+    assert '\\C-x\\C-n":__nah_terminal_filter_line' in snippet
+    assert '\\C-x\\C-m": accept-line' in snippet
+    assert '\\C-j":"\\C-x\\C-n\\C-x\\C-m' in snippet
+    assert '\\C-m":"\\C-x\\C-n\\C-x\\C-m' in snippet
     assert "nah-bypass" in snippet
     assert 'local run_line="$line"' in snippet
-    assert "$status -eq 10" in snippet
-    assert "$status -ge 128" in snippet
+    assert "--target bash --confirm" not in snippet
 
 
 def test_zsh_snippet_wraps_accept_line():
@@ -52,6 +54,7 @@ def test_zsh_snippet_wraps_accept_line():
     assert "_terminal-decision --target zsh" in snippet
     assert "nah-bypass" in snippet
     assert 'BUFFER="$run_line"' in snippet
+    assert "--target zsh --confirm" not in snippet
 
 
 def test_terminal_decision_allow_is_not_logged(monkeypatch, tmp_path):
