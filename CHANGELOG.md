@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Terminal guard reload hint replaces active snippets** — `nah install bash` / `nah update bash` now print a reload command that clears terminal guard environment and replaces the shell, so an already-running shell can load the updated guard without running startup files inside the old in-memory Readline hook. (nah-882 follow-up)
 - **Bash terminal guard preserves normal prompt redraws** — bash now filters the Readline buffer and lets Bash execute accepted commands normally, instead of running commands inside the Readline callback. Ask prompts are handled by the shell on `/dev/tty`, so `y` / `n` answers work reliably and confirmed commands run through normal Bash execution. (nah-882 follow-up)
 - **`nah update` no longer looks like a project file write** — `nah install` / `nah update` now classify as nah lifecycle commands instead of treating target names such as `bash` or `update` as filesystem paths like `~/bash` or `~/update` when the terminal guard runs outside a Git project. (nah-882 follow-up)
+- **Bash rc reloads replace the active guard** — sourcing `.bashrc` in an already-guarded bash shell now refreshes nah's active function and key bindings instead of skipping the snippet because `NAH_TERMINAL_GUARD_ACTIVE` was already set. The original pre-nah binding metadata is still captured only once for diagnostics. (nah-882 follow-up)
 
 ## [0.7.1] - 2026-04-20
 
