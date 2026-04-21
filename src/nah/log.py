@@ -138,6 +138,17 @@ def build_entry(
     if warning:
         entry["warning"] = warning
 
+    for key in (
+        "target",
+        "source",
+        "terminal_event",
+        "terminal_confirmed",
+        "terminal_bypass",
+        "terminal_error",
+    ):
+        if key in meta:
+            entry[key] = meta[key]
+
     return entry
 
 
