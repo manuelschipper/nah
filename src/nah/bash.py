@@ -3816,9 +3816,13 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
         left = stage_results[i]
         right = stage_results[i + 1]
 
-        # sensitive_read | network → block (exfiltration)
+        # sensitive_read | network → block/ask (exfiltration). If a user has
+        # explicitly desensitized the source path, preserve that read policy
+        # and let the network write ask drive confirmation while still carrying
+        # the data-flow signal for presentation.
         if _is_sensitive_read(left) and right.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE):
-            return taxonomy.BLOCK, f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
+            decision = taxonomy.ASK if left.decision == taxonomy.ALLOW else taxonomy.BLOCK
+            return decision, f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
 
         right_is_exec_sink = _is_exec_sink_stage(right)
         if right_is_exec_sink and _is_transparent_suffix_from(i + 1, stage_results, stages):
@@ -3929,11 +3933,22 @@ def _is_sensitive_read(sr: StageResult) -> bool:
             continue
         basic = paths.check_path_basic_raw(check_tok)
         if not basic:
+            if _matches_default_sensitive_path(check_tok):
+                return True
             continue
         _decision, reason = basic
         if "hook directory" in reason:
             return True
         if "sensitive path" in reason:
+            return True
+    return False
+
+
+def _matches_default_sensitive_path(raw: str) -> bool:
+    """Detect built-in sensitive paths even when config desensitizes them."""
+    resolved = paths.resolve_path(raw)
+    for dir_path, _display, _policy in paths._SENSITIVE_DIRS_DEFAULTS:
+        if resolved == dir_path or resolved.startswith(dir_path + os.sep):
             return True
     return False
 
