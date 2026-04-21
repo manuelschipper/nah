@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bash terminal guard preserves normal prompt redraws** — bash now filters the Readline buffer and lets Bash execute accepted commands normally, instead of running commands inside the Readline callback. Ask prompts are handled by the shell on `/dev/tty`, so `y` / `n` answers work reliably and confirmed commands run through normal Bash execution. (nah-882 follow-up)
 - **`nah update` no longer looks like a project file write** — `nah install` / `nah update` now classify as nah lifecycle commands instead of treating target names such as `bash` or `update` as filesystem paths like `~/bash` or `~/update` when the terminal guard runs outside a Git project. (nah-882 follow-up)
 - **Bash rc reloads replace the active guard** — sourcing `.bashrc` in an already-guarded bash shell now refreshes nah's active function and key bindings instead of skipping the snippet because `NAH_TERMINAL_GUARD_ACTIVE` was already set. The original pre-nah binding metadata is still captured only once for diagnostics. (nah-882 follow-up)
-- **Bash ask prompts no longer leak helper commands** — bash ask decisions now keep the prompt internal to the active guard, clear the submitted Readline buffer, and run the original command only after confirmation, so internal helper functions no longer appear in the prompt or history. (nah-882 follow-up)
+- **Bash ask prompts avoid in-hook input reads** — bash ask decisions now store a pending command and ask for `y` or `n` on the next submitted line instead of reading from `/dev/tty` inside the Readline callback. This avoids terminal hangs while keeping internal helper functions out of the prompt and history. (nah-882 follow-up)
 
 ## [0.7.1] - 2026-04-20
 
