@@ -111,6 +111,7 @@ def shell_status(shell: str) -> dict:
 def shell_doctor(shell: str) -> dict:
     """Return deeper diagnostics for a shell target."""
     status = shell_status(shell)
+    conflicts: list[str] = []
     status.update({
         "current_shell": Path(os.environ.get("SHELL", "")).name,
         "nah_path": shutil.which("nah") or "",
@@ -118,12 +119,24 @@ def shell_doctor(shell: str) -> dict:
         "supports_shell": shutil.which(shell) is not None,
         "guard_env": os.environ.get("NAH_TERMINAL_GUARD", ""),
         "guard_shell": os.environ.get("NAH_TERMINAL_SHELL", ""),
-        "conflicts": [],
+        "conflicts": conflicts,
     })
     if shell == BASH:
         status["readline_required"] = True
+        status["readline_bind_cj"] = os.environ.get("NAH_TERMINAL_BASH_BIND_CJ", "")
+        status["readline_bind_cm"] = os.environ.get("NAH_TERMINAL_BASH_BIND_CM", "")
+        status["debug_trap"] = os.environ.get("NAH_TERMINAL_BASH_DEBUG_TRAP", "")
+        if status["loaded"]:
+            for key, binding in (("\\C-j", status["readline_bind_cj"]), ("\\C-m", status["readline_bind_cm"])):
+                if binding and "accept-line" not in binding:
+                    conflicts.append(f"existing bash {key} binding before nah loaded: {binding}")
+            if status["debug_trap"]:
+                conflicts.append(f"existing bash DEBUG trap before nah loaded: {status['debug_trap']}")
     if shell == ZSH:
         status["zle_required"] = True
+        status["accept_line_preserved"] = os.environ.get("NAH_TERMINAL_ZSH_ACCEPT_LINE", "")
+        if status["loaded"] and status["accept_line_preserved"] not in ("", "preserved"):
+            conflicts.append("zsh accept-line widget could not be preserved")
     return status
 
 
@@ -286,6 +299,9 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]];
   export NAH_TERMINAL_GUARD=1
   export NAH_TERMINAL_SHELL=bash
   export NAH_TERMINAL_GUARD_ACTIVE=1
+  export NAH_TERMINAL_BASH_BIND_CJ="$(bind -p 2>/dev/null | command grep -F '"\\C-j"' || true)"
+  export NAH_TERMINAL_BASH_BIND_CM="$(bind -p 2>/dev/null | command grep -F '"\\C-m"' || true)"
+  export NAH_TERMINAL_BASH_DEBUG_TRAP="$(trap -p DEBUG || true)"
 
   __nah_terminal_accept_line() {
     local line="$READLINE_LINE"
@@ -327,18 +343,24 @@ if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-}
   export NAH_TERMINAL_SHELL=zsh
   export NAH_TERMINAL_GUARD_ACTIVE=1
 
-  zle -A accept-line __nah_original_accept_line 2>/dev/null || zle -A .accept-line __nah_original_accept_line
+  if zle -A accept-line __nah_original_accept_line 2>/dev/null || zle -A .accept-line __nah_original_accept_line 2>/dev/null; then
+    export NAH_TERMINAL_ZSH_ACCEPT_LINE=preserved
+  else
+    export NAH_TERMINAL_ZSH_ACCEPT_LINE=missing
+  fi
 
-  __nah_terminal_accept_line() {
-    local line="$BUFFER"
-    if command nah _terminal-decision --target zsh --confirm -- "$line"; then
-      zle __nah_original_accept_line
-    else
-      zle -M "nah: command was not run"
-    fi
-  }
+  if [[ $NAH_TERMINAL_ZSH_ACCEPT_LINE == preserved ]]; then
+    __nah_terminal_accept_line() {
+      local line="$BUFFER"
+      if command nah _terminal-decision --target zsh --confirm -- "$line"; then
+        zle __nah_original_accept_line
+      else
+        zle -M "nah: command was not run"
+      fi
+    }
 
-  zle -N accept-line __nah_terminal_accept_line
+    zle -N accept-line __nah_terminal_accept_line
+  fi
 fi
 """
 

@@ -29,10 +29,21 @@ def test_install_uninstall_bash_managed_block(tmp_path, monkeypatch):
     assert "# existing" in rc.read_text(encoding="utf-8")
 
 
+def test_bash_snippet_captures_conflict_metadata():
+    snippet = terminal_guard.render_bash_snippet()
+    assert "NAH_TERMINAL_BASH_BIND_CJ" in snippet
+    assert "NAH_TERMINAL_BASH_BIND_CM" in snippet
+    assert "trap -p DEBUG" in snippet
+    assert '\\C-j":__nah_terminal_accept_line' in snippet
+    assert '\\C-m":__nah_terminal_accept_line' in snippet
+
+
 def test_zsh_snippet_wraps_accept_line():
     snippet = terminal_guard.render_zsh_snippet()
     assert "zle -A accept-line __nah_original_accept_line" in snippet
     assert "zle -A .accept-line __nah_original_accept_line" in snippet
+    assert "NAH_TERMINAL_ZSH_ACCEPT_LINE=preserved" in snippet
+    assert "NAH_TERMINAL_ZSH_ACCEPT_LINE=missing" in snippet
     assert "zle -N accept-line __nah_terminal_accept_line" in snippet
     assert "_terminal-decision --target zsh" in snippet
 
@@ -130,3 +141,29 @@ def test_shell_status_detects_installed_and_loaded(tmp_path, monkeypatch):
     monkeypatch.setenv("NAH_TERMINAL_GUARD", "1")
     monkeypatch.setenv("NAH_TERMINAL_SHELL", "zsh")
     assert terminal_guard.shell_status("zsh")["loaded"] is True
+
+
+def test_shell_doctor_reports_bash_conflicts(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_TERMINAL_GUARD", "1")
+    monkeypatch.setenv("NAH_TERMINAL_SHELL", "bash")
+    monkeypatch.setenv("NAH_TERMINAL_BASH_BIND_CJ", '"\\C-j": custom-widget')
+    monkeypatch.setenv("NAH_TERMINAL_BASH_BIND_CM", '"\\C-m": accept-line')
+    monkeypatch.setenv("NAH_TERMINAL_BASH_DEBUG_TRAP", "trap -- 'echo debug' DEBUG")
+
+    doctor = terminal_guard.shell_doctor("bash")
+
+    assert any("\\C-j" in conflict for conflict in doctor["conflicts"])
+    assert any("DEBUG trap" in conflict for conflict in doctor["conflicts"])
+    assert not any("\\C-m" in conflict for conflict in doctor["conflicts"])
+
+
+def test_shell_doctor_reports_zsh_preserve_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_TERMINAL_GUARD", "1")
+    monkeypatch.setenv("NAH_TERMINAL_SHELL", "zsh")
+    monkeypatch.setenv("NAH_TERMINAL_ZSH_ACCEPT_LINE", "missing")
+
+    doctor = terminal_guard.shell_doctor("zsh")
+
+    assert "zsh accept-line widget could not be preserved" in doctor["conflicts"]

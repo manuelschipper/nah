@@ -437,7 +437,9 @@ def _apply_target_config(
     project_data = _validate_dict(project_targets.get(target, {}))
 
     shell_target = target in ("bash", "zsh")
-    explicit_shell_llm = _has_target_llm_mode(global_data) or _has_target_llm_mode(project_data)
+    explicit_shell_llm = _has_target_llm_mode(global_data) or (
+        config.trust_project_config and _has_target_llm_mode(project_data)
+    )
 
     _apply_target_data(config, global_data, trusted=True, explicit_shell_llm=True)
     _apply_target_data(
@@ -495,7 +497,7 @@ def _apply_target_data(
     if llm:
         raw_mode = llm.get("mode")
         if raw_mode in ("off", "on"):
-            if trusted or raw_mode == "off" or config.llm_mode == "on":
+            if trusted or raw_mode == "off":
                 config.llm_mode = raw_mode
         if trusted and "eligible" in llm:
             raw_eligible = llm.get("eligible")

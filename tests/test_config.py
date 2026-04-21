@@ -206,6 +206,21 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, {}, target="bash")
         assert cfg.llm_mode == "on"
 
+    def test_untrusted_project_target_cannot_enable_terminal_llm(self):
+        global_cfg = {"llm": {"mode": "on", "providers": ["openrouter"]}}
+        project_cfg = {"targets": {"bash": {"llm": {"mode": "on"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        assert cfg.llm_mode == "off"
+
+    def test_trusted_project_target_can_enable_terminal_llm(self):
+        global_cfg = {
+            "trust_project_config": True,
+            "llm": {"mode": "on", "providers": ["openrouter"]},
+        }
+        project_cfg = {"targets": {"bash": {"llm": {"mode": "on"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        assert cfg.llm_mode == "on"
+
     def test_target_terminal_options_apply(self):
         global_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "CUSTOM_BYPASS"}}}}
         cfg = _merge_configs(global_cfg, {}, target="bash")
