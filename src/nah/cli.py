@@ -403,8 +403,13 @@ def cmd_install(args: argparse.Namespace) -> None:
 def _print_shell_reload_hint(shell: str) -> None:
     """Print the safe reload command for an installed shell guard."""
     rc_file = "~/.bashrc" if shell == "bash" else "~/.zshrc"
+    guard_vars = "NAH_TERMINAL_GUARD_ACTIVE NAH_TERMINAL_GUARD NAH_TERMINAL_SHELL"
+    reload_cmd = (
+        f"NAH_TERMINAL_BYPASS=1 unset {guard_vars}; "
+        f"NAH_TERMINAL_BYPASS=1 source {rc_file}"
+    )
     print(f"Restart {shell}, or run:")
-    print(f"  NAH_TERMINAL_BYPASS=1 source {rc_file}")
+    print(f"  {reload_cmd}")
     print("After reload, use `nah-bypass <command>` for one-shot bypasses.")
 
 

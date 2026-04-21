@@ -212,6 +212,18 @@ class TestCmdTypesShadowAnnotation:
 # --- nah test full tool support (FD-069) ---
 
 
+def test_shell_reload_hint_clears_active_guard(capsys):
+    from nah.cli import _print_shell_reload_hint
+
+    _print_shell_reload_hint("bash")
+
+    out = capsys.readouterr().out
+    assert "NAH_TERMINAL_BYPASS=1 unset NAH_TERMINAL_GUARD_ACTIVE" in out
+    assert "NAH_TERMINAL_GUARD" in out
+    assert "NAH_TERMINAL_SHELL" in out
+    assert "NAH_TERMINAL_BYPASS=1 source ~/.bashrc" in out
+
+
 class TestCmdTest:
     """Tests for nah test with Write/Edit content, Grep patterns, and MCP tools."""
 
