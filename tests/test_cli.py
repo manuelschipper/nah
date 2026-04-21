@@ -239,6 +239,26 @@ class TestCmdTest:
         assert '"target": "bash"' in out
         assert '"decision": "block"' in out
 
+    def test_target_bash_bypass_prefix(self, capsys, monkeypatch):
+        from nah.cli import cmd_test
+        monkeypatch.delenv("NAH_TERMINAL_BYPASS", raising=False)
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config=None,
+            defaults=False,
+            target="bash",
+            json=False,
+            args=["nah-bypass git push --force"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "Target:   bash" in out
+        assert "Decision:    ALLOW" in out
+        assert "terminal bypass requested" in out
+
     def test_target_write_output(self, capsys):
         from nah.cli import cmd_test
         args = argparse.Namespace(

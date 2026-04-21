@@ -405,6 +405,7 @@ def _print_shell_reload_hint(shell: str) -> None:
     rc_file = "~/.bashrc" if shell == "bash" else "~/.zshrc"
     print(f"Restart {shell}, or run:")
     print(f"  NAH_TERMINAL_BYPASS=1 source {rc_file}")
+    print("After reload, use `nah-bypass <command>` for one-shot bypasses.")
 
 
 def cmd_update(args: argparse.Namespace) -> None:
@@ -571,6 +572,35 @@ def cmd_test(args: argparse.Namespace) -> None:
             print("Error: nah test requires a command string", file=sys.stderr)
             raise SystemExit(1)
         command = input_args[0] if len(input_args) == 1 else shlex.join(input_args)
+        if target in targets.SHELL_TARGETS:
+            from nah import terminal_guard
+
+            terminal_result = terminal_guard.decide_terminal_command(
+                command,
+                target,
+                confirm=False,
+                log=False,
+            )
+            if terminal_result.bypass:
+                if json_output:
+                    print(json.dumps({
+                        "target": target,
+                        "tool": "Bash",
+                        "command": terminal_result.command,
+                        "decision": terminal_result.decision,
+                        "reason": terminal_result.reason,
+                        "composition_rule": "",
+                        "stages": [],
+                        "bypass": True,
+                    }))
+                    return
+                if target:
+                    print(f"Target:   {target}")
+                print(f"Command:  {terminal_result.command}")
+                print(f"Decision:    {terminal_result.decision.upper()}")
+                print(f"Reason:      {terminal_result.reason}")
+                return
+
         from nah.bash import classify_command
         result = classify_command(command)
 
