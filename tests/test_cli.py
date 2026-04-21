@@ -2,6 +2,7 @@
 
 import argparse
 import io
+import json
 import os
 from unittest.mock import patch
 
@@ -255,6 +256,33 @@ class TestCmdTest:
         assert '"target": "bash"' in out
         assert '"decision": "block"' in out
         assert '"human_reason": "this downloads code and runs it in bash"' in out
+
+    def test_bash_script_outside_project_human_reason(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+
+        outside = tmp_path / "outside" / "script.sh"
+        outside.parent.mkdir()
+        outside.write_text("#!/bin/sh\nexit 0\n")
+        outside.chmod(0o755)
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config='{"trusted_paths":[]}',
+            defaults=False,
+            target="",
+            json=True,
+            args=[str(outside)],
+        )
+
+        cmd_test(args)
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["decision"] == "ask"
+        assert payload["reason"].startswith("script outside project:")
+        assert payload["human_reason"].startswith("this runs a script outside the current project:")
+        assert "this writes outside" not in payload["human_reason"]
 
     def test_target_bash_bypass_prefix(self, capsys, monkeypatch):
         from nah.cli import cmd_test
