@@ -59,18 +59,25 @@ ASK = "ask"
 BLOCK = "block"
 CONTEXT = "context"
 
-# Valid profiles.
-PROFILES = ("full", "minimal", "none")
+# Valid profiles. ``minimal`` is intentionally not listed: it is a deprecated
+# config alias for ``full`` and should not create a third runtime behavior.
+PROFILES = ("full", "none")
 
 # Strictness ordering — higher = more restrictive. Used for tighten-only merges.
 STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
 
 
+def _effective_profile(profile: str) -> str:
+    """Return the runtime profile for deprecated aliases."""
+    return "full" if profile == "minimal" else profile
+
+
 def _load_classify_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
     """Load classify table from JSON files for the given profile."""
+    profile = _effective_profile(profile)
     if profile == "none":
         return []
-    subdir = "classify_minimal" if profile == "minimal" else "classify_full"
+    subdir = "classify_full"
     classify_dir = _DATA_DIR / subdir
     table: list[tuple[tuple[str, ...], str]] = []
     for json_file in classify_dir.glob("*.json"):
@@ -104,6 +111,7 @@ _BUILTIN_TABLES["full"] = _load_classify_table("full")
 
 def get_builtin_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
     """Get cached built-in classify table for a profile."""
+    profile = _effective_profile(profile)
     if profile not in _BUILTIN_TABLES:
         _BUILTIN_TABLES[profile] = _load_classify_table(profile)
     return _BUILTIN_TABLES[profile]
@@ -499,6 +507,7 @@ def classify_tokens(
     """
     if not tokens:
         return UNKNOWN
+    profile = _effective_profile(profile)
 
     # Command normalization — resolve /usr/bin/rm, C:\...\cmd.exe, python3.12.
     base = _normalize_command_name(tokens[0])
@@ -1215,6 +1224,7 @@ def _gh_api_payload_value_is_file_sourced(payload: str | None) -> bool:
 
 def _classify_api_cli(tokens: list[str], command: str, *, profile: str = "full") -> str | None:
     """Flag-dependent: API reads are git_safe; writes/bodies are network_write."""
+    profile = _effective_profile(profile)
     if profile != "full" or len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
         return None
 

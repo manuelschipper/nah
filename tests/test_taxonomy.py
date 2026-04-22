@@ -1146,8 +1146,8 @@ class TestCodexClassifier:
     def test_codex_unknown_or_malformed_forms(self, tokens):
         assert _ct(tokens) == "unknown"
 
-    @pytest.mark.parametrize("profile", ["minimal", "full"])
-    def test_codex_classifier_runs_in_builtin_profiles(self, profile):
+    @pytest.mark.parametrize("profile", ["full", "minimal"])
+    def test_codex_classifier_runs_in_full_and_deprecated_minimal_alias(self, profile):
         assert classify_tokens(
             ["codex", "exec", "echo hi"],
             builtin_table=get_builtin_table(profile),
@@ -1984,13 +1984,13 @@ class TestGhApiClassifier:
             profile="full",
         ) == "network_write"
 
-    def test_gh_api_classifier_is_full_profile_only(self):
+    def test_gh_api_classifier_runs_for_deprecated_minimal_alias(self):
         minimal = get_builtin_table("minimal")
         assert classify_tokens(
             ["gh", "api", "user"],
             builtin_table=minimal,
             profile="minimal",
-        ) == "unknown"
+        ) == "git_safe"
 
 
 class TestGlabApiClassifier:
@@ -2016,13 +2016,13 @@ class TestGlabApiClassifier:
     def test_glab_api_writes_are_network_write(self, tokens):
         assert _ct(tokens) == "network_write"
 
-    def test_glab_api_classifier_is_full_profile_only(self):
+    def test_glab_api_classifier_runs_for_deprecated_minimal_alias(self):
         minimal = get_builtin_table("minimal")
         assert classify_tokens(
             ["glab", "api", "projects/1"],
             builtin_table=minimal,
             profile="minimal",
-        ) == "unknown"
+        ) == "git_safe"
 
     def test_other_glab_commands_stay_unknown(self):
         assert _ct(["glab", "issue", "list"]) == "unknown"
@@ -2037,7 +2037,6 @@ class TestProfiles:
     def test_profile_full_loads_all(self):
         table = get_builtin_table("full")
         action_types = {at for _, at in table}
-        # Full profile has tool-specific types absent from minimal
         assert "container_read" in action_types
         assert "container_write" in action_types
         assert "container_exec" in action_types
@@ -2055,48 +2054,18 @@ class TestProfiles:
         assert "package_install" in action_types
         assert "db_write" in action_types
 
-    def test_profile_minimal_subset(self):
-        table = get_builtin_table("minimal")
-        action_types = {at for _, at in table}
-        # Minimal has core types
-        assert "filesystem_delete" in action_types
-        assert "filesystem_read" in action_types
-        assert "filesystem_write" in action_types
-        assert "git_safe" in action_types
-        assert "network_diagnostic" in action_types
-        assert "process_signal" in action_types
-        assert "container_read" in action_types
-        assert "service_read" in action_types
-        assert "browser_read" in action_types
-        # Minimal keeps read-only container/service coverage only.
-        assert "container_write" not in action_types
-        assert "container_exec" not in action_types
-        assert "container_destructive" not in action_types
-        assert "service_write" not in action_types
-        assert "service_destructive" not in action_types
-        assert "browser_interact" not in action_types
-        assert "browser_state" not in action_types
-        assert "browser_navigate" not in action_types
-        assert "browser_exec" not in action_types
-        assert "browser_file" not in action_types
-        assert "lang_exec" not in action_types
-        assert "package_install" not in action_types
-        assert "package_run" not in action_types
-        assert "db_write" not in action_types
+    def test_profile_minimal_aliases_full_table(self):
+        """Deprecated minimal table lookup keeps old callers on full behavior."""
+        assert get_builtin_table("minimal") is get_builtin_table("full")
 
     def test_profile_none_empty(self):
         table = get_builtin_table("none")
         assert table == []
 
-    def test_profile_minimal_smaller_than_full(self):
-        full = get_builtin_table("full")
-        minimal = get_builtin_table("minimal")
-        assert len(minimal) < len(full)
-
-    def test_profile_minimal_docker_write_unknown(self):
-        """Docker mutations outside the read-only subset stay unknown in minimal."""
+    def test_profile_minimal_docker_write_uses_full_behavior(self):
+        """Deprecated minimal no longer leaves full-profile coverage gaps."""
         table = get_builtin_table("minimal")
-        assert classify_tokens(["docker", "rm", "x"], builtin_table=table) == "unknown"
+        assert classify_tokens(["docker", "rm", "x"], builtin_table=table) == "container_destructive"
 
     def test_profile_minimal_docker_read_classified(self):
         table = get_builtin_table("minimal")
@@ -2107,7 +2076,7 @@ class TestProfiles:
         assert classify_tokens(["systemctl", "status", "nginx"], builtin_table=table) == "service_read"
 
     def test_profile_minimal_rm_still_classified(self):
-        """Core commands are classified in minimal profile."""
+        """Deprecated minimal aliases full, so core commands stay classified."""
         table = get_builtin_table("minimal")
         assert classify_tokens(["rm", "file"], builtin_table=table) == "filesystem_delete"
 
@@ -2115,7 +2084,7 @@ class TestProfiles:
         table = get_builtin_table("minimal")
         assert classify_tokens(["curl", "example.com"], builtin_table=table) == "network_outbound"
 
-    def test_profile_minimal_wrapper_lang_exec_subset(self):
+    def test_profile_minimal_wrapper_lang_exec_uses_full_behavior(self):
         table = get_builtin_table("minimal")
         assert classify_tokens(
             ["uv", "run", "script.py"],
@@ -2131,7 +2100,7 @@ class TestProfiles:
             ["uvx", "ruff", "check", "."],
             builtin_table=table,
             profile="minimal",
-        ) == "unknown"
+        ) == "package_run"
 
     def test_profile_none_everything_unknown(self):
         """With none profile, table-only commands are unknown."""
@@ -2208,15 +2177,14 @@ class TestThreeTableLookup:
         assert classify_tokens(["rm", "-f", "file"], None, builtin_t, project_t) == "filesystem_delete"
         assert classify_tokens(["rmdir", "--ignore", "dir"], None, builtin_t, project_t) == "filesystem_delete"
 
-    def test_project_with_minimal_profile(self):
-        """Project fills gaps in minimal profile."""
+    def test_project_with_minimal_profile_alias(self):
+        """Deprecated minimal behaves like full, so built-ins still win."""
         builtin_t = get_builtin_table("minimal")
-        project_t = build_user_table({"my_docker": ["docker rm"]})
-        # docker rm is unknown in minimal, project fills the gap
-        assert classify_tokens(["docker", "rm", "x"], None, builtin_t, project_t) == "my_docker"
+        project_t = build_user_table({"filesystem_read": ["docker rm"]})
+        assert classify_tokens(["docker", "rm", "x"], None, builtin_t, project_t) == "container_destructive"
 
-    def test_global_override_with_minimal_profile(self):
-        """Global can reclassify even in minimal profile."""
+    def test_global_override_with_minimal_profile_alias(self):
+        """Global can still reclassify when deprecated minimal aliases full."""
         global_t = build_user_table({"my_safe_rm": ["rm"]})
         builtin_t = get_builtin_table("minimal")
         # Global "rm" wins over minimal built-in "rm → filesystem_delete"

@@ -1,9 +1,0 @@
-[
-  "mv",
-  "cp",
-  "chmod",
-  "chown",
-  "mkdir",
-  "touch",
-  "tee"
-]

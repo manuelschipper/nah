@@ -70,6 +70,25 @@ class TestDefaults:
         assert get_config().llm_mode == "off"
         assert get_config().llm == {}
 
+    def test_apply_override_minimal_profile_deprecated_to_full(self, tmp_path, capsys):
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
+            apply_override({"profile": "minimal"})
+        assert get_config().profile == "full"
+        assert "profile 'minimal' is deprecated" in capsys.readouterr().err
+
+    def test_apply_override_invalid_profile_preserves_current_profile(self, capsys):
+        from nah import config
+        try:
+            config._cached_config = NahConfig(profile="none")
+            config._cached_target = None
+            apply_override({"profile": "turbo"})
+            assert get_config().profile == "none"
+            assert capsys.readouterr().err == ""
+        finally:
+            reset_config()
+
     def test_use_defaults_ignores_cached_custom_config(self, tmp_path):
         """use_defaults replaces any active config with merged packaged defaults."""
         paths.set_project_root(str(tmp_path))
@@ -434,9 +453,10 @@ class TestSensitivePathsDefault:
 class TestProfile:
     """Profile loading and validation."""
 
-    def test_profile_from_global(self):
+    def test_profile_minimal_from_global_deprecated_to_full(self, capsys):
         cfg = _merge_configs({"profile": "minimal"}, {})
-        assert cfg.profile == "minimal"
+        assert cfg.profile == "full"
+        assert "profile 'minimal' is deprecated" in capsys.readouterr().err
 
     def test_profile_none(self):
         cfg = _merge_configs({"profile": "none"}, {})
@@ -456,10 +476,16 @@ class TestProfile:
         cfg = _merge_configs({"profile": "turbo"}, {})
         assert cfg.profile == "full"
 
+    def test_profile_non_string_fallback(self, capsys):
+        """Malformed profile values fall back without crashing config load."""
+        cfg = _merge_configs({"profile": ["minimal"]}, {})
+        assert cfg.profile == "full"
+        assert "unknown profile ['minimal']" in capsys.readouterr().err
+
     def test_profile_global_overrides_project(self):
         """Global profile wins; project profile ignored."""
-        cfg = _merge_configs({"profile": "minimal"}, {"profile": "none"})
-        assert cfg.profile == "minimal"
+        cfg = _merge_configs({"profile": "none"}, {"profile": "full"})
+        assert cfg.profile == "none"
 
 
 class TestLlmMode:

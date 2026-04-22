@@ -4,7 +4,7 @@ Profiles control how much built-in classification nah starts with. Set in global
 
 ```yaml
 # ~/.config/nah/config.yaml
-profile: full      # full | minimal | none
+profile: full      # full | none
 ```
 
 ## full (default)
@@ -17,19 +17,6 @@ Comprehensive coverage across all tool categories.
 - **All sensitive paths** active
 
 Best for: most users. Start here and tune as needed.
-
-## minimal
-
-Curated essentials only — the commands most likely to be dangerous.
-
-- **13 classification files** with fewer prefix entries
-- **Same built-in classifier functions** as full
-- **All safety lists** populated with defaults
-- **All sensitive paths** active
-
-Covers the high-risk commands (rm, git push --force, curl, kill, docker rm, etc.) while leaving common development tools unclassified (defaulting to `unknown` → `ask`).
-
-Best for: users who want a lighter touch and are comfortable with more `ask` prompts.
 
 ## none
 
@@ -72,11 +59,15 @@ Your `classify:` entries in global config are **always Phase 1** (checked first)
 
 The profile controls what's available in **Phase 2** (built-in classifier functions) and **Phase 3** (built-in tables):
 
-| Phase | Source | `full` | `minimal` | `none` |
-|:-----:|--------|:------:|:---------:|:------:|
-| 1 | Global config `classify:` | active | active | active |
-| 2 | Built-in classifier functions | active | active | **skipped** |
-| 3 | Built-in tables | full set | minimal set | **empty** |
-| 3 | Project config `classify:` | active | active | active |
+| Phase | Source | `full` | `none` |
+|:-----:|--------|:------:|:------:|
+| 1 | Global config `classify:` | active | active |
+| 2 | Built-in classifier functions | active | **skipped** |
+| 3 | Built-in tables | full set | **empty** |
+| 3 | Project config `classify:` | active | active |
 
 This means even with `profile: none`, your global and project classify entries still work.
+
+!!! note
+    `profile: minimal` is deprecated and now behaves like `full` with a warning.
+    Use `none` when you want to build your own taxonomy from a blank slate.
