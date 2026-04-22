@@ -10,6 +10,7 @@ from nah import context, paths, taxonomy
 from nah.content import scan_content, format_content_message
 
 _MAX_UNWRAP_DEPTH = 5
+_MAX_CONTROL_FLOW_EXPANSIONS = 128
 
 # Safe redirect sinks — /dev/ special files that are not real file writes.
 # Excludes block devices (/dev/sda, /dev/disk*) which are dangerous.
@@ -28,6 +29,10 @@ _PYTHON_ENV_RISK_VARS = frozenset({
     "PYTHONPYCACHEPREFIX",
     "PYTHONUSERBASE",
 })
+_CONTROL_FLOW_OPENERS = frozenset({"for", "while", "until", "if"})
+_CONTROL_FLOW_TERMINATORS = {"for": "done", "while": "done", "until": "done", "if": "fi"}
+_LOOP_VALUE_GLOB_CHARS = frozenset("*?[{}")
+_SHELL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass
@@ -146,17 +151,11 @@ def classify_command(command: str) -> ClassifyResult:
             inner_results_by_idx[sub_idx] = _obfuscated_result(
                 [inner_cmd], "unparseable substitution", user_actions)
             continue
-        inner_stages: list[Stage] = []
-        _inner_ok = True
-        for istage_str, iop in inner_raw:
-            try:
-                inner_stages.extend(_raw_stage_to_stages(istage_str, iop))
-            except ValueError:
-                inner_results_by_idx[sub_idx] = _obfuscated_result(
-                    [inner_cmd], "unparseable substitution", user_actions)
-                _inner_ok = False
-                break
-        if not _inner_ok:
+        try:
+            inner_stages = _raw_stages_to_stages(inner_raw)
+        except ValueError:
+            inner_results_by_idx[sub_idx] = _obfuscated_result(
+                [inner_cmd], "unparseable substitution", user_actions)
             continue
         if inner_stages:
             outer_placeholder = Stage(tokens=[f"__nah_psub_{sub_idx}__"])
@@ -164,22 +163,17 @@ def classify_command(command: str) -> ClassifyResult:
                 inner_stages, outer_placeholder, 1, **_kw)
 
     # Decompose each raw stage into classified stages
-    stages: list[Stage] = []
-    for stage_str, op in raw_stages:
-        stage_str = stage_str.strip()
-        if not stage_str:
-            continue
-        try:
-            stages.extend(_raw_stage_to_stages(stage_str, op))
-        except ValueError as exc:
-            result.final_decision = taxonomy.ASK
-            detail = str(exc) or "shlex error"
-            result.reason = (
-                f"unparseable command ({detail})"
-                if detail == "unbalanced subshell group"
-                else f"unparseable command (shlex error{': ' + detail if detail else ''})"
-            )
-            return result
+    try:
+        stages = _raw_stages_to_stages(raw_stages)
+    except ValueError as exc:
+        result.final_decision = taxonomy.ASK
+        detail = str(exc) or "shlex error"
+        result.reason = (
+            f"unparseable command ({detail})"
+            if detail == "unbalanced subshell group"
+            else f"unparseable command (shlex error{': ' + detail if detail else ''})"
+        )
+        return result
 
     if not stages:
         result.final_decision = taxonomy.ALLOW
@@ -989,9 +983,7 @@ def _raw_stage_to_stages(
             ]
 
         raw_inner = _split_on_operators(inner)
-        stages: list[Stage] = []
-        for inner_stage, inner_op in raw_inner:
-            stages.extend(_raw_stage_to_stages(inner_stage, inner_op))
+        stages = _raw_stages_to_stages(raw_inner)
         _apply_outer_operator(stages, op)
 
         redirects = _parse_subshell_redirects(suffix)
@@ -1023,6 +1015,458 @@ def _raw_stage_to_stages(
         operator=op,
         heredoc_literal=heredoc_literal,
     )
+
+
+def _raw_stages_to_stages(raw_stages: list[tuple[str, str]]) -> list[Stage]:
+    """Convert raw shell stages into classifier stages, unwrapping safe control flow."""
+    stages: list[Stage] = []
+    i = 0
+    while i < len(raw_stages):
+        stage_str, op = raw_stages[i]
+        stripped = stage_str.strip()
+        if not stripped:
+            i += 1
+            continue
+
+        keyword = _leading_shell_keyword(stripped)
+        control: tuple[list[Stage], int] | None = None
+        if keyword == "for":
+            control = _consume_for_loop(raw_stages, i)
+        elif keyword in {"while", "until"}:
+            control = _consume_while_until(raw_stages, i, keyword)
+        elif keyword == "if":
+            control = _consume_if(raw_stages, i)
+
+        if control is not None:
+            control_stages, next_i = control
+            stages.extend(control_stages)
+            i = next_i
+            continue
+
+        stages.extend(_raw_stage_to_stages(stage_str, op))
+        i += 1
+    return stages
+
+
+def _leading_shell_keyword(stage_str: str) -> str:
+    """Return the first unquoted shell word when it is a control-flow keyword."""
+    s = stage_str.strip()
+    for keyword in (
+        "for",
+        "while",
+        "until",
+        "if",
+        "do",
+        "done",
+        "then",
+        "else",
+        "elif",
+        "fi",
+    ):
+        if s == keyword or (s.startswith(keyword) and len(s) > len(keyword) and s[len(keyword)].isspace()):
+            return keyword
+    return ""
+
+
+def _strip_leading_shell_keyword(stage_str: str, keyword: str) -> str | None:
+    s = stage_str.strip()
+    if s == keyword:
+        return ""
+    if s.startswith(keyword) and len(s) > len(keyword) and s[len(keyword)].isspace():
+        return s[len(keyword):].strip()
+    return None
+
+
+def _placeholder_tokens_from_raw(parts: list[str]) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(rf"{re.escape(_PSUB_PREFIX)}\d+{re.escape(_PSUB_SUFFIX)}")
+    for part in parts:
+        for match in pattern.findall(part):
+            if match not in seen:
+                seen.add(match)
+                tokens.append(match)
+    return tokens
+
+
+def _control_flow_guard_stage(
+    keyword: str,
+    reason: str,
+    raw_parts: list[str],
+    *,
+    operator: str = "",
+) -> Stage:
+    placeholders = _placeholder_tokens_from_raw(raw_parts)
+    tokens = [keyword, *placeholders] if placeholders else [keyword]
+    return Stage(
+        tokens=tokens,
+        operator=operator,
+        action_hint=taxonomy.UNKNOWN,
+        action_reason=reason,
+    )
+
+
+def _control_flow_substitution_stages(raw_parts: list[str]) -> list[Stage]:
+    placeholders = _placeholder_tokens_from_raw(raw_parts)
+    if not placeholders:
+        return []
+    return [
+        Stage(
+            tokens=placeholders,
+            operator=";",
+            action_hint=taxonomy.FILESYSTEM_READ,
+            action_reason="control-flow expansion",
+        )
+    ]
+
+
+def _control_flow_body_substitution_guard(keyword: str, raw_parts: list[str]) -> list[Stage]:
+    if not _placeholder_tokens_from_raw(raw_parts):
+        return []
+    return [
+        _control_flow_guard_stage(
+            keyword,
+            f"{keyword} body uses command substitution",
+            raw_parts,
+        )
+    ]
+
+
+def _find_control_flow_body(
+    raw_stages: list[tuple[str, str]],
+    start: int,
+    body_keyword: str,
+    end_keyword: str,
+) -> tuple[str, list[tuple[str, str]], str, int] | None:
+    """Return ``(header, body, outer_op, next_index)`` for loop-like constructs."""
+    header = _strip_leading_shell_keyword(raw_stages[start][0], _leading_shell_keyword(raw_stages[start][0]))
+    if header is None:
+        return None
+
+    j = start + 1
+    if j >= len(raw_stages):
+        return None
+    first = _leading_shell_keyword(raw_stages[j][0])
+    if first != body_keyword:
+        return None
+
+    body: list[tuple[str, str]] = []
+    first_body = _strip_leading_shell_keyword(raw_stages[j][0], body_keyword)
+    if first_body is None:
+        return None
+    if first_body:
+        body.append((first_body, raw_stages[j][1]))
+
+    stack: list[str] = []
+    j += 1
+    while j < len(raw_stages):
+        text, op = raw_stages[j]
+        keyword = _leading_shell_keyword(text)
+
+        if not stack and keyword == end_keyword:
+            remainder = _strip_leading_shell_keyword(text, end_keyword)
+            if remainder:
+                return None
+            return header, body, op, j + 1
+
+        if keyword in _CONTROL_FLOW_OPENERS:
+            stack.append(_CONTROL_FLOW_TERMINATORS[keyword])
+        elif stack and keyword == stack[-1]:
+            stack.pop()
+
+        body.append((text, op))
+        j += 1
+
+    return None
+
+
+def _safe_literal_loop_values(values: list[str]) -> bool:
+    if not values or len(values) > _MAX_CONTROL_FLOW_EXPANSIONS:
+        return False
+    for value in values:
+        if (
+            not value
+            or value.startswith("-")
+            or any(ch.isspace() for ch in value)
+            or any(ch in value for ch in _LOOP_VALUE_GLOB_CHARS)
+            or "$" in value
+            or "`" in value
+            or _PSUB_PREFIX in value
+        ):
+            return False
+    return True
+
+
+def _stages_reference_var(stages: list[Stage], name: str) -> bool:
+    for stage in stages:
+        for token in [*stage.tokens, stage.redirect_target]:
+            for match in _INTRA_CHAIN_VAR_RE.finditer(token):
+                if (match.group(1) or match.group(2)) == name:
+                    return True
+            if _token_has_complex_var_reference(token, name):
+                return True
+    return False
+
+
+def _token_has_complex_var_reference(token: str, name: str) -> bool:
+    pattern = re.compile(
+        rf"\$\{{!?"
+        rf"{re.escape(name)}"
+        rf"(?:\}}|(?![A-Za-z0-9_])[^}}]*\}})"
+    )
+    return bool(pattern.search(token))
+
+
+def _raw_parts_reference_var(raw_parts: list[str], name: str) -> bool:
+    pattern = re.compile(
+        rf"\$(?:"
+        rf"\{{!?{re.escape(name)}(?:\}}|(?![A-Za-z0-9_])[^}}]*\}})"
+        rf"|{re.escape(name)}(?![A-Za-z0-9_])"
+        rf")"
+    )
+    return any(pattern.search(part) for part in raw_parts)
+
+
+def _stages_use_unsupported_loop_var_expansion(stages: list[Stage], name: str) -> bool:
+    pattern = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
+    for stage in stages:
+        for token in [*stage.tokens, stage.redirect_target]:
+            if f"${{!{name}" in token:
+                return True
+            for match in pattern.finditer(token):
+                if match.group(1) == name and match.group(2):
+                    return True
+    return False
+
+
+def _expand_loop_body_for_values(
+    body_stages: list[Stage],
+    name: str,
+    values: list[str],
+    outer_op: str,
+) -> list[Stage]:
+    expanded: list[Stage] = []
+    for value_index, value in enumerate(values):
+        var_map = {name: value}
+        for stage_index, stage in enumerate(body_stages):
+            op = stage.operator
+            if stage_index == len(body_stages) - 1:
+                op = ";" if value_index < len(values) - 1 else outer_op
+            expanded.append(
+                replace(
+                    stage,
+                    tokens=[_expand_token(token, var_map) for token in stage.tokens],
+                    redirect_target=_expand_token(stage.redirect_target, var_map),
+                    operator=op,
+                )
+            )
+    return expanded
+
+
+def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[list[Stage], int] | None:
+    parsed = _find_control_flow_body(raw_stages, start, "do", "done")
+    if parsed is None:
+        return None
+    header, body_raw, outer_op, next_i = parsed
+    raw_parts = [raw_stages[start][0], *(part for part, _op in body_raw)]
+
+    if outer_op == "|":
+        return [
+            _control_flow_guard_stage(
+                "for",
+                "control-flow pipeline is not inspectable",
+                raw_parts,
+                operator=outer_op,
+            )
+        ], next_i
+
+    try:
+        header_tokens = _split_stage_tokens(header)
+    except ValueError:
+        return [_control_flow_guard_stage("for", "unparseable for-loop header", raw_parts)], next_i
+
+    if len(header_tokens) < 3 or header_tokens[1] != "in" or not _SHELL_NAME_RE.fullmatch(header_tokens[0]):
+        return [_control_flow_guard_stage("for", "unsupported for-loop header", raw_parts)], next_i
+
+    name = header_tokens[0]
+    values = header_tokens[2:]
+    try:
+        body_stages = _raw_stages_to_stages(body_raw)
+    except ValueError:
+        return [_control_flow_guard_stage("for", "unparseable for-loop body", raw_parts)], next_i
+    if not body_stages:
+        return [_control_flow_guard_stage("for", "empty for-loop body", raw_parts)], next_i
+
+    guard_stages = _control_flow_substitution_stages([header])
+    body_parts = [part for part, _op in body_raw]
+    # Body substitutions were extracted before loop variables can be expanded.
+    # Add an ask-stage so placeholder paths never silently classify as
+    # project-local, while still classifying the visible body for direct risks.
+    body_substitution_guard = _control_flow_body_substitution_guard("for", body_parts)
+
+    raw_body_references_loop_var = _raw_parts_reference_var(body_parts, name)
+    references_loop_var = _stages_reference_var(body_stages, name)
+    if raw_body_references_loop_var and not references_loop_var:
+        return guard_stages + [
+            _control_flow_guard_stage(
+                "for",
+                "for-loop variable is hidden by shell syntax",
+                body_parts,
+            )
+        ], next_i
+    if references_loop_var:
+        if _stages_use_unsupported_loop_var_expansion(body_stages, name):
+            return guard_stages + [
+                _control_flow_guard_stage(
+                    "for",
+                    "for-loop variable uses unsupported shell expansion",
+                    body_parts,
+                )
+            ], next_i
+        if not _safe_literal_loop_values(values):
+            return guard_stages + [
+                _control_flow_guard_stage(
+                    "for",
+                    "for-loop variable comes from a dynamic item list",
+                    [header],
+                )
+            ], next_i
+        return (
+            guard_stages
+            + body_substitution_guard
+            + _expand_loop_body_for_values(body_stages, name, values, outer_op)
+        ), next_i
+
+    _apply_outer_operator(body_stages, outer_op)
+    return guard_stages + body_substitution_guard + body_stages, next_i
+
+
+def _consume_while_until(
+    raw_stages: list[tuple[str, str]],
+    start: int,
+    keyword: str,
+) -> tuple[list[Stage], int] | None:
+    parsed = _find_control_flow_body(raw_stages, start, "do", "done")
+    if parsed is None:
+        return None
+    header, body_raw, outer_op, next_i = parsed
+    raw_parts = [raw_stages[start][0], *(part for part, _op in body_raw)]
+
+    if outer_op == "|":
+        return [
+            _control_flow_guard_stage(
+                keyword,
+                "control-flow pipeline is not inspectable",
+                raw_parts,
+                operator=outer_op,
+            )
+        ], next_i
+
+    condition_raw = [(header, ";")] if header else []
+    try:
+        condition_stages = _raw_stages_to_stages(condition_raw)
+        body_stages = _raw_stages_to_stages(body_raw)
+    except ValueError:
+        return [_control_flow_guard_stage(keyword, f"unparseable {keyword} body", raw_parts)], next_i
+    if not condition_stages or not body_stages:
+        return [_control_flow_guard_stage(keyword, f"empty {keyword} body", raw_parts)], next_i
+
+    _apply_outer_operator(body_stages, outer_op)
+    body_parts = [part for part, _op in body_raw]
+    return (
+        condition_stages
+        + _control_flow_body_substitution_guard(keyword, body_parts)
+        + body_stages
+    ), next_i
+
+
+def _consume_if(raw_stages: list[tuple[str, str]], start: int) -> tuple[list[Stage], int] | None:
+    condition_head = _strip_leading_shell_keyword(raw_stages[start][0], "if")
+    if condition_head is None:
+        return None
+
+    executable_raw: list[tuple[str, str]] = []
+    current_condition: list[tuple[str, str]] = []
+    if condition_head:
+        current_condition.append((condition_head, raw_stages[start][1]))
+
+    in_condition = True
+    stack: list[str] = []
+    j = start + 1
+    while j < len(raw_stages):
+        text, op = raw_stages[j]
+        keyword = _leading_shell_keyword(text)
+
+        if stack:
+            if keyword in _CONTROL_FLOW_OPENERS:
+                stack.append(_CONTROL_FLOW_TERMINATORS[keyword])
+            elif keyword == stack[-1]:
+                stack.pop()
+            if in_condition:
+                current_condition.append((text, op))
+            else:
+                executable_raw.append((text, op))
+            j += 1
+            continue
+
+        if keyword == "then" and in_condition:
+            executable_raw.extend(current_condition)
+            current_condition = []
+            in_condition = False
+            remainder = _strip_leading_shell_keyword(text, "then")
+            if remainder:
+                executable_raw.append((remainder, op))
+            j += 1
+            continue
+
+        if keyword == "else" and not in_condition:
+            remainder = _strip_leading_shell_keyword(text, "else")
+            if remainder:
+                executable_raw.append((remainder, op))
+            j += 1
+            continue
+
+        if keyword == "elif" and not in_condition:
+            remainder = _strip_leading_shell_keyword(text, "elif")
+            current_condition = [(remainder, op)] if remainder else []
+            in_condition = True
+            j += 1
+            continue
+
+        if keyword == "fi" and not in_condition:
+            remainder = _strip_leading_shell_keyword(text, "fi")
+            if remainder:
+                return None
+            outer_op = op
+            raw_parts = [part for part, _op in raw_stages[start:j + 1]]
+            if outer_op == "|":
+                return [
+                    _control_flow_guard_stage(
+                        "if",
+                        "control-flow pipeline is not inspectable",
+                        raw_parts,
+                        operator=outer_op,
+                    )
+                ], j + 1
+            try:
+                stages = _raw_stages_to_stages(executable_raw)
+            except ValueError:
+                return [_control_flow_guard_stage("if", "unparseable if body", raw_parts)], j + 1
+            if not stages:
+                return [_control_flow_guard_stage("if", "empty if body", raw_parts)], j + 1
+            _apply_outer_operator(stages, outer_op)
+            executable_parts = [part for part, _op in executable_raw]
+            return _control_flow_body_substitution_guard("if", executable_parts) + stages, j + 1
+
+        if keyword in _CONTROL_FLOW_OPENERS:
+            stack.append(_CONTROL_FLOW_TERMINATORS[keyword])
+        if in_condition:
+            current_condition.append((text, op))
+        else:
+            executable_raw.append((text, op))
+        j += 1
+
+    return None
 
 
 def _decompose(
@@ -2926,30 +3370,22 @@ def _unwrap_shell(
             inner_sub_results[psub_idx] = _obfuscated_result(
                 [psub_cmd], "unparseable substitution", user_actions)
             continue
-        psub_stages: list[Stage] = []
-        _psub_ok = True
-        for pstage_str, pop in psub_raw:
-            try:
-                psub_stages.extend(_raw_stage_to_stages(pstage_str, pop))
-            except ValueError:
-                inner_sub_results[psub_idx] = _obfuscated_result(
-                    [psub_cmd], "unparseable substitution", user_actions)
-                _psub_ok = False
-                break
-        if not _psub_ok:
+        try:
+            psub_stages = _raw_stages_to_stages(psub_raw)
+        except ValueError:
+            inner_sub_results[psub_idx] = _obfuscated_result(
+                [psub_cmd], "unparseable substitution", user_actions)
             continue
         if psub_stages:
             ph = Stage(tokens=[f"__nah_psub_{psub_idx}__"])
             inner_sub_results[psub_idx] = _classify_inner(
                 psub_stages, ph, depth + 1, **_ikw)
 
-    inner_stages: list[Stage] = []
-    for stage_str, op in raw_stages:
-        try:
-            inner_stages.extend(_raw_stage_to_stages(stage_str, op))
-        except ValueError as exc:
-            detail = str(exc) or "shlex error"
-            return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)
+    try:
+        inner_stages = _raw_stages_to_stages(raw_stages)
+    except ValueError as exc:
+        detail = str(exc) or "shlex error"
+        return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)
 
     if inner_stages:
         inner_stages = [_copy_python_metadata(s, stage) for s in inner_stages]
@@ -2976,6 +3412,8 @@ def _classify_inner(
     kw = dict(global_table=global_table, builtin_table=builtin_table,
               project_table=project_table, user_actions=user_actions, profile=profile,
               trust_project=trust_project)
+
+    inner_stages = _expand_intra_chain_vars(inner_stages)
 
     if len(inner_stages) <= 1:
         # Simple case — single command, no operators

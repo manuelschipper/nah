@@ -191,7 +191,7 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
 _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
-                          "gh", "mise",
+                          "gh", "glab", "mise",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -562,6 +562,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_gh_api(tokens, profile=profile)
+        if action is not None:
+            return action
+        action = _classify_glab_api(tokens, profile=profile)
         if action is not None:
             return action
         action = _classify_mise_exec_wrapper(
@@ -1188,6 +1191,7 @@ _GH_API_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 _GH_API_METHOD_FLAGS = {"--method", "-X"}
 _GH_API_RAW_FIELD_FLAGS = {"--raw-field", "-f"}
 _GH_API_TYPED_FIELD_FLAGS = {"--field", "-F"}
+_GH_API_FORM_FIELD_FLAGS = {"--form"}
 _GH_API_SPLIT_VALUE_FLAGS = {
     "--cache", "--header", "-H", "--hostname", "--jq", "-q",
     "--preview", "-p", "--template", "-t",
@@ -1209,9 +1213,9 @@ def _gh_api_payload_value_is_file_sourced(payload: str | None) -> bool:
     return value.startswith("@")
 
 
-def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
-    """Flag-dependent: gh api reads are git_safe; writes/bodies are network_write."""
-    if profile != "full" or len(tokens) < 2 or tokens[0] != "gh" or tokens[1] != "api":
+def _classify_api_cli(tokens: list[str], command: str, *, profile: str = "full") -> str | None:
+    """Flag-dependent: API reads are git_safe; writes/bodies are network_write."""
+    if profile != "full" or len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
         return None
 
     explicit_read_method = False
@@ -1298,6 +1302,15 @@ def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
             i += 1
             continue
 
+        if tok in _GH_API_FORM_FIELD_FLAGS:
+            write_indicator = True
+            i += 2 if i + 1 < len(tokens) else 1
+            continue
+        if tok.startswith("--form="):
+            write_indicator = True
+            i += 1
+            continue
+
         if tok in _GH_API_SPLIT_VALUE_FLAGS:
             i += 2 if i + 1 < len(tokens) else 1
             continue
@@ -1319,6 +1332,16 @@ def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
     if has_field and not explicit_read_method:
         return NETWORK_WRITE
     return GIT_SAFE
+
+
+def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
+    """Flag-dependent: gh api reads are git_safe; writes/bodies are network_write."""
+    return _classify_api_cli(tokens, "gh", profile=profile)
+
+
+def _classify_glab_api(tokens: list[str], *, profile: str = "full") -> str | None:
+    """Flag-dependent: glab api reads are git_safe; writes/bodies are network_write."""
+    return _classify_api_cli(tokens, "glab", profile=profile)
 
 
 _CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"

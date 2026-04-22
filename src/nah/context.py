@@ -187,6 +187,8 @@ def extract_host(tokens: list[str]) -> str | None:
     cmd = tokens[0]
     args = tokens[1:]
 
+    if cmd in ("gh", "glab") and args[:1] == ["api"]:
+        return _extract_api_cli_host(args[1:])
     if cmd in ("curl", "wget"):
         return _extract_url_host(args)
     if cmd in ("http", "https", "xh", "xhs"):
@@ -198,6 +200,23 @@ def extract_host(tokens: list[str]) -> str | None:
 
     # Fallback: try URL extraction
     return _extract_url_host(args)
+
+
+def _extract_api_cli_host(args: list[str]) -> str | None:
+    """Extract explicit gh/glab api hosts without treating fields as hosts."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--hostname":
+            return args[i + 1] if i + 1 < len(args) else None
+        if tok.startswith("--hostname="):
+            return tok.split("=", 1)[1] or None
+        if "://" in tok or tok.startswith("//"):
+            parsed = urllib.parse.urlparse(tok)
+            if parsed.hostname:
+                return parsed.hostname
+        i += 1
+    return None
 
 
 _HTTPIE_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}

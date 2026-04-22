@@ -30,6 +30,29 @@ def test_composition_messages_take_priority():
         assert_clean(fragment)
 
 
+def test_composition_reason_text_translates_without_metadata():
+    cases = [
+        ("unwrapped: data exfiltration: curl receives sensitive input", "this sends sensitive local data over the network"),
+        ("unwrapped: obfuscated execution: bash receives decoded input", "this decodes hidden content and runs it"),
+        ("unwrapped: local code execution: bash receives file input", "this runs code read from a local file or command output"),
+        ("if body uses command substitution", "this shell body uses dynamic command output"),
+        ("control-flow pipeline is not inspectable", "this shell loop pipes output in a way nah cannot inspect safely"),
+        ("for-loop variable comes from a dynamic item list", "this shell loop uses a dynamic item list"),
+        (
+            "for-loop variable uses unsupported shell expansion",
+            "this shell loop uses shell expansion nah cannot inspect safely",
+        ),
+        (
+            "for-loop variable is hidden by shell syntax",
+            "this shell loop hides a variable in shell syntax nah cannot inspect safely",
+        ),
+    ]
+    for reason, expected in cases:
+        fragment = messages.human_reason(reason, decision=taxonomy.BLOCK)
+        assert fragment == expected
+        assert_clean(fragment)
+
+
 def test_reason_pattern_messages():
     cases = [
         ("network_outbound \u2192 ask (unknown host: schipper.ai)", "this contacts an untrusted host: schipper.ai"),
