@@ -96,7 +96,7 @@ If you previously ran direct-hook setup, remove direct hooks before enabling the
 plugin:
 
 ```bash
-nah uninstall
+nah uninstall claude
 ```
 
 This avoids running both the direct hook and the plugin hook for the same tool
@@ -114,7 +114,7 @@ If you still want direct-hook mode after uninstalling the plugin, install the
 PyPI CLI and run:
 
 ```bash
-nah install
+nah install claude
 ```
 
 ## Development Smoke Test

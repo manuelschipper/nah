@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
 - **OpenRouter setup target** — added `nah install openrouter` and `nah uninstall openrouter` to configure the existing OpenRouter LLM provider in global user config using `llm.openrouter.key_env: OPENROUTER_API_KEY`, without storing raw API keys or writing project config. (nah-882)
 
+### Changed
+
+- **Install docs now start with a chooser** — README and site install docs now separate the Claude Code plugin, PyPI CLI/direct-hook, terminal guard, config extra, and OpenRouter paths more clearly, and stale setup examples now use explicit target-first lifecycle commands instead of bare `nah install`. (nah-885)
+
 ### Fixed
 
 - **Shell control-flow bodies are classified by payload** — `for ...; do ...; done`, `while ...; do ...; done`, and `if ...; then ...; fi` now expose their executable inner commands to the classifier instead of stopping at reserved words like `for`, `do`, and `done`. Literal `for` item lists are expanded into the loop body so safe batch GitHub/GitLab CLI API reads can allow while sensitive paths still block; dynamic loop values and control-flow body command substitutions fail closed. Tracks [#78](https://github.com/manuelschipper/nah/issues/78).
