@@ -93,8 +93,7 @@ When both configs exist, nah merges them with these rules:
 ## Target overrides
 
 Use `targets.<target>` when a runtime needs different policy from the shared
-default. Supported targets are `claude`, `bash`, and `zsh`; `openrouter` is a
-provider setup target, not a guarded runtime.
+default. Supported targets are `claude`, `bash`, and `zsh`.
 
 ```yaml
 # ~/.config/nah/config.yaml
@@ -136,9 +135,9 @@ Bash and zsh default to LLM mode off even when global LLM mode is on. Enable
 terminal LLM review only with an explicit target override such as
 `targets.bash.llm.mode: on`.
 
-Provider credentials and provider selection stay global-only. `nah install
-openrouter` writes global config, stores `llm.openrouter.key_env`, and never
-writes a raw API key.
+Provider credentials and provider selection stay global-only. Configure LLM
+providers directly in global config and store environment-variable names such
+as `llm.openrouter.key_env`, not raw API keys.
 
 ## YAML format
 

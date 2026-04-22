@@ -12,7 +12,7 @@
 | Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
 | Protect your terminal | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 | Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
-| Add optional LLM review | PyPI CLI + `nah install openrouter` | Yes | Terminal targets keep LLM mode off unless enabled per target |
+| Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Supports Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, and Snowflake Cortex |
 
 Bare `nah install` exits with a target list. Setup commands should name the
 target you want.
@@ -35,7 +35,7 @@ plugin is enabled, normal `claude` sessions load nah automatically without
 
 The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
 `nah` shell command. Use the PyPI path when you want CLI commands such as
-`nah test`, `nah allow`, `nah deny`, terminal protection, OpenRouter setup, or
+`nah test`, `nah allow`, `nah deny`, terminal protection, LLM provider config, or
 direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
@@ -116,18 +116,31 @@ For pipx installs, inject PyYAML into the existing nah environment:
 pipx inject nah pyyaml
 ```
 
-## OpenRouter Setup
+## Optional LLM Review
 
-OpenRouter is an optional LLM provider for ambiguous decisions:
+nah supports optional LLM review for ambiguous decisions. Provider setup is
+configuration, not a `nah install` target. Configure one or more providers in
+`~/.config/nah/config.yaml`:
+
+```yaml
+llm:
+  mode: on
+  providers: [openrouter]
+  openrouter:
+    key_env: OPENROUTER_API_KEY
+    model: google/gemini-3.1-flash-lite-preview
+```
+
+Then export the matching provider key, for example:
 
 ```bash
-nah install openrouter
 export OPENROUTER_API_KEY=...
 ```
 
-This writes global user config only, stores `key_env: OPENROUTER_API_KEY`
-instead of a raw key, and leaves bash/zsh LLM mode off unless you enable it
-under `targets.bash.llm.mode` or `targets.zsh.llm.mode`.
+Supported providers: Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, and
+Snowflake Cortex. See [LLM layer](configuration/llm.md) for provider-specific
+examples. Bash and zsh keep LLM mode off unless you enable it under
+`targets.bash.llm.mode` or `targets.zsh.llm.mode`.
 
 ## How Permissions Work
 

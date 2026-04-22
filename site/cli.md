@@ -27,7 +27,6 @@ nah install claude         # direct Claude Code hooks
 nah install claude --force # direct hooks even when the Claude plugin is enabled
 nah install bash           # interactive bash guard
 nah install zsh            # interactive zsh guard
-nah install openrouter     # configure the optional OpenRouter provider
 ```
 
 Bare `nah install` exits nonzero with a target list instead of assuming Claude
@@ -39,9 +38,8 @@ entries to Claude Code's `settings.json`.
 `~/.config/nah/terminal/` and add a small managed source block to the matching
 rc file. Restart or replace the shell before expecting the guard to load.
 
-`nah install openrouter` writes global user config only. It configures
-`llm.providers: [openrouter]`, stores `llm.openrouter.key_env:
-OPENROUTER_API_KEY`, and never stores a raw API key.
+LLM provider setup lives in config, not `nah install`. See
+[LLM layer](configuration/llm.md) for provider examples.
 
 **Flags:**
 
@@ -62,8 +60,7 @@ nah update zsh
 `nah update claude` unlocks the hook script, overwrites it with the current
 version, and re-locks it (chmod 444). It also updates the interpreter path and
 command in Claude settings. Shell targets regenerate snippets and refresh the
-managed rc block without duplicating it. `openrouter` has no runtime files to
-update.
+managed rc block without duplicating it.
 
 ### nah uninstall
 
@@ -73,14 +70,11 @@ Remove nah from a target.
 nah uninstall claude
 nah uninstall bash
 nah uninstall zsh
-nah uninstall openrouter
 ```
 
 `nah uninstall claude` removes direct hook entries from Claude Code settings and
 deletes the hook script if no direct integration still uses it. Shell targets
-remove only nah-owned marked rc blocks and generated snippets. `openrouter`
-removes the OpenRouter provider block from global config and turns `llm.mode`
-off when no providers remain.
+remove only nah-owned marked rc blocks and generated snippets.
 
 ### nah config show
 
@@ -322,7 +316,6 @@ nah status
 nah status claude
 nah status bash
 nah status zsh
-nah status openrouter
 ```
 
 Bare `nah status` lists action overrides, classify entries, trusted
@@ -330,7 +323,7 @@ hosts/paths, allow-paths, and safety list modifications. Global classify entries
 that shadow built-in rules show annotations.
 
 Target status summarizes direct Claude hook/plugin state, shell guard
-installation and loaded markers, or OpenRouter provider configuration.
+installation, and loaded markers.
 
 ### nah doctor
 
@@ -340,7 +333,6 @@ Show deeper diagnostics for a target.
 nah doctor claude
 nah doctor bash
 nah doctor zsh
-nah doctor openrouter
 ```
 
 Shell diagnostics report the rc file, generated snippet, loaded guard markers,

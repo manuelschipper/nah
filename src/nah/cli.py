@@ -289,72 +289,6 @@ def _install_for_agent(agent_key: str) -> None:
         print(f"    Backup:    {backup}")
 
 
-def _install_openrouter() -> None:
-    """Configure the existing OpenRouter LLM provider in global config."""
-    from nah.config import get_global_config_path
-    from nah.remember import _ensure_yaml, _read_config, _write_config
-
-    try:
-        _ensure_yaml()
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        raise SystemExit(1)
-    _warn_comments(project=False)
-    path = get_global_config_path()
-    data = _read_config(path)
-    llm = data.setdefault("llm", {})
-    if not isinstance(llm, dict):
-        llm = {}
-        data["llm"] = llm
-    providers = llm.get("providers", [])
-    if not isinstance(providers, list):
-        providers = []
-    if "openrouter" not in providers:
-        providers.append("openrouter")
-    llm["providers"] = providers
-    llm["mode"] = "on"
-    openrouter = llm.setdefault("openrouter", {})
-    if not isinstance(openrouter, dict):
-        openrouter = {}
-        llm["openrouter"] = openrouter
-    openrouter.setdefault("key_env", "OPENROUTER_API_KEY")
-    openrouter.setdefault("model", "google/gemini-3.1-flash-lite-preview")
-    _write_config(path, data)
-    print("nah OpenRouter provider configured.")
-    print(f"  Config:  {path}")
-    print("  API key: set OPENROUTER_API_KEY in your shell environment")
-    print("  Note: bash and zsh targets keep LLM mode off unless enabled under targets.<shell>.llm.mode")
-
-
-def _uninstall_openrouter() -> None:
-    """Remove OpenRouter provider config from global config."""
-    from nah.config import get_global_config_path
-    from nah.remember import _ensure_yaml, _read_config, _write_config
-
-    try:
-        _ensure_yaml()
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        raise SystemExit(1)
-    _warn_comments(project=False)
-    path = get_global_config_path()
-    data = _read_config(path)
-    llm = data.get("llm", {})
-    if not isinstance(llm, dict):
-        print("OpenRouter provider not configured.")
-        return
-    providers = llm.get("providers", [])
-    if isinstance(providers, list):
-        llm["providers"] = [p for p in providers if p != "openrouter"]
-    llm.pop("openrouter", None)
-    if not llm.get("providers"):
-        llm["mode"] = "off"
-    data["llm"] = llm
-    _write_config(path, data)
-    print("nah OpenRouter provider removed.")
-    print(f"  Config: {path}")
-
-
 def cmd_install(args: argparse.Namespace) -> None:
     target = _require_lifecycle_target(args, "install")
     if target.key in targets.SHELL_TARGETS:
@@ -362,9 +296,6 @@ def cmd_install(args: argparse.Namespace) -> None:
         terminal_guard.install_shell(target.key)
         print(f"nah {__version__} installed for {target.key}.")
         _print_shell_reload_hint(target.key)
-        return
-    if target.key == targets.OPENROUTER:
-        _install_openrouter()
         return
 
     agent_keys = _agent_keys_for_target(target.key)
@@ -432,9 +363,6 @@ def cmd_update(args: argparse.Namespace) -> None:
         print(f"nah {__version__} terminal guard updated for {target.key}.")
         _print_shell_reload_hint(target.key)
         return
-    if target.key == targets.OPENROUTER:
-        print("nah update openrouter: OpenRouter has no runtime files to update.", file=sys.stderr)
-        raise SystemExit(2)
 
     agent_keys = _agent_keys_for_target(target.key)
 
@@ -874,9 +802,6 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
         terminal_guard.uninstall_shell(target.key)
         print(f"nah terminal guard uninstalled for {target.key}.")
         return
-    if target.key == targets.OPENROUTER:
-        _uninstall_openrouter()
-        return
 
     agent_keys = _agent_keys_for_target(target.key)
 
@@ -1173,19 +1098,6 @@ def cmd_target_status(target_key: str) -> None:
         print(f"  plugin:       {'enabled' if state.has_plugin else 'not detected'}")
         print(f"  hook script:  {_HOOK_SCRIPT}")
         return
-    if target.key == targets.OPENROUTER:
-        from nah.config import get_config, get_global_config_path
-        cfg = get_config()
-        llm = cfg.llm if isinstance(cfg.llm, dict) else {}
-        providers = llm.get("providers", [])
-        openrouter = llm.get("openrouter", {})
-        key_env = openrouter.get("key_env", "OPENROUTER_API_KEY") if isinstance(openrouter, dict) else "OPENROUTER_API_KEY"
-        configured = isinstance(providers, list) and "openrouter" in providers and isinstance(openrouter, dict)
-        print("openrouter:")
-        print(f"  configured: {'yes' if configured else 'no'}")
-        print(f"  config:     {get_global_config_path()}")
-        print(f"  key env:    {key_env} ({'set' if os.environ.get(key_env) else 'not set'})")
-        return
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
@@ -1201,9 +1113,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(f"  settings:     {settings}")
         print(f"  settings dir: {'exists' if settings.parent.exists() else 'missing'}")
         print(f"  claude path:  {shutil.which('claude') or '(not on PATH)'}")
-        return
-    if target.key == targets.OPENROUTER:
-        cmd_target_status(target.key)
         return
 
 
@@ -1435,7 +1344,7 @@ def main():
 
     sub = parser.add_subparsers(dest="command")
     install_parser = sub.add_parser("install", help="Install nah for a target")
-    install_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
+    install_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
     install_parser.add_argument(
         "--force",
         action="store_true",
@@ -1444,7 +1353,7 @@ def main():
     update_parser = sub.add_parser("update", help="Update nah files for a target")
     update_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
     uninstall_parser = sub.add_parser("uninstall", help="Remove nah from a target")
-    uninstall_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
+    uninstall_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--target", default=None, help="Target policy to simulate")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
@@ -1488,9 +1397,9 @@ def main():
     trust_parser.add_argument("target", help="Path or hostname to trust")
     trust_parser.add_argument("--project", action="store_true", help="Write to project config (rejected for paths)")
     status_parser = sub.add_parser("status", help="Show custom rules or target status")
-    status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh, openrouter")
+    status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
-    doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh, openrouter")
+    doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")

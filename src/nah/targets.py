@@ -6,11 +6,9 @@ from dataclasses import dataclass
 CLAUDE = "claude"
 BASH = "bash"
 ZSH = "zsh"
-OPENROUTER = "openrouter"
 
 AGENT = "agent"
 SHELL = "shell"
-PROVIDER = "provider"
 
 
 @dataclass(frozen=True)
@@ -43,18 +41,10 @@ TARGETS: dict[str, Target] = {
         label="zsh",
         description="protect interactive zsh",
     ),
-    OPENROUTER: Target(
-        key=OPENROUTER,
-        kind=PROVIDER,
-        label="OpenRouter",
-        description="configure the optional OpenRouter LLM provider",
-        can_update=False,
-    ),
 }
 
 SHELL_TARGETS = {BASH, ZSH}
 AGENT_TARGETS = {CLAUDE}
-PROVIDER_TARGETS = {OPENROUTER}
 
 
 def get_target(key: str | None) -> Target | None:
@@ -81,7 +71,7 @@ def format_target_help(command: str) -> str:
     """Return the guided target list for lifecycle commands."""
     action = f"what to {command}" if command in ("install", "uninstall", "update") else "a target"
     lines = [f"nah {command}: choose {action}", ""]
-    for key in (CLAUDE, BASH, ZSH, OPENROUTER):
+    for key in (CLAUDE, BASH, ZSH):
         target = TARGETS[key]
         if command == "update" and not target.can_update:
             continue

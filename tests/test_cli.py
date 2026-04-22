@@ -736,13 +736,18 @@ class TestTargetLifecycleCli:
         err = capsys.readouterr().err
         assert "nah install claude" in err
         assert "nah install bash" in err
+        assert "openrouter" not in err
 
-    def test_update_openrouter_is_not_supported(self, capsys):
+    def test_openrouter_is_not_a_lifecycle_target(self, capsys):
         import nah.cli as cli_mod
         with pytest.raises(SystemExit) as exc:
-            cli_mod.cmd_update(argparse.Namespace(target="openrouter"))
+            cli_mod.cmd_install(argparse.Namespace(target="openrouter", force=False))
         assert exc.value.code == 2
-        assert "no runtime files" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "unknown target 'openrouter'" in err
+        assert "nah install claude" in err
+        assert "nah install bash" in err
+        assert "nah install zsh" in err
 
     def test_install_bash_delegates_to_terminal_guard(self):
         import nah.cli as cli_mod
@@ -750,20 +755,12 @@ class TestTargetLifecycleCli:
             cli_mod.cmd_install(argparse.Namespace(target="bash", force=False))
         install_shell.assert_called_once_with("bash")
 
-    def test_install_openrouter_writes_key_env_not_secret(self, tmp_path):
-        yaml = pytest.importorskip("yaml")
+    def test_status_openrouter_is_not_supported(self, capsys):
         import nah.cli as cli_mod
-
-        cfg = tmp_path / "config.yaml"
-        with patch("nah.config.get_global_config_path", return_value=str(cfg)), \
-             patch("nah.cli._warn_comments"):
-            cli_mod.cmd_install(argparse.Namespace(target="openrouter", force=False))
-
-        data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
-        assert data["llm"]["mode"] == "on"
-        assert "openrouter" in data["llm"]["providers"]
-        assert data["llm"]["openrouter"]["key_env"] == "OPENROUTER_API_KEY"
-        assert "api_key" not in data["llm"]["openrouter"]
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_status(argparse.Namespace(target="openrouter"))
+        assert exc.value.code == 2
+        assert "unknown target 'openrouter'" in capsys.readouterr().err
 
     def test_hidden_terminal_decision(self, capsys):
         import nah.cli as cli_mod

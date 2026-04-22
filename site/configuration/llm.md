@@ -43,17 +43,11 @@ llm:
 
 `llm.enabled: true` is still accepted for backward compatibility, but `llm.mode: on` is the current form.
 
-To configure OpenRouter from the CLI:
-
-```bash
-nah install openrouter
-export OPENROUTER_API_KEY=...
-```
-
-This writes global user config only, adds `openrouter` to the provider cascade,
-stores `key_env: OPENROUTER_API_KEY`, and never stores a raw API key. Install
-`nah[config]` or inject PyYAML into pipx when the command needs YAML write
-support.
+LLM provider setup lives in global config. Store environment-variable names such
+as `key_env: OPENROUTER_API_KEY`, not raw API keys. `nah install` is reserved
+for installing nah into a guarded runtime such as Claude Code, bash, or zsh.
+Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
+config files.
 
 ### Provider examples
 
