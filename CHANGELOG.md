@@ -16,11 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Human-friendly safety explanations** — terminal guard prompts, Claude Code permission reasons, `nah test`, and compact `nah log` output now show short `nah paused:` / `nah blocked:` messages such as “this can rewrite Git history” while preserving the technical `reason`, action type, hints, and JSON/log diagnostics alongside a new `human_reason` field. (nah-884)
 - **Opt-in bash and zsh terminal guard** — added `nah install bash` and `nah install zsh` to protect interactive shell sessions with managed rc-file snippets that classify complete single-line commands before execution. The guard supports status/doctor diagnostics, prompt-on-ask behavior, fail-closed handling for unsupported multiline/here-doc/continuation input, explicit bypass via `nah-bypass <command>` or `NAH_TERMINAL_BYPASS=1`, and terminal decision logging for blocks, denied asks, confirmed asks, bypasses, and errors while keeping allowed terminal commands out of the nah log by default. (nah-882)
 - **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
-- **OpenRouter setup target** — added `nah install openrouter` and `nah uninstall openrouter` to configure the existing OpenRouter LLM provider in global user config using `llm.openrouter.key_env: OPENROUTER_API_KEY`, without storing raw API keys or writing project config. (nah-882)
 
 ### Changed
 
-- **Install docs now start with a chooser** — README and site install docs now separate the Claude Code plugin, PyPI CLI/direct-hook, terminal guard, config extra, and OpenRouter paths more clearly, and stale setup examples now use explicit target-first lifecycle commands instead of bare `nah install`. (nah-885)
+- **Install lifecycle targets stay runtime-only** — removed the unreleased `nah install openrouter` / `nah uninstall openrouter` convenience path so lifecycle commands only install or remove nah from guarded runtimes (`claude`, `bash`, `zsh`). LLM providers remain configured through global config. (nah-882 follow-up)
+- **Install docs now start with a chooser** — README and site install docs now separate the Claude Code plugin, PyPI CLI/direct-hook, terminal guard, config extra, and LLM provider configuration more clearly, and stale setup examples now use explicit target-first lifecycle commands instead of bare `nah install`. (nah-885)
 
 ### Fixed
 

@@ -66,7 +66,7 @@ Plugin mode is opt-in and managed by Claude Code's plugin manager. Normal
 
 The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
 `nah` shell command. Use the PyPI path when you want `nah test`, config
-commands, terminal protection, OpenRouter setup, or direct-hook mode.
+commands, terminal protection, LLM provider config, or direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
@@ -283,7 +283,6 @@ Project `.nah.yaml` can **add** classifications and **tighten** policies, but ca
 nah install claude         # install direct Claude Code hooks
 nah install bash           # install interactive bash guard
 nah install zsh            # install interactive zsh guard
-nah install openrouter     # configure optional OpenRouter provider
 nah uninstall claude       # remove direct Claude Code hooks
 nah uninstall bash         # remove bash guard
 nah update claude          # update hook after pip upgrade
