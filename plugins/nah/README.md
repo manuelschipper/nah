@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://schipper.ai/nah/">Full docs</a> |
+  <a href="https://schipper.ai/nah/privacy/">Privacy</a> |
   <a href="https://github.com/manuelschipper/nah">Source</a> |
   <a href="https://github.com/manuelschipper/nah/issues">Issues</a>
 </p>
@@ -82,8 +83,10 @@ to a network service by default.
 
 nah has an optional LLM layer for ambiguous decisions when a user configures it
 in nah's config. If enabled, that LLM path uses the provider and model the user
-configured and redacts known secret patterns before sending context. The plugin
-does not configure an LLM provider by itself.
+configured. nah applies best-effort redaction for known secret patterns in
+transcript and write/edit content before prompt enrichment, but users should
+still treat external LLM providers as receiving security-sensitive context. The
+plugin does not configure an LLM provider by itself.
 
 Decision logs are written to the user's local nah config/log directory.
 

@@ -15,6 +15,7 @@ approved and listed the plugin.
 - Description: Context-aware safety guard for Claude Code.
 - Category: Security
 - Repository: https://github.com/manuelschipper/nah
+- Privacy policy: https://schipper.ai/nah/privacy/
 - License: MIT
 - Author: Manuel Schipper
 
@@ -63,7 +64,9 @@ default.
 
 nah supports an optional LLM refinement layer only when the user configures an
 LLM provider in nah config. If enabled, requests go to the user-selected
-provider and known secret patterns are redacted before context is sent. The
+provider and model. nah applies best-effort redaction for known secret patterns
+in transcript and write/edit content before prompt enrichment, but users should
+still treat external LLM providers as receiving security-sensitive context. The
 plugin itself does not configure an LLM provider or enable network calls.
 
 Decision logs are written to the user's local nah config/log directory.
