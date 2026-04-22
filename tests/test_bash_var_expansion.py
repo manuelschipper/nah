@@ -183,7 +183,32 @@ def test_command_string_preserved(cmd):
 
 
 # ---------------------------------------------------------------------------
-# Group 9: inline leading env assignment (out of scope — locked behavior)
+# Group 9: unwrapped shells mirror top-level expansion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("cmd", [
+    'bash -c \'BAD=/etc/shadow; cat "$BAD"\'',
+    'bash -c \'BAD=/etc/shadow; rm "$BAD"\'',
+    'bash -c \'if BAD=/etc/shadow; then rm "$BAD"; fi\'',
+])
+def test_unwrapped_shell_expands_intra_chain_vars(cmd):
+    result = classify_command(cmd)
+    assert result.final_decision == "block"
+    assert "/etc/shadow" in result.reason
+
+
+@pytest.mark.parametrize("cmd", [
+    'bash -c \'if BAD=/etc/shadow; then rm "$(echo "$BAD")"; fi\'',
+    'bash -c \'while BAD=/etc/shadow; do rm "$(echo "$BAD")"; done\'',
+])
+def test_unwrapped_shell_control_flow_substitutions_fail_closed(cmd):
+    result = classify_command(cmd)
+    assert result.final_decision == "ask"
+    assert "command substitution" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# Group 10: inline leading env assignment (out of scope — locked behavior)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.xfail(

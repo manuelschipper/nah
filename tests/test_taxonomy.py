@@ -1993,6 +1993,41 @@ class TestGhApiClassifier:
         ) == "unknown"
 
 
+class TestGlabApiClassifier:
+    """GitLab CLI raw API classifier mirrors gh api read/write rules."""
+
+    @pytest.mark.parametrize("tokens", [
+        ["glab", "api", "projects/1/merge_requests/2"],
+        ["glab", "api", "--method", "GET", "projects/1"],
+        ["glab", "api", "-XHEAD", "projects/1"],
+    ])
+    def test_glab_api_read_methods_are_git_safe(self, tokens):
+        assert _ct(tokens) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["glab", "api", "--method", "POST", "projects/1/releases"],
+        ["glab", "api", "-X", "DELETE", "projects/1/releases/v1"],
+        ["glab", "api", "projects/1/releases", "--field", "tag_name=v1"],
+        ["glab", "api", "projects/1/releases", "--input", "body.json"],
+        ["glab", "api", "projects/1/wikis/attachments", "--form", "file=@image.png"],
+        ["glab", "api", "projects/1/wikis/attachments", "--form=file=@image.png"],
+        ["glab", "api", "-X", "GET", "projects/1/wikis/attachments", "--form", "file=@image.png"],
+    ])
+    def test_glab_api_writes_are_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    def test_glab_api_classifier_is_full_profile_only(self):
+        minimal = get_builtin_table("minimal")
+        assert classify_tokens(
+            ["glab", "api", "projects/1"],
+            builtin_table=minimal,
+            profile="minimal",
+        ) == "unknown"
+
+    def test_other_glab_commands_stay_unknown(self):
+        assert _ct(["glab", "issue", "list"]) == "unknown"
+
+
 # --- Profiles (FD-032) ---
 
 

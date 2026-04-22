@@ -102,6 +102,22 @@ def human_reason(
         return _finalize(_COMPOSITION_MESSAGES[composition])
     if "remote code execution" in clean_reason.lower():
         return _finalize(_COMPOSITION_MESSAGES["network | exec"])
+    if "data exfiltration" in clean_reason.lower():
+        return _finalize(_COMPOSITION_MESSAGES["sensitive_read | network"])
+    if "obfuscated execution" in clean_reason.lower():
+        return _finalize(_COMPOSITION_MESSAGES["decode | exec"])
+    if "local code execution" in clean_reason.lower():
+        return _finalize(_COMPOSITION_MESSAGES["read | exec"])
+    if "body uses command substitution" in clean_reason.lower():
+        return _finalize("this shell body uses dynamic command output")
+    if "control-flow pipeline is not inspectable" in clean_reason.lower():
+        return _finalize("this shell loop pipes output in a way nah cannot inspect safely")
+    if "dynamic item list" in clean_reason.lower():
+        return _finalize("this shell loop uses a dynamic item list")
+    if "unsupported shell expansion" in clean_reason.lower():
+        return _finalize("this shell loop uses shell expansion nah cannot inspect safely")
+    if "hidden by shell syntax" in clean_reason.lower():
+        return _finalize("this shell loop hides a variable in shell syntax nah cannot inspect safely")
 
     pattern_message = _reason_pattern_message(clean_reason, tool)
     if pattern_message:

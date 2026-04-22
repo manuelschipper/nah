@@ -223,6 +223,16 @@ class TestExtractHost:
     def test_curl_with_flags(self):
         assert extract_host(["curl", "-s", "-o", "/dev/null", "https://api.github.com"]) == "api.github.com"
 
+    def test_api_cli_form_field_is_not_host(self):
+        assert extract_host(["glab", "api", "projects/1/wikis/attachments", "--form", "file=@image.png"]) is None
+
+    def test_api_cli_hostname_flag(self):
+        assert extract_host(["glab", "api", "projects/1", "--hostname", "gitlab.example.com"]) == "gitlab.example.com"
+        assert extract_host(["gh", "api", "user", "--hostname=github.example.com"]) == "github.example.com"
+
+    def test_api_cli_url_endpoint_host(self):
+        assert extract_host(["glab", "api", "https://gitlab.example.com/api/v4/projects/1"]) == "gitlab.example.com"
+
 
 # --- FD-086: SSH/SCP host extraction ---
 
