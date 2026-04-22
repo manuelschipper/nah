@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for Claude Code.</strong><br>
+  <strong>Context aware safety guard for Claude Code and opt-in terminal sessions.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -30,9 +30,12 @@
 ## Quick install
 
 ```bash
-pip install nah
-nah install
+claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
+claude plugin install nah@nah --scope user
 ```
+
+For terminal protection or CLI commands, install from PyPI and run
+`nah install bash`, `nah install zsh`, or `nah install claude`.
 
 ## What does it look like?
 
