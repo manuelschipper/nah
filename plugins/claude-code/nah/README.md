@@ -7,6 +7,8 @@ action with deterministic local rules.
 The plugin protects Claude Code sessions without requiring `nah install` or
 direct edits to `~/.claude/settings.json`.
 
+Full docs: https://schipper.ai/nah/
+
 ## What It Guards
 
 nah intercepts Claude Code tool calls for:
