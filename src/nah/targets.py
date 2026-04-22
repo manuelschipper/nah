@@ -33,13 +33,13 @@ TARGETS: dict[str, Target] = {
         key=BASH,
         kind=SHELL,
         label="bash",
-        description="protect interactive bash",
+        description="protect interactive bash (beta)",
     ),
     ZSH: Target(
         key=ZSH,
         kind=SHELL,
         label="zsh",
-        description="protect interactive zsh",
+        description="protect interactive zsh (beta)",
     ),
 }
 

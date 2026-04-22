@@ -25,8 +25,8 @@ Install nah for a target.
 ```bash
 nah install claude         # direct Claude Code hooks
 nah install claude --force # direct hooks even when the Claude plugin is enabled
-nah install bash           # interactive bash guard
-nah install zsh            # interactive zsh guard
+nah install bash           # beta interactive bash guard
+nah install zsh            # beta interactive zsh guard
 ```
 
 Bare `nah install` exits nonzero with a target list instead of assuming Claude
@@ -34,9 +34,10 @@ Code. `nah install claude` creates the hook shim at
 `~/.claude/hooks/nah_guard.py` (read-only, chmod 444) and adds `PreToolUse` hook
 entries to Claude Code's `settings.json`.
 
-`nah install bash` and `nah install zsh` write generated shell snippets under
-`~/.config/nah/terminal/` and add a small managed source block to the matching
-rc file. Restart or replace the shell before expecting the guard to load.
+`nah install bash` and `nah install zsh` are beta. They write generated shell
+snippets under `~/.config/nah/terminal/` and add a small managed source block to
+the matching rc file. Restart or replace the shell before expecting the guard to
+load.
 
 LLM provider setup lives in config, not `nah install`. See
 [LLM layer](configuration/llm.md) for provider examples.
@@ -119,8 +120,8 @@ nah test --tool Grep --pattern "BEGIN.*PRIVATE"
 
 Shows the full classification pipeline: stages, action types, policies, composition rules, and final decision. For `ask` decisions, also shows LLM eligibility and (if configured) makes a live LLM call.
 
-`nah test --target <target>` applies the effective target policy. For bash/zsh,
-terminal targets default to LLM mode off unless explicitly enabled under
+`nah test --target <target>` applies the effective target policy. The beta
+bash/zsh terminal targets default to LLM mode off unless explicitly enabled under
 `targets.bash.llm.mode` or `targets.zsh.llm.mode`.
 
 **Flags:**
@@ -138,8 +139,8 @@ terminal targets default to LLM mode off unless explicitly enabled under
 | `args` | Command string or tool input (positional, required for Bash) |
 
 There is no public `nah terminal` namespace and no `nah terminal check`
-command. `nah test --target bash|zsh` is the dry-run surface for terminal
-behavior.
+command. `nah test --target bash|zsh` is the dry-run surface for beta terminal
+guard behavior.
 
 ### nah types
 
@@ -173,11 +174,11 @@ nah log --json                   # machine-readable JSONL output
 | `-n`, `--limit N` | Number of entries (default: 50) |
 | `--json` | Output as JSON lines |
 
-## Guarded Shell Behavior
+## Guarded Shell Behavior Beta
 
-The bash/zsh snippets use private CLI plumbing that is intentionally not a
-public API. Do not script against it; use `nah test --target <target>` for dry
-runs.
+The bash/zsh terminal guard is beta. Its snippets use private CLI plumbing that
+is intentionally not a public API. Do not script against it; use
+`nah test --target <target>` for dry runs.
 
 When a guarded interactive shell submits a command:
 

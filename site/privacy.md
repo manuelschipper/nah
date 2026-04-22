@@ -2,8 +2,9 @@
 
 Effective date: April 22, 2026
 
-nah is a local safety guard for Claude Code and opt-in terminal sessions. This
-page describes what nah itself collects, stores, and sends.
+nah is a local safety guard for Claude Code. The beta terminal guard can also
+protect opt-in interactive shell sessions. This page describes what nah itself
+collects, stores, and sends.
 
 ## Summary
 
