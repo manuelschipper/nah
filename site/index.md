@@ -79,4 +79,4 @@ nah still blocks and asks for dangerous operations on all guarded tools, includi
 
 ---
 
-[Install](install.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md)
+[Install](install.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md) | [Privacy](privacy.md)
