@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for Claude Code and opt-in terminal sessions.</strong><br>
+  <strong>Context aware safety guard for Claude Code.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -46,7 +46,7 @@ Choose the path that matches what you want to protect:
 | Goal | Install |
 | --- | --- |
 | Claude Code protection only | Claude Code plugin |
-| Human terminal protection | PyPI CLI + `nah install bash` or `nah install zsh` |
+| Beta terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` |
 | CLI commands or direct hooks | PyPI CLI |
 
 ### Claude Code Plugin
@@ -66,23 +66,23 @@ Plugin mode is opt-in and managed by Claude Code's plugin manager. Normal
 
 The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
 `nah` shell command. Use the PyPI path when you want `nah test`, config
-commands, terminal protection, LLM provider config, or direct-hook mode.
+commands, the beta terminal guard, LLM provider config, or direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
 
-### Terminal Guard
+### Terminal Guard Beta
 
 ```bash
 pip install nah
 nah install bash        # or: nah install zsh
 ```
 
-Restart your shell after installation. Terminal protection is opt-in per shell:
-it protects interactive bash/zsh sessions that loaded nah's managed snippet. It
-is not an OS-level sandbox and does not cover unrelated shells, GUI apps,
-scheduled jobs, or non-interactive scripts. Use `nah-bypass <command>` for a
-one-shot intentional bypass.
+Restart your shell after installation. The terminal guard is a beta feature and
+is opt-in per shell: it protects interactive bash/zsh sessions that loaded
+nah's managed snippet. It is not an OS-level sandbox and does not cover
+unrelated shells, GUI apps, scheduled jobs, or non-interactive scripts. Use
+`nah-bypass <command>` for a one-shot intentional bypass.
 
 ### CLI and Direct Hooks
 
