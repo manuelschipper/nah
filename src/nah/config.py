@@ -13,6 +13,7 @@ class ConfigError(Exception):
 _CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
+_DEPRECATED_PROFILE_ALIASES = {"minimal": "full"}
 
 
 @dataclass
@@ -132,9 +133,9 @@ def apply_override(override_data: dict) -> None:
     cfg = get_config()  # ensure base is loaded
 
     if "profile" in override_data:
-        profile = override_data["profile"]
-        if profile in _PROFILES:
-            cfg.profile = profile
+        cfg.profile = _normalize_profile(
+            override_data["profile"], warn_unknown=False, fallback=cfg.profile,
+        )
     if "classify" in override_data:
         cfg.classify_global.update(_validate_dict(override_data["classify"]))
     if "actions" in override_data:
@@ -233,6 +234,26 @@ def _validate_dict(val) -> dict:
     return val if isinstance(val, dict) else {}
 
 
+def _normalize_profile(raw, *, warn_unknown: bool = True, fallback: str = "full") -> str:
+    """Return the effective profile, warning for deprecated/invalid values."""
+    if not isinstance(raw, str):
+        if warn_unknown:
+            sys.stderr.write(f"nah: unknown profile {raw!r}, using '{fallback}'\n")
+        return fallback
+    if raw in _PROFILES:
+        return raw
+    if raw in _DEPRECATED_PROFILE_ALIASES:
+        effective = _DEPRECATED_PROFILE_ALIASES[raw]
+        sys.stderr.write(
+            f"nah: profile '{raw}' is deprecated; using '{effective}'. "
+            "Use 'none' for a blank-slate profile.\n"
+        )
+        return effective
+    if warn_unknown:
+        sys.stderr.write(f"nah: unknown profile '{raw}', using '{fallback}'\n")
+    return fallback
+
+
 def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
     """Merge two dicts — project can only tighten (stricter policy wins)."""
     merged = dict(global_d)
@@ -278,11 +299,7 @@ def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = Non
     _merge = _merge_dict_override if config.trust_project_config else _merge_dict_tighten
 
     # profile: global config ONLY, validated
-    profile = global_cfg.get("profile", "full")
-    if profile not in _PROFILES:
-        sys.stderr.write(f"nah: unknown profile '{profile}', using 'full'\n")
-        profile = "full"
-    config.profile = profile
+    config.profile = _normalize_profile(global_cfg.get("profile", "full"))
 
     # classify: keep global and project SEPARATE for three-table lookup
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))

@@ -65,7 +65,7 @@ Without this, all network commands to these hosts will trigger `ask`.
 
 ## Internal tool directories
 
-If your tools live outside the project directory and you're using `profile: full` or `minimal`, add them as trusted paths:
+If your tools live outside the project directory and you're using `profile: full`, add them as trusted paths:
 
 ```yaml
 trusted_paths:
@@ -76,7 +76,7 @@ trusted_paths:
 Without this, Write/Edit/MultiEdit/NotebookEdit operations to these paths trigger `ask` (project boundary check).
 
 !!! note
-    `profile: none` disables the project boundary check entirely, so `trusted_paths` is unnecessary in that case. It only matters when using `full` or `minimal` profiles.
+    `profile: none` disables the project boundary check entirely, so `trusted_paths` is unnecessary in that case. It only matters when using the `full` profile.
 
 ## No LLM
 

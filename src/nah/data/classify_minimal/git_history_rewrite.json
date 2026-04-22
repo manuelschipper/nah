@@ -1,6 +1,0 @@
-[
-  "git push --force",
-  "git push --force-with-lease",
-  "git rebase",
-  "git filter-branch"
-]

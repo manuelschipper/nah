@@ -436,7 +436,7 @@ class TestResolveContext:
         assert decision == "allow"
 
     def test_container_write_uses_workspace_context(self, project_root):
-        config._cached_config = NahConfig(profile="minimal")
+        config._cached_config = NahConfig(profile="full")
         old_cwd = os.getcwd()
         try:
             os.chdir(project_root)
@@ -447,7 +447,7 @@ class TestResolveContext:
         assert "inside project" in reason
 
     def test_container_write_without_git_root_asks(self, tmp_path):
-        config._cached_config = NahConfig(profile="minimal")
+        config._cached_config = NahConfig(profile="full")
         paths.set_project_root(None)
         old_cwd = os.getcwd()
         try:

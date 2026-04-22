@@ -68,7 +68,7 @@ When both configs exist, nah merges them with these rules:
 
 | Key | Type | Scope | Docs |
 |-----|------|-------|------|
-| `profile` | `full` / `minimal` / `none` | global | [Profiles](profiles.md) |
+| `profile` | `full` / `none` | global | [Profiles](profiles.md) |
 | `trust_project_config` | bool | global | This page |
 | `classify` | dict of type → prefix list | both* | [Custom taxonomy](../guides/custom-taxonomy.md) |
 | `actions` | dict of type → policy | both | [Action types](actions.md) |

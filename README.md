@@ -246,12 +246,14 @@ Choose how much built-in classification to start with:
 
 ```yaml
 # ~/.config/nah/config.yaml
-profile: full      # full | minimal | none
+profile: full      # full | none
 ```
 
 - **full** (default) — comprehensive coverage across shell, git, packages, containers, and more
-- **minimal** — curated essentials only (rm, git, curl, kill, ...)
 - **none** — blank slate — make your own
+
+`profile: minimal` is deprecated and now behaves like `full` with a warning. Use
+`none` when you want a blank slate.
 
 ### LLM configuration
 
