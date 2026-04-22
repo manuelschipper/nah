@@ -13,7 +13,8 @@
   <a href="#what-it-guards">What it guards</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#configure">Configure</a> &bull;
-  <a href="#cli">CLI</a>
+  <a href="#cli">CLI</a> &bull;
+  <a href="https://schipper.ai/nah/privacy/">Privacy</a>
 </p>
 
 ---

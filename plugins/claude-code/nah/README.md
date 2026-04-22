@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://schipper.ai/nah/">Full docs</a> |
+  <a href="https://schipper.ai/nah/privacy/">Privacy</a> |
   <a href="https://github.com/manuelschipper/nah">Source</a> |
   <a href="https://github.com/manuelschipper/nah/issues">Issues</a>
 </p>

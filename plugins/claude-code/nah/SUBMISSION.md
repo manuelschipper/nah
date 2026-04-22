@@ -15,6 +15,7 @@ approved and listed the plugin.
 - Description: Context-aware safety guard for Claude Code.
 - Category: Security
 - Repository: https://github.com/manuelschipper/nah
+- Privacy policy: https://schipper.ai/nah/privacy/
 - License: MIT
 - Author: Manuel Schipper
 

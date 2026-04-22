@@ -48,6 +48,7 @@ nav:
   - Home: index.md
   - Install: install.md
   - How it works: how-it-works.md
+  - Privacy: privacy.md
   - Configuration:
     - Overview: configuration/index.md
     - Action types: configuration/actions.md
