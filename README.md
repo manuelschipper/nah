@@ -252,8 +252,8 @@ profile: full      # full | none
 - **full** (default) — comprehensive coverage across shell, git, packages, containers, and more
 - **none** — blank slate — make your own
 
-`profile: minimal` is deprecated and now behaves like `full` with a warning. Use
-`none` when you want a blank slate.
+Only `full` and `none` are supported. Older configs that still say `minimal`
+are treated as `full` with a warning; use `none` when you want a blank slate.
 
 ### LLM configuration
 

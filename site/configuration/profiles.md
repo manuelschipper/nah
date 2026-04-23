@@ -69,5 +69,6 @@ The profile controls what's available in **Phase 2** (built-in classifier functi
 This means even with `profile: none`, your global and project classify entries still work.
 
 !!! note
-    `profile: minimal` is deprecated and now behaves like `full` with a warning.
-    Use `none` when you want to build your own taxonomy from a blank slate.
+    Only `full` and `none` are supported. Older configs that still say
+    `minimal` are treated as `full` with a warning; use `none` when you want
+    to build your own taxonomy from a blank slate.
