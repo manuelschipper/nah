@@ -139,7 +139,9 @@ target override such as
 
 Provider credentials and provider selection stay global-only. Configure LLM
 providers directly in global config and store environment-variable names such
-as `llm.openrouter.key_env`, not raw API keys.
+as `llm.openrouter.key_env`, not raw API keys. The secret value behind that
+slot can live either in the current process environment or in the OS keychain
+used by the optional `nah[keys]` extra on PyPI installs.
 
 ## YAML format
 
@@ -150,3 +152,8 @@ install keeps nah's core hook/classifier stdlib-only for users who want the
 smallest supply-chain surface. Install the config extra when you want YAML config
 files or commands that write config (`nah allow`, `nah deny`, `nah classify`,
 `nah trust`). With pipx, use `pipx inject nah pyyaml`.
+
+Optional dependency: `pip install "nah[keys]"` installs keyring support for the
+PyPI CLI so remote-provider secret values can live in your OS keychain instead
+of exported env vars. If you want both YAML config support and key management,
+use `pip install "nah[config,keys]"` or `pipx inject nah pyyaml keyring`.

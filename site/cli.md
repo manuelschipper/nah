@@ -97,6 +97,26 @@ nah config path
 
 Prints the global config path (`~/.config/nah/config.yaml`) and project config path (`.nah.yaml` in the git root, if detected).
 
+### nah key
+
+Manage built-in remote-provider key slots for the PyPI CLI.
+
+```bash
+nah key status
+nah key set openrouter
+nah key import-env openrouter
+nah key rm openrouter
+```
+
+`nah key status` shows whether each built-in provider is currently using a
+value from the OS keyring, the environment, or neither. `nah key set` prompts
+with hidden input on a real TTY and stores the secret in your OS keychain.
+`nah key import-env` copies the current env-var value into that same key slot,
+but it does not remove the env var from your shell or dotfiles.
+
+These commands are available only on PyPI installs. The Claude Code plugin does
+not install the `nah` shell command or optional keyring support.
+
 ## Test & Inspect
 
 ### nah test

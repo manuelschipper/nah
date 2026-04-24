@@ -39,6 +39,17 @@ nah install claude  # permanent direct hooks
     config files or config-writing commands such as `nah allow`, `nah deny`,
     `nah classify`, and `nah trust`. With pipx, use `pipx inject nah pyyaml`.
 
+!!! note "Optional: OS key storage for remote LLM providers"
+    ```bash
+    pip install "nah[config,keys]"
+    nah key set openrouter
+    ```
+    Remote-provider config still stores `key_env` names in YAML, but the secret
+    value can live in your OS keychain instead of exported env vars. With pipx,
+    use `pipx inject nah pyyaml keyring`. If you already exported a key, `nah key
+    import-env <provider>` copies it into the keyring but does not remove it
+    from your shell or dotfiles.
+
 ## See it in action
 
 Clone the repo and run the security demo inside Claude Code to see nah intercepting real tool calls:

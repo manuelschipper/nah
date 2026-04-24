@@ -12,6 +12,8 @@ collects, stores, and sends.
 - The Claude Code plugin does not create a nah account and does not send tool
   input to a network service by default.
 - Decision logs and configuration are stored locally.
+- Optional LLM credentials can be stored locally in your OS keychain or
+  keyring when you use `nah key ...` from a PyPI install.
 - Optional LLM review only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
 - nah applies best-effort redaction for known secret patterns in transcript and
@@ -40,11 +42,14 @@ locations include:
 - `~/.config/nah/nah.log`
 - `~/.config/nah/hook-errors.log`
 - target-specific files under `~/.config/nah/`
+- OS keychain/keyring entries for remote LLM secrets if you use `nah key ...`
+  from a PyPI install
 
 If you install direct Claude Code hooks, nah may also write Claude hook settings
 or hook scripts under Claude Code's local configuration directory. If you use the
 Claude Code plugin, Claude Code's plugin manager handles plugin installation and
-state.
+state. nah does not copy LLM secret values into its YAML config files or
+decision logs.
 
 ## Network Use
 
@@ -89,6 +94,7 @@ You can:
 - disable optional LLM review by leaving `llm.mode` off or setting it to `off`
 - use a local LLM provider such as Ollama instead of a remote provider
 - reduce or disable transcript context with `llm.context_chars`
+- remove stored provider keys with `nah key rm <provider>` from a PyPI install
 - uninstall the Claude Code plugin with `claude plugin uninstall nah@nah`
 - uninstall direct hooks with `nah uninstall claude`
 - delete local nah logs and config files from `~/.config/nah/`

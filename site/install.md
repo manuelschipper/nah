@@ -12,7 +12,7 @@
 | Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
 | Try the beta terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 | Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
-| Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Supports Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, and Snowflake Cortex |
+| Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Add `nah[keys]` if you want OS keychain-backed storage for remote-provider secrets |
 
 Bare `nah install` exits with a target list. Setup commands should name the
 target you want.
@@ -33,10 +33,10 @@ Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
 plugin is enabled, normal `claude` sessions load nah automatically without
 `nah install claude` or `nah claude`.
 
-The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
-`nah` shell command. Use the PyPI path when you want CLI commands such as
-`nah test`, `nah allow`, `nah deny`, the beta terminal guard, LLM provider
-config, or direct-hook mode.
+The plugin bundles nah's stdlib-only runtime. It does not install PyYAML,
+optional keyring support, or the `nah` shell command. Use the PyPI path when
+you want CLI commands such as `nah test`, `nah allow`, `nah deny`, `nah key`,
+the beta terminal guard, LLM provider config, or direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
@@ -116,6 +116,23 @@ For pipx installs, inject PyYAML into the existing nah environment:
 pipx inject nah pyyaml
 ```
 
+## Optional OS Key Storage
+
+```bash
+pip install "nah[keys]"      # OS keychain/keyring support for remote LLM secrets
+```
+
+Use the `keys` extra when you want PyPI-installed nah to read remote-provider
+secrets from your OS keychain instead of inheriting them from exported env vars.
+The Claude Code plugin does not install the `nah` CLI, so plugin-only installs
+cannot run `nah key ...`.
+
+With pipx, inject keyring into the existing nah environment:
+
+```bash
+pipx inject nah keyring
+```
+
 ## Optional LLM Review
 
 nah supports optional LLM review for ambiguous decisions. Provider setup is
@@ -131,11 +148,25 @@ llm:
     model: google/gemini-3.1-flash-lite-preview
 ```
 
-Then export the matching provider key, for example:
+The config file still stores `key_env` names, not raw API keys. On PyPI
+installs you can keep the secret value in your OS keychain:
+
+```bash
+pip install "nah[config,keys]"
+nah key set openrouter
+nah key status
+```
+
+Env vars still work too. If you already exported a key, you can copy it into the
+OS keyring explicitly:
 
 ```bash
 export OPENROUTER_API_KEY=...
+nah key import-env openrouter
 ```
+
+`nah key import-env` does not remove the existing env var from your current
+shell or your shell startup files. Clean those up separately when you are ready.
 
 Supported providers: Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, and
 Snowflake Cortex. See [LLM layer](configuration/llm.md) for provider-specific
