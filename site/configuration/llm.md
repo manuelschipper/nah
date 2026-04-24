@@ -12,8 +12,8 @@ The deterministic layer always runs first. Unified ask-refinement only sees elig
 
 nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
 
-| Provider | API | Default model | Auth env var |
-|----------|-----|---------------|-------------|
+| Provider | API | Default model | Key slot / env var |
+|----------|-----|---------------|--------------------|
 | `ollama` | Chat API (`/api/chat`) | `qwen3.5:9b` | *(none -- local)* |
 | `openrouter` | OpenAI-compatible | `google/gemini-3.1-flash-lite-preview` | `OPENROUTER_API_KEY` |
 | `openai` | Responses API (`/v1/responses`) | `gpt-5.3-codex` | `OPENAI_API_KEY` |
@@ -49,6 +49,25 @@ for installing nah into guarded runtimes: Claude Code, plus the beta bash/zsh
 terminal guard.
 Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
 config files.
+
+For remote providers, the secret value can live either in the process
+environment or in the OS keychain used by the optional `nah[keys]` extra. On a
+PyPI install, this keeps the YAML config stable while moving the secret out of
+shell exports:
+
+```bash
+pip install "nah[config,keys]"
+nah key set openrouter
+nah key status
+```
+
+If you already exported a provider key, `nah key import-env openrouter` copies
+that value into the OS keyring for the `OPENROUTER_API_KEY` slot. It does not
+remove the existing env var from your current shell or shell startup files.
+
+The Claude Code plugin does not install the `nah` CLI, so `nah key ...` is a
+PyPI-only workflow. For custom `key_env` values, you can manually store a
+matching slot in your keyring under the service name `nah.llm`.
 
 ### Provider examples
 

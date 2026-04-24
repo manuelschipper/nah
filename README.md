@@ -47,7 +47,7 @@ Choose the path that matches what you want to protect:
 | --- | --- |
 | Claude Code protection only | Claude Code plugin |
 | Beta terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` |
-| CLI commands or direct hooks | PyPI CLI |
+| CLI commands, direct hooks, or key management | PyPI CLI |
 
 ### Claude Code Plugin
 
@@ -64,9 +64,10 @@ Anthropic marketplace listing is pending review.
 Plugin mode is opt-in and managed by Claude Code's plugin manager. Normal
 `claude` sessions load nah automatically while the plugin is enabled.
 
-The plugin bundles nah's stdlib-only runtime. It does not install PyYAML or the
-`nah` shell command. Use the PyPI path when you want `nah test`, config
-commands, the beta terminal guard, LLM provider config, or direct-hook mode.
+The plugin bundles nah's stdlib-only runtime. It does not install PyYAML, the
+optional keyring support, or the `nah` shell command. Use the PyPI path when
+you want `nah test`, config commands, `nah key ...`, the beta terminal guard,
+LLM provider config, or direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
@@ -97,7 +98,9 @@ nah install claude  # permanent direct Claude Code hooks
 dependencies beyond Python itself. This is intentional for users who want a
 small supply-chain surface on a security tool.
 
-For YAML config files and config-writing commands, install `nah[config]`.
+For YAML config files and config-writing commands, install `nah[config]`. For
+OS keychain-backed LLM secrets, install `nah[keys]`. If you want both, install
+`nah[config,keys]`.
 Full install docs: https://schipper.ai/nah/install/
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
@@ -273,6 +276,20 @@ targets:
       mode: off                  # terminal targets default off unless enabled here
 ```
 
+Remote-provider config still stores `key_env` names, not raw API keys. On PyPI
+installs you can keep the secret value in your OS keychain instead of exporting
+it into every shell:
+
+```bash
+pip install "nah[config,keys]"
+nah key set openrouter
+nah key status
+```
+
+If you already exported a provider key, `nah key import-env openrouter` copies
+the current env value into the OS keyring, but it does not remove that env var
+from your current shell or shell startup files for you.
+
 ### Supply-chain safety
 
 Project `.nah.yaml` can **add** classifications and **tighten** policies, but cannot relax them by default. A malicious repo can't use `.nah.yaml` to allowlist dangerous commands unless you explicitly opt in from your global config with `trust_project_config: true`.
@@ -285,6 +302,8 @@ Project `.nah.yaml` can **add** classifications and **tighten** policies, but ca
 nah install claude         # install direct Claude Code hooks
 nah install bash           # install interactive bash guard
 nah install zsh            # install interactive zsh guard
+nah key status             # show built-in LLM key sources
+nah key set openrouter     # store a provider key in the OS keyring
 nah uninstall claude       # remove direct Claude Code hooks
 nah uninstall bash         # remove bash guard
 nah update claude          # update hook after pip upgrade
