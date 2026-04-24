@@ -230,6 +230,29 @@ def test_sdist_excludes_unpublished_plugin_sources_and_build_script():
     assert '"site/"' in pyproject
 
 
+def test_plugin_runtime_llm_import_does_not_require_keyring(tmp_path):
+    out = tmp_path / "nah"
+    trap_dir = tmp_path / "trap"
+    trap_dir.mkdir()
+    (trap_dir / "keyring.py").write_text(
+        "raise RuntimeError('keyring imported at module import time')\n",
+        encoding="utf-8",
+    )
+    _build(out)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join([str(trap_dir), str(out / "lib")])
+    result = subprocess.run(
+        [sys.executable, "-c", "import nah.llm; print('ok')"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
 def test_plugin_runner_allow_ask_and_block(tmp_path):
     out = tmp_path / "nah"
     home = tmp_path / "home"

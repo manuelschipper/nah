@@ -4,6 +4,8 @@ import json
 import os
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 from nah.bash import ClassifyResult, StageResult
 from nah import taxonomy
 from nah.content import get_secret_patterns, reset_content_patterns
@@ -22,6 +24,12 @@ from nah.llm import (
     _VETO_SYSTEM_TEMPLATE,
     try_llm_unified,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_keyring(monkeypatch):
+    """Keep provider tests deterministic by defaulting keyring support off."""
+    monkeypatch.setattr("nah.llm_keys._load_keyring", lambda: None)
 
 
 # -- _parse_response tests --
@@ -415,6 +423,118 @@ class TestTryLlm:
         result = try_llm(_make_default_result(), self._ollama_config())
         assert result.decision["decision"] == "allow"
         assert "reason" not in result.decision  # no reasoning = no reason key
+
+
+class TestProviderKeyResolution:
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_openrouter_uses_resolve_key(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "safe"}'}}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = {
+            "backends": ["openrouter"],
+            "openrouter": {
+                "url": "http://fake.api/v1/chat/completions",
+                "model": "test",
+                "key_env": "MY_OPENROUTER_KEY",
+            },
+        }
+        with patch("nah.llm.resolve_key", return_value="resolved-key") as mock_resolve:
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        mock_resolve.assert_called_once_with("MY_OPENROUTER_KEY")
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_openai_uses_resolve_key(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "output": [{"type": "message", "content": [
+                {"type": "output_text", "text": '{"decision": "allow", "reasoning": "safe"}'}
+            ]}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = {
+            "backends": ["openai"],
+            "openai": {
+                "url": "https://api.openai.com/v1/responses",
+                "model": "gpt-4.1-nano",
+                "key_env": "MY_OPENAI_KEY",
+            },
+        }
+        with patch("nah.llm.resolve_key", return_value="resolved-key") as mock_resolve:
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        mock_resolve.assert_called_once_with("MY_OPENAI_KEY")
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_anthropic_uses_resolve_key(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "content": [{"type": "text", "text": '{"decision": "allow", "reasoning": "safe"}'}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = {
+            "backends": ["anthropic"],
+            "anthropic": {"model": "claude-haiku-4-5", "key_env": "MY_ANTHROPIC_KEY"},
+        }
+        with patch("nah.llm.resolve_key", return_value="resolved-key") as mock_resolve:
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        mock_resolve.assert_called_once_with("MY_ANTHROPIC_KEY")
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_cortex_uses_resolve_key(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "choices": [{"message": {"content": '{"decision": "allow", "reasoning": "safe"}'}}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = {
+            "backends": ["cortex"],
+            "cortex": {
+                "url": "https://myaccount.snowflakecomputing.com/api/v2/cortex/inference:complete",
+                "model": "claude-haiku-4-5",
+                "key_env": "MY_PAT_KEY",
+            },
+        }
+        with patch("nah.llm.resolve_key", return_value="resolved-key") as mock_resolve:
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        mock_resolve.assert_called_once_with("MY_PAT_KEY")
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_azure_uses_resolve_key(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "output": [{"type": "message", "content": [
+                {"type": "output_text", "text": '{"decision": "allow", "reasoning": "safe"}'}
+            ]}]
+        }).encode()
+        mock_urlopen.return_value = mock_resp
+
+        config = {
+            "providers": ["azure"],
+            "azure": {
+                "url": "https://myresource.openai.azure.com/openai/v1/responses",
+                "model": "my-deployment",
+                "key_env": "MY_AZURE_KEY",
+            },
+        }
+        with patch("nah.llm.resolve_key", return_value="resolved-key") as mock_resolve:
+            result = try_llm(_make_default_result(), config)
+
+        assert result.decision["decision"] == "allow"
+        mock_resolve.assert_called_once_with("MY_AZURE_KEY")
 
 
 # -- Cortex provider tests --

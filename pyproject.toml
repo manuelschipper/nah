@@ -29,6 +29,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = ["pytest"]
 config = ["pyyaml>=6.0"]
+keys = ["keyring>=25.0"]
 docs = ["mkdocs-material>=9.0"]
 
 [project.scripts]

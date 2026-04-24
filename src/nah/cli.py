@@ -1,6 +1,7 @@
 """CLI entry point — install/uninstall/test commands."""
 
 import argparse
+import getpass
 import json
 import os
 import shlex
@@ -14,6 +15,7 @@ from nah import __version__, agents, plugin_state, targets
 
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
+_KEY_PROVIDERS = ("openai", "anthropic", "openrouter", "cortex", "azure")
 
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
@@ -871,6 +873,172 @@ def _confirm(message: str) -> bool:
     return answer in ("y", "yes")
 
 
+def _require_secret_tty(command: str) -> None:
+    """Require a real TTY before prompting for a secret."""
+    if sys.stdin.isatty() and sys.stderr.isatty():
+        return
+    print(
+        f"nah key {command}: requires an interactive TTY; do not pass secrets via pipes or arguments",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def _key_status_lines() -> tuple[list[str], str]:
+    """Return formatted key status lines plus an optional footer note."""
+    from nah.llm_keys import INSTALL_HINT, _load_keyring, list_builtin_key_statuses
+
+    lines: list[str] = []
+    for status in list_builtin_key_statuses():
+        line = f"  {status.provider:<10} {status.key_env:<22} {status.source}"
+        if status.note:
+            line += f"  ({status.note})"
+        lines.append(line)
+
+    footer = ""
+    try:
+        if _load_keyring() is None:
+            footer = f"Install OS key storage support with: {INSTALL_HINT}"
+    except Exception:
+        footer = ""
+    return lines, footer
+
+
+def cmd_key_status(_args: argparse.Namespace) -> None:
+    """Show effective key source for built-in LLM providers."""
+    lines, footer = _key_status_lines()
+    print("LLM key status:")
+    for line in lines:
+        print(line)
+    if footer:
+        print(footer)
+
+
+def _confirm_key_overwrite(provider: str, key_env: str, force: bool) -> None:
+    """Prompt before overwriting an existing nah-owned keyring entry."""
+    if force:
+        return
+    if not _confirm(f"Overwrite existing stored key for {provider} ({key_env})?"):
+        raise SystemExit(1)
+
+
+def cmd_key_set(args: argparse.Namespace) -> None:
+    """Store a built-in provider key in the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        keyring_entry_exists,
+        set_key,
+    )
+
+    _require_secret_tty("set")
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+
+    try:
+        if keyring_entry_exists(key_env):
+            _confirm_key_overwrite(provider, key_env, bool(getattr(args, "force", False)))
+        secret = getpass.getpass(f"{provider} key ({key_env}): ")
+        if not secret:
+            print("nah key set: secret cannot be empty", file=sys.stderr)
+            raise SystemExit(1)
+        set_key(key_env, secret)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Stored {provider} key in OS keyring slot {key_env}.")
+
+
+def cmd_key_rm(args: argparse.Namespace) -> None:
+    """Remove a built-in provider key from the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        remove_key,
+    )
+
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+    if not getattr(args, "yes", False):
+        if not _confirm(f"Remove stored key for {provider} ({key_env})?"):
+            raise SystemExit(1)
+
+    try:
+        removed = remove_key(key_env)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    if removed:
+        print(f"Removed stored key for {provider} ({key_env}).")
+    else:
+        print(f"No stored key for {provider} ({key_env}).")
+
+
+def cmd_key_import_env(args: argparse.Namespace) -> None:
+    """Copy a provider key from the current environment into the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreMissingEnv,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        keyring_entry_exists,
+        read_env_key,
+        set_key,
+    )
+
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+    try:
+        if keyring_entry_exists(key_env):
+            _confirm_key_overwrite(provider, key_env, bool(getattr(args, "force", False)))
+        secret = read_env_key(key_env)
+        set_key(key_env, secret)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreMissingEnv as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Imported {provider} key from {key_env} into the OS keyring.")
+    print(f"Remove {key_env} from your shell startup files and current shell when ready.")
+
+
+def cmd_key(args: argparse.Namespace) -> None:
+    """Dispatch key-management subcommands."""
+    sub = getattr(args, "key_command", None)
+    if sub == "status":
+        cmd_key_status(args)
+    elif sub == "set":
+        cmd_key_set(args)
+    elif sub == "rm":
+        cmd_key_rm(args)
+    elif sub == "import-env":
+        cmd_key_import_env(args)
+    else:
+        print("Usage: nah key {status|set|rm|import-env}", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def _warn_comments(project: bool) -> None:
     """Warn and confirm if config has comments. Exits on deny."""
     from nah.remember import has_comments
@@ -1373,6 +1541,18 @@ def main():
     config_sub = config_parser.add_subparsers(dest="config_command")
     config_sub.add_parser("show", help="Display effective merged config")
     config_sub.add_parser("path", help="Show config file paths")
+    key_parser = sub.add_parser("key", help="Manage built-in LLM provider keys")
+    key_sub = key_parser.add_subparsers(dest="key_command")
+    key_sub.add_parser("status", help="Show effective key source for built-in providers")
+    key_set = key_sub.add_parser("set", help="Store a provider key in the OS keyring")
+    key_set.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_set.add_argument("--force", action="store_true", help="Overwrite an existing stored key without confirmation")
+    key_rm = key_sub.add_parser("rm", help="Remove a provider key from the OS keyring")
+    key_rm.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_rm.add_argument("--yes", action="store_true", help="Delete without confirmation")
+    key_import = key_sub.add_parser("import-env", help="Copy a provider key from the environment into the OS keyring")
+    key_import.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_import.add_argument("--force", action="store_true", help="Overwrite an existing stored key without confirmation")
     log_parser = sub.add_parser("log", help="Show recent hook decisions")
     log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
     log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
@@ -1435,6 +1615,8 @@ def main():
         cmd_test(args)
     elif args.command == "config":
         cmd_config(args)
+    elif args.command == "key":
+        cmd_key(args)
     elif args.command == "log":
         cmd_log(args)
     elif args.command == "allow":
