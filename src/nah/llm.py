@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 from urllib.error import URLError
 
+from nah.llm_keys import resolve_key
+
 _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
 _SKILL_BASE_DIR_PREFIX = "Base directory for this skill: "
@@ -690,7 +692,7 @@ def _call_openai_compat(
         sys.stderr.write("nah: LLM: no URL configured\n")
         return None
     key_env = config.get("key_env", default_key_env)
-    key = os.environ.get(key_env, "")
+    key = resolve_key(key_env)
     if not key:
         sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
@@ -718,7 +720,7 @@ def _call_cortex(
     """Call Snowflake Cortex REST API (inference:complete endpoint).
 
     Auto-derives URL from account name if not set explicitly.
-    Requires SNOWFLAKE_PAT env var (or custom key_env) for auth.
+    Requires SNOWFLAKE_PAT (or custom key_env) for auth.
     """
     url = config.get("url", "")
     if not url:
@@ -735,7 +737,7 @@ def _call_cortex(
         )
 
     key_env = config.get("key_env", "SNOWFLAKE_PAT")
-    pat = os.environ.get(key_env, "")
+    pat = resolve_key(key_env)
     if not pat:
         sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
@@ -788,7 +790,7 @@ def _call_openai_responses(
         sys.stderr.write("nah: LLM: no URL configured\n")
         return None
     key_env = config.get("key_env", default_key_env)
-    key = os.environ.get(key_env, "")
+    key = resolve_key(key_env)
     if not key:
         sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
@@ -838,7 +840,7 @@ def _call_anthropic(
     """Call Anthropic Messages API."""
     url = config.get("url", "https://api.anthropic.com/v1/messages")
     key_env = config.get("key_env", "ANTHROPIC_API_KEY")
-    key = os.environ.get(key_env, "")
+    key = resolve_key(key_env)
     if not key:
         sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None
@@ -877,7 +879,7 @@ def _call_azure(
         sys.stderr.write("nah: LLM: azure — no URL configured\n")
         return None
     key_env = config.get("key_env", "AZURE_OPENAI_API_KEY")
-    key = os.environ.get(key_env, "")
+    key = resolve_key(key_env)
     if not key:
         sys.stderr.write(f"nah: LLM: {key_env} not set\n")
         return None

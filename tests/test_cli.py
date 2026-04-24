@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import os
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -41,6 +42,31 @@ def patched_paths(global_cfg, project_cfg, tmp_path):
          patch("nah.remember.get_project_config_path", return_value=project_cfg), \
          patch("nah.remember.get_project_root", return_value=str(tmp_path / "project")):
         yield
+
+
+class FakeKeyring:
+    def __init__(self):
+        self.store = {}
+
+    def get_password(self, service, username):
+        return self.store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        self.store.pop((service, username), None)
+
+
+class FailingKeyring:
+    def get_password(self, _service, _username):
+        raise RuntimeError("backend down")
+
+    def set_password(self, _service, _username, _password):
+        raise RuntimeError("backend down")
+
+    def delete_password(self, _service, _username):
+        raise RuntimeError("backend down")
 
 
 class TestCmdAllowCustomType:
@@ -153,6 +179,200 @@ class TestConfirmHelper:
              patch("builtins.input", side_effect=EOFError):
             mock_stdin.isatty.return_value = True
             assert _confirm("test?") is False
+
+
+class TestKeyCommands:
+    def test_key_status_reports_sources_without_leaking_values(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key
+
+        fake = FakeKeyring()
+        fake.set_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY", "stored-secret")
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-secret")
+
+        cmd_key(argparse.Namespace(key_command="status"))
+
+        out = capsys.readouterr().out
+        assert "openai" in out
+        assert "OPENAI_API_KEY" in out
+        assert "keyring" in out
+        assert "anthropic" in out
+        assert "env" in out
+        assert "stored-secret" not in out
+        assert "env-secret" not in out
+
+    def test_key_status_shows_install_hint_when_optional_support_missing(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key
+
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: None)
+
+        cmd_key(argparse.Namespace(key_command="status"))
+
+        out = capsys.readouterr().out
+        assert llm_keys.INSTALL_HINT in out
+
+    def test_key_status_surfaces_backend_error(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key
+
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: FailingKeyring())
+        monkeypatch.setenv("OPENAI_API_KEY", "env-secret")
+
+        cmd_key(argparse.Namespace(key_command="status"))
+
+        out = capsys.readouterr().out
+        assert "keyring backend error" in out
+        assert "env-secret" not in out
+
+    def test_key_set_rejects_non_tty(self, capsys):
+        from nah.cli import cmd_key_set
+
+        with patch.object(sys.stdin, "isatty", return_value=False), \
+             patch.object(sys.stderr, "isatty", return_value=False):
+            with pytest.raises(SystemExit) as exc:
+                cmd_key_set(argparse.Namespace(provider="openai", force=False))
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "requires an interactive TTY" in err
+
+    def test_key_set_stores_secret_in_keyring(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_set
+
+        fake = FakeKeyring()
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+        with patch.object(sys.stdin, "isatty", return_value=True), \
+             patch.object(sys.stderr, "isatty", return_value=True), \
+             patch("getpass.getpass", return_value="super-secret"):
+            cmd_key_set(argparse.Namespace(provider="openai", force=False))
+
+        out = capsys.readouterr().out
+        assert fake.store[(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY")] == "super-secret"
+        assert "super-secret" not in out
+
+    def test_key_set_requires_confirm_before_overwrite(self, monkeypatch):
+        from nah import llm_keys
+        from nah.cli import cmd_key_set
+
+        fake = FakeKeyring()
+        fake.set_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY", "existing")
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+
+        with patch.object(sys.stdin, "isatty", return_value=True), \
+             patch.object(sys.stderr, "isatty", return_value=True), \
+             patch("nah.cli._confirm", return_value=False), \
+             patch("getpass.getpass", return_value="new-secret"):
+            with pytest.raises(SystemExit) as exc:
+                cmd_key_set(argparse.Namespace(provider="openai", force=False))
+
+        assert exc.value.code == 1
+        assert fake.store[(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY")] == "existing"
+
+    def test_key_set_requires_optional_support(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_set
+
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: None)
+        with patch.object(sys.stdin, "isatty", return_value=True), \
+             patch.object(sys.stderr, "isatty", return_value=True), \
+             patch("getpass.getpass", return_value="super-secret"):
+            with pytest.raises(SystemExit) as exc:
+                cmd_key_set(argparse.Namespace(provider="openai", force=False))
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert llm_keys.INSTALL_HINT in err
+
+    def test_key_import_env_copies_value_and_prints_cleanup_hint(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_import_env
+
+        fake = FakeKeyring()
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-secret")
+
+        cmd_key_import_env(argparse.Namespace(provider="openrouter", force=False))
+
+        out = capsys.readouterr().out
+        assert fake.store[(llm_keys.KEYRING_SERVICE, "OPENROUTER_API_KEY")] == "env-secret"
+        assert "Remove OPENROUTER_API_KEY" in out
+        assert "env-secret" not in out
+
+    def test_key_import_env_requires_current_env_value(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_import_env
+
+        fake = FakeKeyring()
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_key_import_env(argparse.Namespace(provider="openrouter", force=False))
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "OPENROUTER_API_KEY is not set" in err
+
+    def test_key_import_env_requires_confirm_before_overwrite(self, monkeypatch):
+        from nah import llm_keys
+        from nah.cli import cmd_key_import_env
+
+        fake = FakeKeyring()
+        fake.set_password(llm_keys.KEYRING_SERVICE, "OPENROUTER_API_KEY", "existing")
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-secret")
+
+        with patch("nah.cli._confirm", return_value=False):
+            with pytest.raises(SystemExit) as exc:
+                cmd_key_import_env(argparse.Namespace(provider="openrouter", force=False))
+
+        assert exc.value.code == 1
+        assert fake.store[(llm_keys.KEYRING_SERVICE, "OPENROUTER_API_KEY")] == "existing"
+
+    def test_key_rm_removes_entry(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_rm
+
+        fake = FakeKeyring()
+        fake.set_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY", "stored")
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+
+        cmd_key_rm(argparse.Namespace(provider="openai", yes=True))
+
+        out = capsys.readouterr().out
+        assert fake.get_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY") is None
+        assert "Removed stored key" in out
+
+    def test_key_rm_requires_confirm(self, monkeypatch):
+        from nah import llm_keys
+        from nah.cli import cmd_key_rm
+
+        fake = FakeKeyring()
+        fake.set_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY", "stored")
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: fake)
+
+        with patch("nah.cli._confirm", return_value=False):
+            with pytest.raises(SystemExit) as exc:
+                cmd_key_rm(argparse.Namespace(provider="openai", yes=False))
+
+        assert exc.value.code == 1
+        assert fake.get_password(llm_keys.KEYRING_SERVICE, "OPENAI_API_KEY") == "stored"
+
+    def test_key_rm_requires_optional_support(self, monkeypatch, capsys):
+        from nah import llm_keys
+        from nah.cli import cmd_key_rm
+
+        monkeypatch.setattr(llm_keys, "_load_keyring", lambda: None)
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_key_rm(argparse.Namespace(provider="openai", yes=True))
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert llm_keys.INSTALL_HINT in err
 
 
 # --- Shadow warnings (FD-062) ---
