@@ -34,7 +34,7 @@ claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
 claude plugin install nah@nah --scope user
 ```
 
-For CLI commands, install from PyPI. The beta terminal guard is opt-in with
+For CLI commands, install from PyPI. The terminal guard is opt-in with
 `nah install bash` or `nah install zsh`; direct Claude Code hooks use
 `nah install claude`.
 
