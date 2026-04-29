@@ -1386,6 +1386,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         reason = entry.get("human_reason") or entry.get("reason", "")
         summary = entry.get("input", "")
         total_ms = entry.get("ms", "")
+        llm = entry.get("llm", {})
+        llm_ms = llm.get("ms", "")
 
         if decision == "BLOCK":
             marker = "! "
@@ -1394,19 +1396,29 @@ def cmd_log(args: argparse.Namespace) -> None:
         else:
             marker = "  "
 
-        line = f"{ts}  {marker}{decision:<5}  {tool_name:<5}  {summary[:60]}"
+        line = f"{ts}  {marker}{decision:<5}  {tool_name:<5}  {summary}"
         if reason:
-            line += f"  ({reason[:40]})"
+            line += f"  ({reason})"
         if total_ms != "":
-            line += f"  [{total_ms}ms]"
-        llm_prov = entry.get("llm", {}).get("provider", "")
+            if total_ms == 0 and llm_ms:
+                line += f"  [llm {llm_ms}ms]"
+            else:
+                line += f"  [{total_ms}ms]"
+        llm_prov = llm.get("provider", "")
         if llm_prov:
             llm_model = entry.get("llm", {}).get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
             if llm_model:
                 llm_tag += f"/{llm_model}"
             line += llm_tag
+            llm_reason = llm.get("reasoning", "")
+            if llm_reason:
+                line += f" — {llm_reason}"
         print(line)
+        if getattr(args, "llm", False):
+            llm_long = llm.get("reasoning_long", "")
+            if llm_long and llm_long != llm.get("reasoning", ""):
+                print(f"     LLM detail: {llm_long}")
 
 
 def cmd_claude(user_args: list[str]) -> None:
@@ -1472,16 +1484,15 @@ def cmd_terminal_decision(args: argparse.Namespace) -> None:
         getattr(args, "target", ""),
         confirm=bool(getattr(args, "confirm", False)),
         assume_confirmed=bool(getattr(args, "assume_confirmed", False)),
+        skip_llm=bool(getattr(args, "skip_llm", False)),
         log=not bool(getattr(args, "no_log", False)),
     )
     if getattr(args, "json", False):
         print(json.dumps(terminal_guard.decision_to_payload(result)))
     elif result.exit_code == terminal_guard.EXIT_BLOCK:
-        from nah.messages import brand
-        print(brand("nah blocked", result.human_reason or result.reason), file=sys.stderr)
+        print(terminal_guard.format_terminal_message(result, "nah blocked"), file=sys.stderr)
     elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED and not getattr(args, "confirm", False):
-        from nah.messages import brand
-        print(brand("nah paused", result.human_reason or result.reason), file=sys.stderr)
+        print(terminal_guard.format_terminal_message(result, "nah paused"), file=sys.stderr)
     raise SystemExit(result.exit_code)
 
 
@@ -1491,6 +1502,7 @@ def _run_hidden_terminal_decision(argv: list[str]) -> None:
     parser.add_argument("--target", required=True, choices=("bash", "zsh"))
     parser.add_argument("--confirm", action="store_true")
     parser.add_argument("--assume-confirmed", action="store_true")
+    parser.add_argument("--skip-llm", action="store_true")
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("args", nargs=argparse.REMAINDER)

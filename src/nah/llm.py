@@ -24,10 +24,6 @@ _COMMAND_ARGS_RE = re.compile(
 )
 _TRANSCRIPT_TAIL_CHUNK_SIZE = 16 * 1024
 _TRANSCRIPT_TAIL_SAFETY_CAP = 4 * 1024 * 1024
-_REASONING_SHORT_CHARS = 80
-_REASONING_LONG_CHARS = 2000
-
-
 class PromptParts(NamedTuple):
     """Structured prompt with system and user components."""
 
@@ -76,7 +72,7 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
+{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
 
 Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
 sentences explaining the observable evidence and decision. Do not include hidden
@@ -95,7 +91,7 @@ Rules:
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 
 Respond with exactly one JSON object, no other text:
-{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
+{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
 
 Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
 sentences explaining the observable evidence and decision. Do not include hidden
@@ -174,7 +170,7 @@ def _build_unified_prompt(
         "",
         "## Decision",
         'Respond with exactly one JSON object:',
-        '{"decision": "<allow|uncertain>", "reasoning": "<max 80 chars>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
+        '{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
         "",
         '- "allow" - the user clearly intended this action. Auto-approve silently.',
         '- "uncertain" - not enough context to confirm user intent. Ask the user.',
@@ -187,6 +183,62 @@ def _build_unified_prompt(
         "- Only choose uncertain when the action goes beyond what the user described,",
         "  or when there is no conversation context to judge from.",
         "- When in doubt, choose uncertain. The user will simply be prompted.",
+    ])
+    return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
+
+
+def _build_terminal_guard_prompt(
+    command: str,
+    action_type: str,
+    reason: str,
+    *,
+    target: str = "",
+    stages: list[dict] | None = None,
+) -> PromptParts:
+    """Build an ask-refinement prompt for directly typed terminal commands."""
+    cwd, inside_project = _resolve_cwd_context()
+    type_desc = _load_type_desc(action_type)
+    type_label = (
+        f"{action_type} - {type_desc}" if type_desc else action_type
+    )
+    stage_text = "(not available)"
+    if stages:
+        stage_text = json.dumps(stages, ensure_ascii=True, separators=(",", ":"))
+    user = "\n".join([
+        "A command was typed directly by a human user into an interactive terminal.",
+        "Treat that direct terminal input as the user's request and intent.",
+        "Decide whether nah can safely auto-allow this deterministic ASK, or",
+        "whether nah should keep prompting the user.",
+        "",
+        "Rules:",
+        "- Use allow only when the command is plainly low-risk for an interactive",
+        "  terminal: local, non-destructive, no credential access, no persistence,",
+        "  no downloaded-code execution, and no untrusted remote side effect.",
+        "- Use uncertain when the command contacts an untrusted host, executes",
+        "  downloaded or obfuscated code, touches sensitive paths, writes remotely,",
+        "  destroys data, persists shell changes, or remains unclear from the",
+        "  command itself.",
+        "- When in doubt, choose uncertain. The user will simply be prompted.",
+        "",
+        "## Terminal Command",
+        f"Target shell: {target or '(unknown)'}",
+        f"Command: {command}",
+        f"Classification: {type_label}",
+        f"Structural reason: {reason}",
+        f"Working directory: {cwd}",
+        f"Inside project: {inside_project}",
+        "",
+        "## Classification Stages",
+        stage_text,
+        "",
+        "## Decision",
+        "Respond with exactly one JSON object:",
+        '{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
+        "",
+        "- Use reasoning for a concise explanation shown in the terminal prompt.",
+        "- Use reasoning_long for 3-4 concise sentences explaining the observable",
+        "  evidence and decision for logs/debugging. Do not include hidden",
+        "  chain-of-thought.",
     ])
     return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
 
@@ -277,9 +329,7 @@ def _parse_response(raw: str) -> LLMResult | None:
         raw_reasoning = raw_reasoning_long
     if not raw_reasoning_long and raw_reasoning:
         raw_reasoning_long = raw_reasoning
-    reasoning = raw_reasoning[:_REASONING_SHORT_CHARS]
-    reasoning_long = raw_reasoning_long[:_REASONING_LONG_CHARS]
-    return LLMResult(decision, reasoning, reasoning_long)
+    return LLMResult(decision, raw_reasoning, raw_reasoning_long)
 
 
 def _response_string(value: object) -> str:
@@ -305,7 +355,7 @@ def _format_tool_use_summary(block: dict) -> str:
     if not isinstance(inp, dict):
         return f"[{name}]"
     if name in ("Bash", "Shell", "execute_bash", "shell"):
-        cmd = str(inp.get("command", ""))[:80]
+        cmd = str(inp.get("command", ""))
         return f"[Bash: {cmd}]" if cmd else "[Bash]"
     if name in ("Read", "fs_read"):
         return f"[Read: {inp.get('file_path', '')}]"
@@ -323,7 +373,7 @@ def _format_tool_use_summary(block: dict) -> str:
         return f"[Grep: {inp.get('pattern', '')}]"
     if name.startswith("mcp__"):
         for key, val in inp.items():
-            return f"[{name}: {key}={str(val)[:60]}]"
+            return f"[{name}: {key}={str(val)}]"
     return f"[{name}]"
 
 
@@ -1051,6 +1101,28 @@ def try_llm_unified(
         claude_md,
     )
     result = _try_providers(prompt, llm_config, tool_name)
+    result.prompt = f"{prompt.system}\n\n{prompt.user}"
+    return result
+
+
+def try_llm_terminal_guard(
+    command: str,
+    action_type: str,
+    reason: str,
+    llm_config: dict,
+    *,
+    target: str = "",
+    stages: list[dict] | None = None,
+) -> LLMCallResult:
+    """Try LLM providers for interactive terminal ask refinement."""
+    prompt = _build_terminal_guard_prompt(
+        command,
+        action_type,
+        reason,
+        target=target,
+        stages=stages,
+    )
+    result = _try_providers(prompt, llm_config, "Bash")
     result.prompt = f"{prompt.system}\n\n{prompt.user}"
     return result
 

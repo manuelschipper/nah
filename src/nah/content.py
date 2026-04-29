@@ -224,7 +224,7 @@ def scan_content(content: str) -> list[ContentMatch]:
                 matches.append(ContentMatch(
                     category=category,
                     pattern_desc=desc,
-                    matched_text=m.group()[:80],
+                    matched_text=m.group(),
                     policy=policy,
                 ))
     return matches

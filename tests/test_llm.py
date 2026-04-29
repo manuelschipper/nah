@@ -13,6 +13,7 @@ from nah.llm import (
     LLMResult,
     PromptParts,
     _UNIFIED_SYSTEM_TEMPLATE,
+    _build_terminal_guard_prompt,
     _build_unified_prompt,
     _build_write_prompt,
     _format_tool_use_summary,
@@ -22,7 +23,9 @@ from nah.llm import (
     _read_transcript_tail_bytes,
     _redact_secrets,
     _VETO_SYSTEM_TEMPLATE,
+    try_llm_terminal_guard,
     try_llm_unified,
+    LLMCallResult,
 )
 
 
@@ -80,13 +83,13 @@ class TestParseResponse:
     def test_invalid_decision_value(self):
         assert _parse_response('{"decision": "maybe", "reasoning": "x"}') is None
 
-    def test_reasoning_truncated(self):
+    def test_reasoning_preserved(self):
         long_reason = "x" * 300
         r = _parse_response(f'{{"decision": "allow", "reasoning": "{long_reason}"}}')
-        assert len(r.reasoning) == 80
+        assert r.reasoning == long_reason
         assert len(r.reasoning_long) == 300
 
-    def test_reasoning_long_preserved_and_capped(self):
+    def test_reasoning_long_preserved(self):
         long_detail = "y" * 2500
         r = _parse_response(
             json.dumps({
@@ -96,7 +99,7 @@ class TestParseResponse:
             })
         )
         assert r.reasoning == "short reason"
-        assert len(r.reasoning_long) == 2000
+        assert r.reasoning_long == long_detail
 
     def test_reasoning_falls_back_to_long(self):
         r = _parse_response(
@@ -203,6 +206,69 @@ class TestBuildPrompt:
         )
         prompt = _build_prompt(result)
         assert taxonomy.UNKNOWN in prompt.user
+
+
+class TestBuildTerminalGuardPrompt:
+    def test_terminal_prompt_assumes_direct_user_intent(self):
+        prompt = _build_terminal_guard_prompt(
+            "curl evil",
+            taxonomy.NETWORK_OUTBOUND,
+            "network_outbound \u2192 ask",
+            target="bash",
+            stages=[{
+                "tokens": ["curl", "evil"],
+                "action_type": taxonomy.NETWORK_OUTBOUND,
+                "decision": taxonomy.ASK,
+                "reason": "network_outbound \u2192 ask",
+            }],
+        )
+        assert isinstance(prompt, PromptParts)
+        assert prompt.system == _UNIFIED_SYSTEM_TEMPLATE
+        assert "typed directly by a human user" in prompt.user
+        assert "Treat that direct terminal input as the user's request" in prompt.user
+        assert "Command: curl evil" in prompt.user
+        assert "Target shell: bash" in prompt.user
+        assert taxonomy.NETWORK_OUTBOUND in prompt.user
+        assert "network_outbound \u2192 ask" in prompt.user
+
+    def test_terminal_prompt_omits_agent_context_sections(self):
+        prompt = _build_terminal_guard_prompt(
+            "curl evil",
+            taxonomy.NETWORK_OUTBOUND,
+            "network_outbound \u2192 ask",
+            target="zsh",
+        )
+        assert "Conversation Context" not in prompt.user
+        assert "Project Configuration" not in prompt.user
+        assert "CLAUDE.md" not in prompt.user
+        assert "chat" not in prompt.user.lower()
+        assert "transcript" not in prompt.user.lower()
+        assert "prior request" not in prompt.user.lower()
+
+    def test_try_llm_terminal_guard_does_not_read_transcript_or_claude_md(self):
+        expected = LLMCallResult(
+            decision={"decision": "uncertain", "reason": "Bash (LLM): untrusted host"},
+            provider="fake",
+            model="fake",
+            latency_ms=1,
+            reasoning="untrusted host",
+        )
+        with patch("nah.llm._read_transcript_tail", side_effect=AssertionError("no transcript")):
+            with patch("nah.llm._read_claude_md", side_effect=AssertionError("no claude md")):
+                with patch("nah.llm._try_providers", return_value=expected) as providers:
+                    result = try_llm_terminal_guard(
+                        "curl evil",
+                        taxonomy.NETWORK_OUTBOUND,
+                        "network_outbound \u2192 ask",
+                        {"providers": ["fake"]},
+                        target="bash",
+                    )
+
+        assert result is expected
+        prompt = providers.call_args.args[0]
+        assert "Command: curl evil" in prompt.user
+        assert "Conversation Context" not in prompt.user
+        assert result.prompt == f"{prompt.system}\n\n{prompt.user}"
 
 
 # -- shared helper --
@@ -816,10 +882,10 @@ class TestFormatToolUseSummary:
     def test_bash(self):
         assert _format_tool_use_summary(_tu("Bash", command="rm -rf dist/")) == "[Bash: rm -rf dist/]"
 
-    def test_bash_truncated_at_80(self):
+    def test_bash_not_truncated(self):
         long_cmd = "x" * 100
         result = _format_tool_use_summary(_tu("Bash", command=long_cmd))
-        assert result == f"[Bash: {'x' * 80}]"
+        assert result == f"[Bash: {long_cmd}]"
 
     def test_bash_empty_command(self):
         assert _format_tool_use_summary(_tu("Bash", command="")) == "[Bash]"
@@ -855,10 +921,10 @@ class TestFormatToolUseSummary:
         result = _format_tool_use_summary(_tu("mcp__slack__send", channel="general"))
         assert result == "[mcp__slack__send: channel=general]"
 
-    def test_mcp_value_truncated(self):
+    def test_mcp_value_not_truncated(self):
         long_val = "v" * 100
         result = _format_tool_use_summary(_tu("mcp__x__y", data=long_val))
-        assert len(result) < 100  # truncated
+        assert result == f"[mcp__x__y: data={long_val}]"
 
     def test_unknown_tool(self):
         assert _format_tool_use_summary(_tu("SomeTool", x=1)) == "[SomeTool]"
