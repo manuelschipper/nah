@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Terminal guard positioned as beta** — README, install docs, CLI docs, privacy copy, and lifecycle target help now keep the primary positioning focused on Claude Code while labeling bash/zsh terminal protection as an opt-in beta feature.
+- **Terminal guard documented as opt-in shell protection** — README, install docs, configuration docs, privacy copy, and lifecycle target help now describe bash/zsh terminal protection as opt-in per shell without preview labeling.
 - **Minimal taxonomy profile deprecated** — `profile: minimal` now warns and behaves like `profile: full`, leaving `full` and `none` as the two supported profile shapes. The old minimal classification data has been removed so custom classifiers are not evaluated against a weaker built-in baseline.
 - **Install lifecycle targets stay runtime-only** — removed the unreleased `nah install openrouter` / `nah uninstall openrouter` convenience path so lifecycle commands only install or remove nah from guarded runtimes (`claude`, `bash`, `zsh`). LLM providers remain configured through global config. (nah-882 follow-up)
 - **Install docs now start with a chooser** — README and site install docs now separate the Claude Code plugin, PyPI CLI/direct-hook, terminal guard, config extra, and LLM provider configuration more clearly, and stale setup examples now use explicit target-first lifecycle commands instead of bare `nah install`. (nah-885)

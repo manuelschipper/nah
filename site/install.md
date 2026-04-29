@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.10+ for PyPI CLI, direct hooks, and the beta terminal guard
+- Python 3.10+ for PyPI CLI, direct hooks, and the terminal guard
 - Claude Code with plugin support for the Claude Code plugin path
 
 ## Choose An Install Path
@@ -10,7 +10,7 @@
 | Goal | Path | Installs `nah` CLI? | Notes |
 |------|------|---------------------|-------|
 | Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
-| Try the beta terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
+| Use the terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 | Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
 | Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Add `nah[keys]` if you want OS keychain-backed storage for remote-provider secrets |
 
@@ -36,7 +36,7 @@ plugin is enabled, normal `claude` sessions load nah automatically without
 The plugin bundles nah's stdlib-only runtime. It does not install PyYAML,
 optional keyring support, or the `nah` shell command. Use the PyPI path when
 you want CLI commands such as `nah test`, `nah allow`, `nah deny`, `nah key`,
-the beta terminal guard, LLM provider config, or direct-hook mode.
+the terminal guard, LLM provider config, or direct-hook mode.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
@@ -48,10 +48,10 @@ claude plugin uninstall nah@nah
 nah install claude      # optional: return to direct hooks if the CLI is installed
 ```
 
-## Terminal Guard Beta
+## Terminal Guard
 
-The terminal guard is a beta feature for interactive shell sessions. Install it
-only for the shell you actually use:
+The terminal guard protects opt-in interactive shell sessions. Install it only
+for the shell you actually use:
 
 ```bash
 pip install nah

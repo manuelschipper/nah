@@ -14,7 +14,7 @@ claude plugin install nah@nah --scope user
 The plugin protects normal `claude` sessions while it is enabled. It does not
 install the `nah` shell command.
 
-For CLI commands, install from PyPI. The terminal guard is beta and opt-in:
+For CLI commands, install from PyPI. The terminal guard is opt-in:
 
 ```bash
 pip install nah

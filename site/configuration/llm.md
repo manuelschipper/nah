@@ -45,7 +45,7 @@ llm:
 
 LLM provider setup lives in global config. Store environment-variable names such
 as `key_env: OPENROUTER_API_KEY`, not raw API keys. `nah install` is reserved
-for installing nah into guarded runtimes: Claude Code, plus the beta bash/zsh
+for installing nah into guarded runtimes: Claude Code, plus the bash/zsh
 terminal guard.
 Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
 config files.
@@ -206,7 +206,7 @@ targets:
       mode: off
 ```
 
-Bash and zsh are beta terminal-guard targets. They default to LLM mode off even
+Bash and zsh are terminal-guard targets. They default to LLM mode off even
 when global LLM mode is on. That keeps human terminal commands local by
 default. Turn it on only with an explicit target override such as
 `targets.bash.llm.mode: on`.

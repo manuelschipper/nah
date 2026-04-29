@@ -93,7 +93,7 @@ When both configs exist, nah merges them with these rules:
 ## Target overrides
 
 Use `targets.<target>` when a runtime needs different policy from the shared
-default. Supported targets are `claude`, plus the beta terminal-guard targets
+default. Supported targets are `claude`, plus the terminal-guard targets
 `bash` and `zsh`.
 
 ```yaml
@@ -132,7 +132,7 @@ Target overrides can set `actions`, `sensitive_paths_default`,
 `llm.eligible`. Shell-specific options live under `targets.bash.terminal` and
 `targets.zsh.terminal`.
 
-Bash and zsh are beta terminal-guard targets. They default to LLM mode off even
+Bash and zsh are terminal-guard targets. They default to LLM mode off even
 when global LLM mode is on. Enable terminal LLM review only with an explicit
 target override such as
 `targets.bash.llm.mode: on`.
