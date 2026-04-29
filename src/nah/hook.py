@@ -821,11 +821,12 @@ def main():
                                 # Surface LLM reasoning in the prompt
                                 if llm_call.reasoning:
                                     decision["_llm_reason"] = llm_call.reasoning
-                                # Compact summary in systemMessage — lands in
+                                # Summary in systemMessage lands in the
                                 # transcript so future LLM calls see it as
                                 # approval evidence when the tool runs.
-                                short = (llm_call.reasoning or "uncertain")[:80]
-                                decision["_system_message"] = f"nah: {short}"
+                                decision["_system_message"] = (
+                                    f"nah: {llm_call.reasoning or 'uncertain'}"
+                                )
                                 deny_count += 1
                                 if deny_limit > 0:
                                     _write_auto_state(

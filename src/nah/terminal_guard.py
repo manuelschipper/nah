@@ -40,6 +40,7 @@ class ShellPaths:
     shell: str
     rc_file: Path
     snippet: Path
+    login_rc_file: Path | None = None
 
 
 @dataclass
@@ -67,7 +68,24 @@ def shell_paths(shell: str) -> ShellPaths:
         shell=shell,
         rc_file=home / rc_name,
         snippet=Path(nah_config_dir()) / "terminal" / snippet_name,
+        login_rc_file=home / ".bash_profile" if shell == BASH else None,
     )
+
+
+def _startup_files_to_install(paths: ShellPaths) -> list[Path]:
+    """Return shell startup files that should receive the managed block."""
+    files = [paths.rc_file]
+    if paths.login_rc_file and paths.login_rc_file.exists():
+        files.append(paths.login_rc_file)
+    return files
+
+
+def _startup_files_with_blocks(paths: ShellPaths) -> list[Path]:
+    """Return startup files that currently contain the managed block."""
+    files = [paths.rc_file]
+    if paths.login_rc_file and _has_block(_read_text(paths.login_rc_file)):
+        files.append(paths.login_rc_file)
+    return files
 
 
 def install_shell(shell: str) -> None:
@@ -75,7 +93,8 @@ def install_shell(shell: str) -> None:
     paths = shell_paths(shell)
     _write_snippet(paths)
     block = _managed_block(paths)
-    _write_text(paths.rc_file, _upsert_block(_read_text(paths.rc_file), block))
+    for rc_file in _startup_files_to_install(paths):
+        _write_text(rc_file, _upsert_block(_read_text(rc_file), block))
 
 
 def update_shell(shell: str) -> None:
@@ -86,7 +105,8 @@ def update_shell(shell: str) -> None:
 def uninstall_shell(shell: str) -> None:
     """Remove the shell guard snippet and managed rc block."""
     paths = shell_paths(shell)
-    _write_text(paths.rc_file, _remove_block(_read_text(paths.rc_file)))
+    for rc_file in _startup_files_with_blocks(paths):
+        _write_text(rc_file, _remove_block(_read_text(rc_file)))
     if paths.snippet.exists():
         paths.snippet.unlink()
 
@@ -95,6 +115,9 @@ def shell_status(shell: str) -> dict:
     """Return installation/loading status for a shell target."""
     paths = shell_paths(shell)
     rc_text = _read_text(paths.rc_file)
+    login_rc_text = _read_text(paths.login_rc_file) if paths.login_rc_file else ""
+    rc_block = _has_block(rc_text)
+    login_rc_block = _has_block(login_rc_text)
     loaded = (
         os.environ.get("NAH_TERMINAL_GUARD") == "1"
         and os.environ.get("NAH_TERMINAL_SHELL") == shell
@@ -102,10 +125,12 @@ def shell_status(shell: str) -> dict:
     return {
         "target": shell,
         "rc_file": str(paths.rc_file),
+        "login_rc_file": str(paths.login_rc_file) if paths.login_rc_file else "",
         "snippet": str(paths.snippet),
-        "rc_block": _has_block(rc_text),
+        "rc_block": rc_block,
+        "login_rc_block": login_rc_block,
         "snippet_exists": paths.snippet.exists(),
-        "installed": _has_block(rc_text) and paths.snippet.exists(),
+        "installed": (rc_block or login_rc_block) and paths.snippet.exists(),
         "loaded": loaded,
     }
 
@@ -148,6 +173,7 @@ def decide_terminal_command(
     *,
     confirm: bool = False,
     assume_confirmed: bool = False,
+    skip_llm: bool = False,
     log: bool = True,
     stdin=None,
     stderr=None,
@@ -157,6 +183,15 @@ def decide_terminal_command(
     command = _strip_accept_line_ending(command)
     stdin = stdin if stdin is not None else sys.stdin
     stderr = stderr if stderr is not None else sys.stderr
+    tty_handle = None
+    if confirm and not _stdin_is_tty(stdin):
+        try:
+            tty_handle = open("/dev/tty", "r+", encoding="utf-8")
+        except OSError:
+            tty_handle = None
+        else:
+            stdin = tty_handle
+            stderr = tty_handle
 
     from nah.config import get_config, set_active_target
 
@@ -229,6 +264,26 @@ def decide_terminal_command(
             _log_terminal_decision(result, cfg.log)
         return result
 
+    if not assume_confirmed and not skip_llm:
+        llm_result = _try_terminal_llm(command, target, reason, meta, cfg)
+        if llm_result is not None:
+            llm_decision, llm_reason, llm_meta = llm_result
+            meta.update(llm_meta)
+            if llm_decision == taxonomy.ALLOW:
+                action_type = _first_action_type(meta)
+                result = TerminalDecision(
+                    decision=taxonomy.ALLOW,
+                    reason=llm_reason or reason,
+                    exit_code=EXIT_ALLOW,
+                    command=command,
+                    target=target,
+                    action_type=action_type,
+                    meta={**meta, "terminal_event": "llm_allowed"},
+                )
+                if log:
+                    _log_terminal_decision(result, cfg.log)
+                return result
+
     if assume_confirmed:
         action_type = _first_action_type(meta)
         human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
@@ -250,7 +305,17 @@ def decide_terminal_command(
     if confirm and _stdin_is_tty(stdin):
         action_type = _first_action_type(meta)
         human = human_reason(reason, decision=taxonomy.ASK, action_type=action_type, tool="Bash", meta=meta)
-        stderr.write(f"{brand('nah paused', human)}\nRun anyway? [y/N] ")
+        prompt_result = TerminalDecision(
+            decision=taxonomy.ASK,
+            reason=reason,
+            exit_code=EXIT_ASK_DECLINED,
+            command=command,
+            target=target,
+            action_type=action_type,
+            human_reason=human,
+            meta=meta,
+        )
+        stderr.write(f"{format_terminal_message(prompt_result, 'nah paused')}\nRun anyway? [y/N] ")
         stderr.flush()
         answer = _read_confirmation_answer(stdin, stderr)
         if answer in ("y", "yes"):
@@ -303,6 +368,18 @@ def decision_to_payload(result: TerminalDecision) -> dict:
     }
 
 
+def format_terminal_message(result: TerminalDecision, prefix: str) -> str:
+    """Return the interactive terminal message for a guarded command."""
+    lines = [brand(prefix, result.human_reason or result.reason)]
+    command = _display_command(result.command)
+    if command:
+        lines.append(f"Command: {command}")
+    llm_reason = str((result.meta or {}).get("llm_reasoning", "")).strip()
+    if llm_reason:
+        lines.append(f"LLM: {llm_reason}")
+    return "\n".join(lines)
+
+
 def print_status(shell: str) -> None:
     """Print shell status in a compact human format."""
     st = shell_status(shell)
@@ -310,6 +387,8 @@ def print_status(shell: str) -> None:
     loaded = "loaded" if st["loaded"] else "not loaded in this shell"
     print(f"{shell}: {state}, {loaded}")
     print(f"  rc file: {st['rc_file']}")
+    if st["login_rc_file"]:
+        print(f"  login rc file: {st['login_rc_file']}")
     print(f"  snippet: {st['snippet']}")
 
 
@@ -323,6 +402,8 @@ def print_doctor(shell: str) -> None:
     print(f"installed: {'yes' if st['installed'] else 'no'}")
     print(f"loaded in current shell: {'yes' if st['loaded'] else 'no'}")
     print(f"rc file: {st['rc_file']}")
+    if st["login_rc_file"]:
+        print(f"login rc file: {st['login_rc_file']}")
     print(f"snippet: {st['snippet']}")
     print(f"{shell} available: {'yes' if st['supports_shell'] else 'no'}")
     if st["conflicts"]:
@@ -352,6 +433,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     local prefix_line="$line"
     local bypass=0
     local status
+    bind '"\\C-x\\C-m": accept-line'
 
     if [[ -z "${line//[[:space:]]/}" ]]; then
       READLINE_LINE="$line"
@@ -371,6 +453,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
       if [[ -z "${run_line//[[:space:]]/}" ]]; then
         READLINE_LINE=
         READLINE_POINT=0
+        bind '"\\C-x\\C-m": abort'
         return 0
       fi
     fi
@@ -378,7 +461,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
     if [[ $bypass -eq 1 ]]; then
       NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target bash -- "$run_line"
     else
-      command nah _terminal-decision --target bash --no-log -- "$line" >/dev/null 2>&1
+      command nah _terminal-decision --target bash --no-log --skip-llm -- "$line" >/dev/null 2>&1
     fi
     status=$?
     if [[ $status -eq 0 ]]; then
@@ -394,6 +477,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
       else
         READLINE_LINE=
         READLINE_POINT=0
+        bind '"\\C-x\\C-m": abort'
       fi
       return 0
     elif [[ $status -eq 20 ]]; then
@@ -404,6 +488,7 @@ if [[ $- == *i* && -n ${BASH_VERSION:-} ]]; then
 
     READLINE_LINE=
     READLINE_POINT=0
+    bind '"\\C-x\\C-m": abort'
     return 0
   }
 
@@ -418,7 +503,7 @@ fi
 def render_zsh_snippet() -> str:
     """Return the managed zsh snippet."""
     return """# nah terminal guard for interactive zsh
-if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-} ]]; then
+if [[ -o interactive && -n ${ZSH_VERSION:-} && ${NAH_TERMINAL_SHELL:-} != zsh ]]; then
   export NAH_TERMINAL_GUARD=1
   export NAH_TERMINAL_SHELL=zsh
   export NAH_TERMINAL_GUARD_ACTIVE=1
@@ -453,31 +538,29 @@ if [[ -o interactive && -n ${ZSH_VERSION:-} && -z ${NAH_TERMINAL_GUARD_ACTIVE:-}
       if [[ $bypass -eq 1 ]]; then
         NAH_TERMINAL_BYPASS=1 command nah _terminal-decision --target zsh -- "$run_line"
       else
-        command nah _terminal-decision --target zsh --no-log -- "$line"
+        command nah _terminal-decision --target zsh --no-log --skip-llm -- "$line" >/dev/null 2>&1
       fi
       local nah_status=$?
       if [[ $nah_status -eq 0 ]]; then
         BUFFER="$run_line"
         zle __nah_original_accept_line
       else
+        zle -I
         if [[ $nah_status -eq 10 ]]; then
-          local answer
-          zle -I
-          printf 'Run anyway? [y/N] ' > /dev/tty
-          IFS= read -r answer < /dev/tty || answer=
-          if [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]]; then
-            command nah _terminal-decision --target zsh --assume-confirmed -- "$line" >/dev/null 2>&1 || true
+          if command nah _terminal-decision --target zsh --confirm -- "$line" < /dev/tty > /dev/tty 2>&1; then
             BUFFER="$run_line"
             zle __nah_original_accept_line
             return
           fi
-          command nah _terminal-decision --target zsh -- "$line" >/dev/null 2>&1 || true
         elif [[ $nah_status -eq 20 ]]; then
           command nah _terminal-decision --target zsh -- "$line" >/dev/null 2>&1 || true
+          command nah _terminal-decision --target zsh --no-log --skip-llm -- "$line" || true
+        else
+          command nah _terminal-decision --target zsh -- "$line" || true
         fi
         BUFFER=
-        zle -M "nah: command was not run"
-        zle redisplay
+        printf 'nah: command was not run\n' > /dev/tty
+        zle reset-prompt
       fi
     }
 
@@ -664,6 +747,12 @@ def _drain_confirmation_line(fd: int) -> None:
         return
 
 
+def _display_command(command: str) -> str:
+    """Return a one-line terminal-safe command display string."""
+    text = str(command or "").replace("\r", "\\r").replace("\n", "\\n")
+    return "".join(ch if ch == "\t" or ord(ch) >= 32 else "?" for ch in text).strip()
+
+
 def _is_bypass_enabled(env_name: str, command: str) -> bool:
     raw = os.environ.get(env_name, "")
     if raw.lower() in ("1", "true", "yes", "on"):
@@ -709,6 +798,50 @@ def _first_action_type(meta: dict) -> str:
             return stage.get("action_type", "")
     stages = meta.get("stages", [])
     return stages[0].get("action_type", "") if stages else ""
+
+
+def _try_terminal_llm(command: str, target: str, reason: str, meta: dict, cfg) -> tuple[str, str, dict] | None:
+    """Run optional LLM ask refinement for terminal commands."""
+    if cfg.llm_mode != "on" or not cfg.llm:
+        return None
+    try:
+        from nah.hook import _build_llm_meta, _is_llm_eligible_stages
+        from nah.llm import try_llm_terminal_guard
+        from nah.log import redact_input
+
+        action_type = _first_action_type(meta) or taxonomy.UNKNOWN
+        if not _is_llm_eligible_stages(
+            action_type,
+            meta.get("stages", []),
+            cfg.llm_eligible,
+            meta.get("composition_rule", ""),
+        ):
+            return None
+
+        llm_call = try_llm_terminal_guard(
+            redact_input("Bash", {"command": command}),
+            action_type,
+            reason,
+            cfg.llm,
+            target=target,
+            stages=meta.get("stages", []),
+        )
+        llm_meta = _build_llm_meta(llm_call, cfg)
+        if llm_call.decision is None:
+            return None if not llm_meta else ("", "", llm_meta)
+        llm_decision = llm_call.decision.get("decision", "")
+        llm_reason = (
+            llm_call.decision.get("reason", "")
+            or llm_call.reasoning
+            or llm_call.reasoning_long
+        )
+        return llm_decision, llm_reason, llm_meta
+    except Exception as exc:
+        try:
+            sys.stderr.write(f"nah: terminal LLM: {exc}\n")
+        except Exception:
+            pass
+        return None
 
 
 def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) -> None:

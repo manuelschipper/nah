@@ -7,27 +7,46 @@ from unittest.mock import patch
 
 from nah import terminal_guard
 from nah.config import reset_config
+from nah.llm import LLMCallResult, ProviderAttempt
 
 
 def test_install_uninstall_bash_managed_block(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     rc = tmp_path / ".bashrc"
+    login_rc = tmp_path / ".bash_profile"
     rc.write_text("# existing\n", encoding="utf-8")
+    login_rc.write_text("# login\n", encoding="utf-8")
 
     terminal_guard.install_shell("bash")
     terminal_guard.install_shell("bash")
 
     snippet = tmp_path / ".config" / "nah" / "terminal" / "bash.sh"
     text = rc.read_text(encoding="utf-8")
+    login_text = login_rc.read_text(encoding="utf-8")
     assert snippet.exists()
     assert text.count(terminal_guard.MARKER_START) == 1
+    assert login_text.count(terminal_guard.MARKER_START) == 1
     assert "bind -x" in snippet.read_text(encoding="utf-8")
 
     terminal_guard.uninstall_shell("bash")
 
     assert terminal_guard.MARKER_START not in rc.read_text(encoding="utf-8")
+    assert terminal_guard.MARKER_START not in login_rc.read_text(encoding="utf-8")
     assert not snippet.exists()
     assert "# existing" in rc.read_text(encoding="utf-8")
+    assert "# login" in login_rc.read_text(encoding="utf-8")
+
+
+def test_install_bash_does_not_create_login_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    rc = tmp_path / ".bashrc"
+    login_rc = tmp_path / ".bash_profile"
+
+    terminal_guard.install_shell("bash")
+
+    assert rc.exists()
+    assert terminal_guard.MARKER_START in rc.read_text(encoding="utf-8")
+    assert not login_rc.exists()
 
 
 def test_bash_snippet_captures_conflict_metadata():
@@ -40,6 +59,7 @@ def test_bash_snippet_captures_conflict_metadata():
     assert '__nah_terminal_filter_line' in snippet
     assert '\\C-x\\C-n":__nah_terminal_filter_line' in snippet
     assert '\\C-x\\C-m": accept-line' in snippet
+    assert '\\C-x\\C-m": abort' in snippet
     assert '\\C-j":"\\C-x\\C-n\\C-x\\C-m' in snippet
     assert '\\C-m":"\\C-x\\C-n\\C-x\\C-m' in snippet
     assert "nah-bypass" in snippet
@@ -50,13 +70,15 @@ def test_bash_snippet_captures_conflict_metadata():
     assert "__NAH_TERMINAL_PENDING_COMMAND" not in snippet
     assert "Run anyway? Type y or n, then press Enter." not in snippet
     assert "--no-log" in snippet
-    assert '--no-log -- "$line" >/dev/null 2>&1' in snippet
+    assert '--no-log --skip-llm -- "$line" >/dev/null 2>&1' in snippet
     assert "--assume-confirmed" not in snippet
     assert "--target bash --confirm" in snippet
 
 
 def test_zsh_snippet_wraps_accept_line():
     snippet = terminal_guard.render_zsh_snippet()
+    assert '${NAH_TERMINAL_SHELL:-} != zsh' in snippet
+    assert "-z ${NAH_TERMINAL_GUARD_ACTIVE:-}" not in snippet
     assert "zle -A accept-line __nah_original_accept_line" in snippet
     assert "zle -A .accept-line __nah_original_accept_line" in snippet
     assert "NAH_TERMINAL_ZSH_ACCEPT_LINE=preserved" in snippet
@@ -65,10 +87,13 @@ def test_zsh_snippet_wraps_accept_line():
     assert "_terminal-decision --target zsh" in snippet
     assert "nah-bypass" in snippet
     assert 'BUFFER="$run_line"' in snippet
-    assert "Run anyway? [y/N]" in snippet
     assert "--no-log" in snippet
-    assert "--assume-confirmed" in snippet
-    assert "--target zsh --confirm" not in snippet
+    assert '--no-log --skip-llm -- "$line" >/dev/null 2>&1' in snippet
+    assert 'command nah _terminal-decision --target zsh --no-log --skip-llm -- "$line" || true' in snippet
+    assert "printf 'nah: command was not run" in snippet
+    assert "' > /dev/tty" in snippet
+    assert 'zle -M "nah: command was not run"' not in snippet
+    assert "--target zsh --confirm" in snippet
 
 
 def test_terminal_decision_allow_is_not_logged(monkeypatch, tmp_path):
@@ -109,6 +134,147 @@ def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     assert result.human_reason == "this can rewrite Git history"
 
 
+def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+
+    def fake_llm(*_args, **_kwargs):
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "safe test command"},
+            provider="fake",
+            model="fake-model",
+            latency_ms=1,
+            reasoning="safe test command",
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
+
+    with patch("nah.llm.try_llm_unified") as try_unified:
+        result = terminal_guard.decide_terminal_command(
+            "some-made-up-tool --delete-cache",
+            "bash",
+            log=False,
+        )
+
+    assert result.exit_code == terminal_guard.EXIT_ALLOW
+    assert result.decision == "allow"
+    assert result.reason == "safe test command"
+    try_unified.assert_not_called()
+
+
+def test_terminal_skip_llm_keeps_eligible_ask(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+
+    with patch("nah.llm.try_llm_terminal_guard") as try_llm:
+        result = terminal_guard.decide_terminal_command(
+            "some-made-up-tool --delete-cache",
+            "bash",
+            skip_llm=True,
+            log=False,
+        )
+
+    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
+    assert result.decision == "ask"
+    try_llm.assert_not_called()
+
+
+def test_terminal_confirm_prompt_shows_command_and_llm_reason(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+
+    def fake_llm(*_args, **_kwargs):
+        return LLMCallResult(
+            decision={"decision": "uncertain", "reason": "Bash (LLM): no matching request"},
+            provider="fake",
+            model="fake-model",
+            latency_ms=12,
+            reasoning="no matching request",
+            cascade=[ProviderAttempt(provider="fake", status="uncertain", latency_ms=12, model="fake-model")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
+    stdin = io.StringIO("n\n")
+    stdin.isatty = lambda: True
+    stderr = io.StringIO()
+
+    result = terminal_guard.decide_terminal_command(
+        "curl evil.example",
+        "bash",
+        confirm=True,
+        stdin=stdin,
+        stderr=stderr,
+        log=False,
+    )
+
+    text = stderr.getvalue()
+    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
+    assert "nah paused: this contacts an untrusted host: evil.example." in text
+    assert "Command: curl evil.example" in text
+    assert "LLM: no matching request" in text
+    assert text.count("Run anyway? [y/N]") == 1
+
+
 def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     reset_config()
@@ -127,6 +293,7 @@ def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
     text = stderr.getvalue()
     assert text.count("nah paused:") == 1
     assert "this can rewrite Git history" in text
+    assert "Command: git push --force" in text
     assert text.count("Run anyway? [y/N]") == 1
 
 
