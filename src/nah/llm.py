@@ -243,6 +243,62 @@ def _build_terminal_guard_prompt(
     return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
 
 
+def _build_codex_permission_request_prompt(
+    tool_name: str,
+    command_or_input: str,
+    action_type: str,
+    reason: str,
+    *,
+    stages: list[dict] | None = None,
+) -> PromptParts:
+    """Build an ask-refinement prompt for Codex PermissionRequest hooks."""
+    cwd, inside_project = _resolve_cwd_context()
+    type_desc = _load_type_desc(action_type)
+    type_label = (
+        f"{action_type} - {type_desc}" if type_desc else action_type
+    )
+    stage_text = "(not available)"
+    if stages:
+        stage_text = json.dumps(stages, ensure_ascii=True, separators=(",", ":"))
+    user = "\n".join([
+        "A Codex tool approval request was flagged for confirmation by the",
+        "deterministic safety engine. Decide whether nah can safely return an",
+        "allow verdict to Codex, or whether it should return no verdict so Codex",
+        "asks the human reviewer.",
+        "",
+        "Rules:",
+        "- Use allow only when the requested tool operation is plainly low-risk:",
+        "  local, non-destructive, no credential access, no persistence, no",
+        "  downloaded-code execution, and no untrusted remote side effect.",
+        "- Use uncertain when the operation contacts an untrusted host, executes",
+        "  downloaded or obfuscated code, touches sensitive paths, writes",
+        "  remotely, destroys data, persists configuration, or remains unclear",
+        "  from the tool request itself.",
+        "- When in doubt, choose uncertain. Codex will ask the user.",
+        "",
+        "## Codex Tool Request",
+        f"Tool: {tool_name}",
+        f"Input: {command_or_input[:500]}",
+        f"Classification: {type_label}",
+        f"Structural reason: {reason}",
+        f"Working directory: {cwd}",
+        f"Inside project: {inside_project}",
+        "",
+        "## Classification Stages",
+        stage_text,
+        "",
+        "## Decision",
+        "Respond with exactly one JSON object:",
+        '{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
+        "",
+        "- Use reasoning for a concise prompt-safe summary.",
+        "- Use reasoning_long for 3-4 concise sentences explaining the",
+        "  observable evidence and decision for logs/debugging. Do not include",
+        "  hidden chain-of-thought.",
+    ])
+    return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
+
+
 def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None:
     """Read script file content for LLM prompt enrichment.
 
@@ -1123,6 +1179,28 @@ def try_llm_terminal_guard(
         stages=stages,
     )
     result = _try_providers(prompt, llm_config, "Bash")
+    result.prompt = f"{prompt.system}\n\n{prompt.user}"
+    return result
+
+
+def try_llm_codex_permission_request(
+    tool_name: str,
+    command_or_input: str,
+    action_type: str,
+    reason: str,
+    llm_config: dict,
+    *,
+    stages: list[dict] | None = None,
+) -> LLMCallResult:
+    """Try LLM providers for Codex PermissionRequest ask refinement."""
+    prompt = _build_codex_permission_request_prompt(
+        tool_name,
+        command_or_input,
+        action_type,
+        reason,
+        stages=stages,
+    )
+    result = _try_providers(prompt, llm_config, tool_name)
     result.prompt = f"{prompt.system}\n\n{prompt.user}"
     return result
 

@@ -1238,6 +1238,32 @@ class TestCmdClaude:
         assert "--resume" in calls[0]
 
 
+class TestCmdCodex:
+    def test_nah_run_codex_manual_intercept(self, monkeypatch):
+        import nah.cli as cli_mod
+
+        calls = []
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "run", "codex", "resume"])
+        monkeypatch.setattr("nah.codex_run.run_codex", lambda args: calls.append(args) or 9)
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 9
+        assert calls == [["resume"]]
+
+    def test_codex_permission_request_hidden_command(self, monkeypatch):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "_codex-permission-request"])
+        monkeypatch.setattr("nah.codex_hooks.main", lambda: 7)
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 7
+
+
 class TestCliPluginMode:
     """CLI behavior when the Claude Code nah plugin is enabled."""
 
