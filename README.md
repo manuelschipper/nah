@@ -85,6 +85,23 @@ nah's managed snippet. It is not an OS-level sandbox and does not cover
 unrelated shells, GUI apps, scheduled jobs, or non-interactive scripts. Use
 `nah-bypass <command>` for a one-shot intentional bypass.
 
+### Codex
+
+```bash
+pip install nah
+nah run codex
+```
+
+`nah run codex` launches an interactive Codex session with native Codex
+`PermissionRequest` hooks enabled for that session. nah injects its hook,
+`on-request` approvals, `workspace-write` sandboxing, and human approval review
+as root-level Codex config overrides before your Codex arguments.
+
+This path is for local interactive Codex sessions. nah rejects Codex bypass
+flags, user config overrides for nah-owned permission keys, `codex exec`,
+`codex review`, and remote/cloud Codex runs because those surfaces do not yet
+provide the same interactive approval guarantees.
+
 ### CLI and Direct Hooks
 
 ```bash

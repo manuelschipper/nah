@@ -1128,6 +1128,40 @@ class TestCodexClassifier:
         assert _ct(tokens) == "agent_exec_bypass"
 
     @pytest.mark.parametrize("tokens", [
+        ["codex", "--yolo"],
+        ["codex", "exec", "--yolo", "rm -rf /"],
+        ["codex", "--ask-for-approval", "never"],
+        ["codex", "--ask-for-approval=never"],
+        ["codex", "--sandbox", "danger-full-access"],
+        ["codex", "--sandbox=danger-full-access"],
+        ["codex", "-c", "approval_policy=\"never\""],
+        ["codex", "--config=sandbox_mode=\"danger-full-access\""],
+        ["codex", "--disable", "codex_hooks"],
+    ])
+    def test_codex_guard_disable_forms_are_bypass(self, tokens):
+        assert _ct(tokens) == "agent_exec_bypass"
+
+    @pytest.mark.parametrize("tokens", [
+        ["nah", "run", "codex"],
+        ["nah", "run", "codex", "resume", "abc123"],
+        ["nah", "run", "codex", "fork", "abc123"],
+    ])
+    def test_nah_run_codex_guarded_interactive_forms(self, tokens):
+        assert _ct(tokens) == "agent_exec_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["nah", "run", "codex", "--yolo"],
+        ["nah", "run", "codex", "exec", "echo hi"],
+        ["nah", "run", "codex", "review", "--diff"],
+        ["nah", "run", "codex", "cloud", "exec", "echo hi"],
+        ["nah", "run", "codex", "-c", "hooks.PermissionRequest=[]"],
+        ["nah", "run", "codex", "--config=approval_policy=\"never\""],
+        ["nah", "run", "codex", "--disable", "codex_hooks"],
+    ])
+    def test_nah_run_codex_unsafe_forms_are_bypass(self, tokens):
+        assert _ct(tokens) == "agent_exec_bypass"
+
+    @pytest.mark.parametrize("tokens", [
         ["codex", "sandbox", "read-only", "echo", "hi"],
         ["codex", "frobnicate"],
         ["codex", "frobnicate", "arg"],
@@ -1136,7 +1170,6 @@ class TestCodexClassifier:
         ["codex", "--cd", "--help"],
         ["codex", "--sandbox", "--help"],
         ["codex", "exec", "--cd", "--sandbox", "read-only", "inspect"],
-        ["codex", "exec", "--cd", "--dangerously-bypass-approvals-and-sandbox", "fix"],
         ["codex", "exec", "--cd", "--help"],
         ["codex", "exec", "-C", "-h"],
         ["codex", "cloud", "frobnicate"],

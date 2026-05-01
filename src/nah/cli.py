@@ -1513,6 +1513,10 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "_terminal-decision":
         _run_hidden_terminal_decision(sys.argv[2:])
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-permission-request":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main())
 
     parser = argparse.ArgumentParser(
         prog="nah",
@@ -1614,6 +1618,10 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "claude":
         cmd_claude(sys.argv[2:])
         return
+    if len(sys.argv) >= 3 and sys.argv[1] == "run" and sys.argv[2] == "codex":
+        from nah.codex_run import run_codex
+
+        raise SystemExit(run_codex(sys.argv[3:]))
 
     args = parser.parse_args()
 

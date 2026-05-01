@@ -66,6 +66,16 @@ class TestAcceptanceCriteria:
         r = classify_command("npm test")
         assert r.final_decision == "allow"
 
+    def test_nah_run_codex_yolo_asks(self, project_root):
+        r = classify_command("nah run codex --yolo")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "agent_exec_bypass"
+
+    def test_nah_run_codex_exec_asks(self, project_root):
+        r = classify_command("nah run codex exec 'echo hi'")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "agent_exec_bypass"
+
     def test_nah_update_allows_outside_git_root(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         r = classify_command("nah update bash")
