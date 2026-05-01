@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import os
 import re
 import shlex
@@ -818,14 +820,16 @@ def _try_terminal_llm(command: str, target: str, reason: str, meta: dict, cfg) -
         ):
             return None
 
-        llm_call = try_llm_terminal_guard(
-            redact_input("Bash", {"command": command}),
-            action_type,
-            reason,
-            cfg.llm,
-            target=target,
-            stages=meta.get("stages", []),
-        )
+        stderr_buf = io.StringIO()
+        with contextlib.redirect_stderr(stderr_buf):
+            llm_call = try_llm_terminal_guard(
+                redact_input("Bash", {"command": command}),
+                action_type,
+                reason,
+                cfg.llm,
+                target=target,
+                stages=meta.get("stages", []),
+            )
         llm_meta = _build_llm_meta(llm_call, cfg)
         if llm_call.decision is None:
             return None if not llm_meta else ("", "", llm_meta)
