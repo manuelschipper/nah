@@ -63,7 +63,7 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
     canonical = agents.normalize_tool(tool_name)
 
     if canonical == "Bash":
-        with _capture_stderr("codex bash classification"):
+        with _capture_stderr(log=False):
             decision = hook.handle_bash(tool_input)
         decision = _try_codex_llm_for_ask(canonical, tool_input, decision)
         return decision, canonical, tool_input
@@ -113,7 +113,7 @@ def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> 
             meta.get("composition_rule", ""),
         ):
             return decision
-        with _capture_stderr("codex LLM review"):
+        with _capture_stderr(log=False):
             llm_call = try_llm_codex_permission_request(
                 canonical,
                 redact_input(canonical, tool_input),
@@ -182,13 +182,13 @@ def _log_decision(
 
 
 @contextlib.contextmanager
-def _capture_stderr(label: str):
+def _capture_stderr(*, log: bool):
     buf = io.StringIO()
     with contextlib.redirect_stderr(buf):
         yield
     captured = buf.getvalue().strip()
-    if captured:
-        _log_codex_hook_error(f"{label}: {captured}")
+    if captured and log:
+        _log_codex_hook_error(captured)
 
 
 def _log_codex_hook_error(message: str) -> None:
