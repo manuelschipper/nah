@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 
+from nah.codex_preflight import CodexPreflightError, ensure_preflight
+
 
 class CodexRunError(Exception):
     """Raised when `nah run codex` cannot safely launch Codex."""
@@ -30,12 +32,19 @@ _OWNED_CONFIG_KEYS = {
     "approval_policy",
     "approvals_reviewer",
     "default_permissions",
+    "features.apps",
     "features.codex_hooks",
+    "features.skill_mcp_dependency_install",
     "hooks",
     "hooks.PermissionRequest",
     "permission_profile",
     "permissions",
     "sandbox_mode",
+}
+_MANAGED_ENABLE_FLAGS = {
+    "apps",
+    "codex_hooks",
+    "skill_mcp_dependency_install",
 }
 _CODEX_VALUE_FLAGS = {
     "-c",
@@ -88,7 +97,9 @@ def injected_overrides() -> list[str]:
         "}] }]"
     )
     return [
+        "-c", "features.apps=false",
         "-c", "features.codex_hooks=true",
+        "-c", "features.skill_mcp_dependency_install=false",
         "-c", 'approval_policy="on-request"',
         "-c", 'sandbox_mode="workspace-write"',
         "-c", 'approvals_reviewer="user"',
@@ -96,12 +107,22 @@ def injected_overrides() -> list[str]:
     ]
 
 
-def build_codex_argv(user_args: list[str], *, codex_path: str | None = None) -> list[str]:
+def build_codex_argv(
+    user_args: list[str],
+    *,
+    codex_path: str | None = None,
+    preflight: bool = True,
+) -> list[str]:
     """Build a validated Codex argv with nah overrides before user args."""
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
     _validate_user_args(user_args)
+    if preflight:
+        try:
+            ensure_preflight()
+        except CodexPreflightError as exc:
+            raise CodexRunError(str(exc)) from exc
     return [executable] + injected_overrides() + list(user_args)
 
 
@@ -146,14 +167,14 @@ def _reject_dangerous_flags(args: list[str]) -> None:
             i += 1
             continue
         if tok in {"--disable", "--enable"}:
-            if i + 1 < len(args) and args[i + 1] == "codex_hooks":
-                raise CodexRunError("nah run codex: codex_hooks is managed by nah")
+            if i + 1 < len(args) and args[i + 1] in _MANAGED_ENABLE_FLAGS:
+                raise CodexRunError(f"nah run codex: {args[i + 1]} is managed by nah")
             i += 2
             continue
-        if tok.startswith("--disable=") and tok.split("=", 1)[1] == "codex_hooks":
-            raise CodexRunError("nah run codex: codex_hooks is managed by nah")
-        if tok.startswith("--enable=") and tok.split("=", 1)[1] == "codex_hooks":
-            raise CodexRunError("nah run codex: codex_hooks is managed by nah")
+        if tok.startswith("--disable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
+            raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
+        if tok.startswith("--enable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
+            raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
         if tok in _REJECT_VALUE_FLAGS or any(
             tok.startswith(flag + "=") for flag in _REJECT_VALUE_FLAGS if flag.startswith("--")
         ):

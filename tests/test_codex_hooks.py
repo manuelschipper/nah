@@ -75,6 +75,72 @@ def test_unknown_non_bash_tool_returns_no_verdict(project_root):
     assert out == ""
 
 
+def test_mcp_permission_request_global_allow_emits_allow(project_root):
+    from nah.config import apply_override, use_defaults
+
+    use_defaults()
+    apply_override({"classify": {"agent_read": ["mcp__memory__create_entities"]}})
+
+    code, out = _run({
+        "tool_name": "mcp__memory__create_entities",
+        "tool_input": {"entities": [{"name": "x"}]},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_mcp_permission_request_global_block_emits_deny(project_root):
+    from nah.config import apply_override, use_defaults
+
+    use_defaults()
+    apply_override({
+        "classify": {"agent_write": ["mcp__memory__create_entities"]},
+        "actions": {"agent_write": "block"},
+    })
+
+    code, out = _run({
+        "tool_name": "mcp__memory__create_entities",
+        "tool_input": {"entities": [{"name": "x"}]},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]["decision"]
+    assert decision["behavior"] == "deny"
+    assert "changes agent state" in decision["message"]
+
+
+def test_mcp_permission_request_unknown_returns_no_verdict(project_root):
+    code, out = _run({
+        "tool_name": "mcp__memory__create_entities",
+        "tool_input": {"entities": [{"name": "x"}]},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
+def test_mcp_permission_request_ignores_project_classify(project_root):
+    from nah.config import get_config, use_defaults
+
+    use_defaults()
+    cfg = get_config()
+    cfg.trust_project_config = True
+    cfg.classify_project = {"agent_read": ["mcp__memory__create_entities"]}
+
+    code, out = _run({
+        "tool_name": "mcp__memory__create_entities",
+        "tool_input": {"entities": [{"name": "x"}]},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
 def test_invalid_json_does_not_emit_deny():
     stdout = io.StringIO()
 

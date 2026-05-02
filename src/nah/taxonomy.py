@@ -1377,7 +1377,9 @@ _CODEX_UNSAFE_CONFIG_KEYS = {
     "approval_policy",
     "approvals_reviewer",
     "default_permissions",
+    "features.apps",
     "features.codex_hooks",
+    "features.skill_mcp_dependency_install",
     "hooks",
     "hooks.PermissionRequest",
     "permission_profile",
@@ -1418,7 +1420,9 @@ def _codex_config_disables_guard(value: str) -> bool:
     return (
         key == "approval_policy" and val == "never"
         or key == "sandbox_mode" and val == "danger-full-access"
+        or key == "features.apps" and val == "true"
         or key == "features.codex_hooks" and val == "false"
+        or key == "features.skill_mcp_dependency_install" and val == "true"
     )
 
 
@@ -1462,6 +1466,13 @@ def _codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
             i += 2
             continue
         if tok.startswith("--disable=") and tok.split("=", 1)[1] == "codex_hooks":
+            return True
+        if tok in {"--enable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] in {"apps", "skill_mcp_dependency_install"}:
+                return True
+            i += 2
+            continue
+        if tok.startswith("--enable=") and tok.split("=", 1)[1] in {"apps", "skill_mcp_dependency_install"}:
             return True
         i += 1
     return False
@@ -1724,11 +1735,19 @@ def _nah_run_codex_touches_owned_config(tokens: list[str]) -> bool:
         if tok.startswith("--config=") and _codex_config_touches_owned_key(tok.split("=", 1)[1]):
             return True
         if tok in {"--disable", "--enable"}:
-            if i + 1 < len(tokens) and tokens[i + 1] == "codex_hooks":
+            if i + 1 < len(tokens) and tokens[i + 1] in {
+                "apps",
+                "codex_hooks",
+                "skill_mcp_dependency_install",
+            }:
                 return True
             i += 2
             continue
-        if tok.startswith(("--disable=", "--enable=")) and tok.split("=", 1)[1] == "codex_hooks":
+        if tok.startswith(("--disable=", "--enable=")) and tok.split("=", 1)[1] in {
+            "apps",
+            "codex_hooks",
+            "skill_mcp_dependency_install",
+        }:
             return True
         if _codex_is_joined_value_flag(tok):
             i += 1

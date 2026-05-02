@@ -8,7 +8,7 @@ from nah.codex_run import CodexRunError, build_codex_argv
 
 
 def _argv(args):
-    return build_codex_argv(args, codex_path="/usr/bin/codex")
+    return build_codex_argv(args, codex_path="/usr/bin/codex", preflight=False)
 
 
 def test_injects_root_overrides_before_user_args():
@@ -17,7 +17,9 @@ def test_injects_root_overrides_before_user_args():
     assert argv[0] == "/usr/bin/codex"
     assert argv[-2:] == ["resume", "abc123"]
     assert "-c" in argv
+    assert "features.apps=false" in argv
     assert "features.codex_hooks=true" in argv
+    assert "features.skill_mcp_dependency_install=false" in argv
     assert 'approval_policy="on-request"' in argv
     assert 'sandbox_mode="workspace-write"' in argv
     assert 'approvals_reviewer="user"' in argv
@@ -67,14 +69,35 @@ def test_rejects_permission_and_remote_flags(args):
         ["-c", "approval_policy=\"never\""],
         ["--config", "sandbox_mode=\"danger-full-access\""],
         ["--config=features.codex_hooks=false"],
+        ["--config=features.apps=true"],
+        ["--config=features.skill_mcp_dependency_install=true"],
         ["-c", "hooks.PermissionRequest=[]"],
         ["--disable", "codex_hooks"],
         ["--enable=codex_hooks"],
+        ["--enable", "apps"],
+        ["--enable=skill_mcp_dependency_install"],
     ],
 )
 def test_rejects_user_owned_config(args):
     with pytest.raises(CodexRunError):
         _argv(args)
+
+
+def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
+    codex_home = tmp_path / "codex"
+    rules = codex_home / "rules"
+    rules.mkdir(parents=True)
+    (rules / "default.rules").write_text(
+        'prefix_rule(pattern=["curl"], decision="allow")\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    with pytest.raises(CodexRunError) as exc:
+        build_codex_argv(["--help"], codex_path="/usr/bin/codex")
+
+    assert "approval state can bypass nah" in str(exc.value)
+    assert "default.rules" in str(exc.value)
 
 
 def test_windows_hook_command_is_quoted(monkeypatch):
