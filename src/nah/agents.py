@@ -36,6 +36,7 @@ def normalize_tool(tool_name: str) -> str:
 
 # Agent type constants
 CLAUDE = "claude"
+CODEX = "codex"
 
 
 def detect_agent(data) -> str:
@@ -107,4 +108,5 @@ INSTALLABLE_AGENTS = {CLAUDE}
 
 AGENT_NAMES: dict[str, str] = {
     CLAUDE: "Claude Code",
+    CODEX: "OpenAI Codex",
 }

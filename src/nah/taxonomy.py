@@ -586,6 +586,9 @@ def classify_tokens(
         )
         if action is not None:
             return action
+        action = _classify_nah_run_codex(tokens)
+        if action is not None:
+            return action
         action = _classify_codex(tokens)
         if action is not None:
             return action
@@ -1355,6 +1358,7 @@ def _classify_glab_api(tokens: list[str], *, profile: str = "full") -> str | Non
 
 
 _CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
+_CODEX_BYPASS_FLAGS = {_CODEX_BYPASS_FLAG, "--yolo"}
 _CODEX_VALUE_FLAGS = {
     "-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
     "-i", "--image", "-m", "--model", "--local-provider", "-p", "--profile",
@@ -1369,11 +1373,109 @@ _CODEX_TOP_LEVEL_READ_FLAGS = {"--help", "-h", "--version", "-V"}
 _CODEX_READ_COMMANDS = {"completion"}
 _CODEX_WRITE_COMMANDS = {"login", "logout", "apply", "a"}
 _CODEX_AGENT_RUN_COMMANDS = {"exec", "e", "review", "resume", "fork"}
+_CODEX_UNSAFE_CONFIG_KEYS = {
+    "approval_policy",
+    "approvals_reviewer",
+    "default_permissions",
+    "features.apps",
+    "features.codex_hooks",
+    "features.skill_mcp_dependency_install",
+    "hooks",
+    "hooks.PermissionRequest",
+    "permission_profile",
+    "permissions",
+    "sandbox_mode",
+}
 
 
 def _codex_has_bypass(tokens: list[str]) -> bool:
     """Return True if the Codex bypass flag appears anywhere in argv."""
-    return _CODEX_BYPASS_FLAG in tokens
+    return any(tok in _CODEX_BYPASS_FLAGS for tok in tokens)
+
+
+def _codex_config_key(value: str) -> str:
+    """Extract the TOML config key from a Codex -c/--config value."""
+    return value.split("=", 1)[0].strip().strip("'\"")
+
+
+def _codex_config_value(value: str) -> str:
+    """Extract a normalized TOML config value from a Codex -c/--config value."""
+    if "=" not in value:
+        return ""
+    raw = value.split("=", 1)[1].strip().strip("'\"")
+    return raw.lower()
+
+
+def _codex_config_touches_owned_key(value: str) -> bool:
+    key = _codex_config_key(value)
+    for owned in _CODEX_UNSAFE_CONFIG_KEYS:
+        if key == owned or key.startswith(owned + "."):
+            return True
+    return False
+
+
+def _codex_config_disables_guard(value: str) -> bool:
+    key = _codex_config_key(value)
+    val = _codex_config_value(value)
+    return (
+        key == "approval_policy" and val == "never"
+        or key == "sandbox_mode" and val == "danger-full-access"
+        or key == "features.apps" and val == "true"
+        or key == "features.codex_hooks" and val == "false"
+        or key == "features.skill_mcp_dependency_install" and val == "true"
+    )
+
+
+def _codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
+    """Detect Codex options that weaken approval/sandbox/hook guarantees."""
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return False
+        if tok in {"-a", "--ask-for-approval"}:
+            if i + 1 < len(tokens) and tokens[i + 1] == "never":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--ask-for-approval="):
+            if tok.split("=", 1)[1] == "never":
+                return True
+            i += 1
+            continue
+        if tok in {"-s", "--sandbox"}:
+            if i + 1 < len(tokens) and tokens[i + 1] == "danger-full-access":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--sandbox="):
+            if tok.split("=", 1)[1] == "danger-full-access":
+                return True
+            i += 1
+            continue
+        if tok in {"-c", "--config"}:
+            if i + 1 < len(tokens) and _codex_config_disables_guard(tokens[i + 1]):
+                return True
+            i += 2
+            continue
+        if tok.startswith("--config=") and _codex_config_disables_guard(tok.split("=", 1)[1]):
+            return True
+        if tok in {"--disable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] == "codex_hooks":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--disable=") and tok.split("=", 1)[1] == "codex_hooks":
+            return True
+        if tok in {"--enable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] in {"apps", "skill_mcp_dependency_install"}:
+                return True
+            i += 2
+            continue
+        if tok.startswith("--enable=") and tok.split("=", 1)[1] in {"apps", "skill_mcp_dependency_install"}:
+            return True
+        i += 1
+    return False
 
 
 def _codex_flag_takes_value(tok: str) -> bool:
@@ -1489,7 +1591,7 @@ def _codex_prompt_arg_is_clear_prompt(arg: str) -> bool:
 
 def _classify_codex_interactive(tokens: list[str]) -> str:
     """Classify Codex's top-level interactive prompt form."""
-    if _codex_has_bypass(tokens):
+    if _codex_has_bypass(tokens) or _codex_has_dangerous_permission_override(tokens):
         return AGENT_EXEC_BYPASS
     sandbox = _codex_option_value(tokens[1:], {"-s", "--sandbox"})
     if sandbox == "read-only":
@@ -1501,6 +1603,9 @@ def _classify_codex(tokens: list[str]) -> str | None:
     """Classify OpenAI Codex CLI invocations by agent safety class."""
     if not tokens or tokens[0] != "codex":
         return None
+
+    if _codex_has_bypass(tokens) or _codex_has_dangerous_permission_override(tokens):
+        return AGENT_EXEC_BYPASS
 
     if len(tokens) == 1:
         return AGENT_EXEC_WRITE
@@ -1595,6 +1700,63 @@ def _classify_codex(tokens: list[str]) -> str | None:
         return _classify_codex_interactive(tokens)
 
     return UNKNOWN
+
+
+def _classify_nah_run_codex(tokens: list[str]) -> str | None:
+    """Classify `nah run codex` as a guarded Codex launch surface."""
+    if len(tokens) < 3 or tokens[0] != "nah" or tokens[1] != "run" or tokens[2] != "codex":
+        return None
+    codex_tokens = ["codex"] + tokens[3:]
+    if (
+        _codex_has_bypass(codex_tokens)
+        or _codex_has_dangerous_permission_override(codex_tokens)
+        or _nah_run_codex_touches_owned_config(codex_tokens)
+    ):
+        return AGENT_EXEC_BYPASS
+    cleaned, malformed = _strip_codex_global_options(codex_tokens)
+    if malformed:
+        return UNKNOWN
+    if len(cleaned) >= 2 and cleaned[1] in {"exec", "e", "review", "cloud"}:
+        return AGENT_EXEC_BYPASS
+    return AGENT_EXEC_WRITE
+
+
+def _nah_run_codex_touches_owned_config(tokens: list[str]) -> bool:
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return False
+        if tok in {"-c", "--config"}:
+            if i + 1 < len(tokens) and _codex_config_touches_owned_key(tokens[i + 1]):
+                return True
+            i += 2
+            continue
+        if tok.startswith("--config=") and _codex_config_touches_owned_key(tok.split("=", 1)[1]):
+            return True
+        if tok in {"--disable", "--enable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] in {
+                "apps",
+                "codex_hooks",
+                "skill_mcp_dependency_install",
+            }:
+                return True
+            i += 2
+            continue
+        if tok.startswith(("--disable=", "--enable=")) and tok.split("=", 1)[1] in {
+            "apps",
+            "codex_hooks",
+            "skill_mcp_dependency_install",
+        }:
+            return True
+        if _codex_is_joined_value_flag(tok):
+            i += 1
+            continue
+        if _codex_flag_takes_value(tok):
+            i += 2
+            continue
+        i += 1
+    return False
 
 
 def _is_codex_companion_script(path: str) -> bool:
