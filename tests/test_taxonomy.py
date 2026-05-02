@@ -1136,7 +1136,11 @@ class TestCodexClassifier:
         ["codex", "--sandbox=danger-full-access"],
         ["codex", "-c", "approval_policy=\"never\""],
         ["codex", "--config=sandbox_mode=\"danger-full-access\""],
+        ["codex", "--config=features.apps=true"],
+        ["codex", "-c", "features.skill_mcp_dependency_install=true"],
         ["codex", "--disable", "codex_hooks"],
+        ["codex", "--enable", "apps"],
+        ["codex", "--enable=skill_mcp_dependency_install"],
     ])
     def test_codex_guard_disable_forms_are_bypass(self, tokens):
         assert _ct(tokens) == "agent_exec_bypass"
@@ -1156,7 +1160,11 @@ class TestCodexClassifier:
         ["nah", "run", "codex", "cloud", "exec", "echo hi"],
         ["nah", "run", "codex", "-c", "hooks.PermissionRequest=[]"],
         ["nah", "run", "codex", "--config=approval_policy=\"never\""],
+        ["nah", "run", "codex", "--config=features.apps=true"],
+        ["nah", "run", "codex", "-c", "features.skill_mcp_dependency_install=true"],
         ["nah", "run", "codex", "--disable", "codex_hooks"],
+        ["nah", "run", "codex", "--enable", "apps"],
+        ["nah", "run", "codex", "--enable=skill_mcp_dependency_install"],
     ])
     def test_nah_run_codex_unsafe_forms_are_bypass(self, tokens):
         assert _ct(tokens) == "agent_exec_bypass"

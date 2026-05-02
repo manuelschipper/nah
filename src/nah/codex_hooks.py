@@ -41,7 +41,7 @@ def main(
 
     try:
         decision, canonical, tool_input = _decide(payload)
-        _emit_decision(stdout, decision)
+        _emit_decision(stdout, decision, canonical)
         total_ms = int((time.monotonic() - t0) * 1000)
         _log_decision(canonical, tool_input, decision, total_ms, payload)
         return 0
@@ -53,7 +53,7 @@ def main(
 def _decide(payload: dict) -> tuple[dict, str, dict]:
     from nah.config import set_active_target
 
-    set_active_target(agents.CODEX)
+    set_active_target(agents.CODEX, reset_cache=False)
     hook._transcript_path = str(payload.get("transcript_path", "") or "")
 
     tool_name = str(payload.get("tool_name", "") or "")
@@ -67,6 +67,9 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
             decision = hook.handle_bash(tool_input)
         decision = _try_codex_llm_for_ask(canonical, tool_input, decision)
         return decision, canonical, tool_input
+
+    if canonical.startswith("mcp__"):
+        return hook._classify_unknown_tool(canonical, tool_input), canonical, tool_input
 
     if canonical in _WRITE_ALIASES:
         return _unsupported_decision(canonical, tool_input), canonical, tool_input
@@ -136,12 +139,12 @@ def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> 
     return decision
 
 
-def _emit_decision(stdout, decision: dict) -> None:
+def _emit_decision(stdout, decision: dict, canonical: str) -> None:
     d = decision.get("decision", taxonomy.ALLOW)
     if d == taxonomy.ASK:
         stdout.flush()
         return
-    enrich_decision(decision, tool="Bash")
+    enrich_decision(decision, tool=canonical)
     reason = decision.get("human_reason") or decision.get("reason", "")
     payload = {
         "hookSpecificOutput": {

@@ -1263,6 +1263,52 @@ class TestCmdCodex:
 
         assert exc.value.code == 7
 
+    def test_codex_doctor_reports_clean_state(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        home = tmp_path / "codex"
+        home.mkdir()
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        cli_mod.cmd_codex(argparse.Namespace(codex_command="doctor"))
+
+        assert "no approval-memory" in capsys.readouterr().out
+
+    def test_codex_doctor_exits_nonzero_for_blocker(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        home = tmp_path / "codex"
+        rules = home / "rules"
+        rules.mkdir(parents=True)
+        (rules / "default.rules").write_text(
+            'prefix_rule(pattern=["curl"], decision="allow")\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_codex(argparse.Namespace(codex_command="doctor"))
+
+        assert exc.value.code == 1
+        assert "default.rules" in capsys.readouterr().out
+
+    def test_codex_repair_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        home = tmp_path / "codex"
+        rules = home / "rules"
+        rules.mkdir(parents=True)
+        rule = rules / "default.rules"
+        rule.write_text('prefix_rule(pattern=["curl"], decision="allow")\n', encoding="utf-8")
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        cli_mod.cmd_codex(argparse.Namespace(codex_command="repair"))
+
+        out = capsys.readouterr().out
+        assert "backup:" in out
+        assert "repaired:" in out
+        assert rule.read_text(encoding="utf-8") == ""
+
 
 class TestCliPluginMode:
     """CLI behavior when the Claude Code nah plugin is enabled."""
