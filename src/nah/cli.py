@@ -1523,17 +1523,44 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
-    install_parser = sub.add_parser("install", help="Install nah for a target")
-    install_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    install_parser = sub.add_parser(
+        "install",
+        help="Install nah for a target",
+        usage="nah install <target> [--force]",
+    )
+    install_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh",
+    )
     install_parser.add_argument(
         "--force",
         action="store_true",
         help="Install direct hooks even when the Claude plugin is enabled",
     )
-    update_parser = sub.add_parser("update", help="Update nah files for a target")
-    update_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
-    uninstall_parser = sub.add_parser("uninstall", help="Remove nah from a target")
-    uninstall_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    update_parser = sub.add_parser(
+        "update",
+        help="Update nah files for a target",
+        usage="nah update <target>",
+    )
+    update_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh",
+    )
+    uninstall_parser = sub.add_parser(
+        "uninstall",
+        help="Remove nah from a target",
+        usage="nah uninstall <target>",
+    )
+    uninstall_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh",
+    )
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--target", default=None, help="Target policy to simulate")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
