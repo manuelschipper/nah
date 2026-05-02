@@ -76,8 +76,10 @@ def test_unknown_non_bash_tool_returns_no_verdict(project_root):
 
 
 def test_mcp_permission_request_global_allow_emits_allow(project_root):
-    from nah.config import apply_override, use_defaults
+    from nah import agents
+    from nah.config import apply_override, set_active_target, use_defaults
 
+    set_active_target(agents.CODEX)
     use_defaults()
     apply_override({"classify": {"agent_read": ["mcp__memory__create_entities"]}})
 
@@ -92,8 +94,10 @@ def test_mcp_permission_request_global_allow_emits_allow(project_root):
 
 
 def test_mcp_permission_request_global_block_emits_deny(project_root):
-    from nah.config import apply_override, use_defaults
+    from nah import agents
+    from nah.config import apply_override, set_active_target, use_defaults
 
+    set_active_target(agents.CODEX)
     use_defaults()
     apply_override({
         "classify": {"agent_write": ["mcp__memory__create_entities"]},
@@ -124,8 +128,10 @@ def test_mcp_permission_request_unknown_returns_no_verdict(project_root):
 
 
 def test_mcp_permission_request_ignores_project_classify(project_root):
-    from nah.config import get_config, use_defaults
+    from nah import agents
+    from nah.config import get_config, set_active_target, use_defaults
 
+    set_active_target(agents.CODEX)
     use_defaults()
     cfg = get_config()
     cfg.trust_project_config = True
