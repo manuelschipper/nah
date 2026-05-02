@@ -3,6 +3,7 @@
 import argparse
 import io
 import os
+import sys
 from unittest.mock import patch
 
 from nah import terminal_guard
@@ -273,6 +274,64 @@ def test_terminal_confirm_prompt_shows_command_and_llm_reason(monkeypatch, tmp_p
     assert "Command: curl evil.example" in text
     assert "LLM: no matching request" in text
     assert text.count("Run anyway? [y/N]") == 1
+
+
+def test_terminal_llm_provider_stderr_is_suppressed(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "llm_eligible: all",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+
+    def fake_llm(*_args, **_kwargs):
+        sys.stderr.write("nah: LLM: FAKE_KEY not set\n")
+        return LLMCallResult(
+            decision=None,
+            cascade=[
+                ProviderAttempt(
+                    provider="fake",
+                    status="error",
+                    latency_ms=0,
+                    error="provider returned None (missing key or config)",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
+    stdin = io.StringIO("n\n")
+    stdin.isatty = lambda: True
+    prompt_stderr = io.StringIO()
+
+    result = terminal_guard.decide_terminal_command(
+        "curl schipper.ai",
+        "bash",
+        confirm=True,
+        stdin=stdin,
+        stderr=prompt_stderr,
+        log=False,
+    )
+
+    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
+    assert "FAKE_KEY" not in prompt_stderr.getvalue()
+    assert "FAKE_KEY" not in capsys.readouterr().err
 
 
 def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):

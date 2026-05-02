@@ -1284,6 +1284,45 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         return
 
 
+def cmd_codex(args: argparse.Namespace) -> None:
+    """Diagnose or repair Codex-specific nah preflight state."""
+    from nah.codex_preflight import (
+        blocking_findings,
+        format_doctor_output,
+        repair_preflight,
+        scan_preflight,
+    )
+
+    action = args.codex_command or "doctor"
+    if action == "doctor":
+        findings = scan_preflight()
+        print(format_doctor_output(findings))
+        if blocking_findings(findings):
+            raise SystemExit(1)
+        return
+
+    if action == "repair":
+        result = repair_preflight()
+        if not result.findings:
+            print("nah codex: no approval-memory or MCP preflight issues found.")
+            return
+        if result.backups:
+            for backup in result.backups:
+                print(f"backup: {backup}")
+        if result.changed:
+            for path in result.changed:
+                print(f"repaired: {path}")
+        else:
+            print("nah codex: no supported repairs were applied.")
+        if result.unrepaired:
+            print(format_doctor_output(result.unrepaired), file=sys.stderr)
+            raise SystemExit(1)
+        return
+
+    print(f"nah codex: unknown command '{action}'", file=sys.stderr)
+    raise SystemExit(2)
+
+
 def cmd_forget(args: argparse.Namespace) -> None:
     """Remove a rule."""
     from nah.remember import forget_rule
@@ -1513,6 +1552,10 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "_terminal-decision":
         _run_hidden_terminal_decision(sys.argv[2:])
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-permission-request":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main())
 
     parser = argparse.ArgumentParser(
         prog="nah",
@@ -1619,6 +1662,10 @@ def main():
     status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
     doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    codex_parser = sub.add_parser("codex", help="Diagnose or repair Codex integration")
+    codex_sub = codex_parser.add_subparsers(dest="codex_command")
+    codex_sub.add_parser("doctor", help="Show Codex preflight findings")
+    codex_sub.add_parser("repair", help="Back up and repair supported Codex preflight findings")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")
@@ -1641,6 +1688,10 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "claude":
         cmd_claude(sys.argv[2:])
         return
+    if len(sys.argv) >= 3 and sys.argv[1] == "run" and sys.argv[2] == "codex":
+        from nah.codex_run import run_codex
+
+        raise SystemExit(run_codex(sys.argv[3:]))
 
     args = parser.parse_args()
 
@@ -1672,6 +1723,8 @@ def main():
         cmd_status(args)
     elif args.command == "doctor":
         cmd_doctor(args)
+    elif args.command == "codex":
+        cmd_codex(args)
     elif args.command == "forget":
         cmd_forget(args)
     elif args.command == "types":
