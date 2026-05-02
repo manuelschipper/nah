@@ -991,6 +991,18 @@ class TestCmdUpdateMatchers:
 
 
 class TestTargetLifecycleCli:
+    @pytest.mark.parametrize("command", ["install", "update", "uninstall"])
+    def test_lifecycle_help_marks_target_required(self, command, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(sys, "argv", ["nah", command, "--help"])
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert f"usage: nah {command} <target>" in out
+        assert "Required target: claude, bash, or zsh" in out
+
     def test_install_without_target_errors(self, capsys):
         import nah.cli as cli_mod
         with pytest.raises(SystemExit) as exc:
