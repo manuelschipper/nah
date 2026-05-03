@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agent session launchers use `nah run`** — the one-shot Claude Code launcher
+  is now `nah run claude`, matching `nah run codex`. Legacy `nah claude` exits
+  with a pointer to the new command.
 - **README and public docs rebranded for coding agents** — refreshed README, site install/CLI/privacy/how-it-works/getting-started docs, and package metadata around “Context aware safety guard for coding agents” instead of a Claude-only positioning, with the user terminal guard treated as an optional bonus. Updated examples to current `nah paused:` / `nah blocked:` copy and documented Codex doctor/repair plus `nah log --llm`. (nah-899)
 - **Terminal guard documented as opt-in shell protection** — README, install docs, configuration docs, privacy copy, and lifecycle target help now describe bash/zsh terminal protection as opt-in per shell without preview labeling.
 - **Minimal taxonomy profile deprecated** — `profile: minimal` now warns and behaves like `profile: full`, leaving `full` and `none` as the two supported profile shapes. The old minimal classification data has been removed so custom classifiers are not evaluated against a weaker built-in baseline.

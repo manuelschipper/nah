@@ -1154,6 +1154,22 @@ class TestCodexClassifier:
         assert _ct(tokens) == "agent_exec_write"
 
     @pytest.mark.parametrize("tokens", [
+        ["nah", "run", "claude"],
+        ["nah", "run", "claude", "--resume"],
+        ["nah", "run", "claude", "-p", "fix bug"],
+    ])
+    def test_nah_run_claude_guarded_forms(self, tokens):
+        assert _ct(tokens) == "agent_exec_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["nah", "run", "claude", "--dangerously-skip-permissions"],
+        ["nah", "run", "claude", "--permission-mode", "bypassPermissions"],
+        ["nah", "run", "claude", "--permission-mode=bypassPermissions"],
+    ])
+    def test_nah_run_claude_bypass_forms(self, tokens):
+        assert _ct(tokens) == "agent_exec_bypass"
+
+    @pytest.mark.parametrize("tokens", [
         ["nah", "run", "codex", "--yolo"],
         ["nah", "run", "codex", "exec", "echo hi"],
         ["nah", "run", "codex", "review", "--diff"],

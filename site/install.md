@@ -17,6 +17,7 @@ secret storage. Then connect the runtime you want to protect:
 
 ```bash
 nah install claude       # permanent Claude Code hooks
+nah run claude           # one protected Claude Code session
 nah run codex            # protected local Codex session
 nah install bash         # optional terminal guard; or: nah install zsh
 ```
@@ -33,12 +34,13 @@ hook and classifier stdlib-only. Add extras later with `nah[config]`,
 For the normal CLI path, use direct hooks:
 
 ```bash
-nah claude          # hooks active for this Claude Code session only
+nah run claude      # hooks active for this Claude Code session only
 nah install claude  # permanent direct Claude Code hooks
 ```
 
-`nah claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and passes
-hooks inline via Claude Code's `--settings` flag, scoped to that process.
+`nah run claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and
+passes hooks inline via Claude Code's `--settings` flag, scoped to that
+process.
 
 `nah install claude` registers nah as a
 [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in
