@@ -1,6 +1,7 @@
-# Custom Taxonomy
+# Classification Rules
 
-nah's classification is fully customizable. You can add commands to existing types, create new types, and control how the three-phase lookup works.
+Use classification rules when nah should recognize project-specific commands or
+when your machine needs a personal override for a command prefix.
 
 ## Adding commands to existing types
 
@@ -20,7 +21,8 @@ classify:
     - "mysql -e DROP"
 ```
 
-Each entry is a **prefix** — `"docker rm"` matches `docker rm my-container`, `docker rm -f abc`, etc.
+Each entry is a prefix. `"docker rm"` matches `docker rm my-container`,
+`docker rm -f abc`, and similar commands.
 
 **CLI shortcut:**
 
@@ -31,44 +33,40 @@ nah classify "terraform destroy" filesystem_delete
 
 ## Creating custom action types
 
-You can use any string as an action type — it doesn't have to be one of the 40 built-in types:
+You can use any string as an action type. It does not have to be one of the
+built-in types:
 
 ```bash
 nah classify "terraform" infra_modify
 nah deny infra_modify
 ```
 
-nah will ask for confirmation since `infra_modify` is not a built-in type. Custom types default to `ask` policy.
+nah asks for confirmation because `infra_modify` is not a built-in type.
+Custom types default to `ask` policy.
 
 ## Three-phase lookup
 
-Understanding the lookup order is key to effective customization:
-
-### Phase 1: Global config (highest priority)
-
-Your `classify:` entries in `~/.config/nah/config.yaml` are checked first. They override everything — built-in tables and built-in classifier functions.
+Global `classify:` entries are checked before built-in classifiers. They are
+personal or organization-level overrides, so they can intentionally shadow
+finer-grained built-in behavior.
 
 ```yaml
 # Global config: this overrides the built-in curl flag classifier
 classify:
   network_outbound:
-    - curl    # all curl commands → network_outbound, even curl -X POST
+    - curl    # all curl commands become network_outbound, even curl -X POST
 ```
 
 !!! warning
     A single-token global entry like `curl` will shadow the built-in flag classifier that distinguishes `curl` (read) from `curl -X POST` (write). Use `nah status` to see shadow warnings.
 
-### Phase 2: Built-in classifiers
+Built-in classifiers and built-in prefix tables run after global overrides.
+Project `.nah.yaml` entries run later: they can add new commands and tighten
+overlapping built-in classifications, but cannot weaken built-in behavior unless
+global config explicitly sets `trust_project_config: true`.
 
-Built-in classifier functions handle commands where the action type depends on flags, wrappers, or inspectable execution context. Examples include find, sed, awk, tar, git, curl/wget/httpie, codex, codex companion, package execution wrappers, make, global installs, and script execution. These run after global config but before the built-in prefix tables.
-
-Skipped entirely when `profile: none`.
-
-### Phase 3: Built-in + Project
-
-Built-in prefix tables (from the selected profile) and project `.nah.yaml` entries are checked independently.
-
-Project entries are Phase 3 — they can add new commands and can tighten overlapping built-in classifications, but cannot weaken a built-in classification unless global config explicitly sets `trust_project_config: true`.
+For the full lookup order, see
+[How it works](../how-it-works.md#4-classify-three-phase-lookup).
 
 ## Global vs project classify
 
@@ -95,7 +93,9 @@ actions:
   db_write: block    # tighten: block all DB writes in this project
 ```
 
-Project config can tighten `actions` (for example, escalate `ask` → `block`) but cannot relax them unless global config explicitly sets `trust_project_config: true`.
+Project config can tighten `actions` (for example, escalate `ask` to `block`)
+but cannot relax them unless global config explicitly sets
+`trust_project_config: true`.
 
 ## Checking your rules
 
