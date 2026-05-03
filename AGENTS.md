@@ -1,6 +1,6 @@
 # nah
 
-Context aware safety guard for agents and terminals. Guards Claude Code tools, local interactive Codex sessions, and opt-in bash/zsh terminal commands. Deterministic, zero tokens, milliseconds.
+Context aware safety guard for coding agents. Guards Claude Code tools and local interactive Codex sessions, with an optional bash/zsh terminal guard as a bonus. Deterministic, zero tokens, milliseconds.
 
 **Tagline:** "Safeguard your vibes. Keep your flow state."
 

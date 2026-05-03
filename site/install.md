@@ -11,9 +11,9 @@
 |------|------|---------------------|-------|
 | Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
 | Protect local interactive Codex sessions | PyPI CLI + `nah run codex` | Yes | Session-scoped native Codex hooks plus preflight |
-| Use the terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 | Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
 | Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Add `nah[keys]` if you want OS keychain-backed storage for remote-provider secrets |
+| Bonus: protect your own terminal | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 
 Bare `nah install` exits with a target list. Setup commands should name the
 target you want.

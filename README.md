@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for agents and terminals.</strong><br>
+  <strong>Context aware safety guard for coding agents.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -23,7 +23,7 @@
 
 Developers do not want security tools that slow them down. They want boring safe actions to pass automatically, ambiguous actions to ask, and obviously dangerous actions to be blocked before damage is done.
 
-Allow and deny at the tool level does not really scale once agents and terminals can do real work. Deleting a build artifact is fine; deleting a shell profile is not the same thing. `git status` and `git push --force` should not be treated like the same Git command.
+Allow and deny at the tool level does not really scale once coding agents can run real commands. Deleting a build artifact is fine; deleting a shell profile is not the same thing. `git status` and `git push --force` should not be treated like the same Git command.
 
 `nah` classifies every guarded action by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
@@ -48,8 +48,8 @@ Choose the path that matches what you want to protect:
 | --- | --- |
 | Claude Code protection only | Claude Code plugin |
 | Local interactive Codex sessions | PyPI CLI + `nah run codex` |
-| Terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` |
 | CLI commands, direct hooks, or key management | PyPI CLI |
+| Bonus: terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` |
 
 ### Claude Code Plugin
 
@@ -149,7 +149,7 @@ nah guards the approval points each runtime exposes:
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
 | Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
-| Terminal | Complete single-line commands in opted-in interactive bash/zsh shells |
+| Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
 
 Detailed per-tool coverage and the Bash classification pipeline live in the
 [docs](https://schipper.ai/nah/how-it-works/).

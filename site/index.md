@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for agents and terminals.</strong><br>
+  <strong>Context aware safety guard for coding agents.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -39,10 +39,10 @@ claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
 claude plugin install nah@nah --scope user
 ```
 
-For local Codex sessions, terminal guard, CLI commands, and direct Claude Code
-hooks, install from PyPI. Codex uses `nah run codex`; the terminal guard is
-opt-in with `nah install bash` or `nah install zsh`; direct Claude Code hooks
-use `nah install claude`.
+For local Codex sessions, CLI commands, direct Claude Code hooks, and the bonus
+terminal guard, install from PyPI. Codex uses `nah run codex`; direct Claude
+Code hooks use `nah install claude`; the optional terminal guard uses
+`nah install bash` or `nah install zsh`.
 
 ## What does it look like?
 
@@ -68,7 +68,7 @@ Agent: Read → ~/.aws/credentials
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
 | Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
-| Terminal | Complete single-line commands in opted-in interactive bash/zsh shells |
+| Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
 
 See [How it works](how-it-works.md) for detailed tool coverage and classifier
 behavior.

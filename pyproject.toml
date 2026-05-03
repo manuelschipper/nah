@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nah"
 version = "0.7.1"
-description = "Context aware safety guard for agents and terminals."
+description = "Context aware safety guard for coding agents."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
