@@ -16,6 +16,11 @@ from nah import __version__, agents, plugin_state, targets
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
 _KEY_PROVIDERS = ("openai", "anthropic", "openrouter", "cortex", "azure")
+_CLAUDE_BLOCKED_FLAGS = {
+    "--dangerously-skip-permissions",
+    "--enable-auto-mode",
+}
+_CLAUDE_BYPASS_PERMISSION_MODE = "bypassPermissions"
 
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
@@ -1470,6 +1475,18 @@ def cmd_claude(user_args: list[str]) -> None:
                   file=sys.stderr)
             raise SystemExit(1)
 
+    blocked = _blocked_claude_flag(user_args)
+    if blocked:
+        print(
+            f"nah run claude: {blocked} is not allowed because nah cannot "
+            "protect a Claude Code session launched with permission bypass "
+            "or auto-approval enabled. Run `nah run claude` without that "
+            "flag, or run `claude` directly if you intentionally want an "
+            "unguarded session.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     claude_path = shutil.which("claude")
     if claude_path is None:
         print("nah run claude: 'claude' not found on PATH", file=sys.stderr)
@@ -1505,6 +1522,27 @@ def cmd_claude(user_args: list[str]) -> None:
         if os.name == "nt":
             raise SystemExit(subprocess.call(args))
     os.execvp(claude_path, args)
+
+
+def _blocked_claude_flag(args: list[str]) -> str:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            return ""
+        if arg in _CLAUDE_BLOCKED_FLAGS:
+            return arg
+        if arg.startswith("--enable-auto-mode="):
+            return arg
+        if arg == "--permission-mode":
+            if i + 1 < len(args) and args[i + 1] == _CLAUDE_BYPASS_PERMISSION_MODE:
+                return "--permission-mode bypassPermissions"
+            i += 2
+            continue
+        if arg == "--permission-mode=bypassPermissions":
+            return arg
+        i += 1
+    return ""
 
 
 def cmd_terminal_decision(args: argparse.Namespace) -> None:

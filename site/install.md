@@ -209,7 +209,10 @@ ambiguous ones ask.
 
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 
-**Don't use `--dangerously-skip-permissions`** - just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
+**Don't use `--dangerously-skip-permissions` or `--enable-auto-mode`** - just
+run `claude` in default mode. `nah run claude` rejects flags that bypass or
+auto-approve Claude Code permissions because those modes can run tool calls
+outside the guarded path.
 
 ## Update
 
@@ -267,6 +270,6 @@ minutes.
 ---
 
 <p align="center">
-  <code>--dangerously-skip-permissions?</code><br><br>
+  <code>bypass modes?</code><br><br>
   <img src="../assets/logo_hammock.png" alt="nah" width="280" class="invertible">
 </p>
