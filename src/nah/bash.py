@@ -17,6 +17,7 @@ _MAX_CONTROL_FLOW_EXPANSIONS = 128
 _REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty"})
 _WINDOWS_REDIRECT_SAFE_SINKS = frozenset({"nul", "con"})
 _WINDOWS_QUOTED_TRAILING_BACKSLASH_RE = re.compile(r"""(["'])([A-Za-z]:\\[^"']*\\)\1""")
+_LITERAL_OUTPUT_REDIRECT_SENTINEL = "\x1fNAH_LITERAL_GT\x1f"
 
 _PYTHON_READ_ONLY_MODULES = frozenset({"json.tool", "tabnanny", "tokenize"})
 _PYTHON_WRITE_MODULES = frozenset({"py_compile", "compileall"})
@@ -913,6 +914,85 @@ def _fix_windows_quoted_trailing_backslash(stage_str: str, error: ValueError) ->
     )
 
 
+def _mask_literal_output_redirect_chars(stage_str: str) -> str:
+    """Mask literal ``>`` chars before quote-stripping shell tokenization."""
+    if ">" not in stage_str:
+        return stage_str
+
+    out: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(stage_str)
+    while i < n:
+        c = stage_str[i]
+
+        if quote == "'":
+            if c == "'":
+                quote = None
+                out.append(c)
+            elif c == ">":
+                out.append(_LITERAL_OUTPUT_REDIRECT_SENTINEL)
+            else:
+                out.append(c)
+            i += 1
+            continue
+
+        if quote == '"':
+            if c == "\\" and i + 1 < n:
+                out.append(c)
+                next_char = stage_str[i + 1]
+                out.append(
+                    _LITERAL_OUTPUT_REDIRECT_SENTINEL
+                    if next_char == ">"
+                    else next_char
+                )
+                i += 2
+                continue
+            if c == '"':
+                quote = None
+                out.append(c)
+            elif c == ">":
+                out.append(_LITERAL_OUTPUT_REDIRECT_SENTINEL)
+            else:
+                out.append(c)
+            i += 1
+            continue
+
+        if c in ("'", '"'):
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+
+        if c == "\\" and i + 1 < n:
+            if stage_str[i + 1] == ">":
+                out.append(_LITERAL_OUTPUT_REDIRECT_SENTINEL)
+                i += 2
+            else:
+                out.append(stage_str[i : i + 2])
+                i += 2
+            continue
+
+        out.append(c)
+        i += 1
+
+    return "".join(out)
+
+
+def _restore_literal_output_redirect_chars(value: str) -> str:
+    return value.replace(_LITERAL_OUTPUT_REDIRECT_SENTINEL, ">")
+
+
+def _restore_stage_literal_output_redirect_chars(stages: list[Stage]) -> list[Stage]:
+    for stage in stages:
+        stage.tokens = [
+            _restore_literal_output_redirect_chars(token)
+            for token in stage.tokens
+        ]
+        stage.redirect_target = _restore_literal_output_redirect_chars(stage.redirect_target)
+    return stages
+
+
 def _parse_subshell_redirects(suffix: str) -> list[tuple[str, bool, str]] | None:
     """Parse group-level output redirects, ignoring descriptor duplication.
 
@@ -1005,15 +1085,18 @@ def _raw_stage_to_stages(
     heredoc_literal = heredoc_literal or _extract_heredoc_literal(stage_str)
     stage_for_split = _strip_heredoc_bodies(stage_str)
     stage_for_split = _strip_shell_comments_for_split(stage_for_split)
+    stage_for_split = _mask_literal_output_redirect_chars(stage_for_split)
     tokens = _split_stage_tokens(stage_for_split)
 
     if not tokens:
         return []
 
-    return _decompose(
-        tokens,
-        operator=op,
-        heredoc_literal=heredoc_literal,
+    return _restore_stage_literal_output_redirect_chars(
+        _decompose(
+            tokens,
+            operator=op,
+            heredoc_literal=heredoc_literal,
+        )
     )
 
 
@@ -3502,12 +3585,9 @@ def _extract_wrapped_redirect_literal(inner: str) -> str:
         raw_stages = [(stage_str.strip(), op) for stage_str, op in _split_on_operators(inner) if stage_str.strip()]
         if len(raw_stages) != 1 or raw_stages[0][1]:
             return ""
-        inner_tokens = shlex.split(raw_stages[0][0])
+        inner_stages = _raw_stage_to_stages(raw_stages[0][0], "")
     except ValueError:
         return ""
-    if not inner_tokens:
-        return ""
-    inner_stages = _decompose(inner_tokens)
     if len(inner_stages) != 1:
         return ""
     return _extract_redirect_literal(inner_stages[0])

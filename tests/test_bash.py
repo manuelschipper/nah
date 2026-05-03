@@ -10,6 +10,7 @@ from nah import config, paths
 from nah.bash import (
     Stage,
     _extract_subshell_group,
+    _extract_wrapped_redirect_literal,
     _is_transparent_python_formatter,
     _raw_stage_to_stages,
     _raw_parts_reference_var,
@@ -1132,6 +1133,38 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "inside project" in r.reason
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "printf 'safe >/etc/shadow'",
+            "printf 'safe > /etc/shadow'",
+            "printf '%s\\n' 'A <key> B'",
+            "printf '%s\\n' 'Also foundry -> foundry_provider.'",
+            "echo 'safe >/etc/shadow'",
+            r"echo a\>b",
+            r"echo \>file",
+        ],
+    )
+    def test_literal_output_redirect_chars_are_not_redirects(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert len(r.stages) == 1
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].redirect_target == ""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "printf safe >/etc/shadow",
+            "printf safe > /etc/shadow",
+        ],
+    )
+    def test_unquoted_sensitive_printf_redirects_still_block(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert any(stage.action_type == "filesystem_write" for stage in r.stages)
+        assert "/etc/shadow" in r.reason
+
     def test_echo_redirect_runs_content_inspection(self, project_root):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(rf"echo '-----BEGIN PRIVATE KEY-----' > {target}")
@@ -1261,6 +1294,10 @@ class TestDecomposition:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
+
+    def test_wrapped_redirect_literal_preserves_quoted_redirect_text(self, project_root):
+        literal = _extract_wrapped_redirect_literal("printf 'safe >/etc/shadow'")
+        assert literal == "safe >/etc/shadow"
 
     @pytest.mark.parametrize(
         "command_template",
