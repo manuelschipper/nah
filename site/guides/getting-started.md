@@ -53,7 +53,8 @@ nah install claude  # permanent direct hooks
 
 ## See it in action
 
-Clone the repo and run the security demo inside Claude Code to see nah intercepting real tool calls:
+Clone the repo and run the Claude Code security demo to see nah intercepting
+real Claude Code tool calls:
 
 ```bash
 git clone https://github.com/manuelschipper/nah.git
@@ -62,7 +63,9 @@ cd nah
 /nah-demo
 ```
 
-25 live cases across 8 threat categories. Takes ~5 minutes.
+25 live Claude Code tool-call cases across 8 threat categories. Takes ~5
+minutes. A Codex demo is planned separately because Codex currently exposes a
+different guarded surface.
 
 ## Try it
 
