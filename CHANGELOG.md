@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Quoted output text no longer becomes a fake redirect** — Bash classification
+  now preserves `>` characters that appear inside quoted or backslash-escaped
+  `printf` / `echo` text before redirect decomposition, so prose such as
+  `<key>` or `->` no longer prompts as a filesystem write while real unquoted
+  redirects to sensitive paths still block. (nah-902)
 - **Claude launcher rejects unsafe bypass modes** — `nah run claude` now refuses
   `--dangerously-skip-permissions`, `--enable-auto-mode`, and
   `--permission-mode bypassPermissions` because those modes can run tool calls
