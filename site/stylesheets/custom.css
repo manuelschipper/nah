@@ -134,6 +134,17 @@
   display: none;
 }
 
+/* Hide duplicated site title in the mobile drawer when the logo is visible */
+@media screen and (max-width: 76.1875em) {
+  .md-nav--primary > .md-nav__title {
+    font-size: 0;
+  }
+
+  .md-nav--primary > .md-nav__title .md-logo {
+    font-size: 0.8rem;
+  }
+}
+
 
 /* ── Shared styles ── */
 

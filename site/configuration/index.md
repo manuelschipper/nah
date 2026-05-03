@@ -86,7 +86,7 @@ When both configs exist, nah merges them with these rules:
 | `targets` | dict of target → overrides | both* | This page |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |
-| `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](claude-code.md#active_allow) |
+| `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#prompt-behavior) |
 
 *\* `classify` entries in global config are Phase 1 (checked first, can override built-in). Project entries are Phase 3: they can add new commands and can tighten overlapping built-in classifications, but cannot weaken them unless `trust_project_config: true` is set globally. `sensitive_paths_default` in project config can only tighten (ask → block) unless project config is trusted. Target-scoped project overrides follow the same tighten-only rule.*
 

