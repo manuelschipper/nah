@@ -51,6 +51,7 @@ nav:
   - Privacy: privacy.md
   - Configuration:
     - Overview: configuration/index.md
+    - Claude Code: configuration/claude-code.md
     - Action types: configuration/actions.md
     - Profiles: configuration/profiles.md
     - Safety lists: configuration/safety-lists.md

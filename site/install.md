@@ -19,7 +19,7 @@ secret storage. Then connect the runtime you want to protect:
 nah install claude       # permanent Claude Code hooks
 nah run claude           # one protected Claude Code session
 nah run codex            # protected local Codex session
-nah install bash         # optional terminal guard; or: nah install zsh
+nah install bash         # guard commands you type in bash; or: nah install zsh
 ```
 
 Bare `nah install` exits with a target list. Setup commands should name the
@@ -46,6 +46,15 @@ process.
 [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in
 Claude Code's `settings.json`. Every `claude` session runs through nah until
 you remove direct hooks with `nah uninstall claude`.
+
+### Prompt Behavior
+
+By default, nah actively allows safe Claude Code tool calls so Claude does not
+ask again after nah has classified them as safe.
+
+If you want Claude Code to keep prompting for some safe tools, configure
+`active_allow`. This setting only applies to Claude Code hooks. See
+[Claude Code configuration](configuration/claude-code.md#active_allow).
 
 ### Plugin-Only Alternative
 
@@ -183,7 +192,7 @@ Snowflake Cortex. See [LLM layer](configuration/llm.md) for provider-specific
 examples. Bash and zsh keep LLM mode off unless you enable it under
 `targets.bash.llm.mode` or `targets.zsh.llm.mode`.
 
-## How Permissions Work
+## Coverage
 
 When active, nah takes over the guarded permission path for the integration you
 chose:
@@ -201,34 +210,6 @@ ambiguous ones ask.
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 
 **Don't use `--dangerously-skip-permissions`** - just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
-
-### active_allow
-
-When nah classifies a tool call as safe, it emits an explicit `"allow"` response so Claude Code skips its own permission prompt. This is **active allow** - nah takes over the permission decision entirely.
-
-Sometimes you want nah's protection (blocking dangerous commands, flagging sensitive paths) but still want Claude Code to prompt you before writes or edits. Set `active_allow` to a list of tool names to control which tools nah actively allows:
-
-```yaml
-# ~/.config/nah/config.yaml
-
-# nah handles Bash/Read/Glob/Grep; write-like tools fall back to Claude Code's prompts
-active_allow: [Bash, Read, Glob, Grep]
-```
-
-nah still classifies **all** guarded tool calls regardless of this setting. It
-will still block or ask for dangerous operations on Write/Edit/MultiEdit/
-NotebookEdit and matching MCP tools. The only difference is that safe calls for
-tools outside the list will not get an automatic allow from nah, so Claude Code
-shows its normal permission prompt.
-
-| Value | Behavior |
-|-------|----------|
-| `true` (default) | Actively allow all guarded tools |
-| `false` | Never actively allow - nah only blocks and asks |
-| list of tool names | Actively allow only the listed tools |
-
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`,
-`NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names.
 
 ## Update
 
