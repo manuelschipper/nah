@@ -2,15 +2,17 @@
 
 Effective date: April 22, 2026
 
-nah is a local safety guard for Claude Code. The terminal guard can also
-protect opt-in interactive shell sessions. This page describes what nah itself
-collects, stores, and sends.
+nah is a local safety guard for agents and terminals. It can protect Claude
+Code, local interactive Codex sessions, and opt-in interactive bash/zsh shell
+sessions. This page describes what nah itself collects, stores, and sends.
 
 ## Summary
 
 - nah's deterministic classifier runs locally on your machine.
 - The Claude Code plugin does not create a nah account and does not send tool
   input to a network service by default.
+- `nah run codex` uses local Codex `PermissionRequest` hooks and local
+  preflight checks; it does not create a nah account.
 - Decision logs and configuration are stored locally.
 - Optional LLM credentials can be stored locally in your OS keychain or
   keyring when you use `nah key ...` from a PyPI install.
@@ -29,6 +31,9 @@ operation. Depending on how you use nah, this can include:
 - file paths for reads, writes, edits, searches, and notebook edits
 - write/edit content snippets for content inspection
 - MCP tool names and arguments exposed to Claude Code hooks
+- Codex Bash and MCP `PermissionRequest` payloads when you use `nah run codex`
+- Codex approval-memory rule files and MCP approval settings during Codex
+  preflight scans
 - recent Claude Code transcript context when optional LLM review is enabled
 
 The deterministic classifier processes this information locally.
@@ -42,14 +47,18 @@ locations include:
 - `~/.config/nah/nah.log`
 - `~/.config/nah/hook-errors.log`
 - target-specific files under `~/.config/nah/`
+- Codex rule/config backups created by `nah codex repair` when you explicitly
+  run it
 - OS keychain/keyring entries for remote LLM secrets if you use `nah key ...`
   from a PyPI install
 
 If you install direct Claude Code hooks, nah may also write Claude hook settings
 or hook scripts under Claude Code's local configuration directory. If you use the
 Claude Code plugin, Claude Code's plugin manager handles plugin installation and
-state. nah does not copy LLM secret values into its YAML config files or
-decision logs.
+state. If you use `nah run codex`, nah passes session-scoped Codex config
+overrides on the Codex command line and may inspect Codex config/rule files
+during preflight. nah does not copy LLM secret values into its YAML config files
+or decision logs.
 
 ## Network Use
 

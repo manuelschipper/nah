@@ -1,6 +1,6 @@
 # CLI Reference
 
-All nah commands. Run `nah --version` to check your installed version.
+Public nah commands. Run `nah --version` to check your installed version.
 
 ## Core
 
@@ -17,6 +17,25 @@ nah claude -p "fix bug" # non-interactive mode
 Writes the hook shim if missing, then execs `claude --settings <hooks-json>`. If `nah install claude` has already been run, skips `--settings` injection and launches `claude` directly.
 
 All flags after `claude` are passed through to the `claude` CLI.
+
+### nah run codex
+
+Launch one protected local interactive Codex session.
+
+```bash
+nah run codex
+nah run codex --no-alt-screen
+```
+
+`nah run codex` is a special launcher dispatch rather than a persistent install
+target. It starts Codex with session-scoped native `PermissionRequest` hooks,
+forces nah-owned approval/sandbox settings, and runs Codex approval-memory/MCP
+preflight before launch.
+
+This path is for local interactive Codex. nah rejects bypass flags, `codex
+exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
+permission keys. `--no-alt-screen` is a Codex UI flag that keeps the TUI in
+normal terminal scrollback, which is useful for testing.
 
 ### nah install
 
@@ -116,6 +135,23 @@ but it does not remove the env var from your shell or dotfiles.
 These commands are available only on PyPI installs. The Claude Code plugin does
 not install the `nah` shell command or optional keyring support.
 
+### nah codex
+
+Diagnose or repair Codex state that can bypass nah's PermissionRequest hook.
+
+```bash
+nah codex doctor
+nah codex repair
+```
+
+`doctor` scans Codex approval-memory rules and MCP approval modes without
+modifying files. `repair` creates timestamped backups, removes supported
+remembered allow rules, and pins supported MCP approval settings to `prompt`.
+
+If `nah run codex` reports that Codex approval state can bypass nah, run
+`nah codex doctor` for details and `nah codex repair` when you want nah to fix
+the supported files.
+
 ## Test & Inspect
 
 ### nah test
@@ -179,6 +215,7 @@ Show recent hook decisions from the JSONL log.
 nah log                          # last 50 decisions
 nah log --blocks                 # only blocked decisions
 nah log --asks                   # only ask decisions
+nah log --llm                    # only decisions with LLM metadata
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable JSONL output
 ```
@@ -189,9 +226,14 @@ nah log --json                   # machine-readable JSONL output
 |------|-------------|
 | `--blocks` | Show only blocked decisions |
 | `--asks` | Show only ask decisions |
+| `--llm` | Show only entries with LLM metadata |
 | `--tool TOOL` | Filter by tool name (Bash, Read, Write, ...) |
 | `-n`, `--limit N` | Number of entries (default: 50) |
 | `--json` | Output as JSON lines |
+
+Compact log output prefers `human_reason` when present. JSON output keeps the
+technical `reason` and may also include `human_reason`, the short user-facing
+copy used in prompts such as `nah paused:` and `nah blocked:`.
 
 ## Guarded Shell Behavior
 
@@ -250,6 +292,19 @@ Live security demo that runs inside Claude Code. Clone the [nah repo](https://gi
 | `destructive` | Destructive operations (rm, force push, DROP TABLE) |
 | `secrets` | Credential & secret detection in file content |
 | `network` | Network context (trusted vs unknown hosts) |
+
+### nah audit-threat-model
+
+Audit threat-model coverage across the pytest suite.
+
+```bash
+nah audit-threat-model
+nah audit-threat-model --format summary
+nah audit-threat-model --format json
+```
+
+This is a maintainer-oriented command for checking test coverage against nah's
+threat model. It does not change runtime policy.
 
 ## Manage Rules
 

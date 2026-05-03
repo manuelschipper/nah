@@ -1,7 +1,7 @@
 """Agent support — tool name mapping, agent detection, output formatting.
 
-Supports Claude Code. The hook script detects the calling agent from payload
-fields and formats output accordingly.
+Supports Claude Code hooks and Codex permission-hook logging. The hook script
+detects the calling agent from payload fields and formats output accordingly.
 """
 
 from pathlib import Path
