@@ -52,18 +52,16 @@ nav:
     - Codex: runtimes/codex.md
     - Terminal Guard: runtimes/terminal-guard.md
   - How it works: how-it-works.md
-  - Privacy: privacy.md
   - Configuration:
     - Overview: configuration/index.md
     - Action types: configuration/actions.md
-    - Profiles: configuration/profiles.md
+    - Classification rules: configuration/classification-rules.md
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
-    - Content inspection: configuration/content.md
+    - Content inspection (Claude Code): configuration/content.md
     - LLM layer: configuration/llm.md
     - Database targets: configuration/database.md
+    - Profiles: configuration/profiles.md
+    - Airgapped environments: configuration/airgapped.md
   - CLI reference: cli.md
-  - Guides:
-    - Getting started: guides/getting-started.md
-    - Airgapped environments: guides/airgapped.md
-    - Custom taxonomy: guides/custom-taxonomy.md
+  - Privacy: privacy.md

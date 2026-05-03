@@ -1,6 +1,13 @@
 # Content Inspection
 
-nah scans the content of Write, Edit, MultiEdit, NotebookEdit, and Grep operations for dangerous patterns. This catches threats that path-based checks alone can't detect.
+!!! note "Runtime scope"
+    Content inspection currently applies to Claude Code `Write`, `Edit`,
+    `MultiEdit`, `NotebookEdit`, and `Grep` tool inputs, plus dry-run
+    `nah test --tool Write|Edit|MultiEdit|NotebookEdit|Grep`. Codex and
+    Terminal Guard do not use this Write/Edit/Grep content scanner today.
+
+nah scans Claude Code file and search operations for dangerous patterns. This
+catches threats that path-based checks alone can't detect.
 
 ## What gets scanned
 

@@ -90,7 +90,7 @@ scrollback, which makes it easier to inspect test output. Inside Codex, ask it
 to run:
 
 ```bash
-curl -I https://schipper.ai
+curl -I https://nah.build
 ```
 
 Codex should show its native approval UI for the command. If you approve, nah
@@ -100,7 +100,7 @@ or block according to policy.
 Dry-run equivalent:
 
 ```bash
-nah test --tool Bash -- "curl -I https://schipper.ai"
+nah test --tool Bash -- "curl -I https://nah.build"
 ```
 
 ## Unsupported Modes

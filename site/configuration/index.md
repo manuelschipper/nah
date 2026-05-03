@@ -70,7 +70,7 @@ When both configs exist, nah merges them with these rules:
 |-----|------|-------|------|
 | `profile` | `full` / `none` | global | [Profiles](profiles.md) |
 | `trust_project_config` | bool | global | This page |
-| `classify` | dict of type → prefix list | both* | [Custom taxonomy](../guides/custom-taxonomy.md) |
+| `classify` | dict of type → prefix list | both* | [Classification rules](classification-rules.md) |
 | `actions` | dict of type → policy | both | [Action types](actions.md) |
 | `sensitive_paths_default` | `ask` / `block` | both* | [Sensitive paths](sensitive-paths.md) |
 | `sensitive_paths` | dict of path → policy | both | [Sensitive paths](sensitive-paths.md) |
@@ -80,8 +80,8 @@ When both configs exist, nah merges them with these rules:
 | `exec_sinks` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `sensitive_basenames` | dict of name → policy | global | [Safety lists](safety-lists.md) |
 | `decode_commands` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
-| `content_patterns` | dict (add/suppress) | both | [Content inspection](content.md) |
-| `credential_patterns` | dict (add/suppress) | global | [Content inspection](content.md) |
+| `content_patterns` | dict (add/suppress) | both | [Content inspection (Claude Code)](content.md) |
+| `credential_patterns` | dict (add/suppress) | global | [Content inspection (Claude Code)](content.md) |
 | `llm` | dict (`mode`, providers, `eligible`, `context_chars`) | global | [LLM layer](llm.md) |
 | `targets` | dict of target → overrides | both* | This page |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
@@ -93,8 +93,9 @@ When both configs exist, nah merges them with these rules:
 ## Target overrides
 
 Use `targets.<target>` when a runtime needs different policy from the shared
-default. Supported targets are `claude`, plus the terminal-guard targets
-`bash` and `zsh`.
+default. Supported config targets are `claude`, `codex`, `bash`, and `zsh`.
+`codex` applies to sessions launched with `nah run codex`; it is not an
+install target.
 
 ```yaml
 # ~/.config/nah/config.yaml
@@ -111,6 +112,11 @@ llm:
 
 targets:
   claude:
+    llm:
+      mode: on
+  codex:
+    actions:
+      network_outbound: ask
     llm:
       mode: on
   bash:
@@ -131,6 +137,9 @@ Target overrides can set `actions`, `sensitive_paths_default`,
 `sensitive_paths`, `content_patterns.policies`, and `llm.mode` /
 `llm.eligible`. Shell-specific options live under `targets.bash.terminal` and
 `targets.zsh.terminal`.
+
+Public `nah test --target` simulation currently supports `claude`, `bash`, and
+`zsh`. Do not use `codex` there unless a later release adds that CLI target.
 
 Bash and zsh are terminal-guard targets. They default to LLM mode off even
 when global LLM mode is on. Enable terminal LLM review only with an explicit

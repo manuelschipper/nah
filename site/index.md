@@ -78,4 +78,4 @@ behavior.
 
 ---
 
-[Install](install.md) | [Runtimes](runtimes/claude-code.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Getting started](guides/getting-started.md) | [Privacy](privacy.md)
+[Install](install.md) | [Runtimes](runtimes/claude-code.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Privacy](privacy.md)
