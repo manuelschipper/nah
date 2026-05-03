@@ -206,8 +206,8 @@ nah types                              # list action types
 nah run claude                         # protect one Claude Code session
 nah run codex                          # protect one Codex session
 nah install claude                     # protect normal Claude Code sessions
-nah install bash                       # optional terminal guard
-nah install zsh
+nah install bash                       # guard commands you type in bash
+nah install zsh                        # guard commands you type in zsh
 
 nah allow filesystem_delete            # tune policies
 nah deny network_outbound
