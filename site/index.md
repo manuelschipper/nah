@@ -11,10 +11,9 @@
 
 ---
 
-Developers do not want security tools that slow them down. They want boring
-safe actions to pass automatically, ambiguous actions to ask, and obviously
-dangerous actions to be blocked before damage is done. This is the promise with
-nah.
+Developers don't want security tools that slow them down. Safe stuff should
+just run. Sketchy stuff should ask. Obviously dangerous stuff should get
+stopped before it does damage.
 
 `git push` — Sure.<br>
 `git push --force` — **nah paused:** this can rewrite Git history.
