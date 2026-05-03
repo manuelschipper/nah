@@ -29,8 +29,13 @@ def test_injects_root_overrides_before_user_args():
 
 def test_rejects_bypass_aliases():
     for flag in ("--yolo", "--dangerously-bypass-approvals-and-sandbox"):
-        with pytest.raises(CodexRunError):
+        with pytest.raises(CodexRunError) as exc:
             _argv([flag])
+        message = str(exc.value)
+        assert f"{flag} is not allowed" in message
+        assert "disables Codex approvals and sandboxing" in message
+        assert f"Run `nah run codex` without {flag}" in message
+        assert f"run `codex {flag}` directly" in message
 
 
 @pytest.mark.parametrize(
