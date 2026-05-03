@@ -56,7 +56,7 @@ secret storage. Then connect the runtime you want to protect:
 | --- | --- |
 | Claude Code | `nah run claude` or `nah install claude` |
 | Codex | `nah run codex` |
-| Bonus: terminal guard | `nah install bash` or `nah install zsh` |
+| Your shell | `nah install bash` or `nah install zsh` |
 
 For LLM review, store a provider key when you are ready:
 
@@ -105,7 +105,7 @@ nah guards the approval points each runtime exposes:
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
 | Codex | Local interactive Bash and MCP permission requests |
-| Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
+| Your shell | Commands you type yourself in guarded bash/zsh sessions |
 
 Detailed per-tool coverage and the Bash classification pipeline live in the
 [docs](https://nah.build/how-it-works/).
