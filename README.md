@@ -115,17 +115,14 @@ Detailed per-tool coverage and the Bash classification pipeline live in the
 Every guarded action hits a deterministic structural classifier first, no LLMs involved.
 
 ```
-Agent: Bash → git push --force
+git push --force
   nah paused: this can rewrite Git history.
 
-Agent: Bash → base64 -d payload | bash
+base64 -d payload | bash
   nah blocked: this decodes hidden content and runs it.
 
-Agent: Bash → npm test
+npm test
   ✓ allowed (package_run)
-
-Agent: Write → config.py containing "-----BEGIN PRIVATE KEY-----"
-  nah paused: this writes private key material.
 ```
 
 **`nah blocked:`** = refused before execution. **`nah paused:`** = asks for confirmation. Everything else goes through.
@@ -143,17 +140,9 @@ The same command gets different decisions based on context:
 
 ### Optional LLM layer
 
-For decisions that need judgment, nah can optionally consult an LLM:
-
-```
-Guarded action → nah (deterministic) → LLM (optional) → agent/terminal approval flow → execute
-```
-
-The deterministic layer always runs first. The LLM can refine eligible `ask` decisions, and it can review write-like edits for safety and intent. For Write/Edit/MultiEdit/NotebookEdit, it can relax a project-boundary ask when the edit is safe and clearly intended, or escalate a risky deterministic allow to ask. It cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
-
-LLM requests use the provider and model you configure. nah applies best-effort redaction for known secret patterns in transcript and write/edit content before prompt enrichment, but external LLM providers should still be treated as receiving security-sensitive context.
-
-Supported providers: Ollama, OpenRouter, OpenAI, Azure OpenAI, Anthropic, Snowflake Cortex.
+LLM review is optional and off by default. The deterministic classifier always
+runs first, and deterministic blocks cannot be relaxed. When enabled, the LLM
+can help with eligible ambiguous decisions and write-like edits.
 
 ## Configure
 
@@ -180,91 +169,32 @@ classify:
     - cleanup-staging
   db_write:
     - migrate-prod
+
+profile: full
 ```
 
-Classify entries accept a trailing `*` wildcard on the last token. Useful for covering an entire MCP server in one line:
+nah classifies by **action type**, not just command name. Policies are `allow`,
+`context`, `ask`, or `block`.
 
-```yaml
-actions:
-  mcp_github: allow          # custom action type with allow policy
-  mcp_danger: block
-classify:
-  mcp_github:
-    - mcp__github*           # every tool under the github MCP server
-  mcp_danger:
-    - mcp__github__delete_repo   # exact entry beats the wildcard above
-```
-
-Wildcards are literal — you don't need to escape them for YAML because `mcp__github*` doesn't start with `*` (YAML aliases only trigger on leading `*`). Exact entries always win over wildcard entries at equal prefix length, so a specific override still beats a server-wide rule.
-
-nah classifies commands by **action type**, not by command name. Run `nah types` to see all 40 built-in action types with their default policies.
-
-### Action types
-
-Every command maps to an action type, and every action type has a default policy:
-
-| Policy | Meaning | Example types |
-|--------|---------|---------------|
-| `allow` | Always permit | `filesystem_read`, `git_safe`, `package_run` |
-| `context` | Check path/project context, then decide | `filesystem_write`, `filesystem_delete`, `network_outbound`, `lang_exec` |
-| `ask` | Always prompt the user | `git_history_rewrite`, `git_remote_write`, `process_signal` |
-| `block` | Always reject | `obfuscated` |
-
-`context` is not the same as `allow`. For `lang_exec`, nah checks script path,
-project boundary, and inspectable inline or file content before deciding.
-
-See the [action types documentation](https://schipper.ai/nah/configuration/actions/)
-for the full default-policy table.
-
-### Taxonomy profiles
-
-Choose how much built-in classification to start with:
-
-```yaml
-# ~/.config/nah/config.yaml
-profile: full      # full | none
-```
-
-- **full** (default) — comprehensive coverage across shell, git, packages, containers, and more
-- **none** — blank slate — make your own
-
-Only `full` and `none` are supported. Older configs that still say `minimal`
-are treated as `full` with a warning; use `none` when you want a blank slate.
+See [configuration](https://schipper.ai/nah/configuration/) and
+[action types](https://schipper.ai/nah/configuration/actions/) for the full
+reference.
 
 ### LLM configuration
 
-```yaml
-# ~/.config/nah/config.yaml
-llm:
-  mode: on
-  eligible: default              # strict | default | all, or an explicit list
-  providers: [openrouter]        # cascade order
-  openrouter:
-    url: https://openrouter.ai/api/v1/chat/completions
-    key_env: OPENROUTER_API_KEY
-    model: google/gemini-3.1-flash-lite-preview
-targets:
-  bash:
-    llm:
-      mode: off                  # terminal targets default off unless enabled here
-```
-
-Remote-provider config still stores `key_env` names, not raw API keys. The
-recommended PyPI install includes OS keychain-backed storage for the actual
-secret value:
+Store provider keys in the OS keyring:
 
 ```bash
 nah key set openrouter
-nah key status
 ```
 
-If you already exported a provider key, `nah key import-env openrouter` copies
-the current env value into the OS keyring, but it does not remove that env var
-from your current shell or shell startup files for you.
+See [LLM configuration](https://schipper.ai/nah/configuration/llm/) for
+provider setup.
 
 ### Supply-chain safety
 
-Project `.nah.yaml` can **add** classifications and **tighten** policies, but cannot relax them by default. A malicious repo can't use `.nah.yaml` to allowlist dangerous commands unless you explicitly opt in from your global config with `trust_project_config: true`.
+Project `.nah.yaml` files can add classifications and tighten policies, but
+they cannot relax your global policy unless you explicitly opt in.
 
 ## CLI
 
