@@ -54,7 +54,7 @@ secret storage. Then connect the runtime you want to protect:
 
 | Runtime | Command |
 | --- | --- |
-| Claude Code | `nah run claude`|
+| Claude Code | `nah run claude` |
 | Codex | `nah run codex` |
 | Your shell | `nah install bash` or `nah install zsh` |
 
@@ -79,6 +79,9 @@ terminal guard, PyYAML config support, or keyring support. If you already
 installed direct hooks, run `nah uninstall claude` before enabling it.
 
 Full install docs: https://nah.build/install/
+Runtime guides: [Claude Code](https://nah.build/runtimes/claude-code/),
+[Codex](https://nah.build/runtimes/codex/), and
+[Terminal Guard](https://nah.build/runtimes/terminal-guard/).
 
 **Don't use `--dangerously-skip-permissions` or `--enable-auto-mode`** — just
 run `claude` in default mode. `nah run claude` rejects flags that bypass or

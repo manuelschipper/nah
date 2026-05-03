@@ -6,6 +6,10 @@ Codex uses native `PermissionRequest` hooks, and bash/zsh use the opt-in
 terminal guard. The core classifier is deterministic — no LLM needed, runs in
 milliseconds.
 
+Runtime setup lives in the dedicated guides for [Claude Code](runtimes/claude-code.md),
+[Codex](runtimes/codex.md), and [Terminal Guard](runtimes/terminal-guard.md).
+This page focuses on the classifier and guarded surfaces.
+
 ## Architecture
 
 ```

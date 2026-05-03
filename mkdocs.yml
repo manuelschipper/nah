@@ -47,11 +47,14 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Install: install.md
+  - Runtimes:
+    - Claude Code: runtimes/claude-code.md
+    - Codex: runtimes/codex.md
+    - Terminal Guard: runtimes/terminal-guard.md
   - How it works: how-it-works.md
   - Privacy: privacy.md
   - Configuration:
     - Overview: configuration/index.md
-    - Claude Code: configuration/claude-code.md
     - Action types: configuration/actions.md
     - Profiles: configuration/profiles.md
     - Safety lists: configuration/safety-lists.md

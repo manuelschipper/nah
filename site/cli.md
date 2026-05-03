@@ -2,11 +2,18 @@
 
 Public nah commands. Run `nah --version` to check your installed version.
 
+Runtime setup guides live separately:
+
+- [Claude Code](runtimes/claude-code.md)
+- [Codex](runtimes/codex.md)
+- [Terminal Guard](runtimes/terminal-guard.md)
+
 ## Core
 
 ### nah run claude
 
-Launch Claude Code with nah hooks active for this session.
+Launch Claude Code with nah hooks active for this session. See
+[Claude Code](runtimes/claude-code.md) for setup choices and runtime behavior.
 
 ```bash
 nah run claude              # start a protected session
@@ -22,11 +29,10 @@ rejects flags that bypass or auto-approve Claude Code permissions, including
 `--permission-mode bypassPermissions`, because those can run tool calls outside
 the guarded path.
 
-Legacy `nah claude` exits with a pointer to `nah run claude`.
-
 ### nah run codex
 
-Launch one protected local interactive Codex session.
+Launch one protected local interactive Codex session. See
+[Codex](runtimes/codex.md) for preflight, repair, and unsupported modes.
 
 ```bash
 nah run codex
@@ -45,7 +51,8 @@ normal terminal scrollback, which is useful for testing.
 
 ### nah install
 
-Install nah for a target.
+Install nah for a target. See [Installation](install.md) for the recommended
+package install and runtime chooser.
 
 ```bash
 nah install claude         # direct Claude Code hooks
@@ -61,7 +68,8 @@ entries to Claude Code's `settings.json`.
 
 `nah install bash` and `nah install zsh` write generated shell snippets under
 `~/.config/nah/terminal/` and add a small managed source block to the matching
-rc file. Restart or replace the shell before expecting the guard to load.
+rc file. See [Terminal Guard](runtimes/terminal-guard.md) for activation,
+limits, bypasses, and diagnostics.
 
 LLM provider setup lives in config, not `nah install`. See
 [LLM layer](configuration/llm.md) for provider examples.
@@ -200,8 +208,8 @@ terminal targets default to LLM mode off unless explicitly enabled under
 | `args` | Command string or tool input (positional, required for Bash) |
 
 There is no public `nah terminal` namespace and no `nah terminal check`
-command. `nah test --target bash|zsh` is the dry-run surface for terminal guard
-behavior.
+command. `nah test --target bash|zsh` is the dry-run surface for
+[Terminal Guard](runtimes/terminal-guard.md) behavior.
 
 ### nah types
 
@@ -276,9 +284,12 @@ history.
 
 ## Security Demo
 
-### /nah-demo
+### Claude Code demo
 
-Claude Code-only live security demo. Clone the [nah repo](https://github.com/manuelschipper/nah) and run `/nah-demo` from within Claude Code - the slash command is defined in `.claude/commands/`.
+Claude Code-only live security demo. Clone the
+[nah repo](https://github.com/manuelschipper/nah) and run the demo slash
+command from within Claude Code. The slash command is defined in
+`.claude/commands/`.
 
 ```
 /nah-demo                        # 25 cases across 8 threat categories

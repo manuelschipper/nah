@@ -44,9 +44,10 @@ llm:
 `llm.enabled: true` is still accepted for backward compatibility, but `llm.mode: on` is the current form.
 
 LLM provider setup lives in global config. Store environment-variable names such
-as `key_env: OPENROUTER_API_KEY`, not raw API keys. `nah install` is reserved
-for installing nah into guarded runtimes: Claude Code, plus the bash/zsh
-terminal guard.
+as `key_env: OPENROUTER_API_KEY`, not raw API keys. Runtime setup lives in the
+guides for [Claude Code](../runtimes/claude-code.md),
+[Codex](../runtimes/codex.md), and
+[Terminal Guard](../runtimes/terminal-guard.md).
 Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
 config files.
 
@@ -250,6 +251,9 @@ llm:
 Set to `0` to disable transcript context entirely.
 
 The transcript is read from Claude Code's JSONL conversation file. It includes user/assistant messages and tool use summaries, wrapped with anti-injection framing.
+
+Bash and zsh keep LLM mode off unless you enable it under `targets.bash.llm.mode`
+or `targets.zsh.llm.mode`. See [Terminal Guard](../runtimes/terminal-guard.md#llm-review).
 
 ## How the cascade works
 
