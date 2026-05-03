@@ -65,28 +65,14 @@ Agent: Read → ~/.aws/credentials
 
 ## What it guards
 
-| Tool | What nah checks |
-|------|----------------|
-| **Bash** | Structural classification — action type, pipe composition, shell unwrapping |
-| **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
-| **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
-| **Edit** | Path check + project boundary + content inspection on the replacement string |
-| **MultiEdit** | Same path, boundary, content, and LLM review checks as Edit across all replacements |
-| **NotebookEdit** | Same path, boundary, content, and LLM review checks for notebook cell source |
-| **Glob** | Guards directory scanning of sensitive locations |
-| **Grep** | Catches credential search patterns outside the project |
-| **MCP** | Generic classification for third-party tool servers, with bundled coverage for known servers |
+| Surface | Coverage |
+| --- | --- |
+| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
+| Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
+| Terminal | Complete single-line commands in opted-in interactive bash/zsh shells |
 
-## Choose what nah handles
-
-By default nah actively allows safe operations for all guarded tools. Want Claude Code's normal prompts for write-like tools, but nah's protection for everything else?
-
-```yaml
-# ~/.config/nah/config.yaml
-active_allow: [Bash, Read, Glob, Grep]
-```
-
-nah still blocks and asks for dangerous operations on all guarded tools, including Write/Edit/MultiEdit/NotebookEdit and MCP tools. This only controls which safe operations get automatic allow. See [active_allow](install.md#active_allow) for details.
+See [How it works](how-it-works.md) for detailed tool coverage and classifier
+behavior.
 
 ---
 
