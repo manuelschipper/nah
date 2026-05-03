@@ -69,7 +69,7 @@ Agent: Read → ~/.aws/credentials
 | Surface | Coverage |
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
+| Codex | Local interactive Bash and MCP permission requests |
 | Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
 
 See [How it works](how-it-works.md) for detailed tool coverage and classifier

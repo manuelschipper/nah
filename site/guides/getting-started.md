@@ -64,8 +64,7 @@ cd nah
 ```
 
 25 live Claude Code tool-call cases across 8 threat categories. Takes ~5
-minutes. A Codex demo is planned separately because Codex currently exposes a
-different guarded surface.
+minutes.
 
 ## Try it
 

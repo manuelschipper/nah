@@ -279,8 +279,7 @@ cd nah
 
 25 live Claude Code tool-call cases across 8 threat categories - remote code
 execution, data exfiltration, obfuscated commands, and more. Takes about 5
-minutes. A Codex demo is planned separately because Codex currently exposes a
-different guarded surface.
+minutes.
 
 ---
 
