@@ -154,7 +154,10 @@ def _reject_dangerous_flags(args: list[str]) -> None:
             return
         if tok in _BYPASS_FLAGS:
             raise CodexRunError(
-                f"nah run codex: {tok} bypasses approvals and sandboxing",
+                f"nah run codex: {tok} is not allowed because it disables "
+                "Codex approvals and sandboxing. Run `nah run codex` without "
+                f"{tok}, or run `codex {tok}` directly if you intentionally "
+                "want an unguarded Codex session.",
             )
         if tok in {"-c", "--config"}:
             if i + 1 >= len(args):
