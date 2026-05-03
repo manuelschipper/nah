@@ -21,7 +21,7 @@
 
 ## The problem
 
-Developers do not want security tools that slow them down. They want boring safe actions to pass automatically, ambiguous actions to ask, and obviously dangerous actions to be blocked before damage is done.
+A permissions layer should not slow you down. Boring safe actions should pass automatically, ambiguous actions should ask, and obviously dangerous actions should be blocked before damage is done.
 
 Allow and deny at the tool level does not really scale once coding agents can run real commands. Deleting a build artifact is fine; deleting a shell profile is not the same thing. `git status` and `git push --force` should not be treated like the same Git command.
 

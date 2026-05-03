@@ -11,9 +11,9 @@
 
 ---
 
-Developers do not want security tools that slow them down. They want boring
-safe actions to pass automatically, ambiguous actions to ask, and obviously
-dangerous actions to be blocked before damage is done.
+A permissions layer should not slow you down. Boring safe actions should pass
+automatically, ambiguous actions should ask, and obviously dangerous actions
+should be blocked before damage is done.
 
 `git push` — Sure.<br>
 `git push --force` — **nah paused:** this can rewrite Git history.
