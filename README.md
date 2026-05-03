@@ -95,8 +95,7 @@ cd nah
 
 25 live Claude Code tool-call cases across 8 threat categories: remote code
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
-minutes. A Codex demo is planned separately because Codex currently exposes a
-different guarded surface.
+minutes.
 
 ## What it guards
 
@@ -105,7 +104,7 @@ nah guards the approval points each runtime exposes:
 | Surface | Coverage |
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
+| Codex | Local interactive Bash and MCP permission requests |
 | Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
 
 Detailed per-tool coverage and the Bash classification pipeline live in the
