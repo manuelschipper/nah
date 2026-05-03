@@ -21,9 +21,9 @@
 
 ## The problem
 
-Developers do not want security tools that slow them down. They want boring safe actions to pass automatically, ambiguous actions to ask, and obviously dangerous actions to be blocked before damage is done. This is the promise with nah.
+Developers don't want security tools that slow them down. Safe stuff should just run. Sketchy stuff should ask. Obviously dangerous stuff should get stopped before it does damage.
 
-Agent and terminal permissions are often too blunt. Deleting some files is fine sometimes. `git checkout` is sometimes catastrophic. Maintaining a deny list is a fool's errand.
+Tool-level allow-or-deny doesn't really scale once agents and terminals can do real work. Deleting a build artifact is fine; deleting a shell profile is not the same thing. `git status` and `git push --force` should not be treated like the same Git command.
 
 `nah` classifies every guarded action by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
