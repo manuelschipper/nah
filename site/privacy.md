@@ -91,7 +91,7 @@ of silently allowing the tool call.
 
 ## Documentation Site
 
-The docs site at `https://schipper.ai/nah/` is a static documentation site.
+The docs site at `https://nah.build/` is a static documentation site.
 Normal hosting infrastructure may create standard access logs, such as requested
 URL, IP address, user agent, referrer, and timestamp. nah does not use those logs
 to make safety decisions.

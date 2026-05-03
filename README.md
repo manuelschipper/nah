@@ -8,13 +8,13 @@
 </p>
 
 <p align="center">
-  <a href="https://schipper.ai/nah/">Docs</a> &bull;
+  <a href="https://nah.build/">Docs</a> &bull;
   <a href="#install">Install</a> &bull;
   <a href="#what-it-guards">What it guards</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#configure">Configure</a> &bull;
   <a href="#cli">CLI</a> &bull;
-  <a href="https://schipper.ai/nah/privacy/">Privacy</a>
+  <a href="https://nah.build/privacy/">Privacy</a>
 </p>
 
 ---
@@ -78,7 +78,7 @@ The plugin is Claude-only. It does not include `nah test`, Codex support, the
 terminal guard, PyYAML config support, or keyring support. If you already
 installed direct hooks, run `nah uninstall claude` before enabling it.
 
-Full install docs: https://schipper.ai/nah/install/
+Full install docs: https://nah.build/install/
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
@@ -108,7 +108,7 @@ nah guards the approval points each runtime exposes:
 | Optional terminal guard | Complete single-line commands in opted-in interactive bash/zsh shells |
 
 Detailed per-tool coverage and the Bash classification pipeline live in the
-[docs](https://schipper.ai/nah/how-it-works/).
+[docs](https://nah.build/how-it-works/).
 
 ## How it works
 
@@ -176,8 +176,8 @@ profile: full
 nah classifies by **action type**, not just command name. Policies are `allow`,
 `context`, `ask`, or `block`.
 
-See [configuration](https://schipper.ai/nah/configuration/) and
-[action types](https://schipper.ai/nah/configuration/actions/) for the full
+See [configuration](https://nah.build/configuration/) and
+[action types](https://nah.build/configuration/actions/) for the full
 reference.
 
 ### LLM configuration
@@ -188,7 +188,7 @@ Store provider keys in the OS keyring:
 nah key set openrouter
 ```
 
-See [LLM configuration](https://schipper.ai/nah/configuration/llm/) for
+See [LLM configuration](https://nah.build/configuration/llm/) for
 provider setup.
 
 ### Supply-chain safety
@@ -215,7 +215,7 @@ nah trust api.example.com
 nah config show
 ```
 
-Full CLI reference: https://schipper.ai/nah/cli/
+Full CLI reference: https://nah.build/cli/
 
 ## License
 
