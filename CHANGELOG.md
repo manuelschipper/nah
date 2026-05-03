@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **README and public docs rebranded for agents and terminals** — refreshed README, site install/CLI/privacy/how-it-works/getting-started docs, and package metadata around “Context aware safety guard for agents and terminals” instead of a Claude-only positioning. Updated examples to current `nah paused:` / `nah blocked:` copy and documented Codex doctor/repair plus `nah log --llm`. (nah-899)
 - **Terminal guard documented as opt-in shell protection** — README, install docs, configuration docs, privacy copy, and lifecycle target help now describe bash/zsh terminal protection as opt-in per shell without preview labeling.
 - **Minimal taxonomy profile deprecated** — `profile: minimal` now warns and behaves like `profile: full`, leaving `full` and `none` as the two supported profile shapes. The old minimal classification data has been removed so custom classifiers are not evaluated against a weaker built-in baseline.
 - **Install lifecycle targets stay runtime-only** — removed the unreleased `nah install openrouter` / `nah uninstall openrouter` convenience path so lifecycle commands only install or remove nah from guarded runtimes (`claude`, `bash`, `zsh`). LLM providers remain configured through global config. (nah-882 follow-up)

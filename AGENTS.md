@@ -1,6 +1,6 @@
 # nah
 
-Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write, Edit, Glob, Grep), not just shell commands. Deterministic, zero tokens, milliseconds.
+Context aware safety guard for agents and terminals. Guards Claude Code tools, local interactive Codex sessions, and opt-in bash/zsh terminal commands. Deterministic, zero tokens, milliseconds.
 
 **Tagline:** "Safeguard your vibes. Keep your flow state."
 
@@ -58,9 +58,11 @@ except Exception:
 ```bash
 # Setup
 nah claude               # launch claude with nah active (this session only)
-nah install              # install the PreToolUse hook (permanent)
-nah uninstall            # clean removal
-nah update               # update hook after pip upgrade
+nah run codex            # launch codex with nah active (this session only)
+nah install claude       # install direct Claude Code hooks (permanent)
+nah install bash         # install interactive bash guard
+nah uninstall claude     # clean direct Claude Code removal
+nah update claude        # update hook after pip upgrade
 
 # Dry-run classification (no side effects)
 nah test "rm -rf /"                        # test a Bash command
@@ -70,10 +72,13 @@ nah test --tool Write ./out.txt --content "BEGIN PRIVATE KEY"  # test content in
 nah test --tool Grep --pattern "password"  # test credential search detection
 
 # Inspect
-nah types                # list all 23 action types with default policies
+nah types                # list all 40 action types with default policies
 nah log                  # show recent hook decisions
 nah log --blocks         # show only blocked decisions
 nah log --asks           # show only ask decisions
+nah log --llm            # show only decisions with LLM metadata
+nah codex doctor         # inspect Codex approval-memory/MCP preflight state
+nah codex repair         # repair supported Codex preflight findings
 nah config show          # show effective merged config
 nah config path          # show config file locations
 

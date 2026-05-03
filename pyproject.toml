@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "nah"
 version = "0.7.1"
-description = "Context-aware safety guard for Claude Code."
+description = "Context aware safety guard for agents and terminals."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Manuel Schipper" },
 ]
-keywords = ["claude", "claude-code", "safety", "guard", "hooks", "security", "permissions"]
+keywords = ["agents", "terminal", "claude", "claude-code", "codex", "safety", "guard", "hooks", "security", "permissions"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

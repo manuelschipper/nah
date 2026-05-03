@@ -1,15 +1,19 @@
 # How it Works
 
-nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intercepts guarded tool calls before they execute. The core classifier is deterministic — no LLM needed, runs in milliseconds.
+nah is a local classifier that sits in front of guarded agent and terminal
+actions. Claude Code uses [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks),
+Codex uses native `PermissionRequest` hooks, and bash/zsh use the opt-in
+terminal guard. The core classifier is deterministic — no LLM needed, runs in
+milliseconds.
 
 ## Architecture
 
 ```
-  Tool call (stdin: JSON)
+  Guarded action (hook payload or shell command)
           │
           ▼
   ┌───────────────┐
-  │  nah hook     │  detect agent, normalize tool name
+  │  nah guard    │  detect target, normalize tool/surface
   └───────┬───────┘
           │
           ▼
@@ -29,7 +33,7 @@ nah is a [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks)
   └───────┬───────┘
           │
           ▼
-     stdout: JSON → Claude Code
+     hook JSON / prompt / terminal decision
 ```
 
 ## Tool handlers
@@ -148,9 +152,12 @@ For `context` policies, nah checks the environment:
 ## Decision format
 
 ```
-nah.  → blocked (hook returns deny decision)
-nah?  → asks for confirmation (hook returns ask decision)
-      → allowed (hook returns allow decision)
+nah blocked: ...  → refused before execution
+nah paused: ...   → asks for confirmation
+                 → allowed quietly
 ```
 
-Every decision is logged to `~/.config/nah/nah.log` (JSONL) and inspectable via `nah log`.
+The technical `reason` remains available in logs and JSON output. The shorter
+`human_reason` is the user-facing copy used in prompts and compact log lines.
+Every decision is logged to `~/.config/nah/nah.log` (JSONL) and inspectable via
+`nah log`.

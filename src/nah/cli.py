@@ -1559,7 +1559,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="nah",
-        description="Context-aware safety guard for Claude Code.",
+        description="Context aware safety guard for agents and terminals.",
     )
     parser.add_argument(
         "--version", action="version", version=f"nah {__version__}",
