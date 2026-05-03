@@ -54,7 +54,7 @@ secret storage. Then connect the runtime you want to protect:
 
 | Runtime | Command |
 | --- | --- |
-| Claude Code | `nah run claude` or `nah install claude` |
+| Claude Code | `nah run claude`|
 | Codex | `nah run codex` |
 | Your shell | `nah install bash` or `nah install zsh` |
 
