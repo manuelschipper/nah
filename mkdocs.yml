@@ -1,5 +1,5 @@
 site_name: nah
-site_description: Context aware safety guard for agents and terminals. Because allow and deny isn't enough.
+site_description: Context aware safety guard for coding agents. Because allow and deny isn't enough.
 site_url: https://schipper.ai/nah/
 repo_url: https://github.com/manuelschipper/nah
 repo_name: manuelschipper/nah

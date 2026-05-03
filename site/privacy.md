@@ -2,9 +2,9 @@
 
 Effective date: April 22, 2026
 
-nah is a local safety guard for agents and terminals. It can protect Claude
-Code, local interactive Codex sessions, and opt-in interactive bash/zsh shell
-sessions. This page describes what nah itself collects, stores, and sends.
+nah is a local safety guard for coding agents. It protects Claude Code and
+local interactive Codex sessions, with an optional bash/zsh terminal guard as a
+bonus. This page describes what nah itself collects, stores, and sends.
 
 ## Summary
 
