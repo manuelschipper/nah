@@ -82,9 +82,9 @@ Full install docs: https://schipper.ai/nah/install/
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
-## Try it out
+## Claude Code Demo
 
-Clone the repo and run the security demo inside Claude Code:
+Clone the repo and run the Claude Code security demo:
 
 ```bash
 git clone https://github.com/manuelschipper/nah.git
@@ -93,7 +93,10 @@ cd nah
 /nah-demo
 ```
 
-25 live cases across 8 threat categories: remote code execution, data exfiltration, obfuscated commands, and others. Takes ~5 minutes.
+25 live Claude Code tool-call cases across 8 threat categories: remote code
+execution, data exfiltration, obfuscated commands, and others. Takes ~5
+minutes. A Codex demo is planned separately because Codex currently exposes a
+different guarded surface.
 
 ## What it guards
 
@@ -303,7 +306,7 @@ nah log --asks                   # show only ask decisions
 nah log --llm                    # show decisions with LLM metadata
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable output
-/nah-demo                        # live security demo inside Claude Code
+/nah-demo                        # Claude Code-only live security demo
 ```
 
 ### Manage rules

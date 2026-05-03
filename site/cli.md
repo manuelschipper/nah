@@ -272,7 +272,7 @@ history.
 
 ### /nah-demo
 
-Live security demo that runs inside Claude Code. Clone the [nah repo](https://github.com/manuelschipper/nah) and run `/nah-demo` from within it — the slash command is defined in `.claude/commands/`.
+Claude Code-only live security demo. Clone the [nah repo](https://github.com/manuelschipper/nah) and run `/nah-demo` from within Claude Code - the slash command is defined in `.claude/commands/`.
 
 ```
 /nah-demo                        # 25 cases across 8 threat categories
