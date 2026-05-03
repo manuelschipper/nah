@@ -6,6 +6,7 @@ Codex sessions that should route Bash and MCP permission requests through nah.
 ```bash
 nah codex doctor
 nah run codex
+nah run codex --accept-edits-on
 nah run codex --no-sandbox
 ```
 
@@ -54,6 +55,26 @@ nah run codex -s danger-full-access
 
 Direct `-c sandbox_mode=...` overrides are still rejected so nah can keep a
 single owner for the guarded session's approval and sandbox settings.
+
+## Edit Auto-Allow
+
+By default, Codex `apply_patch` edits are guarded but still fall through to
+Codex's native approval UI when they are otherwise safe. nah inspects the patch
+first for path boundaries, protected files, and dangerous added content; asks
+and blocks still win.
+
+To let ordinary safe project-local add/update patches flow without a second
+prompt, opt in for that session:
+
+```bash
+nah run codex --accept-edits-on
+nah run codex --ae
+```
+
+This is a nah-owned wrapper flag, not a native Codex flag. It is not equivalent
+to `codex -a never`, which disables approval prompts and is rejected under
+`nah run codex`. It is also not the same as `codex apply`, which applies a
+previously produced diff after the interactive agent turn.
 
 ## Preflight
 
@@ -112,6 +133,7 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 - user overrides for nah-owned approval, hook, and MCP feature keys
 - direct `-c sandbox_mode=...` overrides
 - `codex exec`
+- `codex apply`
 - `codex review`
 - remote/cloud Codex runs
 
@@ -120,7 +142,7 @@ session.
 
 ## Coverage
 
-`nah run codex` guards local interactive Codex Bash and MCP
+`nah run codex` guards local interactive Codex Bash, MCP, and `apply_patch`
 `PermissionRequest` payloads. It does not guard remote/cloud Codex sessions,
 non-interactive `codex exec`, or Codex surfaces that do not emit the local
 interactive approval hook.

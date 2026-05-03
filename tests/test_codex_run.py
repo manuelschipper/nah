@@ -4,11 +4,20 @@ import os
 
 import pytest
 
-from nah.codex_run import CodexRunError, build_codex_argv
+from nah.codex_run import CodexRunError, build_codex_argv, build_codex_launch
 
 
 def _argv(args):
     return build_codex_argv(args, codex_path="/usr/bin/codex", preflight=False)
+
+
+def _launch(args):
+    return build_codex_launch(
+        args,
+        codex_path="/usr/bin/codex",
+        preflight=False,
+        base_env={},
+    )
 
 
 def test_injects_root_overrides_before_user_args():
@@ -25,6 +34,16 @@ def test_injects_root_overrides_before_user_args():
     assert 'approvals_reviewer="user"' in argv
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
     assert "_codex-permission-request" in hook_override
+
+
+@pytest.mark.parametrize("flag", ["--accept-edits-on", "--ae"])
+def test_accept_edits_flags_are_consumed_and_set_hook_env(flag):
+    launch = _launch([flag, "--no-alt-screen"])
+
+    assert launch.accept_edits is True
+    assert launch.env["NAH_CODEX_ACCEPT_EDITS"] == "1"
+    assert flag not in launch.argv
+    assert launch.argv[-1] == "--no-alt-screen"
 
 
 @pytest.mark.parametrize(
@@ -67,6 +86,8 @@ def test_rejects_bypass_aliases():
         ["exec", "echo hi"],
         ["e", "echo hi"],
         ["review", "--diff"],
+        ["apply"],
+        ["a"],
         ["cloud", "exec", "echo hi"],
     ],
 )
@@ -87,6 +108,11 @@ def test_rejects_unsupported_codex_surfaces(args):
 def test_rejects_permission_and_remote_flags(args):
     with pytest.raises(CodexRunError):
         _argv(args)
+
+
+def test_accept_edits_does_not_relax_rejected_approval_flags():
+    with pytest.raises(CodexRunError):
+        _argv(["--ae", "-a", "never"])
 
 
 @pytest.mark.parametrize(

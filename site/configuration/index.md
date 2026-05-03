@@ -138,6 +138,10 @@ Target overrides can set `actions`, `sensitive_paths_default`,
 `llm.eligible`. Shell-specific options live under `targets.bash.terminal` and
 `targets.zsh.terminal`.
 
+Codex edit auto-allow is intentionally session-scoped in this release. Use
+`nah run codex --accept-edits-on` or `nah run codex --ae`; untrusted project
+config cannot enable it silently.
+
 Public `nah test --target` simulation currently supports `claude`, `bash`, and
 `zsh`. Do not use `codex` there unless a later release adds that CLI target.
 
