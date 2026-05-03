@@ -1163,6 +1163,8 @@ class TestCodexClassifier:
 
     @pytest.mark.parametrize("tokens", [
         ["nah", "run", "claude", "--dangerously-skip-permissions"],
+        ["nah", "run", "claude", "--enable-auto-mode"],
+        ["nah", "run", "claude", "--enable-auto-mode=true"],
         ["nah", "run", "claude", "--permission-mode", "bypassPermissions"],
         ["nah", "run", "claude", "--permission-mode=bypassPermissions"],
     ])

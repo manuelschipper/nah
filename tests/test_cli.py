@@ -1123,6 +1123,24 @@ class TestCmdClaude:
         with pytest.raises(SystemExit):
             cmd_claude(["--settings=custom.json"])
 
+    @pytest.mark.parametrize("args, expected", [
+        (["--dangerously-skip-permissions"], "--dangerously-skip-permissions"),
+        (["--enable-auto-mode"], "--enable-auto-mode"),
+        (["--enable-auto-mode=true"], "--enable-auto-mode=true"),
+        (["--permission-mode", "bypassPermissions"], "--permission-mode bypassPermissions"),
+        (["--permission-mode=bypassPermissions"], "--permission-mode=bypassPermissions"),
+    ])
+    def test_rejects_bypass_and_auto_mode_flags(self, args, expected, capsys):
+        from nah.cli import cmd_claude
+        with pytest.raises(SystemExit) as exc:
+            cmd_claude(args)
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert expected in err
+        assert "not allowed" in err
+        assert "cannot protect" in err
+
     def test_claude_not_found(self):
         from nah.cli import cmd_claude
         with patch("shutil.which", return_value=None):

@@ -16,7 +16,11 @@ nah run claude -p "fix bug" # non-interactive mode
 
 Writes the hook shim if missing, then execs `claude --settings <hooks-json>`. If `nah install claude` has already been run, skips `--settings` injection and launches `claude` directly.
 
-All flags after `nah run claude` are passed through to the `claude` CLI.
+Most flags after `nah run claude` are passed through to the `claude` CLI. nah
+rejects flags that bypass or auto-approve Claude Code permissions, including
+`--dangerously-skip-permissions`, `--enable-auto-mode`, and
+`--permission-mode bypassPermissions`, because those can run tool calls outside
+the guarded path.
 
 Legacy `nah claude` exits with a pointer to `nah run claude`.
 

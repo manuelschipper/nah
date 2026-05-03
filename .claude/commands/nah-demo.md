@@ -30,7 +30,7 @@ Print this introduction (adapt the tone, don't copy verbatim):
 
 Before proceeding, remind the user about the recommended permission setup (adapt the tone, don't copy verbatim):
 
-> **Quick setup note:** Don't use `--dangerously-skip-permissions` — in bypass mode, hooks fire asynchronously, so commands can execute before nah blocks them.
+> **Quick setup note:** Don't use `--dangerously-skip-permissions` or `--enable-auto-mode` — those modes can run tool calls outside the guarded path.
 >
 > Make sure `Bash`, `Read`, `Glob`, and `Grep` are in `permissions.allow` in your `~/.claude/settings.json` — nah is guarding them. For **Write** and **Edit**, your call — nah inspects their content either way.
 >

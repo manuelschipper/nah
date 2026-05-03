@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Claude launcher rejects unsafe bypass modes** — `nah run claude` now refuses
+  `--dangerously-skip-permissions`, `--enable-auto-mode`, and
+  `--permission-mode bypassPermissions` because those modes can run tool calls
+  outside the guarded permission path.
 - **Shell control-flow bodies are classified by payload** — `for ...; do ...; done`, `while ...; do ...; done`, and `if ...; then ...; fi` now expose their executable inner commands to the classifier instead of stopping at reserved words like `for`, `do`, and `done`. Literal `for` item lists are expanded into the loop body so safe batch GitHub/GitLab CLI API reads can allow while sensitive paths still block; dynamic loop values and control-flow body command substitutions fail closed. Tracks [#78](https://github.com/manuelschipper/nah/issues/78).
 - **Unwrapped shell bodies mirror top-level variable expansion** — `bash -c 'BAD=/etc/shadow; rm "$BAD"'` and control-flow variants now apply the same intra-chain `$VAR` expansion used for top-level Bash commands, closing a sensitive-path bypass inside shell wrappers.
 - **GitLab API form writes ask cleanly** — `glab api --form ...` now classifies as `network_write`, including multipart file-upload forms, and `gh` / `glab` API prompt copy no longer mistakes field values such as `file=@image.png` for network hosts.
