@@ -143,28 +143,16 @@ cd nah
 
 ## What it guards
 
-nah protects three surfaces today:
+nah guards the approval points each runtime exposes:
 
-- Claude Code through [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks)
-- local interactive Codex through native `PermissionRequest` hooks
-- opt-in interactive bash/zsh shells through the terminal guard
+| Surface | Coverage |
+| --- | --- |
+| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
+| Codex | Local interactive Bash and MCP permission requests via `nah run codex` |
+| Terminal | Complete single-line commands in opted-in interactive bash/zsh shells |
 
-For agent tool calls, nah checks:
-
-| Tool | What nah checks |
-|------|----------------|
-| **Bash** | Structural command classification — action type, pipe composition, shell unwrapping |
-| **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
-| **Write** | Path check + project boundary + content inspection (secrets, exfiltration, destructive payloads) |
-| **Edit** | Path check + project boundary + content inspection on the replacement string |
-| **MultiEdit** | Same path, boundary, content, and LLM review checks as Edit across all replacements |
-| **NotebookEdit** | Same path, boundary, content, and LLM review checks for notebook cell source |
-| **Glob** | Guards directory scanning of sensitive locations |
-| **Grep** | Catches credential search patterns outside the project |
-| **MCP tools** | Generic classification for third-party tool servers (`mcp__*`), with bundled coverage for known servers |
-
-When installed for bash or zsh, nah applies the same Bash classifier to complete
-single-line commands before your interactive shell runs them.
+Detailed per-tool coverage and the Bash classification pipeline live in the
+[docs](https://schipper.ai/nah/how-it-works/).
 
 ## How it works
 

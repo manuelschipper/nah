@@ -38,6 +38,14 @@ milliseconds.
 
 ## Tool handlers
 
+Coverage depends on the runtime surface:
+
+| Surface | Tool coverage |
+| --- | --- |
+| Claude Code | Bash, Read, Write, Edit, MultiEdit, NotebookEdit, Glob, Grep, and matching MCP tools |
+| Codex | Bash and MCP `PermissionRequest` hooks for local interactive sessions |
+| Terminal | Complete single-line bash/zsh commands through the Bash classifier |
+
 | Tool | What nah checks |
 |------|----------------|
 | **Bash** | Full structural classification pipeline (see below) |
