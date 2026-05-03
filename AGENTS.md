@@ -57,7 +57,7 @@ except Exception:
 
 ```bash
 # Setup
-nah claude               # launch claude with nah active (this session only)
+nah run claude           # launch claude with nah active (this session only)
 nah run codex            # launch codex with nah active (this session only)
 nah install claude       # install direct Claude Code hooks (permanent)
 nah install bash         # install interactive bash guard

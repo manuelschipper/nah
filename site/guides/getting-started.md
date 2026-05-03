@@ -27,7 +27,7 @@ For direct Claude Code hooks instead of the plugin:
 
 ```bash
 pip install nah
-nah claude          # one protected session
+nah run claude      # one protected session
 nah install claude  # permanent direct hooks
 ```
 

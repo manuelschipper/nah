@@ -1466,13 +1466,13 @@ def cmd_claude(user_args: list[str]) -> None:
 
     for arg in user_args:
         if arg == "--settings" or arg.startswith("--settings="):
-            print("nah claude: --settings is managed by nah; pass other flags directly",
+            print("nah run claude: --settings is managed by nah; pass other flags directly",
                   file=sys.stderr)
             raise SystemExit(1)
 
     claude_path = shutil.which("claude")
     if claude_path is None:
-        print("nah claude: 'claude' not found on PATH", file=sys.stderr)
+        print("nah run claude: 'claude' not found on PATH", file=sys.stderr)
         raise SystemExit(1)
 
     settings_file = agents.AGENT_SETTINGS[agents.CLAUDE]
@@ -1662,6 +1662,10 @@ def main():
     status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
     doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    run_parser = sub.add_parser("run", help="Launch an agent with nah active")
+    run_sub = run_parser.add_subparsers(dest="run_agent")
+    run_sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
+    run_sub.add_parser("codex", help="Launch Codex with nah hooks active")
     codex_parser = sub.add_parser("codex", help="Diagnose or repair Codex integration")
     codex_sub = codex_parser.add_subparsers(dest="codex_command")
     codex_sub.add_parser("doctor", help="Show Codex preflight findings")
@@ -1671,7 +1675,6 @@ def main():
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")
     forget_parser.add_argument("--global", dest="global_flag", action="store_true", help="Search only global config")
     sub.add_parser("types", help="List all action types with descriptions and default policies")
-    sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
     audit_parser = sub.add_parser(
         "audit-threat-model",
         help="Audit threat-model coverage across the pytest suite",
@@ -1683,15 +1686,19 @@ def main():
         help="Output format (default: markdown)",
     )
 
-    # Manual intercept: "nah claude ..." bypasses argparse for user_args
-    # because argparse.REMAINDER fails when first arg starts with "--".
+    # Manual intercepts bypass argparse for user_args because argparse.REMAINDER
+    # fails when the first pass-through arg starts with "--".
     if len(sys.argv) >= 2 and sys.argv[1] == "claude":
-        cmd_claude(sys.argv[2:])
-        return
-    if len(sys.argv) >= 3 and sys.argv[1] == "run" and sys.argv[2] == "codex":
-        from nah.codex_run import run_codex
+        print("nah claude has moved. Run `nah run claude`.", file=sys.stderr)
+        raise SystemExit(1)
+    if len(sys.argv) >= 3 and sys.argv[1] == "run":
+        if sys.argv[2] == "claude":
+            cmd_claude(sys.argv[3:])
+            return
+        if sys.argv[2] == "codex":
+            from nah.codex_run import run_codex
 
-        raise SystemExit(run_codex(sys.argv[3:]))
+            raise SystemExit(run_codex(sys.argv[3:]))
 
     args = parser.parse_args()
 
@@ -1723,6 +1730,8 @@ def main():
         cmd_status(args)
     elif args.command == "doctor":
         cmd_doctor(args)
+    elif args.command == "run":
+        parser.error("nah run requires an agent: claude or codex")
     elif args.command == "codex":
         cmd_codex(args)
     elif args.command == "forget":

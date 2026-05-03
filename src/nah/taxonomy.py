@@ -586,6 +586,9 @@ def classify_tokens(
         )
         if action is not None:
             return action
+        action = _classify_nah_run_claude(tokens)
+        if action is not None:
+            return action
         action = _classify_nah_run_codex(tokens)
         if action is not None:
             return action
@@ -1718,6 +1721,20 @@ def _classify_nah_run_codex(tokens: list[str]) -> str | None:
         return UNKNOWN
     if len(cleaned) >= 2 and cleaned[1] in {"exec", "e", "review", "cloud"}:
         return AGENT_EXEC_BYPASS
+    return AGENT_EXEC_WRITE
+
+
+def _classify_nah_run_claude(tokens: list[str]) -> str | None:
+    """Classify `nah run claude` as a guarded Claude Code launch surface."""
+    if len(tokens) < 3 or tokens[0] != "nah" or tokens[1] != "run" or tokens[2] != "claude":
+        return None
+    for i, tok in enumerate(tokens[3:], start=3):
+        if tok == "--dangerously-skip-permissions":
+            return AGENT_EXEC_BYPASS
+        if tok == "--permission-mode" and i + 1 < len(tokens) and tokens[i + 1] == "bypassPermissions":
+            return AGENT_EXEC_BYPASS
+        if tok == "--permission-mode=bypassPermissions":
+            return AGENT_EXEC_BYPASS
     return AGENT_EXEC_WRITE
 
 

