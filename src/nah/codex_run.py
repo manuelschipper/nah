@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 
 from nah.codex_preflight import CodexPreflightError, ensure_preflight
 
@@ -16,9 +17,20 @@ class CodexRunError(Exception):
     """Raised when `nah run codex` cannot safely launch Codex."""
 
 
+@dataclass(frozen=True)
+class CodexLaunch:
+    argv: list[str]
+    env: dict[str, str]
+    accept_edits: bool = False
+
+
 _BYPASS_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
     "--yolo",
+}
+_ACCEPT_EDITS_FLAGS = {
+    "--accept-edits-on",
+    "--ae",
 }
 _DEFAULT_SANDBOX_MODE = "workspace-write"
 _NO_SANDBOX_MODE = "danger-full-access"
@@ -74,7 +86,7 @@ _CODEX_VALUE_FLAGS = {
     "--add-dir",
 }
 _CODEX_LONG_VALUE_FLAGS = {flag for flag in _CODEX_VALUE_FLAGS if flag.startswith("--")}
-_UNSUPPORTED_SUBCOMMANDS = {"exec", "e", "review", "cloud"}
+_UNSUPPORTED_SUBCOMMANDS = {"exec", "e", "review", "apply", "a", "cloud"}
 
 
 def _toml_string(value: str) -> str:
@@ -119,31 +131,77 @@ def build_codex_argv(
     preflight: bool = True,
 ) -> list[str]:
     """Build a validated Codex argv with nah overrides before user args."""
+    return build_codex_launch(
+        user_args,
+        codex_path=codex_path,
+        preflight=preflight,
+    ).argv
+
+
+def build_codex_launch(
+    user_args: list[str],
+    *,
+    codex_path: str | None = None,
+    preflight: bool = True,
+    base_env: dict[str, str] | None = None,
+) -> CodexLaunch:
+    """Build a validated Codex launch plan with nah-owned environment."""
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    sandbox_mode, codex_args = _extract_sandbox_args(user_args)
+    accept_edits, remaining_args = _extract_accept_edits_args(user_args)
+    sandbox_mode, codex_args = _extract_sandbox_args(remaining_args)
     _validate_user_args(codex_args)
     if preflight:
         try:
             ensure_preflight()
         except CodexPreflightError as exc:
             raise CodexRunError(str(exc)) from exc
-    return [executable] + injected_overrides(sandbox_mode=sandbox_mode) + codex_args
+    env = dict(base_env if base_env is not None else os.environ)
+    if accept_edits:
+        env["NAH_CODEX_ACCEPT_EDITS"] = "1"
+    return CodexLaunch(
+        argv=[executable] + injected_overrides(sandbox_mode=sandbox_mode) + codex_args,
+        env=env,
+        accept_edits=accept_edits,
+    )
 
 
 def run_codex(user_args: list[str]) -> int:
     """Exec Codex with nah-owned PermissionRequest hooks enabled."""
     try:
-        argv = build_codex_argv(user_args)
+        launch = build_codex_launch(user_args)
     except CodexRunError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
     if os.name == "nt":
-        return subprocess.call(argv)
-    os.execvp(argv[0], [os.path.basename(argv[0])] + argv[1:])
+        return subprocess.call(launch.argv, env=launch.env)
+    os.execvpe(
+        launch.argv[0],
+        [os.path.basename(launch.argv[0])] + launch.argv[1:],
+        launch.env,
+    )
     return 127
+
+
+def _extract_accept_edits_args(args: list[str]) -> tuple[bool, list[str]]:
+    """Consume nah-owned Codex edit auto-allow flags."""
+    accept_edits = False
+    codex_args: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            codex_args.extend(args[i:])
+            break
+        if tok in _ACCEPT_EDITS_FLAGS:
+            accept_edits = True
+            i += 1
+            continue
+        codex_args.append(tok)
+        i += 1
+    return accept_edits, codex_args
 
 
 def _validate_user_args(args: list[str]) -> None:
@@ -272,7 +330,7 @@ def _is_owned_config_key(key: str) -> bool:
 def _reject_unsupported_subcommands(args: list[str]) -> None:
     sub = _first_subcommand(args)
     if sub in _UNSUPPORTED_SUBCOMMANDS:
-        if sub in {"exec", "e", "review"}:
+        if sub in {"exec", "e", "review", "apply", "a"}:
             raise CodexRunError(
                 f"nah run codex: codex {sub} does not use interactive approvals safely yet",
             )

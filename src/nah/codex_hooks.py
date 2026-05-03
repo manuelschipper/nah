@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 
 from nah import agents, hook, taxonomy
+from nah.apply_patch import classify_codex_apply_patch
 from nah.messages import enrich_decision
 
 _WRITE_ALIASES = {"apply_patch"}
@@ -72,7 +73,9 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
         return hook._classify_unknown_tool(canonical, tool_input), canonical, tool_input
 
     if canonical in _WRITE_ALIASES:
-        return _unsupported_decision(canonical, tool_input), canonical, tool_input
+        with _capture_stderr(log=False):
+            decision, log_input = classify_codex_apply_patch(tool_input, payload)
+        return decision, canonical, log_input
 
     return _unsupported_decision(canonical, tool_input), canonical, tool_input
 

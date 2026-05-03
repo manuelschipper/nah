@@ -68,6 +68,22 @@ class TestRedactInput:
         assert result == "/tmp/x.py"
         assert "password" not in result
 
+    def test_apply_patch_summary_only(self):
+        result = log.redact_input("apply_patch", {
+            "_nah_patch_summary": "update=1 paths=/tmp/x.py",
+            "input": "-----BEGIN PRIVATE KEY-----",
+        })
+        assert result == "update=1 paths=/tmp/x.py"
+        assert "PRIVATE KEY" not in result
+
+    def test_apply_patch_paths_fallback(self):
+        result = log.redact_input("apply_patch", {
+            "_nah_patch_paths": ["/tmp/a.py", "/tmp/b.py"],
+            "input": "api_key='super_secret_key_12345678'",
+        })
+        assert result == "/tmp/a.py, /tmp/b.py"
+        assert "api_key" not in result
+
     def test_mcp_tool(self):
         result = log.redact_input("mcp__postgres__query", {"query": "SELECT * FROM users"})
         assert "query=" in result

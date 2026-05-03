@@ -23,6 +23,15 @@ def _run(payload):
     return code, stdout.getvalue()
 
 
+def _patch(path, added='print("ok")'):
+    return f"""*** Begin Patch
+*** Update File: {path}
+@@
++{added}
+*** End Patch
+"""
+
+
 def test_safe_bash_permission_request_allows(project_root):
     code, out = _run({
         "tool_name": "Bash",
@@ -64,7 +73,7 @@ def test_untrusted_network_request_returns_no_verdict(project_root):
     assert out == ""
 
 
-def test_unknown_non_bash_tool_returns_no_verdict(project_root):
+def test_apply_patch_without_patch_text_returns_no_verdict(project_root):
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"cmd": "patch"},
@@ -73,6 +82,168 @@ def test_unknown_non_bash_tool_returns_no_verdict(project_root):
 
     assert code == 0
     assert out == ""
+
+
+def test_apply_patch_safe_project_patch_defaults_to_no_verdict(project_root, tmp_path):
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+    entries = [
+        json.loads(line)
+        for line in (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
+    ]
+    assert entries[-1]["decision"] == "ask"
+    assert "app.py" in entries[-1]["input"]
+
+
+def test_apply_patch_safe_project_patch_allows_with_accept_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_dangerous_added_content_denies_even_with_accept_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py", "rm -rf /tmp/stuff")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]["decision"]
+    assert decision["behavior"] == "deny"
+    assert "delete or overwrite data" in decision["message"]
+
+
+def test_apply_patch_hook_path_denies(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("~/.claude/hooks/evil.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]["decision"]
+    assert decision["behavior"] == "deny"
+    assert "Claude Code hooks" in decision["message"]
+
+
+def test_apply_patch_outside_project_returns_no_verdict(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("/var/tmp/outside.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
+def test_apply_patch_delete_and_move_return_no_verdict_with_accept_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+    patch = """*** Begin Patch
+*** Delete File: old.py
+*** Update File: name.py
+*** Move to: renamed.py
+@@
++x = 1
+*** End Patch
+"""
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": patch},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
+def test_apply_patch_uses_unmatched_transcript_fallback(project_root, monkeypatch, tmp_path):
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+    patch = _patch("app.py")
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(
+        json.dumps({
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call",
+                "call_id": "call_1",
+                "name": "apply_patch",
+                "input": patch,
+            },
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {},
+        "cwd": project_root,
+        "transcript_path": str(transcript),
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
+    project_root,
+    monkeypatch,
+    tmp_path,
+):
+    import sys
+
+    def fake_write_review(_tool_name, _tool_input, decision):
+        sys.stderr.write("nah: LLM: FAKE_KEY not set\n")
+        decision.setdefault("_meta", {})["llm_cascade"] = [{
+            "provider": "fake",
+            "status": "error",
+            "latency_ms": 0,
+            "error": "provider returned None (missing key or config)",
+        }]
+        return decision
+
+    monkeypatch.setattr("nah.hook._llm_write_review_gate", fake_write_review)
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+    lines = (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
+    entries = [json.loads(line) for line in lines]
+    assert not any(entry.get("decision") == "error" for entry in entries)
+    assert entries[-1]["llm"]["cascade"][0]["provider"] == "fake"
 
 
 def test_mcp_permission_request_global_allow_emits_allow(project_root):
