@@ -37,6 +37,7 @@ nah = "nah.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/manuelschipper/nah"
+Documentation = "https://nah.build/"
 Issues = "https://github.com/manuelschipper/nah/issues"
 
 [tool.hatch.build.targets.sdist]
