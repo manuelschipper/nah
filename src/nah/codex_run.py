@@ -20,11 +20,16 @@ _BYPASS_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
     "--yolo",
 }
+_DEFAULT_SANDBOX_MODE = "workspace-write"
+_NO_SANDBOX_MODE = "danger-full-access"
+_SANDBOX_MODES = {
+    "read-only",
+    "workspace-write",
+    "danger-full-access",
+}
 _REJECT_VALUE_FLAGS = {
     "-a",
     "--ask-for-approval",
-    "-s",
-    "--sandbox",
     "--remote",
     "--remote-auth-token-env",
 }
@@ -85,7 +90,7 @@ def codex_hook_command() -> str:
     return shlex.join(argv)
 
 
-def injected_overrides() -> list[str]:
+def injected_overrides(*, sandbox_mode: str = _DEFAULT_SANDBOX_MODE) -> list[str]:
     """Return root-level Codex config overrides owned by nah."""
     hook_command = codex_hook_command()
     hook_config = (
@@ -101,7 +106,7 @@ def injected_overrides() -> list[str]:
         "-c", "features.codex_hooks=true",
         "-c", "features.skill_mcp_dependency_install=false",
         "-c", 'approval_policy="on-request"',
-        "-c", 'sandbox_mode="workspace-write"',
+        "-c", f"sandbox_mode={_toml_string(sandbox_mode)}",
         "-c", 'approvals_reviewer="user"',
         "-c", hook_config,
     ]
@@ -117,13 +122,14 @@ def build_codex_argv(
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    _validate_user_args(user_args)
+    sandbox_mode, codex_args = _extract_sandbox_args(user_args)
+    _validate_user_args(codex_args)
     if preflight:
         try:
             ensure_preflight()
         except CodexPreflightError as exc:
             raise CodexRunError(str(exc)) from exc
-    return [executable] + injected_overrides() + list(user_args)
+    return [executable] + injected_overrides(sandbox_mode=sandbox_mode) + codex_args
 
 
 def run_codex(user_args: list[str]) -> int:
@@ -144,6 +150,58 @@ def _validate_user_args(args: list[str]) -> None:
     """Reject user flags/subcommands that can disable or bypass nah's hook path."""
     _reject_dangerous_flags(args)
     _reject_unsupported_subcommands(args)
+
+
+def _extract_sandbox_args(args: list[str]) -> tuple[str, list[str]]:
+    """Consume nah-owned Codex sandbox flags and return remaining Codex args."""
+    sandbox_mode = _DEFAULT_SANDBOX_MODE
+    sandbox_seen = False
+    codex_args: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            codex_args.extend(args[i:])
+            break
+        if tok in {"--no-sandbox", "--ns"}:
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _NO_SANDBOX_MODE
+            sandbox_seen = True
+            i += 1
+            continue
+        if tok in {"-s", "--sandbox"}:
+            if i + 1 >= len(args):
+                raise CodexRunError(_sandbox_error(tok))
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _normalize_sandbox_mode(args[i + 1], tok)
+            sandbox_seen = True
+            i += 2
+            continue
+        if tok.startswith("--sandbox="):
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _normalize_sandbox_mode(tok.split("=", 1)[1], "--sandbox")
+            sandbox_seen = True
+            i += 1
+            continue
+        codex_args.append(tok)
+        i += 1
+    return sandbox_mode, codex_args
+
+
+def _normalize_sandbox_mode(value: str, flag: str) -> str:
+    if value in _SANDBOX_MODES:
+        return value
+    raise CodexRunError(_sandbox_error(flag, value))
+
+
+def _sandbox_error(flag: str, value: str | None = None) -> str:
+    modes = ", ".join(sorted(_SANDBOX_MODES))
+    if value is None:
+        return f"nah run codex: {flag} requires a sandbox mode; expected one of: {modes}"
+    return f"nah run codex: invalid sandbox mode {value!r}; expected one of: {modes}"
 
 
 def _reject_dangerous_flags(args: list[str]) -> None:
@@ -196,6 +254,11 @@ def _reject_owned_config(value: str) -> None:
     key = value.split("=", 1)[0].strip()
     key = key.strip("'\"")
     if _is_owned_config_key(key):
+        if key == "sandbox_mode":
+            raise CodexRunError(
+                "nah run codex: -c sandbox_mode=... is managed by nah; "
+                "use `nah run codex --sandbox <mode>` or `nah run codex --no-sandbox`",
+            )
         raise CodexRunError(f"nah run codex: -c {key}=... is managed by nah")
 
 

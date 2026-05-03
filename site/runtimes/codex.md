@@ -6,6 +6,7 @@ Codex sessions that should route Bash and MCP permission requests through nah.
 ```bash
 nah codex doctor
 nah run codex
+nah run codex --no-sandbox
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
@@ -19,12 +20,40 @@ hooks and owned approval settings.
 - Codex hooks enabled
 - native `PermissionRequest` hook pointing at nah
 - `approval_policy="on-request"`
-- `sandbox_mode="workspace-write"`
+- `sandbox_mode="workspace-write"` by default
 - human approval review
 - dynamic MCP dependency installs disabled
 
 Those settings are owned by nah for the protected session. User-supplied flags
-or `-c` overrides for the same keys are rejected.
+or `-c` overrides for the same keys are rejected, except for nah's sandbox
+mode flags described below.
+
+## Sandbox Controls
+
+By default, `nah run codex` keeps Codex in `workspace-write` sandbox mode. If
+Codex sandboxing is not available in your environment, you can launch a guarded
+session without the Codex sandbox:
+
+```bash
+nah run codex --no-sandbox
+nah run codex --ns
+```
+
+Both flags set `sandbox_mode="danger-full-access"` for the Codex process.
+They do not disable nah, Codex approvals, or the `PermissionRequest` hook:
+`approval_policy` remains `on-request`.
+
+You can also choose an explicit Codex sandbox mode:
+
+```bash
+nah run codex --sandbox read-only
+nah run codex --sandbox workspace-write
+nah run codex --sandbox danger-full-access
+nah run codex -s danger-full-access
+```
+
+Direct `-c sandbox_mode=...` overrides are still rejected so nah can keep a
+single owner for the guarded session's approval and sandbox settings.
 
 ## Preflight
 
@@ -80,7 +109,8 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 
 - `--yolo`
 - `--dangerously-bypass-approvals-and-sandbox`
-- user overrides for nah-owned approval, sandbox, hook, and MCP feature keys
+- user overrides for nah-owned approval, hook, and MCP feature keys
+- direct `-c sandbox_mode=...` overrides
 - `codex exec`
 - `codex review`
 - remote/cloud Codex runs

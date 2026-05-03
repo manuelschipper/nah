@@ -27,6 +27,29 @@ def test_injects_root_overrides_before_user_args():
     assert "_codex-permission-request" in hook_override
 
 
+@pytest.mark.parametrize(
+    ("args", "mode", "remaining"),
+    [
+        (["--sandbox", "read-only", "resume", "abc123"], "read-only", ["resume", "abc123"]),
+        (["--sandbox=workspace-write"], "workspace-write", []),
+        (["-s", "danger-full-access", "--help"], "danger-full-access", ["--help"]),
+        (["--no-sandbox"], "danger-full-access", []),
+        (["--ns", "resume"], "danger-full-access", ["resume"]),
+    ],
+)
+def test_accepts_nah_owned_sandbox_flags(args, mode, remaining):
+    argv = _argv(args)
+
+    assert f'sandbox_mode="{mode}"' in argv
+    assert "--sandbox" not in argv
+    assert "--no-sandbox" not in argv
+    assert "--ns" not in argv
+    if remaining:
+        assert argv[-len(remaining):] == remaining
+    else:
+        assert argv[-1] != mode
+
+
 def test_rejects_bypass_aliases():
     for flag in ("--yolo", "--dangerously-bypass-approvals-and-sandbox"):
         with pytest.raises(CodexRunError) as exc:
@@ -57,8 +80,6 @@ def test_rejects_unsupported_codex_surfaces(args):
     [
         ["-a", "never"],
         ["--ask-for-approval=on-request"],
-        ["-s", "workspace-write"],
-        ["--sandbox=danger-full-access"],
         ["--remote", "server"],
         ["--remote-auth-token-env=CODEX_TOKEN"],
     ],
@@ -86,6 +107,24 @@ def test_rejects_permission_and_remote_flags(args):
 def test_rejects_user_owned_config(args):
     with pytest.raises(CodexRunError):
         _argv(args)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--sandbox"],
+        ["-s"],
+        ["--sandbox=full"],
+        ["--sandbox", "full"],
+        ["--no-sandbox", "--sandbox", "workspace-write"],
+        ["--ns", "--no-sandbox"],
+    ],
+)
+def test_rejects_invalid_sandbox_flags(args):
+    with pytest.raises(CodexRunError) as exc:
+        _argv(args)
+
+    assert "sandbox" in str(exc.value)
 
 
 def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):

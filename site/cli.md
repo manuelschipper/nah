@@ -37,6 +37,9 @@ Launch one protected local interactive Codex session. See
 ```bash
 nah run codex
 nah run codex --no-alt-screen
+nah run codex --no-sandbox
+nah run codex --ns
+nah run codex --sandbox danger-full-access
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
@@ -48,6 +51,12 @@ This path is for local interactive Codex. nah rejects bypass flags, `codex
 exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
 permission keys. `--no-alt-screen` is a Codex UI flag that keeps the TUI in
 normal terminal scrollback, which is useful for testing.
+
+Sandbox flags are nah-owned. `--no-sandbox` and `--ns` are shorthand for
+`--sandbox danger-full-access`: they disable Codex's sandbox for this session
+but keep `approval_policy="on-request"` and nah's `PermissionRequest` hook
+active. Explicit `--sandbox <mode>` and `-s <mode>` accept `read-only`,
+`workspace-write`, or `danger-full-access`.
 
 ### nah install
 
