@@ -52,6 +52,7 @@ nav:
     - Codex: runtimes/codex.md
     - Terminal Guard: runtimes/terminal-guard.md
   - How it works: how-it-works.md
+  - Threat model: threat-model.md
   - Configuration:
     - Overview: configuration/index.md
     - Action types: configuration/actions.md
