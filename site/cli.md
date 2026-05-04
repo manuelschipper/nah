@@ -333,6 +333,10 @@ nah audit-threat-model --format json
 This is a maintainer-oriented command for checking test coverage against nah's
 threat model. It does not change runtime policy.
 
+The audit counts pytest category hits, and some tests count toward more than one
+danger class. See [Threat model](threat-model.md) for the current numbers,
+runtime coverage matrix, and the Bash-vs-file/content coverage breakdown.
+
 ## Manage Rules
 
 Adjust policies from the command line -- no need to edit YAML.

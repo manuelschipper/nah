@@ -9,9 +9,10 @@
 
 <p align="center">
   <a href="https://nah.build/">Docs</a> &bull;
-  <a href="#install">Install</a> &bull;
-  <a href="#what-it-guards">What it guards</a> &bull;
+  <a href="#tested-threat-model">Threat model</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
+  <a href="#install">Install</a> &bull;
+  <a href="#runtime-coverage">Runtime coverage</a> &bull;
   <a href="#configure">Configure</a> &bull;
   <a href="#cli">CLI</a> &bull;
   <a href="https://nah.build/privacy/">Privacy</a>
@@ -19,13 +20,24 @@
 
 ---
 
-## The problem
+## The Problem
 
-A permissions layer should not slow you down. Boring safe actions should pass automatically, ambiguous actions should ask, and obviously dangerous actions should be blocked before damage is done.
+nah lets agents keep moving on safe work while stopping the actions that can
+leak secrets, rewrite history, run unknown code, or escape the project.
 
-Allow and deny at the tool level does not really scale once coding agents can run real commands. Deleting a build artifact is fine; deleting a shell profile is not the same thing. `git status` and `git push --force` should not be treated like the same Git command.
+A permissions layer should not slow you down. Boring safe actions should pass
+automatically, ambiguous actions should ask, and obviously dangerous actions
+should be blocked before damage is done.
 
-`nah` classifies every guarded action by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
+Allow and deny at the tool level does not really scale once coding agents can
+run real commands. Deleting a build artifact is fine; deleting a shell profile
+is not the same thing. `git status` and `git push --force` should not be
+treated like the same Git command.
+
+`nah` classifies every guarded action by what it actually does using contextual
+rules that run in milliseconds. For the ambiguous stuff, optionally route to an
+LLM. Every decision is logged and inspectable. Works out of the box, configure
+it how you want it.
 
 `git push` — Sure.<br>
 `git push --force` — **nah paused:** this can rewrite Git history.
@@ -39,6 +51,49 @@ Allow and deny at the tool level does not really scale once coding agents can ru
 **Write** `./config.py` with private key material — **nah paused:** this includes content that looks like a secret.
 
 `base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
+
+## Tested Threat Model
+
+nah's pytest threat-model audit currently tracks **1,724 category coverage hits**
+across **12 tested danger classes**.
+
+The audit is strongest where agents are most dangerous: shell commands. It also
+covers file, path, content, search, MCP, and guard-tampering protections.
+
+| Layer | What is covered | Runtime notes |
+| --- | --- | --- |
+| Shell command safety | Unknown code execution, `curl | bash`, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
+| File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; partial Codex coverage through `apply_patch` |
+| Content inspection | Private keys, tokens, destructive code patterns, credential-search patterns | Claude Code Write/Edit/MultiEdit/NotebookEdit/Grep; focused Codex `apply_patch` checks |
+| Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code and Codex MCP permission surfaces |
+| Guard self-protection | Attempts to edit nah hooks, config, runtime settings, and robustness paths | Runtime-specific install and preflight checks |
+
+Run the audit yourself:
+
+```bash
+nah audit-threat-model --format summary
+```
+
+The counts are pytest coverage hits, and some tests intentionally count toward
+more than one danger class. Runtime coverage depends on the approval surface an
+agent exposes. See the full [threat model](https://nah.build/threat-model/).
+
+## How It Works
+
+nah classifies guarded actions by what they actually do, not just by tool or
+command name.
+
+1. **Taxonomy** maps actions to safety types like `git_history_rewrite`,
+   `network_outbound`, `filesystem_delete`, or `lang_exec`.
+2. **Context** checks project root, trusted paths, sensitive files, command
+   composition, target runtime, network hosts, and database targets.
+3. **Custom classifiers** let you teach nah your own commands and tools without
+   maintaining fragile deny lists.
+4. **Intent signals** are used where a runtime exposes useful request or
+   transcript context, while deterministic blocks stay deterministic.
+5. **Policy** resolves each action to `allow`, `ask`, or `block`.
+6. **Optional LLM review** can help with eligible ambiguous cases and write-like
+   edits. It is off by default, and deterministic blocks cannot be relaxed.
 
 ## Install
 
@@ -103,52 +158,18 @@ cd nah
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
 minutes.
 
-## What it guards
+## Runtime Coverage
 
 nah guards the approval points each runtime exposes:
 
 | Surface | Coverage |
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash and MCP permission requests |
+| Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
 | Your shell | Commands you type yourself in guarded bash/zsh sessions |
 
-Detailed per-tool coverage and the Bash classification pipeline live in the
-[docs](https://nah.build/how-it-works/).
-
-## How it works
-
-Every guarded action hits a deterministic structural classifier first, no LLMs involved.
-
-```
-git push --force
-  nah paused: this can rewrite Git history.
-
-base64 -d payload | bash
-  nah blocked: this decodes hidden content and runs it.
-
-npm test
-  ✓ allowed (package_run)
-```
-
-**`nah blocked:`** = refused before execution. **`nah paused:`** = asks for confirmation. Everything else goes through.
-
-### Context-aware
-
-The same command gets different decisions based on context:
-
-| Command | Context | Decision |
-|---------|---------|----------|
-| `rm dist/bundle.js` | Inside project | Allow |
-| `rm ~/.bashrc` | Outside project | Ask |
-| `git push --force` | History rewrite | Ask |
-| `base64 -d \| bash` | Decode + exec pipe | Block |
-
-### Optional LLM layer
-
-LLM review is optional and off by default. The deterministic classifier always
-runs first, and deterministic blocks cannot be relaxed. When enabled, the LLM
-can help with eligible ambiguous decisions and write-like edits.
+Detailed per-tool coverage, runtime differences, and the Bash classification
+pipeline live in the [docs](https://nah.build/how-it-works/).
 
 ## Configure
 
@@ -211,7 +232,7 @@ nah types                              # list action types
 
 nah run claude                         # protect one Claude Code session
 nah run codex                          # protect one Codex session
-nah run codex --no-sandbox             # skip Codex sandboxing, keep nah approvals
+nah run codex --no-sandbox             # no Codex sandbox; force approvals through nah
 nah install claude                     # protect normal Claude Code sessions
 nah install bash                       # guard commands you type in bash
 nah install zsh                        # guard commands you type in zsh

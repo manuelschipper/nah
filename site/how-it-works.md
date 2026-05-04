@@ -8,7 +8,9 @@ milliseconds.
 
 Runtime setup lives in the dedicated guides for [Claude Code](runtimes/claude-code.md),
 [Codex](runtimes/codex.md), and [Terminal Guard](runtimes/terminal-guard.md).
-This page focuses on the classifier and guarded surfaces.
+This page focuses on the classifier and guarded surfaces. See
+[Threat model](threat-model.md) for audited coverage across Bash, file/path,
+content, MCP, and guard self-protection layers.
 
 ## Architecture
 
@@ -47,7 +49,7 @@ Coverage depends on the runtime surface:
 | Surface | Tool coverage |
 | --- | --- |
 | Claude Code | Bash, Read, Write, Edit, MultiEdit, NotebookEdit, Glob, Grep, and matching MCP tools |
-| Codex | Bash and MCP `PermissionRequest` hooks for local interactive sessions |
+| Codex | Bash, MCP, and `apply_patch` `PermissionRequest` hooks for local interactive sessions |
 | Terminal | Complete single-line bash/zsh commands through the Bash classifier |
 
 | Tool | What nah checks |
@@ -61,6 +63,7 @@ Coverage depends on the runtime surface:
 | **Glob** | Sensitive path detection on target directory |
 | **Grep** | Credential search pattern detection |
 | **MCP** | Generic classification for third-party tool servers (`mcp__*`) |
+| **apply_patch** | Codex patch path checks plus added-content inspection where Codex exposes the patch text |
 
 ## Bash classification pipeline
 
