@@ -68,6 +68,9 @@ command name.
 6. **Optional LLM review** can help with eligible ambiguous cases and write-like
    edits. It is off by default, and deterministic blocks cannot be relaxed.
 
+Detailed tool coverage and classifier internals live in the
+[How it works docs](https://nah.build/how-it-works/).
+
 ## Install
 
 Recommended:
