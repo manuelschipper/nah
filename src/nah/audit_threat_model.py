@@ -30,6 +30,7 @@ CATEGORY_ORDER = (
     "project_boundary",
     "package_escalation",
     "container_destructive",
+    "mcp_permissions",
     "self_protection",
 )
 
@@ -170,6 +171,33 @@ RULES = (
             "tests/test_bash.py::TestNewActionTypes::test_docker_rm_ask",
             "tests/test_bash.py::TestContainerDestructiveCoverage::",
             "tests/test_taxonomy.py::TestClassifyTokens::test_container_destructive",
+        ),
+    ),
+    Rule(
+        category="mcp_permissions",
+        rationale=(
+            "MCP and agent-tool permission coverage: matcher registration, "
+            "global-only MCP classification, wildcard safety, database/browser "
+            "MCP action typing, Codex MCP PermissionRequest hooks, and Codex "
+            "MCP approval-mode preflight/repair."
+        ),
+        match_any=(
+            "tests/test_agents.py::TestMcpMatchers::",
+            "tests/test_cli.py::TestCmdTest::test_mcp_unknown_tool",
+            "tests/test_codex_hooks.py::test_mcp_permission_request_",
+            "tests/test_codex_preflight.py::test_mcp_",
+            "tests/test_codex_preflight.py::test_disabled_mcp_server_is_ignored",
+            "tests/test_codex_preflight.py::test_malformed_mcp_config_table_blocks",
+            "tests/test_codex_preflight.py::test_inline_mcp_config_blocks_when_not_evaluable",
+            "tests/test_codex_preflight.py::test_active_plugin_mcp_",
+            "tests/test_codex_preflight.py::test_repair_adds_plugin_mcp_",
+            "tests/test_codex_preflight.py::test_repair_removes_allows_and_sets_mcp_modes_to_prompt",
+            "tests/test_hook_classify.py::TestClassifyUnknownTool::test_mcp_",
+            "tests/test_hook_classify.py::TestClassifyUnknownToolContext::test_mcp_",
+            "tests/test_hook_classify.py::TestPlaywrightMcpClassification::",
+            "tests/test_hook_integration.py::TestMcpIntegration::",
+            "tests/test_remember.py::TestWriteClassify::test_rejects_invalid_wildcard[mcp__",
+            "tests/test_taxonomy.py::TestSupabaseMcp::",
         ),
     ),
     Rule(

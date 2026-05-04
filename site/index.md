@@ -45,8 +45,8 @@ it how you want it.
 
 ## Tested threat model
 
-nah's pytest threat-model audit currently tracks **1,724 category coverage hits**
-across **12 tested danger classes**.
+nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
+across **13 tested danger classes**.
 
 | Danger class | Hits | What it means |
 | --- | ---: | --- |
@@ -59,6 +59,7 @@ across **12 tested danger classes**.
 | Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
 | Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
+| MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
 | Guard tampering | 67 | edits to nah hooks, config, runtime settings, robustness paths |
 | Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
