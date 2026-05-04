@@ -66,3 +66,4 @@ nav:
     - Airgapped environments: configuration/airgapped.md
   - CLI reference: cli.md
   - Privacy: privacy.md
+  - License: license.md
