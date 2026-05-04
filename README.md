@@ -143,7 +143,7 @@ across **13 tested danger classes**.
 | --- | ---: | --- |
 | Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Unknown code execution | 234 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
 | Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
 | Package escalation | 153 | package installs, global installs, external-source package actions |
@@ -237,8 +237,8 @@ nah types                              # list action types
 
 nah run claude                         # protect one Claude Code session
 nah run codex                          # protect one Codex session
-nah run codex --flow                   # no Codex sandbox; auto-allow safe edits
-nah run codex -ns                      # no Codex sandbox; still prompt for edits
+nah run codex --no-sandbox --auto-edits  # same as --flow
+nah run codex --no-sandbox               # edits still ask
 nah install claude                     # protect normal Claude Code sessions
 nah install bash                       # guard commands you type in bash
 nah install zsh                        # guard commands you type in zsh

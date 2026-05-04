@@ -52,7 +52,7 @@ across **13 tested danger classes**.
 | --- | ---: | --- |
 | Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Unknown code execution | 234 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
 | Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
 | Package escalation | 153 | package installs, global installs, external-source package actions |

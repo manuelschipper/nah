@@ -7,9 +7,8 @@ Codex sessions that should route Bash and MCP permission requests through nah.
 nah codex doctor
 nah run codex
 nah run codex --flow
-nah run codex --guarded-yolo
 nah run codex --no-sandbox
-nah run codex -ns -ae
+nah run codex --no-sandbox --auto-edits
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
@@ -34,20 +33,18 @@ mode flags described below.
 ## Sandbox Controls
 
 By default, `nah run codex` keeps Codex in `workspace-write` sandbox mode. If
-Codex sandboxing is not available in your environment, you can launch a guarded
-session without the Codex sandbox:
+you want nah protection without Codex filesystem sandboxing, use
+`--no-sandbox`:
 
 ```bash
 nah run codex --no-sandbox
-nah run codex --ns
-nah run codex -ns
 ```
 
-All three flags set `sandbox_mode="danger-full-access"` for the Codex process.
-They do not disable nah, Codex approvals, or the `PermissionRequest` hook:
+This sets `sandbox_mode="danger-full-access"` for the Codex process. It does
+not disable nah, Codex approvals, or the `PermissionRequest` hook:
 `approval_policy` becomes `untrusted`, so trusted commands can still run while
-untrusted commands route through Codex's native approval UI and nah. These flags
-do not auto-accept edits.
+untrusted commands route through Codex's native approval UI and nah. It does
+not auto-accept edits.
 
 You can also choose an explicit Codex sandbox mode:
 
@@ -61,6 +58,15 @@ nah run codex -s danger-full-access
 Direct `-c sandbox_mode=...` overrides are still rejected so nah can keep a
 single owner for the guarded session's approval and sandbox settings.
 
+## Modes
+
+| Command | Codex sandbox | Safe edits |
+| --- | --- | --- |
+| `nah run codex` | `workspace-write` | ask |
+| `nah run codex --no-sandbox` | none | ask |
+| `nah run codex --auto-edits` | `workspace-write` | auto-allow |
+| `nah run codex --flow` | none | auto-allow |
+
 ## Edit Auto-Allow
 
 By default, Codex `apply_patch` edits are guarded but still fall through to
@@ -72,11 +78,7 @@ To let ordinary safe project-local add/update patches flow without a second
 prompt, opt in for that session:
 
 ```bash
-nah run codex -ae
-nah run codex --ae
 nah run codex --auto-edits
-nah run codex --accept-edits-on
-nah run codex --trust-edits
 ```
 
 This is a nah-owned wrapper flag, not a native Codex flag. It is not equivalent
@@ -86,19 +88,19 @@ previously produced diff after the interactive agent turn.
 
 ## Flow Mode
 
-For the faster guarded mode, use:
+For the faster guarded mode, use `--flow`:
 
 ```bash
 nah run codex --flow
-nah run codex --guarded-yolo
-nah run codex -ns -ae
 ```
 
-`--flow` is exactly equivalent to `-ns -ae`: it removes the Codex filesystem
-sandbox and auto-allows only nah-safe non-destructive `apply_patch` edits.
-`--guarded-yolo` is an alias for `--flow`. It is intentionally not native
-Codex `--yolo`, which nah rejects because it bypasses approvals and sandboxing
-entirely.
+This starts Codex without its filesystem sandbox and lets nah auto-allow safe
+project-local `apply_patch` edits. Risky commands, risky paths, delete/move
+patches, dangerous content, and unclear edits still ask or block.
+
+It is equivalent to `nah run codex --no-sandbox --auto-edits`. Native Codex
+`--yolo` is different and remains rejected because it bypasses approvals and
+sandboxing entirely.
 
 ## Preflight
 
@@ -124,7 +126,33 @@ supported MCP approval settings to `prompt`. If preflight blocks startup, run
 
 ## Test It
 
-For a live local test:
+For a live edit-flow test:
+
+```bash
+nah run codex --flow --no-alt-screen
+```
+
+Inside Codex, ask it to append a harmless test line to `README.md`. A safe
+project-local add/update patch should apply without Codex showing its native
+edit approval prompt. Confirm the nah decision:
+
+```bash
+nah log --tool apply_patch -n 1
+```
+
+The latest entry should be `allow` with reason `safe apply_patch edit`.
+
+To compare the independent sandbox control:
+
+```bash
+nah run codex --no-sandbox --no-alt-screen
+```
+
+Ask for the same README edit. This session has no Codex filesystem sandbox, but
+it should still show Codex's native edit prompt because `--no-sandbox` does not
+imply edit auto-allow.
+
+For a live command-approval test:
 
 ```bash
 nah run codex --no-alt-screen

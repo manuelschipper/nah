@@ -1149,9 +1149,8 @@ class TestCodexClassifier:
         ["nah", "run", "codex"],
         ["nah", "run", "codex", "resume", "abc123"],
         ["nah", "run", "codex", "fork", "abc123"],
-        ["nah", "run", "codex", "-ns", "-ae"],
         ["nah", "run", "codex", "--flow"],
-        ["nah", "run", "codex", "--guarded-yolo"],
+        ["nah", "run", "codex", "--no-sandbox", "--auto-edits"],
         ["nah", "run", "codex", "--sandbox", "danger-full-access"],
         ["nah", "run", "codex", "--sandbox=danger-full-access"],
     ])
