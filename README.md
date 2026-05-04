@@ -57,16 +57,20 @@ it how you want it.
 nah's pytest threat-model audit currently tracks **1,724 category coverage hits**
 across **12 tested danger classes**.
 
-The audit is strongest where agents are most dangerous: shell commands. It also
-covers file, path, content, search, MCP, and guard-tampering protections.
-
-| Layer | What is covered | Runtime notes |
-| --- | --- | --- |
-| Shell command safety | Unknown code execution, `curl | bash`, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
-| File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; partial Codex coverage through `apply_patch` |
-| Content inspection | Private keys, tokens, destructive code patterns, credential-search patterns | Claude Code Write/Edit/MultiEdit/NotebookEdit/Grep; focused Codex `apply_patch` checks |
-| Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code and Codex MCP permission surfaces |
-| Guard self-protection | Attempts to edit nah hooks, config, runtime settings, and robustness paths | Runtime-specific install and preflight checks |
+| Danger class | Hits | What it means |
+| --- | ---: | --- |
+| Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
+| Unknown code execution | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
+| Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Package escalation | 153 | package installs, global installs, external-source package actions |
+| Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
+| Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
+| Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
+| Guard tampering | 67 | edits to nah hooks, config, runtime settings, robustness paths |
+| Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
+| Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
 
 Run the audit yourself:
 
@@ -75,8 +79,10 @@ nah audit-threat-model --format summary
 ```
 
 The counts are pytest coverage hits, and some tests intentionally count toward
-more than one danger class. Runtime coverage depends on the approval surface an
-agent exposes. See the full [threat model](https://nah.build/threat-model/).
+more than one danger class. The audit is strongest around shell command safety,
+and also covers file, path, content, search, MCP, and guard self-protection.
+Runtime coverage depends on the approval surface an agent exposes. See the full
+[threat model](https://nah.build/threat-model/).
 
 ## How It Works
 

@@ -15,6 +15,21 @@ same Bash classifier for command-level risk.
 The pytest threat-model audit currently tracks **1,724 category coverage hits**
 across **12 tested danger classes**.
 
+| Danger class | Internal category | Hits | What it means |
+| --- | --- | ---: | --- |
+| Sensitive file access | `sensitive_path` | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Wrapper evasion | `wrapper_evasion` | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
+| Unknown code execution | `rce` | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Git history damage | `git_history` | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
+| Shell redirection abuse | `shell_redirect` | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Package escalation | `package_escalation` | 153 | package installs, global installs, external-source package actions |
+| Secret leaks | `secret_leak` | 92 | private keys, tokens, secret-looking writes, script/content leaks |
+| Destructive container actions | `container_destructive` | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
+| Secret exfiltration | `credential_exfil` | 88 | sensitive reads flowing into network commands or credential searches |
+| Guard tampering | `self_protection` | 67 | edits to nah hooks, config, runtime settings, robustness paths |
+| Project boundary escapes | `project_boundary` | 46 | reads/writes outside the project root or trusted paths |
+| Shell obfuscation | `shell_obfuscation` | 30 | process substitution, command substitution, hidden shell behavior |
+
 Run it locally:
 
 ```bash
@@ -41,6 +56,10 @@ self_protection: 67
 These are pytest coverage hits. Some tests intentionally count toward more than
 one danger class, so the number is not a unique test count and not a runtime
 allow/ask/block promise.
+
+The audit implementation lives in `src/nah/audit_threat_model.py`. It walks
+`pytest --collect-only`, maps test node IDs into the categories above, and
+renders summary, Markdown, or JSON output.
 
 ## Coverage by protection layer
 
@@ -86,24 +105,3 @@ The current audit hit distribution is Bash-heavy by design:
 That means the headline audit number should be read as: strong command-safety
 coverage, plus meaningful file/path/content/search/guard coverage where the
 runtime exposes those actions.
-
-## Audit categories
-
-| Human label | Internal category | Current hits |
-| --- | --- | ---: |
-| Unknown code execution | `rce` | 234 |
-| Secret exfiltration | `credential_exfil` | 88 |
-| Secret leaks | `secret_leak` | 92 |
-| Git history damage | `git_history` | 222 |
-| Shell redirection abuse | `shell_redirect` | 213 |
-| Shell obfuscation | `shell_obfuscation` | 30 |
-| Wrapper evasion | `wrapper_evasion` | 236 |
-| Sensitive file access | `sensitive_path` | 254 |
-| Project boundary escapes | `project_boundary` | 46 |
-| Package escalation | `package_escalation` | 153 |
-| Destructive container actions | `container_destructive` | 89 |
-| Guard tampering | `self_protection` | 67 |
-
-The audit implementation lives in `src/nah/audit_threat_model.py`. It walks
-`pytest --collect-only`, maps test node IDs into the categories above, and
-renders summary, Markdown, or JSON output.
