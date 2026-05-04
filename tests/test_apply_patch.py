@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from nah import apply_patch
 from nah.apply_patch import PatchParseError, acquire_patch_text, parse_patch
 
 
@@ -130,6 +131,30 @@ def test_acquire_transcript_unmatched_apply_patch(tmp_path):
     assert result is not None
     assert result.text == patch
     assert result.source == "transcript"
+
+
+def test_acquire_transcript_retries_append_race(monkeypatch):
+    patch = "*** Begin Patch\n*** Update File: a.txt\n@@\n+x\n*** End Patch\n"
+    calls = []
+
+    def fake_lookup(transcript_path):
+        calls.append(transcript_path)
+        if len(calls) == 1:
+            return apply_patch.TranscriptPatchLookup(None, "missing")
+        return apply_patch.TranscriptPatchLookup(
+            apply_patch.PatchText(patch, "transcript"),
+            "single",
+        )
+
+    monkeypatch.setattr(apply_patch, "_lookup_patch_text_from_transcript", fake_lookup)
+    monkeypatch.setattr(apply_patch.time, "sleep", lambda _seconds: None)
+
+    result = acquire_patch_text({}, "session.jsonl")
+
+    assert result is not None
+    assert result.text == patch
+    assert result.source == "transcript"
+    assert calls == ["session.jsonl", "session.jsonl"]
 
 
 def test_acquire_transcript_ambiguous_pending_patches_asks(tmp_path):
