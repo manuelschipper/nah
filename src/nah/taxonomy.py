@@ -1389,6 +1389,18 @@ _CODEX_UNSAFE_CONFIG_KEYS = {
     "permissions",
     "sandbox_mode",
 }
+_NAH_CODEX_BOOL_FLAGS = {
+    "-ns",
+    "--ns",
+    "--no-sandbox",
+    "-ae",
+    "--ae",
+    "--auto-edits",
+    "--accept-edits-on",
+    "--trust-edits",
+    "--flow",
+    "--guarded-yolo",
+}
 
 
 def _codex_has_bypass(tokens: list[str]) -> bool:
@@ -1454,6 +1466,57 @@ def _codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
         if tok.startswith("--sandbox="):
             if tok.split("=", 1)[1] == "danger-full-access":
                 return True
+            i += 1
+            continue
+        if tok in {"-c", "--config"}:
+            if i + 1 < len(tokens) and _codex_config_disables_guard(tokens[i + 1]):
+                return True
+            i += 2
+            continue
+        if tok.startswith("--config=") and _codex_config_disables_guard(tok.split("=", 1)[1]):
+            return True
+        if tok in {"--disable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] == "codex_hooks":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--disable=") and tok.split("=", 1)[1] == "codex_hooks":
+            return True
+        if tok in {"--enable"}:
+            if i + 1 < len(tokens) and tokens[i + 1] in {"apps", "skill_mcp_dependency_install"}:
+                return True
+            i += 2
+            continue
+        if tok.startswith("--enable=") and tok.split("=", 1)[1] in {"apps", "skill_mcp_dependency_install"}:
+            return True
+        i += 1
+    return False
+
+
+def _nah_run_codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
+    """Detect unsafe Codex options after `nah run codex` owns sandbox flags."""
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return False
+        if tok in _NAH_CODEX_BOOL_FLAGS:
+            i += 1
+            continue
+        if tok in {"-a", "--ask-for-approval"}:
+            if i + 1 < len(tokens) and tokens[i + 1] == "never":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--ask-for-approval="):
+            if tok.split("=", 1)[1] == "never":
+                return True
+            i += 1
+            continue
+        if tok in {"-s", "--sandbox"}:
+            i += 2
+            continue
+        if tok.startswith("--sandbox="):
             i += 1
             continue
         if tok in {"-c", "--config"}:
@@ -1712,7 +1775,7 @@ def _classify_nah_run_codex(tokens: list[str]) -> str | None:
     codex_tokens = ["codex"] + tokens[3:]
     if (
         _codex_has_bypass(codex_tokens)
-        or _codex_has_dangerous_permission_override(codex_tokens)
+        or _nah_run_codex_has_dangerous_permission_override(codex_tokens)
         or _nah_run_codex_touches_owned_config(codex_tokens)
     ):
         return AGENT_EXEC_BYPASS

@@ -6,8 +6,10 @@ Codex sessions that should route Bash and MCP permission requests through nah.
 ```bash
 nah codex doctor
 nah run codex
-nah run codex --accept-edits-on
+nah run codex --flow
+nah run codex --guarded-yolo
 nah run codex --no-sandbox
+nah run codex -ns -ae
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
@@ -38,11 +40,14 @@ session without the Codex sandbox:
 ```bash
 nah run codex --no-sandbox
 nah run codex --ns
+nah run codex -ns
 ```
 
-Both flags set `sandbox_mode="danger-full-access"` for the Codex process.
+All three flags set `sandbox_mode="danger-full-access"` for the Codex process.
 They do not disable nah, Codex approvals, or the `PermissionRequest` hook:
-`approval_policy` remains `on-request`.
+`approval_policy` becomes `untrusted`, so trusted commands can still run while
+untrusted commands route through Codex's native approval UI and nah. These flags
+do not auto-accept edits.
 
 You can also choose an explicit Codex sandbox mode:
 
@@ -67,14 +72,33 @@ To let ordinary safe project-local add/update patches flow without a second
 prompt, opt in for that session:
 
 ```bash
-nah run codex --accept-edits-on
+nah run codex -ae
 nah run codex --ae
+nah run codex --auto-edits
+nah run codex --accept-edits-on
+nah run codex --trust-edits
 ```
 
 This is a nah-owned wrapper flag, not a native Codex flag. It is not equivalent
 to `codex -a never`, which disables approval prompts and is rejected under
 `nah run codex`. It is also not the same as `codex apply`, which applies a
 previously produced diff after the interactive agent turn.
+
+## Flow Mode
+
+For the faster guarded mode, use:
+
+```bash
+nah run codex --flow
+nah run codex --guarded-yolo
+nah run codex -ns -ae
+```
+
+`--flow` is exactly equivalent to `-ns -ae`: it removes the Codex filesystem
+sandbox and auto-allows only nah-safe non-destructive `apply_patch` edits.
+`--guarded-yolo` is an alias for `--flow`. It is intentionally not native
+Codex `--yolo`, which nah rejects because it bypasses approvals and sandboxing
+entirely.
 
 ## Preflight
 

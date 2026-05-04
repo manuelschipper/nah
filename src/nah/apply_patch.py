@@ -10,6 +10,9 @@ from nah import paths, taxonomy
 from nah.content import format_content_message, scan_content
 
 
+_SAFE_APPLY_PATCH_ENV = "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"
+
+
 @dataclass(frozen=True)
 class PatchOperation:
     kind: str
@@ -112,7 +115,7 @@ def classify_codex_apply_patch(tool_input: dict, payload: dict) -> tuple[dict, d
     if content_decision.get("decision") != taxonomy.ALLOW:
         return _with_stage(content_decision, taxonomy.FILESYSTEM_WRITE), log_input
 
-    if os.environ.get("NAH_CODEX_ACCEPT_EDITS") == "1":
+    if os.environ.get(_SAFE_APPLY_PATCH_ENV) == "1":
         meta = dict(content_decision.get("_meta", {}))
         meta["stages"] = [
             _stage(
@@ -129,7 +132,7 @@ def classify_codex_apply_patch(tool_input: dict, payload: dict) -> tuple[dict, d
         }, log_input
 
     return _ask(
-        "apply_patch: safe edit requires native approval unless --accept-edits-on/--ae is enabled",
+        "apply_patch: safe edit requires native approval in this mode",
         content_decision.get("_meta", {}),
     ), log_input
 
