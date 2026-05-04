@@ -1,12 +1,10 @@
 # Threat Model
 
-nah's threat model is action-level, not Claude Code-specific. It covers the
-dangerous things coding agents and guarded terminals tend to do: run unknown
-code, expose secrets, rewrite history, escape the project, hide behavior behind
-shell tricks, escalate through package/container tooling, or tamper with the
-guard itself.
+nah's threat model starts with what an action can do: run unknown code, expose
+secrets, rewrite history, escape the project, hide behavior behind shell tricks,
+escalate through package/container tooling, or tamper with the guard itself.
 
-Runtime coverage depends on the approval surface the runtime exposes. Claude
+Runtime coverage depends on the approval surface each runtime exposes. Claude
 Code exposes the broadest tool surface today. Codex and Terminal Guard share the
 same Bash classifier for command-level risk.
 
@@ -19,7 +17,7 @@ across **13 tested danger classes**.
 | --- | --- | ---: | --- |
 | Sensitive file access | `sensitive_path` | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | `wrapper_evasion` | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | `rce` | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Unknown code execution | `rce` | 234 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | `git_history` | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
 | Shell redirection abuse | `shell_redirect` | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
 | Package escalation | `package_escalation` | 153 | package installs, global installs, external-source package actions |
@@ -67,7 +65,7 @@ renders summary, Markdown, or JSON output.
 
 | Layer | What is covered | Runtime notes |
 | --- | --- | --- |
-| Shell command safety | Unknown code execution, `curl | bash`, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
+| Shell command safety | Unknown code execution, <code>curl &#124; bash</code>, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
 | File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; partial Codex coverage through `apply_patch` |
 | Content inspection | Private keys, tokens, destructive code patterns, credential-search patterns | Claude Code Write/Edit/MultiEdit/NotebookEdit/Grep; focused Codex `apply_patch` checks |
 | Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code and Codex MCP permission surfaces |

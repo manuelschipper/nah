@@ -38,19 +38,12 @@ _BYPASS_FLAGS = {
     "--yolo",
 }
 _ACCEPT_EDITS_FLAGS = {
-    "-ae",
-    "--ae",
     "--auto-edits",
-    "--accept-edits-on",
-    "--trust-edits",
 }
 _FLOW_FLAGS = {
     "--flow",
-    "--guarded-yolo",
 }
 _NO_SANDBOX_FLAGS = {
-    "-ns",
-    "--ns",
     "--no-sandbox",
 }
 _DEFAULT_SANDBOX_MODE = "workspace-write"
@@ -355,7 +348,7 @@ def _reject_owned_config(value: str) -> None:
         if key == "sandbox_mode":
             raise CodexRunError(
                 "nah run codex: -c sandbox_mode=... is managed by nah; "
-                "use `nah run codex --sandbox <mode>`, `nah run codex -ns`, "
+                "use `nah run codex --sandbox <mode>`, `nah run codex --no-sandbox`, "
                 "or `nah run codex --flow`",
             )
         raise CodexRunError(f"nah run codex: -c {key}=... is managed by nah")

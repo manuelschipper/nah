@@ -1390,16 +1390,9 @@ _CODEX_UNSAFE_CONFIG_KEYS = {
     "sandbox_mode",
 }
 _NAH_CODEX_BOOL_FLAGS = {
-    "-ns",
-    "--ns",
     "--no-sandbox",
-    "-ae",
-    "--ae",
     "--auto-edits",
-    "--accept-edits-on",
-    "--trust-edits",
     "--flow",
-    "--guarded-yolo",
 }
 
 

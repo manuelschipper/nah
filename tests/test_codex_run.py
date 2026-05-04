@@ -56,7 +56,7 @@ def test_default_launch_clears_inherited_auto_edit_envs():
 
 @pytest.mark.parametrize(
     "flag",
-    ["-ae", "--ae", "--auto-edits", "--accept-edits-on", "--trust-edits"],
+    ["--auto-edits"],
 )
 def test_accept_edits_flags_are_consumed_and_set_hook_env(flag):
     launch = _launch([flag, "--no-alt-screen"])
@@ -77,8 +77,6 @@ def test_accept_edits_flags_are_consumed_and_set_hook_env(flag):
         (["--sandbox=workspace-write"], "workspace-write", []),
         (["-s", "danger-full-access", "--help"], "danger-full-access", ["--help"]),
         (["--no-sandbox"], "danger-full-access", []),
-        (["--ns", "resume"], "danger-full-access", ["resume"]),
-        (["-ns", "resume"], "danger-full-access", ["resume"]),
     ],
 )
 def test_accepts_nah_owned_sandbox_flags(args, mode, remaining):
@@ -87,14 +85,13 @@ def test_accepts_nah_owned_sandbox_flags(args, mode, remaining):
     assert f'sandbox_mode="{mode}"' in argv
     assert "--sandbox" not in argv
     assert "--no-sandbox" not in argv
-    assert "--ns" not in argv
     if remaining:
         assert argv[-len(remaining):] == remaining
     else:
         assert argv[-1] != mode
 
 
-@pytest.mark.parametrize("args", [["--no-sandbox"], ["--ns"], ["-ns"], ["--sandbox", "danger-full-access"]])
+@pytest.mark.parametrize("args", [["--no-sandbox"], ["--sandbox", "danger-full-access"]])
 def test_no_sandbox_keeps_nah_approval_path_without_auto_edits(args):
     launch = _launch(args)
 
@@ -106,15 +103,26 @@ def test_no_sandbox_keeps_nah_approval_path_without_auto_edits(args):
     assert "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH" not in launch.env
 
 
-@pytest.mark.parametrize("flag", ["--flow", "--guarded-yolo"])
-def test_flow_presets_are_no_sandbox_with_safe_auto_edits(flag):
-    launch = _launch([flag, "--no-alt-screen"])
+def test_flow_preset_is_no_sandbox_with_safe_auto_edits():
+    launch = _launch(["--flow", "--no-alt-screen"])
 
     assert launch.sandbox_mode == "danger-full-access"
     assert launch.approval_policy == "untrusted"
     assert launch.accept_edits is True
     assert launch.env["NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"] == "1"
-    assert flag not in launch.argv
+    assert "--flow" not in launch.argv
+    assert launch.argv[-1] == "--no-alt-screen"
+
+
+def test_no_sandbox_and_auto_edits_compose_explicitly():
+    launch = _launch(["--no-sandbox", "--auto-edits", "--no-alt-screen"])
+
+    assert launch.sandbox_mode == "danger-full-access"
+    assert launch.approval_policy == "untrusted"
+    assert launch.accept_edits is True
+    assert launch.env["NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"] == "1"
+    assert "--no-sandbox" not in launch.argv
+    assert "--auto-edits" not in launch.argv
     assert launch.argv[-1] == "--no-alt-screen"
 
 
@@ -161,7 +169,7 @@ def test_rejects_permission_and_remote_flags(args):
 
 def test_accept_edits_does_not_relax_rejected_approval_flags():
     with pytest.raises(CodexRunError):
-        _argv(["--ae", "-a", "never"])
+        _argv(["--auto-edits", "-a", "never"])
 
 
 @pytest.mark.parametrize(
@@ -192,10 +200,8 @@ def test_rejects_user_owned_config(args):
         ["--sandbox=full"],
         ["--sandbox", "full"],
         ["--no-sandbox", "--sandbox", "workspace-write"],
-        ["--ns", "--no-sandbox"],
-        ["-ns", "--sandbox", "workspace-write"],
         ["--flow", "--sandbox", "workspace-write"],
-        ["--guarded-yolo", "-ns"],
+        ["--flow", "--no-sandbox"],
     ],
 )
 def test_rejects_invalid_sandbox_flags(args):

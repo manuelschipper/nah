@@ -76,8 +76,7 @@ class TestAcceptanceCriteria:
         "command",
         [
             "nah run codex --flow",
-            "nah run codex --guarded-yolo",
-            "nah run codex -ns -ae",
+            "nah run codex --no-sandbox --auto-edits",
             "nah run codex --sandbox danger-full-access",
         ],
     )
