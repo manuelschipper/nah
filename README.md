@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://nah.build/">Docs</a> &bull;
-  <a href="#how-it-works">How it works</a> &bull;
+  <a href="#how-nah-decides">How nah decides</a> &bull;
   <a href="#install">Install</a> &bull;
   <a href="#threat-model">Threat model</a> &bull;
   <a href="#configure">Configure</a> &bull;
@@ -43,28 +43,27 @@ shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
 through prompts. That is why developers drift into yolo mode.
 
+## The Idea
+
 nah classifies what the action actually does before it runs. Safe work keeps
 moving. Ambiguous actions ask. Dangerous actions stop before they do damage.
 
 Deterministic, runs in milliseconds, zero required dependencies, pure Python,
 sane defaults out of the box.
 
-## How It Works
+## How nah decides
 
-nah classifies guarded actions by what they actually do, not just by tool or
-command name.
+Before a guarded action runs, nah turns it into a policy decision:
 
-1. **Taxonomy** maps actions to safety types like `git_history_rewrite`,
-   `network_outbound`, `filesystem_delete`, or `lang_exec`.
-2. **Context** checks project root, trusted paths, sensitive files, command
+1. Parse the command or tool call.
+2. Map it to action types like `git_history_rewrite`, `network_outbound`,
+   `filesystem_delete`, or `lang_exec`.
+3. Add context: project root, trusted paths, sensitive files, command
    composition, target runtime, network hosts, and database targets.
-3. **Custom classifiers** let you teach nah your own commands and tools without
-   maintaining fragile deny lists.
-4. **Intent signals** are used where a runtime exposes useful request or
-   transcript context, while deterministic blocks stay deterministic.
-5. **Policy** resolves each action to `allow`, `ask`, or `block`.
-6. **Optional LLM review** can help with eligible ambiguous cases and write-like
-   edits. It is off by default, and deterministic blocks cannot be relaxed.
+4. Apply your config and custom classifiers.
+5. Return `allow`, `ask`, or `block`.
+6. For eligible ambiguous cases, optionally ask an LLM. Deterministic blocks
+   stay blocked.
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).
