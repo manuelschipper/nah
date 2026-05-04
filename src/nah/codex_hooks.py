@@ -58,8 +58,10 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
     hook._transcript_path = str(payload.get("transcript_path", "") or "")
 
     tool_name = str(payload.get("tool_name", "") or "")
-    tool_input = payload.get("tool_input", {})
-    if not isinstance(tool_input, dict):
+    raw_tool_input = payload.get("tool_input", {})
+    if isinstance(raw_tool_input, dict):
+        tool_input = raw_tool_input
+    else:
         tool_input = {}
     canonical = agents.normalize_tool(tool_name)
 
@@ -73,6 +75,8 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
         return hook._classify_unknown_tool(canonical, tool_input), canonical, tool_input
 
     if canonical in _WRITE_ALIASES:
+        if isinstance(raw_tool_input, str):
+            tool_input = {"input": raw_tool_input}
         with _capture_stderr(log=False):
             decision, log_input = classify_codex_apply_patch(tool_input, payload)
         return decision, canonical, log_input

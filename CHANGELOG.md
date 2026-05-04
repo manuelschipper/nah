@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Target-aware dry runs and config overrides** — added `nah test --target <target>` and `--json`, plus target-scoped config under `targets.<target>` for runtime-specific policies. Bash and zsh targets default to LLM mode off even when a global provider is configured, unless explicitly enabled under their target override. (nah-882)
 - **Codex native hook support** — added `nah run codex` for local interactive Codex sessions using Codex `PermissionRequest` hooks instead of shell-wrapper prompts. The runner injects nah-owned hook, sandbox, approval, and dynamic-MCP-disabling overrides, rejects unsafe Codex launch modes, routes Bash and MCP permission requests through nah classification, and adds `nah codex doctor` / `nah codex repair` to block and repair remembered Codex approvals or MCP approval modes that could bypass nah. (nah-897, nah-898)
 - **Guarded Codex edit auto-allow** — added `nah run codex --accept-edits-on` and `--ae` to auto-allow safe project-local `apply_patch` add/update edits after nah path, content, and LLM checks, while default sessions still ask and dangerous patches remain blocked or ask-only. (nah-904)
+- **Codex flow mode** — added `nah run codex --flow` and `--guarded-yolo` as guarded shortcuts for no Codex filesystem sandbox plus safe `apply_patch` auto-allow. The composable `-ns` and `-ae` flags remain independent so users can remove the Codex sandbox without also auto-accepting edits. (nah-906)
 
 ### Changed
 

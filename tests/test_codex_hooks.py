@@ -102,8 +102,8 @@ def test_apply_patch_safe_project_patch_defaults_to_no_verdict(project_root, tmp
     assert "app.py" in entries[-1]["input"]
 
 
-def test_apply_patch_safe_project_patch_allows_with_accept_edits(project_root, monkeypatch):
-    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+def test_apply_patch_safe_project_patch_allows_with_safe_auto_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
         "tool_name": "apply_patch",
@@ -116,8 +116,36 @@ def test_apply_patch_safe_project_patch_allows_with_accept_edits(project_root, m
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
-def test_apply_patch_dangerous_added_content_denies_even_with_accept_edits(project_root, monkeypatch):
+def test_apply_patch_legacy_accept_edits_env_does_not_allow(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
+def test_apply_patch_raw_string_tool_input_allows_with_safe_auto_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": _patch("app.py"),
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_dangerous_added_content_denies_even_with_safe_auto_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
         "tool_name": "apply_patch",
@@ -133,7 +161,7 @@ def test_apply_patch_dangerous_added_content_denies_even_with_accept_edits(proje
 
 
 def test_apply_patch_hook_path_denies(project_root, monkeypatch):
-    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
         "tool_name": "apply_patch",
@@ -149,7 +177,7 @@ def test_apply_patch_hook_path_denies(project_root, monkeypatch):
 
 
 def test_apply_patch_outside_project_returns_no_verdict(project_root, monkeypatch):
-    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
         "tool_name": "apply_patch",
@@ -162,8 +190,32 @@ def test_apply_patch_outside_project_returns_no_verdict(project_root, monkeypatc
     assert out == ""
 
 
-def test_apply_patch_delete_and_move_return_no_verdict_with_accept_edits(project_root, monkeypatch):
-    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+def test_apply_patch_trusted_outside_project_allows_with_safe_auto_edits(
+    project_root,
+    monkeypatch,
+    tmp_path,
+):
+    from nah import config
+    from nah.config import NahConfig
+
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    config._cached_config = NahConfig(trusted_paths=[str(trusted)])
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch(str(trusted / "file.py"))},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_delete_and_move_return_no_verdict_with_safe_auto_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
     patch = """*** Begin Patch
 *** Delete File: old.py
 *** Update File: name.py
@@ -185,7 +237,7 @@ def test_apply_patch_delete_and_move_return_no_verdict_with_accept_edits(project
 
 
 def test_apply_patch_uses_unmatched_transcript_fallback(project_root, monkeypatch, tmp_path):
-    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
     patch = _patch("app.py")
     transcript = tmp_path / "session.jsonl"
     transcript.write_text(

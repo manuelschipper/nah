@@ -72,6 +72,20 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "agent_exec_bypass"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "nah run codex --flow",
+            "nah run codex --guarded-yolo",
+            "nah run codex -ns -ae",
+            "nah run codex --sandbox danger-full-access",
+        ],
+    )
+    def test_nah_run_codex_guarded_no_sandbox_forms_ask_as_write(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "agent_exec_write"
+
     def test_nah_run_codex_exec_asks(self, project_root):
         r = classify_command("nah run codex exec 'echo hi'")
         assert r.final_decision == "ask"
