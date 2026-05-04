@@ -3,15 +3,15 @@
 </p>
 
 <p align="center">
-  <strong>Context aware safety guard for coding agents.</strong><br>
-  Because allow and deny isn't enough.
+  <strong>Action-aware permissions for coding agents.</strong><br>
+  A deterministic safety guard that keeps you in the flow.
 </p>
 
 <p align="center">
   <a href="https://nah.build/">Docs</a> &bull;
-  <a href="#threat-model-and-runtime-coverage">Threat model</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#install">Install</a> &bull;
+  <a href="#threat-model-and-runtime-coverage">Threat model</a> &bull;
   <a href="#configure">Configure</a> &bull;
   <a href="#cli">CLI</a> &bull;
   <a href="https://nah.build/privacy/">Privacy</a>
@@ -21,35 +21,32 @@
 
 ## The Problem
 
-nah lets agents keep moving on safe work while stopping the actions that can
-leak secrets, rewrite history, run unknown code, or escape the project.
+Trusting commands by name is the wrong abstraction.
 
-A permissions layer should not slow you down. Boring safe actions should pass
-automatically, ambiguous actions should ask, and obviously dangerous actions
-should be blocked before damage is done.
+`git` can check status, or it can rewrite history.
 
-Allow and deny at the tool level does not really scale once coding agents can
-run real commands. Deleting a build artifact is fine; deleting a shell profile
-is not the same thing. `git status` and `git push --force` should not be
-treated like the same Git command.
+`git status` — normal.<br>
+`git reset --hard HEAD~20` — destroys work.
 
-`nah` classifies every guarded action by what it actually does using contextual
-rules that run in milliseconds. For the ambiguous stuff, optionally route to an
-LLM. Every decision is logged and inspectable. Works out of the box, configure
-it how you want it.
+`rm` can clean a build artifact, or it can break your shell.
 
-`git push` — Sure.<br>
-`git push --force` — **nah paused:** this can rewrite Git history.
+`rm -rf __pycache__` — cleanup.<br>
+`rm ~/.bashrc` — breaks your shell.
 
-`rm -rf __pycache__` — Ok, cleaning up.<br>
-`rm ~/.bashrc` — **nah paused:** this targets a shell startup file.
+`cat` can read source code, or it can leak cloud keys.
 
-**Read** `./src/app.py` — Go ahead.<br>
-**Read** `~/.aws/credentials` — **nah paused:** this targets a protected file or folder.
+`cat ./src/app.py` — normal.<br>
+`cat ~/.aws/credentials` — leaks credentials.
 
-**Write** `./config.py` with private key material — **nah paused:** this includes content that looks like a secret.
+Even when you curate permissions, agents can route around command names through
+shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
+You either approve too much, block useful work, or train yourself to click
+through prompts. That is why developers drift into yolo mode.
 
-`base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
+nah classifies what the action actually does before it runs. Safe work keeps
+moving. Ambiguous actions ask. Dangerous actions stop before they do damage.
+Deterministic, milliseconds, zero required dependencies, pure Python, sane
+defaults out of the box.
 
 ## How It Works
 
