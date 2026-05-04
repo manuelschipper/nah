@@ -90,7 +90,7 @@ def test_acquire_direct_patch_text_allows_matching_transcript(tmp_path):
     assert result.source == "tool_input"
 
 
-def test_acquire_direct_patch_text_disagrees_with_transcript_asks(tmp_path):
+def test_acquire_direct_patch_text_wins_over_transcript_disagreement(tmp_path):
     direct = "*** Begin Patch\n*** Update File: a.txt\n@@\n+x\n*** End Patch\n"
     transcript_patch = "*** Begin Patch\n*** Update File: b.txt\n@@\n+y\n*** End Patch\n"
     transcript = tmp_path / "session.jsonl"
@@ -107,7 +107,11 @@ def test_acquire_direct_patch_text_disagrees_with_transcript_asks(tmp_path):
         encoding="utf-8",
     )
 
-    assert acquire_patch_text({"input": direct}, str(transcript)) is None
+    result = acquire_patch_text({"input": direct}, str(transcript))
+
+    assert result is not None
+    assert result.text == direct
+    assert result.source == "tool_input"
 
 
 def test_acquire_transcript_unmatched_apply_patch(tmp_path):

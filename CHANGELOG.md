@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Codex flow edit approval race** — safe `apply_patch` edits in `nah run codex --flow` now retry the Codex transcript briefly before falling back to the native edit prompt, fixing cases where the PermissionRequest hook fired before the patch text was visible in the session file. (nah-907)
+- **Codex flow edit approval race** — safe `apply_patch` edits in `nah run codex --flow` now trust direct Codex patch payloads and retry the Codex transcript briefly when direct patch text is unavailable, fixing cases where the PermissionRequest hook fell back to the native edit prompt before nah could inspect the patch. (nah-907)
 - **Quoted output text no longer becomes a fake redirect** — Bash classification
   now preserves `>` characters that appear inside quoted or backslash-escaped
   `printf` / `echo` text before redirect decomposition, so prose such as
