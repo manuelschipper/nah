@@ -9,10 +9,9 @@
 
 <p align="center">
   <a href="https://nah.build/">Docs</a> &bull;
-  <a href="#tested-threat-model">Threat model</a> &bull;
+  <a href="#threat-model-and-runtime-coverage">Threat model</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#install">Install</a> &bull;
-  <a href="#runtime-coverage">Runtime coverage</a> &bull;
   <a href="#configure">Configure</a> &bull;
   <a href="#cli">CLI</a> &bull;
   <a href="https://nah.build/privacy/">Privacy</a>
@@ -52,7 +51,7 @@ it how you want it.
 
 `base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
 
-## Tested Threat Model
+## Threat Model and Runtime Coverage
 
 nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
 across **13 tested danger classes**.
@@ -73,6 +72,14 @@ across **13 tested danger classes**.
 | Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
 
+nah guards the approval points each runtime exposes:
+
+| Runtime | Coverage |
+| --- | --- |
+| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
+| Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
+| Your shell | Commands you type yourself in guarded bash/zsh sessions |
+
 Run the audit yourself:
 
 ```bash
@@ -83,7 +90,8 @@ The counts are pytest coverage hits, and some tests intentionally count toward
 more than one danger class. The audit is strongest around shell command safety,
 and also covers file, path, content, search, MCP, and guard self-protection.
 Runtime coverage depends on the approval surface an agent exposes. See the full
-[threat model](https://nah.build/threat-model/).
+[threat model](https://nah.build/threat-model/) and detailed
+[runtime docs](https://nah.build/how-it-works/).
 
 ## How It Works
 
@@ -164,19 +172,6 @@ cd nah
 25 live Claude Code tool-call cases across 8 threat categories: remote code
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
 minutes.
-
-## Runtime Coverage
-
-nah guards the approval points each runtime exposes:
-
-| Surface | Coverage |
-| --- | --- |
-| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
-| Your shell | Commands you type yourself in guarded bash/zsh sessions |
-
-Detailed per-tool coverage, runtime differences, and the Bash classification
-pipeline live in the [docs](https://nah.build/how-it-works/).
 
 ## Configure
 
