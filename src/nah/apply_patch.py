@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 
 from nah import paths, taxonomy
@@ -11,6 +12,8 @@ from nah.content import format_content_message, scan_content
 
 
 _SAFE_APPLY_PATCH_ENV = "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"
+_TRANSCRIPT_RETRY_SECONDS = 0.30
+_TRANSCRIPT_RETRY_INTERVAL_SECONDS = 0.025
 
 
 @dataclass(frozen=True)
@@ -228,7 +231,16 @@ def _direct_patch_text(tool_input: dict) -> str | None:
 
 
 def _patch_text_from_transcript(transcript_path: str) -> PatchText | None:
-    return _lookup_patch_text_from_transcript(transcript_path).text
+    deadline = time.monotonic() + _TRANSCRIPT_RETRY_SECONDS
+    while True:
+        lookup = _lookup_patch_text_from_transcript(transcript_path)
+        if lookup.text is not None:
+            return lookup.text
+        if lookup.status not in {"missing", "unreadable"}:
+            return None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(_TRANSCRIPT_RETRY_INTERVAL_SECONDS)
 
 
 def _lookup_patch_text_from_transcript(transcript_path: str) -> TranscriptPatchLookup:
