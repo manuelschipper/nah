@@ -144,15 +144,6 @@ def acquire_patch_text(tool_input: dict, transcript_path: str = "") -> PatchText
     """Return direct patch text or a strict unmatched transcript fallback."""
     direct = _direct_patch_text(tool_input)
     if direct is not None:
-        lookup = _lookup_patch_text_from_transcript(transcript_path)
-        if (
-            lookup.status == "single"
-            and lookup.text is not None
-            and lookup.text.text != direct
-        ):
-            return None
-        if lookup.status == "ambiguous":
-            return None
         return PatchText(direct, "tool_input")
     return _patch_text_from_transcript(transcript_path)
 
