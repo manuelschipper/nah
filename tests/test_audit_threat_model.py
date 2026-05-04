@@ -20,6 +20,7 @@ def _sample_node_ids() -> list[str]:
         "tests/test_fd079_script_exec.py::TestContextResolver::test_outside_project_asks",
         "tests/test_taxonomy.py::TestFD019PackageInstall::test_package_install[tokens0]",
         "tests/test_bash.py::TestContainerDestructiveCoverage::test_container_destructive_entries_ask[docker rm]",
+        "tests/test_codex_hooks.py::test_mcp_permission_request_global_block_emits_deny",
         "tests/test_paths.py::TestIsHookPath::test_claude_hook_path",
         "tests/test_agents.py::TestDetectAgent::test_unknown_defaults_claude",
     ]

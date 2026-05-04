@@ -12,8 +12,8 @@ same Bash classifier for command-level risk.
 
 ## Current audit
 
-The pytest threat-model audit currently tracks **1,724 category coverage hits**
-across **12 tested danger classes**.
+The pytest threat-model audit currently tracks **1,807 category coverage hits**
+across **13 tested danger classes**.
 
 | Danger class | Internal category | Hits | What it means |
 | --- | --- | ---: | --- |
@@ -26,6 +26,7 @@ across **12 tested danger classes**.
 | Secret leaks | `secret_leak` | 92 | private keys, tokens, secret-looking writes, script/content leaks |
 | Destructive container actions | `container_destructive` | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | Secret exfiltration | `credential_exfil` | 88 | sensitive reads flowing into network commands or credential searches |
+| MCP and agent tool permissions | `mcp_permissions` | 83 | third-party MCP tools, global-only classification, wildcard safety, browser/database MCP actions |
 | Guard tampering | `self_protection` | 67 | edits to nah hooks, config, runtime settings, robustness paths |
 | Project boundary escapes | `project_boundary` | 46 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | `shell_obfuscation` | 30 | process substitution, command substitution, hidden shell behavior |
@@ -50,6 +51,7 @@ sensitive_path: 254
 project_boundary: 46
 package_escalation: 153
 container_destructive: 89
+mcp_permissions: 83
 self_protection: 67
 ```
 
@@ -82,9 +84,11 @@ renders summary, Markdown, or JSON output.
 | MCP classification | Yes | Yes | No |
 | Guard self-protection | Yes | Partial: preflight and guarded patch paths | Shell install paths only |
 
-Codex-specific hook behavior is tested separately in focused Codex tests. The
-threat-model audit itself is strongest around the shared Bash classifier and the
-Claude Code-style file/content/search handlers.
+MCP permission behavior is counted explicitly through Claude Code matcher tests,
+Codex PermissionRequest tests, Codex preflight/repair tests, and taxonomy tests
+for built-in browser/database MCP tools. Terminal Guard does not expose MCP, so
+those protections apply only where the guarded agent runtime exposes MCP
+permission requests.
 
 ## Where the audit is strongest
 
@@ -93,14 +97,20 @@ The current audit hit distribution is Bash-heavy by design:
 | Test area | Category hits | What it represents |
 | --- | ---: | --- |
 | `tests/test_bash.py` | 585 | Shell parsing, composition, redirects, wrappers, Git, packages, containers |
-| `tests/test_taxonomy.py` | 499 | Action taxonomy, built-in classifiers, MCP/action-type mappings |
+| `tests/test_taxonomy.py` | 531 | Action taxonomy, built-in classifiers, MCP/action-type mappings |
 | `tests/test_fd079_script_exec.py` | 186 | Script execution, language runtimes, inspectable local code execution |
 | `tests/test_paths.py` | 183 | Sensitive paths, symlinks, project boundaries, guard config paths |
 | `tests/test_content.py` | 99 | Secret patterns, destructive content, credential-search detection |
 | `tests/test_hint_battery.py` | 75 | Human-facing explanations for risky categories |
 | `tests/test_fd080_write_llm.py` | 70 | Write/Edit/MultiEdit/NotebookEdit review flow |
-| `tests/test_cli.py` | 21 | `nah test --tool ...`, CLI path/content/MCP probes |
+| `tests/test_hook_classify.py` | 29 | MCP global-only config, wildcard safety, DB context, and Playwright MCP mapping |
+| `tests/test_cli.py` | 22 | `nah test --tool ...`, CLI path/content/MCP probes |
+| `tests/test_codex_preflight.py` | 10 | Codex approval-memory and MCP preflight/repair checks |
 | `tests/test_hook_robustness.py` | 6 | Guard robustness and failure handling |
+| `tests/test_codex_hooks.py` | 4 | Codex PermissionRequest hook decisions for Bash/MCP surfaces |
+| `tests/test_hook_integration.py` | 4 | Claude hook integration coverage for MCP edge cases |
+| `tests/test_remember.py` | 2 | Config writer validation for unsafe MCP wildcard rules |
+| `tests/test_agents.py` | 1 | Agent tool matcher registration for MCP hooks |
 
 That means the headline audit number should be read as: strong command-safety
 coverage, plus meaningful file/path/content/search/guard coverage where the
