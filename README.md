@@ -11,7 +11,7 @@
   <a href="https://nah.build/">Docs</a> &bull;
   <a href="#how-it-works">How it works</a> &bull;
   <a href="#install">Install</a> &bull;
-  <a href="#threat-model-and-runtime-coverage">Threat model</a> &bull;
+  <a href="#threat-model">Threat model</a> &bull;
   <a href="#configure">Configure</a> &bull;
   <a href="#cli">CLI</a> &bull;
   <a href="https://nah.build/privacy/">Privacy</a>
@@ -107,7 +107,7 @@ The plugin is Claude-only. It does not include `nah test`, Codex support, the
 terminal guard, PyYAML config support, or keyring support. If you already
 installed direct hooks, run `nah uninstall claude` before enabling it.
 
-Full install docs: https://nah.build/install/
+See the [full install docs](https://nah.build/install/).
 Runtime guides: [Claude Code](https://nah.build/runtimes/claude-code/),
 [Codex](https://nah.build/runtimes/codex/), and
 [Terminal Guard](https://nah.build/runtimes/terminal-guard/).
@@ -119,10 +119,11 @@ outside the guarded path.
 
 ## Claude Code Demo
 
-Clone the repo and run the Claude Code security demo:
+Clone the [nah repo](https://github.com/manuelschipper/nah) and run the Claude
+Code security demo:
 
 ```bash
-git clone https://github.com/manuelschipper/nah.git
+# after cloning
 cd nah
 # inside Claude Code:
 /nah-demo
@@ -247,7 +248,7 @@ nah trust api.example.com
 nah config show
 ```
 
-Full CLI reference: https://nah.build/cli/
+See the [full CLI reference](https://nah.build/cli/).
 
 ## License
 

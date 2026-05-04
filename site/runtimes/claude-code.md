@@ -117,10 +117,11 @@ nah test --tool Read ~/.aws/credentials
 nah test --tool Write --path ./config.py --content "api_key='sk-secret123'"
 ```
 
-For a live demo inside Claude Code, clone the repo and run the slash command:
+For a live demo inside Claude Code, clone the
+[nah repo](https://github.com/manuelschipper/nah) and run the slash command:
 
 ```bash
-git clone https://github.com/manuelschipper/nah.git
+# after cloning
 cd nah
 # inside Claude Code:
 /nah-demo
