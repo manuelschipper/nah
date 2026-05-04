@@ -16,7 +16,7 @@ approved and listed the plugin.
 - Category: Security
 - Repository: https://github.com/manuelschipper/nah
 - Privacy policy: https://nah.build/privacy/
-- License: MIT
+- License: FSL-1.1-MIT
 - Author: Manuel Schipper
 
 ## Source To Submit

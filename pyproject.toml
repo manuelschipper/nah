@@ -7,7 +7,8 @@ name = "nah"
 version = "0.7.1"
 description = "Context aware safety guard for coding agents."
 readme = "README.md"
-license = "MIT"
+license = "FSL-1.1-MIT"
+license-files = ["LICENSE", "LICENSE-CHANGE.md"]
 requires-python = ">=3.10"
 authors = [
     { name = "Manuel Schipper" },
@@ -16,7 +17,6 @@ keywords = ["agents", "terminal", "claude", "claude-code", "codex", "safety", "g
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

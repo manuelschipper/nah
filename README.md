@@ -251,7 +251,15 @@ See the [full CLI reference](https://nah.build/cli/).
 
 ## License
 
-[MIT](LICENSE)
+nah is fair-source under [FSL-1.1-MIT](LICENSE). You can use nah for personal
+projects, open-source work, research, evaluation, and internal company
+workflows. Recent versions may not be repackaged, hosted, white-labeled, resold,
+or offered as a competing coding-agent, developer-tooling, security, governance,
+or permissions product. Each release converts to MIT after two years. Versions
+and source snapshots made available under MIT before this change, including
+`v0.7.1` and earlier tagged releases, remain MIT.
+
+See the [license change notice](LICENSE-CHANGE.md) for details.
 
 ---
 

@@ -117,6 +117,18 @@ content, search, MCP, and guard self-protection. See [How it works](how-it-works
 for detailed tool coverage and classifier behavior, and [Threat model](threat-model.md)
 for audited coverage.
 
+## License
+
+`nah` is fair-source under FSL-1.1-MIT. You can use `nah` for personal projects,
+open-source work, research, evaluation, and internal company workflows. Recent
+versions may not be repackaged, hosted, white-labeled, resold, or offered as a
+competing coding-agent, developer-tooling, security, governance, or permissions
+product. Each release converts to MIT after two years. Versions and source
+snapshots made available under MIT before this change, including `v0.7.1` and
+earlier tagged releases, remain MIT.
+
+See [License](license.md) for details.
+
 ---
 
-[Install](install.md) | [Runtimes](runtimes/claude-code.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Threat model](threat-model.md) | [Privacy](privacy.md)
+[Install](install.md) | [Runtimes](runtimes/claude-code.md) | [Configure](configuration/index.md) | [How it works](how-it-works.md) | [Threat model](threat-model.md) | [Privacy](privacy.md) | [License](license.md)

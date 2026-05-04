@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **License transition for future releases** — future source snapshots and
+  releases are fair-source under FSL-1.1-MIT and convert to MIT two years after
+  they are made available. Versions and source snapshots made available under
+  MIT before this transition, including `v0.7.1` and earlier tagged releases,
+  remain MIT.
 - **Agent session launchers use `nah run`** — the one-shot Claude Code launcher
   is now `nah run claude`, matching `nah run codex`. Legacy `nah claude` exits
   with a pointer to the new command.

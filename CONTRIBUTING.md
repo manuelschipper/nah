@@ -4,7 +4,10 @@ Contributions are welcome! Before submitting a pull request, please review the f
 
 ## Contributor License Agreement
 
-All contributors must agree to the [Contributor License Agreement](CLA.md) before their pull request can be merged. This gives the maintainer the right to relicense future versions of nah (e.g., for a commercial offering) while keeping existing releases under MIT.
+All contributors must agree to the [Contributor License Agreement](CLA.md)
+before their pull request can be merged. This gives the maintainer the right to
+evolve the licensing of future versions of nah while preserving MIT for versions
+and source snapshots made available under MIT before the license change.
 
 By opening a pull request, you confirm that you have read and agree to the CLA.
 
