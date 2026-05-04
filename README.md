@@ -51,48 +51,6 @@ it how you want it.
 
 `base64 -d payload | bash` — **nah blocked:** this decodes hidden content and runs it.
 
-## Threat Model and Runtime Coverage
-
-nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
-across **13 tested danger classes**.
-
-| Danger class | Hits | What it means |
-| --- | ---: | --- |
-| Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
-| Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
-| Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
-| Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
-| Package escalation | 153 | package installs, global installs, external-source package actions |
-| Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
-| Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
-| Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
-| MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
-| Guard tampering | 67 | edits to nah hooks, config, runtime settings, robustness paths |
-| Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
-| Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
-
-nah guards the approval points each runtime exposes:
-
-| Runtime | Coverage |
-| --- | --- |
-| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
-| Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
-| Your shell | Commands you type yourself in guarded bash/zsh sessions |
-
-Run the audit yourself:
-
-```bash
-nah audit-threat-model --format summary
-```
-
-The counts are pytest coverage hits, and some tests intentionally count toward
-more than one danger class. The audit is strongest around shell command safety,
-and also covers file, path, content, search, MCP, and guard self-protection.
-Runtime coverage depends on the approval surface an agent exposes. See the full
-[threat model](https://nah.build/threat-model/) and detailed
-[runtime docs](https://nah.build/how-it-works/).
-
 ## How It Works
 
 nah classifies guarded actions by what they actually do, not just by tool or
@@ -172,6 +130,48 @@ cd nah
 25 live Claude Code tool-call cases across 8 threat categories: remote code
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
 minutes.
+
+## Threat Model and Runtime Coverage
+
+nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
+across **13 tested danger classes**.
+
+| Danger class | Hits | What it means |
+| --- | ---: | --- |
+| Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
+| Unknown code execution | 234 | `curl | bash`, downloaded scripts, command substitution, heredocs |
+| Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
+| Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Package escalation | 153 | package installs, global installs, external-source package actions |
+| Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
+| Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
+| Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
+| MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
+| Guard tampering | 67 | edits to nah hooks, config, runtime settings, robustness paths |
+| Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
+| Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
+
+nah guards the approval points each runtime exposes:
+
+| Runtime | Coverage |
+| --- | --- |
+| Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
+| Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
+| Your shell | Commands you type yourself in guarded bash/zsh sessions |
+
+Run the audit yourself:
+
+```bash
+nah audit-threat-model --format summary
+```
+
+The counts are pytest coverage hits, and some tests intentionally count toward
+more than one danger class. The audit is strongest around shell command safety,
+and also covers file, path, content, search, MCP, and guard self-protection.
+Runtime coverage depends on the approval surface an agent exposes. See the full
+[threat model](https://nah.build/threat-model/) and detailed
+[runtime docs](https://nah.build/how-it-works/).
 
 ## Configure
 
