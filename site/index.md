@@ -37,8 +37,9 @@ through prompts. That is why developers drift into yolo mode.
 
 nah classifies what the action actually does before it runs. Safe work keeps
 moving. Ambiguous actions ask. Dangerous actions stop before they do damage.
-Deterministic, milliseconds, zero required dependencies, pure Python, sane
-defaults out of the box.
+
+Deterministic, runs in milliseconds, zero required dependencies, pure Python,
+sane defaults out of the box.
 
 ## How it works
 
@@ -74,7 +75,7 @@ The Claude Code plugin is still available for Claude-only installs without the
 
 **`nah blocked:`** = refused before execution. **`nah paused:`** = asks for confirmation. Everything else goes through.
 
-## Threat model and runtime coverage
+## Threat model
 
 nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
 across **13 tested danger classes**.
