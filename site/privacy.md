@@ -91,7 +91,8 @@ of silently allowing the tool call.
 
 ## Documentation Site
 
-The docs site at `https://nah.build/` is a static documentation site.
+The docs site at [nah.build](https://nah.build/) is a static documentation
+site.
 Normal hosting infrastructure may create standard access logs, such as requested
 URL, IP address, user agent, referrer, and timestamp. nah does not use those logs
 to make safety decisions.
@@ -110,6 +111,4 @@ You can:
 
 ## Contact
 
-For privacy or security questions, open an issue at:
-
-https://github.com/manuelschipper/nah/issues
+For privacy or security questions, [open an issue](https://github.com/manuelschipper/nah/issues).
