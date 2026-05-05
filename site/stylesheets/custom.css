@@ -302,6 +302,14 @@
   font-size: clamp(1.05rem, 2vw, 1.35rem);
   line-height: 1.45;
   max-width: 38rem;
+  margin-bottom: 0.65rem;
+}
+
+.nah-hero-detail {
+  color: var(--nah-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  max-width: 42rem;
   margin-bottom: 1.4rem;
 }
 
