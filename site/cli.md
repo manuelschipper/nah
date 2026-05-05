@@ -398,10 +398,13 @@ Trust a filesystem path or network host. Polymorphic -- detects path vs. host au
 
 ```bash
 nah trust ~/builds              # trust a path (global only)
+nah trust C:/Projects           # trust a Windows path (global only)
 nah trust api.example.com       # trust a network host
 ```
 
-Paths starting with `/`, `~`, or `.` are treated as filesystem paths and added to `trusted_paths`. Everything else is treated as a hostname and added to `known_registries`.
+Paths starting with `/`, `~`, `.`, or a Windows drive letter such as `C:/` are
+treated as filesystem paths and added to `trusted_paths`. Everything else is
+treated as a hostname and added to `known_registries`.
 
 **Flags:**
 
