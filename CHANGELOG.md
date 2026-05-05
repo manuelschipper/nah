@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-05-05
+
+### Changed
+
+- **Project license restored to MIT** — current source snapshots and future
+  releases are MIT licensed again. The already-published `v0.8.0` package
+  metadata briefly reflected the short-lived license transition before this
+  reversal.
+
 ## [0.8.0] - 2026-05-05
 
 ### Breaking
@@ -29,11 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **License transition for future releases** — future source snapshots and
-  releases are fair-source under FSL-1.1-MIT and convert to MIT two years after
-  they are made available. Versions and source snapshots made available under
-  MIT before this transition, including `v0.7.1` and earlier tagged releases,
-  remain MIT.
 - **Agent session launchers use `nah run`** — the one-shot Claude Code launcher
   is now `nah run claude`, matching `nah run codex`. Legacy `nah claude` exits
   with a pointer to the new command.

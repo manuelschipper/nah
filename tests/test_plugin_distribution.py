@@ -83,7 +83,7 @@ def _assert_submission_ready_metadata(plugin: dict) -> None:
     assert plugin["description"] == "Context-aware safety guard for Claude Code."
     assert plugin["homepage"] == "https://github.com/manuelschipper/nah"
     assert plugin["repository"] == "https://github.com/manuelschipper/nah"
-    assert plugin["license"] == "FSL-1.1-MIT"
+    assert plugin["license"] == "MIT"
     assert plugin["keywords"] == EXPECTED_PLUGIN_KEYWORDS
     assert plugin["author"]["name"] == "Manuel Schipper"
     assert plugin["author"]["url"] == "https://github.com/manuelschipper"
