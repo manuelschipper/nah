@@ -13,6 +13,10 @@ hide:
     <p class="nah-hero-copy">
       A deterministic safety guard that keeps you in the flow.
     </p>
+    <p class="nah-hero-detail">
+      nah sits between coding agents and your shell, files, and tools, allowing
+      safe actions, pausing risky ones, and blocking dangerous ones before they run.
+    </p>
     <div class="nah-actions">
       <a class="nah-button nah-button-primary" href="install/">Install</a>
       <a class="nah-button nah-button-secondary" href="how-it-works/">How it works</a>
