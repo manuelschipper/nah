@@ -34,7 +34,7 @@ This agreement does not obligate the Maintainer to use, merge, or include your C
 
 ## 5. Project License
 
-The Project is licensed as described in `LICENSE` and `LICENSE-CHANGE.md`.
+The Project is licensed as described in `LICENSE` and `NOTICE.md`.
 Versions and source snapshots made available under MIT before the license change
 remain MIT. This CLA does not change the license of any existing release. It
 ensures the Maintainer can evolve the licensing of future releases as needed.

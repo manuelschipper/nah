@@ -1,4 +1,4 @@
-# License Change
+# License Notice
 
 Starting with the commit that adds this notice, and with the next release,
 `nah` is licensed under the Functional Source License 1.1 with MIT as the
