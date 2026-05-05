@@ -354,9 +354,10 @@ llm:
   mode: on
   providers: [openrouter]
   openrouter:
-    key_env: OPENROUTER_API_KEY
-    model: google/gemini-3.1-flash-lite-preview</code></pre>
-      <span>Provider keys stay in your environment or OS keychain; project config cannot set them.</span>
+    model: google/gemini-3.1-flash-lite-preview
+
+nah key set openrouter</code></pre>
+      <span>Secrets stay in your OS keychain. Project config cannot set provider keys.</span>
     </article>
     <a class="nah-inline-link" href="configuration/llm/">Configure LLM review</a>
   </section>
