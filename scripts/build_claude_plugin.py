@@ -129,7 +129,7 @@ def _generated_marketplace(version: str) -> dict:
             "category": "security",
             "homepage": "https://github.com/manuelschipper/nah",
             "repository": "https://github.com/manuelschipper/nah",
-            "license": "FSL-1.1-MIT",
+            "license": "MIT",
             "keywords": [
                 "claude-code",
                 "hooks",

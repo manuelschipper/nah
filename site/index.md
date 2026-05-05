@@ -119,13 +119,9 @@ for audited coverage.
 
 ## License
 
-`nah` is fair-source under FSL-1.1-MIT. You can use `nah` for personal projects,
-open-source work, research, evaluation, and internal company workflows. Recent
-versions may not be repackaged, hosted, white-labeled, resold, or offered as a
-competing coding-agent, developer-tooling, security, governance, or permissions
-product. Each release converts to MIT after two years. Versions and source
-snapshots made available under MIT before this change, including `v0.7.1` and
-earlier tagged releases, remain MIT.
+`nah` is MIT licensed. You can use it at work, in personal projects, for
+open-source work, research, evaluation, and anything else the MIT License
+allows.
 
 See [License](license.md) for details.
 
