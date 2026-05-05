@@ -181,6 +181,57 @@ class TestConfirmHelper:
             assert _confirm("test?") is False
 
 
+class TestCmdTrust:
+    def test_windows_drive_letter_path_writes_trusted_paths(self, patched_paths, global_cfg, capsys):
+        from nah.cli import cmd_trust
+        from nah.remember import _read_config
+
+        args = argparse.Namespace(target="C:/Projects", project=False)
+        with patch("nah.cli._warn_comments"):
+            cmd_trust(args)
+
+        out = capsys.readouterr().out
+        data = _read_config(global_cfg)
+        assert "Trusted path: C:/Projects" in out
+        assert data["trusted_paths"] == ["C:/Projects"]
+        assert "known_registries" not in data
+
+    def test_windows_backslash_drive_letter_path_writes_trusted_paths(self, patched_paths, global_cfg):
+        from nah.cli import cmd_trust
+        from nah.remember import _read_config
+
+        args = argparse.Namespace(target=r"D:\work", project=False)
+        with patch("nah.cli._warn_comments"):
+            cmd_trust(args)
+
+        data = _read_config(global_cfg)
+        assert data["trusted_paths"] == [r"D:\work"]
+        assert "known_registries" not in data
+
+    def test_windows_drive_letter_path_rejects_project_scope(self, patched_paths, capsys):
+        from nah.cli import cmd_trust
+
+        args = argparse.Namespace(target="C:/Projects", project=True)
+        with pytest.raises(SystemExit) as exc:
+            cmd_trust(args)
+
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "trusted_paths is global-only" in err
+
+    def test_network_host_still_writes_known_registries(self, patched_paths, global_cfg):
+        from nah.cli import cmd_trust
+        from nah.remember import _read_config
+
+        args = argparse.Namespace(target="api.example.com", project=False)
+        with patch("nah.cli._warn_comments"):
+            cmd_trust(args)
+
+        data = _read_config(global_cfg)
+        assert data["known_registries"] == ["api.example.com"]
+        assert "trusted_paths" not in data
+
+
 class TestCmdLog:
     def test_llm_filter_shows_short_and_long_reasoning(self, capsys):
         from nah.cli import cmd_log

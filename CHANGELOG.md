@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Windows drive-letter paths route through trusted paths** — `nah trust
+  C:/Projects` and `nah trust D:\work` now write to `trusted_paths` instead of
+  being mistaken for network hosts in `known_registries`. Thanks @enermark.
+  ([#69](https://github.com/manuelschipper/nah/pull/69))
 - **Codex flow edit approval race** — safe `apply_patch` edits in `nah run codex --flow` now trust direct Codex patch payloads and retry the Codex transcript briefly when direct patch text is unavailable, fixing cases where the PermissionRequest hook fell back to the native edit prompt before nah could inspect the patch. (nah-907)
 - **Quoted output text no longer becomes a fake redirect** — Bash classification
   now preserves `>` characters that appear inside quoted or backslash-escaped

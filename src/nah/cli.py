@@ -22,6 +22,18 @@ _CLAUDE_BLOCKED_FLAGS = {
 }
 _CLAUDE_BYPASS_PERMISSION_MODE = "bypassPermissions"
 
+
+def _trust_target_is_path(target: str) -> bool:
+    """Return whether `nah trust` should route the target to trusted_paths."""
+    if target.startswith(("/", "~", ".")):
+        return True
+    return (
+        len(target) >= 2
+        and target[0].isalpha()
+        and target[1] == ":"
+        and (len(target) == 2 or target[2] in ("/", "\\"))
+    )
+
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
 # -*- coding: utf-8 -*-
@@ -1122,7 +1134,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
 def cmd_trust(args: argparse.Namespace) -> None:
     """Trust a path or network host (global config only)."""
     target = args.target
-    is_path = target.startswith(("/", "~", "."))
+    is_path = _trust_target_is_path(target)
 
     if is_path and getattr(args, "project", False):
         print("trusted_paths is global-only — cannot use --project", file=sys.stderr)
