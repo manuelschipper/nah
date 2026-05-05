@@ -1,5 +1,6 @@
 """Decision logging — JSONL log with redaction and rotation."""
 
+import getpass
 import json
 import os
 import re
@@ -16,6 +17,17 @@ _DEFAULT_VERBOSITY = "all"
 _DEFAULT_MAX_SIZE = 5_000_000  # 5 MB
 
 _ENV_VALUE_RE = re.compile(r"(export\s+\w+=)(\S+)")
+
+
+def _current_user() -> str:
+    """Return a best-effort local username for structured log entries."""
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME")
+    if user:
+        return user
+    try:
+        return getpass.getuser()
+    except Exception:
+        return ""
 
 
 def log_decision(entry: dict, log_config: dict | None = None) -> None:
@@ -80,7 +92,7 @@ def build_entry(
 
     entry: dict = {
         "id": os.urandom(8).hex(),
-        "user": os.environ.get("USER") or os.environ.get("USERNAME", ""),
+        "user": _current_user(),
         "agent": agent,
         "hook_version": hook_version,
         "tool": tool,
