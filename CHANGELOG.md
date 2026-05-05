@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guarded Codex edit auto-allow** — added `nah run codex --auto-edits` to auto-allow safe project-local `apply_patch` add/update edits after nah path, content, and LLM checks, while default sessions still ask and dangerous patches remain blocked or ask-only. (nah-904)
 - **Codex flow mode** — added `nah run codex --flow` as a shortcut for no Codex filesystem sandbox plus safe `apply_patch` auto-allow. Use `--no-sandbox` separately when you want to remove the Codex sandbox without also auto-accepting edits. (nah-906)
 - **MCP threat-model audit coverage** — added `mcp_permissions` to `nah audit-threat-model`, covering core MCP permission/runtime tests for Claude Code matcher registration, global-only MCP classification, wildcard safety, database/browser MCP action typing, Codex MCP PermissionRequest hooks, and Codex MCP approval-mode preflight/repair. README and public docs now report 1,807 category coverage hits across 13 tested danger classes. (nah-905)
+- **OS keyring-backed LLM secrets** — added `nah key set`, `nah key
+  status`, `nah key import-env`, and `nah key rm` for storing optional LLM
+  provider keys outside the process environment. Keyring support remains an
+  optional `keys` extra, with env-var fallback for existing setups. Thanks
+  @ZhangJiaLong90524 for the initial PR and direction.
+  ([#65](https://github.com/manuelschipper/nah/pull/65), nah-889)
 
 ### Changed
 
