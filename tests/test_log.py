@@ -98,15 +98,48 @@ class TestRedactInput:
         assert result == ""
 
 
-class TestWindowsUserFallback:
-    def test_build_entry_uses_username_when_user_missing(self, monkeypatch):
+class TestUserFallback:
+    def test_build_entry_uses_logname_when_user_missing(self, monkeypatch):
         monkeypatch.delenv("USER", raising=False)
+        monkeypatch.setenv("LOGNAME", "logname-user")
+        monkeypatch.setenv("USERNAME", "win-user")
+        entry = log.build_entry(
+            "Bash", "dir", "allow", "filesystem_read -> allow",
+            "claude", "test", 1, {},
+        )
+        assert entry["user"] == "logname-user"
+
+    def test_build_entry_uses_username_when_user_and_logname_missing(self, monkeypatch):
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("LOGNAME", raising=False)
         monkeypatch.setenv("USERNAME", "win-user")
         entry = log.build_entry(
             "Bash", "dir", "allow", "filesystem_read -> allow",
             "claude", "test", 1, {},
         )
         assert entry["user"] == "win-user"
+
+    def test_build_entry_uses_getpass_when_env_missing(self, monkeypatch):
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("LOGNAME", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        monkeypatch.setattr(log.getpass, "getuser", lambda: "getpass-user")
+        entry = log.build_entry(
+            "Bash", "dir", "allow", "filesystem_read -> allow",
+            "claude", "test", 1, {},
+        )
+        assert entry["user"] == "getpass-user"
+
+    def test_build_entry_uses_empty_user_when_getpass_fails(self, monkeypatch):
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("LOGNAME", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        monkeypatch.setattr(log.getpass, "getuser", lambda: (_ for _ in ()).throw(OSError("no user")))
+        entry = log.build_entry(
+            "Bash", "dir", "allow", "filesystem_read -> allow",
+            "claude", "test", 1, {},
+        )
+        assert entry["user"] == ""
 
 
 # -- log_decision --
