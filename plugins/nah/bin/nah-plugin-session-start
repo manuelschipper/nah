@@ -1,0 +1,73 @@
+#!/usr/bin/env sh
+set -eu
+
+find_python() {
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+python_bin=$(find_python || true)
+if [ -z "$python_bin" ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"nah plugin could not find Python 3.10+. nah will ask before tool use until a compatible Python is available."}}'
+  exit 0
+fi
+
+"$python_bin" <<'PY'
+import json
+import os
+from pathlib import Path
+
+paths = [Path.home() / ".claude" / "settings.json"]
+project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+project = Path(project_dir)
+paths.append(project / ".claude" / "settings.json")
+paths.append(project / ".claude" / "settings.local.json")
+
+legacy_paths = []
+for path in dict.fromkeys(paths):
+    if not path.exists():
+        continue
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # SessionStart is advisory only. If a settings file is unreadable or
+        # malformed, skip this warning path; PreToolUse still fails closed.
+        continue
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        continue
+    pre_tool_use = hooks.get("PreToolUse", [])
+    if not isinstance(pre_tool_use, list):
+        continue
+    for entry in pre_tool_use:
+        if not isinstance(entry, dict):
+            continue
+        for hook in entry.get("hooks", []):
+            if not isinstance(hook, dict):
+                continue
+            command = hook.get("command", "")
+            if isinstance(command, str) and "nah_guard.py" in command:
+                legacy_paths.append(str(path))
+                break
+
+if legacy_paths:
+    unique = ", ".join(sorted(set(legacy_paths)))
+    json.dump({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": (
+                "nah plugin detected legacy direct nah hooks in "
+                f"{unique}. Run `nah uninstall` or remove those direct hooks "
+                "to avoid mixed plugin/direct-hook behavior."
+            ),
+        },
+    }, fp=os.sys.stdout)
+    os.sys.stdout.write("\n")
+PY
