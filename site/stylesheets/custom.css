@@ -379,6 +379,10 @@
   text-transform: uppercase;
 }
 
+.nah-card-label-secondary {
+  margin-top: 0.85rem;
+}
+
 .md-typeset .nah-install-card pre,
 .md-typeset .nah-decision-row pre,
 .md-typeset .nah-config-card pre,
