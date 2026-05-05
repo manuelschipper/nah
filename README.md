@@ -259,7 +259,7 @@ or permissions product. Each release converts to MIT after two years. Versions
 and source snapshots made available under MIT before this change, including
 `v0.7.1` and earlier tagged releases, remain MIT.
 
-See the [license change notice](LICENSE-CHANGE.md) for details.
+See the [license notice](NOTICE.md) for details.
 
 ---
 

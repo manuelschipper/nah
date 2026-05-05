@@ -8,7 +8,7 @@ version = "0.8.0"
 description = "Context aware safety guard for coding agents."
 readme = "README.md"
 license = { text = "FSL-1.1-MIT" }
-license-files = ["LICENSE", "LICENSE-CHANGE.md"]
+license-files = ["LICENSE", "NOTICE.md"]
 requires-python = ">=3.10"
 authors = [
     { name = "Manuel Schipper" },

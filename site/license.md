@@ -26,4 +26,4 @@ product or hosted service is not.
 
 For the repository files, see the
 [license text](https://github.com/manuelschipper/nah/blob/main/LICENSE) and
-[license change notice](https://github.com/manuelschipper/nah/blob/main/LICENSE-CHANGE.md).
+[license notice](https://github.com/manuelschipper/nah/blob/main/NOTICE.md).
