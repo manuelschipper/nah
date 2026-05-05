@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nah"
-version = "0.7.1"
+version = "0.8.0"
 description = "Context aware safety guard for coding agents."
 readme = "README.md"
-license = "FSL-1.1-MIT"
+license = { text = "FSL-1.1-MIT" }
 license-files = ["LICENSE", "LICENSE-CHANGE.md"]
 requires-python = ">=3.10"
 authors = [
