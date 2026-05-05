@@ -1389,11 +1389,6 @@ _CODEX_UNSAFE_CONFIG_KEYS = {
     "permissions",
     "sandbox_mode",
 }
-_NAH_CODEX_BOOL_FLAGS = {
-    "--no-sandbox",
-    "--auto-edits",
-    "--flow",
-}
 
 
 def _codex_has_bypass(tokens: list[str]) -> bool:
@@ -1487,31 +1482,16 @@ def _codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
 
 
 def _nah_run_codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
-    """Detect unsafe Codex options after `nah run codex` owns sandbox flags."""
+    """Detect Codex options that try to override nah-owned safety settings."""
     i = 1
     while i < len(tokens):
         tok = tokens[i]
         if tok == "--":
             return False
-        if tok in _NAH_CODEX_BOOL_FLAGS:
-            i += 1
-            continue
-        if tok in {"-a", "--ask-for-approval"}:
-            if i + 1 < len(tokens) and tokens[i + 1] == "never":
-                return True
-            i += 2
-            continue
-        if tok.startswith("--ask-for-approval="):
-            if tok.split("=", 1)[1] == "never":
-                return True
-            i += 1
-            continue
-        if tok in {"-s", "--sandbox"}:
-            i += 2
-            continue
-        if tok.startswith("--sandbox="):
-            i += 1
-            continue
+        if tok in {"-a", "--ask-for-approval", "-s", "--sandbox"}:
+            return True
+        if tok.startswith(("--ask-for-approval=", "--sandbox=")):
+            return True
         if tok in {"-c", "--config"}:
             if i + 1 < len(tokens) and _codex_config_disables_guard(tokens[i + 1]):
                 return True

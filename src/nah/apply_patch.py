@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from nah import paths, taxonomy
 from nah.content import format_content_message, scan_content
 
 
-_SAFE_APPLY_PATCH_ENV = "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"
 _TRANSCRIPT_RETRY_SECONDS = 0.30
 _TRANSCRIPT_RETRY_INTERVAL_SECONDS = 0.025
 
@@ -118,24 +117,8 @@ def classify_codex_apply_patch(tool_input: dict, payload: dict) -> tuple[dict, d
     if content_decision.get("decision") != taxonomy.ALLOW:
         return _with_stage(content_decision, taxonomy.FILESYSTEM_WRITE), log_input
 
-    if os.environ.get(_SAFE_APPLY_PATCH_ENV) == "1":
-        meta = dict(content_decision.get("_meta", {}))
-        meta["stages"] = [
-            _stage(
-                taxonomy.FILESYSTEM_WRITE,
-                taxonomy.ALLOW,
-                taxonomy.ALLOW,
-                "safe apply_patch edit",
-            )
-        ]
-        meta["source"] = patch_text.source
-        return {
-            "decision": taxonomy.ALLOW,
-            "_meta": meta,
-        }, log_input
-
     return _ask(
-        "apply_patch: safe edit requires native approval in this mode",
+        "apply_patch: safe edit handled by Codex workspace-write",
         content_decision.get("_meta", {}),
     ), log_input
 
@@ -307,10 +290,13 @@ def _scan_added_content(content: str) -> dict:
 
 
 def _resolve_patch_path(path: str, cwd: str) -> str:
-    expanded = os.path.expanduser(path)
-    if os.path.isabs(expanded) or not cwd:
+    try:
+        expanded = str(Path(path).expanduser())
+    except RuntimeError:
+        expanded = path
+    if Path(expanded).is_absolute() or not cwd:
         return expanded
-    return os.path.join(cwd, expanded)
+    return str(Path(cwd) / expanded)
 
 
 def _header_path(line: str, prefix: str) -> str:

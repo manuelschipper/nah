@@ -37,32 +37,18 @@ Launch one protected local interactive Codex session. See
 ```bash
 nah run codex
 nah run codex --no-alt-screen
-nah run codex --flow
-nah run codex --no-sandbox
-nah run codex --no-sandbox --auto-edits
-nah run codex --sandbox danger-full-access
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
 target. It starts Codex with session-scoped native `PermissionRequest` hooks,
-forces nah-owned approval/sandbox settings, and runs Codex approval-memory/MCP
-preflight before launch.
+forces `workspace-write` / `on-request` safety settings, and runs Codex
+approval-memory/MCP preflight before launch.
 
 This path is for local interactive Codex. nah rejects bypass flags, `codex
 exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
-permission keys. `--no-alt-screen` is a Codex UI flag that keeps the TUI in
-normal terminal scrollback, which is useful for testing.
-
-Sandbox and edit-auto-allow flags are nah-owned. `--no-sandbox` is shorthand
-for `--sandbox danger-full-access`: it disables Codex's sandbox for this
-session but keeps nah's `PermissionRequest` hook active and does not
-auto-accept edits. `--auto-edits` auto-allows only nah-safe Codex `apply_patch`
-edits.
-
-`--flow` combines `--no-sandbox --auto-edits`: no Codex sandbox, nah-owned
-approvals, and safe edit auto-allow. Native Codex `--yolo` is still rejected.
-Explicit `--sandbox <mode>` and `-s <mode>` accept `read-only`,
-`workspace-write`, or `danger-full-access`.
+permission keys, including sandbox and approval settings. `--no-alt-screen` is
+a Codex UI flag that keeps the TUI in normal terminal scrollback, which is
+useful for testing.
 
 ### nah install
 

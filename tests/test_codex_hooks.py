@@ -102,7 +102,7 @@ def test_apply_patch_safe_project_patch_defaults_to_no_verdict(project_root, tmp
     assert "app.py" in entries[-1]["input"]
 
 
-def test_apply_patch_safe_project_patch_allows_with_safe_auto_edits(project_root, monkeypatch):
+def test_apply_patch_deleted_auto_allow_env_still_returns_no_verdict(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
@@ -113,10 +113,10 @@ def test_apply_patch_safe_project_patch_allows_with_safe_auto_edits(project_root
     })
 
     assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert out == ""
 
 
-def test_apply_patch_legacy_accept_edits_env_does_not_allow(project_root, monkeypatch):
+def test_apply_patch_deleted_legacy_accept_edits_env_does_not_allow(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
 
     code, out = _run({
@@ -130,7 +130,7 @@ def test_apply_patch_legacy_accept_edits_env_does_not_allow(project_root, monkey
     assert out == ""
 
 
-def test_apply_patch_raw_string_tool_input_allows_with_safe_auto_edits(project_root, monkeypatch):
+def test_apply_patch_raw_string_tool_input_returns_no_verdict(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
@@ -141,7 +141,7 @@ def test_apply_patch_raw_string_tool_input_allows_with_safe_auto_edits(project_r
     })
 
     assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert out == ""
 
 
 def test_apply_patch_dangerous_added_content_denies_even_with_safe_auto_edits(project_root, monkeypatch):
@@ -190,7 +190,7 @@ def test_apply_patch_outside_project_returns_no_verdict(project_root, monkeypatc
     assert out == ""
 
 
-def test_apply_patch_trusted_outside_project_allows_with_safe_auto_edits(
+def test_apply_patch_trusted_outside_project_returns_no_verdict(
     project_root,
     monkeypatch,
     tmp_path,
@@ -211,7 +211,7 @@ def test_apply_patch_trusted_outside_project_allows_with_safe_auto_edits(
     })
 
     assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert out == ""
 
 
 def test_apply_patch_delete_and_move_return_no_verdict_with_safe_auto_edits(project_root, monkeypatch):
@@ -262,7 +262,7 @@ def test_apply_patch_uses_unmatched_transcript_fallback(project_root, monkeypatc
     })
 
     assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert out == ""
 
 
 def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
