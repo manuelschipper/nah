@@ -8,6 +8,15 @@ from nah import apply_patch
 from nah.apply_patch import PatchParseError, acquire_patch_text, parse_patch
 
 
+def _patch(path, added='print("ok")'):
+    return f"""*** Begin Patch
+*** Update File: {path}
+@@
++{added}
+*** End Patch
+"""
+
+
 def test_parse_add_and_update_extracts_paths_and_added_content():
     parsed = parse_patch("""*** Begin Patch
 *** Add File: src/new.py
@@ -211,3 +220,17 @@ def test_acquire_transcript_completed_call_is_not_current(tmp_path):
     )
 
     assert acquire_patch_text({}, str(transcript)) is None
+
+
+def test_classify_safe_patch_asks_even_with_deleted_edit_envs(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
+    monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
+
+    decision, log_input = apply_patch.classify_codex_apply_patch(
+        {"input": _patch("app.py")},
+        {"cwd": project_root, "transcript_path": ""},
+    )
+
+    assert decision["decision"] == "ask"
+    assert decision["reason"] == "apply_patch: safe edit handled by Codex workspace-write"
+    assert "app.py" in log_input["_nah_patch_paths"][0]

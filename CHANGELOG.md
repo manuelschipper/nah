@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Codex runtime simplified around workspace-write** — `nah run codex` now
+  uses one protected local interactive preset: Codex `workspace-write`,
+  `on-request`, user approvals, nah `PermissionRequest` hooks, and preflight.
+  Normal Codex UI flags still pass through, while sandbox/approval overrides
+  remain rejected because nah owns that safety boundary. (nah-908)
+
+### Removed
+
+- **Removed Codex flow/edit mode surface** — removed nah-owned `--flow`,
+  `--auto-edits`, `--no-sandbox`, explicit `--sandbox`, and hook-side safe
+  `apply_patch` auto-allow behavior from `nah run codex`. Safe project edits
+  should flow through Codex `workspace-write`; risky `apply_patch` permission
+  requests still ask or block after nah path/content checks. (nah-908)
+
 ## [0.8.1] - 2026-05-05
 
 ### Changed
