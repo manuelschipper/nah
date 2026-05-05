@@ -1,0 +1,396 @@
+"""Codex launcher with nah-owned PermissionRequest hook overrides."""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+
+from nah.codex_preflight import CodexPreflightError, ensure_preflight
+
+
+class CodexRunError(Exception):
+    """Raised when `nah run codex` cannot safely launch Codex."""
+
+
+@dataclass(frozen=True)
+class CodexLaunch:
+    argv: list[str]
+    env: dict[str, str]
+    sandbox_mode: str = ""
+    approval_policy: str = ""
+    accept_edits: bool = False
+
+
+@dataclass(frozen=True)
+class CodexRunOptions:
+    sandbox_mode: str
+    accept_edits: bool
+    codex_args: list[str]
+
+
+_BYPASS_FLAGS = {
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--yolo",
+}
+_ACCEPT_EDITS_FLAGS = {
+    "--auto-edits",
+}
+_FLOW_FLAGS = {
+    "--flow",
+}
+_NO_SANDBOX_FLAGS = {
+    "--no-sandbox",
+}
+_DEFAULT_SANDBOX_MODE = "workspace-write"
+_NO_SANDBOX_MODE = "danger-full-access"
+_DEFAULT_APPROVAL_POLICY = "on-request"
+_NO_SANDBOX_APPROVAL_POLICY = "untrusted"
+_SAFE_APPLY_PATCH_ENV = "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"
+_LEGACY_ACCEPT_EDITS_ENV = "NAH_CODEX_ACCEPT_EDITS"
+_SANDBOX_MODES = {
+    "read-only",
+    "workspace-write",
+    "danger-full-access",
+}
+_REJECT_VALUE_FLAGS = {
+    "-a",
+    "--ask-for-approval",
+    "--remote",
+    "--remote-auth-token-env",
+}
+_OWNED_CONFIG_KEYS = {
+    "approval_policy",
+    "approvals_reviewer",
+    "default_permissions",
+    "features.apps",
+    "features.codex_hooks",
+    "features.skill_mcp_dependency_install",
+    "hooks",
+    "hooks.PermissionRequest",
+    "permission_profile",
+    "permissions",
+    "sandbox_mode",
+}
+_MANAGED_ENABLE_FLAGS = {
+    "apps",
+    "codex_hooks",
+    "skill_mcp_dependency_install",
+}
+_CODEX_VALUE_FLAGS = {
+    "-c",
+    "--config",
+    "--enable",
+    "--disable",
+    "--remote",
+    "--remote-auth-token-env",
+    "-i",
+    "--image",
+    "-m",
+    "--model",
+    "--local-provider",
+    "-p",
+    "--profile",
+    "-s",
+    "--sandbox",
+    "-a",
+    "--ask-for-approval",
+    "-C",
+    "--cd",
+    "--add-dir",
+}
+_CODEX_LONG_VALUE_FLAGS = {flag for flag in _CODEX_VALUE_FLAGS if flag.startswith("--")}
+_UNSUPPORTED_SUBCOMMANDS = {"exec", "e", "review", "apply", "a", "cloud"}
+
+
+def _toml_string(value: str) -> str:
+    """Return a TOML-compatible quoted string."""
+    return json.dumps(value)
+
+
+def codex_hook_command() -> str:
+    """Return the shell command Codex should run for PermissionRequest hooks."""
+    argv = [sys.executable, "-m", "nah.cli", "_codex-permission-request"]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
+def injected_overrides(
+    *,
+    sandbox_mode: str = _DEFAULT_SANDBOX_MODE,
+    approval_policy: str = _DEFAULT_APPROVAL_POLICY,
+) -> list[str]:
+    """Return root-level Codex config overrides owned by nah."""
+    hook_command = codex_hook_command()
+    hook_config = (
+        "hooks.PermissionRequest=[{ hooks = [{ "
+        "type = \"command\", "
+        f"command = {_toml_string(hook_command)}, "
+        "timeout = 5, "
+        "statusMessage = \"nah reviewing\" "
+        "}] }]"
+    )
+    return [
+        "-c", "features.apps=false",
+        "-c", "features.codex_hooks=true",
+        "-c", "features.skill_mcp_dependency_install=false",
+        "-c", f"approval_policy={_toml_string(approval_policy)}",
+        "-c", f"sandbox_mode={_toml_string(sandbox_mode)}",
+        "-c", 'approvals_reviewer="user"',
+        "-c", hook_config,
+    ]
+
+
+def build_codex_argv(
+    user_args: list[str],
+    *,
+    codex_path: str | None = None,
+    preflight: bool = True,
+) -> list[str]:
+    """Build a validated Codex argv with nah overrides before user args."""
+    return build_codex_launch(
+        user_args,
+        codex_path=codex_path,
+        preflight=preflight,
+    ).argv
+
+
+def build_codex_launch(
+    user_args: list[str],
+    *,
+    codex_path: str | None = None,
+    preflight: bool = True,
+    base_env: dict[str, str] | None = None,
+) -> CodexLaunch:
+    """Build a validated Codex launch plan with nah-owned environment."""
+    executable = codex_path or shutil.which("codex")
+    if executable is None:
+        raise CodexRunError("nah run codex: 'codex' not found on PATH")
+    options = _extract_nah_codex_args(user_args)
+    _validate_user_args(options.codex_args)
+    if preflight:
+        try:
+            ensure_preflight()
+        except CodexPreflightError as exc:
+            raise CodexRunError(str(exc)) from exc
+    approval_policy = (
+        _NO_SANDBOX_APPROVAL_POLICY
+        if options.sandbox_mode == _NO_SANDBOX_MODE
+        else _DEFAULT_APPROVAL_POLICY
+    )
+    env = dict(base_env if base_env is not None else os.environ)
+    env.pop(_LEGACY_ACCEPT_EDITS_ENV, None)
+    if options.accept_edits:
+        env[_SAFE_APPLY_PATCH_ENV] = "1"
+    else:
+        env.pop(_SAFE_APPLY_PATCH_ENV, None)
+    argv = [executable] + injected_overrides(
+        sandbox_mode=options.sandbox_mode,
+        approval_policy=approval_policy,
+    ) + options.codex_args
+    return CodexLaunch(
+        argv=argv,
+        env=env,
+        sandbox_mode=options.sandbox_mode,
+        approval_policy=approval_policy,
+        accept_edits=options.accept_edits,
+    )
+
+
+def run_codex(user_args: list[str]) -> int:
+    """Exec Codex with nah-owned PermissionRequest hooks enabled."""
+    try:
+        launch = build_codex_launch(user_args)
+    except CodexRunError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if os.name == "nt":
+        return subprocess.call(launch.argv, env=launch.env)
+    os.execvpe(
+        launch.argv[0],
+        [os.path.basename(launch.argv[0])] + launch.argv[1:],
+        launch.env,
+    )
+    return 127
+
+
+def _extract_nah_codex_args(args: list[str]) -> CodexRunOptions:
+    """Consume nah-owned Codex flags and return remaining native Codex args."""
+    sandbox_mode = _DEFAULT_SANDBOX_MODE
+    sandbox_seen = False
+    accept_edits = False
+    codex_args: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            codex_args.extend(args[i:])
+            break
+        if tok in _FLOW_FLAGS:
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _NO_SANDBOX_MODE
+            sandbox_seen = True
+            accept_edits = True
+            i += 1
+            continue
+        if tok in _NO_SANDBOX_FLAGS:
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _NO_SANDBOX_MODE
+            sandbox_seen = True
+            i += 1
+            continue
+        if tok in _ACCEPT_EDITS_FLAGS:
+            accept_edits = True
+            i += 1
+            continue
+        if tok in {"-s", "--sandbox"}:
+            if i + 1 >= len(args):
+                raise CodexRunError(_sandbox_error(tok))
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _normalize_sandbox_mode(args[i + 1], tok)
+            sandbox_seen = True
+            i += 2
+            continue
+        if tok.startswith("--sandbox="):
+            if sandbox_seen:
+                raise CodexRunError("nah run codex: sandbox mode was specified more than once")
+            sandbox_mode = _normalize_sandbox_mode(tok.split("=", 1)[1], "--sandbox")
+            sandbox_seen = True
+            i += 1
+            continue
+        codex_args.append(tok)
+        i += 1
+    return CodexRunOptions(
+        sandbox_mode=sandbox_mode,
+        accept_edits=accept_edits,
+        codex_args=codex_args,
+    )
+
+
+def _validate_user_args(args: list[str]) -> None:
+    """Reject user flags/subcommands that can disable or bypass nah's hook path."""
+    _reject_dangerous_flags(args)
+    _reject_unsupported_subcommands(args)
+
+
+def _normalize_sandbox_mode(value: str, flag: str) -> str:
+    if value in _SANDBOX_MODES:
+        return value
+    raise CodexRunError(_sandbox_error(flag, value))
+
+
+def _sandbox_error(flag: str, value: str | None = None) -> str:
+    modes = ", ".join(sorted(_SANDBOX_MODES))
+    if value is None:
+        return f"nah run codex: {flag} requires a sandbox mode; expected one of: {modes}"
+    return f"nah run codex: invalid sandbox mode {value!r}; expected one of: {modes}"
+
+
+def _reject_dangerous_flags(args: list[str]) -> None:
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            return
+        if tok in _BYPASS_FLAGS:
+            raise CodexRunError(
+                f"nah run codex: {tok} is not allowed because it disables "
+                "Codex approvals and sandboxing. Run `nah run codex` without "
+                f"{tok}, or run `codex {tok}` directly if you intentionally "
+                "want an unguarded Codex session.",
+            )
+        if tok in {"-c", "--config"}:
+            if i + 1 >= len(args):
+                return
+            _reject_owned_config(args[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--config="):
+            _reject_owned_config(tok.split("=", 1)[1])
+            i += 1
+            continue
+        if tok in {"--disable", "--enable"}:
+            if i + 1 < len(args) and args[i + 1] in _MANAGED_ENABLE_FLAGS:
+                raise CodexRunError(f"nah run codex: {args[i + 1]} is managed by nah")
+            i += 2
+            continue
+        if tok.startswith("--disable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
+            raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
+        if tok.startswith("--enable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
+            raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
+        if tok in _REJECT_VALUE_FLAGS or any(
+            tok.startswith(flag + "=") for flag in _REJECT_VALUE_FLAGS if flag.startswith("--")
+        ):
+            name = tok.split("=", 1)[0]
+            raise CodexRunError(f"nah run codex: {name} is managed by nah")
+        if _is_codex_joined_value_flag(tok):
+            i += 1
+            continue
+        if tok in _CODEX_VALUE_FLAGS:
+            i += 2
+            continue
+        i += 1
+
+
+def _reject_owned_config(value: str) -> None:
+    key = value.split("=", 1)[0].strip()
+    key = key.strip("'\"")
+    if _is_owned_config_key(key):
+        if key == "sandbox_mode":
+            raise CodexRunError(
+                "nah run codex: -c sandbox_mode=... is managed by nah; "
+                "use `nah run codex --sandbox <mode>`, `nah run codex --no-sandbox`, "
+                "or `nah run codex --flow`",
+            )
+        raise CodexRunError(f"nah run codex: -c {key}=... is managed by nah")
+
+
+def _is_owned_config_key(key: str) -> bool:
+    for owned in _OWNED_CONFIG_KEYS:
+        if key == owned or key.startswith(owned + "."):
+            return True
+    return False
+
+
+def _reject_unsupported_subcommands(args: list[str]) -> None:
+    sub = _first_subcommand(args)
+    if sub in _UNSUPPORTED_SUBCOMMANDS:
+        if sub in {"exec", "e", "review", "apply", "a"}:
+            raise CodexRunError(
+                f"nah run codex: codex {sub} does not use interactive approvals safely yet",
+            )
+        raise CodexRunError("nah run codex: remote/cloud Codex runs are not supported yet")
+
+
+def _first_subcommand(args: list[str]) -> str:
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            return ""
+        if _is_codex_joined_value_flag(tok):
+            i += 1
+            continue
+        if tok in _CODEX_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return tok
+    return ""
+
+
+def _is_codex_joined_value_flag(tok: str) -> bool:
+    if not tok.startswith("--") or "=" not in tok:
+        return False
+    return tok.split("=", 1)[0] in _CODEX_LONG_VALUE_FLAGS

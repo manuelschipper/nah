@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+set -eu
+
+ask_no_python() {
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"nah plugin: Python 3.10+ was not found, requesting confirmation"}}'
+}
+
+if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"nah plugin: CLAUDE_PLUGIN_ROOT is not set, requesting confirmation"}}'
+  exit 0
+fi
+
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      exec "$candidate" "${CLAUDE_PLUGIN_ROOT}/runtime/nah_plugin_runner.py"
+    fi
+  fi
+done
+
+ask_no_python
+exit 0
