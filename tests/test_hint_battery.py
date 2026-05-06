@@ -174,17 +174,17 @@ class TestActionPolicyHints:
 class TestNetworkWriteHints:
     """Network write asks hint the action type."""
 
-    @pytest.mark.parametrize("cmd", [
-        "curl -X POST https://api.example.com -d data",
-        "curl -X DELETE https://api.example.com/1",
-        "curl -X PUT https://api.example.com/resource -d update",
-        "curl --json '{\"a\":1}' https://api.example.com",
+    @pytest.mark.parametrize("cmd, expected_hint", [
+        ("curl -X POST https://api.example.com -d data", "nah allow service_write"),
+        ("curl -X DELETE https://api.example.com/1", "nah allow service_destructive"),
+        ("curl -X PUT https://api.example.com/resource -d update", "nah allow service_write"),
+        ("curl --json '{\"a\":1}' https://api.example.com", "nah allow service_write"),
     ])
-    def test_network_write_hint(self, cmd):
+    def test_network_write_hint(self, cmd, expected_hint):
         decision, hint = _hint(cmd)
         assert decision == "ask"
         assert hint is not None
-        assert "nah allow network_write" in hint
+        assert expected_hint in hint
 
 
 # ===================================================================

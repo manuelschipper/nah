@@ -19,7 +19,7 @@
   "container_write": "context",
   "container_exec": "ask",
   "container_destructive": "ask",
-  "service_read": "allow",
+  "service_read": "context",
   "service_write": "ask",
   "service_destructive": "ask",
   "browser_read": "allow",

@@ -398,6 +398,26 @@ class TestNetworkWriteContext:
         assert decision == "allow"
 
 
+class TestServiceReadContext:
+    def test_local_service_read_still_allows(self):
+        decision, reason = resolve_context("service_read", tokens=["systemctl", "status", "nginx"])
+
+        assert decision == "allow"
+        assert "service_read" in reason
+
+    def test_remote_service_read_known_host_allows(self):
+        decision, reason = resolve_context("service_read", tokens=["curl", "https://github.com/repos/openai/codex"])
+
+        assert decision == "allow"
+        assert "github.com" in reason
+
+    def test_remote_service_read_unknown_host_asks(self):
+        decision, reason = resolve_context("service_read", tokens=["curl", "https://api.example.com/v1/items"])
+
+        assert decision == "ask"
+        assert "api.example.com" in reason
+
+
 # --- FD-022: httpie host extraction ---
 
 

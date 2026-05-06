@@ -9,6 +9,8 @@ import re
 import sys
 from pathlib import Path
 
+from nah import api_intent
+
 _DATA_DIR = Path(__file__).parent / "data"
 
 # Action types
@@ -561,6 +563,9 @@ def classify_tokens(
         )
         if action is not None:
             return action
+        action = _classify_http_rest_operation(tokens)
+        if action is not None:
+            return action
         action = _classify_curl(tokens)
         if action is not None:
             return action
@@ -1020,6 +1025,127 @@ def _classify_tar(tokens: list[str]) -> str | None:
     if found_read:
         return FILESYSTEM_READ
     return FILESYSTEM_WRITE  # Conservative default
+
+
+_REST_READ_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}
+_REST_WRITE_METHODS = {"POST", "PUT", "PATCH"}
+_REST_DESTRUCTIVE_METHODS = {"DELETE"}
+_REST_DESTRUCTIVE_WORDS = {
+    "delete",
+    "deleted",
+    "deleting",
+    "remove",
+    "removed",
+    "removing",
+    "destroy",
+    "destroyed",
+    "destroying",
+    "revoke",
+    "revoked",
+    "revoking",
+    "reset",
+    "resets",
+    "resetting",
+    "truncate",
+    "truncated",
+    "truncating",
+    "drop",
+    "dropped",
+    "dropping",
+}
+
+
+def _classify_http_rest_operation(tokens: list[str]) -> str | None:
+    """Classify visible HTTP/REST operations without handling other protocols."""
+    op = api_intent.extract_remote_operation(tokens)
+    if op is None or op.protocol != api_intent.PROTOCOL_HTTP:
+        return None
+
+    method = (op.method or "").upper()
+    if not method:
+        return None
+    implicit_api_clients = {api_intent.CLIENT_GH_API, api_intent.CLIENT_GLAB_API}
+    if not op.host and not op.path and op.client not in implicit_api_clients:
+        return None
+
+    if (
+        op.client in implicit_api_clients
+        and op.host_source == api_intent.HOST_IMPLICIT
+        and method in _REST_READ_METHODS
+    ):
+        if op.body_source == api_intent.BODY_NONE:
+            return None
+        if (
+            op.body_source == api_intent.BODY_INLINE
+            and _api_cli_has_explicit_read_method(tokens)
+        ):
+            return None
+
+    if op.client == api_intent.CLIENT_HTTPIE and _httpie_form_flag_present(tokens):
+        if _rest_operation_looks_destructive(op):
+            return SERVICE_DESTRUCTIVE
+        return SERVICE_WRITE
+
+    if method in _REST_READ_METHODS:
+        if op.body_source != api_intent.BODY_NONE:
+            return NETWORK_WRITE
+        return SERVICE_READ
+
+    if method in _REST_DESTRUCTIVE_METHODS:
+        return SERVICE_DESTRUCTIVE
+
+    if method in _REST_WRITE_METHODS:
+        if _rest_operation_looks_destructive(op):
+            return SERVICE_DESTRUCTIVE
+        return SERVICE_WRITE
+
+    return UNKNOWN
+
+
+def _httpie_form_flag_present(tokens: list[str]) -> bool:
+    return any(tok in {"--form", "-f"} for tok in tokens[1:])
+
+
+def _api_cli_has_explicit_read_method(tokens: list[str]) -> bool:
+    i = 2
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in {"--method", "-X"}:
+            if i + 1 < len(tokens) and tokens[i + 1].upper() in _REST_READ_METHODS:
+                return True
+            i += 2
+            continue
+        if tok.startswith("--method="):
+            return tok.split("=", 1)[1].upper() in _REST_READ_METHODS
+        if tok.startswith("-X") and tok != "-X" and not tok.startswith("--"):
+            return tok[2:].upper() in _REST_READ_METHODS
+        i += 1
+    return False
+
+
+def _rest_operation_looks_destructive(op: api_intent.RemoteOperation) -> bool:
+    text = "\n".join(
+        part for part in (op.path, op.operation_name, op.body_text) if part
+    )
+    words = _action_words(text)
+    return any(word in _REST_DESTRUCTIVE_WORDS for word in words)
+
+
+def _action_words(text: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    return [
+        match.group(0).lower()
+        for match in re.finditer(r"[A-Za-z][A-Za-z0-9]*", spaced)
+    ]
+
+
+def is_network_data_flow_action(action_type: str, tokens: list[str]) -> bool:
+    """Return True for stages that can move bytes over the network."""
+    if action_type in {NETWORK_OUTBOUND, NETWORK_WRITE}:
+        return True
+    if action_type in {SERVICE_READ, SERVICE_WRITE, SERVICE_DESTRUCTIVE}:
+        return api_intent.extract_remote_operation(tokens) is not None
+    return False
 
 
 _CURL_DATA_FLAGS = {

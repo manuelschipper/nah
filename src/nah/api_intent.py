@@ -409,6 +409,7 @@ def _extract_curl(tokens: list[str]) -> RemoteOperation:
     reasons: list[str] = []
     body_values: list[str] = []
     body_items: list[BodyItem] = []
+    explicit_method = False
 
     i = 1
     while i < len(tokens):
@@ -417,6 +418,7 @@ def _extract_curl(tokens: list[str]) -> RemoteOperation:
         if tok in {"-X", "--request"}:
             if i + 1 < len(tokens):
                 op = replace(op, method=tokens[i + 1].upper())
+                explicit_method = True
                 i += 2
                 continue
             _add_reason(reasons, "missing curl request method")
@@ -424,12 +426,14 @@ def _extract_curl(tokens: list[str]) -> RemoteOperation:
             continue
         if tok.startswith("--request="):
             op = replace(op, method=tok.split("=", 1)[1].upper())
+            explicit_method = True
             i += 1
             continue
         if tok.startswith("-") and not tok.startswith("--") and "X" in tok[1:]:
             method = _curl_combined_method(tok, tokens, i)
             if method:
                 op = replace(op, method=method)
+                explicit_method = True
                 if tok.endswith("X") and i + 1 < len(tokens):
                     i += 2
                     continue
@@ -437,7 +441,7 @@ def _extract_curl(tokens: list[str]) -> RemoteOperation:
         body_parse = _curl_body_arg(tok, tokens, i)
         if body_parse is not None:
             value, fmt, source, consumed, default_method = body_parse
-            if default_method and op.method == "GET":
+            if default_method and op.method == "GET" and not explicit_method:
                 op = replace(op, method=default_method)
             op = replace(op, body_source=_merge_body_source(op.body_source, source))
             if source == BODY_INLINE and value is not None:

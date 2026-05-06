@@ -4,7 +4,7 @@ import os
 import sys
 import urllib.parse
 
-from nah import paths, taxonomy
+from nah import api_intent, paths, taxonomy
 
 # Known safe registries / hosts for network context.
 _KNOWN_HOSTS_DEFAULTS: set[str] = {
@@ -75,6 +75,9 @@ def resolve_context(
     if action_type == taxonomy.DB_WRITE:
         return resolve_database_context(tokens, tool_input)
 
+    if action_type == taxonomy.SERVICE_READ:
+        return resolve_service_read_context(tokens)
+
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         if target_path:
@@ -108,6 +111,18 @@ def resolve_context(
         return resolve_lang_exec_context(target_path, inline_code=inline_code)
 
     return taxonomy.ASK, f"{action_type}: no context resolver"
+
+
+def resolve_service_read_context(tokens: list[str] | None) -> tuple[str, str]:
+    """Preserve local service reads while applying host checks to remote reads."""
+    op = api_intent.extract_remote_operation(tokens or [])
+    if op is None:
+        return taxonomy.ALLOW, "service_read → allow"
+    if op.host:
+        return resolve_network_context(tokens or [], taxonomy.NETWORK_OUTBOUND)
+    if op.client in {api_intent.CLIENT_GH_API, api_intent.CLIENT_GLAB_API}:
+        return taxonomy.ALLOW, "service_read: implicit API host"
+    return taxonomy.ASK, "unknown host"
 
 
 def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
