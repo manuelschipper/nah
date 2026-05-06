@@ -189,8 +189,10 @@ def extract_host(tokens: list[str]) -> str | None:
 
     if cmd in ("gh", "glab") and args[:1] == ["api"]:
         return _extract_api_cli_host(args[1:])
-    if cmd in ("curl", "wget"):
-        return _extract_url_host(args)
+    if cmd == "curl":
+        return _extract_curl_host(args)
+    if cmd == "wget":
+        return _extract_wget_host(args)
     if cmd in ("http", "https", "xh", "xhs"):
         return _extract_httpie_host(args)
     if cmd in ("ssh", "scp", "sftp", "rsync", "ssh-copy-id"):
@@ -252,18 +254,190 @@ def _extract_url_host(args: list[str]) -> str | None:
     for arg in args:
         if arg.startswith("-"):
             continue
-        # Try parsing as URL
-        if "://" in arg or arg.startswith("//"):
-            parsed = urllib.parse.urlparse(arg)
-            if parsed.hostname:
-                return parsed.hostname
-        # Bare hostname:port or hostname/path
-        if "." in arg or ":" in arg:
-            # Could be host:port or host/path
-            part = arg.split("/")[0]
-            if part and not part.startswith("-"):
-                return part.split(":")[0] if ":" in part else part
+        host = _host_from_urlish_arg(arg)
+        if host:
+            return host
     return None
+
+
+def _host_from_urlish_arg(arg: str) -> str | None:
+    """Extract a host only from arguments that look like request targets."""
+    if not arg or arg.startswith("-"):
+        return None
+    if "://" in arg or arg.startswith("//"):
+        parsed = urllib.parse.urlparse(arg)
+        return parsed.hostname
+    if "." in arg or ":" in arg:
+        part = arg.split("/")[0]
+        if part and not part.startswith("-"):
+            return part.split(":")[0] if ":" in part else part
+    return None
+
+
+_CURL_SPLIT_VALUE_FLAGS = {
+    "--abstract-unix-socket", "--alt-svc", "-A", "--user-agent",
+    "--aws-sigv4", "-b", "--cookie", "--cacert", "--capath", "-c",
+    "--cookie-jar", "--cert", "-E", "--cert-type", "--ciphers",
+    "--compressed-ssh", "-K", "--config", "--connect-timeout",
+    "--connect-to", "--continue-at", "-C", "--create-file-mode",
+    "--crlfile", "--curves", "-d", "--data", "--data-ascii",
+    "--data-binary", "--data-raw", "--data-urlencode", "--delegation",
+    "--dns-interface", "--dns-ipv4-addr", "--dns-ipv6-addr",
+    "--dns-servers", "--doh-url", "--dump-header", "-D", "--egd-file",
+    "-e", "--referer", "--engine", "--etag-compare", "--etag-save",
+    "--expect100-timeout", "--form", "--form-string", "-F",
+    "--ftp-account", "--ftp-alternative-to-user", "--ftp-method",
+    "--ftp-port", "-P", "--ftp-ssl-ccc-mode", "--happy-eyeballs-timeout-ms",
+    "--haproxy-clientip", "--header", "-H", "--hostpubmd5",
+    "--hostpubsha256", "--hsts", "--interface", "--ipfs-gateway",
+    "--json", "--keepalive-time", "--key", "--key-type", "--krb",
+    "--libcurl", "--limit-rate", "--local-port", "--login-options",
+    "--mail-auth", "--mail-from", "--mail-rcpt", "--max-filesize",
+    "--max-redirs", "-m", "--max-time", "--netrc-file", "--noproxy",
+    "--oauth2-bearer", "-o", "--output", "--output-dir", "--pass",
+    "--pinnedpubkey", "--preproxy", "--proto", "--proto-default",
+    "--proto-redir", "--proxy", "-x", "--proxy-cacert", "--proxy-capath",
+    "--proxy-cert", "--proxy-cert-type", "--proxy-ciphers",
+    "--proxy-crlfile", "--proxy-header", "--proxy-key", "--proxy-key-type",
+    "--proxy-pass", "--proxy-pinnedpubkey", "--proxy-service-name",
+    "--proxy-tls13-ciphers", "--proxy-tlsauthtype", "--proxy-tlspassword",
+    "--proxy-tlsuser", "--proxy-user", "-U", "--proxy1.0", "--pubkey",
+    "--quote", "-Q", "--random-file", "-r", "--range", "--rate",
+    "--request", "-X", "--request-target", "--resolve", "--retry",
+    "--retry-delay", "--retry-max-time", "--sasl-authzid",
+    "--service-name", "--socks4", "--socks4a", "--socks5",
+    "--socks5-gssapi-service", "--socks5-hostname", "--speed-limit", "-Y",
+    "--speed-time", "-y", "--stderr", "--telnet-option", "-t",
+    "--tftp-blksize", "--time-cond", "-z", "--tls-max", "--tls13-ciphers",
+    "--tlsauthtype", "--tlspassword", "--tlsuser", "--trace",
+    "--trace-ascii", "--trace-config", "--unix-socket", "--upload-file",
+    "-T", "--url", "--url-query", "-u", "--user", "--variable", "-w",
+    "--write-out",
+}
+_CURL_GLUED_VALUE_FLAGS = {
+    "-A", "-b", "-c", "-C", "-d", "-D", "-e", "-E", "-F", "-H", "-K",
+    "-m", "-o", "-P", "-Q", "-r", "-t", "-T", "-u", "-U", "-w", "-x",
+    "-X", "-y", "-Y", "-z",
+}
+_CURL_LONG_VALUE_PREFIXES = tuple(
+    flag + "=" for flag in _CURL_SPLIT_VALUE_FLAGS if flag.startswith("--")
+)
+_CURL_TARGET_URL_FLAGS = {"--url"}
+
+
+def _extract_curl_host(args: list[str]) -> str | None:
+    """Extract the request target host from curl args, skipping option values."""
+    i = 0
+    while i < len(args):
+        arg = args[i]
+
+        if arg == "--":
+            host = _extract_url_host(args[i + 1:])
+            if host:
+                return host
+            return None
+
+        if arg in _CURL_TARGET_URL_FLAGS:
+            if i + 1 < len(args):
+                host = _host_from_urlish_arg(args[i + 1])
+                if host:
+                    return host
+            i += 2
+            continue
+        for prefix in tuple(flag + "=" for flag in _CURL_TARGET_URL_FLAGS):
+            if arg.startswith(prefix):
+                host = _host_from_urlish_arg(arg.split("=", 1)[1])
+                if host:
+                    return host
+                i += 1
+                break
+        else:
+            if arg in _CURL_SPLIT_VALUE_FLAGS:
+                i += 2
+                continue
+            if any(arg.startswith(prefix) for prefix in _CURL_LONG_VALUE_PREFIXES):
+                i += 1
+                continue
+            if _curl_short_token_consumes_value(arg):
+                i += 1
+                continue
+
+            host = _host_from_urlish_arg(arg)
+            if host:
+                return host
+            i += 1
+            continue
+        continue
+    return None
+
+
+def _curl_short_token_consumes_value(arg: str) -> bool:
+    """Return True when a curl short-option token is itself a value carrier."""
+    if not arg.startswith("-") or arg.startswith("--") or arg == "-":
+        return False
+    for flag in _CURL_GLUED_VALUE_FLAGS:
+        if arg == flag:
+            return True
+        if arg.startswith(flag) and len(arg) > len(flag):
+            return True
+    # Combined short flags such as -sXPOST or -sX POST should not expose their
+    # method token as a host candidate.
+    letters = arg[1:]
+    if "X" in letters:
+        return True
+    return False
+
+
+_WGET_SPLIT_VALUE_FLAGS = {
+    "-a", "--append-output", "--bind-address", "--body-data", "--body-file",
+    "--ca-certificate", "--ca-directory", "--certificate", "--certificate-type",
+    "--config", "--connect-timeout", "--dns-timeout", "-e", "--execute",
+    "--header", "--http-password", "--http-proxy", "--http-user",
+    "-i", "--input-file", "--limit-rate", "--load-cookies", "--method",
+    "-O", "--output-document", "-o", "--output-file", "-P", "--directory-prefix",
+    "--password", "--post-data", "--post-file", "--private-key",
+    "--private-key-type", "--proxy-password", "--proxy-user", "--read-timeout",
+    "--referer", "--save-cookies", "--timeout", "-T", "--tries", "-t",
+    "--user", "-U", "--user-agent", "--wait", "-w", "--waitretry",
+}
+_WGET_GLUED_VALUE_FLAGS = {"-a", "-e", "-i", "-O", "-o", "-P", "-T", "-t", "-U", "-w"}
+_WGET_LONG_VALUE_PREFIXES = tuple(
+    flag + "=" for flag in _WGET_SPLIT_VALUE_FLAGS if flag.startswith("--")
+)
+
+
+def _extract_wget_host(args: list[str]) -> str | None:
+    """Extract the request target host from wget args, skipping option values."""
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            return _extract_url_host(args[i + 1:])
+        if arg in _WGET_SPLIT_VALUE_FLAGS:
+            i += 2
+            continue
+        if any(arg.startswith(prefix) for prefix in _WGET_LONG_VALUE_PREFIXES):
+            i += 1
+            continue
+        if _wget_short_token_consumes_value(arg):
+            i += 1
+            continue
+        host = _host_from_urlish_arg(arg)
+        if host:
+            return host
+        i += 1
+    return None
+
+
+def _wget_short_token_consumes_value(arg: str) -> bool:
+    if not arg.startswith("-") or arg.startswith("--") or arg == "-":
+        return False
+    for flag in _WGET_GLUED_VALUE_FLAGS:
+        if arg == flag:
+            return True
+        if arg.startswith(flag) and len(arg) > len(flag):
+            return True
+    return False
 
 
 def resolve_database_context(tokens: list[str], tool_input: dict | None) -> tuple[str, str]:
