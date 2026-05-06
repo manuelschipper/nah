@@ -21,6 +21,9 @@ from nah.api_intent import (
     FORMAT_FORM,
     FORMAT_GRAPHQL,
     FORMAT_JSON,
+    GRAPHQL_MUTATION,
+    GRAPHQL_QUERY,
+    GRAPHQL_SUBSCRIPTION,
     HOST_EXPLICIT,
     HOST_IMPLICIT,
     PROTOCOL_GRAPHQL,
@@ -118,6 +121,99 @@ class TestCurlExtraction:
         assert op.body_format == FORMAT_GRAPHQL
         assert op.operation_name == "Viewer"
         assert op.body_text == "query Viewer { viewer { login } }"
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.operation_name == "Viewer"
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_curl_graphql_url_query_param(self):
+        op = _op(
+            "curl 'https://api.github.com/graphql?query=query%20Viewer%20%7B%20viewer%20%7B%20login%20%7D%20%7D'"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.method == "GET"
+        assert op.operation_name == "Viewer"
+        assert op.body_text == "query Viewer { viewer { login } }"
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_curl_graphql_operation_name_selects_named_operation(self):
+        op = _op(
+            "curl --json '{\"operationName\":\"DestroyUser\","
+            "\"query\":\"query Viewer { viewer { login } } "
+            "mutation DestroyUser { deleteUser(id: 1) { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.operation_name == "DestroyUser"
+        assert op.graphql.operation_type == GRAPHQL_MUTATION
+        assert op.graphql.root_fields == ("deleteUser",)
+
+    def test_curl_graphql_multi_operation_without_operation_name_is_ambiguous(self):
+        op = _op(
+            "curl --json '{\"query\":\"query Viewer { viewer { login } } "
+            "mutation UpdateUser { updateUser(id: 1) { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_count == 2
+        assert "multiple GraphQL operations" in op.graphql.ambiguous_reason
+
+    def test_curl_graphql_shorthand_query(self):
+        op = _op("curl -d '{ viewer { login } }' https://api.example.com/graphql")
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_curl_graphql_fragment_and_alias_root_fields(self):
+        op = _op(
+            "curl --json '{\"query\":\"fragment UserFields on User { login } "
+            "query Viewer { me: viewer { ...UserFields } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_curl_graphql_inline_fragment_does_not_become_root_field(self):
+        op = _op(
+            "curl --json '{\"query\":\"query Viewer { "
+            "... on User { login } viewer { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_curl_graphql_subscription(self):
+        op = _op(
+            "curl --json '{\"query\":\"subscription Events { eventCreated { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_type == GRAPHQL_SUBSCRIPTION
+        assert op.graphql.root_fields == ("eventCreated",)
+
+    def test_curl_graphql_operation_name_mismatch_is_ambiguous(self):
+        op = _op(
+            "curl --json '{\"operationName\":\"Missing\","
+            "\"query\":\"query Viewer { viewer { login } }\"}' "
+            "https://api.example.com/graphql"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert "operationName did not select" in op.graphql.ambiguous_reason
+
+    def test_curl_graphql_unbalanced_document_is_ambiguous(self):
+        op = _op("curl -d '{ viewer { login }' https://api.example.com/graphql")
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert "unbalanced GraphQL selection set" in op.graphql.ambiguous_reason
 
     def test_curl_json_rpc_body(self):
         op = _op(
@@ -172,6 +268,20 @@ class TestHttpieExtraction:
         assert op.scheme == "https"
         assert op.body_source == BODY_INLINE
 
+    def test_httpie_graphql_query_item(self):
+        op = _op("http POST api.example.com/graphql 'query=query Viewer { viewer { login } }'")
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_httpie_graphql_json_item(self):
+        op = _op("http POST api.example.com/graphql 'query:=mutation Update { updateUser(id: 1) { id } }'")
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.graphql.operation_type == GRAPHQL_MUTATION
+        assert op.graphql.root_fields == ("updateUser",)
+
 
 class TestApiCliExtraction:
     def test_gh_api_graphql_query_field(self):
@@ -185,6 +295,20 @@ class TestApiCliExtraction:
         assert op.confidence == CONFIDENCE_PARTIAL
         assert op.operation_name == "Viewer"
         assert op.body_text == "query Viewer { viewer { login } }"
+        assert op.graphql.operation_type == GRAPHQL_QUERY
+        assert op.graphql.root_fields == ("viewer",)
+
+    def test_gh_api_graphql_operation_name_field(self):
+        op = _op(
+            "gh api graphql -f operationName=Update "
+            "-f 'query=query Viewer { viewer { login } } "
+            "mutation Update { updateUser(id: 1) { id } }'"
+        )
+
+        assert op.protocol == PROTOCOL_GRAPHQL
+        assert op.operation_name == "Update"
+        assert op.graphql.operation_type == GRAPHQL_MUTATION
+        assert op.graphql.root_fields == ("updateUser",)
 
     def test_gh_api_input_file_is_opaque(self):
         op = _op("gh api repos/owner/repo/issues --input body.json")

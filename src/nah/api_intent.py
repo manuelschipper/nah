@@ -12,7 +12,7 @@ import json
 import os
 import re
 import urllib.parse
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 MAX_BODY_TEXT_CHARS = 8192
 
@@ -47,6 +47,10 @@ FORMAT_FORM = "form"
 FORMAT_RAW = "raw"
 FORMAT_GRAPHQL = "graphql"
 
+GRAPHQL_QUERY = "query"
+GRAPHQL_MUTATION = "mutation"
+GRAPHQL_SUBSCRIPTION = "subscription"
+
 CONFIDENCE_COMPLETE = "complete"
 CONFIDENCE_PARTIAL = "partial"
 CONFIDENCE_OPAQUE = "opaque"
@@ -56,11 +60,12 @@ HOST_IMPLICIT = "implicit_default"
 HOST_UNKNOWN = "unknown"
 
 _HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
-_GRAPHQL_PATH_RE = re.compile(r"(?:^|/)graphql/?$", re.IGNORECASE)
+_GRAPHQL_PATH_RE = re.compile(r"(?:^|/)graphql/?(?:[?#].*)?$", re.IGNORECASE)
 _GRAPHQL_OP_RE = re.compile(
     r"^\s*(query|mutation|subscription)\b(?:\s+([_A-Za-z][_0-9A-Za-z]*))?",
     re.DOTALL,
 )
+_GRAPHQL_NAME_RE = re.compile(r"[_A-Za-z][_0-9A-Za-z]*")
 _DYNAMIC_MARKERS = ("$(", "${", "`", "__nah_", "<(")
 
 
@@ -72,6 +77,17 @@ class BodyItem:
     value: str = ""
     source: str = BODY_INLINE
     format: str = FORMAT_RAW
+
+
+@dataclass(frozen=True)
+class GraphQLIntent:
+    """Policy-free GraphQL document parse result."""
+
+    operation_type: str = ""
+    operation_name: str = ""
+    root_fields: tuple[str, ...] = ()
+    operation_count: int = 0
+    ambiguous_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -92,6 +108,7 @@ class RemoteOperation:
     body_items: tuple[BodyItem, ...] = ()
     body_source: str = BODY_NONE
     body_format: str = FORMAT_UNKNOWN
+    graphql: GraphQLIntent = field(default_factory=GraphQLIntent)
     confidence: str = CONFIDENCE_PARTIAL
     reasons: tuple[str, ...] = ()
 
@@ -245,6 +262,7 @@ def _finalize(
     protocol = op.protocol
     body_format = op.body_format
     operation_name = op.operation_name
+    graphql = op.graphql
 
     if body_values and op.body_source == BODY_INLINE:
         joined = "\n".join(body_values)
@@ -254,15 +272,26 @@ def _finalize(
     else:
         body_text = op.body_text
 
+    graphql_request_operation_name = _extract_graphql_request_operation_name(
+        op, body_values,
+    )
     graphql_text = _extract_graphql_text(op, body_values)
     if graphql_text:
         protocol = PROTOCOL_GRAPHQL
         body_format = FORMAT_GRAPHQL
-        if op.body_source == BODY_INLINE:
-            body_text, trunc_reasons = _bounded_body(graphql_text)
-            for reason in trunc_reasons:
-                _add_reason(reasons, reason)
-        operation_name = operation_name or _graphql_operation_name(graphql_text)
+        body_text, trunc_reasons = _bounded_body(graphql_text)
+        for reason in trunc_reasons:
+            _add_reason(reasons, reason)
+        graphql = parse_graphql_document(
+            graphql_text,
+            operation_name=graphql_request_operation_name,
+        )
+        operation_name = (
+            graphql.operation_name
+            or graphql_request_operation_name
+            or operation_name
+            or _graphql_operation_name(graphql_text)
+        )
 
     json_rpc_method = _extract_json_rpc_method(body_text or "\n".join(body_values))
     if json_rpc_method:
@@ -306,6 +335,7 @@ def _finalize(
         body_text=body_text,
         body_format=body_format,
         operation_name=operation_name,
+        graphql=graphql,
         confidence=confidence,
         reasons=tuple(reasons),
     )
@@ -317,6 +347,11 @@ def _extract_graphql_text(op: RemoteOperation, body_values: list[str]) -> str:
             return item.value
 
     graphql_endpoint = op.protocol == PROTOCOL_GRAPHQL or bool(_GRAPHQL_PATH_RE.search(op.path or ""))
+    json_expected = _body_items_expect_json(op)
+    query_from_url = _extract_graphql_url_param(op.path, "query")
+    if graphql_endpoint and query_from_url:
+        return query_from_url
+
     values = [op.body_text, *body_values]
     for value in values:
         if not value:
@@ -326,7 +361,7 @@ def _extract_graphql_text(op: RemoteOperation, body_values: list[str]) -> str:
             try:
                 payload = json.loads(value)
             except json.JSONDecodeError:
-                if graphql_endpoint and _looks_graphql_document(value):
+                if graphql_endpoint and not json_expected and _looks_graphql_document(value):
                     return value
                 continue
             if isinstance(payload, dict) and isinstance(payload.get("query"), str):
@@ -335,6 +370,50 @@ def _extract_graphql_text(op: RemoteOperation, body_values: list[str]) -> str:
         if graphql_endpoint and _looks_graphql_document(value):
             return value
     return ""
+
+
+def _body_items_expect_json(op: RemoteOperation) -> bool:
+    return any(
+        item.source == BODY_INLINE and item.format == FORMAT_JSON
+        for item in op.body_items
+    )
+
+
+def _extract_graphql_request_operation_name(
+    op: RemoteOperation,
+    body_values: list[str],
+) -> str:
+    for item in op.body_items:
+        if item.key == "operationName" and item.source == BODY_INLINE:
+            return item.value
+
+    operation_name = _extract_graphql_url_param(op.path, "operationName")
+    if operation_name:
+        return operation_name
+
+    for value in [op.body_text, *body_values]:
+        if not value:
+            continue
+        stripped = value.lstrip()
+        if not stripped.startswith("{"):
+            continue
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("operationName"), str):
+            return payload["operationName"]
+    return ""
+
+
+def _extract_graphql_url_param(path: str, key: str) -> str:
+    if not path or "?" not in path:
+        return ""
+    query = urllib.parse.urlsplit(path).query
+    if not query:
+        return ""
+    values = urllib.parse.parse_qs(query, keep_blank_values=True).get(key)
+    return values[0] if values else ""
 
 
 def _looks_graphql_document(value: str) -> bool:
@@ -352,6 +431,270 @@ def _graphql_operation_name(value: str) -> str:
     if match and match.group(2):
         return match.group(2)
     return ""
+
+
+@dataclass(frozen=True)
+class _GraphQLOperation:
+    operation_type: str
+    name: str
+    root_fields: tuple[str, ...]
+
+
+def parse_graphql_document(value: str, *, operation_name: str = "") -> GraphQLIntent:
+    """Parse visible GraphQL intent without assigning policy."""
+    tokens = _graphql_tokens(value)
+    if not tokens:
+        return GraphQLIntent(ambiguous_reason="empty GraphQL document")
+    if not _graphql_braces_balanced(tokens):
+        return GraphQLIntent(ambiguous_reason="unbalanced GraphQL selection set")
+
+    operations: list[_GraphQLOperation] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "fragment":
+            i = _skip_graphql_definition(tokens, i)
+            continue
+        if tok in {GRAPHQL_QUERY, GRAPHQL_MUTATION, GRAPHQL_SUBSCRIPTION}:
+            next_i, operation = _parse_graphql_operation(tokens, i)
+            if operation is not None:
+                operations.append(operation)
+            i = next_i
+            continue
+        if tok == "{":
+            root_fields, next_i = _graphql_root_fields(tokens, i)
+            operations.append(_GraphQLOperation(GRAPHQL_QUERY, "", root_fields))
+            i = next_i
+            continue
+        i += 1
+
+    operation_count = len(operations)
+    if operation_count == 0:
+        return GraphQLIntent(ambiguous_reason="no GraphQL operation")
+
+    selected: _GraphQLOperation | None = None
+    if operation_name:
+        matches = [op for op in operations if op.name == operation_name]
+        if len(matches) != 1:
+            return GraphQLIntent(
+                operation_count=operation_count,
+                ambiguous_reason="operationName did not select one GraphQL operation",
+            )
+        selected = matches[0]
+    elif operation_count == 1:
+        selected = operations[0]
+    else:
+        return GraphQLIntent(
+            operation_count=operation_count,
+            ambiguous_reason="multiple GraphQL operations without operationName",
+        )
+
+    return GraphQLIntent(
+        operation_type=selected.operation_type,
+        operation_name=selected.name,
+        root_fields=selected.root_fields,
+        operation_count=operation_count,
+    )
+
+
+def _graphql_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    i = 0
+    while i < len(value):
+        char = value[i]
+        if char.isspace() or char == ",":
+            i += 1
+            continue
+        if char == "#":
+            newline = value.find("\n", i + 1)
+            i = len(value) if newline < 0 else newline + 1
+            continue
+        if value.startswith('"""', i):
+            end = value.find('"""', i + 3)
+            i = len(value) if end < 0 else end + 3
+            continue
+        if char == '"':
+            i = _skip_graphql_string(value, i)
+            continue
+        if value.startswith("...", i):
+            tokens.append("...")
+            i += 3
+            continue
+        match = _GRAPHQL_NAME_RE.match(value, i)
+        if match:
+            tokens.append(match.group(0))
+            i = match.end()
+            continue
+        if char in "{}():@[]!=$|&":
+            tokens.append(char)
+        i += 1
+    return tokens
+
+
+def _graphql_braces_balanced(tokens: list[str]) -> bool:
+    depth = 0
+    for tok in tokens:
+        if tok == "{":
+            depth += 1
+        elif tok == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def _skip_graphql_string(value: str, start: int) -> int:
+    i = start + 1
+    while i < len(value):
+        if value[i] == "\\":
+            i += 2
+            continue
+        if value[i] == '"':
+            return i + 1
+        i += 1
+    return len(value)
+
+
+def _parse_graphql_operation(
+    tokens: list[str],
+    start: int,
+) -> tuple[int, _GraphQLOperation | None]:
+    operation_type = tokens[start]
+    i = start + 1
+    name = ""
+    if i < len(tokens) and _is_graphql_name(tokens[i]):
+        name = tokens[i]
+        i += 1
+
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "(":
+            i = _skip_graphql_wrapped(tokens, i, "(", ")")
+            continue
+        if tok == "@":
+            i = _skip_graphql_directive(tokens, i)
+            continue
+        if tok == "{":
+            root_fields, next_i = _graphql_root_fields(tokens, i)
+            return next_i, _GraphQLOperation(operation_type, name, root_fields)
+        if tok in {GRAPHQL_QUERY, GRAPHQL_MUTATION, GRAPHQL_SUBSCRIPTION, "fragment"}:
+            return i, None
+        i += 1
+    return len(tokens), None
+
+
+def _skip_graphql_definition(tokens: list[str], start: int) -> int:
+    i = start + 1
+    while i < len(tokens):
+        if tokens[i] == "{":
+            _, next_i = _graphql_root_fields(tokens, i)
+            return next_i
+        i += 1
+    return len(tokens)
+
+
+def _graphql_root_fields(tokens: list[str], start: int) -> tuple[tuple[str, ...], int]:
+    root_fields: list[str] = []
+    depth = 1
+    i = start + 1
+    while i < len(tokens) and depth > 0:
+        tok = tokens[i]
+        if tok == "{":
+            depth += 1
+            i += 1
+            continue
+        if tok == "}":
+            depth -= 1
+            i += 1
+            continue
+        if depth != 1:
+            i += 1
+            continue
+        if tok == "...":
+            i = _skip_graphql_fragment_spread(tokens, i)
+            continue
+        if tok == "@":
+            i = _skip_graphql_directive(tokens, i)
+            continue
+        if _is_graphql_name(tok):
+            field_name = tok
+            if (
+                i + 2 < len(tokens)
+                and tokens[i + 1] == ":"
+                and _is_graphql_name(tokens[i + 2])
+            ):
+                field_name = tokens[i + 2]
+                i += 3
+            else:
+                i += 1
+            root_fields.append(field_name)
+            i = _skip_graphql_field_suffix(tokens, i)
+            continue
+        i += 1
+    return tuple(root_fields), i
+
+
+def _skip_graphql_field_suffix(tokens: list[str], start: int) -> int:
+    i = start
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "(":
+            i = _skip_graphql_wrapped(tokens, i, "(", ")")
+            continue
+        if tok == "@":
+            i = _skip_graphql_directive(tokens, i)
+            continue
+        if tok in {"{", "}", "..."} or _is_graphql_name(tok):
+            break
+        i += 1
+    return i
+
+
+def _skip_graphql_fragment_spread(tokens: list[str], start: int) -> int:
+    i = start + 1
+    if i < len(tokens) and tokens[i] == "on":
+        i += 1
+        if i < len(tokens) and _is_graphql_name(tokens[i]):
+            i += 1
+    elif i < len(tokens) and _is_graphql_name(tokens[i]):
+        i += 1
+    while i < len(tokens) and tokens[i] == "@":
+        i = _skip_graphql_directive(tokens, i)
+    if i < len(tokens) and tokens[i] == "{":
+        return _skip_graphql_wrapped(tokens, i, "{", "}")
+    return i
+
+
+def _skip_graphql_directive(tokens: list[str], start: int) -> int:
+    i = start + 1
+    if i < len(tokens) and _is_graphql_name(tokens[i]):
+        i += 1
+    if i < len(tokens) and tokens[i] == "(":
+        i = _skip_graphql_wrapped(tokens, i, "(", ")")
+    return i
+
+
+def _skip_graphql_wrapped(
+    tokens: list[str],
+    start: int,
+    open_token: str,
+    close_token: str,
+) -> int:
+    depth = 0
+    i = start
+    while i < len(tokens):
+        if tokens[i] == open_token:
+            depth += 1
+        elif tokens[i] == close_token:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(tokens)
+
+
+def _is_graphql_name(token: str) -> bool:
+    return _GRAPHQL_NAME_RE.fullmatch(token) is not None
 
 
 def _extract_json_rpc_method(value: str) -> str:
@@ -376,11 +719,12 @@ def _extract_json_rpc_method(value: str) -> str:
 
 def _has_malformed_json(op: RemoteOperation, body_text: str, body_values: list[str]) -> bool:
     graphql_endpoint = op.protocol == PROTOCOL_GRAPHQL or bool(_GRAPHQL_PATH_RE.search(op.path or ""))
+    json_expected = _body_items_expect_json(op)
     for value in [body_text, *body_values]:
         stripped = value.lstrip()
         if not stripped or not stripped.startswith(("{", "[")):
             continue
-        if graphql_endpoint and _looks_graphql_document(value):
+        if graphql_endpoint and not json_expected and _looks_graphql_document(value):
             continue
         try:
             json.loads(value)
