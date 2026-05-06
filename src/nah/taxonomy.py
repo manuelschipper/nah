@@ -1463,7 +1463,18 @@ def _psql_extract_single_command(tokens: list[str]) -> str | None:
             return None
         if tok == "--":
             i += 1
-            continue
+            while i < len(tokens):
+                positional = tokens[i]
+                if (
+                    _psql_is_input_redirect(positional)
+                    or positional.startswith("-")
+                    or positional_seen
+                    or _psql_conninfo_is_unsafe(positional)
+                ):
+                    return None
+                positional_seen = True
+                i += 1
+            break
         if tok in {"-X", "--no-psqlrc"}:
             no_psqlrc = True
             i += 1
