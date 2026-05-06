@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EXPLAIN`, safe PRAGMA introspection, and safe dot commands; bare SQLite,
   script-fed SQL, mutating SQL, unsafe helpers, and ambiguous forms stay
   `db_write`. (nah-916)
+- **Postgres read-only CLI classification** — explicit one-shot `psql`
+  inspection commands now classify as `db_read` when they set same-invocation
+  `PGOPTIONS` to `default_transaction_read_only`, disable psql startup files,
+  and use a narrow read-only SQL allowlist; bare, script-fed, mutating, or
+  ambiguous Postgres commands stay on existing `db_write` ask paths. (nah-bqe)
 
 ### Fixed
 

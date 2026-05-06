@@ -26,6 +26,11 @@ def _ct(tokens: list[str]) -> str:
     return classify_tokens(tokens, builtin_table=_FULL)
 
 
+def _ct_env(tokens: list[str], env: dict[str, str]) -> str:
+    """Classify tokens against the full built-in table with env context."""
+    return classify_tokens(tokens, builtin_table=_FULL, env_assignments=env)
+
+
 # --- classify_tokens ---
 
 
@@ -967,6 +972,91 @@ class TestClassifyTokens:
     ])
     def test_sqlite3_unsafe_or_ambiguous_shapes_are_db_write(self, tokens):
         assert _ct(tokens) == "db_write"
+
+    @pytest.mark.parametrize("pgoptions", [
+        "-c default_transaction_read_only=on",
+        "-c default_transaction_read_only=true",
+        "-c default_transaction_read_only=1",
+        "-c default_transaction_read_only=yes",
+        "-cdefault_transaction_read_only=on",
+    ])
+    def test_psql_explicit_readonly_shapes_are_db_read(self, pgoptions):
+        assert _ct_env(
+            ["psql", "-X", "-c", "SELECT id FROM users LIMIT 10"],
+            {"PGOPTIONS": pgoptions},
+        ) == "db_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["psql", "--no-psqlrc", "--command", "SHOW search_path"],
+        ["psql", "-X", "--command=SHOW search_path"],
+        ["psql", "-X", "-d", "appdb", "-c", "SELECT id FROM users"],
+        ["psql", "-X", "-dappdb", "-cSELECT id FROM users"],
+        ["psql", "-XAt", "-h", "localhost", "-U", "app", "-c", "SELECT id FROM users"],
+        ["psql", "-X", "-1", "-c", "EXPLAIN SELECT id FROM users"],
+        ["psql", "-X", "-c", "EXPLAIN (FORMAT JSON, COSTS false) SELECT id FROM users"],
+    ])
+    def test_psql_safe_variants_are_db_read(self, tokens):
+        assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["psql", "-c", "SELECT id FROM users"],
+        ["psql", "-X", "-c", "DROP TABLE users"],
+        ["psql", "-X", "-f", "script.sql"],
+        ["psql", "-X", "--file", "script.sql"],
+        ["psql", "-X", "-c", "SELECT 1", "-c", "SELECT 2"],
+        ["psql", "-X", "-c", "SELECT 1; SELECT 2"],
+        ["psql", "-X", "-c", "SELECT * INTO tmp FROM users"],
+        ["psql", "-X", "-c", "SELECT id FROM users FOR UPDATE"],
+        ["psql", "-X", "-c", "SELECT now()"],
+        ["psql", "-X", "-c", "SELECT count(*) FROM users"],
+        ["psql", "-X", "-c", "WITH rows AS (SELECT 1) SELECT * FROM rows"],
+        ["psql", "-X", "-c", "COPY users TO '/tmp/users.csv'"],
+        ["psql", "-X", "-c", "\\copy users TO /tmp/users.csv"],
+        ["psql", "-X", "-c", "EXPLAIN ANALYZE SELECT id FROM users"],
+        ["psql", "-X", "-c", "EXPLAIN (ANALYZE false) SELECT id FROM users"],
+        ["psql", "-X", "-c", "SELECT 1 -- comment"],
+        ["psql", "-X", "-c", "SELECT /* comment */ 1"],
+        ["psql", "-X", "-d", "postgresql://host/db", "-c", "SELECT 1"],
+        ["psql", "-X", "-d", "host=localhost dbname=app", "-c", "SELECT 1"],
+        ["psql", "-X", "-d", "app?options=-cdefault_transaction_read_only=off", "-c", "SELECT 1"],
+        ["psql", "-X", "-o", "out.txt", "-c", "SELECT 1"],
+        ["psql", "-X", "-L", "log.txt", "-c", "SELECT 1"],
+        ["psql", "-X", "-c", "SELECT 1", "<", "schema.sql"],
+    ])
+    def test_psql_unsafe_or_ambiguous_shapes_fall_back_to_db_write(self, tokens):
+        assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_write"
+
+    @pytest.mark.parametrize("pgoptions", [
+        "",
+        "-c default_transaction_read_only=off",
+        "-c default_transaction_read_only=on -c default_transaction_read_only=on",
+        "-c default_transaction_read_only=on -c geqo=off",
+        "--search-path public",
+        "'-c default_transaction_read_only=on'",
+        "'",
+    ])
+    def test_psql_missing_or_unsafe_pgoptions_fall_back_to_db_write(self, pgoptions):
+        assert _ct_env(
+            ["psql", "-X", "-c", "SELECT id FROM users"],
+            {"PGOPTIONS": pgoptions},
+        ) == "db_write"
+
+    def test_psql_global_user_override_still_wins(self):
+        table = build_user_table({"service_read": ["psql"]})
+        assert classify_tokens(
+            ["psql", "-X", "-c", "DROP TABLE users"],
+            global_table=table,
+            builtin_table=_FULL,
+            env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
+        ) == "service_read"
+
+    def test_psql_profile_none_does_not_use_builtin_readonly_classifier(self):
+        assert classify_tokens(
+            ["psql", "-X", "-c", "SELECT id FROM users"],
+            builtin_table=get_builtin_table("none"),
+            profile="none",
+            env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
+        ) == "unknown"
 
     # db companion tools → filesystem_write
     @pytest.mark.parametrize("tokens", [

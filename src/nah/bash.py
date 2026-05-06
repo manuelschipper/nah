@@ -49,6 +49,7 @@ class Stage:
     python_env_risk: str = ""
     python_prior_env_risk: str = ""
     python_prior_cwd_risk: bool = False
+    env_assignments: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -77,6 +78,7 @@ class EnvWrapperParse:
     inner: list[str] | None = None
     risk_reason: str = ""
     unsupported: bool = False
+    env_assignments: dict[str, str] = field(default_factory=dict)
 
 
 def classify_command(command: str) -> ClassifyResult:
@@ -1734,6 +1736,7 @@ def _make_stage(
         return None
     # Skip leading env assignments (FOO=bar cmd ...)
     start = 0
+    env_assignments: dict[str, str] = {}
     python_risk_vars: list[str] = []
     for start, tok in enumerate(tokens):
         parts = _env_assignment_parts(tok)
@@ -1756,14 +1759,17 @@ def _make_stage(
                 tokens=tokens, operator=operator,
                 action_hint=taxonomy.LANG_EXEC, action_reason=risk_reason,
             )
+        env_assignments[name] = value
     else:
         # All tokens were env assignments
         return Stage(tokens=tokens, operator=operator,
                      action_hint=taxonomy.FILESYSTEM_READ,
-                     action_reason="env-only assignment")
+                     action_reason="env-only assignment",
+                     env_assignments=env_assignments)
 
     stage = Stage(tokens=tokens[start:], operator=operator,
-                  action_hint=action_hint, action_reason=action_reason)
+                  action_hint=action_hint, action_reason=action_reason,
+                  env_assignments=env_assignments)
     if python_risk_vars:
         stage.python_env_risk = "python env assignment: " + ",".join(sorted(set(python_risk_vars)))
     return stage
@@ -2168,8 +2174,15 @@ def _classify_stage(
         return _apply_redirect_guard(stage, nah_cli, user_actions=user_actions)
 
     # Classify tokens
-    sr.action_type = taxonomy.classify_tokens(tokens, global_table, builtin_table, project_table,
-                                              profile=profile, trust_project=trust_project)
+    sr.action_type = taxonomy.classify_tokens(
+        tokens,
+        global_table,
+        builtin_table,
+        project_table,
+        profile=profile,
+        trust_project=trust_project,
+        env_assignments=stage.env_assignments,
+    )
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Apply policy → decision
@@ -2391,7 +2404,13 @@ def _combine_python_risks(*risks: str) -> str:
     return "; ".join(risk for risk in risks if risk)
 
 
-def _copy_python_metadata(inner_stage: Stage, outer_stage: Stage, *, env_risk: str = "") -> Stage:
+def _copy_python_metadata(
+    inner_stage: Stage,
+    outer_stage: Stage,
+    *,
+    env_risk: str = "",
+    preserve_env_assignments: bool = False,
+) -> Stage:
     inner_stage.python_env_risk = _combine_python_risks(
         inner_stage.python_env_risk,
         outer_stage.python_env_risk,
@@ -2404,6 +2423,10 @@ def _copy_python_metadata(inner_stage: Stage, outer_stage: Stage, *, env_risk: s
     inner_stage.python_prior_cwd_risk = (
         inner_stage.python_prior_cwd_risk or outer_stage.python_prior_cwd_risk
     )
+    if preserve_env_assignments and outer_stage.env_assignments:
+        merged = dict(outer_stage.env_assignments)
+        merged.update(inner_stage.env_assignments)
+        inner_stage.env_assignments = merged
     return inner_stage
 
 
@@ -2533,11 +2556,16 @@ def _is_env_assignment(tok: str) -> bool:
     )
 
 
-def _parse_env_wrapper(tokens: list[str]) -> EnvWrapperParse | None:
+def _parse_env_wrapper(
+    tokens: list[str],
+    *,
+    base_assignments: dict[str, str] | None = None,
+) -> EnvWrapperParse | None:
     """Parse env(1) wrapper operands without discarding risky assignments."""
     if not tokens or os.path.basename(tokens[0]) != "env":
         return None
 
+    env_assignments = dict(base_assignments or {})
     i = 1
     n = len(tokens)
     while i < n:
@@ -2549,10 +2577,11 @@ def _parse_env_wrapper(tokens: list[str]) -> EnvWrapperParse | None:
 
         parts = _env_assignment_parts(tok)
         if parts is not None:
-            _, value = parts
+            name, value = parts
             risk_reason = _env_var_risk_reason(value)
             if risk_reason:
                 return EnvWrapperParse(risk_reason=risk_reason)
+            env_assignments[name] = value
             i += 1
             continue
 
@@ -2564,10 +2593,23 @@ def _parse_env_wrapper(tokens: list[str]) -> EnvWrapperParse | None:
             )
 
         if tok in _ENV_NOARG_FLAGS:
+            env_assignments.clear()
             i += 1
             continue
 
-        if tok in _ENV_ARG_FLAGS:
+        if tok in {"-u", "--unset"}:
+            if i + 1 >= n:
+                return EnvWrapperParse(unsupported=True)
+            env_assignments.pop(tokens[i + 1], None)
+            i += 2
+            continue
+
+        if tok.startswith("--unset="):
+            env_assignments.pop(tok.split("=", 1)[1], None)
+            i += 1
+            continue
+
+        if tok in {"-C", "--chdir", "--argv0"}:
             if i + 1 >= n:
                 return EnvWrapperParse(unsupported=True)
             i += 2
@@ -2583,7 +2625,7 @@ def _parse_env_wrapper(tokens: list[str]) -> EnvWrapperParse | None:
         break
 
     inner = tokens[i:]
-    return EnvWrapperParse(inner=inner if inner else None)
+    return EnvWrapperParse(inner=inner if inner else None, env_assignments=env_assignments)
 
 
 def _strip_env_wrapper(tokens: list[str]) -> list[str] | None:
@@ -3297,7 +3339,11 @@ def _unwrap_shell(
     if tokens and tokens[0] == "command":
         inner = _strip_command_builtin(tokens)
         if inner:
-            inner_stage = _copy_python_metadata(Stage(tokens=inner, operator=stage.operator), stage)
+            inner_stage = _copy_python_metadata(
+                Stage(tokens=inner, operator=stage.operator),
+                stage,
+                preserve_env_assignments=True,
+            )
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
                                    user_actions=user_actions, profile=profile,
@@ -3310,7 +3356,9 @@ def _unwrap_shell(
             inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
                 tokens=passthrough_tokens, operator=stage.operator
             )
-            inner_stage = _copy_python_metadata(inner_stage, stage)
+            inner_stage = _copy_python_metadata(
+                inner_stage, stage, preserve_env_assignments=True
+            )
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
                                    user_actions=user_actions, profile=profile,
@@ -3343,7 +3391,7 @@ def _unwrap_shell(
     # env passthrough — dedicated branch so risky env assignments are not
     # discarded before classifying the inner command.
     if tokens and os.path.basename(tokens[0]) == "env":
-        parsed_env = _parse_env_wrapper(tokens)
+        parsed_env = _parse_env_wrapper(tokens, base_assignments=stage.env_assignments)
         if parsed_env is None or parsed_env.unsupported:
             return None
         if parsed_env.risk_reason:
@@ -3361,6 +3409,7 @@ def _unwrap_shell(
         inner_stage = _make_stage(parsed_env.inner, stage.operator) or Stage(
             tokens=parsed_env.inner, operator=stage.operator
         )
+        inner_stage.env_assignments = dict(parsed_env.env_assignments)
         inner_stage = _copy_python_metadata(
             inner_stage, stage, env_risk=_env_wrapper_python_risk(tokens)
         )
@@ -3389,7 +3438,9 @@ def _unwrap_shell(
         inner_stage = _make_stage(passthrough_tokens, stage.operator) or Stage(
             tokens=passthrough_tokens, operator=stage.operator
         )
-        inner_stage = _copy_python_metadata(inner_stage, stage)
+        inner_stage = _copy_python_metadata(
+            inner_stage, stage, preserve_env_assignments=True
+        )
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
                                user_actions=user_actions, profile=profile,

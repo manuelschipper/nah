@@ -624,6 +624,19 @@ class TestDatabaseHints:
         assert decision == "allow"
         assert hint is None
 
+    def test_psql_explicit_readonly_select_has_no_hint(self):
+        decision, hint = _hint(
+            'PGOPTIONS="-c default_transaction_read_only=on" '
+            'psql -X -c "SELECT id FROM users"'
+        )
+        assert decision == "allow"
+        assert hint is None
+
+    def test_psql_bare_select_still_has_db_write_hint(self):
+        decision, hint = _hint("psql -X -c 'SELECT id FROM users'")
+        assert decision == "ask"
+        assert "nah allow db_write" in hint
+
     def test_psql_with_host_still_db_write(self):
         """psql -h host should still hint db_write, not network trust."""
         decision, hint = _hint("psql -h unknown.db.com mydb")
