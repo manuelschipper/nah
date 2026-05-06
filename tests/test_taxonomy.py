@@ -3938,6 +3938,7 @@ class TestFD019GlobalInstall:
         ["npm", "install", "--global", "typescript"],
         ["pnpm", "add", "--global", "turbo"],
         ["bun", "add", "--global", "bun-types"],
+        ["bun", "add", "--target", "bun-types"],
         ["pip", "install", "--system", "flask"],
         ["pip", "install", "--target", "/tmp/lib", "flask"],
         ["pip", "install", "--root", "/opt", "flask"],
@@ -3946,6 +3947,28 @@ class TestFD019GlobalInstall:
         ["gem", "install", "--system", "bundler"],
     ])
     def test_global_flag_escalates_to_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
+    @pytest.mark.parametrize("tokens, expected", [
+        (["npm", "run", "test:e2e", "--", "--project=chromium", "-g", "smoke"], "package_run"),
+        (["pnpm", "run", "test", "--", "--global"], "package_run"),
+        (["bun", "run", "test", "--", "--target", "browser"], "package_run"),
+        (["npm", "exec", "--", "tsx", "script.ts", "-g"], "lang_exec"),
+        (["pnpm", "exec", "--", "jest", "--global"], "package_run"),
+        (["bun", "x", "--", "tsx", "script.ts", "--target", "browser"], "package_run"),
+    ])
+    def test_child_boundary_global_flags_do_not_escalate(self, tokens, expected):
+        assert _ct(tokens) == expected
+
+    @pytest.mark.parametrize("tokens", [
+        ["npm", "run", "--global", "build"],
+        ["npm", "run", "--", "--global"],
+        ["npm", "run", "test", "--global", "--", "smoke"],
+        ["npm", "exec", "--", "--global"],
+        ["npm", "exec", "--global", "--", "tsx", "script.ts"],
+        ["bun", "x", "--", "--target", "browser"],
+    ])
+    def test_package_owned_global_flags_still_escalate(self, tokens):
         assert _ct(tokens) == "unknown"
 
     def test_npm_install_without_global_still_install(self):

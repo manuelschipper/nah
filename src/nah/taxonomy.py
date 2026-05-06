@@ -2940,7 +2940,8 @@ def _classify_global_install(tokens: list[str]) -> str | None:
     """Flag-dependent: global-install flags escalate to unknown (ask)."""
     if not tokens or tokens[0] not in _GLOBAL_INSTALL_CMDS:
         return None
-    for tok in tokens[1:]:
+    scan_tokens = _global_install_scan_tokens(tokens)
+    for tok in scan_tokens[1:]:
         if tok in _GLOBAL_INSTALL_FLAGS:
             return UNKNOWN
         if tok.startswith(("--global=", "--system=", "--target=", "--root=")):
@@ -2948,6 +2949,36 @@ def _classify_global_install(tokens: list[str]) -> str | None:
         if tokens[0] in {"pip", "pip3"} and tok == "-t":
             return UNKNOWN
     return None
+
+
+def _global_install_scan_tokens(tokens: list[str]) -> list[str]:
+    """Return package-manager-owned tokens for global-install flag scanning."""
+    if len(tokens) < 2 or tokens[0] not in {"npm", "pnpm", "bun"}:
+        return tokens
+
+    subcommand = tokens[1]
+    if subcommand == "run":
+        if (
+            len(tokens) >= 5
+            and not tokens[2].startswith("-")
+            and tokens[3] == "--"
+        ):
+            return tokens[:3]
+        return tokens
+
+    exec_subcommands = {"exec"}
+    if tokens[0] == "bun":
+        exec_subcommands.add("x")
+    if subcommand in exec_subcommands:
+        try:
+            delimiter_idx = tokens.index("--", 2)
+        except ValueError:
+            return tokens
+        payload = tokens[delimiter_idx + 1:]
+        if payload and not payload[0].startswith("-"):
+            return tokens[:delimiter_idx]
+
+    return tokens
 
 
 def _looks_like_script_path(token: str) -> bool:

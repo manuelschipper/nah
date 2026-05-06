@@ -190,6 +190,18 @@ class TestPackageWrapperLangExec:
         finally:
             os.chdir(old_cwd)
 
+    def test_npm_exec_tsx_child_g_flag_allows(self, project_root):
+        path = os.path.join(project_root, "script.ts")
+        _write(path, "console.log('ok')\n")
+        old_cwd = os.getcwd()
+        os.chdir(project_root)
+        try:
+            r = classify_command("npm exec -- tsx script.ts -g")
+            assert r.final_decision == "allow"
+            assert r.stages[0].action_type == "lang_exec"
+        finally:
+            os.chdir(old_cwd)
+
     def test_npx_create_react_app_stays_package_run(self, project_root):
         r = classify_command("npx create-react-app myapp")
         assert r.final_decision == "allow"
@@ -1066,6 +1078,20 @@ class TestTransparentSuffixComposition:
         r = classify_command("python3 -m json.tool package.json | head -20")
         assert r.final_decision == "allow"
         assert r.composition_rule == ""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm run test:e2e -- --project=chromium -g smoke | tail -60",
+            "pnpm run test -- --global | tail -20",
+            "bun run test -- --target browser | tail -20",
+        ],
+    )
+    def test_package_runner_child_flags_with_transparent_tail_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert r.stages[0].action_type == "package_run"
 
     @pytest.mark.parametrize(
         "command",
