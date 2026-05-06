@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destructive methods use `service_destructive`, and generic MCP tool
   invocation stays on an ask path unless a separate trusted tool classifier
   handles it. (nah-912)
+- **gRPC CLI method intent classification** — visible `grpcurl` calls now
+  classify by method intent: read-like methods and reflection verbs use
+  context-resolved `service_read`, write-like methods use `service_write`,
+  destructive methods use `service_destructive`, and missing or unknown
+  methods stay on ask paths. (nah-913)
 
 ### Fixed
 
