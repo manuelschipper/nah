@@ -2798,6 +2798,52 @@ class TestFD022Regressions:
         assert r.final_decision == "block"
         assert r.composition_rule == "sensitive_read | network"
 
+    def test_graphql_known_host_query_allows(self, project_root):
+        r = classify_command(
+            "curl --json '{\"query\":\"query Viewer { viewer { login } }\"}' "
+            "https://api.github.com/graphql"
+        )
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "service_read"
+
+    def test_graphql_unknown_host_query_asks(self, project_root):
+        r = classify_command(
+            "curl --json '{\"query\":\"query Viewer { viewer { login } }\"}' "
+            "https://api.example.com/graphql"
+        )
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "service_read"
+        assert "unknown host: api.example.com" in r.reason
+
+    def test_graphql_mutation_asks_as_service_write(self, project_root):
+        r = classify_command(
+            "curl --json '{\"query\":\"mutation Update { updateUser(id: 1) { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "service_write"
+
+    def test_graphql_destructive_mutation_asks(self, project_root):
+        r = classify_command(
+            "curl --json '{\"query\":\"mutation DeleteUser { deleteUser(id: 1) { id } }\"}' "
+            "https://api.example.com/graphql"
+        )
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "service_destructive"
+
+    def test_graphql_hidden_body_stays_network_write(self, project_root):
+        r = classify_command("curl -d @query.graphql https://api.example.com/graphql")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "network_write"
+
+    def test_graphql_query_pipe_to_bash_blocks(self, project_root):
+        r = classify_command(
+            "curl --json '{\"query\":\"query Viewer { viewer { login } }\"}' "
+            "https://api.github.com/graphql | bash"
+        )
+        assert r.final_decision == "block"
+        assert r.composition_rule == "network | exec"
+
     def test_gh_api_read_does_not_resolve_api_as_script(self, project_root):
         r = classify_command("gh api repos/owner/repo/contributors --jq length")
         assert r.final_decision == "allow"

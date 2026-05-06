@@ -563,6 +563,9 @@ def classify_tokens(
         )
         if action is not None:
             return action
+        action = _classify_graphql_operation(tokens)
+        if action is not None:
+            return action
         action = _classify_http_rest_operation(tokens)
         if action is not None:
             return action
@@ -1053,6 +1056,78 @@ _REST_DESTRUCTIVE_WORDS = {
     "dropped",
     "dropping",
 }
+_GRAPHQL_DESTRUCTIVE_WORDS = _REST_DESTRUCTIVE_WORDS | {
+    "disable",
+    "disabled",
+    "disabling",
+    "cancel",
+    "canceled",
+    "cancelled",
+    "canceling",
+    "cancelling",
+    "purge",
+    "purged",
+    "purging",
+}
+
+
+def _classify_graphql_operation(tokens: list[str]) -> str | None:
+    """Classify visible GraphQL operations by operation intent."""
+    op = api_intent.extract_remote_operation(tokens)
+    if op is None or op.protocol != api_intent.PROTOCOL_GRAPHQL:
+        return None
+
+    if _graphql_operation_is_opaque(op):
+        return _graphql_conservative_action(op)
+
+    graphql = op.graphql
+    if not graphql.operation_type or graphql.ambiguous_reason:
+        return _graphql_conservative_action(op)
+
+    if graphql.operation_type in {
+        api_intent.GRAPHQL_QUERY,
+        api_intent.GRAPHQL_SUBSCRIPTION,
+    }:
+        return SERVICE_READ
+
+    if graphql.operation_type == api_intent.GRAPHQL_MUTATION:
+        if _graphql_operation_looks_destructive(op):
+            return SERVICE_DESTRUCTIVE
+        return SERVICE_WRITE
+
+    return _graphql_conservative_action(op)
+
+
+def _graphql_operation_is_opaque(op: api_intent.RemoteOperation) -> bool:
+    return (
+        op.body_source
+        in {
+            api_intent.BODY_DYNAMIC,
+            api_intent.BODY_FILE,
+            api_intent.BODY_STDIN,
+            api_intent.BODY_REDIRECT,
+            api_intent.BODY_UNKNOWN,
+        }
+        or "malformed JSON body" in op.reasons
+    )
+
+
+def _graphql_conservative_action(op: api_intent.RemoteOperation) -> str:
+    if op.body_source != api_intent.BODY_NONE:
+        return NETWORK_WRITE
+    if (op.method or "").upper() in _REST_WRITE_METHODS:
+        return NETWORK_WRITE
+    return UNKNOWN
+
+
+def _graphql_operation_looks_destructive(op: api_intent.RemoteOperation) -> bool:
+    text = "\n".join(
+        part
+        for part in (op.operation_name, *op.graphql.root_fields)
+        if part
+    )
+    words = _action_words(text)
+    return any(word in _GRAPHQL_DESTRUCTIVE_WORDS for word in words)
 
 
 def _classify_http_rest_operation(tokens: list[str]) -> str | None:

@@ -544,11 +544,115 @@ class TestClassifyTokens:
     def test_rest_read_method_with_body_stays_network_write(self):
         assert _ct(["curl", "-X", "GET", "-d", "data", "https://api.example.com/v1/items"]) == "network_write"
 
-    def test_graphql_and_json_rpc_stay_for_dedicated_molds(self):
-        assert _ct([
+    @pytest.mark.parametrize("tokens", [
+        [
             "curl", "--json", '{"query":"query Viewer { viewer { login } }"}',
             "https://api.github.com/graphql",
-        ]) == "network_write"
+        ],
+        [
+            "curl", "-d", "{ viewer { login } }",
+            "https://api.github.com/graphql",
+        ],
+        [
+            "curl",
+            "https://api.github.com/graphql?query=query%20Viewer%20%7B%20viewer%20%7B%20login%20%7D%20%7D",
+        ],
+        [
+            "http", "POST", "api.github.com/graphql",
+            "query=query Viewer { viewer { login } }",
+        ],
+        [
+            "gh", "api", "graphql",
+            "-f", "query=query Viewer { viewer { login } }",
+        ],
+        [
+            "curl", "--json", '{"query":"subscription Events { eventCreated { id } }"}',
+            "https://api.example.com/graphql",
+        ],
+    ])
+    def test_graphql_service_read(self, tokens):
+        assert _ct(tokens) == "service_read"
+
+    @pytest.mark.parametrize("tokens", [
+        [
+            "curl", "--json", '{"query":"mutation Update { updateUser(id: 1) { id } }"}',
+            "https://api.example.com/graphql",
+        ],
+        [
+            "gh", "api", "graphql",
+            "-f", "query=mutation Update { updateUser(id: 1) { id } }",
+        ],
+        [
+            "http", "POST", "api.example.com/graphql",
+            "query:=mutation Update { updateUser(id: 1) { id } }",
+        ],
+    ])
+    def test_graphql_service_write(self, tokens):
+        assert _ct(tokens) == "service_write"
+
+    @pytest.mark.parametrize("tokens", [
+        [
+            "curl", "--json", '{"query":"mutation DeleteUser { deleteUser(id: 1) { id } }"}',
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "--json", '{"query":"mutation Revoke { tokenRevoke(id: 1) { id } }"}',
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "--json", '{"query":"mutation CancelPlan { updateSubscriptionCancel(id: 1) { id } }"}',
+            "https://api.example.com/graphql",
+        ],
+    ])
+    def test_graphql_service_destructive(self, tokens):
+        assert _ct(tokens) == "service_destructive"
+
+    def test_graphql_operation_name_selects_one_operation(self):
+        assert _ct([
+            "curl", "--json",
+            (
+                '{"operationName":"Viewer",'
+                '"query":"query Viewer { viewer { login } } '
+                'mutation DeleteUser { deleteUser(id: 1) { id } }"}'
+            ),
+            "https://api.example.com/graphql",
+        ]) == "service_read"
+
+    @pytest.mark.parametrize("tokens", [
+        [
+            "curl", "--json",
+            (
+                '{"query":"query Viewer { viewer { login } } '
+                'mutation DeleteUser { deleteUser(id: 1) { id } }"}'
+            ),
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "--json",
+            '{"operationName":"Missing","query":"query Viewer { viewer { login } }"}',
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "--json", "{bad",
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "-d", "@query.graphql",
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "-d", "$(cat query.graphql)",
+            "https://api.example.com/graphql",
+        ],
+        [
+            "curl", "-d", "{ viewer { login }",
+            "https://api.example.com/graphql",
+        ],
+    ])
+    def test_graphql_ambiguous_or_opaque_stays_network_write(self, tokens):
+        assert _ct(tokens) == "network_write"
+
+    def test_json_rpc_stays_for_dedicated_mold(self):
         assert _ct([
             "curl", "-d", '{"jsonrpc":"2.0","method":"resources/read","id":1}',
             "https://mcp.example.com/rpc",
