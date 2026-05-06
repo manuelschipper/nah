@@ -223,6 +223,38 @@ class TestExtractHost:
     def test_curl_with_flags(self):
         assert extract_host(["curl", "-s", "-o", "/dev/null", "https://api.github.com"]) == "api.github.com"
 
+    def test_curl_json_body_before_url(self):
+        assert extract_host([
+            "curl", "--json", '{"query":"query { viewer { login } }"}',
+            "https://api.github.com/graphql",
+        ]) == "api.github.com"
+
+    def test_curl_data_body_before_url(self):
+        assert extract_host([
+            "curl", "-d", '{"jsonrpc":"2.0","method":"resources/read","id":1}',
+            "https://mcp.example.com/rpc",
+        ]) == "mcp.example.com"
+
+    def test_curl_auth_header_cookie_and_proxy_values_are_not_hosts(self):
+        assert extract_host(["curl", "-u", "user:pass", "https://api.example.com"]) == "api.example.com"
+        assert extract_host([
+            "curl", "-H", "Authorization: Bearer TOKEN", "https://api.example.com",
+        ]) == "api.example.com"
+        assert extract_host(["curl", "-b", "cookies.txt", "https://example.com"]) == "example.com"
+        assert extract_host(["curl", "-c", "cookies.txt", "https://example.com"]) == "example.com"
+        assert extract_host(["curl", "-x", "http://proxy:8080", "https://target.com"]) == "target.com"
+
+    def test_curl_local_file_options_are_not_hosts(self):
+        assert extract_host(["curl", "-K", "config.txt", "https://api.example.com"]) == "api.example.com"
+        assert extract_host(["curl", "--config", "config.txt", "https://api.example.com"]) == "api.example.com"
+        assert extract_host(["curl", "-E", "cert.pem", "https://api.example.com"]) == "api.example.com"
+        assert extract_host(["curl", "-D", "headers.txt", "https://api.example.com"]) == "api.example.com"
+
+    def test_wget_post_data_before_url(self):
+        assert extract_host([
+            "wget", "--post-data", '{"x":1}', "https://api.example.com/items",
+        ]) == "api.example.com"
+
     def test_api_cli_form_field_is_not_host(self):
         assert extract_host(["glab", "api", "projects/1/wikis/attachments", "--form", "file=@image.png"]) is None
 
@@ -347,6 +379,18 @@ class TestNetworkWriteContext:
             ["curl", "-d", "x", "https://evil.com"], "network_write"
         )
         assert decision == "ask"
+
+    def test_json_body_before_url_reports_url_host(self):
+        decision, reason = resolve_network_context(
+            [
+                "curl", "--json", '{"query":"query { viewer { login } }"}',
+                "https://api.github.com/graphql",
+            ],
+            "network_write",
+        )
+        assert decision == "ask"
+        assert "api.github.com" in reason
+        assert "query" not in reason
 
     def test_backward_compat_default_param(self):
         """Default action_type preserves old behavior: known hosts → allow."""

@@ -1101,9 +1101,6 @@ class TestCurlFlagHints:
         decision, hint = _hint("curl -u user:pass https://api.example.com")
         assert decision == "ask"
         assert hint is not None
-        # BUG: extracts "user" as the host from -u flag
-        if "nah trust user" in hint:
-            pytest.xfail("nah-4tk: curl -u flag value parsed as host")
         assert "example.com" in hint
 
     def test_curl_header_auth_wrong_host(self):
@@ -1113,8 +1110,6 @@ class TestCurlFlagHints:
         )
         assert decision == "ask"
         assert hint is not None
-        if "nah trust Authorization" in hint:
-            pytest.xfail("nah-4tk: curl -H value parsed as host")
         assert "example.com" in hint
 
     def test_curl_cert_flag(self):
@@ -1431,24 +1426,18 @@ class TestCurlFlagValueAsHost:
         """curl -b cookies.txt — 'cookies.txt' extracted as host."""
         decision, hint = _hint("curl -b cookies.txt https://example.com")
         assert decision == "ask"
-        if hint and "nah trust cookies" in hint:
-            pytest.xfail("nah-4tk: curl -b flag value parsed as host")
         assert "example.com" in (hint or "")
 
     def test_curl_save_cookie_as_host(self):
         """curl -c cookies.txt — same issue."""
         decision, hint = _hint("curl -c cookies.txt https://example.com")
         assert decision == "ask"
-        if hint and "nah trust cookies" in hint:
-            pytest.xfail("nah-4tk: curl -c flag value parsed as host")
         assert "example.com" in (hint or "")
 
     def test_curl_proxy_as_host(self):
         """curl -x proxy:8080 — proxy extracted instead of target."""
         decision, hint = _hint("curl -x http://proxy:8080 https://target.com")
         assert decision == "ask"
-        if hint and "nah trust proxy" in hint:
-            pytest.xfail("nah-4tk: curl -x proxy parsed as host")
         assert "target.com" in (hint or "")
 
 
