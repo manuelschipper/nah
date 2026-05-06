@@ -160,7 +160,7 @@ nah blocked: this runs unknown code</code></pre>
         <p>AI reviews can guide behavior, but a non-deterministic next-token predictor is still deciding what to do next.</p>
         <div class="nah-versus-rule"></div>
         <h4>More tokens, more cost.</h4>
-        <p>Repeated judgment loops spend context, money, and time on decisions a local classifier can make in milliseconds.</p>
+        <p>Judgement loops spend tokens and time.</p>
       </div>
 
       <div class="nah-versus-split" aria-hidden="true">vs</div>
@@ -171,7 +171,7 @@ nah blocked: this runs unknown code</code></pre>
         <p>nah checks the command, target path, and trust policy locally, then applies the same rule every time.</p>
         <div class="nah-versus-rule"></div>
         <h4>Local checks, faster execution.</h4>
-        <p>Routine decisions happen locally in milliseconds, without another model round trip or extra context spend.</p>
+        <p>Routine decisions happen locally in milliseconds, without another model round trip or extra tokens spend.</p>
       </div>
     </div>
   </section>
