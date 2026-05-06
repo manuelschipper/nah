@@ -91,6 +91,18 @@ class GraphQLIntent:
 
 
 @dataclass(frozen=True)
+class JsonRpcIntent:
+    """Policy-free JSON-RPC request parse result."""
+
+    methods: tuple[str, ...] = ()
+    method_count: int = 0
+    is_batch: bool = False
+    tool_name: str = ""
+    notification_count: int = 0
+    ambiguous_reason: str = ""
+
+
+@dataclass(frozen=True)
 class RemoteOperation:
     """Normalized, policy-free view of a visible remote API operation."""
 
@@ -109,6 +121,7 @@ class RemoteOperation:
     body_source: str = BODY_NONE
     body_format: str = FORMAT_UNKNOWN
     graphql: GraphQLIntent = field(default_factory=GraphQLIntent)
+    json_rpc: JsonRpcIntent = field(default_factory=JsonRpcIntent)
     confidence: str = CONFIDENCE_PARTIAL
     reasons: tuple[str, ...] = ()
 
@@ -293,12 +306,16 @@ def _finalize(
             or _graphql_operation_name(graphql_text)
         )
 
-    json_rpc_method = _extract_json_rpc_method(body_text or "\n".join(body_values))
-    if json_rpc_method:
+    json_rpc = _parse_json_rpc_intent(body_text or "\n".join(body_values))
+    if json_rpc.methods or json_rpc.ambiguous_reason:
         protocol = PROTOCOL_JSON_RPC
         body_format = FORMAT_JSON
-        operation_name = operation_name or json_rpc_method
-        op = replace(op, method=json_rpc_method)
+        if len(json_rpc.methods) == 1:
+            json_rpc_method = json_rpc.methods[0]
+            operation_name = operation_name or json_rpc_method
+            op = replace(op, method=json_rpc_method)
+        if json_rpc.ambiguous_reason:
+            _add_reason(reasons, json_rpc.ambiguous_reason)
 
     malformed_json = _has_malformed_json(op, body_text, body_values)
     if malformed_json:
@@ -336,6 +353,7 @@ def _finalize(
         body_format=body_format,
         operation_name=operation_name,
         graphql=graphql,
+        json_rpc=json_rpc,
         confidence=confidence,
         reasons=tuple(reasons),
     )
@@ -697,24 +715,82 @@ def _is_graphql_name(token: str) -> bool:
     return _GRAPHQL_NAME_RE.fullmatch(token) is not None
 
 
-def _extract_json_rpc_method(value: str) -> str:
+def _parse_json_rpc_intent(value: str) -> JsonRpcIntent:
     if not value:
-        return ""
+        return JsonRpcIntent()
     try:
         payload = json.loads(value)
     except json.JSONDecodeError:
-        return ""
+        return JsonRpcIntent()
     if isinstance(payload, dict):
-        method = payload.get("method")
-        return method if isinstance(method, str) else ""
+        return _parse_json_rpc_object(payload, is_batch=False)
     if isinstance(payload, list):
-        methods = [
-            item.get("method")
-            for item in payload
-            if isinstance(item, dict) and isinstance(item.get("method"), str)
-        ]
-        return methods[0] if len(methods) == 1 else ""
-    return ""
+        return _parse_json_rpc_batch(payload)
+    return JsonRpcIntent()
+
+
+def _parse_json_rpc_batch(payload: list) -> JsonRpcIntent:
+    if not payload:
+        return JsonRpcIntent(ambiguous_reason="empty JSON-RPC batch")
+
+    methods: list[str] = []
+    tool_names: list[str] = []
+    notification_count = 0
+    ambiguous = ""
+    saw_json_rpc_shape = False
+
+    for item in payload:
+        if not isinstance(item, dict):
+            ambiguous = ambiguous or "invalid JSON-RPC batch entry"
+            continue
+        item_intent = _parse_json_rpc_object(item, is_batch=True)
+        if item_intent.methods or item_intent.ambiguous_reason:
+            saw_json_rpc_shape = True
+        methods.extend(item_intent.methods)
+        if item_intent.tool_name:
+            tool_names.append(item_intent.tool_name)
+        notification_count += item_intent.notification_count
+        if item_intent.ambiguous_reason:
+            ambiguous = ambiguous or item_intent.ambiguous_reason
+
+    if not saw_json_rpc_shape and not methods and not ambiguous:
+        return JsonRpcIntent()
+    return JsonRpcIntent(
+        methods=tuple(methods),
+        method_count=len(methods),
+        is_batch=True,
+        tool_name=tool_names[0] if len(tool_names) == 1 else "",
+        notification_count=notification_count,
+        ambiguous_reason=ambiguous,
+    )
+
+
+def _parse_json_rpc_object(payload: dict, *, is_batch: bool) -> JsonRpcIntent:
+    method = payload.get("method")
+    if isinstance(method, str):
+        return JsonRpcIntent(
+            methods=(method,),
+            method_count=1,
+            is_batch=is_batch,
+            tool_name=_json_rpc_tool_name(payload, method),
+            notification_count=0 if "id" in payload else 1,
+        )
+    if "method" in payload or payload.get("jsonrpc") == "2.0":
+        return JsonRpcIntent(
+            is_batch=is_batch,
+            ambiguous_reason="JSON-RPC request without string method",
+        )
+    return JsonRpcIntent()
+
+
+def _json_rpc_tool_name(payload: dict, method: str) -> str:
+    if method != "tools/call":
+        return ""
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        return ""
+    name = params.get("name")
+    return name if isinstance(name, str) else ""
 
 
 def _has_malformed_json(op: RemoteOperation, body_text: str, body_values: list[str]) -> bool:

@@ -566,6 +566,9 @@ def classify_tokens(
         action = _classify_graphql_operation(tokens)
         if action is not None:
             return action
+        action = _classify_json_rpc_operation(tokens)
+        if action is not None:
+            return action
         action = _classify_http_rest_operation(tokens)
         if action is not None:
             return action
@@ -1069,6 +1072,46 @@ _GRAPHQL_DESTRUCTIVE_WORDS = _REST_DESTRUCTIVE_WORDS | {
     "purged",
     "purging",
 }
+_JSON_RPC_MCP_READ_METHODS = {
+    "initialize",
+    "ping",
+    "tools/list",
+    "resources/list",
+    "resources/templates/list",
+    "resources/read",
+    "prompts/list",
+    "prompts/get",
+    "completion/complete",
+}
+_JSON_RPC_MCP_WRITE_METHODS = {
+    "logging/setlevel",
+    "resources/subscribe",
+    "resources/unsubscribe",
+}
+_JSON_RPC_MCP_TOOL_CALL_METHODS = {"tools/call"}
+_JSON_RPC_READ_WORDS = {
+    "get",
+    "list",
+    "read",
+    "search",
+    "describe",
+    "inspect",
+    "query",
+    "find",
+    "lookup",
+}
+_JSON_RPC_WRITE_WORDS = {
+    "create",
+    "update",
+    "set",
+    "send",
+    "publish",
+    "write",
+    "append",
+    "upsert",
+    "subscribe",
+}
+_JSON_RPC_DESTRUCTIVE_WORDS = _GRAPHQL_DESTRUCTIVE_WORDS
 
 
 def _classify_graphql_operation(tokens: list[str]) -> str | None:
@@ -1128,6 +1171,79 @@ def _graphql_operation_looks_destructive(op: api_intent.RemoteOperation) -> bool
     )
     words = _action_words(text)
     return any(word in _GRAPHQL_DESTRUCTIVE_WORDS for word in words)
+
+
+def _classify_json_rpc_operation(tokens: list[str]) -> str | None:
+    """Classify visible JSON-RPC operations by method intent."""
+    op = api_intent.extract_remote_operation(tokens)
+    if op is None or op.protocol != api_intent.PROTOCOL_JSON_RPC:
+        return None
+
+    if _json_rpc_operation_is_opaque(op):
+        return _json_rpc_conservative_action(op)
+
+    json_rpc = op.json_rpc
+    if not json_rpc.methods or json_rpc.ambiguous_reason:
+        return _json_rpc_conservative_action(op)
+
+    actions = [
+        _classify_json_rpc_method(method) or UNKNOWN
+        for method in json_rpc.methods
+    ]
+    return _strictest_json_rpc_action(actions)
+
+
+def _json_rpc_operation_is_opaque(op: api_intent.RemoteOperation) -> bool:
+    return (
+        op.body_source
+        in {
+            api_intent.BODY_DYNAMIC,
+            api_intent.BODY_FILE,
+            api_intent.BODY_STDIN,
+            api_intent.BODY_REDIRECT,
+            api_intent.BODY_UNKNOWN,
+        }
+        or "malformed JSON body" in op.reasons
+    )
+
+
+def _json_rpc_conservative_action(op: api_intent.RemoteOperation) -> str:
+    if op.body_source != api_intent.BODY_NONE:
+        return NETWORK_WRITE
+    if (op.method or "").upper() in _REST_WRITE_METHODS:
+        return NETWORK_WRITE
+    return UNKNOWN
+
+
+def _classify_json_rpc_method(method: str) -> str | None:
+    normalized = method.strip().lower()
+    if normalized in _JSON_RPC_MCP_TOOL_CALL_METHODS:
+        return UNKNOWN
+    if normalized in _JSON_RPC_MCP_READ_METHODS:
+        return SERVICE_READ
+    if normalized in _JSON_RPC_MCP_WRITE_METHODS:
+        return SERVICE_WRITE
+
+    words = _action_words(method)
+    if any(word in _JSON_RPC_DESTRUCTIVE_WORDS for word in words):
+        return SERVICE_DESTRUCTIVE
+    if any(word in _JSON_RPC_WRITE_WORDS for word in words):
+        return SERVICE_WRITE
+    if any(word in _JSON_RPC_READ_WORDS for word in words):
+        return SERVICE_READ
+    return None
+
+
+def _strictest_json_rpc_action(actions: list[str]) -> str:
+    if any(action == SERVICE_DESTRUCTIVE for action in actions):
+        return SERVICE_DESTRUCTIVE
+    if any(action == UNKNOWN for action in actions):
+        return UNKNOWN
+    if any(action == SERVICE_WRITE for action in actions):
+        return SERVICE_WRITE
+    if any(action == SERVICE_READ for action in actions):
+        return SERVICE_READ
+    return UNKNOWN
 
 
 def _classify_http_rest_operation(tokens: list[str]) -> str | None:
@@ -1220,6 +1336,9 @@ def is_network_data_flow_action(action_type: str, tokens: list[str]) -> bool:
         return True
     if action_type in {SERVICE_READ, SERVICE_WRITE, SERVICE_DESTRUCTIVE}:
         return api_intent.extract_remote_operation(tokens) is not None
+    if action_type == UNKNOWN:
+        op = api_intent.extract_remote_operation(tokens)
+        return op is not None and op.protocol == api_intent.PROTOCOL_JSON_RPC
     return False
 
 

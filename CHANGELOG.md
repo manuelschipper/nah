@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `service_write`, destructive mutation names/root fields use
   `service_destructive`, and hidden or ambiguous documents stay on ask paths.
   (nah-911)
+- **JSON-RPC and MCP method intent classification** — visible JSON-RPC request
+  bodies now classify by method intent before REST fallback: read-like methods
+  use context-resolved `service_read`, write-like methods use `service_write`,
+  destructive methods use `service_destructive`, and generic MCP tool
+  invocation stays on an ask path unless a separate trusted tool classifier
+  handles it. (nah-912)
 
 ### Fixed
 
