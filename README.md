@@ -41,14 +41,15 @@ Trusting commands by name is the wrong abstraction.
 Even when you curate permissions, agents can route around command names through
 shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
-through prompts. That is why developers drift into yolo mode.
+through prompts.
 
-Claude Code Auto Mode and Codex auto-review style guards can reduce prompting,
-but they still lean on model judgement and prompt instructions. System prompts
-are advisory: a non-deterministic next-token predictor is still deciding what
-to do next. That means repeated judgement loops spend tokens and time on
-decisions a local classifier can make in milliseconds, without giving you
-reproducible, auditable policy enforcement.
+Auto modes are one response to that prompt fatigue. Claude Code Auto Mode and
+Codex auto-review style guards can reduce interruptions, but they still lean on
+model judgement and prompt instructions. System prompts are advisory: a
+non-deterministic next-token predictor is still deciding what to do next. That
+is not reproducible, auditable policy enforcement. It is another judgement loop
+spending tokens and time on decisions a local classifier can make in
+milliseconds.
 
 ## The Idea
 
