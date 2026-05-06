@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 PYTHON = sys.executable
@@ -19,12 +20,15 @@ def run_hook_raw(input_str: str, env_overrides: dict | None = None) -> tuple[dic
     if env_overrides:
         env.update(env_overrides)
     env["PYTHONPATH"] = f"{SRC_PATH}{os.pathsep}{env.get('PYTHONPATH', '')}" if env.get("PYTHONPATH") else SRC_PATH
-    result = subprocess.run(
-        [PYTHON, "-m", "nah.hook"],
-        input=input_str,
-        capture_output=True, text=True,
-        env=env,
-    )
+    with tempfile.TemporaryDirectory() as home:
+        if not env_overrides or "HOME" not in env_overrides:
+            env["HOME"] = home
+        result = subprocess.run(
+            [PYTHON, "-m", "nah.hook"],
+            input=input_str,
+            capture_output=True, text=True,
+            env=env,
+        )
     if not result.stdout.strip():
         return None, result.stderr
     return json.loads(result.stdout), result.stderr

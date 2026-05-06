@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context-resolved `service_read`, write-like methods use `service_write`,
   destructive methods use `service_destructive`, and missing or unknown
   methods stay on ask paths. (nah-913)
+- **WebSocket and Socket.IO event intent classification** — visible `wscat`
+  and `websocat` commands now distinguish connection-only traffic from sends,
+  classify visible event names into `service_read`, `service_write`, or
+  `service_destructive`, parse simple visible Socket.IO `42[...]` event
+  packets, and keep opaque sends on ask paths. (nah-914)
 - **SQLite read-only CLI classification** — explicit read-only `sqlite3`
   inspection commands now classify as `db_read` for simple `SELECT`, safe
   `EXPLAIN`, safe PRAGMA introspection, and safe dot commands; bare SQLite,
