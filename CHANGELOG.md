@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **HTTP and REST API intent classification** — visible HTTP API calls now
+  classify by service intent: GET/HEAD/OPTIONS use context-resolved
+  `service_read`, POST/PUT/PATCH use `service_write`, DELETE and destructive
+  paths use `service_destructive`, and remote service actions still participate
+  in network data-flow blocks such as `curl ... | bash`. (nah-910)
+
+### Fixed
+
+- **Curl host extraction skips body and option values** — curl/wget-style host
+  detection now ignores option values such as JSON bodies, config files, cert
+  paths, and headers before selecting the actual request URL. (nah-909)
+
 ## [0.8.2] - 2026-05-06
 
 ### Changed
