@@ -43,6 +43,13 @@ shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
 through prompts. That is why developers drift into yolo mode.
 
+Claude Code Auto Mode and Codex auto-review style guards can reduce prompting,
+but they still lean on model judgement and prompt instructions. System prompts
+are advisory: a non-deterministic next-token predictor is still deciding what
+to do next. That means repeated judgement loops spend tokens and time on
+decisions a local classifier can make in milliseconds, without giving you
+reproducible, auditable policy enforcement.
+
 ## The Idea
 
 nah classifies what the action actually does before it runs. Safe work keeps
