@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Package script argument boundary classification** — `npm run <script> --`,
+  `pnpm run <script> --`, `bun run <script> --`, and explicit package exec
+  payloads no longer treat child arguments such as `-g`, `--global`, or
+  `--target` as package-manager global install flags; malformed or
+  package-owned global flags still ask. (nah-917)
 - **Curl host extraction skips body and option values** — curl/wget-style host
   detection now ignores option values such as JSON bodies, config files, cert
   paths, and headers before selecting the actual request URL. (nah-909)
