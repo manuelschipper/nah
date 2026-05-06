@@ -417,6 +417,24 @@ class TestServiceReadContext:
         assert decision == "ask"
         assert "api.example.com" in reason
 
+    def test_grpc_service_read_known_host_allows(self):
+        decision, reason = resolve_context(
+            "service_read",
+            tokens=["grpcurl", "github.com:443", "pkg.User/GetUser"],
+        )
+
+        assert decision == "allow"
+        assert "github.com" in reason
+
+    def test_grpc_service_read_unknown_host_asks(self):
+        decision, reason = resolve_context(
+            "service_read",
+            tokens=["grpcurl", "api.example.com:443", "pkg.User/GetUser"],
+        )
+
+        assert decision == "ask"
+        assert "api.example.com" in reason
+
 
 # --- FD-022: httpie host extraction ---
 

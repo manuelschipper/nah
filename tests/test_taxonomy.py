@@ -727,6 +727,49 @@ class TestClassifyTokens:
         assert result.final_decision == "block"
         assert result.composition_rule == "network | exec"
 
+    @pytest.mark.parametrize("tokens", [
+        ["grpcurl", "api.example.com:443", "list"],
+        ["grpcurl", "api.example.com:443", "describe", "pkg.User"],
+        ["grpcurl", "api.example.com:443", "pkg.User/GetUser"],
+        ["grpcurl", "api.example.com:443", "pkg.User/SearchUsers"],
+    ])
+    def test_grpc_service_read(self, tokens):
+        assert _ct(tokens) == "service_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["grpcurl", "-d", '{"id":1}', "api.example.com:443", "pkg.User/UpdateUser"],
+        ["grpcurl", "-d", '{"name":"demo"}', "api.example.com:443", "pkg.User/CreateUser"],
+    ])
+    def test_grpc_service_write(self, tokens):
+        assert _ct(tokens) == "service_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["grpcurl", "-d", "@body.json", "api.example.com:443", "pkg.User/DeleteUser"],
+        ["grpcurl", "api.example.com:443", "pkg.Admin/ResetTenant"],
+        ["grpcurl", "-d", '{"id":1}', "api.example.com:443", "pkg.Admin/UpdateAndDeleteUser"],
+    ])
+    def test_grpc_service_destructive(self, tokens):
+        assert _ct(tokens) == "service_destructive"
+
+    def test_grpc_unknown_visible_method_asks_as_unknown(self):
+        assert _ct(["grpcurl", "api.example.com:443", "pkg.User/UnknownAction"]) == "unknown"
+
+    def test_grpc_missing_method_without_body_asks_as_unknown(self):
+        assert _ct(["grpcurl", "api.example.com:443"]) == "unknown"
+
+    def test_grpc_missing_method_with_body_asks_as_network_write(self):
+        assert _ct(["grpcurl", "-d", '{"id":1}', "api.example.com:443"]) == "network_write"
+
+    def test_grpc_hidden_generated_client_is_not_newly_classified(self):
+        assert _ct(["python", "-c", "import grpc"]) == "lang_exec"
+
+    def test_grpc_unknown_method_to_exec_blocks_as_network_flow(self):
+        result = classify_command("grpcurl api.example.com:443 pkg.User/UnknownAction | bash")
+
+        assert result.stages[0].action_type == "unknown"
+        assert result.final_decision == "block"
+        assert result.composition_rule == "network | exec"
+
     # service_write
     @pytest.mark.parametrize("tokens", [
         ["systemctl", "restart", "nginx"],

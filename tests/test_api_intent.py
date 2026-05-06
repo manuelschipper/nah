@@ -6,6 +6,7 @@ from nah.api_intent import (
     BODY_DYNAMIC,
     BODY_FILE,
     BODY_INLINE,
+    BODY_NONE,
     BODY_STDIN,
     CLIENT_CURL,
     CLIENT_GH_API,
@@ -386,6 +387,31 @@ class TestGrpcExtraction:
         assert op.operation_name == "pkg.User/GetUser"
         assert op.body_source == BODY_INLINE
         assert op.body_format == FORMAT_JSON
+
+    def test_grpcurl_reflection_list(self):
+        op = _op("grpcurl api.example.com:443 list")
+
+        assert op.client == CLIENT_GRPCURL
+        assert op.protocol == PROTOCOL_GRPC
+        assert op.host == "api.example.com"
+        assert op.method == "list"
+        assert op.body_source == BODY_NONE
+
+    def test_grpcurl_missing_method(self):
+        op = _op("grpcurl api.example.com:443")
+
+        assert op.client == CLIENT_GRPCURL
+        assert op.protocol == PROTOCOL_GRPC
+        assert op.host == "api.example.com"
+        assert op.method == ""
+
+    def test_grpcurl_file_body_is_opaque(self):
+        op = _op("grpcurl -d @body.json api.example.com:443 pkg.User/DeleteUser")
+
+        assert op.protocol == PROTOCOL_GRPC
+        assert op.method == "pkg.User/DeleteUser"
+        assert op.body_source == BODY_FILE
+        assert op.confidence == CONFIDENCE_OPAQUE
 
 
 class TestWebSocketExtraction:

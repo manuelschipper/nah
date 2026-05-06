@@ -569,6 +569,9 @@ def classify_tokens(
         action = _classify_json_rpc_operation(tokens)
         if action is not None:
             return action
+        action = _classify_grpc_operation(tokens)
+        if action is not None:
+            return action
         action = _classify_http_rest_operation(tokens)
         if action is not None:
             return action
@@ -1112,6 +1115,28 @@ _JSON_RPC_WRITE_WORDS = {
     "subscribe",
 }
 _JSON_RPC_DESTRUCTIVE_WORDS = _GRAPHQL_DESTRUCTIVE_WORDS
+_GRPC_READ_WORDS = {
+    "get",
+    "list",
+    "read",
+    "search",
+    "describe",
+    "watch",
+    "query",
+    "find",
+    "lookup",
+}
+_GRPC_WRITE_WORDS = {
+    "create",
+    "update",
+    "set",
+    "send",
+    "publish",
+    "write",
+    "append",
+    "upsert",
+}
+_GRPC_DESTRUCTIVE_WORDS = _GRAPHQL_DESTRUCTIVE_WORDS
 
 
 def _classify_graphql_operation(tokens: list[str]) -> str | None:
@@ -1246,6 +1271,32 @@ def _strictest_json_rpc_action(actions: list[str]) -> str:
     return UNKNOWN
 
 
+def _classify_grpc_operation(tokens: list[str]) -> str | None:
+    """Classify visible gRPC CLI operations by method intent."""
+    op = api_intent.extract_remote_operation(tokens)
+    if op is None or op.protocol != api_intent.PROTOCOL_GRPC:
+        return None
+
+    method = op.operation_name or op.method
+    if not method:
+        if op.body_source != api_intent.BODY_NONE:
+            return NETWORK_WRITE
+        return UNKNOWN
+
+    return _classify_grpc_method(method) or UNKNOWN
+
+
+def _classify_grpc_method(method: str) -> str | None:
+    words = _action_words(method)
+    if any(word in _GRPC_DESTRUCTIVE_WORDS for word in words):
+        return SERVICE_DESTRUCTIVE
+    if any(word in _GRPC_WRITE_WORDS for word in words):
+        return SERVICE_WRITE
+    if any(word in _GRPC_READ_WORDS for word in words):
+        return SERVICE_READ
+    return None
+
+
 def _classify_http_rest_operation(tokens: list[str]) -> str | None:
     """Classify visible HTTP/REST operations without handling other protocols."""
     op = api_intent.extract_remote_operation(tokens)
@@ -1338,7 +1389,10 @@ def is_network_data_flow_action(action_type: str, tokens: list[str]) -> bool:
         return api_intent.extract_remote_operation(tokens) is not None
     if action_type == UNKNOWN:
         op = api_intent.extract_remote_operation(tokens)
-        return op is not None and op.protocol == api_intent.PROTOCOL_JSON_RPC
+        return (
+            op is not None
+            and op.protocol in {api_intent.PROTOCOL_JSON_RPC, api_intent.PROTOCOL_GRPC}
+        )
     return False
 
 
