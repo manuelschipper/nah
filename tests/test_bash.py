@@ -2337,6 +2337,40 @@ class TestNewActionTypes:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "db_write"
 
+    def test_sqlite3_readonly_select_allow(self, project_root):
+        r = classify_command("sqlite3 -readonly db.sqlite 'SELECT 1'")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "db_read"
+
+    def test_sqlite3_readonly_schema_allow(self, project_root):
+        r = classify_command("sqlite3 -readonly db.sqlite '.schema'")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "db_read"
+
+    def test_sqlite3_bare_select_asks(self, project_root):
+        r = classify_command("sqlite3 db.sqlite 'SELECT 1'")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_write"
+
+    def test_sqlite3_readonly_writefile_asks(self, project_root):
+        r = classify_command("sqlite3 -readonly db.sqlite \"SELECT writefile('/tmp/x', 'x')\"")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_write"
+
+    def test_sqlite3_readonly_insert_asks(self, project_root):
+        r = classify_command("sqlite3 -readonly db.sqlite 'INSERT INTO t VALUES (1)'")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_write"
+
+    @pytest.mark.parametrize("command", [
+        "sqlite3 -readonly db.sqlite < schema.sql",
+        "sqlite3 -readonly db.sqlite <schema.sql",
+    ])
+    def test_sqlite3_input_redirection_asks(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert any(stage.action_type == "db_write" for stage in r.stages)
+
     def test_mysql_bare_ask(self, project_root):
         r = classify_command("mysql")
         assert r.final_decision == "ask"
