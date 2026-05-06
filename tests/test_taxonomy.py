@@ -652,11 +652,80 @@ class TestClassifyTokens:
     def test_graphql_ambiguous_or_opaque_stays_network_write(self, tokens):
         assert _ct(tokens) == "network_write"
 
-    def test_json_rpc_stays_for_dedicated_mold(self):
+    @pytest.mark.parametrize("method, expected", [
+        ("resources/read", "service_read"),
+        ("tools/list", "service_read"),
+        ("initialize", "service_read"),
+        ("completion/complete", "service_read"),
+        ("getUser", "service_read"),
+        ("user.search", "service_read"),
+        ("updateUser", "service_write"),
+        ("user.set", "service_write"),
+        ("resources/subscribe", "service_write"),
+        ("deleteUser", "service_destructive"),
+        ("user.remove", "service_destructive"),
+        ("unknownAction", "unknown"),
+    ])
+    def test_json_rpc_method_intent(self, method, expected):
+        assert _ct([
+            "curl", "-d", f'{{"jsonrpc":"2.0","method":"{method}","id":1}}',
+            "https://api.example.com/rpc",
+        ]) == expected
+
+    def test_json_rpc_resources_read_is_service_read(self):
         assert _ct([
             "curl", "-d", '{"jsonrpc":"2.0","method":"resources/read","id":1}',
             "https://mcp.example.com/rpc",
-        ]) == "network_write"
+        ]) == "service_read"
+
+    def test_json_rpc_tools_call_asks_as_unknown(self):
+        assert _ct([
+            "curl", "-d",
+            (
+                '{"jsonrpc":"2.0","method":"tools/call",'
+                '"params":{"name":"search","arguments":{"q":"x"}},"id":1}'
+            ),
+            "https://mcp.example.com/rpc",
+        ]) == "unknown"
+
+    @pytest.mark.parametrize("body, expected", [
+        (
+            '[{"jsonrpc":"2.0","method":"resources/read","id":1},'
+            '{"jsonrpc":"2.0","method":"updateUser","id":2}]',
+            "service_write",
+        ),
+        (
+            '[{"jsonrpc":"2.0","method":"resources/read","id":1},'
+            '{"jsonrpc":"2.0","method":"deleteUser","id":2}]',
+            "service_destructive",
+        ),
+        (
+            '[{"jsonrpc":"2.0","method":"updateUser","id":1},'
+            '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search"},"id":2}]',
+            "unknown",
+        ),
+    ])
+    def test_json_rpc_batch_strictness(self, body, expected):
+        assert _ct(["curl", "-d", body, "https://mcp.example.com/rpc"]) == expected
+
+    @pytest.mark.parametrize("body", [
+        '{"jsonrpc":"2.0","result":{"ok":true},"id":1}',
+        '{"jsonrpc":"2.0","id":1}',
+        '[{"jsonrpc":"2.0","method":"resources/read","id":1},{"jsonrpc":"2.0","id":2}]',
+    ])
+    def test_json_rpc_ambiguous_stays_network_write(self, body):
+        assert _ct(["curl", "-d", body, "https://mcp.example.com/rpc"]) == "network_write"
+
+    def test_json_rpc_tools_call_to_exec_blocks_as_network_flow(self):
+        result = classify_command(
+            "curl -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\","
+            "\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"x\"}},\"id\":1}' "
+            "https://mcp.example.com/rpc | bash"
+        )
+
+        assert result.stages[0].action_type == "unknown"
+        assert result.final_decision == "block"
+        assert result.composition_rule == "network | exec"
 
     # service_write
     @pytest.mark.parametrize("tokens", [

@@ -225,6 +225,53 @@ class TestCurlExtraction:
         assert op.body_format == FORMAT_JSON
         assert op.method == "resources/read"
         assert op.operation_name == "resources/read"
+        assert op.json_rpc.methods == ("resources/read",)
+        assert op.json_rpc.method_count == 1
+        assert not op.json_rpc.is_batch
+
+    def test_curl_json_rpc_notification(self):
+        op = _op(
+            "curl -d '{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}' "
+            "https://mcp.example.com/rpc"
+        )
+
+        assert op.protocol == PROTOCOL_JSON_RPC
+        assert op.json_rpc.methods == ("notifications/initialized",)
+        assert op.json_rpc.notification_count == 1
+
+    def test_curl_json_rpc_batch_methods(self):
+        op = _op(
+            "curl -d '[{\"jsonrpc\":\"2.0\",\"method\":\"resources/read\",\"id\":1},"
+            "{\"jsonrpc\":\"2.0\",\"method\":\"updateUser\",\"id\":2}]' "
+            "https://mcp.example.com/rpc"
+        )
+
+        assert op.protocol == PROTOCOL_JSON_RPC
+        assert op.method == "POST"
+        assert op.json_rpc.is_batch
+        assert op.json_rpc.methods == ("resources/read", "updateUser")
+        assert op.json_rpc.method_count == 2
+
+    def test_curl_json_rpc_response_is_ambiguous(self):
+        op = _op(
+            "curl -d '{\"jsonrpc\":\"2.0\",\"result\":{\"ok\":true},\"id\":1}' "
+            "https://mcp.example.com/rpc"
+        )
+
+        assert op.protocol == PROTOCOL_JSON_RPC
+        assert op.json_rpc.methods == ()
+        assert "without string method" in op.json_rpc.ambiguous_reason
+
+    def test_curl_json_rpc_tools_call_tool_name(self):
+        op = _op(
+            "curl -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\","
+            "\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"x\"}},\"id\":1}' "
+            "https://mcp.example.com/rpc"
+        )
+
+        assert op.protocol == PROTOCOL_JSON_RPC
+        assert op.method == "tools/call"
+        assert op.json_rpc.tool_name == "search"
 
     def test_curl_explicit_get_with_body_preserves_method(self):
         op = _op("curl -X GET -d data https://api.example.com/items")
