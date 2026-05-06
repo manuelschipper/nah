@@ -43,9 +43,9 @@ shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
 through prompts.
 
-Auto modes are one response to that prompt fatigue. Claude Code Auto Mode and
-Codex auto-review style guards can reduce interruptions, but they still lean on
-model judgement and prompt instructions. System prompts are advisory: a
+Auto modes like Claude Code's Auto Mode and Codex auto review can reduce
+interruptions, but they still lean on model judgement and prompt instructions.
+System prompts are advisory: a
 non-deterministic next-token predictor is still deciding what to do next. That
 is not reproducible, auditable policy enforcement. It is another judgement loop
 spending tokens and time on decisions a local classifier can make in
@@ -53,11 +53,10 @@ milliseconds.
 
 ## The Idea
 
-nah classifies what the action actually does before it runs. Safe work keeps
-moving. Ambiguous actions ask. Dangerous actions stop before they do damage.
-
-Deterministic, runs in milliseconds, zero required dependencies, pure Python,
-sane defaults out of the box.
+nah is a permissions guard built in pure Python with zero required dependencies
+that works out of the box. The main classifier maps tools deterministically into
+an intent taxonomy in milliseconds. An optional LLM resolves qualified
+ambiguous asks.
 
 ## How nah decides
 
