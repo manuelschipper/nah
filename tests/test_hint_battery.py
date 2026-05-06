@@ -619,6 +619,11 @@ class TestDatabaseHints:
         assert hint is not None
         assert "nah allow db_write" in hint
 
+    def test_sqlite3_readonly_select_has_no_hint(self):
+        decision, hint = _hint("sqlite3 -readonly /tmp/test.db 'SELECT 1'")
+        assert decision == "allow"
+        assert hint is None
+
     def test_psql_with_host_still_db_write(self):
         """psql -h host should still hint db_write, not network trust."""
         decision, hint = _hint("psql -h unknown.db.com mydb")

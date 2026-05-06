@@ -202,6 +202,7 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
                           "gh", "glab", "mise",
+                          "sqlite3",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -561,6 +562,9 @@ def classify_tokens(
             tokens,
             global_table=global_table,
         )
+        if action is not None:
+            return action
+        action = _classify_sqlite3(tokens)
         if action is not None:
             return action
         action = _classify_graphql_operation(tokens)
@@ -1034,6 +1038,270 @@ def _classify_tar(tokens: list[str]) -> str | None:
     if found_read:
         return FILESYSTEM_READ
     return FILESYSTEM_WRITE  # Conservative default
+
+
+_SQLITE3_READONLY_FLAGS = {"-readonly", "--readonly"}
+_SQLITE3_SAFE_BOOL_FLAGS = {
+    "-safe", "--safe",
+    "-batch", "--batch",
+    "-bail", "--bail",
+    "-header", "--header",
+    "-noheader", "--noheader",
+    "-column", "--column",
+    "-csv", "--csv",
+    "-json", "--json",
+    "-line", "--line",
+    "-list", "--list",
+    "-tabs", "--tabs",
+    "-table", "--table",
+    "-box", "--box",
+    "-markdown", "--markdown",
+    "-html", "--html",
+    "-quote", "--quote",
+}
+_SQLITE3_SAFE_VALUE_FLAGS = {
+    "-separator", "--separator",
+    "-newline", "--newline",
+    "-nullvalue", "--nullvalue",
+}
+_SQLITE3_UNSAFE_FLAGS = {
+    "-cmd", "--cmd",
+    "-init", "--init",
+    "-nonce", "--nonce",
+    "-unsafe-testing", "--unsafe-testing",
+    "-append", "--append",
+    "-deserialize", "--deserialize",
+    "-zip", "--zip",
+    "-A",
+}
+_SQLITE3_SAFE_DOT_COMMANDS = {
+    ".schema",
+    ".tables",
+    ".indexes",
+    ".databases",
+    ".dbinfo",
+    ".fullschema",
+    ".show",
+    ".help",
+    ".version",
+}
+_SQLITE3_SAFE_PRAGMAS = {
+    "table_info",
+    "table_xinfo",
+    "foreign_key_list",
+    "index_list",
+    "index_info",
+    "index_xinfo",
+    "database_list",
+    "schema_version",
+    "user_version",
+    "application_id",
+    "page_count",
+    "freelist_count",
+    "page_size",
+    "encoding",
+    "collation_list",
+    "compile_options",
+    "function_list",
+    "integrity_check",
+    "module_list",
+    "pragma_list",
+    "quick_check",
+    "table_list",
+}
+_SQLITE3_SAFE_ARG_PRAGMAS = {
+    "table_info",
+    "table_xinfo",
+    "foreign_key_list",
+    "index_list",
+    "index_info",
+    "index_xinfo",
+    "integrity_check",
+    "quick_check",
+}
+_SQLITE3_UNSAFE_SQL_FUNCTION_RE = re.compile(
+    r"\b(?:writefile|readfile|load_extension|edit|fts3_tokenizer)\s*\(",
+    re.IGNORECASE,
+)
+
+
+def _classify_sqlite3(tokens: list[str]) -> str | None:
+    """Classify sqlite3 read-only invocations when the read-only shape is explicit."""
+    if not tokens or tokens[0] != "sqlite3":
+        return None
+
+    parsed = _sqlite3_parse_read_shape(tokens)
+    if parsed is None:
+        return DB_WRITE
+    db_name, sql_or_dot_command, readonly = parsed
+
+    if db_name != ":memory:" and not readonly:
+        return DB_WRITE
+    if _sqlite3_is_safe_dot_command(sql_or_dot_command):
+        return DB_READ
+    if _sqlite3_is_readonly_sql(sql_or_dot_command):
+        return DB_READ
+    return DB_WRITE
+
+
+def _sqlite3_parse_read_shape(tokens: list[str]) -> tuple[str, str, bool] | None:
+    args = tokens[1:]
+    readonly = False
+    i = 0
+
+    while i < len(args):
+        tok = args[i]
+        if _sqlite3_is_input_redirect(tok):
+            return None
+        if tok == "--":
+            i += 1
+            break
+        if tok.startswith("-") and tok != "-":
+            flag = tok.lower()
+            if flag in _SQLITE3_UNSAFE_FLAGS:
+                return None
+            if flag in _SQLITE3_READONLY_FLAGS:
+                readonly = True
+                i += 1
+                continue
+            if flag in _SQLITE3_SAFE_BOOL_FLAGS:
+                i += 1
+                continue
+            if flag in _SQLITE3_SAFE_VALUE_FLAGS:
+                if i + 1 >= len(args):
+                    return None
+                i += 2
+                continue
+            return None
+        break
+
+    if i >= len(args):
+        return None
+
+    db_name = args[i]
+    if db_name != ":memory:" and db_name.startswith("-"):
+        return None
+    if _sqlite3_is_input_redirect(db_name):
+        return None
+    i += 1
+
+    command_args = args[i:]
+    if len(command_args) != 1:
+        return None
+    if any(_sqlite3_is_input_redirect(arg) for arg in command_args):
+        return None
+    return db_name, command_args[0], readonly
+
+
+def _sqlite3_is_input_redirect(token: str) -> bool:
+    return (
+        token in {"<", "0<", "<<<"}
+        or token.startswith("<")
+        or token.startswith("0<")
+        or token.startswith("<<<")
+    )
+
+
+def _sqlite3_is_safe_dot_command(command: str) -> bool:
+    stripped = command.strip()
+    if not stripped.startswith("."):
+        return False
+    if "|" in stripped or ";" in stripped:
+        return False
+    parts = stripped.split()
+    if not parts:
+        return False
+    return parts[0].lower() in _SQLITE3_SAFE_DOT_COMMANDS
+
+
+def _sqlite3_is_readonly_sql(sql: str) -> bool:
+    statement = _sqlite3_single_statement(sql)
+    if statement is None:
+        return False
+    if _SQLITE3_UNSAFE_SQL_FUNCTION_RE.search(statement):
+        return False
+
+    if re.match(r"\s*select\b", statement, re.IGNORECASE):
+        return True
+
+    explain = re.match(
+        r"\s*explain\s+(?:query\s+plan\s+)?(.+)\Z",
+        statement,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if explain:
+        inner = explain.group(1).strip()
+        return (
+            bool(re.match(r"select\b", inner, re.IGNORECASE))
+            and _sqlite3_is_readonly_sql(inner)
+        )
+
+    return _sqlite3_is_safe_pragma(statement)
+
+
+def _sqlite3_single_statement(sql: str) -> str | None:
+    stripped = sql.strip()
+    if not stripped:
+        return None
+    if "--" in stripped or "/*" in stripped or "*/" in stripped:
+        return None
+
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(stripped):
+        ch = stripped[i]
+        if in_single:
+            if ch == "'":
+                if i + 1 < len(stripped) and stripped[i + 1] == "'":
+                    i += 2
+                    continue
+                in_single = False
+        elif in_double:
+            if ch == '"':
+                if i + 1 < len(stripped) and stripped[i + 1] == '"':
+                    i += 2
+                    continue
+                in_double = False
+        elif ch == "'":
+            in_single = True
+        elif ch == '"':
+            in_double = True
+        elif ch == ";":
+            if stripped[i + 1:].strip():
+                return None
+            stripped = stripped[:i].strip()
+            break
+        i += 1
+
+    return stripped if stripped else None
+
+
+def _sqlite3_is_safe_pragma(statement: str) -> bool:
+    match = re.match(r"\s*pragma\s+(.+)\Z", statement, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return False
+    body = match.group(1).strip()
+    if not body or "=" in body:
+        return False
+    pragma = re.match(
+        r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)(.*)\Z",
+        body,
+        re.DOTALL,
+    )
+    if not pragma:
+        return False
+    name = pragma.group(1).lower()
+    remainder = pragma.group(2).strip()
+    if name not in _SQLITE3_SAFE_PRAGMAS:
+        return False
+    if not remainder:
+        return True
+    return (
+        name in _SQLITE3_SAFE_ARG_PRAGMAS
+        and remainder.startswith("(")
+        and remainder.endswith(")")
+    )
 
 
 _REST_READ_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}

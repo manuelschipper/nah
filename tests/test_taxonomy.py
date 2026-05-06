@@ -840,7 +840,6 @@ class TestClassifyTokens:
         ["mysql"],
         ["mysql", "-e", "SHOW TABLES"],
         ["mysql", "--execute", "SHOW TABLES"],
-        ["sqlite3", "db.sqlite", "SELECT 1"],
         ["snow", "sql", "-q", "SELECT 1"],
         ["snow", "sql", "-f", "file.sql"],
         ["snow", "sql", "--query", "SELECT 1"],
@@ -856,6 +855,55 @@ class TestClassifyTokens:
     def test_bare_dolt_stays_db(self):
         assert _ct(["dolt", "sql"]) == "db_write"
         assert _ct(["dolt", "status"]) == "db_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1"],
+        ["sqlite3", "--readonly", "db.sqlite", "select * from users;"],
+        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN SELECT * FROM users"],
+        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN QUERY PLAN SELECT * FROM users"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA table_info(users)"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA main.table_info(users)"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA integrity_check"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA quick_check"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA freelist_count"],
+        ["sqlite3", "-readonly", "db.sqlite", ".schema"],
+        ["sqlite3", "-readonly", "-safe", "-json", "db.sqlite", "SELECT 1"],
+        ["sqlite3", ":memory:", "SELECT 1"],
+    ])
+    def test_sqlite3_readonly_shapes_are_db_read(self, tokens):
+        assert _ct(tokens) == "db_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["sqlite3", "db.sqlite", "SELECT 1"],
+        ["sqlite3", "db.sqlite", ".schema"],
+        ["sqlite3", "db.sqlite"],
+        ["sqlite3", "-readonly", "db.sqlite", "INSERT INTO t VALUES (1)"],
+        ["sqlite3", "-readonly", "db.sqlite", "CREATE TABLE t(id INTEGER)"],
+        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN DELETE FROM t"],
+        ["sqlite3", "-readonly", "db.sqlite", "WITH rows AS (SELECT 1) SELECT * FROM rows"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT writefile('/tmp/x', 'x')"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT readfile('/tmp/x')"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT load_extension('x')"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT fts3_tokenizer('simple')"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1 -- comment"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT /* comment */ 1"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA journal_mode=WAL"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA wal_checkpoint"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA user_version(1)"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA application_id(123)"],
+        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA page_size(4096)"],
+        ["sqlite3", "-readonly", "db.sqlite", ".read script.sql"],
+        ["sqlite3", "-readonly", "db.sqlite", ".shell pwd"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1", "SELECT 2"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1; SELECT 2"],
+        ["sqlite3", "-readonly", "db.sqlite", "<", "schema.sql"],
+        ["sqlite3", "-readonly", "db.sqlite", "<schema.sql"],
+        ["sqlite3", "-unsafe-testing", "-readonly", "db.sqlite", "SELECT 1"],
+        ["sqlite3", "-nonce", "abc", "-readonly", "db.sqlite", "SELECT 1"],
+        ["sqlite3", "-cmd", ".schema", "-readonly", "db.sqlite", "SELECT 1"],
+    ])
+    def test_sqlite3_unsafe_or_ambiguous_shapes_are_db_write(self, tokens):
+        assert _ct(tokens) == "db_write"
 
     # db companion tools → filesystem_write
     @pytest.mark.parametrize("tokens", [
