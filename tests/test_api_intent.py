@@ -2,6 +2,8 @@
 
 import shlex
 
+import pytest
+
 from nah.api_intent import (
     BODY_DYNAMIC,
     BODY_FILE,
@@ -415,6 +417,15 @@ class TestGrpcExtraction:
 
 
 class TestWebSocketExtraction:
+    def test_wscat_connection_only(self):
+        op = _op("wscat -c ws://api.example.com/socket")
+
+        assert op.client == CLIENT_WSCAT
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.host == "api.example.com"
+        assert op.path == "/socket"
+        assert op.body_source == BODY_NONE
+
     def test_wscat_execute_event(self):
         op = _op("wscat -c ws://api.example.com/socket -x '{\"event\":\"deleteUser\"}'")
 
@@ -425,6 +436,9 @@ class TestWebSocketExtraction:
         assert op.path == "/socket"
         assert op.method == "deleteUser"
         assert op.operation_name == "deleteUser"
+        assert op.body_source == BODY_INLINE
+        assert op.body_format == FORMAT_JSON
+        assert op.confidence == CONFIDENCE_COMPLETE
 
     def test_websocat_visible_message_event(self):
         op = _op("websocat ws://api.example.com/socket '{\"type\":\"subscribe\"}'")
@@ -433,6 +447,55 @@ class TestWebSocketExtraction:
         assert op.protocol == PROTOCOL_WEBSOCKET
         assert op.method == "subscribe"
         assert op.body_source == BODY_INLINE
+
+    def test_websocat_socketio_event_packet(self):
+        op = _op("websocat ws://api.example.com/socket '42[\"deleteUser\",{\"id\":1}]'")
+
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.method == "deleteUser"
+        assert op.operation_name == "deleteUser"
+        assert op.body_source == BODY_INLINE
+
+    def test_websocat_socketio_namespaced_event_packet(self):
+        op = _op("websocat ws://api.example.com/socket '42/admin,[\"getUser\",{\"id\":1}]'")
+
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.method == "getUser"
+        assert op.operation_name == "getUser"
+
+    @pytest.mark.parametrize("payload", [
+        '43["deleteUser"]',
+        '451-["deleteUser"]',
+        '42/admin,123["getUser"]',
+    ])
+    def test_websocat_unsupported_socketio_packets_do_not_extract_event(self, payload):
+        op = _op(f"websocat ws://api.example.com/socket '{payload}'")
+
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.method == ""
+        assert op.operation_name == ""
+        assert op.body_source == BODY_INLINE
+
+    @pytest.mark.parametrize("payload, body_source", [
+        ("-", BODY_STDIN),
+        ("@body.json", BODY_FILE),
+        ("$(cat body.json)", BODY_DYNAMIC),
+    ])
+    def test_websocat_opaque_body_sources(self, payload, body_source):
+        op = _op(f"websocat ws://api.example.com/socket '{payload}'")
+
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.body_source == body_source
+        assert op.confidence == CONFIDENCE_OPAQUE
+
+    def test_websocat_malformed_json_body_is_opaque(self):
+        op = _op("websocat ws://api.example.com/socket '{bad'")
+
+        assert op.protocol == PROTOCOL_WEBSOCKET
+        assert op.body_source == BODY_INLINE
+        assert op.body_format == FORMAT_JSON
+        assert op.confidence == CONFIDENCE_OPAQUE
+        assert "malformed JSON body" in op.reasons
 
 
 def test_unsupported_command_returns_none():

@@ -1327,7 +1327,7 @@ def _extract_websocat(tokens: list[str]) -> RemoteOperation:
         if _flag_takes_value(tok, {"-H", "--header", "--protocol", "--origin"}):
             i += 2 if "=" not in tok and i + 1 < len(tokens) else 1
             continue
-        if tok.startswith("-"):
+        if tok.startswith("-") and tok != "-":
             i += 1
             continue
         positionals.append(tok)
@@ -1351,6 +1351,10 @@ def _extract_websocat(tokens: list[str]) -> RemoteOperation:
 
 
 def _extract_event_name(value: str) -> str:
+    socketio_event = _extract_socketio_event_name(value)
+    if socketio_event:
+        return socketio_event
+
     try:
         payload = json.loads(value)
     except json.JSONDecodeError:
@@ -1359,6 +1363,28 @@ def _extract_event_name(value: str) -> str:
         for key in ("event", "type", "method", "action"):
             if isinstance(payload.get(key), str):
                 return payload[key]
+    if isinstance(payload, list) and payload and isinstance(payload[0], str):
+        return payload[0]
+    return ""
+
+
+def _extract_socketio_event_name(value: str) -> str:
+    """Extract simple visible Socket.IO event packets without session state."""
+    rest = value.lstrip()
+    if not rest.startswith("42"):
+        return ""
+    rest = rest[2:]
+    if rest.startswith("/"):
+        comma = rest.find(",")
+        if comma == -1:
+            return ""
+        rest = rest[comma + 1:]
+    if not rest.startswith("["):
+        return ""
+    try:
+        payload = json.loads(rest)
+    except json.JSONDecodeError:
+        return ""
     if isinstance(payload, list) and payload and isinstance(payload[0], str):
         return payload[0]
     return ""

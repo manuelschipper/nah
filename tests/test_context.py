@@ -435,6 +435,42 @@ class TestServiceReadContext:
         assert decision == "ask"
         assert "api.example.com" in reason
 
+    def test_websocket_connection_known_host_allows(self):
+        decision, reason = resolve_context(
+            "network_outbound",
+            tokens=["wscat", "-c", "ws://github.com/socket"],
+        )
+
+        assert decision == "allow"
+        assert "github.com" in reason
+
+    def test_websocket_connection_unknown_host_asks(self):
+        decision, reason = resolve_context(
+            "network_outbound",
+            tokens=["wscat", "-c", "ws://api.example.com/socket"],
+        )
+
+        assert decision == "ask"
+        assert "api.example.com" in reason
+
+    def test_websocket_service_read_known_host_allows(self):
+        decision, reason = resolve_context(
+            "service_read",
+            tokens=["websocat", "ws://github.com/socket", '{"type":"getUser"}'],
+        )
+
+        assert decision == "allow"
+        assert "github.com" in reason
+
+    def test_websocket_service_read_unknown_host_asks(self):
+        decision, reason = resolve_context(
+            "service_read",
+            tokens=["websocat", "ws://api.example.com/socket", '{"type":"getUser"}'],
+        )
+
+        assert decision == "ask"
+        assert "api.example.com" in reason
+
 
 # --- FD-022: httpie host extraction ---
 

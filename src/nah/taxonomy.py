@@ -576,6 +576,9 @@ def classify_tokens(
         action = _classify_grpc_operation(tokens)
         if action is not None:
             return action
+        action = _classify_websocket_operation(tokens)
+        if action is not None:
+            return action
         action = _classify_http_rest_operation(tokens)
         if action is not None:
             return action
@@ -1405,6 +1408,46 @@ _GRPC_WRITE_WORDS = {
     "upsert",
 }
 _GRPC_DESTRUCTIVE_WORDS = _GRAPHQL_DESTRUCTIVE_WORDS
+_WEBSOCKET_READ_WORDS = {
+    "get",
+    "list",
+    "listed",
+    "read",
+    "search",
+    "watch",
+    "watched",
+    "query",
+    "find",
+    "found",
+    "lookup",
+    "fetch",
+    "fetched",
+    "describe",
+}
+_WEBSOCKET_WRITE_WORDS = {
+    "create",
+    "created",
+    "creating",
+    "update",
+    "updated",
+    "updating",
+    "set",
+    "send",
+    "sent",
+    "emit",
+    "emitted",
+    "publish",
+    "published",
+    "write",
+    "append",
+    "upsert",
+    "message",
+    "post",
+    "posted",
+    "subscribe",
+    "unsubscribe",
+}
+_WEBSOCKET_DESTRUCTIVE_WORDS = _GRAPHQL_DESTRUCTIVE_WORDS
 
 
 def _classify_graphql_operation(tokens: list[str]) -> str | None:
@@ -1565,6 +1608,32 @@ def _classify_grpc_method(method: str) -> str | None:
     return None
 
 
+def _classify_websocket_operation(tokens: list[str]) -> str | None:
+    """Classify visible WebSocket CLI operations by event intent."""
+    op = api_intent.extract_remote_operation(tokens)
+    if op is None or op.protocol != api_intent.PROTOCOL_WEBSOCKET:
+        return None
+
+    event = op.operation_name or op.method
+    if not event:
+        if op.body_source != api_intent.BODY_NONE:
+            return NETWORK_WRITE
+        return NETWORK_OUTBOUND
+
+    return _classify_websocket_event(event) or UNKNOWN
+
+
+def _classify_websocket_event(event: str) -> str | None:
+    words = _action_words(event)
+    if any(word in _WEBSOCKET_DESTRUCTIVE_WORDS for word in words):
+        return SERVICE_DESTRUCTIVE
+    if any(word in _WEBSOCKET_WRITE_WORDS for word in words):
+        return SERVICE_WRITE
+    if any(word in _WEBSOCKET_READ_WORDS for word in words):
+        return SERVICE_READ
+    return None
+
+
 def _classify_http_rest_operation(tokens: list[str]) -> str | None:
     """Classify visible HTTP/REST operations without handling other protocols."""
     op = api_intent.extract_remote_operation(tokens)
@@ -1659,7 +1728,12 @@ def is_network_data_flow_action(action_type: str, tokens: list[str]) -> bool:
         op = api_intent.extract_remote_operation(tokens)
         return (
             op is not None
-            and op.protocol in {api_intent.PROTOCOL_JSON_RPC, api_intent.PROTOCOL_GRPC}
+            and op.protocol
+            in {
+                api_intent.PROTOCOL_JSON_RPC,
+                api_intent.PROTOCOL_GRPC,
+                api_intent.PROTOCOL_WEBSOCKET,
+            }
         )
     return False
 
