@@ -1022,6 +1022,7 @@ class TestClassifyTokens:
         ["psql", "-X", "-o", "out.txt", "-c", "SELECT 1"],
         ["psql", "-X", "-L", "log.txt", "-c", "SELECT 1"],
         ["psql", "-X", "-c", "SELECT 1", "<", "schema.sql"],
+        ["psql", "-X", "--", "--command=SELECT 1"],
     ])
     def test_psql_unsafe_or_ambiguous_shapes_fall_back_to_db_write(self, tokens):
         assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_write"
