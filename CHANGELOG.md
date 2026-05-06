@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `service_read`, POST/PUT/PATCH use `service_write`, DELETE and destructive
   paths use `service_destructive`, and remote service actions still participate
   in network data-flow blocks such as `curl ... | bash`. (nah-910)
+- **GraphQL operation intent classification** — visible GraphQL operations now
+  classify by action intent instead of HTTP method alone: queries and
+  subscriptions use context-resolved `service_read`, mutations use
+  `service_write`, destructive mutation names/root fields use
+  `service_destructive`, and hidden or ambiguous documents stay on ask paths.
+  (nah-911)
 
 ### Fixed
 
