@@ -160,9 +160,18 @@ def _parse_url(value: str, *, default_scheme: str = "") -> dict[str, str]:
         "url": raw,
         "scheme": parsed.scheme if "://" in raw or raw.startswith("//") or default_scheme else "",
         "host": parsed.hostname or "",
-        "port": str(parsed.port or ""),
+        "port": _safe_port(parsed),
         "path": path,
     }
+
+
+def _safe_port(parsed: urllib.parse.ParseResult) -> str:
+    try:
+        return str(parsed.port or "")
+    except ValueError:
+        # urlparse validates port lazily. Extraction is best-effort and must
+        # not crash the hook path; callers still get host/path context.
+        return ""
 
 
 def _looks_urlish(value: str) -> bool:

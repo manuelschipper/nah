@@ -66,6 +66,13 @@ class TestCurlExtraction:
         assert op.host == "api.example.com"
         assert op.path == "/items/1"
 
+    def test_curl_malformed_port_does_not_crash(self):
+        op = _op("curl https://api.example.com:notaport/items")
+
+        assert op.host == "api.example.com"
+        assert op.port == ""
+        assert op.path == "/items"
+
     def test_curl_file_body_is_opaque(self):
         op = _op("curl -d @payload.json https://api.example.com/items")
 
