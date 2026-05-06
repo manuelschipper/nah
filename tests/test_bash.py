@@ -2337,6 +2337,49 @@ class TestNewActionTypes:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "db_write"
 
+    @pytest.mark.parametrize("command", [
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users LIMIT 10"',
+        'env PGOPTIONS="-c default_transaction_read_only=true" psql --no-psqlrc --command "SHOW search_path"',
+        'PGOPTIONS="-c default_transaction_read_only=on" command -p psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" timeout 5 psql -X -c "SELECT id FROM users"',
+        'env -u PGOPTIONS PGOPTIONS="-c default_transaction_read_only=yes" psql -X -c "SELECT id FROM users"',
+    ])
+    def test_psql_explicit_readonly_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "db_read"
+
+    @pytest.mark.parametrize("command", [
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -c "SELECT id FROM users"',
+        'psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=off" psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" env -i psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" env -u PGOPTIONS psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" sudo psql -X -c "SELECT id FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" sh -c "psql -X -c \\"SELECT id FROM users\\""',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -d "postgresql://host/db?options=-cdefault_transaction_read_only=off" -c "SELECT 1"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "DROP TABLE users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -f script.sql',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT 1; DROP TABLE users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT * INTO tmp FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT now()"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT count(*) FROM users"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "\\\\copy users TO /tmp/users.csv"',
+        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users" < schema.sql',
+    ])
+    def test_psql_unsafe_or_ambiguous_asks(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type != "db_read"
+
+    def test_psql_profile_none_keeps_ambiguous_unknown(self, project_root):
+        config._cached_config = NahConfig(profile="none")
+        r = classify_command(
+            'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users"'
+        )
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
     def test_sqlite3_readonly_select_allow(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite 'SELECT 1'")
         assert r.final_decision == "allow"

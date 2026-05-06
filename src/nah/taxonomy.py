@@ -6,6 +6,7 @@ Classification data and policies are loaded from JSON files in data/.
 import json
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -202,7 +203,7 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
                           "gh", "glab", "mise",
-                          "sqlite3",
+                          "sqlite3", "psql",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -498,6 +499,7 @@ def classify_tokens(
     *,
     profile: str = "full",
     trust_project: bool = False,
+    env_assignments: dict[str, str] | None = None,
 ) -> str:
     """Classify command tokens via three-phase lookup.
 
@@ -565,6 +567,9 @@ def classify_tokens(
         if action is not None:
             return action
         action = _classify_sqlite3(tokens)
+        if action is not None:
+            return action
+        action = _classify_psql_readonly(tokens, env_assignments=env_assignments)
         if action is not None:
             return action
         action = _classify_graphql_operation(tokens)
@@ -1305,6 +1310,355 @@ def _sqlite3_is_safe_pragma(statement: str) -> bool:
         and remainder.startswith("(")
         and remainder.endswith(")")
     )
+
+
+_PGOPTIONS_READONLY_TRUTHY = {"on", "true", "1", "yes"}
+_PSQL_NOARG_FLAGS = {
+    "-X",
+    "--no-psqlrc",
+    "-1",
+    "--single-transaction",
+    "-A",
+    "-t",
+    "-q",
+    "--csv",
+    "--tuples-only",
+}
+_PSQL_NOARG_CLUSTER = frozenset("X1Atq")
+_PSQL_VALUE_FLAGS = {
+    "-h",
+    "--host",
+    "-p",
+    "--port",
+    "-U",
+    "--username",
+    "-v",
+    "--set",
+    "--variable",
+    "-P",
+    "--pset",
+    "-F",
+    "--field-separator",
+    "-R",
+    "--record-separator",
+}
+_PSQL_VALUE_PREFIXES = (
+    "--host=",
+    "--port=",
+    "--username=",
+    "--set=",
+    "--variable=",
+    "--pset=",
+    "--field-separator=",
+    "--record-separator=",
+)
+_PSQL_SHORT_VALUE_FLAGS = {"-h", "-p", "-U", "-v", "-P", "-F", "-R"}
+_PSQL_DBNAME_FLAGS = {"-d", "--dbname"}
+_PSQL_DBNAME_PREFIXES = ("--dbname=",)
+_PSQL_REJECT_FLAGS = {
+    "-f",
+    "--file",
+    "-o",
+    "--output",
+    "-L",
+    "--log-file",
+    "-a",
+    "--echo-all",
+    "-e",
+    "--echo-queries",
+    "-E",
+    "--echo-hidden",
+}
+_PSQL_REJECT_PREFIXES = (
+    "--file=",
+    "--output=",
+    "--log-file=",
+)
+_PSQL_SAFE_EXPLAIN_OPTIONS = {
+    "FORMAT",
+    "COSTS",
+    "VERBOSE",
+    "SETTINGS",
+    "SUMMARY",
+    "MEMORY",
+    "GENERIC_PLAN",
+}
+_PSQL_UNSAFE_EXPLAIN_OPTIONS = {"ANALYZE", "BUFFERS", "WAL", "TIMING", "SERIALIZE"}
+_PSQL_SELECT_SAFE_CALL_KEYWORDS = {
+    "in",
+    "exists",
+    "select",
+}
+
+
+def _classify_psql_readonly(
+    tokens: list[str],
+    *,
+    env_assignments: dict[str, str] | None = None,
+) -> str | None:
+    """Classify explicit read-only psql one-shot invocations."""
+    if not tokens or tokens[0] != "psql":
+        return None
+    if not _pgoptions_enables_readonly((env_assignments or {}).get("PGOPTIONS", "")):
+        return None
+
+    sql = _psql_extract_single_command(tokens)
+    if sql is None:
+        return None
+    if _psql_is_readonly_sql(sql):
+        return DB_READ
+    return None
+
+
+def _pgoptions_enables_readonly(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        parts = shlex.split(value)
+    except ValueError:
+        return False
+    if not parts:
+        return False
+
+    seen = 0
+    enabled = False
+    i = 0
+    while i < len(parts):
+        tok = parts[i]
+        setting = ""
+        if tok == "-c":
+            if i + 1 >= len(parts):
+                return False
+            setting = parts[i + 1]
+            i += 2
+        elif tok.startswith("-c") and len(tok) > 2:
+            setting = tok[2:]
+            if setting[:1].isspace():
+                return False
+            i += 1
+        else:
+            return False
+
+        name, sep, raw_value = setting.partition("=")
+        if sep != "=" or name.lower() != "default_transaction_read_only":
+            return False
+        seen += 1
+        enabled = raw_value.strip().lower() in _PGOPTIONS_READONLY_TRUTHY
+        if not enabled:
+            return False
+
+    return seen == 1 and enabled
+
+
+def _psql_extract_single_command(tokens: list[str]) -> str | None:
+    sql: str | None = None
+    no_psqlrc = False
+    positional_seen = False
+    i = 1
+
+    while i < len(tokens):
+        tok = tokens[i]
+
+        if _psql_is_input_redirect(tok):
+            return None
+        if tok == "--":
+            i += 1
+            continue
+        if tok in {"-X", "--no-psqlrc"}:
+            no_psqlrc = True
+            i += 1
+            continue
+        if tok in _PSQL_NOARG_FLAGS:
+            i += 1
+            continue
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            if tok.startswith("-c"):
+                if sql is not None:
+                    return None
+                sql = tok[2:]
+                i += 1
+                continue
+            if tok.startswith("-d"):
+                if _psql_conninfo_is_unsafe(tok[2:]):
+                    return None
+                i += 1
+                continue
+            if tok[:2] in _PSQL_SHORT_VALUE_FLAGS:
+                i += 1
+                continue
+            if set(tok[1:]) <= _PSQL_NOARG_CLUSTER:
+                no_psqlrc = no_psqlrc or "X" in tok[1:]
+                i += 1
+                continue
+            return None
+        if tok == "-c":
+            if sql is not None or i + 1 >= len(tokens):
+                return None
+            sql = tokens[i + 1]
+            i += 2
+            continue
+        if tok == "--command":
+            if sql is not None or i + 1 >= len(tokens):
+                return None
+            sql = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--command="):
+            if sql is not None:
+                return None
+            sql = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok in _PSQL_REJECT_FLAGS or any(tok.startswith(prefix) for prefix in _PSQL_REJECT_PREFIXES):
+            return None
+        if tok in _PSQL_DBNAME_FLAGS:
+            if i + 1 >= len(tokens) or _psql_conninfo_is_unsafe(tokens[i + 1]):
+                return None
+            i += 2
+            continue
+        if any(tok.startswith(prefix) for prefix in _PSQL_DBNAME_PREFIXES):
+            if _psql_conninfo_is_unsafe(tok.split("=", 1)[1]):
+                return None
+            i += 1
+            continue
+        if tok in _PSQL_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                return None
+            i += 2
+            continue
+        if any(tok.startswith(prefix) for prefix in _PSQL_VALUE_PREFIXES):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+
+        if positional_seen or _psql_conninfo_is_unsafe(tok):
+            return None
+        positional_seen = True
+        i += 1
+
+    if not no_psqlrc or sql is None:
+        return None
+    return sql
+
+
+def _psql_is_input_redirect(token: str) -> bool:
+    return (
+        token in {"<", "0<", "<<<"}
+        or token.startswith("<")
+        or token.startswith("0<")
+        or token.startswith("<<<")
+    )
+
+
+def _psql_conninfo_is_unsafe(value: str) -> bool:
+    if not value:
+        return True
+    lowered = value.lower()
+    return (
+        "postgres://" in lowered
+        or "postgresql://" in lowered
+        or "options=" in lowered
+        or "=" in value
+        or bool(re.search(r"\s", value))
+    )
+
+
+def _psql_is_readonly_sql(sql: str) -> bool:
+    statement = _sqlite3_single_statement(sql)
+    if statement is None or statement.startswith("\\"):
+        return False
+
+    if re.match(r"\s*show\b", statement, re.IGNORECASE):
+        return True
+    if _psql_is_simple_select(statement):
+        return True
+    return _psql_is_safe_explain(statement)
+
+
+def _psql_is_safe_explain(statement: str) -> bool:
+    explain = re.match(r"\s*explain\s+(.+)\Z", statement, re.IGNORECASE | re.DOTALL)
+    if not explain:
+        return False
+
+    body = explain.group(1).strip()
+    options = re.match(r"\(([^()]*)\)\s+(.+)\Z", body, re.IGNORECASE | re.DOTALL)
+    if options:
+        if not _psql_explain_options_are_safe(options.group(1)):
+            return False
+        body = options.group(2).strip()
+
+    return _psql_is_simple_select(body)
+
+
+def _psql_explain_options_are_safe(options: str) -> bool:
+    for raw_option in options.split(","):
+        option = raw_option.strip()
+        if not option:
+            return False
+        name = option.split(None, 1)[0].upper()
+        if name in _PSQL_UNSAFE_EXPLAIN_OPTIONS:
+            return False
+        if name not in _PSQL_SAFE_EXPLAIN_OPTIONS:
+            return False
+    return True
+
+
+def _psql_is_simple_select(statement: str) -> bool:
+    if not re.match(r"\s*select\b", statement, re.IGNORECASE):
+        return False
+    if re.search(r"\binto\b", statement, re.IGNORECASE):
+        return False
+    if re.search(
+        r"\bfor\s+(?:update|share|no\s+key\s+update|key\s+share)\b",
+        statement,
+        re.IGNORECASE,
+    ):
+        return False
+    if _psql_has_unsafe_function_call_syntax(statement):
+        return False
+    return True
+
+
+def _psql_has_unsafe_function_call_syntax(statement: str) -> bool:
+    scrubbed = _sql_scrub_string_literals(statement)
+    for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_$]*)\s*\(", scrubbed):
+        if match.group(1).lower() not in _PSQL_SELECT_SAFE_CALL_KEYWORDS:
+            return True
+    return False
+
+
+def _sql_scrub_string_literals(sql: str) -> str:
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if in_single:
+            if ch == "'":
+                if i + 1 < len(sql) and sql[i + 1] == "'":
+                    i += 2
+                    continue
+                in_single = False
+            out.append(" ")
+        elif in_double:
+            if ch == '"':
+                if i + 1 < len(sql) and sql[i + 1] == '"':
+                    i += 2
+                    continue
+                in_double = False
+            out.append(" ")
+        elif ch == "'":
+            in_single = True
+            out.append(" ")
+        elif ch == '"':
+            in_double = True
+            out.append(" ")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 _REST_READ_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}
