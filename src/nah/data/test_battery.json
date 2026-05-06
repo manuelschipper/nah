@@ -1550,10 +1550,10 @@
       "feature": "FD-051",
       "config": {
         "actions": {
-          "network_outbound": "block"
+          "service_read": "block"
         }
       },
-      "description": "Action policy escalation — network_outbound → block"
+      "description": "Action policy escalation — REST service_read → block"
     },
     {
       "id": "V20",

@@ -4338,7 +4338,7 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
         # explicitly desensitized the source path, preserve that read policy
         # and let the network write ask drive confirmation while still carrying
         # the data-flow signal for presentation.
-        if _is_sensitive_read(left) and right.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE):
+        if _is_sensitive_read(left) and _is_network_data_flow_stage(right):
             decision = taxonomy.ASK if left.decision == taxonomy.ALLOW else taxonomy.BLOCK
             return decision, f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
 
@@ -4347,7 +4347,7 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
             continue
 
         # network | exec → block (remote code execution)
-        if left.action_type in (taxonomy.NETWORK_OUTBOUND, taxonomy.NETWORK_WRITE) and right_is_exec_sink:
+        if _is_network_data_flow_stage(left) and right_is_exec_sink:
             return taxonomy.BLOCK, f"remote code execution: {right.tokens[0]} receives network input", "network | exec"
 
         # decode | exec → block (obfuscation)
@@ -4359,6 +4359,20 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
             return taxonomy.ASK, f"local code execution: {right.tokens[0]} receives file input", "read | exec"
 
     return "", "", ""
+
+
+def _is_network_data_flow_stage(sr: StageResult) -> bool:
+    if taxonomy.is_network_data_flow_action(sr.action_type, sr.tokens):
+        return True
+    if sr.action_type not in {taxonomy.SERVICE_READ, taxonomy.SERVICE_WRITE, taxonomy.SERVICE_DESTRUCTIVE}:
+        return False
+    reason = sr.reason.lower()
+    return (
+        "known host:" in reason
+        or "unknown host:" in reason
+        or "localhost:" in reason
+        or "network_write" in reason
+    )
 
 
 def _is_transparent_suffix_from(

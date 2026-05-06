@@ -94,6 +94,7 @@ def test_action_type_fallbacks_are_human_copy():
         (taxonomy.GIT_HISTORY_REWRITE, "this can rewrite Git history"),
         (taxonomy.GIT_DISCARD, "this can discard local Git changes"),
         (taxonomy.GIT_REMOTE_WRITE, "this writes to a remote Git repository"),
+        (taxonomy.SERVICE_DESTRUCTIVE, "this can remove or disrupt service or remote API state"),
         (taxonomy.OBFUSCATED, "this hides what will run"),
         (taxonomy.UNKNOWN, "this runs an unrecognized command"),
     ]

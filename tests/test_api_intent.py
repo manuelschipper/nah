@@ -130,6 +130,12 @@ class TestCurlExtraction:
         assert op.method == "resources/read"
         assert op.operation_name == "resources/read"
 
+    def test_curl_explicit_get_with_body_preserves_method(self):
+        op = _op("curl -X GET -d data https://api.example.com/items")
+
+        assert op.method == "GET"
+        assert op.body_source == BODY_INLINE
+
 
 class TestWgetExtraction:
     def test_wget_post_data(self):

@@ -10,8 +10,11 @@ from nah.context import reset_known_hosts
 
 
 @pytest.fixture(autouse=True)
-def _reset_state():
+def _reset_state(tmp_path, monkeypatch):
     """Reset project root, config cache, and sensitive paths between tests for isolation."""
+    import nah.config
+
+    monkeypatch.setattr(nah.config, "_GLOBAL_CONFIG", str(tmp_path / "config.yaml"))
     reset_config()
     paths.reset_sensitive_paths()
     paths._sensitive_paths_merged = True  # prevent real config from polluting tests
