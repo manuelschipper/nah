@@ -325,8 +325,8 @@ nah test "just migrate-prod"</code></pre>
 
   <section class="nah-section nah-benchmark">
     <div class="nah-section-heading nah-benchmark-heading">
-      <p class="nah-eyebrow">Benchmark</p>
-      <h2>Low friction on public agent Bash traces.</h2>
+      <p class="nah-eyebrow">Friction benchmark</p>
+      <h2>Routine agent work should not need another review loop.</h2>
       <p>
         Across 101,194 extracted Bash tool calls from the public
         <a href="https://huggingface.co/datasets/novita/agentic_code_dataset_22">Novita Claude Code trace</a>,
@@ -336,19 +336,19 @@ nah test "just migrate-prod"</code></pre>
     </div>
     <div class="nah-benchmark-grid">
       <article class="nah-benchmark-card is-accented">
-        <span>Deterministic</span>
+        <span>No review loop</span>
         <strong>95.8%</strong>
         <p>Resolved locally without model review or user interruption.</p>
       </article>
       <article class="nah-benchmark-card">
-        <span>Asked</span>
+        <span>Permission pause</span>
         <strong>4.2%</strong>
         <p>Paused for ambiguity, unknown CLIs, sensitive paths, or replay artifacts.</p>
       </article>
       <article class="nah-benchmark-card">
-        <span>Read-only/local-safe</span>
+        <span>Routine work flowed</span>
         <strong>99.945%</strong>
-        <p>Recognized obvious low-friction Bash calls resolved deterministically.</p>
+        <p>Recognized read-only/local-safe Bash calls resolved deterministically.</p>
       </article>
     </div>
     <a class="nah-inline-link" href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">Benchmark methodology</a>
