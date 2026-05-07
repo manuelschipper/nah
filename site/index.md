@@ -327,7 +327,7 @@ nah test "just migrate-prod"</code></pre>
     <div class="nah-benchmark-layout">
       <div class="nah-benchmark-donut" style="--value: 95.8" aria-label="95.8 percent resolved without a review loop">
         <div>
-          <strong>95.8%</strong>
+          <strong>95.8<small>%</small></strong>
           <span>No review loop</span>
         </div>
       </div>
