@@ -660,59 +660,47 @@
 }
 
 .nah-benchmark-heading {
+  margin-bottom: 0;
   max-width: 50rem;
 }
 
-.nah-benchmark-grid {
+.nah-benchmark-layout {
+  align-items: center;
   display: grid;
-  gap: 0.9rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1.4rem, 4vw, 2.5rem);
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 1.3fr);
 }
 
-.nah-benchmark-card {
-  background: var(--nah-card-bg);
+.nah-benchmark-donut {
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at center, var(--md-default-bg-color) 0 58%, transparent 59%),
+    conic-gradient(var(--md-accent-fg-color) calc(var(--value) * 1%), var(--nah-border) 0);
   border: 1px solid var(--nah-border);
-  border-radius: 0.65rem;
-  min-width: 0;
-  padding: 1rem;
+  border-radius: 50%;
+  display: grid;
+  justify-self: center;
+  place-items: center;
+  text-align: center;
+  width: min(17rem, 72vw);
 }
 
-.nah-benchmark-card.is-accented {
-  border-color: var(--md-accent-fg-color);
-}
-
-.nah-benchmark-card span {
-  color: var(--nah-muted);
-  display: block;
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.11em;
-  margin-bottom: 0.65rem;
-  text-transform: uppercase;
-}
-
-.nah-benchmark-card strong {
+.nah-benchmark-donut strong {
   color: var(--md-default-fg-color);
   display: block;
-  font-size: clamp(2rem, 5vw, 3.8rem);
-  letter-spacing: -0.045em;
+  font-size: clamp(2.8rem, 7vw, 5rem);
+  letter-spacing: -0.055em;
   line-height: 0.95;
-  margin-bottom: 0.7rem;
 }
 
-.nah-benchmark-card p {
+.nah-benchmark-donut span {
   color: var(--nah-muted);
-  font-size: 0.76rem;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.nah-benchmark-note {
-  color: var(--nah-muted);
-  font-size: 0.76rem;
-  line-height: 1.55;
-  margin: 1rem 0 0;
-  max-width: 48rem;
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-top: 0.45rem;
+  text-transform: uppercase;
 }
 
 .nah-flow {
@@ -1074,7 +1062,7 @@
   .nah-flow,
   .nah-enforcement,
   .nah-versus,
-  .nah-benchmark-grid,
+  .nah-benchmark-layout,
   .nah-threat-grid,
   .nah-threat-proof,
   .nah-llm-grid,
