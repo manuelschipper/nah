@@ -1,4 +1,4 @@
-/* Benchmark section: separate file to bust browser cache for new proof UI. */
+/* Benchmark section: separate file to bust browser cache for proof UI changes. */
 
 .nah-eyebrow {
   font-size: 0.82rem;
@@ -20,7 +20,7 @@
 .nah-benchmark-donut {
   aspect-ratio: 1;
   background:
-    radial-gradient(circle at center, var(--md-default-bg-color) 0 58%, transparent 59%),
+    radial-gradient(circle at center, var(--md-default-bg-color) 0 62%, transparent 63%),
     conic-gradient(var(--md-accent-fg-color) calc(var(--value) * 1%), var(--nah-border) 0);
   border: 1px solid var(--nah-border);
   border-radius: 50%;
@@ -32,17 +32,25 @@
 }
 
 .nah-benchmark-donut strong {
+  align-items: baseline;
   color: var(--md-default-fg-color);
-  display: block;
-  font-size: clamp(2.8rem, 7vw, 5rem);
-  letter-spacing: -0.055em;
+  display: flex;
+  font-size: clamp(2.25rem, 5vw, 4rem);
+  justify-content: center;
+  letter-spacing: -0.035em;
   line-height: 0.95;
+}
+
+.nah-benchmark-donut small {
+  font-size: 0.72em;
+  letter-spacing: -0.02em;
+  margin-left: 0.03em;
 }
 
 .nah-benchmark-donut span {
   color: var(--nah-muted);
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   margin-top: 0.45rem;
