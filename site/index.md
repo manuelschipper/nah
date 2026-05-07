@@ -181,9 +181,10 @@ nah blocked: this runs unknown code</code></pre>
       <p class="nah-eyebrow">Benchmark</p>
       <h2>Low friction on public agent Bash traces.</h2>
       <p>
-        Across 101,194 extracted Bash tool calls from the public Novita Claude
-        Code trace, excluding the dataset-specific <code>reminder</code> app
-        CLI, nah asked on 4.2% and resolved 95.8% deterministically.
+        Across 101,194 extracted Bash tool calls from the public
+        <a href="https://huggingface.co/datasets/novita/agentic_code_dataset_22">Novita Claude Code trace</a>,
+        excluding the dataset-specific <code>reminder</code> app CLI, nah asked
+        on 4.2% and resolved 95.8% deterministically.
       </p>
     </div>
     <div class="nah-benchmark-grid">
@@ -206,9 +207,9 @@ nah blocked: this runs unknown code</code></pre>
     <p class="nah-benchmark-note">
       Reproducible with <code>benchmarks/novita_bash_friction.py</code>. The
       denominator is structured assistant <code>Bash</code> tool calls, not raw
-      text mentions. See the
-      <a href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">benchmark methodology</a>.
+      text mentions.
     </p>
+    <a class="nah-inline-link" href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">Benchmark methodology</a>
   </section>
 
   <section class="nah-section nah-flow">
