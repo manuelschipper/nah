@@ -348,11 +348,11 @@ nah test "just migrate-prod"</code></pre>
   <section class="nah-section nah-llm">
     <div class="nah-section-heading nah-llm-heading">
       <p class="nah-eyebrow">Optional LLM review</p>
-      <h2>Bring your own model. Keep deterministic enforcement.</h2>
+      <h2>For remaining ambiguity, bring your own model.</h2>
       <p>
-        Agent auto modes use the model they provide. nah can optionally consult
-        your local or remote provider for narrow intent-sensitive review, while
-        deterministic policy still owns the boundary.
+        nah resolves routine and clearly dangerous actions deterministically.
+        For qualified ambiguous asks, it can optionally consult your local or
+        remote provider while deterministic policy still owns the boundary.
       </p>
     </div>
     <div class="nah-llm-grid">
