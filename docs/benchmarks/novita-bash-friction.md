@@ -10,10 +10,6 @@ novita/agentic_code_dataset_22
 https://huggingface.co/datasets/novita/agentic_code_dataset_22
 ```
 
-It is a `nah` benchmark only. It does not compare against Claude Code auto mode
-and it does not execute the original commands. It replays recorded Bash
-permission decisions through the current local `nah` classifier.
-
 ## Headline
 
 Recommended headline with the custom project CLI excluded:
@@ -192,26 +188,6 @@ Do not exclude generic developer tools. These remain in scope:
 npm, sleep, curl, node, python, git, sqlite
 ```
 
-## Read-Only and Local-Safe Coverage
-
-With `reminder` excluded, `nah` recognized `78,729` Bash calls as read-only or
-local-safe.
-
-| Metric | Count | Rate |
-| --- | ---: | ---: |
-| Recognized read-only/local-safe calls | 78,729 | 100.00% |
-| Allowed | 78,686 | 99.945% |
-| Asked | 43 | 0.055% |
-| Deterministic resolution | 78,686 | 99.945% |
-
-This is the key evidence that remaining friction is not mostly missed obvious
-read-only work.
-
-Defensible phrase:
-
-> On recognized read-only/local-safe Bash calls, `nah` resolved 99.945%
-> deterministically.
-
 ## Remaining Asks
 
 With `reminder` excluded, the replay-normalized ask buckets were:
@@ -287,10 +263,6 @@ The benchmark supports these claims:
 - Replay-normalized friction is about 4.2% with a dataset-specific custom CLI
   excluded.
 - `nah` deterministically resolves 95.8% of included Bash calls.
-- `nah` deterministically resolves 99.945% of recognized read-only/local-safe
-  Bash calls.
-- The remaining friction is mostly legitimate ambiguity or replay artifacts, not
-  missed obvious read-only work.
 
 The benchmark does not prove:
 
