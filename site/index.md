@@ -160,7 +160,7 @@ nah blocked: this runs unknown code</code></pre>
         <p>AI reviews can guide behavior, but a non-deterministic next-token predictor is still deciding what to do next.</p>
         <div class="nah-versus-rule"></div>
         <h4>More tokens, more cost.</h4>
-        <p>Judgement loops spend tokens and time.</p>
+        <p>Repeated model-review loops spend tokens and latency on routine permission decisions that should be resolved by policy.</p>
       </div>
 
       <div class="nah-versus-split" aria-hidden="true">vs</div>
@@ -174,6 +174,41 @@ nah blocked: this runs unknown code</code></pre>
         <p>Routine decisions happen locally in milliseconds, without another model round trip or extra tokens spend.</p>
       </div>
     </div>
+  </section>
+
+  <section class="nah-section nah-benchmark">
+    <div class="nah-section-heading nah-benchmark-heading">
+      <p class="nah-eyebrow">Benchmark</p>
+      <h2>Low friction on public agent Bash traces.</h2>
+      <p>
+        Across 101,194 extracted Bash tool calls from the public Novita Claude
+        Code trace, excluding the dataset-specific <code>reminder</code> app
+        CLI, nah asked on 4.2% and resolved 95.8% deterministically.
+      </p>
+    </div>
+    <div class="nah-benchmark-grid">
+      <article class="nah-benchmark-card is-accented">
+        <span>Deterministic</span>
+        <strong>95.8%</strong>
+        <p>Resolved locally without model review or user interruption.</p>
+      </article>
+      <article class="nah-benchmark-card">
+        <span>Asked</span>
+        <strong>4.2%</strong>
+        <p>Paused for ambiguity, unknown CLIs, sensitive paths, or replay artifacts.</p>
+      </article>
+      <article class="nah-benchmark-card">
+        <span>Read-only/local-safe</span>
+        <strong>99.945%</strong>
+        <p>Recognized obvious low-friction Bash calls resolved deterministically.</p>
+      </article>
+    </div>
+    <p class="nah-benchmark-note">
+      Reproducible with <code>benchmarks/novita_bash_friction.py</code>. The
+      denominator is structured assistant <code>Bash</code> tool calls, not raw
+      text mentions. See the
+      <a href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">benchmark methodology</a>.
+    </p>
   </section>
 
   <section class="nah-section nah-flow">
