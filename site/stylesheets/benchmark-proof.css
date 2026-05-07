@@ -8,13 +8,14 @@
 .nah-benchmark-heading {
   margin-bottom: 0;
   max-width: 50rem;
+  order: 1;
 }
 
 .nah-benchmark-layout {
   align-items: center;
   display: grid;
   gap: clamp(1.4rem, 4vw, 2.5rem);
-  grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(12rem, 0.7fr);
 }
 
 .nah-benchmark-donut {
@@ -26,6 +27,7 @@
   border-radius: 50%;
   display: grid;
   justify-self: center;
+  order: 2;
   place-items: center;
   text-align: center;
   width: min(17rem, 72vw);
