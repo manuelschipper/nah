@@ -139,6 +139,23 @@ cd nah
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
 minutes.
 
+## Benchmark
+
+On `101,194` extracted Bash tool calls from the public Novita Claude Code trace,
+excluding the dataset-specific `reminder` app CLI, nah asked on **4.2%** and
+resolved **95.8%** deterministically. On recognized read-only/local-safe Bash
+calls, nah resolved **99.945%** deterministically.
+
+Reproduce it with:
+
+```bash
+python3 benchmarks/novita_bash_friction.py \
+  --dataset /home/dev/datasets/novita_e22/e22_sessions_openai.json \
+  --exclude-custom-cli reminder
+```
+
+See the [benchmark methodology](docs/benchmarks/novita-bash-friction.md).
+
 ## Threat Model
 
 nah's pytest threat-model audit currently tracks **1,807 category coverage hits**

@@ -659,6 +659,62 @@
   width: 2rem;
 }
 
+.nah-benchmark-heading {
+  max-width: 50rem;
+}
+
+.nah-benchmark-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.nah-benchmark-card {
+  background: var(--nah-card-bg);
+  border: 1px solid var(--nah-border);
+  border-radius: 0.65rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.nah-benchmark-card.is-accented {
+  border-color: var(--md-accent-fg-color);
+}
+
+.nah-benchmark-card span {
+  color: var(--nah-muted);
+  display: block;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  margin-bottom: 0.65rem;
+  text-transform: uppercase;
+}
+
+.nah-benchmark-card strong {
+  color: var(--md-default-fg-color);
+  display: block;
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+  margin-bottom: 0.7rem;
+}
+
+.nah-benchmark-card p {
+  color: var(--nah-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.nah-benchmark-note {
+  color: var(--nah-muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  margin: 1rem 0 0;
+  max-width: 48rem;
+}
+
 .nah-flow {
   display: grid;
   align-items: center;
@@ -1018,6 +1074,7 @@
   .nah-flow,
   .nah-enforcement,
   .nah-versus,
+  .nah-benchmark-grid,
   .nah-threat-grid,
   .nah-threat-proof,
   .nah-llm-grid,
