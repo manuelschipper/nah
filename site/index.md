@@ -337,8 +337,7 @@ nah test "just migrate-prod"</code></pre>
         <p>
           Across 101,194 extracted Bash tool calls from the public
           <a href="https://huggingface.co/datasets/novita/agentic_code_dataset_22">Novita Claude Code trace</a>,
-          excluding the dataset-specific <code>reminder</code> app CLI, nah asked
-          on 4.2% and resolved 95.8% deterministically.
+          nah asked on 4.2% and resolved 95.8% deterministically.
         </p>
         <a class="nah-inline-link" href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">Benchmark methodology</a>
       </div>
