@@ -33,7 +33,7 @@ theme:
 
 extra_css:
   - stylesheets/custom.css
-  - stylesheets/benchmark-donut.css
+  - stylesheets/benchmark-proof.css
 
 markdown_extensions:
   - admonition
