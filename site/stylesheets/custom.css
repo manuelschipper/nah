@@ -281,9 +281,9 @@
 
 .nah-eyebrow {
   color: var(--md-accent-fg-color);
-  font-size: 0.68rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   margin-bottom: 0.9rem;
   text-transform: uppercase;
 }
