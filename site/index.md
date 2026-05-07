@@ -204,11 +204,6 @@ nah blocked: this runs unknown code</code></pre>
         <p>Recognized obvious low-friction Bash calls resolved deterministically.</p>
       </article>
     </div>
-    <p class="nah-benchmark-note">
-      Reproducible with <code>benchmarks/novita_bash_friction.py</code>. The
-      denominator is structured assistant <code>Bash</code> tool calls, not raw
-      text mentions.
-    </p>
     <a class="nah-inline-link" href="https://github.com/manuelschipper/nah/blob/main/docs/benchmarks/novita-bash-friction.md">Benchmark methodology</a>
   </section>
 
