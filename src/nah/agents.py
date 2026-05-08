@@ -5,6 +5,7 @@ detects the calling agent from payload fields and formats output accordingly.
 """
 
 from pathlib import Path
+import sys
 
 from nah.messages import brand
 
@@ -53,7 +54,12 @@ def detect_agent(data) -> str:
 
 def format_block(reason: str, agent: str) -> dict:
     """Format a block/deny response for the given agent."""
-    branded = brand("nah blocked", reason or "this was blocked before it could run")
+    branded = brand(
+        "nah blocked",
+        reason or "this was blocked before it could run",
+        color=_agent_color_mode(agent),
+        assume_tty=agent == CLAUDE,
+    )
     result: dict = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny"}}
     if branded:
         result["hookSpecificOutput"]["permissionDecisionReason"] = branded
@@ -62,7 +68,12 @@ def format_block(reason: str, agent: str) -> dict:
 
 def format_ask(reason: str, agent: str, system_message: str = "") -> dict:
     """Format an ask/confirm response for the given agent."""
-    branded = brand("nah paused", reason or "this needs confirmation before it can run")
+    branded = brand(
+        "nah paused",
+        reason or "this needs confirmation before it can run",
+        color=_agent_color_mode(agent),
+        assume_tty=agent == CLAUDE,
+    )
     result: dict = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask"}}
     if branded:
         result["hookSpecificOutput"]["permissionDecisionReason"] = branded
@@ -87,6 +98,18 @@ def format_error(error: str, agent: str) -> dict:
         "permissionDecision": "deny",
         "permissionDecisionReason": msg,
     }}
+
+
+def _agent_color_mode(agent: str) -> str:
+    """Return the configured color mode for agent prompt messages."""
+    if agent != CLAUDE:
+        return "never"
+    try:
+        from nah.config import get_config
+        return get_config().ui_color
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: ui.color: {exc}\n")
+        return "never"
 
 
 # ---------------------------------------------------------------------------

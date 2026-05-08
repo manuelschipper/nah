@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Colored Claude Code safety prompts** — Claude hook permission messages now
+  support ANSI color for `nah paused` and `nah blocked` first lines through
+  `ui.color` (`auto`, `always`, or `never`) while respecting `NO_COLOR`. (#79)
 - **HTTP and REST API intent classification** — visible HTTP API calls now
   classify by service intent: GET/HEAD/OPTIONS use context-resolved
   `service_read`, POST/PUT/PATCH use `service_write`, DELETE and destructive

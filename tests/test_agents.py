@@ -1,6 +1,7 @@
 """Tests for multi-agent support — tool mapping, detection, output formatting."""
 
-from nah import agents
+from nah import agents, config
+from nah.config import NahConfig
 
 
 # --- Tool mapping ---
@@ -69,6 +70,15 @@ class TestFormatBlock:
         assert hso["permissionDecision"] == "deny"
         assert hso["permissionDecisionReason"] == "nah blocked: this was blocked before it could run."
 
+    def test_claude_color_when_enabled(self, monkeypatch):
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        config._cached_config = NahConfig(ui_color="always")
+
+        result = agents.format_block("dangerous command", "claude")
+
+        hso = result["hookSpecificOutput"]
+        assert hso["permissionDecisionReason"] == "\033[31mnah blocked: dangerous command.\033[0m"
+
 
 class TestFormatAsk:
     def test_claude_format(self):
@@ -81,6 +91,23 @@ class TestFormatAsk:
         result = agents.format_ask("", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecisionReason"] == "nah paused: this needs confirmation before it can run."
+
+    def test_claude_color_when_enabled(self, monkeypatch):
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        config._cached_config = NahConfig(ui_color="always")
+
+        result = agents.format_ask("needs confirmation", "claude")
+
+        hso = result["hookSpecificOutput"]
+        assert hso["permissionDecisionReason"] == "\033[33mnah paused: needs confirmation.\033[0m"
+
+    def test_claude_color_respects_no_color(self):
+        config._cached_config = NahConfig(ui_color="always")
+
+        result = agents.format_ask("needs confirmation", "claude")
+
+        hso = result["hookSpecificOutput"]
+        assert hso["permissionDecisionReason"] == "nah paused: needs confirmation."
 
 
 class TestFormatAllow:

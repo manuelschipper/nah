@@ -8,6 +8,7 @@ the original reason/action metadata untouched.
 from __future__ import annotations
 
 import re
+import os
 
 from nah import taxonomy
 
@@ -83,6 +84,15 @@ _CONTENT_MESSAGES = {
     "exfiltration": "this includes code that can send local data over the network",
     "credential_access": "this includes code that can access credentials",
     "subprocess_execution": "this includes code that can run other commands",
+}
+
+_ANSI_YELLOW = "\033[33m"
+_ANSI_RED = "\033[31m"
+_ANSI_RESET = "\033[0m"
+_COLOR_MODES = {"auto", "always", "never"}
+_BRAND_COLORS = {
+    "nah paused": _ANSI_YELLOW,
+    "nah blocked": _ANSI_RED,
 }
 
 
@@ -165,12 +175,42 @@ def enrich_decision(decision: dict, *, tool: str = "") -> dict:
     return decision
 
 
-def brand(prefix: str, message: str) -> str:
+def brand(
+    prefix: str,
+    message: str,
+    *,
+    color: str | bool = "never",
+    assume_tty: bool = False,
+) -> str:
     """Render a branded first line while preserving any following diagnostics."""
     first, sep, rest = str(message or "").partition("\n")
     first = _finalize(first) or "this needs confirmation before it can run"
     line = f"{prefix}: {first}{_terminal_punctuation(first)}"
+    color_code = _brand_color(prefix, color=color, assume_tty=assume_tty)
+    if color_code:
+        line = f"{color_code}{line}{_ANSI_RESET}"
     return f"{line}{sep}{rest}" if sep else line
+
+
+def _brand_color(prefix: str, *, color: str | bool, assume_tty: bool) -> str:
+    if os.environ.get("NO_COLOR") is not None:
+        return ""
+    mode = normalize_color_mode(color)
+    if mode == "never":
+        return ""
+    if mode == "auto" and not assume_tty:
+        return ""
+    return _BRAND_COLORS.get(prefix, "")
+
+
+def normalize_color_mode(value: str | bool | None) -> str:
+    if isinstance(value, bool):
+        return "always" if value else "never"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _COLOR_MODES:
+            return normalized
+    return "auto"
 
 
 def _terminal_punctuation(text: str) -> str:

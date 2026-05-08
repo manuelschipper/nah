@@ -37,6 +37,8 @@ class TestDefaults:
         assert cfg.sensitive_paths == {}
         assert cfg.allow_paths == {}
         assert cfg.known_registries == []
+        assert cfg.ui == {}
+        assert cfg.ui_color == "auto"
 
     def test_windows_global_config_dir_uses_appdata(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
@@ -69,6 +71,14 @@ class TestDefaults:
         apply_override({"llm_mode": "off", "llm": {}})
         assert get_config().llm_mode == "off"
         assert get_config().llm == {}
+
+    def test_apply_override_can_set_ui_color(self, tmp_path):
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        apply_override({"ui": {"color": "always"}})
+        assert get_config().ui_color == "always"
+        apply_override({"ui_color": "never"})
+        assert get_config().ui_color == "never"
 
     def test_apply_override_minimal_profile_deprecated_to_full(self, tmp_path, capsys):
         paths.set_project_root(str(tmp_path))
@@ -510,6 +520,31 @@ class TestLlmMode:
     def test_project_llm_ignored(self):
         cfg = _merge_configs({}, {"llm": {"mode": "on"}})
         assert cfg.llm_mode == "off"
+
+
+class TestUiConfig:
+    """ui config loading."""
+
+    def test_ui_color_from_global(self):
+        cfg = _merge_configs({"ui": {"color": "always"}}, {})
+        assert cfg.ui == {"color": "always"}
+        assert cfg.ui_color == "always"
+
+    def test_ui_color_bool_values(self):
+        assert _merge_configs({"ui": {"color": True}}, {}).ui_color == "always"
+        assert _merge_configs({"ui": {"color": False}}, {}).ui_color == "never"
+
+    def test_ui_color_invalid_falls_back_to_auto(self):
+        cfg = _merge_configs({"ui": {"color": "sparkles"}}, {})
+        assert cfg.ui_color == "auto"
+
+    def test_project_ui_color_ignored(self):
+        cfg = _merge_configs({}, {"ui": {"color": "always"}})
+        assert cfg.ui_color == "auto"
+
+    def test_target_ui_color_from_global_target(self):
+        cfg = _merge_configs({"targets": {"claude": {"ui": {"color": "never"}}}}, {}, target="claude")
+        assert cfg.ui_color == "never"
 
 
 class TestLlmEligible:

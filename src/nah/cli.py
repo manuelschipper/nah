@@ -484,6 +484,8 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  llm_eligible:          {cfg.llm_eligible}")
         print(f"  log:                   {cfg.log or '{}'}")
         print(f"  active_allow:          {cfg.active_allow}")
+        print(f"  ui:                    {cfg.ui or '{}'}")
+        print(f"  ui_color:              {cfg.ui_color}")
         print(f"  targets:               {cfg.targets or '{}'}")
         print(f"  terminal:              {cfg.terminal or '{}'}")
     elif sub == "path":

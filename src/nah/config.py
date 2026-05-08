@@ -4,6 +4,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 
+from nah.messages import normalize_color_mode
 from nah.platform_paths import nah_config_dir
 from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
 
@@ -42,6 +43,8 @@ class NahConfig:
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
     active_allow: bool | list = True
+    ui: dict = field(default_factory=dict)
+    ui_color: str = "auto"
     trust_project_config: bool = False
     targets: dict = field(default_factory=dict)
     terminal: dict = field(default_factory=dict)
@@ -193,6 +196,12 @@ def apply_override(override_data: dict) -> None:
             cfg.active_allow = raw_aa
         elif isinstance(raw_aa, list):
             cfg.active_allow = [str(t) for t in raw_aa]
+    if "ui" in override_data:
+        cfg.ui = _validate_dict(override_data["ui"])
+        if "color" in cfg.ui:
+            cfg.ui_color = normalize_color_mode(cfg.ui.get("color"))
+    if "ui_color" in override_data:
+        cfg.ui_color = normalize_color_mode(override_data["ui_color"])
 
     if "targets" in override_data:
         targets = _validate_dict(override_data["targets"])
@@ -431,6 +440,10 @@ def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = Non
     else:
         config.active_allow = True
 
+    # ui: global config ONLY — project .nah.yaml cannot affect prompt rendering
+    config.ui = _validate_dict(global_cfg.get("ui", {}))
+    config.ui_color = normalize_color_mode(config.ui.get("color", "auto"))
+
     global_targets = _validate_dict(global_cfg.get("targets", {}))
     project_targets = _validate_dict(project_cfg.get("targets", {}))
     config.targets = dict(global_targets)
@@ -509,6 +522,14 @@ def _apply_target_data(
         merged_terminal = dict(config.terminal)
         merged_terminal.update(terminal)
         config.terminal = merged_terminal
+
+    ui = _validate_dict(data.get("ui", {}))
+    if ui:
+        merged_ui = dict(config.ui)
+        merged_ui.update(ui)
+        config.ui = merged_ui
+        if trusted and "color" in ui:
+            config.ui_color = normalize_color_mode(ui.get("color"))
 
     llm = _validate_dict(data.get("llm", {}))
     if llm:

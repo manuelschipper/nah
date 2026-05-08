@@ -14,6 +14,7 @@ def _reset_state(tmp_path, monkeypatch):
     """Reset project root, config cache, and sensitive paths between tests for isolation."""
     import nah.config
 
+    monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr(nah.config, "_GLOBAL_CONFIG", str(tmp_path / "config.yaml"))
     reset_config()
     paths.reset_sensitive_paths()

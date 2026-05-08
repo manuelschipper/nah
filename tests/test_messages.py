@@ -259,3 +259,31 @@ def test_brand_punctuation_and_multiline_diagnostics():
     assert branded.startswith("nah paused: this can rewrite Git history.\n")
     assert "Git history.." not in branded
     assert "nah allow git_history_rewrite" in branded
+
+
+def test_brand_can_color_prompt_first_line(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    paused = messages.brand("nah paused", "this can rewrite Git history", color="always")
+    blocked = messages.brand("nah blocked", "this downloads code and runs it", color="always")
+
+    assert paused == "\033[33mnah paused: this can rewrite Git history.\033[0m"
+    assert blocked == "\033[31mnah blocked: this downloads code and runs it.\033[0m"
+
+
+def test_brand_color_respects_no_color(monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    branded = messages.brand("nah paused", "this can rewrite Git history", color="always")
+
+    assert branded == "nah paused: this can rewrite Git history."
+
+
+def test_brand_auto_color_requires_prompt_surface(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    plain = messages.brand("nah paused", "this can rewrite Git history", color="auto")
+    colored = messages.brand("nah paused", "this can rewrite Git history", color="auto", assume_tty=True)
+
+    assert plain == "nah paused: this can rewrite Git history."
+    assert colored == "\033[33mnah paused: this can rewrite Git history.\033[0m"

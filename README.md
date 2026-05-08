@@ -143,8 +143,7 @@ minutes.
 
 On `101,194` extracted Bash tool calls from the public Novita Claude Code trace,
 excluding the dataset-specific `reminder` app CLI, nah asked on **4.2%** and
-resolved **95.8%** deterministically. On recognized read-only/local-safe Bash
-calls, nah resolved **99.945%** deterministically.
+resolved **95.8%** deterministically.
 
 Reproduce it with:
 
