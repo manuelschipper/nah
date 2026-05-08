@@ -700,8 +700,6 @@ def view_markdown(view_name: str, view: dict[str, Any]) -> list[str]:
         f"- Decisions: `{view.get('decisions', {})}`",
         f"- Deterministic resolution: `{view.get('deterministic_resolution_rate', 0.0):.4%}`",
         f"- Review friction: `{view.get('review_friction_rate', 0.0):.4%}`",
-        f"- Recognized read-only: `{view.get('recognized_readonly', {})}`",
-        f"- Recognized read-only/local-safe: `{view.get('recognized_readonly_or_local_safe', {})}`",
         "",
         "### Ask Buckets",
         "",
