@@ -76,6 +76,14 @@ class TestDefaults:
         assert get_config().llm_mode == "off"
         assert get_config().llm == {}
 
+    def test_apply_override_accepts_boolean_llm_mode(self, tmp_path):
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        apply_override({"llm": {"mode": True, "providers": ["ollama"]}})
+        assert get_config().llm_mode == "on"
+        apply_override({"llm_mode": False, "llm": {}})
+        assert get_config().llm_mode == "off"
+
     def test_apply_override_can_set_ui_color(self, tmp_path):
         paths.set_project_root(str(tmp_path))
         reset_config()
@@ -292,6 +300,14 @@ class TestMergeConfigs:
         global_cfg = {
             "llm": {"mode": "on", "providers": ["openrouter"]},
             "targets": {"bash": {"llm": {"mode": "on"}}},
+        }
+        cfg = _merge_configs(global_cfg, {}, target="bash")
+        assert cfg.llm_mode == "on"
+
+    def test_terminal_target_accepts_boolean_llm_mode(self):
+        global_cfg = {
+            "llm": {"mode": True, "providers": ["openrouter"]},
+            "targets": {"bash": {"llm": {"mode": True}}},
         }
         cfg = _merge_configs(global_cfg, {}, target="bash")
         assert cfg.llm_mode == "on"
@@ -585,6 +601,10 @@ class TestLlmMode:
     def test_llm_mode_from_global(self):
         cfg = _merge_configs({"llm": {"mode": "on"}}, {})
         assert cfg.llm_mode == "on"
+
+    def test_llm_mode_accepts_yaml_boolean_on_off(self):
+        assert _merge_configs({"llm": {"mode": True}}, {}).llm_mode == "on"
+        assert _merge_configs({"llm": {"mode": False}}, {}).llm_mode == "off"
 
     def test_llm_mode_invalid_ignored(self):
         cfg = _merge_configs({"llm": {"mode": "turbo"}}, {})

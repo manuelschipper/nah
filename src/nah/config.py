@@ -205,13 +205,15 @@ def apply_override(override_data: dict) -> None:
 
     if "llm" in override_data:
         cfg.llm = _validate_dict(override_data["llm"])
-        raw_mode = cfg.llm.get("mode", "")
-        if raw_mode in ("off", "on"):
-            cfg.llm_mode = raw_mode
+        mode = _normalize_llm_mode(cfg.llm.get("mode", ""))
+        if mode:
+            cfg.llm_mode = mode
         elif "mode" not in cfg.llm and bool(cfg.llm.get("enabled", False)):
             cfg.llm_mode = "on"
-    if "llm_mode" in override_data and override_data["llm_mode"] in ("off", "on"):
-        cfg.llm_mode = override_data["llm_mode"]
+    if "llm_mode" in override_data:
+        mode = _normalize_llm_mode(override_data["llm_mode"])
+        if mode:
+            cfg.llm_mode = mode
     if "llm_eligible" in override_data:
         cfg.llm_eligible = override_data["llm_eligible"]
 
@@ -266,6 +268,15 @@ def _load_yaml_file(path: str) -> dict:
 def _validate_dict(val) -> dict:
     """Return val if dict, else empty dict."""
     return val if isinstance(val, dict) else {}
+
+
+def _normalize_llm_mode(raw) -> str:
+    """Normalize YAML/JSON LLM mode values to ``on`` / ``off`` / empty."""
+    if raw in ("off", "on"):
+        return raw
+    if isinstance(raw, bool):
+        return "on" if raw else "off"
+    return ""
 
 
 def _normalize_config_root(path: str) -> str:
@@ -478,9 +489,9 @@ def _merge_configs(
     config.llm = _validate_dict(global_cfg.get("llm", {}))
 
     # llm.mode: global only. Backward compat for legacy llm.enabled=true.
-    raw_mode = config.llm.get("mode", "")
-    if raw_mode in ("off", "on"):
-        config.llm_mode = raw_mode
+    mode = _normalize_llm_mode(config.llm.get("mode", ""))
+    if mode:
+        config.llm_mode = mode
     elif "mode" not in config.llm and bool(config.llm.get("enabled", False)):
         config.llm_mode = "on"
 
@@ -575,7 +586,7 @@ def _apply_target_config(
 
 def _has_target_llm_mode(data: dict) -> bool:
     llm_data = _validate_dict(data.get("llm", {}))
-    return llm_data.get("mode") in ("off", "on")
+    return bool(_normalize_llm_mode(llm_data.get("mode")))
 
 
 def _apply_target_data(
@@ -623,9 +634,9 @@ def _apply_target_data(
 
     llm = _validate_dict(data.get("llm", {}))
     if trusted and llm:
-        raw_mode = llm.get("mode")
-        if raw_mode in ("off", "on"):
-            config.llm_mode = raw_mode
+        mode = _normalize_llm_mode(llm.get("mode"))
+        if mode:
+            config.llm_mode = mode
         if "eligible" in llm:
             raw_eligible = llm.get("eligible")
             if raw_eligible in ("strict", "default", "all"):
