@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roots whose config may loosen policy and activate project `classify` rules.
   (nah-918)
 
+### Fixed
+
+- **YAML `llm.mode: on/off` parsing** — PyYAML parses unquoted `on` and `off`
+  as booleans, so nah now accepts boolean `true`/`false` anywhere it reads LLM
+  mode, including target overrides and inline `--config` overrides.
+
 ## [0.8.3] - 2026-05-06
 
 ### Added
