@@ -107,6 +107,19 @@ Only the safe automatic allow behavior changes.
 Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`,
 `NotebookEdit`, `Glob`, `Grep`, and exact `mcp__...` tool names.
 
+Claude Code prompt colors are configurable in global config:
+
+```yaml
+# ~/.config/nah/config.yaml
+
+ui:
+  color: auto   # auto | always | never
+```
+
+With color enabled, `nah paused` prompt first lines are yellow and `nah blocked`
+prompt first lines are red. nah also follows the common `NO_COLOR` environment
+variable: when `NO_COLOR` is set, nah does not emit ANSI color codes.
+
 ## Test It
 
 Dry-run the classifier:
