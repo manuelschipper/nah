@@ -128,11 +128,11 @@ def classify_command(command: str) -> ClassifyResult:
         from nah.config import get_config  # lazy import
         cfg = get_config()
         profile = cfg.profile
-        trust_project = cfg.trust_project_config
+        trust_project = cfg.project_config_trusted
         if cfg.classify_global:
             global_table = taxonomy.build_user_table(cfg.classify_global)
         builtin_table = taxonomy.get_builtin_table(cfg.profile)
-        if cfg.classify_project:
+        if cfg.project_config_trusted and cfg.classify_project:
             project_table = taxonomy.build_user_table(cfg.classify_project)
         if cfg.actions:
             user_actions = cfg.actions

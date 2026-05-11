@@ -311,7 +311,7 @@ class TestWriteReviewGate:
         })
         assert _is_write_llm_allow_eligible("Write", {
             "decision": taxonomy.ASK,
-            "reason": "Write outside project (no git root): /tmp/outside.txt",
+            "reason": "Write outside project (no project root): /tmp/outside.txt",
         })
         assert not _is_write_llm_allow_eligible("Write", {
             "decision": taxonomy.ASK,

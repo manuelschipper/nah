@@ -14,6 +14,7 @@ from nah.config import (
     is_path_allowed,
     _merge_configs,
     _load_yaml_file,
+    _is_project_config_trusted,
 )
 from nah import paths
 from nah.platform_paths import nah_config_dir
@@ -39,6 +40,9 @@ class TestDefaults:
         assert cfg.known_registries == []
         assert cfg.ui == {}
         assert cfg.ui_color == "auto"
+        assert cfg.project_root == str(tmp_path)
+        assert cfg.project_config_trusted is False
+        assert cfg.trusted_project_configs == []
 
     def test_windows_global_config_dir_uses_appdata(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
@@ -99,6 +103,19 @@ class TestDefaults:
         finally:
             reset_config()
 
+    def test_apply_override_trusted_project_configs_enables_project_classify(self, tmp_path):
+        paths.set_project_root(str(tmp_path))
+        (tmp_path / ".nah.yaml").write_text(
+            "classify:\n  db_read:\n    - inspect-db\n",
+            encoding="utf-8",
+        )
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
+            apply_override({"trusted_project_configs": [str(tmp_path)]})
+            cfg = get_config()
+        assert cfg.project_config_trusted is True
+        assert cfg.classify_project == {"db_read": ["inspect-db"]}
+
     def test_use_defaults_ignores_cached_custom_config(self, tmp_path):
         """use_defaults replaces any active config with merged packaged defaults."""
         paths.set_project_root(str(tmp_path))
@@ -119,6 +136,43 @@ class TestDefaults:
             assert "/custom" not in cfg.trusted_paths
         finally:
             reset_config()
+
+    def test_get_config_loads_non_git_cwd_project_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".nah.yaml").write_text("actions:\n  package_run: block\n")
+        paths.reset_project_root()
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "missing-global.yaml")):
+            cfg = get_config()
+        assert cfg.project_root == str(tmp_path)
+        assert cfg.project_config_path == str(tmp_path / ".nah.yaml")
+        assert cfg.actions["package_run"] == "block"
+
+    def test_get_config_without_non_git_project_file_has_no_project_root(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        paths.reset_project_root()
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "missing-global.yaml")):
+            cfg = get_config()
+        assert cfg.project_root == ""
+        assert cfg.project_config_path == ""
+
+    def test_trusted_project_configs_exact_root_only(self, tmp_path):
+        parent = tmp_path / "workspace"
+        child = parent / "child"
+        child.mkdir(parents=True)
+        global_cfg = {"trusted_project_configs": [str(parent)]}
+        assert _is_project_config_trusted(str(parent), global_cfg) is True
+        assert _is_project_config_trusted(str(child), global_cfg) is False
+        cfg = _merge_configs(
+            global_cfg,
+            {"actions": {"network_outbound": "allow"}},
+            project_root=str(child),
+            project_config_path=str(child / ".nah.yaml"),
+            project_config_trusted=False,
+        )
+        assert cfg.project_config_trusted is False
+        assert cfg.actions.get("network_outbound") != "allow"
 
     def test_use_defaults_resets_lazy_content_cache(self, tmp_path):
         """use_defaults clears lazy caches already merged from a custom config."""
@@ -174,11 +228,19 @@ class TestMergeConfigs:
         assert cfg.classify_project == {}
         assert cfg.actions == {}
 
-    def test_classify_kept_separate(self):
-        """Global and project classify are stored separately, not unioned."""
+    def test_untrusted_project_classify_ignored(self):
+        """Project classify is ignored before the project config root is trusted."""
         global_cfg = {"classify": {"package_run": ["just build"]}}
         project_cfg = {"classify": {"package_run": ["task dev"]}}
         cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.classify_global == {"package_run": ["just build"]}
+        assert cfg.classify_project == {}
+
+    def test_trusted_project_classify_kept_separate(self):
+        """Trusted project classify is stored separately, not unioned."""
+        global_cfg = {"classify": {"package_run": ["just build"]}}
+        project_cfg = {"classify": {"package_run": ["task dev"]}}
+        cfg = _merge_configs(global_cfg, project_cfg, project_config_trusted=True)
         assert cfg.classify_global == {"package_run": ["just build"]}
         assert cfg.classify_project == {"package_run": ["task dev"]}
 
@@ -209,11 +271,10 @@ class TestMergeConfigs:
 
     def test_trusted_project_target_can_loosen(self):
         global_cfg = {
-            "trust_project_config": True,
             "targets": {"bash": {"actions": {"network_outbound": "ask"}}},
         }
         project_cfg = {"targets": {"bash": {"actions": {"network_outbound": "allow"}}}}
-        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash", project_config_trusted=True)
         assert cfg.actions["network_outbound"] == "allow"
 
     def test_terminal_targets_default_llm_off(self):
@@ -243,11 +304,10 @@ class TestMergeConfigs:
 
     def test_trusted_project_target_can_enable_terminal_llm(self):
         global_cfg = {
-            "trust_project_config": True,
             "llm": {"mode": "on", "providers": ["openrouter"]},
         }
         project_cfg = {"targets": {"bash": {"llm": {"mode": "on"}}}}
-        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash", project_config_trusted=True)
         assert cfg.llm_mode == "on"
 
     def test_target_terminal_options_apply(self):
@@ -275,42 +335,63 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, project_cfg)
         assert cfg.sensitive_paths["~/.custom"] == "block"
 
-    # --- trust_project_config ---
+    def test_untrusted_project_target_cannot_change_terminal_options(self):
+        global_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "GLOBAL_BYPASS"}}}}
+        project_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "PROJECT_BYPASS"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash")
+        assert cfg.terminal["bypass_env"] == "GLOBAL_BYPASS"
 
-    def test_trust_project_config_allows_loosening(self):
-        """With trust_project_config, project can loosen actions."""
-        global_cfg = {"trust_project_config": True, "actions": {"network_outbound": "ask"}}
+    def test_trusted_project_target_can_change_terminal_options(self):
+        global_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "GLOBAL_BYPASS"}}}}
+        project_cfg = {"targets": {"bash": {"terminal": {"bypass_env": "PROJECT_BYPASS"}}}}
+        cfg = _merge_configs(global_cfg, project_cfg, target="bash", project_config_trusted=True)
+        assert cfg.terminal["bypass_env"] == "PROJECT_BYPASS"
+
+    # --- trusted project config ---
+
+    def test_trusted_project_config_allows_loosening(self):
+        """With project_config_trusted, project can loosen actions."""
+        global_cfg = {"actions": {"network_outbound": "ask"}}
         project_cfg = {"actions": {"network_outbound": "allow"}}
-        cfg = _merge_configs(global_cfg, project_cfg)
+        cfg = _merge_configs(global_cfg, project_cfg, project_config_trusted=True)
         assert cfg.actions["network_outbound"] == "allow"
 
-    def test_trust_project_config_default_false(self):
-        """Without trust_project_config, loosening is blocked."""
+    def test_project_config_default_untrusted(self):
+        """Without project_config_trusted, loosening is blocked."""
         global_cfg = {"actions": {"network_outbound": "ask"}}
         project_cfg = {"actions": {"network_outbound": "allow"}}
         cfg = _merge_configs(global_cfg, project_cfg)
         assert cfg.actions["network_outbound"] == "ask"
 
-    def test_trust_project_config_sensitive_paths_loosen(self):
-        """With trust_project_config, project can loosen sensitive_paths."""
-        global_cfg = {"trust_project_config": True, "sensitive_paths": {"~/.custom": "block"}}
+    def test_trusted_project_config_sensitive_paths_loosen(self):
+        """With project_config_trusted, project can loosen sensitive_paths."""
+        global_cfg = {"sensitive_paths": {"~/.custom": "block"}}
         project_cfg = {"sensitive_paths": {"~/.custom": "ask"}}
-        cfg = _merge_configs(global_cfg, project_cfg)
+        cfg = _merge_configs(global_cfg, project_cfg, project_config_trusted=True)
         assert cfg.sensitive_paths["~/.custom"] == "ask"
 
-    def test_trust_project_config_sensitive_paths_default_loosen(self):
-        """With trust_project_config, project can loosen sensitive_paths_default."""
-        global_cfg = {"trust_project_config": True, "sensitive_paths_default": "block"}
+    def test_trusted_project_config_sensitive_paths_default_loosen(self):
+        """With project_config_trusted, project can loosen sensitive_paths_default."""
+        global_cfg = {"sensitive_paths_default": "block"}
         project_cfg = {"sensitive_paths_default": "ask"}
-        cfg = _merge_configs(global_cfg, project_cfg)
+        cfg = _merge_configs(global_cfg, project_cfg, project_config_trusted=True)
         assert cfg.sensitive_paths_default == "ask"
 
-    def test_trust_project_config_content_policies_loosen(self):
-        """With trust_project_config, project can loosen content_policies."""
-        global_cfg = {"trust_project_config": True, "content_patterns": {"policies": {"secret": "block"}}}
+    def test_trusted_project_config_content_policies_loosen(self):
+        """With project_config_trusted, project can loosen content_policies."""
+        global_cfg = {"content_patterns": {"policies": {"secret": "block"}}}
         project_cfg = {"content_patterns": {"policies": {"secret": "ask"}}}
-        cfg = _merge_configs(global_cfg, project_cfg)
+        cfg = _merge_configs(global_cfg, project_cfg, project_config_trusted=True)
         assert cfg.content_policies["secret"] == "ask"
+
+    def test_legacy_trust_project_config_ignored(self, capsys):
+        """The removed broad trust switch warns and does not loosen policy."""
+        global_cfg = {"trust_project_config": True, "actions": {"network_outbound": "ask"}}
+        project_cfg = {"actions": {"network_outbound": "allow"}}
+        cfg = _merge_configs(global_cfg, project_cfg)
+        assert cfg.actions["network_outbound"] == "ask"
+        assert cfg.trust_project_config is False
+        assert "trust_project_config is no longer supported" in capsys.readouterr().err
 
     def test_sensitive_paths_union(self):
         global_cfg = {"sensitive_paths": {"~/.a": "ask"}}

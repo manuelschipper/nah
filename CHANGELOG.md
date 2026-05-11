@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Non-Git project config with exact-root trust** — nah now loads
+  `./.nah.yaml` from the current directory outside Git while keeping Git-root
+  config precedence inside repositories. Project config remains tighten-only by
+  default; `nah trust-project` / `nah untrust-project` manage exact project
+  roots whose config may loosen policy and activate project `classify` rules.
+  (nah-918)
+
 ## [0.8.3] - 2026-05-06
 
 ### Added

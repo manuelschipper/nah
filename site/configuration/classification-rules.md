@@ -61,9 +61,9 @@ classify:
     A single-token global entry like `curl` will shadow the built-in flag classifier that distinguishes `curl` (read) from `curl -X POST` (write). Use `nah status` to see shadow warnings.
 
 Built-in classifiers and built-in prefix tables run after global overrides.
-Project `.nah.yaml` entries run later: they can add new commands and tighten
-overlapping built-in classifications, but cannot weaken built-in behavior unless
-global config explicitly sets `trust_project_config: true`.
+Project `.nah.yaml` classify entries run only when the active project config
+root is trusted with `nah trust-project`. Until then, nah shows those entries as
+ignored in `nah status` and does not use them at runtime.
 
 For the full lookup order, see
 [How it works](../how-it-works.md#4-classify-three-phase-lookup).
@@ -73,10 +73,10 @@ For the full lookup order, see
 | Aspect | Global | Project |
 |--------|--------|---------|
 | **Phase** | 1 (first) | 3 (last) |
-| **Can override built-in** | Yes | Only to tighten, unless `trust_project_config: true` |
+| **Can override built-in** | Yes | Yes, after `nah trust-project` |
 | **Can override built-in classifier functions** | Yes | No |
 | **Use case** | Personal preferences, org standards | Project-specific commands |
-| **Security** | Trusted (your machine) | Untrusted (supply-chain risk) |
+| **Security** | Trusted (your machine) | Ignored until the exact project root is trusted |
 
 ## Example: project-specific rules
 
@@ -94,8 +94,16 @@ actions:
 ```
 
 Project config can tighten `actions` (for example, escalate `ask` to `block`)
-but cannot relax them unless global config explicitly sets
-`trust_project_config: true`.
+by default. Relaxing policy or activating project `classify` requires trusting
+that exact project root:
+
+```bash
+nah trust-project
+nah classify "migrate-prod" db_write --project
+```
+
+See [Configuration overview](index.md#trusting-project-config) for Git,
+non-Git, and nested config behavior.
 
 ## Checking your rules
 

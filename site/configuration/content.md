@@ -115,7 +115,8 @@ content_patterns:
     obfuscation: block         # block obfuscation patterns
 ```
 
-Valid values: `ask`, `block`. Project config can only tighten by default, unless global config explicitly sets `trust_project_config: true`.
+Valid values: `ask`, `block`. Project config can only tighten by default.
+Loosening requires `nah trust-project` for that exact project root.
 
 ### Suppress credential search patterns
 

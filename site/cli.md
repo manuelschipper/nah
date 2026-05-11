@@ -118,7 +118,9 @@ Display the effective merged configuration.
 nah config show
 ```
 
-Shows all config fields with their resolved values after merging global and project configs.
+Shows all config fields with their resolved values after merging global and
+project config. When a project config contains rules that are ignored until the
+project root is trusted, the output includes a `project_ignored` line.
 
 ### nah config path
 
@@ -128,7 +130,10 @@ Show config file locations.
 nah config path
 ```
 
-Prints the global config path (`~/.config/nah/config.yaml`) and project config path (`.nah.yaml` in the git root, if detected).
+Prints the global config path and the active project config path. Project
+config is loaded from the Git root, or from `./.nah.yaml` in the current
+directory outside Git. The output also shows the active project root and whether
+it is trusted.
 
 ### nah key
 
@@ -346,7 +351,7 @@ nah allow lang_exec --project    # write to project config
 
 | Flag | Description |
 |------|-------------|
-| `--project` | Write to project `.nah.yaml` instead of global config |
+| `--project` | Write to project `.nah.yaml` instead of global config; untrusted project config can only tighten policy |
 
 ### nah deny
 
@@ -361,7 +366,7 @@ nah deny git_history_rewrite --project
 
 | Flag | Description |
 |------|-------------|
-| `--project` | Write to project `.nah.yaml` instead of global config |
+| `--project` | Write to project `.nah.yaml` instead of global config; untrusted project config can only tighten policy |
 
 ### nah classify
 
@@ -376,7 +381,7 @@ nah classify "psql -c DROP" db_write --project
 
 | Flag | Description |
 |------|-------------|
-| `--project` | Write to project `.nah.yaml` instead of global config |
+| `--project` | Write to project `.nah.yaml`; requires `nah trust-project` first |
 
 ### nah trust
 
@@ -397,6 +402,22 @@ treated as a hostname and added to `known_registries`.
 | Flag | Description |
 |------|-------------|
 | `--project` | Write to project config (global only — flag is rejected for paths and ignored for hosts) |
+
+### nah trust-project
+
+Trust a project config root so that root's `.nah.yaml` can loosen policy and
+define runtime `classify` rules.
+
+```bash
+nah trust-project             # active project root, or cwd outside Git
+nah trust-project /path/repo
+nah untrust-project /path/repo
+```
+
+This writes `trusted_project_configs` in global config. It is separate from
+`nah trust`, which trusts network hosts or filesystem paths. Trust is exact-root
+after path resolution; trusting a parent directory does not trust child
+projects.
 
 ### nah allow-path
 
@@ -420,8 +441,10 @@ nah status zsh
 ```
 
 Bare `nah status` lists action overrides, classify entries, trusted
-hosts/paths, allow-paths, and safety list modifications. Global classify entries
-that shadow built-in rules show annotations.
+hosts/paths, trusted project config roots, allow-paths, and safety list
+modifications. Global classify entries that shadow built-in rules show
+annotations. Project `classify` entries in an untrusted project config are
+listed as ignored until `nah trust-project`.
 
 Target status summarizes direct Claude hook/plugin state, shell guard
 installation, and loaded markers.

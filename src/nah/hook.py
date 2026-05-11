@@ -160,7 +160,7 @@ def _is_project_boundary_ask(tool_name: str, det_result: dict) -> bool:
         det_result.get("decision") == taxonomy.ASK
         and (
             reason.startswith(f"{tool_name} outside project:")
-            or reason.startswith(f"{tool_name} outside project (no git root):")
+            or reason.startswith(f"{tool_name} outside project (no project root):")
         )
     )
 
@@ -684,7 +684,7 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
         # MCP tools: project config cannot classify (untrusted, no builtin coverage)
         is_mcp = canonical.startswith("mcp__")
         project_table = None
-        if not is_mcp and cfg.classify_project:
+        if not is_mcp and cfg.project_config_trusted and cfg.classify_project:
             project_table = taxonomy.build_user_table(cfg.classify_project)
 
         user_actions = cfg.actions or None
@@ -693,7 +693,7 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
 
     action_type = taxonomy.classify_tokens([canonical], global_table, builtin_table, project_table,
                                            profile=cfg.profile,
-                                           trust_project=cfg.trust_project_config)
+                                           trust_project=cfg.project_config_trusted)
 
     policy = taxonomy.get_policy(action_type, user_actions)
     stage_reason = (

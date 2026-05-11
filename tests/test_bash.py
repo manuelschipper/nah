@@ -636,9 +636,9 @@ class TestPassthroughWrappers:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
 
-    def test_env_passthrough_preserves_trust_project_override(self, project_root):
+    def test_env_passthrough_preserves_trusted_project_override(self, project_root):
         config._cached_config = NahConfig(
-            trust_project_config=True,
+            project_config_trusted=True,
             classify_project={"filesystem_read": ["docker rm"]},
         )
 
@@ -646,9 +646,9 @@ class TestPassthroughWrappers:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "filesystem_read"
 
-    def test_time_passthrough_preserves_trust_project_override(self, project_root):
+    def test_time_passthrough_preserves_trusted_project_override(self, project_root):
         config._cached_config = NahConfig(
-            trust_project_config=True,
+            project_config_trusted=True,
             classify_project={"filesystem_read": ["docker rm"]},
         )
 
@@ -656,9 +656,9 @@ class TestPassthroughWrappers:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "filesystem_read"
 
-    def test_sudo_passthrough_preserves_trust_project_override(self, project_root):
+    def test_sudo_passthrough_preserves_trusted_project_override(self, project_root):
         config._cached_config = NahConfig(
-            trust_project_config=True,
+            project_config_trusted=True,
             classify_project={"filesystem_read": ["mytool"]},
         )
 

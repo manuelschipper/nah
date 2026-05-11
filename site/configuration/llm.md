@@ -212,9 +212,10 @@ when global LLM mode is on. That keeps human terminal commands local by
 default. Turn it on only with an explicit target override such as
 `targets.bash.llm.mode: on`.
 
-Project `.nah.yaml` files can tighten target LLM policy, such as turning a
-target off, but they cannot configure provider credentials or silently loosen
-global policy unless `trust_project_config: true` is set globally.
+Project `.nah.yaml` files can tighten target policy by default, but target LLM
+settings and provider credentials are trusted/global config only. Use
+`nah trust-project` when you want that exact project root to control non-policy
+target settings.
 
 ## Write/Edit review
 
@@ -225,7 +226,7 @@ For deterministic `allow` results, the LLM can still escalate to `ask` when the 
 For deterministic `ask` results, the only relaxable class is a project-boundary ask:
 
 - `<Tool> outside project: ...`
-- `<Tool> outside project (no git root): ...`
+- `<Tool> outside project (no project root): ...`
 
 If the LLM returns `allow` for one of those asks, nah records an `allow` decision. Whether nah emits an automatic allow to Claude Code is still controlled by `active_allow`; if Write/Edit is not active-allowed, Claude Code's normal permission prompt handles the tool.
 

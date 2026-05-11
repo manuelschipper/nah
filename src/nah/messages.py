@@ -347,11 +347,11 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
     if match:
         return f"this tries to run a script nah cannot read: {_friendly_path(match.group(1))}"
 
-    match = re.search(r"script outside project(?: \(no git root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
+    match = re.search(r"script outside project(?: \(no (?:git|project) root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
         return f"this runs a script outside the current project: {_friendly_path(match.group(1))}"
 
-    match = re.search(r"\boutside project(?: \(no git root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
+    match = re.search(r"\boutside project(?: \(no (?:git|project) root\))?:\s*(.+)$", text, flags=re.IGNORECASE)
     if match:
         return f"this writes outside the current project: {_friendly_path(match.group(1))}"
     if "outside project" in lower:

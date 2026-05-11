@@ -137,21 +137,32 @@ def _get_config_path(project: bool) -> str:
     if project:
         path = get_project_config_path()
         if not path:
-            raise ValueError("Not in a git repository — cannot use --project")
+            path = os.path.join(os.getcwd(), ".nah.yaml")
         return path
     return get_global_config_path()
 
 
+def _project_root_for_write() -> str:
+    """Return the project root for explicit project-config writes."""
+    return get_project_root() or os.getcwd()
+
+
+def _project_config_trusted_for_write() -> bool:
+    """Return whether the active write target is a trusted project config root."""
+    from nah.config import _project_root_matches_trusted
+    global_data = _read_config(get_global_config_path())
+    trusted = global_data.get("trusted_project_configs", [])
+    if not isinstance(trusted, list):
+        return False
+    return _project_root_matches_trusted(_project_root_for_write(), [str(p) for p in trusted])
+
+
 def _validate_action_scope(action_type: str, policy: str, project: bool) -> None:
     """Check that a project config doesn't loosen policy relative to global + defaults.
-
-    Skipped when trust_project_config is enabled in global config.
     """
     if not project:
         return
-    # Check if trust_project_config is enabled
-    from nah.config import get_config
-    if get_config().trust_project_config:
+    if _project_config_trusted_for_write():
         return  # project can freely override
     # Read global config to find the effective policy
     global_path = get_global_config_path()
@@ -165,7 +176,7 @@ def _validate_action_scope(action_type: str, policy: str, project: bool) -> None
     if taxonomy.STRICTNESS.get(policy, 2) < taxonomy.STRICTNESS.get(effective, 2):
         raise ValueError(
             f"Project config cannot loosen '{action_type}' from {effective} to {policy}. "
-            f"Use global config to allow, or set trust_project_config: true to enable per-project loosening."
+            f"Use global config to allow, or run `nah trust-project` to trust this project config."
         )
 
 
@@ -201,7 +212,7 @@ def write_allow_path(raw_path: str) -> str:
     resolved = resolve_path(raw_path)
     project_root = get_project_root()
     if not project_root:
-        raise ValueError("Not in a git repository — cannot determine project root for allow_paths")
+        raise ValueError("No project config root — cannot determine project root for allow_paths")
     path = get_global_config_path()
     data = _read_config(path)
     allow_paths = data.setdefault("allow_paths", {})
@@ -217,6 +228,11 @@ def write_classify(command: str, action_type: str, project: bool = False,
                     allow_custom: bool = False) -> str:
     """Write a classify entry. Returns confirmation message."""
     _ensure_yaml()
+    if project and not _project_config_trusted_for_write():
+        raise ValueError(
+            "Project classify requires a trusted project config. "
+            "Run `nah trust-project` first, or write the classify rule globally."
+        )
     # Validate wildcard syntax before anything else so the error surfaces
     # immediately rather than on the next hook invocation.
     taxonomy._validate_classify_pattern(command)
@@ -287,6 +303,60 @@ def write_trust_path(raw_path: str) -> str:
     return f"Trusted path: {raw_path} (global config)"
 
 
+def write_trust_project(raw_path: str | None = None) -> str:
+    """Trust a project config root in global config. Returns confirmation message."""
+    _ensure_yaml()
+    candidate = raw_path or get_project_root() or os.getcwd()
+    resolved = os.path.realpath(os.path.expanduser(candidate))
+    if not os.path.isdir(resolved):
+        raise ValueError(f"Not a directory: {candidate}")
+    if resolved == os.path.realpath(os.sep):
+        raise ValueError("Refusing to trust filesystem root")
+    path = get_global_config_path()
+    data = _read_config(path)
+    trusted = data.setdefault("trusted_project_configs", [])
+    if not isinstance(trusted, list):
+        trusted = []
+        data["trusted_project_configs"] = trusted
+    from nah.config import _normalize_config_root
+    resolved_key = _normalize_config_root(resolved)
+    for entry in trusted:
+        if isinstance(entry, str) and _normalize_config_root(entry) == resolved_key:
+            return f"Already trusted project config: {candidate}"
+    trusted.append(resolved)
+    _write_config(path, data)
+    return f"Trusted project config: {raw_path or resolved} (global config)"
+
+
+def write_untrust_project(raw_path: str | None = None) -> str:
+    """Remove project config root trust from global config. Returns confirmation message."""
+    _ensure_yaml()
+    candidate = raw_path or get_project_root() or os.getcwd()
+    resolved = os.path.realpath(os.path.expanduser(candidate))
+    path = get_global_config_path()
+    data = _read_config(path)
+    trusted = data.get("trusted_project_configs", [])
+    if not isinstance(trusted, list):
+        raise ValueError(f"Project config is not trusted: {candidate}")
+    from nah.config import _normalize_config_root
+    resolved_key = _normalize_config_root(resolved)
+    kept = []
+    removed = False
+    for entry in trusted:
+        if isinstance(entry, str) and _normalize_config_root(entry) == resolved_key:
+            removed = True
+            continue
+        kept.append(entry)
+    if not removed:
+        raise ValueError(f"Project config is not trusted: {candidate}")
+    if kept:
+        data["trusted_project_configs"] = kept
+    else:
+        data.pop("trusted_project_configs", None)
+    _write_config(path, data)
+    return f"Untrusted project config: {candidate}"
+
+
 def forget_rule(arg: str, project: bool | None = None, global_only: bool | None = None) -> str:
     """Find and remove a rule matching arg. Returns confirmation message."""
     _ensure_yaml()
@@ -298,7 +368,7 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
     elif project:
         proj_path = get_project_config_path()
         if not proj_path:
-            raise ValueError("Not in a git repository — cannot use --project")
+            proj_path = os.path.join(os.getcwd(), ".nah.yaml")
         paths_to_check.append((proj_path, "project"))
     else:
         paths_to_check.append((get_global_config_path(), "global"))
@@ -362,6 +432,16 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
             for i, entry in enumerate(trusted):
                 if entry == arg or resolve_path(entry) == resolved_arg:
                     matches.append((cfg_path, "trusted_paths", entry))
+                    break
+        # Check trusted_project_configs (global only)
+        project_trusted = data.get("trusted_project_configs", [])
+        if isinstance(project_trusted, list):
+            from nah.config import _normalize_config_root
+            from nah.paths import resolve_path
+            resolved_arg = _normalize_config_root(resolve_path(arg))
+            for entry in project_trusted:
+                if isinstance(entry, str) and _normalize_config_root(entry) == resolved_arg:
+                    matches.append((cfg_path, "trusted_project_configs", entry))
                     break
 
     if not matches:
@@ -450,6 +530,12 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
             trusted.remove(key)
         if not trusted:
             data.pop("trusted_paths", None)
+    elif section == "trusted_project_configs":
+        trusted = data.get("trusted_project_configs", [])
+        if isinstance(trusted, list) and key in trusted:
+            trusted.remove(key)
+        if not trusted:
+            data.pop("trusted_project_configs", None)
     _write_config(cfg_path, data)
     label = _label_for_path(cfg_path)
     return f"Removed: {arg} from {section} ({label})"
@@ -469,6 +555,8 @@ def list_rules() -> dict:
     global_path = get_global_config_path()
     global_data = _read_config(global_path) if os.path.isfile(global_path) else {}
     proj_path = get_project_config_path()
+    if not proj_path and os.path.isfile(os.path.join(os.getcwd(), ".nah.yaml")):
+        proj_path = os.path.join(os.getcwd(), ".nah.yaml")
     proj_data = _read_config(proj_path) if proj_path and os.path.isfile(proj_path) else {}
 
     for label, data in [("global", global_data), ("project", proj_data)]:
@@ -496,5 +584,8 @@ def list_rules() -> dict:
         trusted_paths = data.get("trusted_paths", [])
         if isinstance(trusted_paths, list) and trusted_paths:
             result[label]["trusted_paths"] = trusted_paths
+        trusted_project_configs = data.get("trusted_project_configs", [])
+        if label == "global" and isinstance(trusted_project_configs, list) and trusted_project_configs:
+            result[label]["trusted_project_configs"] = trusted_project_configs
 
     return result

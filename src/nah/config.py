@@ -45,6 +45,10 @@ class NahConfig:
     active_allow: bool | list = True
     ui: dict = field(default_factory=dict)
     ui_color: str = "auto"
+    project_root: str = ""
+    project_config_path: str = ""
+    project_config_trusted: bool = False
+    trusted_project_configs: list[str] = field(default_factory=list)
     trust_project_config: bool = False
     targets: dict = field(default_factory=dict)
     terminal: dict = field(default_factory=dict)
@@ -92,11 +96,20 @@ def get_config(target: str | None = None) -> NahConfig:
     project_data: dict = {}
     from nah.paths import get_project_root  # lazy import to avoid circular
     project_root = get_project_root()
+    project_config_path = ""
     if project_root:
         project_config_path = os.path.join(project_root, _PROJECT_CONFIG_NAME)
         project_data = _load_yaml_file(project_config_path)
 
-    _cached_config = _merge_configs(global_data, project_data, effective_target)
+    project_config_trusted = _is_project_config_trusted(project_root, global_data)
+    _cached_config = _merge_configs(
+        global_data,
+        project_data,
+        effective_target,
+        project_root=project_root or "",
+        project_config_path=project_config_path,
+        project_config_trusted=project_config_trusted,
+    )
     _cached_target = effective_target
     return _cached_config
 
@@ -149,6 +162,18 @@ def apply_override(override_data: dict) -> None:
         tp = override_data["trusted_paths"]
         if isinstance(tp, list):
             cfg.trusted_paths = [str(p) for p in tp]
+    if "trusted_project_configs" in override_data:
+        tpc = override_data["trusted_project_configs"]
+        if isinstance(tpc, list):
+            cfg.trusted_project_configs = [str(p) for p in tpc]
+            from nah.paths import get_project_root
+            project_root = get_project_root()
+            cfg.project_config_trusted = _project_root_matches_trusted(
+                project_root, cfg.trusted_project_configs
+            )
+            if cfg.project_config_trusted and cfg.project_config_path:
+                project_cfg = _load_yaml_file(cfg.project_config_path)
+                cfg.classify_project = _validate_dict(project_cfg.get("classify", {}))
     if "known_registries" in override_data:
         cfg.known_registries = override_data["known_registries"]
     if "exec_sinks" in override_data:
@@ -243,6 +268,50 @@ def _validate_dict(val) -> dict:
     return val if isinstance(val, dict) else {}
 
 
+def _normalize_config_root(path: str) -> str:
+    """Return a canonical path for project config trust comparisons."""
+    return os.path.normcase(os.path.realpath(os.path.expanduser(path)))
+
+
+def _normalize_trusted_project_configs(raw) -> list[str]:
+    """Parse global trusted_project_configs list defensively."""
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        sys.stderr.write("nah: trusted_project_configs must be a list, ignored\n")
+        return []
+    result: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            sys.stderr.write("nah: trusted_project_configs contains a non-string entry, ignored\n")
+            continue
+        result.append(entry)
+    return result
+
+
+def _project_root_matches_trusted(project_root: str | None, trusted_roots: list[str]) -> bool:
+    """Return true when project_root exactly matches a trusted config root."""
+    if not project_root:
+        return False
+    try:
+        real_project_root = _normalize_config_root(project_root)
+    except (OSError, ValueError):
+        return False
+    for entry in trusted_roots:
+        try:
+            if real_project_root == _normalize_config_root(entry):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def _is_project_config_trusted(project_root: str | None, global_cfg: dict) -> bool:
+    """Return whether the active project config root is explicitly trusted."""
+    trusted = _normalize_trusted_project_configs(global_cfg.get("trusted_project_configs", []))
+    return _project_root_matches_trusted(project_root, trusted)
+
+
 def _normalize_profile(raw, *, warn_unknown: bool = True, fallback: str = "full") -> str:
     """Return the effective profile, warning for deprecated/invalid values."""
     if not isinstance(raw, str):
@@ -298,23 +367,44 @@ def _parse_add_remove(raw) -> tuple[list, list]:
     return [], []
 
 
-def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = None) -> NahConfig:
+def _merge_configs(
+    global_cfg: dict,
+    project_cfg: dict,
+    target: str | None = None,
+    *,
+    project_root: str = "",
+    project_config_path: str = "",
+    project_config_trusted: bool = False,
+) -> NahConfig:
     """Merge global and project configs with security rules."""
     config = NahConfig()
     config.target = target or ""
-
-    # trust_project_config: global config ONLY — when true, project can loosen policies
-    config.trust_project_config = bool(global_cfg.get("trust_project_config", False))
-    _merge = _merge_dict_override if config.trust_project_config else _merge_dict_tighten
+    config.project_root = project_root
+    config.project_config_path = project_config_path
+    config.trusted_project_configs = _normalize_trusted_project_configs(
+        global_cfg.get("trusted_project_configs", [])
+    )
+    config.project_config_trusted = bool(project_config_trusted)
+    config.trust_project_config = False
+    if "trust_project_config" in global_cfg:
+        sys.stderr.write(
+            "nah: trust_project_config is no longer supported and is ignored; "
+            "use trusted_project_configs or nah trust-project\n"
+        )
+    _merge = _merge_dict_override if config.project_config_trusted else _merge_dict_tighten
 
     # profile: global config ONLY, validated
     config.profile = _normalize_profile(global_cfg.get("profile", "full"))
 
-    # classify: keep global and project SEPARATE for three-table lookup
+    # classify: keep global and trusted project SEPARATE for three-table lookup
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))
-    config.classify_project = _validate_dict(project_cfg.get("classify", {}))
+    config.classify_project = (
+        _validate_dict(project_cfg.get("classify", {}))
+        if config.project_config_trusted
+        else {}
+    )
 
-    # actions: tighten only (or override if trust_project_config)
+    # actions: tighten only (or override if project config root is trusted)
     config.actions = _merge(
         _validate_dict(global_cfg.get("actions", {})),
         _validate_dict(project_cfg.get("actions", {})),
@@ -324,14 +414,14 @@ def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = Non
     # sensitive_paths_default: use project if stricter (or any valid value if trusted)
     g_default = global_cfg.get("sensitive_paths_default", "ask")
     p_default = project_cfg.get("sensitive_paths_default", "")
-    if p_default and config.trust_project_config and p_default in _STRICTNESS:
+    if p_default and config.project_config_trusted and p_default in _STRICTNESS:
         config.sensitive_paths_default = p_default
     elif p_default and _STRICTNESS.get(p_default, 2) >= _STRICTNESS.get(g_default, 2):
         config.sensitive_paths_default = p_default
     else:
         config.sensitive_paths_default = g_default if g_default in _STRICTNESS else "ask"
 
-    # sensitive_paths: tighten only (or override if trust_project_config)
+    # sensitive_paths: tighten only (or override if project config root is trusted)
     config.sensitive_paths = _merge(
         _validate_dict(global_cfg.get("sensitive_paths", {})),
         _validate_dict(project_cfg.get("sensitive_paths", {})),
@@ -448,7 +538,7 @@ def _merge_configs(global_cfg: dict, project_cfg: dict, target: str | None = Non
     project_targets = _validate_dict(project_cfg.get("targets", {}))
     config.targets = dict(global_targets)
     for key, val in project_targets.items():
-        if isinstance(val, dict):
+        if isinstance(val, dict) and config.project_config_trusted:
             merged = dict(_validate_dict(config.targets.get(key, {})))
             merged.update(val)
             config.targets[key] = merged
@@ -468,14 +558,14 @@ def _apply_target_config(
 
     shell_target = target in ("bash", "zsh")
     explicit_shell_llm = _has_target_llm_mode(global_data) or (
-        config.trust_project_config and _has_target_llm_mode(project_data)
+        config.project_config_trusted and _has_target_llm_mode(project_data)
     )
 
     _apply_target_data(config, global_data, trusted=True, explicit_shell_llm=True)
     _apply_target_data(
         config,
         project_data,
-        trusted=config.trust_project_config,
+        trusted=config.project_config_trusted,
         explicit_shell_llm=True,
     )
 
@@ -518,26 +608,25 @@ def _apply_target_data(
         config.content_policies = merge(config.content_policies, policies)
 
     terminal = _validate_dict(data.get("terminal", {}))
-    if terminal:
+    if trusted and terminal:
         merged_terminal = dict(config.terminal)
         merged_terminal.update(terminal)
         config.terminal = merged_terminal
 
     ui = _validate_dict(data.get("ui", {}))
-    if ui:
+    if trusted and ui:
         merged_ui = dict(config.ui)
         merged_ui.update(ui)
         config.ui = merged_ui
-        if trusted and "color" in ui:
+        if "color" in ui:
             config.ui_color = normalize_color_mode(ui.get("color"))
 
     llm = _validate_dict(data.get("llm", {}))
-    if llm:
+    if trusted and llm:
         raw_mode = llm.get("mode")
         if raw_mode in ("off", "on"):
-            if trusted or raw_mode == "off":
-                config.llm_mode = raw_mode
-        if trusted and "eligible" in llm:
+            config.llm_mode = raw_mode
+        if "eligible" in llm:
             raw_eligible = llm.get("eligible")
             if raw_eligible in ("strict", "default", "all"):
                 config.llm_eligible = raw_eligible

@@ -7,20 +7,43 @@ nah works out of the box with zero config. When you want to tune it, configurati
 | Scope | Path | Purpose |
 |-------|------|---------|
 | **Global** | `~/.config/nah/config.yaml` | Your personal preferences, trusted paths, LLM setup |
-| **Project** | `.nah.yaml` (in git root) | Per-project tightening, custom classifications |
+| **Project** | Git root `.nah.yaml`; outside Git, current directory `.nah.yaml` | Project policy, tighten-only until trusted |
 
 ```bash
 nah config path    # show both paths
 nah config show    # display effective merged config
 ```
 
+## Project config roots
+
+Inside Git, the Git root is the project root. nah loads only the root
+`.nah.yaml`, even when you run from a subdirectory.
+
+```text
+repo/
+  .git/
+  .nah.yaml          # loaded from anywhere inside repo
+  app/.nah.yaml      # ignored
+```
+
+Outside Git, nah does not search parents. It loads `./.nah.yaml` only when the
+current directory contains it.
+
+```text
+workspace/
+  .nah.yaml          # loaded only when cwd is workspace/
+  app/               # from here, parent .nah.yaml is not searched
+```
+
+`nah config path` shows the active project config path, root, and whether that
+root is trusted.
+
 ## Global vs project scope
 
 **Global config** can do everything -- override policies, add trusted paths, configure LLM, modify safety lists.
 
-**Project config** can only **tighten** security by default. It can:
+**Project config** can only **tighten** policy by default. It can:
 
-- Add classify entries (commands → action types)
 - Escalate action policies (e.g., `git_write: ask`)
 - Tighten content pattern policies (ask → block)
 - Add target-scoped tightening under `targets.<target>`
@@ -28,16 +51,39 @@ nah config show    # display effective merged config
 It **cannot**:
 
 - Relax any policy (lowering strictness is rejected)
+- Contribute runtime `classify` entries before the project root is trusted
 - Modify safety lists (`known_registries`, `exec_sinks`, etc.)
 - Set `trusted_paths`, `allow_paths`, or `db_targets`
 - Configure provider credentials or the global LLM provider cascade
-- Change the taxonomy profile
+- Change the taxonomy profile, UI, terminal settings, or non-policy target knobs
 
 This is the **supply-chain safety** model: a malicious repo's `.nah.yaml` can't weaken your protections.
 
-You can explicitly opt out of this model by setting `trust_project_config: true`
-in global config. Only use that for repositories whose `.nah.yaml` you already
-trust, because project config can then loosen policies.
+## Trusting project config
+
+Trust is per exact project root. Use it when you trust that project's
+`.nah.yaml` to loosen policy or define project-specific command
+classifications:
+
+```bash
+nah trust-project          # trust the active project root, or cwd outside Git
+nah trust-project /path/to/repo
+nah untrust-project /path/to/repo
+```
+
+This writes `trusted_project_configs` to global config:
+
+```yaml
+trusted_project_configs:
+  - /path/to/repo
+```
+
+Trust is exact-root after path resolution. Trusting `/work` does not trust
+`/work/app` as a separate project root.
+
+`trusted_project_configs` is different from `trusted_paths`: project-config
+trust lets that root's `.nah.yaml` loosen nah policy; `trusted_paths` allows
+filesystem operations in selected directories outside the project boundary.
 
 ## Merge rules
 
@@ -46,10 +92,10 @@ When both configs exist, nah merges them with these rules:
 | Field | Merge behavior |
 |-------|---------------|
 | `profile` | Global only |
-| `trust_project_config` | Global only; when true, project config can loosen policy |
+| `trusted_project_configs` | Global only; exact project roots whose `.nah.yaml` can loosen policy |
 | `actions` | Tighten-only (project can only escalate strictness) |
-| `classify` | Kept separate (global = Phase 1, project = Phase 3 lookup; project can only tighten overlaps unless trusted) |
-| `sensitive_paths` | Tighten-only unless project config is trusted |
+| `classify` | Global entries are active first; project entries are active only for trusted project roots |
+| `sensitive_paths` | Tighten-only; trusted project config can loosen |
 | `sensitive_basenames` | Global only |
 | `content_patterns` | Project can tighten policies only (add/suppress global-only) |
 | `credential_patterns` | Global only |
@@ -60,7 +106,7 @@ When both configs exist, nah merges them with these rules:
 | `allow_paths` | Global only |
 | `db_targets` | Global only |
 | `llm` | Global only |
-| `targets` | Global can override; project can only tighten unless trusted |
+| `targets` | Global can override; project can only tighten until trusted |
 | `log` | Global only |
 | `active_allow` | Global only |
 
@@ -69,8 +115,8 @@ When both configs exist, nah merges them with these rules:
 | Key | Type | Scope | Docs |
 |-----|------|-------|------|
 | `profile` | `full` / `none` | global | [Profiles](profiles.md) |
-| `trust_project_config` | bool | global | This page |
-| `classify` | dict of type → prefix list | both* | [Classification rules](classification-rules.md) |
+| `trusted_project_configs` | list of paths | global | This page |
+| `classify` | dict of type → prefix list | global; trusted project roots | [Classification rules](classification-rules.md) |
 | `actions` | dict of type → policy | both | [Action types](actions.md) |
 | `sensitive_paths_default` | `ask` / `block` | both* | [Sensitive paths](sensitive-paths.md) |
 | `sensitive_paths` | dict of path → policy | both | [Sensitive paths](sensitive-paths.md) |
@@ -88,7 +134,7 @@ When both configs exist, nah merges them with these rules:
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |
 | `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#prompt-behavior) |
 
-*\* `classify` entries in global config are Phase 1 (checked first, can override built-in). Project entries are Phase 3: they can add new commands and can tighten overlapping built-in classifications, but cannot weaken them unless `trust_project_config: true` is set globally. `sensitive_paths_default` in project config can only tighten (ask → block) unless project config is trusted. Target-scoped project overrides follow the same tighten-only rule.*
+*\* Project `sensitive_paths_default` can only tighten (ask → block) until the project root is trusted. Target-scoped project overrides can tighten policy by default; non-policy target settings require trusted project config.*
 
 ## Target overrides
 
@@ -133,10 +179,12 @@ targets:
       mode: off
 ```
 
-Target overrides can set `actions`, `sensitive_paths_default`,
-`sensitive_paths`, `content_patterns.policies`, and `llm.mode` /
-`llm.eligible`. Shell-specific options live under `targets.bash.terminal` and
-`targets.zsh.terminal`.
+Global target overrides can set `actions`, `sensitive_paths_default`,
+`sensitive_paths`, `content_patterns.policies`, `llm.mode`, `llm.eligible`, UI
+settings, and shell `terminal` settings. Untrusted project target overrides can
+tighten action, sensitive-path, and content policies only. Trusted project
+config can loosen policy and change non-policy target settings for that exact
+project root.
 
 Codex sandbox and approval settings are fixed by `nah run codex`. Target config
 can tune nah policies and LLM behavior for Codex, but it cannot change Codex

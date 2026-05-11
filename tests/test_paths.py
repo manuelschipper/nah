@@ -566,6 +566,41 @@ class TestProjectRoot:
         paths.set_project_root("/test/root")
         assert paths.get_project_root() == "/test/root"
 
+    def test_non_git_cwd_nah_yaml_is_project_root(self, tmp_path, monkeypatch):
+        (tmp_path / ".nah.yaml").write_text("actions:\n  package_run: block\n")
+        monkeypatch.chdir(tmp_path)
+        paths.reset_project_root()
+        assert paths.get_project_root() == str(tmp_path)
+
+    def test_non_git_parent_nah_yaml_not_loaded_from_child(self, tmp_path, monkeypatch):
+        (tmp_path / ".nah.yaml").write_text("actions:\n  package_run: block\n")
+        child = tmp_path / "child"
+        child.mkdir()
+        monkeypatch.chdir(child)
+        paths.reset_project_root()
+        assert paths.get_project_root() is None
+
+    def test_git_root_wins_over_nested_nah_yaml(self, tmp_path, monkeypatch):
+        repo = tmp_path / "repo"
+        subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
+        nested = repo / "pkg"
+        nested.mkdir()
+        (nested / ".nah.yaml").write_text("actions:\n  package_run: block\n")
+        monkeypatch.chdir(nested)
+        paths.reset_project_root()
+        assert paths.resolve_path(paths.get_project_root()) == paths.resolve_path(str(repo))
+
+    def test_git_failure_falls_back_to_cwd_nah_yaml(self, tmp_path, monkeypatch):
+        (tmp_path / ".nah.yaml").write_text("actions:\n  package_run: block\n")
+        monkeypatch.chdir(tmp_path)
+
+        def raise_timeout(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired(["git"], 2)
+
+        monkeypatch.setattr(paths.subprocess, "run", raise_timeout)
+        paths.reset_project_root()
+        assert paths.get_project_root() == str(tmp_path)
+
     def test_worktree_boundary_roots_include_main_repo(self, tmp_path, monkeypatch):
         repo, worktree = _make_git_worktree(tmp_path)
         monkeypatch.chdir(worktree)
@@ -611,26 +646,26 @@ class TestProjectRoot:
 
 
 class TestTrustedPathNoGitRoot:
-    """FD-107: trusted_paths should work even with no git root."""
+    """FD-107: trusted_paths should work even with no project root."""
 
     def teardown_method(self):
         config._cached_config = None
 
     def test_trusted_path_no_git_root(self):
-        """Trusted path should allow even with no git root."""
+        """Trusted path should allow even with no project root."""
         paths.set_project_root(None)
         config._cached_config = NahConfig(trusted_paths=["/tmp"])
         result = paths.check_project_boundary("Write", "/tmp/test.txt")
         assert result is None  # allowed
 
     def test_untrusted_path_no_git_root(self):
-        """Untrusted path with no git root should still ask."""
+        """Untrusted path with no project root should still ask."""
         paths.set_project_root(None)
         config._cached_config = NahConfig()
         result = paths.check_project_boundary("Write", "/var/data/file.txt")
         assert result is not None
         assert result["decision"] == "ask"
-        assert "no git root" in result["reason"]
+        assert "no project root" in result["reason"]
 
 
 # --- sensitive path config override ---

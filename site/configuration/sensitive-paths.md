@@ -78,7 +78,9 @@ sensitive_paths:
   ~/.aws: ask               # already default, but explicit
 ```
 
-Valid policies: `ask`, `block`. Project config can only tighten by default (e.g., escalate `ask` to `block`), unless global config explicitly sets `trust_project_config: true`.
+Valid policies: `ask`, `block`. Project config can only tighten by default
+(for example, escalate `ask` to `block`) unless that exact project root is
+trusted with `nah trust-project`.
 
 ### sensitive_paths_default
 
@@ -114,7 +116,8 @@ trusted_paths:
   - /tmp/staging
 ```
 
-Without this, Write/Edit/MultiEdit/NotebookEdit to paths outside the git project root triggers an `ask` decision (project boundary check).
+Without this, Write/Edit/MultiEdit/NotebookEdit to paths outside the project
+root triggers an `ask` decision (project boundary check).
 
 **CLI:** `nah trust ~/builds`
 
