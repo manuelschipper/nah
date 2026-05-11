@@ -504,6 +504,41 @@ class TestCmdStatusShadowAnnotation:
         assert "mycustomcmd" in out
         assert "shadow" not in out
 
+    def test_project_classify_shown_as_ignored_when_untrusted(self, patched_paths, project_cfg, capsys):
+        os.makedirs(os.path.dirname(project_cfg), exist_ok=True)
+        with open(project_cfg, "w") as f:
+            f.write("classify:\n  package_run:\n    - just\n")
+        from nah.cli import cmd_status
+        cmd_status(argparse.Namespace(target=None))
+        out = capsys.readouterr().out
+        assert "ignored until nah trust-project" in out
+
+
+class TestCmdTrustProject:
+    def test_trust_project_command(self, patched_paths, global_cfg, capsys):
+        from nah.cli import cmd_trust_project
+        from nah.remember import _read_config
+
+        cmd_trust_project(argparse.Namespace(path=None))
+
+        out = capsys.readouterr().out
+        assert "Trusted project config" in out
+        data = _read_config(global_cfg)
+        assert data["trusted_project_configs"]
+
+    def test_untrust_project_command(self, patched_paths, global_cfg, tmp_path, capsys):
+        from nah.cli import cmd_trust_project, cmd_untrust_project
+        from nah.remember import _read_config
+
+        project = tmp_path / "project"
+        cmd_trust_project(argparse.Namespace(path=str(project)))
+        cmd_untrust_project(argparse.Namespace(path=str(project)))
+
+        out = capsys.readouterr().out
+        assert "Untrusted project config" in out
+        data = _read_config(global_cfg)
+        assert "trusted_project_configs" not in data
+
 
 class TestCmdTypesShadowAnnotation:
     """Override notes in nah types output."""

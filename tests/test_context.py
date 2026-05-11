@@ -73,7 +73,7 @@ class TestResolveFilesystemContext:
         assert paths.get_project_root() is None
         decision, reason = resolve_filesystem_context("/opt/random/file.txt")
         assert decision == "ask"
-        assert "no git root" in reason
+        assert "no project root" in reason
 
     def test_sensitive_path(self, project_root):
         decision, reason = resolve_filesystem_context("~/.ssh/id_rsa")
@@ -723,7 +723,7 @@ class TestTrustedPathContext:
         assert "trusted path" in reason
 
     def test_trusted_path_no_git_root(self):
-        """Trusted path should allow even with no git root (FD-107)."""
+        """Trusted path should allow even with no project root (FD-107)."""
         paths.set_project_root(None)
         config._cached_config = NahConfig(trusted_paths=["/tmp"])
         decision, reason = resolve_filesystem_context("/tmp/file.txt")

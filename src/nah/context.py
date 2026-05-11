@@ -151,12 +151,12 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     if project_root is not None and paths.is_inside_project_boundary(resolved):
         return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
 
-    # Trusted paths should still allow when there is no git root (FD-107).
+    # Trusted paths should still allow when there is no project root (FD-107).
     if paths.is_trusted_path(resolved):
         return taxonomy.ALLOW, f"trusted path: {paths.friendly_path(resolved)}"
 
     if project_root is None:
-        return taxonomy.ASK, f"outside project (no git root): {paths.friendly_path(resolved)}"
+        return taxonomy.ASK, f"outside project (no project root): {paths.friendly_path(resolved)}"
 
     return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 

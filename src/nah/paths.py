@@ -79,6 +79,7 @@ _SENSITIVE_BASENAMES: list[tuple[str, str, str]] = [
 _project_root: str | None = None
 _project_root_resolved = False
 _project_boundary_roots: list[str] | None = None
+_PROJECT_CONFIG_NAME = ".nah.yaml"
 
 # Snapshot of hardcoded defaults for reset (testing).
 _SENSITIVE_DIRS_DEFAULTS = list(_SENSITIVE_DIRS)
@@ -409,12 +410,12 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
         return None  # boundary check disabled (D9)
     resolved = resolve_path(raw_path)
     if is_trusted_path(resolved):
-        return None  # trusted — allow regardless of git root (FD-107)
+        return None  # trusted — allow regardless of project root (FD-107)
     project_root = get_project_root()
     if project_root is None:
         return {
             "decision": taxonomy.ASK,
-            "reason": f"{tool_name} outside project (no git root): {friendly_path(resolved)}",
+            "reason": f"{tool_name} outside project (no project root): {friendly_path(resolved)}",
             "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
         }
     if is_inside_project_boundary(resolved):
@@ -445,11 +446,17 @@ def reset_project_root() -> None:
 
 
 def get_project_root() -> str | None:
-    """Detect project root via git. Cached for process lifetime."""
+    """Detect project root via git, or cwd config outside git.
+
+    Git remains the primary boundary. Outside git, a current-directory
+    project config file opt-in creates a project root for that directory only.
+    Cached for process lifetime.
+    """
     global _project_root, _project_root_resolved
     if _project_root_resolved:
         return _project_root
     _project_root_resolved = True
+    git_unavailable = False
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -457,7 +464,16 @@ def get_project_root() -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             _project_root = result.stdout.strip()
+            return _project_root
     except (subprocess.TimeoutExpired, FileNotFoundError):
+        git_unavailable = True
+
+    cwd = os.getcwd()
+    if os.path.isfile(os.path.join(cwd, _PROJECT_CONFIG_NAME)):
+        _project_root = cwd
+        return _project_root
+
+    if git_unavailable:
         sys.stderr.write("nah: git not available, project root detection skipped\n")
     return _project_root
 

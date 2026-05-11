@@ -203,7 +203,7 @@ Works out of the box with zero config. When you want to tune it:
 
 ```yaml
 # ~/.config/nah/config.yaml  (global)
-# .nah.yaml                  (per-project, tighten-only by default)
+# .nah.yaml                  (project config, tighten-only until trusted)
 
 # Override default policies for action types
 actions:
@@ -229,6 +229,10 @@ profile: full
 nah classifies by **action type**, not just command name. Policies are `allow`,
 `context`, `ask`, or `block`.
 
+Project config loads from the Git root, or from `./.nah.yaml` in the current
+directory outside Git. It is tighten-only unless you trust that exact project
+root with `nah trust-project`.
+
 See [configuration](https://nah.build/configuration/) and
 [action types](https://nah.build/configuration/actions/) for the full
 reference.
@@ -243,11 +247,6 @@ nah key set openrouter
 
 See [LLM configuration](https://nah.build/configuration/llm/) for
 provider setup.
-
-### Supply-chain safety
-
-Project `.nah.yaml` files can add classifications and tighten policies, but
-they cannot relax your global policy unless you explicitly opt in.
 
 ## CLI
 

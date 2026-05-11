@@ -73,9 +73,17 @@ class TestClassifyUnknownTool:
         d = _classify_unknown_tool("mcp__evil__exfil")
         assert d["decision"] == "ask"  # project ignored
 
-    def test_non_mcp_uses_project_classify(self):
+    def test_non_mcp_ignores_untrusted_project_classify(self):
         config._cached_config = NahConfig(
             classify_project={"package_run": ["CustomRunner"]},
+        )
+        d = _classify_unknown_tool("CustomRunner")
+        assert d["decision"] == "ask"
+
+    def test_non_mcp_uses_trusted_project_classify(self):
+        config._cached_config = NahConfig(
+            classify_project={"package_run": ["CustomRunner"]},
+            project_config_trusted=True,
         )
         d = _classify_unknown_tool("CustomRunner")
         assert d["decision"] == "allow"  # package_run → allow
@@ -487,7 +495,7 @@ class TestGrepCredentialBoundary:
         paths.set_project_root(None)
         d = handle_write({"file_path": "/tmp/file.txt", "content": "hello"})
         assert d["decision"] == "ask"
-        assert "no git root" in d["reason"]
+        assert "no project root" in d["reason"]
 
 
 # --- FD-094: Active allow emission tests ---

@@ -124,6 +124,19 @@ class TestWriteClassify:
         msg = write_classify("just", "package_run")
         assert "Already" in msg
 
+    def test_project_classify_requires_trusted_project(self, patched_paths):
+        from nah.remember import write_classify
+        with pytest.raises(ValueError, match="nah trust-project"):
+            write_classify("just", "package_run", project=True)
+
+    def test_project_classify_writes_when_project_trusted(self, patched_paths, project_cfg):
+        from nah.remember import write_classify, write_trust_project, _read_config
+        write_trust_project()
+        msg = write_classify("just", "package_run", project=True)
+        assert "project" in msg
+        data = _read_config(project_cfg)
+        assert "just" in data["classify"]["package_run"]
+
     # --- nah-875 wildcard validation at write time ---
 
     def test_accepts_trailing_wildcard(self, patched_paths, global_cfg):
@@ -167,6 +180,38 @@ class TestWriteTrustHost:
         assert "Trusted" in msg
         data = _read_config(global_cfg)
         assert "api.example.com" in data["known_registries"]
+
+
+class TestWriteTrustProject:
+    def test_appends_to_global_config(self, patched_paths, global_cfg, tmp_path):
+        from nah.remember import write_trust_project, _read_config
+        msg = write_trust_project()
+        assert "Trusted project config" in msg
+        data = _read_config(global_cfg)
+        assert str(tmp_path / "project") in data["trusted_project_configs"]
+
+    def test_deduplicates_by_realpath(self, patched_paths, global_cfg, tmp_path):
+        from nah.remember import write_trust_project, _read_config
+        project = tmp_path / "project"
+        write_trust_project(str(project))
+        msg = write_trust_project(str(project))
+        assert "Already trusted" in msg
+        data = _read_config(global_cfg)
+        assert data["trusted_project_configs"] == [str(project)]
+
+    def test_rejects_root(self, patched_paths):
+        from nah.remember import write_trust_project
+        with pytest.raises(ValueError, match="filesystem root"):
+            write_trust_project("/")
+
+    def test_untrust_removes_entry(self, patched_paths, global_cfg, tmp_path):
+        from nah.remember import write_trust_project, write_untrust_project, _read_config
+        project = tmp_path / "project"
+        write_trust_project(str(project))
+        msg = write_untrust_project(str(project))
+        assert "Untrusted project config" in msg
+        data = _read_config(global_cfg)
+        assert "trusted_project_configs" not in data
 
     def test_deduplicates(self, patched_paths):
         from nah.remember import write_trust_host
@@ -232,14 +277,12 @@ class TestValidateActionScope:
         # Global config can do anything
         _validate_action_scope("git_history_rewrite", "allow", project=False)
 
-    def test_trust_project_config_allows_loosening(self, patched_paths):
+    def test_trusted_project_config_allows_loosening(self, patched_paths):
         from nah.remember import _validate_action_scope
-        from nah import config
-        from nah.config import NahConfig
-        config._cached_config = NahConfig(trust_project_config=True)
-        # With trust_project_config, project loosening is allowed
+        from nah.remember import write_trust_project
+        write_trust_project()
+        # With per-directory project config trust, project loosening is allowed
         _validate_action_scope("git_history_rewrite", "allow", project=True)
-        config._cached_config = None
 
 
 class TestMissingYaml:

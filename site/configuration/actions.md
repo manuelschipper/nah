@@ -70,7 +70,10 @@ actions:
   lang_exec: allow               # trust inline scripts
 ```
 
-Project `.nah.yaml` can only **tighten** policies (raise strictness) by default. For example, a project config can escalate `git_write` from `allow` to `ask`, but cannot lower `git_discard` from `ask` to `allow` unless global config explicitly sets `trust_project_config: true`.
+Project `.nah.yaml` can only **tighten** policies by default. For example, a
+project config can escalate `git_write` from `allow` to `ask`, but lowering
+`git_discard` from `ask` to `allow` requires `nah trust-project` for that exact
+project root.
 
 ### The `unknown` type
 

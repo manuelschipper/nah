@@ -102,12 +102,13 @@ Each stage's tokens are classified through three tables in order:
 |:-----:|-------|--------|
 | 1 | Global config | Your `classify:` entries (trusted, highest priority) |
 | 2 | Built-in classifiers | Flag-, wrapper-, and execution-aware classifier functions |
-| 3 | Built-in + Project | Built-in prefix tables, then project `classify:` entries |
+| 3 | Built-in prefix tables + trusted project config | Packaged prefix rules, then project `classify:` entries when the active project root is trusted |
 
 Global config wins first. Phase 2 classifier functions run next. In Phase 3,
-built-in and project prefix tables are evaluated independently; project entries
-can add or tighten classifications, but cannot weaken built-ins unless
-`trust_project_config: true` is set globally. If nothing matches → `unknown`.
+built-in prefix tables always run. Project prefix tables run only when the
+active project config root is trusted with `nah trust-project`; untrusted
+project `classify:` entries are ignored and shown as ignored in `nah status`.
+If nothing matches → `unknown`.
 
 ### Built-in classifiers
 

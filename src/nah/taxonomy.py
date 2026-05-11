@@ -507,8 +507,7 @@ def classify_tokens(
     Phase 2: Flag classifiers (built-in opinions) — skipped when profile == "none".
     Phase 3: Remaining tables (project, builtin) — global already checked.
         When trust_project is True, project table wins over builtins even
-        when it loosens policy (user explicitly opted in via
-        trust_project_config in global config).
+        when it loosens policy (the active project config root is trusted).
     """
     if not tokens:
         return UNKNOWN
@@ -649,7 +648,7 @@ def classify_tokens(
 
     # --- Phase 3: Remaining tables (project, builtin) ---
     # Project table may override built-ins only when it does not weaken policy,
-    # unless trust_project is True (user opted in via trust_project_config).
+    # before trust_project is True (the active project config root is trusted).
     project_result = _prefix_match(tokens, project_table) if project_table else UNKNOWN
     builtin_result = _prefix_match(tokens, builtin_table) if builtin_table else UNKNOWN
 

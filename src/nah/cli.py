@@ -457,13 +457,39 @@ def cmd_config(args: argparse.Namespace) -> None:
     """Config subcommands."""
     sub = getattr(args, "config_command", None)
     if sub == "show":
-        from nah.config import get_config
+        from nah.config import get_config, _load_yaml_file
         cfg = get_config()
         print("Effective config (merged):")
         print(f"  target:                {cfg.target or '(default)'}")
+        print(f"  project_root:          {cfg.project_root or '(none)'}")
+        print(f"  project_config_path:   {cfg.project_config_path or '(none)'}")
+        print(f"  project_config_trusted: {cfg.project_config_trusted}")
+        print(f"  trusted_project_configs: {cfg.trusted_project_configs or '[]'}")
         print(f"  profile:               {cfg.profile}")
         print(f"  classify_global:       {cfg.classify_global or '{}'}")
         print(f"  classify_project:      {cfg.classify_project or '{}'}")
+        if cfg.project_config_path and not cfg.project_config_trusted:
+            raw_project = _load_yaml_file(cfg.project_config_path)
+            ignored = []
+            if raw_project.get("classify"):
+                ignored.append("classify")
+            targets = raw_project.get("targets")
+            if isinstance(targets, dict):
+                policy_target_keys = {
+                    "actions",
+                    "sensitive_paths_default",
+                    "sensitive_paths",
+                    "content_patterns",
+                }
+                has_ignored_target_settings = any(
+                    isinstance(target_data, dict)
+                    and any(key not in policy_target_keys for key in target_data)
+                    for target_data in targets.values()
+                )
+                if has_ignored_target_settings:
+                    ignored.append("non-policy target settings")
+            if ignored:
+                print(f"  project_ignored:       {', '.join(ignored)} (run `nah trust-project` to enable)")
         print(f"  actions:               {cfg.actions or '{}'}")
         print(f"  sensitive_paths_default: {cfg.sensitive_paths_default}")
         print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
@@ -490,9 +516,14 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  terminal:              {cfg.terminal or '{}'}")
     elif sub == "path":
         from nah.config import get_global_config_path, get_project_config_path
+        from nah.config import get_config
         print(f"Global:  {get_global_config_path()}")
         proj = get_project_config_path()
-        print(f"Project: {proj or '(no project root)'}")
+        cfg = get_config()
+        print(f"Project: {proj or '(no project config root)'}")
+        if cfg.project_root:
+            print(f"Root:    {cfg.project_root}")
+            print(f"Trusted: {'yes' if cfg.project_config_trusted else 'no'}")
     else:
         print("Usage: nah config {show|path}")
 
@@ -1177,6 +1208,28 @@ def cmd_trust(args: argparse.Namespace) -> None:
             sys.exit(1)
 
 
+def cmd_trust_project(args: argparse.Namespace) -> None:
+    """Trust a project config root (global config only)."""
+    from nah.remember import write_trust_project
+    _warn_comments(project=False)
+    try:
+        print(write_trust_project(getattr(args, "path", None)))
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_untrust_project(args: argparse.Namespace) -> None:
+    """Remove project config root trust."""
+    from nah.remember import write_untrust_project
+    _warn_comments(project=False)
+    try:
+        print(write_untrust_project(getattr(args, "path", None)))
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     """Show all custom rules."""
     target = getattr(args, "target", None) or ""
@@ -1209,6 +1262,7 @@ def cmd_status(args: argparse.Namespace) -> None:
             # Phase 3 (checked after builtin), so they can't shadow.
             table_shadows: dict = {}
             flag_shadows: set = set()
+            project_classify_ignored = False
             if scope == "global":
                 from nah.taxonomy import (build_user_table, get_builtin_table,
                                           find_table_shadows, find_flag_classifier_shadows)
@@ -1219,10 +1273,15 @@ def cmd_status(args: argparse.Namespace) -> None:
                 builtin_table = get_builtin_table(cfg.profile) if cfg.profile != "none" else []
                 table_shadows = find_table_shadows(user_table, builtin_table)
                 flag_shadows = set(find_flag_classifier_shadows(user_table))
+            elif scope == "project":
+                from nah.config import get_config
+                project_classify_ignored = not get_config().project_config_trusted
             for action_type, prefixes in scope_rules["classify"].items():
                 for prefix in prefixes:
                     prefix_tuple = tuple(prefix.split())
                     annotations = []
+                    if project_classify_ignored:
+                        annotations.append("ignored until nah trust-project")
                     if prefix_tuple in table_shadows:
                         count = len(table_shadows[prefix_tuple])
                         annotations.append(f"shadows {count} built-in rule{'s' if count != 1 else ''}")
@@ -1255,6 +1314,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         if "trusted_paths" in scope_rules:
             for p in scope_rules["trusted_paths"]:
                 print(f"  trust-path: {p}")
+        if "trusted_project_configs" in scope_rules:
+            for p in scope_rules["trusted_project_configs"]:
+                print(f"  trust-project: {p}")
         if "decode_commands" in scope_rules:
             from nah.config import _parse_add_remove
             add, remove = _parse_add_remove(scope_rules["decode_commands"])
@@ -1710,6 +1772,13 @@ def main():
     trust_parser = sub.add_parser("trust", help="Trust a path or network host (global only)")
     trust_parser.add_argument("target", help="Path or hostname to trust")
     trust_parser.add_argument("--project", action="store_true", help="Write to project config (rejected for paths)")
+    trust_project_parser = sub.add_parser(
+        "trust-project",
+        help="Trust this project config root so project config can loosen policy",
+    )
+    trust_project_parser.add_argument("path", nargs="?", help="Project directory to trust (default: active project or cwd)")
+    untrust_project_parser = sub.add_parser("untrust-project", help="Remove project config trust")
+    untrust_project_parser.add_argument("path", nargs="?", help="Project directory to untrust (default: active project or cwd)")
     status_parser = sub.add_parser("status", help="Show custom rules or target status")
     status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
@@ -1778,6 +1847,10 @@ def main():
         cmd_classify(args)
     elif args.command == "trust":
         cmd_trust(args)
+    elif args.command == "trust-project":
+        cmd_trust_project(args)
+    elif args.command == "untrust-project":
+        cmd_untrust_project(args)
     elif args.command == "status":
         cmd_status(args)
     elif args.command == "doctor":

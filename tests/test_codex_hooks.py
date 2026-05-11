@@ -357,7 +357,7 @@ def test_mcp_permission_request_ignores_project_classify(project_root):
     set_active_target(agents.CODEX)
     use_defaults()
     cfg = get_config()
-    cfg.trust_project_config = True
+    cfg.project_config_trusted = True
     cfg.classify_project = {"agent_read": ["mcp__memory__create_entities"]}
 
     code, out = _run({
