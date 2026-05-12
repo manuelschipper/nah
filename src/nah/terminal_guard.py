@@ -853,6 +853,12 @@ def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) ->
         from nah.log import build_entry, log_decision, redact_input
 
         meta = dict(result.meta or {})
+        terminal_event = str(meta.get("terminal_event", "") or "")
+        meta["runtime"] = {
+            "phase": "terminal",
+            "hook_event_name": "TerminalGuard",
+        }
+        meta["execution"] = _terminal_execution_meta(terminal_event, result)
         meta.update({
             "target": result.target,
             "source": "terminal",
@@ -877,3 +883,16 @@ def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) ->
             # path. If even stderr is unavailable, there is nowhere useful to
             # report this secondary logging failure.
             pass
+
+
+def _terminal_execution_meta(terminal_event: str, result: TerminalDecision) -> dict:
+    """Map terminal prompt state to shared execution outcome metadata."""
+    if terminal_event == "block":
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    if terminal_event == "ask_denied":
+        return {"state": "not_run", "ask_outcome": "denied"}
+    if terminal_event == "ask_confirmed" or result.confirmed:
+        return {"state": "approved_to_run", "ask_outcome": "unknown"}
+    if terminal_event == "llm_allowed":
+        return {"state": "requested", "ask_outcome": "not_applicable"}
+    return {"state": "unknown", "ask_outcome": "unknown"}

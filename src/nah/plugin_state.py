@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Iterable
 
 LEGACY_HOOK_MARKERS = ("nah_guard.py",)
-PLUGIN_HOOK_MARKERS = ("nah-plugin-hook", "nah_plugin_runner.py")
+PLUGIN_HOOK_MARKERS = ("nah-plugin-hook", "nah-plugin-post-tool", "nah_plugin_runner.py")
+TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class NahInstallState:
 
 
 def is_legacy_nah_hook(hook_entry: dict) -> bool:
-    """Return True when a PreToolUse entry points at nah's direct hook shim."""
+    """Return True when a hook entry points at nah's direct hook shim."""
     for hook in hook_entry.get("hooks", []):
         if not isinstance(hook, dict):
             continue
@@ -60,7 +61,7 @@ def is_legacy_nah_hook(hook_entry: dict) -> bool:
 
 
 def is_plugin_nah_hook(hook_entry: dict) -> bool:
-    """Return True when a PreToolUse entry points at nah's plugin hook."""
+    """Return True when a hook entry points at nah's plugin hook."""
     for hook in hook_entry.get("hooks", []):
         if not isinstance(hook, dict):
             continue
@@ -156,15 +157,16 @@ def detect_nah_install_state(
         hooks = settings.get("hooks", {})
         if not isinstance(hooks, dict):
             continue
-        pre_tool_use = hooks.get("PreToolUse", [])
-        if not isinstance(pre_tool_use, list):
-            continue
-        for index, entry in enumerate(pre_tool_use):
-            if not isinstance(entry, dict):
+        for event_name in TOOL_HOOK_EVENTS:
+            entries = hooks.get(event_name, [])
+            if not isinstance(entries, list):
                 continue
-            if is_legacy_nah_hook(entry):
-                state.legacy_hooks.append(SettingsFinding(path, f"PreToolUse[{index}]"))
-            if is_plugin_nah_hook(entry):
-                state.plugin_hooks.append(SettingsFinding(path, f"PreToolUse[{index}]"))
+            for index, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    continue
+                if is_legacy_nah_hook(entry):
+                    state.legacy_hooks.append(SettingsFinding(path, f"{event_name}[{index}]"))
+                if is_plugin_nah_hook(entry):
+                    state.plugin_hooks.append(SettingsFinding(path, f"{event_name}[{index}]"))
 
     return state

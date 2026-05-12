@@ -15,12 +15,24 @@ def _isolated_log(tmp_path, monkeypatch):
 
     monkeypatch.setattr(nah.log, "LOG_PATH", str(tmp_path / "nah.log"))
     monkeypatch.setattr(nah.log, "_LOG_BACKUP", str(tmp_path / "nah.log.1"))
+    monkeypatch.setattr(nah.log, "_CONFIG_DIR", str(tmp_path))
 
 
 def _run(payload):
     stdout = io.StringIO()
     code = codex_hooks.main(io.StringIO(json.dumps(payload)), stdout)
     return code, stdout.getvalue()
+
+
+def _log_entries(tmp_path):
+    log_path = tmp_path / "nah.log"
+    if not log_path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _patch(path, added='print("ok")'):
@@ -71,6 +83,58 @@ def test_untrusted_network_request_returns_no_verdict(project_root):
 
     assert code == 0
     assert out == ""
+
+
+def test_permission_request_logs_requested_runtime_metadata(project_root, tmp_path):
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "session_id": "sess_codex",
+        "turn_id": "turn_codex",
+        "tool_name": "Bash",
+        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["runtime"]["phase"] == "permission_request"
+    assert entry["runtime"]["hook_event_name"] == "PermissionRequest"
+    assert entry["runtime"]["session_id"] == "sess_codex"
+    assert entry["runtime"]["turn_id"] == "turn_codex"
+    assert "tool_use_id" not in entry["runtime"]
+    assert entry["runtime"]["input_hash"].startswith("sha256:")
+    assert entry["execution"] == {
+        "state": "requested",
+        "ask_outcome": "requested",
+    }
+
+
+def test_post_tool_use_logs_executed_runtime_metadata_without_output(project_root, tmp_path):
+    code, out = _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_post",
+        "turn_id": "turn_post",
+        "tool_use_id": "toolu_post",
+        "tool_name": "Bash",
+        "tool_input": {"command": "git status"},
+        "tool_response": {"stdout": "SECRET_OUTPUT"},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["runtime"]["phase"] == "post_tool"
+    assert entry["runtime"]["hook_event_name"] == "PostToolUse"
+    assert entry["runtime"]["session_id"] == "sess_post"
+    assert entry["runtime"]["turn_id"] == "turn_post"
+    assert entry["runtime"]["tool_use_id"] == "toolu_post"
+    assert entry["execution"] == {
+        "state": "executed",
+        "ask_outcome": "approved_executed",
+    }
+    assert "SECRET_OUTPUT" not in json.dumps(entry)
 
 
 def test_apply_patch_without_patch_text_returns_no_verdict(project_root):
@@ -376,6 +440,19 @@ def test_invalid_json_does_not_emit_deny():
     code = codex_hooks.main(io.StringIO("{"), stdout)
 
     assert code == 1
+    assert stdout.getvalue() == ""
+
+
+def test_post_tool_invalid_json_fails_open():
+    stdout = io.StringIO()
+
+    code = codex_hooks.main(
+        io.StringIO("{"),
+        stdout,
+        default_hook_event="PostToolUse",
+    )
+
+    assert code == 0
     assert stdout.getvalue() == ""
 
 

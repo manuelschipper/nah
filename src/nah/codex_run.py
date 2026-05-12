@@ -1,4 +1,4 @@
-"""Codex launcher with nah-owned PermissionRequest hook overrides."""
+"""Codex launcher with nah-owned Codex hook overrides."""
 
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ _OWNED_CONFIG_KEYS = {
     "features.skill_mcp_dependency_install",
     "hooks",
     "hooks.PermissionRequest",
+    "hooks.PostToolUse",
     "permission_profile",
     "permissions",
     "sandbox_mode",
@@ -96,6 +97,14 @@ def codex_hook_command() -> str:
     return shlex.join(argv)
 
 
+def codex_post_tool_hook_command() -> str:
+    """Return the shell command Codex should run for PostToolUse hooks."""
+    argv = [sys.executable, "-m", "nah.cli", "_codex-post-tool-use"]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
 def injected_overrides(
     *,
     sandbox_mode: str = _DEFAULT_SANDBOX_MODE,
@@ -103,12 +112,21 @@ def injected_overrides(
 ) -> list[str]:
     """Return root-level Codex config overrides owned by nah."""
     hook_command = codex_hook_command()
-    hook_config = (
+    post_tool_command = codex_post_tool_hook_command()
+    permission_hook_config = (
         "hooks.PermissionRequest=[{ hooks = [{ "
         "type = \"command\", "
         f"command = {_toml_string(hook_command)}, "
         "timeout = 5, "
         "statusMessage = \"nah reviewing\" "
+        "}] }]"
+    )
+    post_tool_hook_config = (
+        "hooks.PostToolUse=[{ hooks = [{ "
+        "type = \"command\", "
+        f"command = {_toml_string(post_tool_command)}, "
+        "timeout = 5, "
+        "statusMessage = \"nah logging\" "
         "}] }]"
     )
     return [
@@ -118,7 +136,8 @@ def injected_overrides(
         "-c", f"approval_policy={_toml_string(approval_policy)}",
         "-c", f"sandbox_mode={_toml_string(sandbox_mode)}",
         "-c", 'approvals_reviewer="user"',
-        "-c", hook_config,
+        "-c", permission_hook_config,
+        "-c", post_tool_hook_config,
     ]
 
 
@@ -168,7 +187,7 @@ def build_codex_launch(
 
 
 def run_codex(user_args: list[str]) -> int:
-    """Exec Codex with nah-owned PermissionRequest hooks enabled."""
+    """Exec Codex with nah-owned approval and post-tool hooks enabled."""
     try:
         launch = build_codex_launch(user_args)
     except CodexRunError as exc:

@@ -1,6 +1,7 @@
 """Decision logging — JSONL log with redaction and rotation."""
 
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -153,6 +154,15 @@ def build_entry(
     if warning:
         entry["warning"] = warning
 
+    runtime = _copy_log_object(meta.get("runtime"))
+    if runtime:
+        runtime.setdefault("input_hash", redacted_input_hash(input_summary))
+        entry["runtime"] = runtime
+
+    execution = _copy_log_object(meta.get("execution"))
+    if execution:
+        entry["execution"] = execution
+
     for key in (
         "target",
         "source",
@@ -165,6 +175,24 @@ def build_entry(
             entry[key] = meta[key]
 
     return entry
+
+
+def redacted_input_hash(input_summary: str) -> str:
+    """Return a stable hash of the already-redacted input summary."""
+    digest = hashlib.sha256((input_summary or "").encode("utf-8", "replace")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _copy_log_object(value) -> dict | None:
+    """Copy a nested log object while dropping empty optional values."""
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for key, item in value.items():
+        if item is None or item == "":
+            continue
+        result[str(key)] = item
+    return result or None
 
 
 def _extract_action_type(meta: dict) -> str:

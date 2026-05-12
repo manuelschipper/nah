@@ -81,21 +81,28 @@ def _generated_hooks() -> dict:
     sys.path.insert(0, str(ROOT / "src"))
     from nah import agents
 
-    pre_tool_use = []
-    for matcher in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]:
-        pre_tool_use.append({
-            "matcher": matcher,
-            "hooks": [{
-                "type": "command",
-                "command": _hook_command("nah-plugin-hook"),
-                "timeout": 10,
-            }],
-        })
+    def tool_hooks(script_name: str) -> list[dict]:
+        entries = []
+        for matcher in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]:
+            entries.append({
+                "matcher": matcher,
+                "hooks": [{
+                    "type": "command",
+                    "command": _hook_command(script_name),
+                    "timeout": 10,
+                }],
+            })
+        return entries
+
+    pre_tool_use = tool_hooks("nah-plugin-hook")
+    post_tool_use = tool_hooks("nah-plugin-post-tool")
 
     return {
-        "description": "Run nah before Claude Code tool use.",
+        "description": "Run nah before and after Claude Code tool use.",
         "hooks": {
             "PreToolUse": pre_tool_use,
+            "PostToolUse": post_tool_use,
+            "PostToolUseFailure": post_tool_use,
             "SessionStart": [{
                 "hooks": [{
                     "type": "command",
@@ -105,7 +112,6 @@ def _generated_hooks() -> dict:
             }],
         },
     }
-
 
 def _generated_marketplace(version: str) -> dict:
     return {
@@ -182,6 +188,7 @@ def build_plugin(out: Path) -> None:
     )
 
     _set_executable(out / "bin" / "nah-plugin-hook")
+    _set_executable(out / "bin" / "nah-plugin-post-tool")
     _set_executable(out / "bin" / "nah-plugin-session-start")
 
 
