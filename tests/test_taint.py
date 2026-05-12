@@ -1,0 +1,324 @@
+"""Tests for runtime-neutral session taint tracking."""
+
+import json
+
+from nah import config, paths, taint, taxonomy
+from nah.config import NahConfig
+
+
+def _cfg(mode="audit", **taint_overrides):
+    data = {
+        "mode": mode,
+        "inherit_sensitive_paths": True,
+        "sources": [{"paths": [".env", "secrets/*.json"], "labels": ["secret"]}],
+        "propagation": {
+            "filesystem_write": True,
+            "git_write": True,
+            "browser_file": True,
+        },
+        "policies": {
+            "default": {"activation": "audit", "boundary": "ask", "unknown": "ask"},
+            "secret": {"activation": "audit", "boundary": "ask", "unknown": "ask"},
+        },
+    }
+    data.update(taint_overrides)
+    config._cached_config = NahConfig(taint=data)
+    config._cached_target = None
+
+
+def _read_state(runtime="claude", session="sess"):
+    with open(taint.state_path(runtime, session), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_mode_off_does_not_create_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config._cached_config = NahConfig()
+    taint.reset_state()
+
+    decision = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_read"},
+        execution={"state": "requested"},
+    )
+
+    assert "_meta" in decision
+    assert "taint" not in decision["_meta"]
+    assert not tmp_path.joinpath(".config", "nah", "taint").exists()
+
+
+def test_allowed_source_read_waits_for_post_tool_confirmation(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg()
+    taint.reset_state()
+
+    decision = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_read"},
+        execution={"state": "requested"},
+    )
+    state = _read_state()
+    assert "toolu_read" in state["pending_sources"]
+    assert state["active_labels"] == {}
+    assert decision["_meta"]["taint"]["updates"]["source"]["status"] == "pending"
+
+    post = {"decision": taxonomy.ALLOW, "_meta": {}}
+    taint.apply_post_tool(
+        "Read",
+        {"file_path": ".env"},
+        post,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_read"},
+        execution={"state": "executed", "ask_outcome": "approved_executed"},
+    )
+    state = _read_state()
+    assert "toolu_read" not in state["pending_sources"]
+    assert "secret" in state["active_labels"]
+    assert post["_meta"]["taint"]["updates"]["source_finalized"] == "active"
+
+
+def test_blocked_source_read_does_not_taint(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg()
+    taint.reset_state()
+
+    decision = {"decision": taxonomy.BLOCK, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_read"},
+        execution={"state": "not_run"},
+    )
+
+    assert not tmp_path.joinpath(".config", "nah", "taint").exists()
+
+
+def test_malformed_state_fails_open_with_warning(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg()
+    taint.reset_state()
+    state_path = tmp_path / ".config" / "nah" / "taint" / "sessions" / "claude" / "sess.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("{not json", encoding="utf-8")
+
+    decision = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert "ignoring unreadable session state" in capsys.readouterr().err
+    assert decision["_meta"]["taint"]["updates"]["source"]["status"] == "active"
+
+
+def test_desensitized_inherited_sensitive_path_is_not_taint_source(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config._cached_config = NahConfig(
+        sensitive_basenames={".env": "allow"},
+        taint={"mode": "audit", "inherit_sensitive_paths": True},
+    )
+    config._cached_target = None
+    paths.reset_sensitive_paths()
+    taint.reset_state()
+
+    decision = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert "taint" not in decision["_meta"]
+    assert not tmp_path.joinpath(".config", "nah", "taint").exists()
+
+
+def test_audit_boundary_logs_would_decision_without_escalating(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="audit")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    boundary = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.NETWORK_OUTBOUND, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "curl -I https://example.com"},
+        boundary,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert boundary["decision"] == taxonomy.ALLOW
+    meta = boundary["_meta"]["taint"]
+    assert meta["policy_decision"] == taxonomy.ASK
+    assert meta["would_decision"] == taxonomy.ASK
+    assert meta["enforced"] is False
+
+
+def test_enforce_boundary_escalates_allow_to_ask(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    boundary = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.NETWORK_OUTBOUND, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "curl -I https://example.com"},
+        boundary,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert boundary["decision"] == taxonomy.ASK
+    assert "trust boundary" in boundary["reason"]
+    assert boundary["_meta"]["taint"]["enforced"] is True
+
+
+def test_filesystem_write_propagates_state_without_prompt(monkeypatch, tmp_path, project_root):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+    target = f"{project_root}/debug.py"
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    write = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.FILESYSTEM_WRITE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')"},
+        write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert write["decision"] == taxonomy.ALLOW
+    state = _read_state()
+    assert f"path:{paths.resolve_path(target)}" in state["tainted_targets"]
+
+
+def test_git_write_taints_repo_and_git_remote_write_asks(monkeypatch, tmp_path, project_root):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    git_write = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.GIT_WRITE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "git add debug.py"},
+        git_write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    assert _read_state()["tainted_targets"][f"repo:{paths.resolve_path(project_root)}"]["labels"] == ["secret"]
+
+    push = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.GIT_REMOTE_WRITE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "git push"},
+        push,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    assert push["decision"] == taxonomy.ASK
+
+
+def test_unknown_under_taint_asks_even_if_policy_is_loosened(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce", policies={"default": {"unknown": "allow"}, "secret": {"unknown": "allow"}})
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    unknown = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.UNKNOWN, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Mystery",
+        {},
+        unknown,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    assert unknown["decision"] == taxonomy.ASK
+    assert unknown["_meta"]["taint"]["category"] == "unknown"

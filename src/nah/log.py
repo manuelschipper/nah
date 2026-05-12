@@ -163,6 +163,10 @@ def build_entry(
     if execution:
         entry["execution"] = execution
 
+    taint = _copy_log_object(meta.get("taint"))
+    if taint:
+        entry["taint"] = taint
+
     for key in (
         "target",
         "source",

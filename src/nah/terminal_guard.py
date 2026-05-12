@@ -239,7 +239,7 @@ def decide_terminal_command(
     meta = _classify_meta(classified)
 
     if decision == taxonomy.ALLOW:
-        return TerminalDecision(
+        result = TerminalDecision(
             decision=taxonomy.ALLOW,
             reason=reason,
             exit_code=EXIT_ALLOW,
@@ -248,6 +248,9 @@ def decide_terminal_command(
             action_type=_first_action_type(meta),
             meta=meta,
         )
+        if log and _terminal_taint_enabled(cfg):
+            _log_terminal_decision(result, cfg.log)
+        return result
 
     if decision == taxonomy.BLOCK:
         action_type = _first_action_type(meta)
@@ -863,11 +866,18 @@ def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) ->
             "target": result.target,
             "source": "terminal",
         })
+        logged_decision = {
+            "decision": result.decision,
+            "reason": result.reason,
+            "_meta": meta,
+        }
+        _apply_terminal_taint(result, logged_decision)
+        meta = logged_decision.get("_meta", meta)
         entry = build_entry(
             "Bash",
             redact_input("Bash", {"command": result.command}),
-            result.decision,
-            result.reason,
+            logged_decision.get("decision", result.decision),
+            logged_decision.get("reason", result.reason),
             "terminal",
             __version__,
             0,
@@ -882,6 +892,34 @@ def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) ->
             # Terminal decision logging must never break the guarded command
             # path. If even stderr is unavailable, there is nowhere useful to
             # report this secondary logging failure.
+            pass
+
+
+def _terminal_taint_enabled(cfg) -> bool:
+    taint_cfg = getattr(cfg, "taint", {})
+    return isinstance(taint_cfg, dict) and taint_cfg.get("mode", "off") != "off"
+
+
+def _apply_terminal_taint(result: TerminalDecision, decision: dict) -> None:
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        taint.apply_pre_tool(
+            "Bash",
+            {"command": result.command},
+            decision,
+            runtime="terminal",
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            terminal_audit_only=True,
+        )
+    except Exception as exc:
+        try:
+            sys.stderr.write(f"nah: terminal taint: {exc}\n")
+        except Exception:
+            # Terminal logging is secondary to command handling. If stderr is
+            # gone too, surfacing the taint logging failure is impossible.
             pass
 
 

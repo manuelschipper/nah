@@ -43,6 +43,8 @@ class TestDefaults:
         assert cfg.project_root == str(tmp_path)
         assert cfg.project_config_trusted is False
         assert cfg.trusted_project_configs == []
+        assert cfg.taint["mode"] == "off"
+        assert cfg.taint["inherit_sensitive_paths"] is True
 
     def test_windows_global_config_dir_uses_appdata(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
@@ -235,6 +237,75 @@ class TestMergeConfigs:
         assert cfg.classify_global == {}
         assert cfg.classify_project == {}
         assert cfg.actions == {}
+        assert cfg.taint["mode"] == "off"
+
+    def test_taint_config_parses_defaults_when_enabled(self):
+        cfg = _merge_configs({"taint": {"mode": "audit"}} , {})
+        assert cfg.taint["mode"] == "audit"
+        assert cfg.taint["inherit_sensitive_paths"] is True
+        assert cfg.taint["propagation"]["filesystem_write"] is True
+        assert cfg.taint["policies"]["default"]["boundary"] == "ask"
+
+    def test_taint_rejects_propagate_policy(self, capsys):
+        cfg = _merge_configs(
+            {"taint": {"mode": "audit", "policies": {"secret": {"boundary": "propagate"}}}},
+            {},
+        )
+        assert "boundary" not in cfg.taint["policies"].get("secret", {})
+        assert "cannot be 'propagate'" in capsys.readouterr().err
+
+    def test_taint_rejects_custom_propagation_targets(self, capsys):
+        cfg = _merge_configs(
+            {"taint": {"mode": "audit", "propagation": {"mytool_write": True}}},
+            {},
+        )
+        assert "mytool_write" not in cfg.taint["propagation"]
+        assert "not supported in v1" in capsys.readouterr().err
+
+    def test_taint_custom_actions_are_category_sinks(self):
+        cfg = _merge_configs(
+            {
+                "taint": {
+                    "mode": "audit",
+                    "categories": {"boundary": {"add": ["service_write"]}},
+                }
+            },
+            {},
+        )
+        assert "service_write" in cfg.taint["categories"]["boundary"]["add"]
+
+    def test_untrusted_project_cannot_disable_taint_but_can_tighten_policy(self):
+        cfg = _merge_configs(
+            {"taint": {"mode": "enforce", "inherit_sensitive_paths": True}},
+            {
+                "taint": {
+                    "mode": "off",
+                    "inherit_sensitive_paths": False,
+                    "policies": {"default": {"boundary": "block"}},
+                }
+            },
+            project_config_trusted=False,
+        )
+        assert cfg.taint["mode"] == "enforce"
+        assert cfg.taint["inherit_sensitive_paths"] is True
+        assert cfg.taint["policies"]["default"]["boundary"] == "block"
+
+    def test_trusted_project_can_add_taint_sources(self):
+        cfg = _merge_configs(
+            {"taint": {"mode": "audit"}},
+            {"taint": {"sources": [{"paths": ["client/**"], "labels": ["client"]}]}},
+            project_config_trusted=True,
+        )
+        assert {"paths": ["client/**"], "labels": ["client"]} in cfg.taint["sources"]
+
+    def test_trusted_project_still_cannot_change_global_taint_mode(self):
+        cfg = _merge_configs(
+            {"taint": {"mode": "enforce", "inherit_sensitive_paths": True}},
+            {"taint": {"mode": "off", "inherit_sensitive_paths": False}},
+            project_config_trusted=True,
+        )
+        assert cfg.taint["mode"] == "enforce"
+        assert cfg.taint["inherit_sensitive_paths"] is True
 
     def test_untrusted_project_classify_ignored(self):
         """Project classify is ignored before the project config root is trusted."""

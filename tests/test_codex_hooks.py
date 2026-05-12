@@ -6,6 +6,8 @@ import json
 import pytest
 
 from nah import codex_hooks
+from nah import config
+from nah.config import NahConfig
 from nah.llm import LLMCallResult, ProviderAttempt
 
 
@@ -135,6 +137,58 @@ def test_post_tool_use_logs_executed_runtime_metadata_without_output(project_roo
         "ask_outcome": "approved_executed",
     }
     assert "SECRET_OUTPUT" not in json.dumps(entry)
+
+
+def test_codex_taint_boundary_enforcement_can_return_no_verdict(project_root, tmp_path, monkeypatch):
+    from nah import taint
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config._cached_config = NahConfig(
+        actions={"git_remote_write": "allow"},
+        taint={
+            "mode": "enforce",
+            "sources": [{"paths": [".env"], "labels": ["secret"]}],
+            "policies": {
+                "default": {"activation": "audit", "boundary": "ask", "unknown": "ask"},
+                "secret": {"boundary": "ask"},
+            },
+        }
+    )
+    config._cached_target = None
+    taint.reset_state()
+
+    _run({
+        "hookEventName": "PermissionRequest",
+        "session_id": "sess_codex_taint",
+        "tool_use_id": "toolu_read",
+        "tool_name": "Read",
+        "tool_input": {"file_path": ".env"},
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+    _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_taint",
+        "tool_use_id": "toolu_read",
+        "tool_name": "Read",
+        "tool_input": {"file_path": ".env"},
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "session_id": "sess_codex_taint",
+        "tool_use_id": "toolu_push",
+        "tool_name": "Bash",
+        "tool_input": {"command": "git push"},
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "ask"
+    assert entry["taint"]["enforced"] is True
+    assert entry["taint"]["policy_decision"] == "ask"
 
 
 def test_apply_patch_without_patch_text_returns_no_verdict(project_root):
