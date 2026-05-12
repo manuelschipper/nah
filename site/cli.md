@@ -96,6 +96,10 @@ version, and re-locks it (chmod 444). It also updates the interpreter path and
 command in Claude settings. Shell targets regenerate snippets and refresh the
 managed rc block without duplicating it.
 
+Codex is session-scoped through `nah run codex`, so there is no persistent
+`nah update codex` target. After upgrading the Python package, the next
+`nah run codex` session uses the new version.
+
 ### nah uninstall
 
 Remove nah from a target.
@@ -109,6 +113,9 @@ nah uninstall zsh
 `nah uninstall claude` removes direct hook entries from Claude Code settings and
 deletes the hook script if no direct integration still uses it. Shell targets
 remove only nah-owned marked rc blocks and generated snippets.
+
+Codex has no persistent uninstall target; close the protected session or stop
+using `nah run codex`.
 
 ### nah config show
 

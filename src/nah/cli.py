@@ -1748,7 +1748,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
     )
     install_parser.add_argument(
         "--force",
@@ -1764,7 +1764,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
     )
     uninstall_parser = sub.add_parser(
         "uninstall",
@@ -1775,7 +1775,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
     )
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--target", default=None, help="Target policy to simulate")

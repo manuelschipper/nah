@@ -1154,6 +1154,7 @@ class TestTargetLifecycleCli:
         out = capsys.readouterr().out
         assert f"usage: nah {command} <target>" in out
         assert "Required target: claude, bash, or zsh" in out
+        assert "Codex uses nah run codex" in out
 
     def test_install_without_target_errors(self, capsys):
         import nah.cli as cli_mod
@@ -1163,6 +1164,7 @@ class TestTargetLifecycleCli:
         err = capsys.readouterr().err
         assert "nah install claude" in err
         assert "nah install bash" in err
+        assert "Codex is session-scoped" in err
         assert "openrouter" not in err
 
     def test_openrouter_is_not_a_lifecycle_target(self, capsys):
@@ -1175,6 +1177,23 @@ class TestTargetLifecycleCli:
         assert "nah install claude" in err
         assert "nah install bash" in err
         assert "nah install zsh" in err
+
+    @pytest.mark.parametrize("command", ["install", "update", "uninstall"])
+    def test_codex_is_not_lifecycle_target(self, command, capsys):
+        import nah.cli as cli_mod
+        func = {
+            "install": cli_mod.cmd_install,
+            "update": cli_mod.cmd_update,
+            "uninstall": cli_mod.cmd_uninstall,
+        }[command]
+
+        with pytest.raises(SystemExit) as exc:
+            func(argparse.Namespace(target="codex", force=False))
+
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert f"nah {command} codex: Codex has no persistent {command} target." in err
+        assert "nah run codex" in err
 
     def test_install_bash_delegates_to_terminal_guard(self):
         import nah.cli as cli_mod
