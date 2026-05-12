@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Runtime execution outcome logging** — nah now records append-only
+  `runtime` and `execution` metadata for Claude, Codex, and terminal guard
+  decisions so audit logs can distinguish a pre-execution permission decision
+  from an observed tool outcome. Claude PostToolUse/PostToolUseFailure and
+  Codex PostToolUse hooks log successful or failed execution without changing
+  permission policy, while terminal prompts report denied or approved-to-run
+  states without claiming process completion. (nah-920)
 - **Non-Git project config with exact-root trust** — nah now loads
   `./.nah.yaml` from the current directory outside Git while keeping Git-root
   config precedence inside repositories. Project config remains tighten-only by
