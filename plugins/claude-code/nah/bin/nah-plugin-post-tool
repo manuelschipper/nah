@@ -24,4 +24,9 @@ if [ -z "$python_bin" ]; then
   exit 0
 fi
 
-exec "$python_bin" "${CLAUDE_PLUGIN_ROOT}/runtime/nah_plugin_runner.py"
+runner="${CLAUDE_PLUGIN_ROOT}/runtime/nah_plugin_runner.py"
+if [ ! -r "$runner" ]; then
+  exit 0
+fi
+
+exec "$python_bin" "$runner"
