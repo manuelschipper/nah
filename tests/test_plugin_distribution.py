@@ -372,6 +372,23 @@ def test_post_tool_shell_wrapper_no_python_fails_open(tmp_path):
     assert result.stdout == ""
 
 
+def test_post_tool_shell_wrapper_missing_runner_fails_open(tmp_path):
+    out = tmp_path / "nah"
+    _build(out)
+    (out / "runtime" / "nah_plugin_runner.py").unlink()
+    env = os.environ.copy()
+    env["CLAUDE_PLUGIN_ROOT"] = str(out)
+    result = subprocess.run(
+        ["/bin/sh", str(out / "bin" / "nah-plugin-post-tool")],
+        input='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}',
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
 def test_session_start_warns_about_legacy_hooks_without_mutating(tmp_path):
     out = tmp_path / "nah"
     home = tmp_path / "home"
