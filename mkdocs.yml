@@ -1,5 +1,5 @@
 site_name: nah
-site_description: Context aware safety guard for coding agents. Because allow and deny isn't enough.
+site_description: Action-aware permissions for coding agents. A deterministic safety guard that keeps you in the flow.
 site_url: https://nah.build/
 repo_url: https://github.com/manuelschipper/nah
 repo_name: manuelschipper/nah
