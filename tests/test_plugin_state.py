@@ -51,11 +51,13 @@ def test_detects_mixed_direct_and_plugin_hooks(tmp_path):
                         "matcher": "Bash",
                         "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/nah_guard.py"}],
                     },
+                ],
+                "PostToolUse": [
                     {
                         "matcher": "Read",
-                        "hooks": [{"type": "command", "command": "sh ${CLAUDE_PLUGIN_ROOT}/bin/nah-plugin-hook"}],
+                        "hooks": [{"type": "command", "command": "sh ${CLAUDE_PLUGIN_ROOT}/bin/nah-plugin-post-tool"}],
                     },
-                ]
+                ],
             },
         },
     )
@@ -67,6 +69,7 @@ def test_detects_mixed_direct_and_plugin_hooks(tmp_path):
     assert state.has_plugin
     assert len(state.legacy_hooks) == 1
     assert len(state.plugin_hooks) == 1
+    assert state.plugin_hooks[0].detail == "PostToolUse[0]"
 
 
 def test_malformed_settings_reports_error(tmp_path):

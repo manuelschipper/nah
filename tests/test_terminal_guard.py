@@ -117,6 +117,12 @@ def test_terminal_decision_block_logs(monkeypatch, tmp_path):
     assert "remote code execution" in result.reason
     assert result.human_reason == "this downloads code and runs it in bash"
     assert log_decision.called
+    entry = log_decision.call_args.args[0]
+    assert entry["runtime"]["phase"] == "terminal"
+    assert entry["execution"] == {
+        "state": "not_run",
+        "ask_outcome": "not_applicable",
+    }
 
 
 def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
@@ -124,15 +130,21 @@ def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     reset_config()
     stdin = io.StringIO("")
     stdin.isatty = lambda: False
-    result = terminal_guard.decide_terminal_command(
-        "git push --force",
-        "bash",
-        confirm=True,
-        stdin=stdin,
-    )
+    with patch("nah.log.log_decision") as log_decision:
+        result = terminal_guard.decide_terminal_command(
+            "git push --force",
+            "bash",
+            confirm=True,
+            stdin=stdin,
+        )
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
     assert result.denied is True
     assert result.human_reason == "this can rewrite Git history"
+    entry = log_decision.call_args.args[0]
+    assert entry["execution"] == {
+        "state": "not_run",
+        "ask_outcome": "denied",
+    }
 
 
 def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
@@ -170,17 +182,22 @@ def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
 
     monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
 
-    with patch("nah.llm.try_llm_unified") as try_unified:
+    with patch("nah.llm.try_llm_unified") as try_unified, \
+         patch("nah.log.log_decision") as log_decision:
         result = terminal_guard.decide_terminal_command(
             "some-made-up-tool --delete-cache",
             "bash",
-            log=False,
         )
 
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.decision == "allow"
     assert result.reason == "safe test command"
     try_unified.assert_not_called()
+    entry = log_decision.call_args.args[0]
+    assert entry["execution"] == {
+        "state": "requested",
+        "ask_outcome": "not_applicable",
+    }
 
 
 def test_terminal_skip_llm_keeps_eligible_ask(monkeypatch, tmp_path):
@@ -362,17 +379,23 @@ def test_terminal_ask_can_be_confirmed(monkeypatch, tmp_path):
     stdin = io.StringIO("yes\n")
     stdin.isatty = lambda: True
     stderr = io.StringIO()
-    result = terminal_guard.decide_terminal_command(
-        "git push --force",
-        "bash",
-        confirm=True,
-        stdin=stdin,
-        stderr=stderr,
-    )
+    with patch("nah.log.log_decision") as log_decision:
+        result = terminal_guard.decide_terminal_command(
+            "git push --force",
+            "bash",
+            confirm=True,
+            stdin=stdin,
+            stderr=stderr,
+        )
     assert result.exit_code == terminal_guard.EXIT_ALLOW
     assert result.confirmed is True
     assert result.human_reason == "this can rewrite Git history"
     assert stderr.getvalue().count("Run anyway? [y/N]") == 1
+    entry = log_decision.call_args.args[0]
+    assert entry["execution"] == {
+        "state": "approved_to_run",
+        "ask_outcome": "unknown",
+    }
 
 
 def test_terminal_confirmation_falls_back_when_fileno_is_invalid(monkeypatch, tmp_path):

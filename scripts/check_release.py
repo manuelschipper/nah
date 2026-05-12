@@ -128,6 +128,7 @@ def _check_marketplace(marketplace_root: Path, version: str) -> None:
     required_paths = [
         plugin_root / "hooks" / "hooks.json",
         plugin_root / "bin" / "nah-plugin-hook",
+        plugin_root / "bin" / "nah-plugin-post-tool",
         plugin_root / "bin" / "nah-plugin-session-start",
         plugin_root / "runtime" / "nah_plugin_runner.py",
         plugin_root / "lib" / "nah" / "hook.py",

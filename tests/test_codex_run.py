@@ -36,6 +36,9 @@ def test_injects_fixed_workspace_write_preset_before_user_args():
     assert 'approvals_reviewer="user"' in argv
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
     assert "_codex-permission-request" in hook_override
+    post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
+    assert "_codex-post-tool-use" in post_tool_override
+    assert not any(arg.startswith("hooks.PreToolUse=") for arg in argv)
 
 
 def test_passes_normal_codex_ui_flags_through():
@@ -127,6 +130,7 @@ def test_rejects_permission_sandbox_and_remote_flags(args):
         ["--config=features.apps=true"],
         ["--config=features.skill_mcp_dependency_install=true"],
         ["-c", "hooks.PermissionRequest=[]"],
+        ["-c", "hooks.PostToolUse=[]"],
         ["--disable", "codex_hooks"],
         ["--enable=codex_hooks"],
         ["--enable", "apps"],
@@ -166,3 +170,5 @@ def test_windows_hook_command_is_quoted(monkeypatch):
     argv = _argv([])
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
     assert os.path.basename(codex_run.sys.executable) in hook_override
+    post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
+    assert os.path.basename(codex_run.sys.executable) in post_tool_override

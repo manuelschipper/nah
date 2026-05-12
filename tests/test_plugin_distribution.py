@@ -143,13 +143,23 @@ def test_build_generates_complete_artifact(tmp_path):
 
     hooks = json.loads((out / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     pre_tool_use = hooks["hooks"]["PreToolUse"]
+    post_tool_use = hooks["hooks"]["PostToolUse"]
+    post_tool_failure = hooks["hooks"]["PostToolUseFailure"]
     assert [entry["matcher"] for entry in pre_tool_use] == agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]
+    assert [entry["matcher"] for entry in post_tool_use] == agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]
+    assert [entry["matcher"] for entry in post_tool_failure] == agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]
 
     for entry in pre_tool_use:
         hook = entry["hooks"][0]
         command = hook["command"]
         assert "${CLAUDE_PLUGIN_ROOT}/bin/nah-plugin-hook" in command
         assert hook["type"] == "command"
+    for event in (post_tool_use, post_tool_failure):
+        for entry in event:
+            hook = entry["hooks"][0]
+            command = hook["command"]
+            assert "${CLAUDE_PLUGIN_ROOT}/bin/nah-plugin-post-tool" in command
+            assert hook["type"] == "command"
 
     session_hook = hooks["hooks"]["SessionStart"][0]["hooks"][0]
     assert "${CLAUDE_PLUGIN_ROOT}/bin/nah-plugin-session-start" in session_hook["command"]
@@ -182,6 +192,7 @@ def test_marketplace_build_generates_catalog_and_self_contained_plugin(tmp_path)
     assert (plugin_root / "README.md").exists()
     assert (plugin_root / "SUBMISSION.md").exists()
     assert (plugin_root / "bin" / "nah-plugin-hook").exists()
+    assert (plugin_root / "bin" / "nah-plugin-post-tool").exists()
     assert (plugin_root / "bin" / "nah-plugin-session-start").exists()
     assert (plugin_root / "runtime" / "nah_plugin_runner.py").exists()
     assert (plugin_root / "lib" / "nah" / "hook.py").exists()
@@ -312,6 +323,21 @@ def test_plugin_runner_import_failure_fails_closed(tmp_path):
     assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
+def test_plugin_runner_post_tool_import_failure_fails_open(tmp_path):
+    root = _fake_plugin_root(tmp_path, None)
+    result = _run_plugin_hook(
+        root,
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git status"},
+        },
+        tmp_path / "home",
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
 def test_shell_wrapper_no_python_fails_closed(tmp_path):
     out = tmp_path / "nah"
     _build(out)
@@ -327,6 +353,23 @@ def test_shell_wrapper_no_python_fails_closed(tmp_path):
     )
     assert result.returncode == 0
     assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+def test_post_tool_shell_wrapper_no_python_fails_open(tmp_path):
+    out = tmp_path / "nah"
+    _build(out)
+    env = os.environ.copy()
+    env["CLAUDE_PLUGIN_ROOT"] = str(out)
+    env["PATH"] = str(tmp_path / "empty-path")
+    result = subprocess.run(
+        ["/bin/sh", str(out / "bin" / "nah-plugin-post-tool")],
+        input='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}',
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
 
 
 def test_session_start_warns_about_legacy_hooks_without_mutating(tmp_path):

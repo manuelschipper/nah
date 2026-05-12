@@ -142,6 +142,54 @@ class TestUserFallback:
         assert entry["user"] == ""
 
 
+class TestRuntimeExecutionMetadata:
+    def test_build_entry_preserves_runtime_execution_and_hashes_redacted_input(self):
+        input_summary = log.redact_input(
+            "Bash",
+            {"command": "export API_KEY=super-secret && git status"},
+        )
+        entry = log.build_entry(
+            "Bash",
+            input_summary,
+            "allow",
+            "filesystem_read -> allow",
+            "claude",
+            "test",
+            2,
+            {
+                "runtime": {
+                    "phase": "pre_tool",
+                    "hook_event_name": "PreToolUse",
+                    "tool_use_id": "toolu_123",
+                },
+                "execution": {
+                    "state": "requested",
+                    "ask_outcome": "not_applicable",
+                },
+            },
+        )
+
+        assert entry["runtime"]["phase"] == "pre_tool"
+        assert entry["runtime"]["hook_event_name"] == "PreToolUse"
+        assert entry["runtime"]["tool_use_id"] == "toolu_123"
+        assert entry["runtime"]["input_hash"] == log.redacted_input_hash(input_summary)
+        assert entry["execution"] == {
+            "state": "requested",
+            "ask_outcome": "not_applicable",
+        }
+        encoded = json.dumps(entry)
+        assert "super-secret" not in encoded
+        assert "API_KEY=***" in entry["input"]
+
+    def test_build_entry_keeps_old_entries_without_runtime_metadata(self):
+        entry = log.build_entry(
+            "Bash", "git status", "allow", "ok", "claude", "test", 1, {},
+        )
+
+        assert "runtime" not in entry
+        assert "execution" not in entry
+
+
 # -- log_decision --
 
 

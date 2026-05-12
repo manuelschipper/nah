@@ -233,6 +233,32 @@ class TestCmdTrust:
 
 
 class TestCmdLog:
+    def test_human_output_shows_execution_state_when_present(self, capsys):
+        from nah.cli import cmd_log
+
+        entry = {
+            "ts": "2026-04-29T13:27:48.000+00:00",
+            "tool": "Bash",
+            "decision": "allow",
+            "reason": "tool execution observed",
+            "input": "git status",
+            "ms": 1,
+            "execution": {"state": "executed"},
+        }
+
+        with patch("nah.log.read_log", return_value=[entry]):
+            cmd_log(argparse.Namespace(
+                blocks=False,
+                asks=False,
+                llm=False,
+                tool=None,
+                limit=5,
+                json=False,
+            ))
+
+        out = capsys.readouterr().out
+        assert "ALLOW executed" in out
+
     def test_llm_filter_shows_short_and_long_reasoning(self, capsys):
         from nah.cli import cmd_log
 
@@ -980,6 +1006,46 @@ class TestWriteHookScriptEncoding:
         text = hook_path.read_text(encoding="utf-8")
         assert "nah guard" in text
 
+    def test_direct_shim_failure_fallback_is_event_aware(self, tmp_path, monkeypatch):
+        import subprocess
+        import nah.cli as cli_mod
+
+        hook_path = tmp_path / "nah_guard.py"
+        fake_lib = tmp_path / "fake-lib"
+        fake_pkg = fake_lib / "nah"
+        fake_pkg.mkdir(parents=True)
+        (fake_pkg / "__init__.py").write_text("", encoding="utf-8")
+        (fake_pkg / "hook.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
+
+        cli_mod._write_hook_script()
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(fake_lib)
+        env["HOME"] = str(tmp_path / "home")
+        pre = subprocess.run(
+            [sys.executable, str(hook_path)],
+            input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash"}),
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env=env,
+        )
+        post = subprocess.run(
+            [sys.executable, str(hook_path)],
+            input=json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Bash"}),
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env=env,
+        )
+
+        assert pre.returncode == 0
+        assert json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert post.returncode == 0
+        assert post.stdout == ""
+
 
 class TestCmdUpdateMatchers:
     """cmd_update must handle both string and object matcher formats."""
@@ -1286,6 +1352,8 @@ class TestCmdClaude:
         assert args[1] == "--settings"
         settings = json_mod.loads(args[2])
         assert "PreToolUse" in settings["hooks"]
+        assert "PostToolUse" in settings["hooks"]
+        assert "PostToolUseFailure" in settings["hooks"]
         assert "-p" in args
         assert "fix bug" in args
 
@@ -1405,6 +1473,17 @@ class TestCmdCodex:
 
         assert exc.value.code == 7
 
+    def test_codex_post_tool_hidden_command(self, monkeypatch):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "_codex-post-tool-use"])
+        monkeypatch.setattr("nah.codex_hooks.main", lambda **_kwargs: 8)
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 8
+
     def test_codex_doctor_reports_clean_state(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
 
@@ -1499,6 +1578,8 @@ class TestCliPluginMode:
         settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
         assert settings["enabledPlugins"]["nah@local"] is True
         assert settings["hooks"]["PreToolUse"]
+        assert settings["hooks"]["PostToolUse"]
+        assert settings["hooks"]["PostToolUseFailure"]
 
     def test_claude_with_plugin_enabled_execs_directly(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
@@ -1538,7 +1619,11 @@ class TestCliPluginMode:
                     "PreToolUse": [{
                         "matcher": "Bash",
                         "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/nah_guard.py"}],
-                    }]
+                    }],
+                    "PostToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/nah_guard.py"}],
+                    }],
                 },
             },
         )
@@ -1550,6 +1635,7 @@ class TestCliPluginMode:
         settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
         assert settings["enabledPlugins"]["nah@local"] is True
         assert settings["hooks"].get("PreToolUse") is None
+        assert settings["hooks"].get("PostToolUse") is None
         assert not (tmp_path / "hooks" / "nah_guard.py").exists()
 
 

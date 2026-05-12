@@ -14,6 +14,7 @@ _ASK = (
     '"permissionDecision":"ask",'
     '"permissionDecisionReason":"nah plugin: error, requesting confirmation"}}\n'
 )
+_POST_TOOL_EVENTS = {"PostToolUse", "PostToolUseFailure"}
 _LOG_MAX = 1_000_000
 
 
@@ -88,6 +89,23 @@ def _extract_tool_name(payload):
     return ""
 
 
+def _extract_hook_event(payload):
+    try:
+        data = json.loads(payload or "{}")
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(data, dict):
+        return str(data.get("hook_event_name") or data.get("hookEventName") or "PreToolUse")
+    return ""
+
+
+def _fallback_output(event_name):
+    """Return event-appropriate fallback output for plugin failures."""
+    if event_name in _POST_TOOL_EVENTS:
+        return ""
+    return _ASK
+
+
 def _run_hook(payload):
     root = _plugin_root()
     lib_dir = os.path.join(root, "lib")
@@ -111,12 +129,14 @@ def _run_hook(payload):
 
 def main():
     tool_name = ""
+    event_name = ""
     try:
+        payload = sys.stdin.read()
+        event_name = _extract_hook_event(payload)
         if sys.version_info < (3, 10):
-            _safe_write(_ASK)
+            _safe_write(_fallback_output(event_name))
             return
 
-        payload = sys.stdin.read()
         tool_name = _extract_tool_name(payload)
         output = _run_hook(payload)
 
@@ -129,14 +149,14 @@ def main():
             json.loads(output)
         except (json.JSONDecodeError, ValueError) as exc:
             _log_error(tool_name, ValueError(f"invalid JSON from main: {output[:200]}"))
-            _safe_write(_ASK)
+            _safe_write(_fallback_output(event_name))
             return
 
         _safe_write(output)
     except BaseException as exc:
         sys.stdout = _REAL_STDOUT
         _log_error(tool_name, exc)
-        _safe_write(_ASK)
+        _safe_write(_fallback_output(event_name))
 
 
 if __name__ == "__main__":

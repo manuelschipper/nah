@@ -6,11 +6,15 @@ import sys
 
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
-from nah.content import scan_content, format_content_message, is_credential_search
+from nah.content import scan_content, format_content_message, is_credential_search, get_secret_patterns
 from nah.messages import enrich_decision
 
 _transcript_path: str = ""  # set per-invocation by main()
 _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
+_POST_TOOL_EVENTS = {
+    "PostToolUse": ("post_tool", "executed"),
+    "PostToolUseFailure": ("post_tool_failure", "failed"),
+}
 
 _LLM_ELIGIBLE_PRESETS = {
     "strict": (taxonomy.UNKNOWN, taxonomy.LANG_EXEC, taxonomy.CONTEXT),
@@ -631,6 +635,101 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
     return agents.format_allow(agent)
 
 
+def _hook_event_name(data: dict) -> str:
+    """Return the runtime hook event name from Claude/Codex-style payloads."""
+    return str(data.get("hook_event_name") or data.get("hookEventName") or "PreToolUse")
+
+
+def _runtime_meta(data: dict, *, phase: str, hook_event_name: str) -> dict:
+    """Build runtime correlation metadata without logging raw tool contents."""
+    runtime = {
+        "phase": phase,
+        "hook_event_name": hook_event_name,
+    }
+    for key in ("session_id", "turn_id", "tool_use_id"):
+        value = data.get(key)
+        if value:
+            runtime[key] = str(value)
+    return runtime
+
+
+def _pre_tool_execution(decision: dict) -> dict:
+    """Return conservative execution metadata for a pre-execution decision."""
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.BLOCK:
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    if d == taxonomy.ASK:
+        return {"state": "requested", "ask_outcome": "requested"}
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
+def _attach_pre_tool_runtime(decision: dict, data: dict) -> None:
+    """Attach runtime/execution metadata to an existing pre-tool decision."""
+    meta = decision.setdefault("_meta", {})
+    event_name = _hook_event_name(data)
+    meta["runtime"] = _runtime_meta(data, phase="pre_tool", hook_event_name=event_name)
+    meta["execution"] = _pre_tool_execution(decision)
+
+
+def _post_tool_execution(data: dict, hook_event_name: str) -> dict:
+    """Return conservative execution metadata for post-tool hook payloads."""
+    _phase, state = _POST_TOOL_EVENTS[hook_event_name]
+    execution: dict = {
+        "state": state,
+        "ask_outcome": "approved_executed" if state == "executed" else "unknown",
+    }
+    duration = data.get("duration_ms")
+    if isinstance(duration, (int, float)):
+        execution["duration_ms"] = int(duration)
+    if hook_event_name == "PostToolUseFailure":
+        error = data.get("error", "")
+        if error:
+            execution["error"] = _redact_error_summary(str(error))
+        if "is_interrupt" in data:
+            execution["is_interrupt"] = bool(data.get("is_interrupt"))
+    return execution
+
+
+def _redact_error_summary(error: str) -> str:
+    """Return a bounded error summary without known inline secret tokens."""
+    summary = error.replace("\r", "\\r").replace("\n", "\\n")
+    try:
+        for pattern, _label in get_secret_patterns():
+            summary = pattern.sub("***", summary)
+    except Exception:
+        # Error summaries are diagnostic-only. If custom content patterns are
+        # malformed or unavailable, the bounded string is still preferable to
+        # dropping the whole post-tool failure row.
+        pass
+    return summary[:300]
+
+
+def _log_post_tool_event(
+    canonical: str,
+    tool_input: dict,
+    data: dict,
+    agent: str,
+    total_ms: int,
+) -> None:
+    """Log a post-tool outcome without emitting a permission decision."""
+    hook_event_name = _hook_event_name(data)
+    phase, _state = _POST_TOOL_EVENTS[hook_event_name]
+    reason = (
+        "tool execution failed"
+        if hook_event_name == "PostToolUseFailure"
+        else "tool execution observed"
+    )
+    decision = {
+        "decision": taxonomy.ALLOW,
+        "reason": reason,
+        "_meta": {
+            "runtime": _runtime_meta(data, phase=phase, hook_event_name=hook_event_name),
+            "execution": _post_tool_execution(data, hook_event_name),
+        },
+    }
+    _log_hook_decision(canonical, tool_input, decision, agent, total_ms)
+
+
 def _log_hook_decision(
     tool: str, tool_input: dict, decision: dict,
     agent: str, total_ms: int,
@@ -753,14 +852,18 @@ def _extract_action_type(meta: dict) -> str:
 
 def main():
     agent = agents.CLAUDE  # default until we can detect
+    hook_event_name = "PreToolUse"
     try:
         import time
         t0 = time.monotonic()
 
         global _transcript_path
         data = json.loads(sys.stdin.read())
+        hook_event_name = _hook_event_name(data)
         tool_name = data.get("tool_name", "")
         tool_input = data.get("tool_input", {})
+        if not isinstance(tool_input, dict):
+            tool_input = {}
         _transcript_path = data.get("transcript_path", "")
 
         agent = agents.detect_agent(data)
@@ -770,6 +873,11 @@ def main():
         except Exception as exc:
             sys.stderr.write(f"nah: target config: {exc}\n")
         canonical = agents.normalize_tool(tool_name)
+
+        if hook_event_name in _POST_TOOL_EVENTS:
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_post_tool_event(canonical, tool_input, data, agent, total_ms)
+            return
 
         handler = HANDLERS.get(canonical)
         if handler is None:
@@ -839,6 +947,8 @@ def main():
             except Exception as exc:
                 sys.stderr.write(f"nah: unified LLM error: {exc}\n")
 
+        _attach_pre_tool_runtime(decision, data)
+
         if d != taxonomy.ALLOW or _is_active_allow(canonical):
             enrich_decision(decision, tool=canonical)
             json.dump(_to_hook_output(decision, agent), sys.stdout)
@@ -850,6 +960,8 @@ def main():
 
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
+        if hook_event_name in _POST_TOOL_EVENTS:
+            return
         try:
             json.dump(agents.format_error(str(e), agent), sys.stdout)
             sys.stdout.write("\n")

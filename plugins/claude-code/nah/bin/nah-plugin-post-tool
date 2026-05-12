@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+set -eu
+
+find_python() {
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+# Post-tool hooks are audit-only. If the plugin runtime cannot start, fail open
+# with empty stdout so Claude's completed tool result is not replaced by nah.
+if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  exit 0
+fi
+
+python_bin=$(find_python || true)
+if [ -z "$python_bin" ]; then
+  exit 0
+fi
+
+exec "$python_bin" "${CLAUDE_PLUGIN_ROOT}/runtime/nah_plugin_runner.py"

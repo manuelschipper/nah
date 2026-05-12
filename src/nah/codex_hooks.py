@@ -1,4 +1,4 @@
-"""Codex PermissionRequest hook adapter."""
+"""Codex PermissionRequest and PostToolUse hook adapter."""
 
 from __future__ import annotations
 
@@ -20,35 +20,45 @@ _WRITE_ALIASES = {"apply_patch"}
 def main(
     stdin=None,
     stdout=None,
+    *,
+    default_hook_event: str = "PermissionRequest",
 ) -> int:
-    """Handle a Codex PermissionRequest hook invocation.
+    """Handle a Codex hook invocation.
 
-    Codex interprets stdout JSON as an approval decision. ASK/no verdict must
-    be empty stdout with a zero exit code so Codex can ask its native reviewer.
+    PermissionRequest emits allow/deny JSON or no verdict. PostToolUse is
+    logging-only and must emit empty stdout.
     """
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     t0 = time.monotonic()
+    event_name = default_hook_event
 
     try:
         payload = json.loads(stdin.read() or "{}")
     except json.JSONDecodeError as exc:
-        _log_codex_hook_error(f"invalid PermissionRequest JSON: {exc}")
-        return 1
+        _log_codex_hook_error(f"invalid {default_hook_event} JSON: {exc}")
+        return 0 if default_hook_event == "PostToolUse" else 1
 
     if not isinstance(payload, dict):
-        _log_codex_hook_error("PermissionRequest payload was not an object")
-        return 1
+        _log_codex_hook_error(f"{default_hook_event} payload was not an object")
+        return 0 if default_hook_event == "PostToolUse" else 1
 
     try:
+        event_name = _hook_event_name(payload, default_hook_event)
+        if event_name == "PostToolUse":
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_post_tool_use(payload, total_ms)
+            stdout.flush()
+            return 0
+
         decision, canonical, tool_input = _decide(payload)
         _emit_decision(stdout, decision, canonical)
         total_ms = int((time.monotonic() - t0) * 1000)
         _log_decision(canonical, tool_input, decision, total_ms, payload)
         return 0
     except Exception as exc:
-        _log_codex_hook_error(f"unexpected PermissionRequest error: {exc}")
-        return 1
+        _log_codex_hook_error(f"unexpected {event_name} error: {exc}")
+        return 0 if event_name == "PostToolUse" else 1
 
 
 def _decide(payload: dict) -> tuple[dict, str, dict]:
@@ -146,6 +156,31 @@ def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> 
     return decision
 
 
+def _hook_event_name(payload: dict, default: str = "PermissionRequest") -> str:
+    return str(payload.get("hook_event_name") or payload.get("hookEventName") or default)
+
+
+def _runtime_meta(payload: dict, *, phase: str, hook_event_name: str) -> dict:
+    runtime = {
+        "phase": phase,
+        "hook_event_name": hook_event_name,
+    }
+    for key in ("session_id", "turn_id", "tool_use_id"):
+        value = payload.get(key)
+        if value:
+            runtime[key] = str(value)
+    return runtime
+
+
+def _permission_execution(decision: dict) -> dict:
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.BLOCK:
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    if d == taxonomy.ASK:
+        return {"state": "requested", "ask_outcome": "requested"}
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
 def _emit_decision(stdout, decision: dict, canonical: str) -> None:
     d = decision.get("decision", taxonomy.ALLOW)
     if d == taxonomy.ASK:
@@ -180,13 +215,52 @@ def _log_decision(
     old_transcript = hook._transcript_path
     hook._transcript_path = str(payload.get("transcript_path", "") or "")
     try:
+        logged = copy.deepcopy(decision)
+        meta = logged.setdefault("_meta", {})
+        meta["runtime"] = _runtime_meta(
+            payload,
+            phase="permission_request",
+            hook_event_name="PermissionRequest",
+        )
+        meta["execution"] = _permission_execution(logged)
         hook._log_hook_decision(
             canonical,
             tool_input,
-            copy.deepcopy(decision),
+            logged,
             agents.CODEX,
             total_ms,
         )
+    finally:
+        hook._transcript_path = old_transcript
+
+
+def _log_post_tool_use(payload: dict, total_ms: int) -> None:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        tool_name = str(payload.get("tool_name", "") or "")
+        raw_tool_input = payload.get("tool_input", {})
+        tool_input = raw_tool_input if isinstance(raw_tool_input, dict) else {}
+        canonical = agents.normalize_tool(tool_name)
+        decision = {
+            "decision": taxonomy.ALLOW,
+            "reason": "tool execution observed",
+            "_meta": {
+                "runtime": _runtime_meta(
+                    payload,
+                    phase="post_tool",
+                    hook_event_name="PostToolUse",
+                ),
+                "execution": {
+                    "state": "executed",
+                    "ask_outcome": "approved_executed",
+                },
+            },
+        }
+        hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
     finally:
         hook._transcript_path = old_transcript
 

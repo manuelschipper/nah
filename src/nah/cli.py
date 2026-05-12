@@ -21,6 +21,7 @@ _CLAUDE_BLOCKED_FLAGS = {
     "--enable-auto-mode",
 }
 _CLAUDE_BYPASS_PERMISSION_MODE = "bypassPermissions"
+_CLAUDE_TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
 def _trust_target_is_path(target: str) -> bool:
@@ -43,6 +44,7 @@ import sys, json, os, io
 # Capture real stdout immediately — before anything can reassign it.
 _REAL_STDOUT = sys.stdout
 _ASK = '{{"hookSpecificOutput": {{"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "nah: error, requesting confirmation"}}}}\\n'
+_POST_TOOL_EVENTS = {{"PostToolUse", "PostToolUseFailure"}}
 def _nah_config_dir():
     appdata = os.environ.get("APPDATA") if sys.platform == "win32" else ""
     if appdata:
@@ -88,9 +90,38 @@ def _safe_write(data):
     except BrokenPipeError:
         pass
 
+def _extract_tool_name(payload):
+    try:
+        data = json.loads(payload or "{{}}")
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(data, dict):
+        return str(data.get("tool_name") or "")
+    return ""
+
+def _extract_hook_event(payload):
+    try:
+        data = json.loads(payload or "{{}}")
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(data, dict):
+        return str(data.get("hook_event_name") or data.get("hookEventName") or "PreToolUse")
+    return ""
+
+def _fallback_output(event_name):
+    """Return event-appropriate fallback output for hook failures."""
+    if event_name in _POST_TOOL_EVENTS:
+        return ""
+    return _ASK
+
 tool_name = ""
+event_name = ""
 try:
+    payload = sys.stdin.read()
+    tool_name = _extract_tool_name(payload)
+    event_name = _extract_hook_event(payload)
     buf = io.StringIO()
+    sys.stdin = io.StringIO(payload)
     sys.stdout = buf
     from nah.hook import main
     main()
@@ -106,14 +137,16 @@ try:
             _safe_write(output)
         except (json.JSONDecodeError, ValueError):
             _log_error(tool_name, ValueError(f"invalid JSON from main: {{output[:200]}}"))
-            _safe_write(_ASK)
+            _safe_write(_fallback_output(event_name))
 except SystemExit as e:
     sys.stdout = _REAL_STDOUT
+    if event_name in _POST_TOOL_EVENTS:
+        os._exit(0)
     os._exit(e.code if e.code is not None else 0)
 except BaseException as e:
     sys.stdout = _REAL_STDOUT
     _log_error(tool_name, e)
-    _safe_write(_ASK)
+    _safe_write(_fallback_output(event_name))
 
 # Always exit clean — prevent Python shutdown from flushing/crashing.
 os._exit(0)
@@ -134,15 +167,26 @@ def _hook_command() -> str:
 
 
 def _build_hooks_settings() -> dict:
-    """Build a settings dict containing nah PreToolUse hooks for Claude Code."""
+    """Build a settings dict containing nah tool hooks for Claude Code."""
     command = _hook_command()
-    pre_tool_use = []
-    for tool_name in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]:
-        pre_tool_use.append({
+    hook_events = {}
+    for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+        hook_events[event_name] = _tool_hook_entries(
+            command,
+            agents.AGENT_TOOL_MATCHERS[agents.CLAUDE],
+        )
+    return {"hooks": hook_events}
+
+
+def _tool_hook_entries(command: str, tool_names: list[str]) -> list[dict]:
+    """Return one Claude hook entry per tool matcher."""
+    entries = []
+    for tool_name in tool_names:
+        entries.append({
             "matcher": tool_name,
             "hooks": [{"type": "command", "command": command}],
         })
-    return {"hooks": {"PreToolUse": pre_tool_use}}
+    return entries
 
 
 def _read_settings(settings_file: Path) -> dict:
@@ -218,6 +262,44 @@ def _merge_matcher_tool_names(hook_entry: dict, tool_names: set[str]) -> bool:
     return True
 
 
+def _ensure_nah_event_hooks(
+    hooks: dict,
+    event_name: str,
+    tool_names: list[str],
+    command: str,
+) -> tuple[int, int]:
+    """Update/add nah hook entries for one Claude tool hook event."""
+    event_entries = hooks.setdefault(event_name, [])
+    updated = 0
+    nah_entries = [entry for entry in event_entries if _is_nah_hook(entry)]
+    for entry in nah_entries:
+        entry["hooks"] = [{"type": "command", "command": command}]
+        updated += 1
+
+    existing_matchers: set[str] = set()
+    for entry in nah_entries:
+        existing_matchers.update(_matcher_tool_names(entry.get("matcher")))
+    missing = set(tool_names) - existing_matchers
+    if missing:
+        object_entry = next(
+            (
+                entry for entry in nah_entries
+                if isinstance(entry.get("matcher"), dict)
+                and "tool_name" in entry["matcher"]
+            ),
+            None,
+        )
+        if object_entry is not None and _merge_matcher_tool_names(object_entry, missing):
+            pass
+        else:
+            for tool_name in sorted(missing):
+                event_entries.append({
+                    "matcher": tool_name,
+                    "hooks": [{"type": "command", "command": command}],
+                })
+    return updated, len(missing)
+
+
 def _target_arg(args: argparse.Namespace) -> str:
     """Return the lifecycle target argument, or an empty string."""
     return getattr(args, "target", None) or ""
@@ -280,30 +362,20 @@ def _install_for_agent(agent_key: str) -> None:
 
     settings = _read_settings(settings_file)
     hooks = settings.setdefault("hooks", {})
-    pre_tool_use = hooks.setdefault("PreToolUse", [])
 
     command = _hook_command()
 
-    for tool_name in tool_names:
-        existing = None
-        for entry in pre_tool_use:
-            if entry.get("matcher") == tool_name and _is_nah_hook(entry):
-                existing = entry
-                break
-
-        if existing is not None:
-            existing["hooks"] = [{"type": "command", "command": command}]
-        else:
-            pre_tool_use.append({
-                "matcher": tool_name,
-                "hooks": [{"type": "command", "command": command}],
-            })
+    for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+        _ensure_nah_event_hooks(hooks, event_name, tool_names, command)
 
     _write_settings(settings_file, settings)
     backup = settings_file.with_suffix(".json.bak")
 
     print(f"  {agent_name}:")
-    print(f"    Settings:  {settings_file} ({len(tool_names)} PreToolUse matchers)")
+    print(
+        f"    Settings:  {settings_file} "
+        f"({len(tool_names)} matchers x {len(_CLAUDE_TOOL_HOOK_EVENTS)} hook events)"
+    )
     if backup.exists():
         print(f"    Backup:    {backup}")
 
@@ -410,42 +482,22 @@ def cmd_update(args: argparse.Namespace) -> None:
         if settings_file.exists():
             settings = _read_settings(settings_file)
             hooks = settings.setdefault("hooks", {})
-            pre_tool_use = hooks.setdefault("PreToolUse", [])
             updated = 0
-            nah_entries = [entry for entry in pre_tool_use if _is_nah_hook(entry)]
-            for entry in nah_entries:
-                entry["hooks"] = [{"type": "command", "command": command}]
-                updated += 1
-
-            # Add missing tool matchers, preserving legacy object-style
-            # matchers when present and otherwise using one entry per tool.
-            existing_matchers: set[str] = set()
-            for entry in nah_entries:
-                existing_matchers.update(_matcher_tool_names(entry.get("matcher")))
-            expected_matchers = set(agents.AGENT_TOOL_MATCHERS.get(key, []))
-            missing = expected_matchers - existing_matchers
-            if missing:
-                object_entry = next(
-                    (
-                        entry for entry in nah_entries
-                        if isinstance(entry.get("matcher"), dict)
-                        and "tool_name" in entry["matcher"]
-                    ),
-                    None,
+            missing_total = 0
+            for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                event_updated, event_missing = _ensure_nah_event_hooks(
+                    hooks,
+                    event_name,
+                    agents.AGENT_TOOL_MATCHERS.get(key, []),
+                    command,
                 )
-                if object_entry is not None and _merge_matcher_tool_names(object_entry, missing):
-                    pass
-                else:
-                    for tool_name in sorted(missing):
-                        pre_tool_use.append({
-                            "matcher": tool_name,
-                            "hooks": [{"type": "command", "command": command}],
-                        })
-            if updated or missing:
+                updated += event_updated
+                missing_total += event_missing
+            if updated or missing_total:
                 _write_settings(settings_file, settings)
                 msg = f"{updated} hooks updated"
-                if missing:
-                    msg += f", {len(missing)} new tool matchers added"
+                if missing_total:
+                    msg += f", {missing_total} new tool hook matchers added"
                 print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({msg})")
 
     print(f"nah {__version__} updated:")
@@ -867,14 +919,14 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
         if settings_file.exists():
             settings = _read_settings(settings_file)
             hooks = settings.get("hooks", {})
-            pre_tool_use = hooks.get("PreToolUse", [])
 
-            filtered = [entry for entry in pre_tool_use if not _is_nah_hook(entry)]
-
-            if filtered:
-                hooks["PreToolUse"] = filtered
-            else:
-                hooks.pop("PreToolUse", None)
+            for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                entries = hooks.get(event_name, [])
+                filtered = [entry for entry in entries if not _is_nah_hook(entry)]
+                if filtered:
+                    hooks[event_name] = filtered
+                else:
+                    hooks.pop(event_name, None)
 
             _write_settings(settings_file, settings)
             print(f"  {agent_name}: {settings_file} (nah hooks removed)")
@@ -890,9 +942,13 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
         if sf.exists():
             try:
                 data = _read_settings(sf)
-                for entry in data.get("hooks", {}).get("PreToolUse", []):
-                    if _is_nah_hook(entry):
-                        any_remaining = True
+                hooks = data.get("hooks", {})
+                for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                    for entry in hooks.get(event_name, []):
+                        if _is_nah_hook(entry):
+                            any_remaining = True
+                            break
+                    if any_remaining:
                         break
             except Exception as exc:
                 sys.stderr.write(f"nah: uninstall: {exc}\n")
@@ -1508,6 +1564,10 @@ def cmd_log(args: argparse.Namespace) -> None:
         total_ms = entry.get("ms", "")
         llm = entry.get("llm", {})
         llm_ms = llm.get("ms", "")
+        execution_state = ""
+        execution = entry.get("execution", {})
+        if isinstance(execution, dict):
+            execution_state = execution.get("state", "")
 
         if decision == "BLOCK":
             marker = "! "
@@ -1516,7 +1576,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         else:
             marker = "  "
 
-        line = f"{ts}  {marker}{decision:<5}  {tool_name:<5}  {summary}"
+        state = f" {execution_state}" if execution_state else ""
+        line = f"{ts}  {marker}{decision:<5}{state:<17}  {tool_name:<5}  {summary}"
         if reason:
             line += f"  ({reason})"
         if total_ms != "":
@@ -1573,13 +1634,7 @@ def cmd_claude(user_args: list[str]) -> None:
         settings_paths=[settings_file] + plugin_state.project_settings_paths(),
     )
     _warn_install_state_errors(state, "claude")
-    already_installed = state.has_plugin
-    if settings_file.exists():
-        settings = _read_settings(settings_file)
-        for entry in settings.get("hooks", {}).get("PreToolUse", []):
-            if _is_nah_hook(entry):
-                already_installed = True
-                break
+    already_installed = state.has_plugin or state.has_legacy
 
     if already_installed:
         args = [claude_path] + user_args if os.name == "nt" else ["claude"] + user_args
@@ -1670,6 +1725,10 @@ def main():
         from nah.codex_hooks import main as codex_hooks_main
 
         raise SystemExit(codex_hooks_main())
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-post-tool-use":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main(default_hook_event="PostToolUse"))
 
     parser = argparse.ArgumentParser(
         prog="nah",
