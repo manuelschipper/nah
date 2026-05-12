@@ -52,6 +52,9 @@ def main(
             return 0
 
         decision, canonical, tool_input = _decide(payload)
+        _attach_permission_runtime(decision, payload)
+        decision = _apply_taint_permission(canonical, tool_input, decision, payload)
+        decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
         _emit_decision(stdout, decision, canonical)
         total_ms = int((time.monotonic() - t0) * 1000)
         _log_decision(canonical, tool_input, decision, total_ms, payload)
@@ -181,6 +184,41 @@ def _permission_execution(decision: dict) -> dict:
     return {"state": "requested", "ask_outcome": "not_applicable"}
 
 
+def _attach_permission_runtime(decision: dict, payload: dict) -> None:
+    """Attach runtime metadata before policy layers can inspect the decision."""
+    meta = decision.setdefault("_meta", {})
+    meta["runtime"] = _runtime_meta(
+        payload,
+        phase="permission_request",
+        hook_event_name="PermissionRequest",
+    )
+    meta["execution"] = _permission_execution(decision)
+
+
+def _apply_taint_permission(
+    canonical: str,
+    tool_input: dict,
+    decision: dict,
+    payload: dict,
+) -> dict:
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        return taint.apply_pre_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agents.CODEX,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=str(payload.get("transcript_path", "") or ""),
+        )
+    except Exception as exc:
+        _log_codex_hook_error(f"taint permission failed: {exc}")
+        return decision
+
+
 def _emit_decision(stdout, decision: dict, canonical: str) -> None:
     d = decision.get("decision", taxonomy.ALLOW)
     if d == taxonomy.ASK:
@@ -217,12 +255,15 @@ def _log_decision(
     try:
         logged = copy.deepcopy(decision)
         meta = logged.setdefault("_meta", {})
-        meta["runtime"] = _runtime_meta(
-            payload,
-            phase="permission_request",
-            hook_event_name="PermissionRequest",
+        meta.setdefault(
+            "runtime",
+            _runtime_meta(
+                payload,
+                phase="permission_request",
+                hook_event_name="PermissionRequest",
+            ),
         )
-        meta["execution"] = _permission_execution(logged)
+        meta.setdefault("execution", _permission_execution(logged))
         hook._log_hook_decision(
             canonical,
             tool_input,
@@ -260,9 +301,34 @@ def _log_post_tool_use(payload: dict, total_ms: int) -> None:
                 },
             },
         }
+        _apply_taint_post_tool(canonical, tool_input, decision, payload)
         hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
     finally:
         hook._transcript_path = old_transcript
+
+
+def _apply_taint_post_tool(
+    canonical: str,
+    tool_input: dict,
+    decision: dict,
+    payload: dict,
+) -> dict:
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        return taint.apply_post_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agents.CODEX,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=str(payload.get("transcript_path", "") or ""),
+        )
+    except Exception as exc:
+        _log_codex_hook_error(f"taint post-tool failed: {exc}")
+        return decision
 
 
 @contextlib.contextmanager

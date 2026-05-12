@@ -189,6 +189,32 @@ class TestRuntimeExecutionMetadata:
         assert "runtime" not in entry
         assert "execution" not in entry
 
+    def test_build_entry_preserves_taint_metadata(self):
+        entry = log.build_entry(
+            "Bash",
+            "curl https://example.com",
+            "allow",
+            "ok",
+            "claude",
+            "test",
+            1,
+            {
+                "taint": {
+                    "mode": "audit",
+                    "labels": ["secret"],
+                    "policy_decision": "ask",
+                    "would_decision": "ask",
+                    "enforced": False,
+                    "chain": "Read .env secret -> Bash curl",
+                },
+            },
+        )
+
+        assert entry["taint"]["mode"] == "audit"
+        assert entry["taint"]["labels"] == ["secret"]
+        assert entry["taint"]["would_decision"] == "ask"
+        assert entry["taint"]["enforced"] is False
+
 
 # -- log_decision --
 

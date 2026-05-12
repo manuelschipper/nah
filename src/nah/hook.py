@@ -529,12 +529,19 @@ def _build_bash_hint(result) -> str | None:
 def _classify_meta(result) -> dict:
     """Build classification metadata from ClassifyResult."""
     meta = {
-        "stages": [
-            {"action_type": sr.action_type, "decision": sr.decision,
-             "policy": sr.default_policy, "reason": sr.reason}
-            for sr in result.stages
-        ],
+        "stages": [],
     }
+    for sr in result.stages:
+        stage = {
+            "tokens": sr.tokens,
+            "action_type": sr.action_type,
+            "decision": sr.decision,
+            "policy": sr.default_policy,
+            "reason": sr.reason,
+        }
+        if sr.redirect_target:
+            stage["redirect_target"] = sr.redirect_target
+        meta["stages"].append(stage)
     if result.composition_rule:
         meta["composition_rule"] = result.composition_rule
     return meta
@@ -727,7 +734,48 @@ def _log_post_tool_event(
             "execution": _post_tool_execution(data, hook_event_name),
         },
     }
+    _apply_taint_post_tool(canonical, tool_input, decision, agent)
     _log_hook_decision(canonical, tool_input, decision, agent, total_ms)
+
+
+def _apply_taint_pre_tool(canonical: str, tool_input: dict, decision: dict, agent: str) -> dict:
+    """Run the shared taint layer for pre-tool decisions."""
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        return taint.apply_pre_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agent,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=_transcript_path,
+        )
+    except Exception as exc:
+        sys.stderr.write(f"nah: taint pre-tool: {exc}\n")
+        return decision
+
+
+def _apply_taint_post_tool(canonical: str, tool_input: dict, decision: dict, agent: str) -> dict:
+    """Run the shared taint finalizer for post-tool outcome rows."""
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        return taint.apply_post_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agent,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=_transcript_path,
+        )
+    except Exception as exc:
+        sys.stderr.write(f"nah: taint post-tool: {exc}\n")
+        return decision
 
 
 def _log_hook_decision(
@@ -948,6 +996,9 @@ def main():
                 sys.stderr.write(f"nah: unified LLM error: {exc}\n")
 
         _attach_pre_tool_runtime(decision, data)
+        decision = _apply_taint_pre_tool(canonical, tool_input, decision, agent)
+        decision.setdefault("_meta", {})["execution"] = _pre_tool_execution(decision)
+        d = decision.get("decision", taxonomy.ALLOW)
 
         if d != taxonomy.ALLOW or _is_active_allow(canonical):
             enrich_decision(decision, tool=canonical)

@@ -125,6 +125,52 @@ def test_terminal_decision_block_logs(monkeypatch, tmp_path):
     }
 
 
+def test_terminal_taint_is_audit_only_even_in_enforce_mode(monkeypatch, tmp_path):
+    from nah import taint, taxonomy
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_SESSION_ID", "term_sess")
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "taint:",
+            "  mode: enforce",
+            "  sources:",
+            "    - paths: ['.env']",
+            "      labels: ['secret']",
+            "  policies:",
+            "    default:",
+            "      activation: audit",
+            "      boundary: ask",
+            "      unknown: ask",
+            "    secret:",
+            "      package_run: block",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+    taint.reset_state()
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        {"decision": taxonomy.ALLOW, "_meta": {}},
+        runtime="terminal",
+        runtime_meta={"session_id": "term_sess"},
+        execution={"state": "requested"},
+    )
+
+    with patch("nah.log.log_decision") as log_decision:
+        result = terminal_guard.decide_terminal_command("npm test", "bash")
+
+    assert result.decision == "allow"
+    entry = log_decision.call_args.args[0]
+    assert entry["decision"] == "allow"
+    assert entry["taint"]["policy_decision"] == "block"
+    assert entry["taint"]["enforced"] is False
+
+
 def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     reset_config()

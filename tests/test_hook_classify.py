@@ -63,6 +63,44 @@ def _run_claude_hook(payload: dict, tmp_path, monkeypatch) -> tuple[str, list[di
     return stdout_mock.getvalue(), entries
 
 
+def test_claude_taint_source_finalizes_from_post_tool(project_root, tmp_path, monkeypatch):
+    from nah import taint
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config._cached_config = NahConfig(
+        taint={
+            "mode": "audit",
+            "sources": [{"paths": [".env"], "labels": ["secret"]}],
+            "policies": {"default": {"activation": "audit", "boundary": "ask", "unknown": "ask"}},
+        }
+    )
+    config._cached_target = None
+    taint.reset_state()
+
+    pre_payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "sess_claude",
+        "tool_use_id": "toolu_read",
+        "tool_name": "Read",
+        "tool_input": {"file_path": ".env"},
+        "transcript_path": str(tmp_path / "transcript.jsonl"),
+    }
+    _out, entries = _run_claude_hook(pre_payload, tmp_path, monkeypatch)
+    assert entries[-1]["taint"]["updates"]["source"]["status"] == "pending"
+
+    post_payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": "sess_claude",
+        "tool_use_id": "toolu_read",
+        "tool_name": "Read",
+        "tool_input": {"file_path": ".env"},
+        "transcript_path": str(tmp_path / "transcript.jsonl"),
+    }
+    _out, entries = _run_claude_hook(post_payload, tmp_path, monkeypatch)
+    assert entries[-1]["execution"]["state"] == "executed"
+    assert entries[-1]["taint"]["updates"]["source_finalized"] == "active"
+
+
 class TestClassifyUnknownTool:
     def setup_method(self):
         config._cached_config = NahConfig()
