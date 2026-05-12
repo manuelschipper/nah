@@ -217,6 +217,38 @@ def test_enforce_boundary_escalates_allow_to_ask(monkeypatch, tmp_path):
     assert boundary["_meta"]["taint"]["enforced"] is True
 
 
+def test_enforce_service_read_after_source_is_boundary(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    service_read = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.SERVICE_READ, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "curl https://example.com"},
+        service_read,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert service_read["decision"] == taxonomy.ASK
+    assert service_read["_meta"]["taint"]["category"] == "boundary"
+
+
 def test_filesystem_write_propagates_state_without_prompt(monkeypatch, tmp_path, project_root):
     monkeypatch.setenv("HOME", str(tmp_path))
     _cfg(mode="enforce")
