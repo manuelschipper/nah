@@ -100,6 +100,9 @@ nah uninstall bash
 nah uninstall zsh
 ```
 
+Codex has no persistent install/update/uninstall target. Upgrade the Python
+package and then launch protected sessions with `nah run codex`.
+
 For plugin-only Claude Code installs:
 
 ```bash
