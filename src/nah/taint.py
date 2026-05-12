@@ -52,6 +52,7 @@ DEFAULT_BOUNDARY = {
     taxonomy.NETWORK_WRITE,
     taxonomy.GIT_REMOTE_WRITE,
     taxonomy.DB_WRITE,
+    taxonomy.SERVICE_READ,
     taxonomy.SERVICE_WRITE,
     taxonomy.SERVICE_DESTRUCTIVE,
     taxonomy.BROWSER_STATE,
