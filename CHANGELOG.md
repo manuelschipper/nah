@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Runtime-neutral session taint tracking** — opt-in `taint` mode now tracks
+  successful sensitive reads across Claude, Codex, and terminal guard sessions,
+  propagates labels to local writes/repo state, and can audit or enforce
+  activation/boundary policies without weakening existing nah decisions.
+  Defaults remain off; terminal guard taint support is audit-only in v1.
+  (nah-919)
 - **Runtime execution outcome logging** — nah now records append-only
   `runtime` and `execution` metadata for Claude, Codex, and terminal guard
   decisions so audit logs can distinguish a pre-execution permission decision
