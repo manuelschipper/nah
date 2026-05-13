@@ -71,7 +71,12 @@ class PatchParseError(ValueError):
     """Raised when an apply_patch payload is not safe to classify."""
 
 
-def classify_codex_apply_patch(tool_input: dict, payload: dict) -> tuple[dict, dict]:
+def classify_codex_apply_patch(
+    tool_input: dict,
+    payload: dict,
+    *,
+    llm_review: bool = True,
+) -> tuple[dict, dict]:
     """Classify a Codex apply_patch request and return (decision, log input)."""
     patch_text = acquire_patch_text(tool_input, str(payload.get("transcript_path", "") or ""))
     if patch_text is None:
@@ -101,7 +106,7 @@ def classify_codex_apply_patch(tool_input: dict, payload: dict) -> tuple[dict, d
     if parsed.has_destructive_operation:
         return _ask("apply_patch: delete/move patch requires native approval"), log_input
 
-    if content_decision.get("decision") == taxonomy.ALLOW:
+    if llm_review and content_decision.get("decision") == taxonomy.ALLOW:
         from nah import hook
 
         review_input = {

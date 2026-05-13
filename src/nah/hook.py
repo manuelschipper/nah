@@ -547,7 +547,7 @@ def _classify_meta(result) -> dict:
     return meta
 
 
-def handle_bash(tool_input: dict) -> dict:
+def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
     """Full Bash handler: structural classification + content veto."""
     command = tool_input.get("command", "")
     if not command:
@@ -571,7 +571,7 @@ def handle_bash(tool_input: dict) -> dict:
 
     # LLM veto gate for lang_exec scripts (FD-079): even when the deterministic
     # layer allows, the LLM inspects script content and can escalate to ask.
-    if _has_lang_exec_script(result):
+    if llm_review and _has_lang_exec_script(result):
         llm_decision, llm_meta = _try_llm_script_veto(result)
         meta.update(llm_meta)
         if llm_decision is not None:
