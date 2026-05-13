@@ -11,8 +11,8 @@ yourself. This page describes what nah itself collects, stores, and sends.
 - nah's deterministic classifier runs locally on your machine.
 - The Claude Code plugin does not create a nah account and does not send tool
   input to a network service by default.
-- `nah run codex` uses local Codex `PermissionRequest` hooks and local
-  preflight checks; it does not create a nah account.
+- `nah run codex` uses local Codex hooks and local preflight checks; it does
+  not create a nah account.
 - Decision logs and configuration are stored locally.
 - Optional LLM credentials can be stored locally in your OS keychain or
   keyring when you use `nah key ...` from a PyPI install.
@@ -31,7 +31,7 @@ operation. Depending on how you use nah, this can include:
 - file paths for reads, writes, edits, searches, and notebook edits
 - write/edit content snippets for content inspection
 - MCP tool names and arguments exposed to Claude Code hooks
-- Codex Bash and MCP `PermissionRequest` payloads when you use `nah run codex`
+- Codex Bash, MCP, and `apply_patch` hook payloads when you use `nah run codex`
 - Codex approval-memory rule files and MCP approval settings during Codex
   preflight scans
 - recent Claude Code transcript context when optional LLM review is enabled

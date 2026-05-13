@@ -178,7 +178,7 @@ RULES = (
         rationale=(
             "MCP and agent-tool permission coverage: matcher registration, "
             "global-only MCP classification, wildcard safety, database/browser "
-            "MCP action typing, Codex MCP PermissionRequest hooks, and Codex "
+            "MCP action typing, Codex MCP hook handling, and Codex "
             "MCP approval-mode preflight/repair."
         ),
         match_any=(

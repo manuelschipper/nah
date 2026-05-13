@@ -83,7 +83,7 @@ renders summary, Markdown, or JSON output.
 | Guard self-protection | Yes | Partial: preflight and guarded patch paths | Shell install paths only |
 
 MCP permission behavior is counted explicitly through Claude Code matcher tests,
-Codex PermissionRequest tests, Codex preflight/repair tests, and taxonomy tests
+Codex hook tests, Codex preflight/repair tests, and taxonomy tests
 for built-in browser/database MCP tools. Terminal Guard does not expose MCP, so
 those protections apply only where the guarded agent runtime exposes MCP
 permission requests.
@@ -105,7 +105,7 @@ The current audit hit distribution is Bash-heavy by design:
 | `tests/test_cli.py` | 22 | `nah test --tool ...`, CLI path/content/MCP probes |
 | `tests/test_codex_preflight.py` | 10 | Codex approval-memory and MCP preflight/repair checks |
 | `tests/test_hook_robustness.py` | 6 | Guard robustness and failure handling |
-| `tests/test_codex_hooks.py` | 4 | Codex PermissionRequest hook decisions for Bash/MCP surfaces |
+| `tests/test_codex_hooks.py` | 4 | Codex hook decisions for Bash/MCP surfaces |
 | `tests/test_hook_integration.py` | 4 | Claude hook integration coverage for MCP edge cases |
 | `tests/test_remember.py` | 2 | Config writer validation for unsafe MCP wildcard rules |
 | `tests/test_agents.py` | 1 | Agent tool matcher registration for MCP hooks |

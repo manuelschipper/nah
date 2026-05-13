@@ -1,4 +1,4 @@
-"""Tests for Codex PermissionRequest hook handling."""
+"""Tests for Codex hook handling."""
 
 import io
 import json

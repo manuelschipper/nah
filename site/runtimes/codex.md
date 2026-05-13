@@ -1,8 +1,8 @@
 # Codex
 
 Codex protection is session-scoped. Use `nah run codex` for local interactive
-Codex sessions that should route Bash, MCP, and `apply_patch` permission
-requests through nah.
+Codex sessions that should route Bash, MCP, and `apply_patch` hooks through
+nah.
 
 ```bash
 nah codex doctor
@@ -10,15 +10,16 @@ nah run codex
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
-`nah run codex` so nah can inject native `PermissionRequest` hooks and
-session-scoped safety settings.
+`nah run codex` so nah can inject native hooks and session-scoped safety
+settings.
 
 ## What nah Sets
 
 `nah run codex` starts Codex with one guarded preset:
 
 - Codex hooks enabled
-- native `PermissionRequest` hook pointing at nah
+- native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks pointing
+  at nah
 - `sandbox_mode="workspace-write"`
 - `approval_policy="on-request"`
 - human approval review
@@ -28,6 +29,10 @@ session-scoped safety settings.
 sandbox. Commands that need extra permission, network access, MCP approvals,
 or edits outside the workspace go through Codex's native approval path, where
 nah can classify the `PermissionRequest`.
+
+The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
+track configured taint state and execution outcomes without changing Codex's
+native approval UI.
 
 nah owns those safety settings for the protected session. Attempts to override
 Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.
@@ -107,6 +112,5 @@ session.
 ## Coverage
 
 `nah run codex` guards local interactive Codex Bash, MCP, and `apply_patch`
-`PermissionRequest` payloads. It does not guard remote/cloud Codex sessions,
-non-interactive `codex exec`, or Codex surfaces that do not emit the local
-interactive approval hook.
+hook payloads. It does not guard remote/cloud Codex sessions, non-interactive
+`codex exec`, or Codex surfaces that do not emit local interactive hooks.
