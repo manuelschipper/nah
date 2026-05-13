@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from nah.codex_authority import CodexAuthorityError, codex_home, ensure_authority_rules
 from nah.codex_preflight import CodexPreflightError, ensure_preflight
 
 
@@ -23,6 +24,7 @@ class CodexLaunch:
     env: dict[str, str]
     sandbox_mode: str = ""
     approval_policy: str = ""
+    authority_rules_path: str = ""
 
 
 _BYPASS_FLAGS = {
@@ -30,7 +32,7 @@ _BYPASS_FLAGS = {
     "--yolo",
 }
 _DEFAULT_SANDBOX_MODE = "workspace-write"
-_DEFAULT_APPROVAL_POLICY = "on-request"
+_DEFAULT_APPROVAL_POLICY = "untrusted"
 _REJECT_VALUE_FLAGS = {
     "-s",
     "--sandbox",
@@ -53,6 +55,7 @@ _OWNED_CONFIG_KEYS = {
     "hooks.PostToolUse",
     "permission_profile",
     "permissions",
+    "rules",
     "sandbox_mode",
 }
 _MANAGED_ENABLE_FLAGS = {
@@ -189,12 +192,18 @@ def build_codex_launch(
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
     codex_args = list(user_args)
     _validate_user_args(codex_args)
+    env = dict(base_env if base_env is not None else os.environ)
+    authority_rules_path = ""
     if preflight:
+        root = codex_home(env)
         try:
-            ensure_preflight()
+            status = ensure_authority_rules(home=root)
+            authority_rules_path = str(status.path)
+            ensure_preflight(home=root)
+        except CodexAuthorityError as exc:
+            raise CodexRunError(f"nah run codex: {exc}") from exc
         except CodexPreflightError as exc:
             raise CodexRunError(str(exc)) from exc
-    env = dict(base_env if base_env is not None else os.environ)
     argv = [executable] + injected_overrides(
         sandbox_mode=_DEFAULT_SANDBOX_MODE,
         approval_policy=_DEFAULT_APPROVAL_POLICY,
@@ -204,6 +213,7 @@ def build_codex_launch(
         env=env,
         sandbox_mode=_DEFAULT_SANDBOX_MODE,
         approval_policy=_DEFAULT_APPROVAL_POLICY,
+        authority_rules_path=authority_rules_path,
     )
 
 

@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from nah.codex_authority import AUTHORITY_RULES_FILE, authority_rules_path
 from nah.codex_run import CodexRunError, build_codex_argv, build_codex_launch
 
 
@@ -27,12 +28,12 @@ def test_injects_fixed_workspace_write_preset_before_user_args():
     assert argv[0] == "/usr/bin/codex"
     assert argv[-2:] == ["resume", "abc123"]
     assert launch.sandbox_mode == "workspace-write"
-    assert launch.approval_policy == "on-request"
+    assert launch.approval_policy == "untrusted"
     assert "features.apps=false" in argv
     assert "features.hooks=true" in argv
     assert "features.codex_hooks=true" not in argv
     assert "features.skill_mcp_dependency_install=false" in argv
-    assert 'approval_policy="on-request"' in argv
+    assert 'approval_policy="untrusted"' in argv
     assert 'sandbox_mode="workspace-write"' in argv
     assert 'approvals_reviewer="user"' in argv
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
@@ -54,7 +55,7 @@ def test_deleted_nah_mode_flags_have_no_launcher_behavior(flag):
     launch = _launch([flag, "--no-alt-screen"])
 
     assert launch.sandbox_mode == "workspace-write"
-    assert launch.approval_policy == "on-request"
+    assert launch.approval_policy == "untrusted"
     assert flag in launch.argv
     assert launch.argv[-2:] == [flag, "--no-alt-screen"]
     assert "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH" not in launch.env
@@ -71,7 +72,7 @@ def test_inherited_deleted_edit_envs_do_not_change_launcher_preset():
     )
 
     assert launch.sandbox_mode == "workspace-write"
-    assert launch.approval_policy == "on-request"
+    assert launch.approval_policy == "untrusted"
     assert launch.env["NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"] == "1"
     assert launch.env["NAH_CODEX_ACCEPT_EDITS"] == "1"
 
@@ -135,6 +136,8 @@ def test_rejects_permission_sandbox_and_remote_flags(args):
         ["-c", "hooks.PreToolUse=[]"],
         ["-c", "hooks.PermissionRequest=[]"],
         ["-c", "hooks.PostToolUse=[]"],
+        ["-c", "rules.prefix_rules=[]"],
+        ["--config=rules.prefix_rules=[]"],
         ["--disable", "hooks"],
         ["--disable", "codex_hooks"],
         ["--enable=hooks"],
@@ -167,6 +170,18 @@ def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
 
     assert "approval state can bypass nah" in str(exc.value)
     assert "default.rules" in str(exc.value)
+    assert (rules / AUTHORITY_RULES_FILE).exists()
+
+
+def test_preflight_installs_authority_rules_before_scanning(tmp_path, monkeypatch):
+    codex_home = tmp_path / "codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    launch = build_codex_launch(["--help"], codex_path="/usr/bin/codex")
+
+    path = authority_rules_path(codex_home)
+    assert path.exists()
+    assert launch.authority_rules_path == str(path)
 
 
 def test_windows_hook_command_is_quoted(monkeypatch):

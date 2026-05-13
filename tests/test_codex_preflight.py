@@ -2,25 +2,67 @@
 
 from pathlib import Path
 
+from nah.codex_authority import (
+    AUTHORITY_RULES_MARKER,
+    authority_rules_path,
+    ensure_authority_rules,
+)
 from nah.codex_preflight import blocking_findings, repair_preflight, scan_preflight
 
 
-def _home(tmp_path) -> Path:
+def _home(tmp_path, *, authority: bool = True) -> Path:
     home = tmp_path / "codex"
     home.mkdir()
+    if authority:
+        ensure_authority_rules(home=home)
     return home
 
 
-def test_empty_codex_home_has_no_findings(tmp_path):
+def test_current_authority_rules_have_no_findings(tmp_path):
     findings = scan_preflight(home=_home(tmp_path), cwd=tmp_path)
 
     assert findings == []
 
 
+def test_missing_authority_rules_blocks_startup(tmp_path):
+    home = _home(tmp_path, authority=False)
+
+    findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].kind == "codex_authority_missing"
+    assert findings[0].repairable is True
+
+
+def test_stale_authority_rules_blocks_and_is_repairable(tmp_path):
+    home = _home(tmp_path, authority=False)
+    path = authority_rules_path(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(f"{AUTHORITY_RULES_MARKER}\nold\n", encoding="utf-8")
+
+    findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].kind == "codex_authority_stale"
+    assert findings[0].repairable is True
+
+
+def test_unmanaged_authority_rules_path_blocks_without_repair(tmp_path):
+    home = _home(tmp_path, authority=False)
+    path = authority_rules_path(home)
+    path.parent.mkdir(parents=True)
+    path.write_text('prefix_rule(pattern=["cat"], decision="prompt")\n', encoding="utf-8")
+
+    findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].kind == "codex_authority_conflict"
+    assert findings[0].repairable is False
+
+
 def test_prefix_allow_rule_blocks_startup(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
-    rules.mkdir()
     rule = rules / "default.rules"
     rule.write_text('prefix_rule(pattern=["curl"], decision="allow")\n', encoding="utf-8")
 
@@ -35,7 +77,6 @@ def test_prefix_allow_rule_blocks_startup(tmp_path):
 def test_network_allow_rule_blocks_startup(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
-    rules.mkdir()
     rule = rules / "network.rules"
     rule.write_text('network_rule(host="example.com", decision="allow")\n', encoding="utf-8")
 
@@ -49,13 +90,38 @@ def test_network_allow_rule_blocks_startup(tmp_path):
 def test_unknown_rule_decision_blocks_startup(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
-    rules.mkdir()
     (rules / "default.rules").write_text('prefix_rule(pattern=["curl"])\n', encoding="utf-8")
 
     findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
 
     assert len(findings) == 1
     assert findings[0].kind == "exec_policy_unknown"
+
+
+def test_forbidden_rule_blocks_without_repair(tmp_path):
+    home = _home(tmp_path)
+    rules = home / "rules"
+    rule = rules / "deny.rules"
+    rule.write_text('prefix_rule(pattern=["cat"], decision="forbidden")\n', encoding="utf-8")
+
+    findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].kind == "exec_policy_forbidden"
+    assert findings[0].repairable is False
+
+
+def test_host_executable_for_managed_prefix_blocks_without_repair(tmp_path):
+    home = _home(tmp_path)
+    rules = home / "rules"
+    rule = rules / "host.rules"
+    rule.write_text('host_executable(name="git", paths=["/usr/bin/git"])\n', encoding="utf-8")
+
+    findings = blocking_findings(scan_preflight(home=home, cwd=tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].kind == "exec_policy_host_executable"
+    assert findings[0].repairable is False
 
 
 def test_mcp_server_missing_auto_or_approve_blocks(tmp_path):
@@ -194,7 +260,6 @@ def test_active_plugin_mcp_prompt_overlay_passes(tmp_path):
 def test_repair_removes_allows_and_sets_mcp_modes_to_prompt(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
-    rules.mkdir()
     rule = rules / "default.rules"
     rule.write_text(
         "\n".join([
@@ -228,6 +293,29 @@ def test_repair_removes_allows_and_sets_mcp_modes_to_prompt(tmp_path):
     repaired_config = config.read_text(encoding="utf-8")
     assert 'default_tools_approval_mode = "prompt"' in repaired_config
     assert 'approval_mode = "prompt"' in repaired_config
+    assert scan_preflight(home=home, cwd=tmp_path) == []
+
+
+def test_repair_installs_missing_authority_rules(tmp_path):
+    home = _home(tmp_path, authority=False)
+
+    result = repair_preflight(home=home, cwd=tmp_path)
+
+    path = authority_rules_path(home)
+    assert str(path) in result.changed
+    assert path.exists()
+    assert scan_preflight(home=home, cwd=tmp_path) == []
+
+
+def test_repair_refreshes_stale_authority_rules(tmp_path):
+    home = _home(tmp_path, authority=False)
+    path = authority_rules_path(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(f"{AUTHORITY_RULES_MARKER}\nold\n", encoding="utf-8")
+
+    result = repair_preflight(home=home, cwd=tmp_path)
+
+    assert str(path) in result.changed
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 

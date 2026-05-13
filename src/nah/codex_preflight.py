@@ -10,6 +10,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from nah.codex_authority import (
+    AUTHORITY_RULE_PREFIXES,
+    AUTHORITY_RULES_FILE,
+    CodexAuthorityError,
+    authority_rules_status,
+    ensure_authority_rules,
+)
+
 
 PROMPT = "prompt"
 _MCP_POLICY_KINDS = {
@@ -18,7 +26,9 @@ _MCP_POLICY_KINDS = {
     "plugin_mcp_default",
     "plugin_mcp_tool",
 }
-_RULE_KINDS = {"exec_policy_allow", "exec_policy_unknown"}
+_RULE_REPAIR_KINDS = {"exec_policy_allow", "exec_policy_unknown"}
+_AUTHORITY_REPAIR_KINDS = {"codex_authority_missing", "codex_authority_stale"}
+_FORBIDDEN_DECISIONS = {"forbidden", "deny"}
 
 
 class CodexPreflightError(Exception):
@@ -78,6 +88,7 @@ def scan_preflight(
     workdir = cwd or Path.cwd()
     findings: list[Finding] = []
 
+    findings.extend(_scan_authority_rules(root))
     for rule_path in _rule_paths(root, workdir):
         findings.extend(_scan_rules_file(rule_path))
 
@@ -109,8 +120,8 @@ def ensure_preflight(
 def format_doctor_output(findings: list[Finding]) -> str:
     """Render findings for `nah codex doctor`."""
     if not findings:
-        return "nah codex: no approval-memory or MCP preflight issues found."
-    lines = ["nah codex: approval-memory/MCP preflight findings:"]
+        return "nah codex: no authority, approval-memory, or MCP preflight issues found."
+    lines = ["nah codex: authority/approval-memory/MCP preflight findings:"]
     lines.extend(_format_finding_lines(findings))
     if any(f.repairable for f in findings):
         lines.append("Run `nah codex repair` to back up and repair supported files.")
@@ -119,7 +130,7 @@ def format_doctor_output(findings: list[Finding]) -> str:
 
 def format_block_message(findings: list[Finding]) -> str:
     """Render startup block text for `nah run codex`."""
-    lines = ["nah run codex: Codex approval state can bypass nah."]
+    lines = ["nah run codex: Codex authority or approval state can bypass nah."]
     lines.extend(_format_finding_lines(findings))
     if any(f.repairable for f in findings):
         lines.append("Run `nah codex repair`, then retry `nah run codex`.")
@@ -138,9 +149,26 @@ def repair_preflight(
     result = RepairResult(findings=findings)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
+    if any(
+        finding.kind in _AUTHORITY_REPAIR_KINDS and finding.repairable
+        for finding in findings
+    ):
+        try:
+            status = ensure_authority_rules(home=root)
+            result.changed.append(str(status.path))
+        except CodexAuthorityError:
+            # The original blocking finding remains unrepaired below. Repair is
+            # best-effort and must not hide an authority-file write failure.
+            pass
+
     rule_ranges: dict[str, list[tuple[int, int]]] = {}
     for finding in findings:
-        if finding.kind in _RULE_KINDS and finding.repairable and finding.path and finding.line:
+        if (
+            finding.kind in _RULE_REPAIR_KINDS
+            and finding.repairable
+            and finding.path
+            and finding.line
+        ):
             end_line = finding.end_line or finding.line
             rule_ranges.setdefault(finding.path, []).append((finding.line, end_line))
 
@@ -190,6 +218,25 @@ def _format_finding_lines(findings: list[Finding]) -> list[str]:
             location = f"{location}:{finding.line}"
         lines.append(f"- {location}: {finding.message}")
     return lines
+
+
+def _scan_authority_rules(root: Path) -> list[Finding]:
+    status = authority_rules_status(root)
+    if status.current:
+        return []
+    kind = {
+        "missing": "codex_authority_missing",
+        "stale": "codex_authority_stale",
+        "unmanaged": "codex_authority_conflict",
+        "unreadable": "codex_authority_unknown",
+        "undecodable": "codex_authority_unknown",
+    }.get(status.state, "codex_authority_unknown")
+    return [Finding(
+        kind=kind,
+        path=str(status.path),
+        message=status.message,
+        repairable=status.repairable,
+    )]
 
 
 def _rule_paths(root: Path, workdir: Path) -> list[Path]:
@@ -273,6 +320,21 @@ def _scan_rules_file(path: Path) -> list[Finding]:
     findings: list[Finding] = []
     lines = text.splitlines()
     for kind, call, start, end in _iter_rule_calls(lines):
+        if kind == "host_executable":
+            name = _extract_host_executable_name(call)
+            if name and name in AUTHORITY_RULE_PREFIXES:
+                findings.append(Finding(
+                    kind="exec_policy_host_executable",
+                    path=str(path),
+                    line=start,
+                    end_line=end,
+                    message=(
+                        f"Codex host_executable `{name}` can prevent nah's "
+                        f"{AUTHORITY_RULES_FILE} basename prompt rule from matching"
+                    ),
+                    repairable=False,
+                ))
+            continue
         decision = _extract_rule_decision(call)
         if decision is None:
             findings.append(Finding(
@@ -283,19 +345,38 @@ def _scan_rules_file(path: Path) -> list[Finding]:
                 message=f"cannot determine Codex {kind} decision",
             ))
             continue
-        if decision != "allow":
+        if decision == PROMPT:
             continue
         detail = ""
         if kind == "prefix_rule":
             pattern = _extract_rule_pattern(call)
             if pattern:
                 detail = f" for `{_shell_join(pattern)}`"
+        if decision == "allow":
+            findings.append(Finding(
+                kind="exec_policy_allow",
+                path=str(path),
+                line=start,
+                end_line=end,
+                message=f"remembered Codex {kind} allow{detail} can skip nah",
+            ))
+            continue
+        if decision in _FORBIDDEN_DECISIONS:
+            findings.append(Finding(
+                kind="exec_policy_forbidden",
+                path=str(path),
+                line=start,
+                end_line=end,
+                message=f"Codex {kind} {decision}{detail} can deny before nah decides",
+                repairable=False,
+            ))
+            continue
         findings.append(Finding(
-            kind="exec_policy_allow",
+            kind="exec_policy_unknown",
             path=str(path),
             line=start,
             end_line=end,
-            message=f"remembered Codex {kind} allow{detail} can skip nah",
+            message=f"cannot evaluate Codex {kind} decision `{decision}`",
         ))
     return findings
 
@@ -305,7 +386,10 @@ def _iter_rule_calls(lines: list[str]) -> list[tuple[str, str, int, int]]:
     i = 0
     while i < len(lines):
         line = lines[i]
-        positions = [(name, line.find(name + "(")) for name in ("prefix_rule", "network_rule")]
+        positions = [
+            (name, line.find(name + "("))
+            for name in ("prefix_rule", "network_rule", "host_executable")
+        ]
         positions = [(name, pos) for name, pos in positions if pos >= 0]
         if not positions:
             i += 1
@@ -363,6 +447,17 @@ def _extract_rule_pattern(call: str) -> list[str]:
     if not match:
         return []
     return re.findall(r"\"([^\"]+)\"|'([^']+)'", match.group(1))
+
+
+def _extract_host_executable_name(call: str) -> str:
+    match = re.search(
+        r"name\s*=\s*(?:\"([^\"]+)\"|'([^']+)')",
+        call,
+        re.DOTALL,
+    )
+    if not match:
+        return ""
+    return next(group for group in match.groups() if group).lower()
 
 
 def _shell_join(tokens: list[str] | list[tuple[str, str]]) -> str:
