@@ -199,7 +199,7 @@ def normalize_event(
 ) -> dict:
     """Return a compact runtime-neutral event from a guarded tool call."""
     runtime_meta = runtime_meta or {}
-    action_types = _action_types(decision)
+    action_types = _action_types(tool, decision)
     target = _target(tool, tool_input, action_types, decision)
     return {
         "runtime": runtime,
@@ -599,7 +599,7 @@ def _source_event_ids(state: dict, labels: set[str]) -> list[str]:
     return ids
 
 
-def _action_types(decision: dict) -> list[str]:
+def _action_types(tool: str, decision: dict) -> list[str]:
     meta = decision.get("_meta", {}) if isinstance(decision, dict) else {}
     stages = meta.get("stages", [])
     result: list[str] = []
@@ -610,7 +610,13 @@ def _action_types(decision: dict) -> list[str]:
             action = str(stage.get("action_type", ""))
             if action and action not in result:
                 result.append(action)
-    return result or [taxonomy.UNKNOWN]
+    if result:
+        return result
+    if tool in ("Read", "Glob", "Grep"):
+        return [taxonomy.FILESYSTEM_READ]
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"):
+        return [taxonomy.FILESYSTEM_WRITE]
+    return [taxonomy.UNKNOWN]
 
 
 def _target(tool: str, tool_input: dict, action_types: list[str], decision: dict) -> dict:
