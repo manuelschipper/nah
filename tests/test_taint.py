@@ -85,6 +85,38 @@ def test_allowed_source_read_waits_for_post_tool_confirmation(monkeypatch, tmp_p
     assert post["_meta"]["taint"]["updates"]["source_finalized"] == "active"
 
 
+def test_repeated_source_read_after_taint_is_not_unknown_sink(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    first = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        first,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+    assert first["_meta"]["taint"]["updates"]["source"]["status"] == "active"
+
+    reread = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        reread,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert reread["decision"] == taxonomy.ALLOW
+    meta = reread["_meta"]["taint"]
+    assert meta["event"]["action_type"] == taxonomy.FILESYSTEM_READ
+    assert meta.get("category", "") != "unknown"
+
+
 def test_blocked_source_read_does_not_taint(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     _cfg()
