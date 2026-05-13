@@ -44,6 +44,10 @@ target. It starts Codex with session-scoped native hooks, forces
 `workspace-write` / `on-request` safety settings, and runs Codex
 approval-memory/MCP preflight before launch.
 
+Codex owns hook review state. On first launch, or after nah adds or changes a
+hook command, open `/hooks` inside Codex and review the nah hooks so
+`PreToolUse`, `PermissionRequest`, and `PostToolUse` are active.
+
 This path is for local interactive Codex. nah rejects bypass flags, `codex
 exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
 permission keys, including sandbox and approval settings. `--no-alt-screen` is
