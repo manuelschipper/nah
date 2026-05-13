@@ -43,7 +43,7 @@ nah doctor claude
 
 `nah install claude` writes the hook script to
 `~/.claude/hooks/nah_guard.py`, locks it read-only, and registers PreToolUse
-hooks in Claude Code settings.
+and post-tool hooks in Claude Code settings.
 
 Update or remove direct hooks with:
 
@@ -119,6 +119,13 @@ ui:
 With color enabled, `nah paused` prompt first lines are yellow and `nah blocked`
 prompt first lines are red. nah also follows the common `NO_COLOR` environment
 variable: when `NO_COLOR` is set, nah does not emit ANSI color codes.
+
+## Taint Tracking
+
+Claude Code exposes enough hook surface for nah to track session-level
+[taint state](../configuration/taint-tracking.md). When enabled, nah can record
+successful sensitive reads, confirm execution with post-tool hooks, and apply
+later activation or boundary policies.
 
 ## Test It
 

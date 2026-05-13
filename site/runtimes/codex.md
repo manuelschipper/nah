@@ -31,8 +31,8 @@ or edits outside the workspace go through Codex's native approval path, where
 nah can classify the `PermissionRequest`.
 
 The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
-track configured taint state and execution outcomes without changing Codex's
-native approval UI.
+track configured [taint state](../configuration/taint-tracking.md) and
+execution outcomes without changing Codex's native approval UI.
 
 nah owns those safety settings for the protected session. Attempts to override
 Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.

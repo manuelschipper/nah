@@ -107,6 +107,12 @@ targets:
 Provider credentials and provider selection stay global. See
 [LLM layer](../configuration/llm.md) for provider setup.
 
+## Taint Tracking
+
+Terminal Guard can participate in [taint tracking](../configuration/taint-tracking.md)
+for audit logs, but taint policy is audit-only in v1 for bash and zsh. Normal
+Terminal Guard allow / ask / block classification still applies.
+
 ## Logs
 
 Allowed terminal commands are not logged by default. Blocks, denied asks,
