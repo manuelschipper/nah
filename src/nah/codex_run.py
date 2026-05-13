@@ -45,9 +45,11 @@ _OWNED_CONFIG_KEYS = {
     "default_permissions",
     "features.apps",
     "features.codex_hooks",
+    "features.hooks",
     "features.skill_mcp_dependency_install",
     "hooks",
     "hooks.PermissionRequest",
+    "hooks.PreToolUse",
     "hooks.PostToolUse",
     "permission_profile",
     "permissions",
@@ -56,6 +58,7 @@ _OWNED_CONFIG_KEYS = {
 _MANAGED_ENABLE_FLAGS = {
     "apps",
     "codex_hooks",
+    "hooks",
     "skill_mcp_dependency_install",
 }
 _CODEX_VALUE_FLAGS = {
@@ -97,6 +100,14 @@ def codex_hook_command() -> str:
     return shlex.join(argv)
 
 
+def codex_pre_tool_hook_command() -> str:
+    """Return the shell command Codex should run for PreToolUse hooks."""
+    argv = [sys.executable, "-m", "nah.cli", "_codex-pre-tool-use"]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
 def codex_post_tool_hook_command() -> str:
     """Return the shell command Codex should run for PostToolUse hooks."""
     argv = [sys.executable, "-m", "nah.cli", "_codex-post-tool-use"]
@@ -111,8 +122,17 @@ def injected_overrides(
     approval_policy: str = _DEFAULT_APPROVAL_POLICY,
 ) -> list[str]:
     """Return root-level Codex config overrides owned by nah."""
+    pre_tool_command = codex_pre_tool_hook_command()
     hook_command = codex_hook_command()
     post_tool_command = codex_post_tool_hook_command()
+    pre_tool_hook_config = (
+        "hooks.PreToolUse=[{ hooks = [{ "
+        "type = \"command\", "
+        f"command = {_toml_string(pre_tool_command)}, "
+        "timeout = 5, "
+        "statusMessage = \"nah observing\" "
+        "}] }]"
+    )
     permission_hook_config = (
         "hooks.PermissionRequest=[{ hooks = [{ "
         "type = \"command\", "
@@ -131,11 +151,12 @@ def injected_overrides(
     )
     return [
         "-c", "features.apps=false",
-        "-c", "features.codex_hooks=true",
+        "-c", "features.hooks=true",
         "-c", "features.skill_mcp_dependency_install=false",
         "-c", f"approval_policy={_toml_string(approval_policy)}",
         "-c", f"sandbox_mode={_toml_string(sandbox_mode)}",
         "-c", 'approvals_reviewer="user"',
+        "-c", pre_tool_hook_config,
         "-c", permission_hook_config,
         "-c", post_tool_hook_config,
     ]

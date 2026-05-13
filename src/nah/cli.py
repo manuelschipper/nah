@@ -1725,6 +1725,10 @@ def main():
         from nah.codex_hooks import main as codex_hooks_main
 
         raise SystemExit(codex_hooks_main())
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-pre-tool-use":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main(default_hook_event="PreToolUse"))
     if len(sys.argv) >= 2 and sys.argv[1] == "_codex-post-tool-use":
         from nah.codex_hooks import main as codex_hooks_main
 

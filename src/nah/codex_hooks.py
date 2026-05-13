@@ -36,15 +36,26 @@ def main(
     try:
         payload = json.loads(stdin.read() or "{}")
     except json.JSONDecodeError as exc:
-        _log_codex_hook_error(f"invalid {default_hook_event} JSON: {exc}")
-        return 0 if default_hook_event == "PostToolUse" else 1
+        _log_codex_hook_error(
+            f"invalid {default_hook_event} JSON: {exc}",
+            event_name=default_hook_event,
+        )
+        return 0 if _event_fails_open(default_hook_event) else 1
 
     if not isinstance(payload, dict):
-        _log_codex_hook_error(f"{default_hook_event} payload was not an object")
-        return 0 if default_hook_event == "PostToolUse" else 1
+        _log_codex_hook_error(
+            f"{default_hook_event} payload was not an object",
+            event_name=default_hook_event,
+        )
+        return 0 if _event_fails_open(default_hook_event) else 1
 
     try:
         event_name = _hook_event_name(payload, default_hook_event)
+        if event_name == "PreToolUse":
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_pre_tool_use(payload, total_ms)
+            stdout.flush()
+            return 0
         if event_name == "PostToolUse":
             total_ms = int((time.monotonic() - t0) * 1000)
             _log_post_tool_use(payload, total_ms)
@@ -60,11 +71,16 @@ def main(
         _log_decision(canonical, tool_input, decision, total_ms, payload)
         return 0
     except Exception as exc:
-        _log_codex_hook_error(f"unexpected {event_name} error: {exc}")
-        return 0 if event_name == "PostToolUse" else 1
+        _log_codex_hook_error(f"unexpected {event_name} error: {exc}", event_name=event_name)
+        return 0 if _event_fails_open(event_name) else 1
 
 
-def _decide(payload: dict) -> tuple[dict, str, dict]:
+def _event_fails_open(event_name: str) -> bool:
+    """Return whether hook failures should allow Codex to continue."""
+    return event_name in {"PreToolUse", "PostToolUse"}
+
+
+def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]:
     from nah.config import set_active_target
 
     set_active_target(agents.CODEX, reset_cache=False)
@@ -80,8 +96,9 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
 
     if canonical == "Bash":
         with _capture_stderr(log=False):
-            decision = hook.handle_bash(tool_input)
-        decision = _try_codex_llm_for_ask(canonical, tool_input, decision)
+            decision = hook.handle_bash(tool_input, llm_review=llm_review)
+        if llm_review:
+            decision = _try_codex_llm_for_ask(canonical, tool_input, decision)
         return decision, canonical, tool_input
 
     if canonical.startswith("mcp__"):
@@ -91,10 +108,29 @@ def _decide(payload: dict) -> tuple[dict, str, dict]:
         if isinstance(raw_tool_input, str):
             tool_input = {"input": raw_tool_input}
         with _capture_stderr(log=False):
-            decision, log_input = classify_codex_apply_patch(tool_input, payload)
+            decision, log_input = classify_codex_apply_patch(
+                tool_input,
+                payload,
+                llm_review=llm_review,
+            )
         return decision, canonical, log_input
 
     return _unsupported_decision(canonical, tool_input), canonical, tool_input
+
+
+def _observation_decision(classifier_decision: dict) -> dict:
+    """Convert a policy decision into an observation that actually continues.
+
+    Codex PreToolUse can only block or continue. This mold's PreToolUse path is
+    observation-only, so the top-level decision must reflect the runtime action
+    nah actually took: continue. Classifier ask/block decisions stay in stages.
+    """
+    meta = copy.deepcopy(classifier_decision.get("_meta", {}) or {})
+    return {
+        "decision": taxonomy.ALLOW,
+        "reason": "tool call observed",
+        "_meta": meta,
+    }
 
 
 def _unsupported_decision(canonical: str, _tool_input: dict) -> dict:
@@ -184,6 +220,10 @@ def _permission_execution(decision: dict) -> dict:
     return {"state": "requested", "ask_outcome": "not_applicable"}
 
 
+def _pre_tool_execution() -> dict:
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
 def _attach_permission_runtime(decision: dict, payload: dict) -> None:
     """Attach runtime metadata before policy layers can inspect the decision."""
     meta = decision.setdefault("_meta", {})
@@ -216,6 +256,31 @@ def _apply_taint_permission(
         )
     except Exception as exc:
         _log_codex_hook_error(f"taint permission failed: {exc}")
+        return decision
+
+
+def _apply_taint_pre_tool_observation(
+    canonical: str,
+    tool_input: dict,
+    decision: dict,
+    payload: dict,
+) -> dict:
+    try:
+        from nah import taint
+
+        meta = decision.setdefault("_meta", {})
+        return taint.apply_pre_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agents.CODEX,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=str(payload.get("transcript_path", "") or ""),
+            terminal_audit_only=True,
+        )
+    except Exception as exc:
+        _log_codex_hook_error(f"taint pre-tool failed: {exc}", event_name="PreToolUse")
         return decision
 
 
@@ -271,6 +336,29 @@ def _log_decision(
             agents.CODEX,
             total_ms,
         )
+    finally:
+        hook._transcript_path = old_transcript
+
+
+def _log_pre_tool_use(payload: dict, total_ms: int) -> None:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        classifier_decision, canonical, tool_input = _decide(payload, llm_review=False)
+        decision = _observation_decision(classifier_decision)
+        meta = decision.setdefault("_meta", {})
+        meta["runtime"] = _runtime_meta(
+            payload,
+            phase="pre_tool",
+            hook_event_name="PreToolUse",
+        )
+        meta["execution"] = _pre_tool_execution()
+        _apply_taint_pre_tool_observation(canonical, tool_input, decision, payload)
+        if meta.get("taint"):
+            hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
     finally:
         hook._transcript_path = old_transcript
 
@@ -341,14 +429,14 @@ def _capture_stderr(*, log: bool):
         _log_codex_hook_error(captured)
 
 
-def _log_codex_hook_error(message: str) -> None:
+def _log_codex_hook_error(message: str, *, event_name: str = "PermissionRequest") -> None:
     try:
         from nah.log import LOG_PATH
 
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "agent": agents.CODEX,
-            "tool": "PermissionRequest",
+            "tool": event_name,
             "decision": "error",
             "reason": message,
         }
