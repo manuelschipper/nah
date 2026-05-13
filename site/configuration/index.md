@@ -128,6 +128,7 @@ When both configs exist, nah merges them with these rules:
 | `decode_commands` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `content_patterns` | dict (add/suppress) | both | [Content inspection (Claude Code)](content.md) |
 | `credential_patterns` | dict (add/suppress) | global | [Content inspection (Claude Code)](content.md) |
+| `taint` | dict (`mode`, `sources`, `propagation`, `categories`, `policies`) | both* | [Taint tracking](taint-tracking.md) |
 | `llm` | dict (`mode`, providers, `eligible`, `context_chars`) | global | [LLM layer](llm.md) |
 | `targets` | dict of target → overrides | both* | This page |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |

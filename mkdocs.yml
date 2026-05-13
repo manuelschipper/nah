@@ -60,6 +60,7 @@ nav:
     - Classification rules: configuration/classification-rules.md
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
+    - Taint tracking: configuration/taint-tracking.md
     - Content inspection (Claude Code): configuration/content.md
     - LLM layer: configuration/llm.md
     - Database targets: configuration/database.md
