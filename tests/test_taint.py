@@ -315,6 +315,46 @@ def test_filesystem_write_propagates_state_without_prompt(monkeypatch, tmp_path,
     assert f"path:{paths.resolve_path(target)}" in state["tainted_targets"]
 
 
+def test_bash_filesystem_write_propagates_destination_target(monkeypatch, tmp_path, project_root):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+    target = f"{project_root}/derived.py"
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    write = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["cp", ".env", target],
+                "action_type": taxonomy.FILESYSTEM_WRITE,
+                "decision": "allow",
+            }],
+        },
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": f"cp .env {target}"},
+        write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    state = _read_state()
+    assert f"path:{paths.resolve_path(target)}" in state["tainted_targets"]
+    assert "path:.env" not in state["tainted_targets"]
+
+
 def test_git_write_taints_repo_and_git_remote_write_asks(monkeypatch, tmp_path, project_root):
     monkeypatch.setenv("HOME", str(tmp_path))
     _cfg(mode="enforce")

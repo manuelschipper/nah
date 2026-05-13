@@ -649,12 +649,13 @@ def _bash_target(tool_input: dict, action_types: list[str], decision: dict) -> d
             if redirect:
                 return _path_target(str(redirect))
             tokens = stage.get("tokens", [])
-            if stage.get("action_type") in (
-                taxonomy.FILESYSTEM_READ,
-                taxonomy.FILESYSTEM_WRITE,
-                taxonomy.LANG_EXEC,
-            ):
+            action_type = stage.get("action_type")
+            if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.LANG_EXEC):
                 raw = _first_path_arg(tokens)
+                if raw:
+                    return _path_target(raw)
+            if action_type == taxonomy.FILESYSTEM_WRITE:
+                raw = _last_path_arg(tokens)
                 if raw:
                     return _path_target(raw)
     if any(a in (taxonomy.GIT_WRITE, taxonomy.GIT_REMOTE_WRITE) for a in action_types):
@@ -823,6 +824,21 @@ def _first_path_arg(tokens: Any) -> str:
         if "/" in text or text.startswith(".") or text.startswith("~"):
             return text
     return ""
+
+
+def _last_path_arg(tokens: Any) -> str:
+    if not isinstance(tokens, list):
+        return ""
+    candidates: list[str] = []
+    last_non_flag = ""
+    for token in tokens[1:]:
+        text = str(token)
+        if not text or text.startswith("-"):
+            continue
+        last_non_flag = text
+        if "/" in text or text.startswith(".") or text.startswith("~"):
+            candidates.append(text)
+    return candidates[-1] if candidates else last_non_flag
 
 
 def _now() -> str:
