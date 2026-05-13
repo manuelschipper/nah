@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Codex authority prompt routing** — `nah run codex` now launches Codex with
+  `approval_policy="untrusted"` and installs a nah-managed
+  `$CODEX_HOME/rules/nah-authority.rules` file so Codex-known-safe command
+  prefixes such as `cat`, `git`, `rg`, and shell wrappers still route through
+  nah's `PermissionRequest` classifier before execution. `nah codex doctor` and
+  `nah codex repair` now cover this authority file, and `nah codex uninstall`
+  removes only the nah-managed authority rules. (nah-923)
 - **Codex PreToolUse observation for taint tracking** — `nah run codex` now
   injects Codex `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks via
   the canonical `features.hooks` flag. PreToolUse observes routine Bash, MCP,
