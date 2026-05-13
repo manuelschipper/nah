@@ -319,6 +319,29 @@ def test_repair_refreshes_stale_authority_rules(tmp_path):
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 
+def test_repair_refreshes_stale_authority_rules_with_allow_without_corruption(tmp_path):
+    home = _home(tmp_path, authority=False)
+    path = authority_rules_path(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "\n".join([
+            AUTHORITY_RULES_MARKER,
+            'prefix_rule(pattern=["cat"], decision="allow")',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    result = repair_preflight(home=home, cwd=tmp_path)
+
+    repaired = path.read_text(encoding="utf-8")
+    assert str(path) in result.changed
+    assert 'pattern = ["cat"]' in repaired
+    assert 'decision = "prompt"' in repaired
+    assert 'decision="allow"' not in repaired
+    assert scan_preflight(home=home, cwd=tmp_path) == []
+
+
 def test_repair_adds_plugin_mcp_prompt_overlay(tmp_path):
     home = _home(tmp_path)
     plugin_root = home / "plugins" / "cache" / "test" / "sample" / "local"

@@ -14,6 +14,7 @@ from nah.codex_authority import (
     AUTHORITY_RULE_PREFIXES,
     AUTHORITY_RULES_FILE,
     CodexAuthorityError,
+    authority_rules_path,
     authority_rules_status,
     ensure_authority_rules,
 )
@@ -241,9 +242,13 @@ def _scan_authority_rules(root: Path) -> list[Finding]:
 
 def _rule_paths(root: Path, workdir: Path) -> list[Path]:
     paths: list[Path] = []
+    managed_authority = authority_rules_path(root)
     user_rules = root / "rules"
     if user_rules.is_dir():
-        paths.extend(sorted(user_rules.glob("*.rules")))
+        paths.extend(
+            path for path in sorted(user_rules.glob("*.rules"))
+            if path != managed_authority
+        )
     for parent in _walk_project_ancestors(workdir):
         project_rules = parent / ".codex" / "rules"
         if project_rules.is_dir():
