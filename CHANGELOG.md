@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Codex PreToolUse observation for taint tracking** — `nah run codex` now
+  injects Codex `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks via
+  the canonical `features.hooks` flag. PreToolUse observes routine Bash, MCP,
+  and `apply_patch` calls without LLM review so taint source reads can be
+  tracked before execution, while PermissionRequest remains the enforcement
+  hook and PostToolUse confirms execution outcomes. (nah-921)
 - **Runtime-neutral session taint tracking** — opt-in `taint` mode now tracks
   successful sensitive reads across Claude, Codex, and terminal guard sessions,
   propagates labels to local writes/repo state, and can audit or enforce
