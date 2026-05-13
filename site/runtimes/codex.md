@@ -39,6 +39,25 @@ Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.
 Normal Codex UI and session flags, such as `--no-alt-screen`, still pass
 through.
 
+## Hook Review
+
+Codex may require hook review before newly installed hook commands become
+active. `nah run codex` injects the session hooks, but Codex stores per-hook
+review state in its own config. If a hook is new or its command changed, Codex
+can show it as needing review.
+
+Open the hooks panel inside Codex:
+
+```text
+/hooks
+```
+
+Review and enable the nah `PreToolUse`, `PermissionRequest`, and `PostToolUse`
+hooks. This is especially important after nah upgrades that add a new hook
+event. For example, if `PostToolUse` and `PermissionRequest` log entries appear
+but there is no `PreToolUse` entry, the `PreToolUse` hook is probably still
+pending review.
+
 ## Preflight
 
 Codex can remember approval decisions. A remembered allow can skip the hook path
@@ -71,6 +90,9 @@ nah run codex --no-alt-screen
 
 `--no-alt-screen` is a Codex UI flag that keeps the TUI in normal terminal
 scrollback, which makes it easier to inspect test output.
+
+Inside Codex, run `/hooks` first and make sure the nah hooks are active. If
+Codex reports hooks needing review, accept the nah hooks before testing.
 
 Inside Codex, ask it to edit a project file such as `README.md`. A normal
 project-local edit should use Codex `workspace-write` and not require a nah

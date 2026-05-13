@@ -93,6 +93,10 @@ secret storage. Then connect the runtime you want to protect:
 | Codex | `nah run codex` |
 | Your shell | `nah install bash` or `nah install zsh` |
 
+For Codex, open `/hooks` on first launch after install or upgrade and review
+the nah hooks so `PreToolUse`, `PermissionRequest`, and `PostToolUse` are
+active.
+
 For LLM review, store a provider key when you are ready:
 
 ```bash

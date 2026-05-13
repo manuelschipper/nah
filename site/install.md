@@ -27,6 +27,9 @@ hook and classifier stdlib-only. Add extras later with `nah[config]`,
 | Codex | [`nah run codex`](runtimes/codex.md) for a protected local interactive session |
 | Terminal Guard | [`nah install bash`](runtimes/terminal-guard.md) or [`nah install zsh`](runtimes/terminal-guard.md) for commands you type yourself |
 
+For Codex, review the nah hooks from `/hooks` inside Codex after first launch
+or upgrade so newly added hook commands are active.
+
 The Claude Code plugin is available for Claude-only protection without the
 `nah` CLI. See [Claude Code](runtimes/claude-code.md#plugin-only-path).
 
