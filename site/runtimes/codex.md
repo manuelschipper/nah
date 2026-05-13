@@ -36,8 +36,7 @@ native approval UI.
 
 nah owns those safety settings for the protected session. Attempts to override
 Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.
-Normal Codex UI and session flags, such as `--no-alt-screen`, still pass
-through.
+Normal Codex UI and session flags still pass through.
 
 ## Hook Review
 
@@ -85,11 +84,8 @@ supported MCP approval settings to `prompt`. If preflight blocks startup, run
 For a live session test:
 
 ```bash
-nah run codex --no-alt-screen
+nah run codex
 ```
-
-`--no-alt-screen` is a Codex UI flag that keeps the TUI in normal terminal
-scrollback, which makes it easier to inspect test output.
 
 Inside Codex, run `/hooks` first and make sure the nah hooks are active. If
 Codex reports hooks needing review, accept the nah hooks before testing.
