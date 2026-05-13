@@ -36,7 +36,6 @@ Launch one protected local interactive Codex session. See
 
 ```bash
 nah run codex
-nah run codex --no-alt-screen
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
@@ -50,9 +49,7 @@ hook command, open `/hooks` inside Codex and review the nah hooks so
 
 This path is for local interactive Codex. nah rejects bypass flags, `codex
 exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
-permission keys, including sandbox and approval settings. `--no-alt-screen` is
-a Codex UI flag that keeps the TUI in normal terminal scrollback, which is
-useful for testing.
+permission keys, including sandbox and approval settings.
 
 ### nah install
 
