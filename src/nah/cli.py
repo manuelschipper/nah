@@ -1423,6 +1423,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 def cmd_codex(args: argparse.Namespace) -> None:
     """Diagnose or repair Codex-specific nah preflight state."""
+    from nah.codex_authority import CodexAuthorityError, remove_authority_rules
     from nah.codex_preflight import (
         blocking_findings,
         format_doctor_output,
@@ -1441,7 +1442,7 @@ def cmd_codex(args: argparse.Namespace) -> None:
     if action == "repair":
         result = repair_preflight()
         if not result.findings:
-            print("nah codex: no approval-memory or MCP preflight issues found.")
+            print("nah codex: no authority, approval-memory, or MCP preflight issues found.")
             return
         if result.backups:
             for backup in result.backups:
@@ -1454,6 +1455,18 @@ def cmd_codex(args: argparse.Namespace) -> None:
         if result.unrepaired:
             print(format_doctor_output(result.unrepaired), file=sys.stderr)
             raise SystemExit(1)
+        return
+
+    if action == "uninstall":
+        try:
+            removed = remove_authority_rules()
+        except CodexAuthorityError as exc:
+            print(f"nah codex uninstall: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        if removed:
+            print(f"removed: {removed}")
+        else:
+            print("nah codex: no managed authority rules installed.")
         return
 
     print(f"nah codex: unknown command '{action}'", file=sys.stderr)
@@ -1854,6 +1867,7 @@ def main():
     codex_sub = codex_parser.add_subparsers(dest="codex_command")
     codex_sub.add_parser("doctor", help="Show Codex preflight findings")
     codex_sub.add_parser("repair", help="Back up and repair supported Codex preflight findings")
+    codex_sub.add_parser("uninstall", help="Remove nah-managed Codex authority rules")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")

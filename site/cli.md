@@ -40,8 +40,9 @@ nah run codex
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
 target. It starts Codex with session-scoped native hooks, forces
-`workspace-write` / `on-request` safety settings, and runs Codex
-approval-memory/MCP preflight before launch.
+`workspace-write` / `untrusted` safety settings, installs nah-managed Codex
+prompt rules for known-safe command prefixes, and runs Codex
+authority/approval-memory/MCP preflight before launch.
 
 Codex owns hook review state. On first launch, or after nah adds or changes a
 hook command, open `/hooks` inside Codex and review the nah hooks so

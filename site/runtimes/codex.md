@@ -21,14 +21,18 @@ settings.
 - native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks pointing
   at nah
 - `sandbox_mode="workspace-write"`
-- `approval_policy="on-request"`
+- `approval_policy="untrusted"`
+- nah-managed Codex exec-policy prompt rules for Codex known-safe command
+  prefixes
 - human approval review
 - dynamic MCP dependency installs disabled
 
 `workspace-write` lets ordinary project edits flow inside Codex's filesystem
-sandbox. Commands that need extra permission, network access, MCP approvals,
-or edits outside the workspace go through Codex's native approval path, where
-nah can classify the `PermissionRequest`.
+sandbox. `untrusted` routes commands that are not already trusted by Codex
+through Codex's native approval path. nah also installs a managed rules file at
+`$CODEX_HOME/rules/nah-authority.rules` so Codex-known-safe command prefixes,
+such as `cat`, `git`, `ls`, `rg`, and `sed`, are still prompted first and nah
+can apply path-sensitive policy before execution.
 
 The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
 track configured [taint state](../configuration/taint-tracking.md) and
@@ -59,9 +63,11 @@ pending review.
 
 ## Preflight
 
-Codex can remember approval decisions. A remembered allow can skip the hook path
-before nah sees a future command, so `nah run codex` scans Codex approval memory
-and MCP approval modes before launch.
+Codex can remember approval decisions and load exec-policy rules. A remembered
+allow, conflicting `forbidden` rule, or `host_executable` entry for a
+Codex-known-safe command can skip nah before nah sees a future command. Before
+launch, `nah run codex` installs or refreshes nah's managed authority rules,
+then scans Codex approval memory, exec-policy rules, and MCP approval modes.
 
 Inspect without changing files:
 
@@ -75,9 +81,18 @@ Repair supported findings:
 nah codex repair
 ```
 
-`repair` creates backups, removes supported remembered allow rules, and pins
-supported MCP approval settings to `prompt`. If preflight blocks startup, run
-`nah codex doctor` first so you can see the exact files and rules involved.
+`repair` installs or refreshes nah's managed authority rules, creates backups,
+removes supported remembered allow rules, and pins supported MCP approval
+settings to `prompt`. If preflight blocks startup, run `nah codex doctor` first
+so you can see the exact files and rules involved.
+
+Remove only nah's managed Codex authority rules:
+
+```bash
+nah codex uninstall
+```
+
+`uninstall` refuses to remove an unmanaged file at the same path.
 
 ## Test It
 
@@ -118,7 +133,8 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 - `--dangerously-bypass-approvals-and-sandbox`
 - `--sandbox` / `-s`
 - `--ask-for-approval` / `-a`
-- user overrides for nah-owned approval, hook, sandbox, and MCP feature keys
+- user overrides for nah-owned approval, hook, sandbox, rules, and MCP feature
+  keys
 - `codex exec`
 - `codex apply`
 - `codex review`

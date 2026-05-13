@@ -1505,21 +1505,24 @@ class TestCmdCodex:
 
     def test_codex_doctor_reports_clean_state(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
+        from nah.codex_authority import ensure_authority_rules
 
         home = tmp_path / "codex"
         home.mkdir()
+        ensure_authority_rules(home=home)
         monkeypatch.setenv("CODEX_HOME", str(home))
 
         cli_mod.cmd_codex(argparse.Namespace(codex_command="doctor"))
 
-        assert "no approval-memory" in capsys.readouterr().out
+        assert "no authority" in capsys.readouterr().out
 
     def test_codex_doctor_exits_nonzero_for_blocker(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
+        from nah.codex_authority import ensure_authority_rules
 
         home = tmp_path / "codex"
+        ensure_authority_rules(home=home)
         rules = home / "rules"
-        rules.mkdir(parents=True)
         (rules / "default.rules").write_text(
             'prefix_rule(pattern=["curl"], decision="allow")\n',
             encoding="utf-8",
@@ -1534,6 +1537,7 @@ class TestCmdCodex:
 
     def test_codex_repair_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
+        from nah.codex_authority import authority_rules_path
 
         home = tmp_path / "codex"
         rules = home / "rules"
@@ -1548,6 +1552,37 @@ class TestCmdCodex:
         assert "backup:" in out
         assert "repaired:" in out
         assert rule.read_text(encoding="utf-8") == ""
+        assert authority_rules_path(home).exists()
+
+    def test_codex_uninstall_removes_managed_authority_rules(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        from nah.codex_authority import authority_rules_path, ensure_authority_rules
+
+        home = tmp_path / "codex"
+        ensure_authority_rules(home=home)
+        path = authority_rules_path(home)
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        cli_mod.cmd_codex(argparse.Namespace(codex_command="uninstall"))
+
+        assert not path.exists()
+        assert "removed:" in capsys.readouterr().out
+
+    def test_codex_uninstall_refuses_unmanaged_authority_rules(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        from nah.codex_authority import authority_rules_path
+
+        home = tmp_path / "codex"
+        path = authority_rules_path(home)
+        path.parent.mkdir(parents=True)
+        path.write_text('prefix_rule(pattern=["cat"], decision="prompt")\n', encoding="utf-8")
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_codex(argparse.Namespace(codex_command="uninstall"))
+
+        assert exc.value.code == 1
+        assert "not managed by nah" in capsys.readouterr().err
 
 
 class TestCliPluginMode:
