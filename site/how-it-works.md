@@ -2,9 +2,9 @@
 
 nah is a local classifier that sits in front of guarded agent and terminal
 actions. Claude Code uses [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks),
-Codex uses native `PermissionRequest` hooks, and bash/zsh use the opt-in
-terminal guard. The core classifier is deterministic — no LLM needed, runs in
-milliseconds.
+Codex uses native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks,
+and bash/zsh use the opt-in terminal guard. The core classifier is
+deterministic — no LLM needed, runs in milliseconds.
 
 Runtime setup lives in the dedicated guides for [Claude Code](runtimes/claude-code.md),
 [Codex](runtimes/codex.md), and [Terminal Guard](runtimes/terminal-guard.md).
@@ -49,7 +49,7 @@ Coverage depends on the runtime surface:
 | Surface | Tool coverage |
 | --- | --- |
 | Claude Code | Bash, Read, Write, Edit, MultiEdit, NotebookEdit, Glob, Grep, and matching MCP tools |
-| Codex | Bash, MCP, and `apply_patch` `PermissionRequest` hooks for local interactive sessions |
+| Codex | Bash, MCP, and `apply_patch` hooks for local interactive sessions |
 | Terminal | Complete single-line bash/zsh commands through the Bash classifier |
 
 | Tool | What nah checks |

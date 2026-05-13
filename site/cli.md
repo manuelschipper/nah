@@ -40,8 +40,8 @@ nah run codex --no-alt-screen
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
-target. It starts Codex with session-scoped native `PermissionRequest` hooks,
-forces `workspace-write` / `on-request` safety settings, and runs Codex
+target. It starts Codex with session-scoped native hooks, forces
+`workspace-write` / `on-request` safety settings, and runs Codex
 approval-memory/MCP preflight before launch.
 
 This path is for local interactive Codex. nah rejects bypass flags, `codex
@@ -164,7 +164,7 @@ not install the `nah` shell command or optional keyring support.
 
 ### nah codex
 
-Diagnose or repair Codex state that can bypass nah's PermissionRequest hook.
+Diagnose or repair Codex state that can bypass nah's Codex hook path.
 
 ```bash
 nah codex doctor

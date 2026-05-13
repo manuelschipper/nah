@@ -73,7 +73,7 @@ def scan_preflight(
     home: Path | None = None,
     cwd: Path | None = None,
 ) -> list[Finding]:
-    """Scan Codex state that can bypass nah's PermissionRequest hook."""
+    """Scan Codex state that can bypass nah's Codex hook path."""
     root = home or codex_home()
     workdir = cwd or Path.cwd()
     findings: list[Finding] = []

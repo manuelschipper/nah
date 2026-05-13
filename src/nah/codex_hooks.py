@@ -1,4 +1,4 @@
-"""Codex PermissionRequest and PostToolUse hook adapter."""
+"""Codex PreToolUse, PermissionRequest, and PostToolUse hook adapter."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ def main(
 ) -> int:
     """Handle a Codex hook invocation.
 
-    PermissionRequest emits allow/deny JSON or no verdict. PostToolUse is
-    logging-only and must emit empty stdout.
+    PreToolUse records observation-only taint state, PermissionRequest emits
+    allow/deny JSON or no verdict, and PostToolUse records execution outcome.
     """
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
