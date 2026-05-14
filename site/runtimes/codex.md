@@ -5,6 +5,7 @@ Codex sessions that should route Bash, MCP, and `apply_patch` hooks through
 nah.
 
 ```bash
+nah codex setup
 nah codex doctor
 nah run codex
 ```
@@ -75,6 +76,16 @@ Inspect without changing files:
 nah codex doctor
 ```
 
+Create or refresh only nah's managed Codex setup files:
+
+```bash
+nah codex setup
+```
+
+`setup` installs or refreshes `$CODEX_HOME/rules/nah-authority.rules`, then
+reports any remaining Codex state that can bypass nah. It does not remove
+remembered allows or rewrite MCP approval settings.
+
 Repair supported findings:
 
 ```bash
@@ -89,10 +100,10 @@ so you can see the exact files and rules involved.
 Remove only nah's managed Codex authority rules:
 
 ```bash
-nah codex uninstall
+nah codex remove-setup
 ```
 
-`uninstall` refuses to remove an unmanaged file at the same path.
+`remove-setup` refuses to remove an unmanaged file at the same path.
 
 ## Test It
 
