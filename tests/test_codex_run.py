@@ -29,6 +29,8 @@ def test_injects_fixed_workspace_write_preset_before_user_args():
     assert argv[-2:] == ["resume", "abc123"]
     assert launch.sandbox_mode == "workspace-write"
     assert launch.approval_policy == "untrusted"
+    assert launch.confirm_edits is False
+    assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
     assert "features.apps=false" in argv
     assert "features.hooks=true" in argv
     assert "features.codex_hooks=true" not in argv
@@ -50,6 +52,29 @@ def test_passes_normal_codex_ui_flags_through():
     assert argv[-1] == "--no-alt-screen"
 
 
+def test_confirm_edits_is_nah_launcher_flag():
+    launch = _launch(["--confirm-edits", "resume", "abc123"])
+
+    assert launch.confirm_edits is True
+    assert launch.env["NAH_CODEX_CONFIRM_EDITS"] == "1"
+    assert "--confirm-edits" not in launch.argv
+    assert launch.argv[-2:] == ["resume", "abc123"]
+
+
+def test_confirm_edits_env_is_owned_by_launcher():
+    launch = _launch([], base_env={"NAH_CODEX_CONFIRM_EDITS": "1"})
+
+    assert launch.confirm_edits is False
+    assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
+
+
+def test_confirm_edits_rejects_value_form():
+    with pytest.raises(CodexRunError) as exc:
+        _launch(["--confirm-edits=true"])
+
+    assert "--confirm-edits does not take a value" in str(exc.value)
+
+
 @pytest.mark.parametrize("flag", ["--flow", "--auto-edits", "--no-sandbox"])
 def test_deleted_nah_mode_flags_have_no_launcher_behavior(flag):
     launch = _launch([flag, "--no-alt-screen"])
@@ -60,6 +85,7 @@ def test_deleted_nah_mode_flags_have_no_launcher_behavior(flag):
     assert launch.argv[-2:] == [flag, "--no-alt-screen"]
     assert "NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH" not in launch.env
     assert "NAH_CODEX_ACCEPT_EDITS" not in launch.env
+    assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
 
 
 def test_inherited_deleted_edit_envs_do_not_change_launcher_preset():

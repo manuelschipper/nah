@@ -6,6 +6,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,9 @@ from nah.apply_patch import classify_codex_apply_patch
 from nah.messages import enrich_decision
 
 _WRITE_ALIASES = {"apply_patch"}
+_CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
+_SAFE_APPLY_PATCH_REASON = "apply_patch: safe edit handled by Codex workspace-write"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 def main(
@@ -113,6 +117,11 @@ def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]
                 payload,
                 llm_review=llm_review,
             )
+        decision = _apply_codex_edit_confirmation_policy(
+            decision,
+            log_input,
+            str(payload.get("cwd", "") or ""),
+        )
         return decision, canonical, log_input
 
     return _unsupported_decision(canonical, tool_input), canonical, tool_input
@@ -146,6 +155,62 @@ def _unsupported_decision(canonical: str, _tool_input: dict) -> dict:
             }],
         },
     }
+
+
+def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict, cwd: str) -> dict:
+    """Allow known-safe project edits unless the launcher asked to confirm them."""
+    if decision.get("decision") != taxonomy.ASK:
+        return decision
+    if decision.get("reason") != _SAFE_APPLY_PATCH_REASON:
+        return decision
+    if _confirm_edits_enabled():
+        return decision
+    if not _patch_paths_inside_cwd(log_input, cwd):
+        return decision
+
+    allowed = copy.deepcopy(decision)
+    allowed["decision"] = taxonomy.ALLOW
+    allowed["reason"] = (
+        "apply_patch: safe project edit allowed by nah; Codex workspace-write "
+        "enforces project filesystem access"
+    )
+    meta = allowed.setdefault("_meta", {})
+    meta["codex_edit_policy"] = {
+        "safe_project_edit": True,
+        "confirm_edits": False,
+    }
+    stages = meta.get("stages")
+    if isinstance(stages, list):
+        for stage in stages:
+            if not isinstance(stage, dict):
+                continue
+            if stage.get("reason") == _SAFE_APPLY_PATCH_REASON:
+                stage["decision"] = taxonomy.ALLOW
+                stage["policy"] = taxonomy.ALLOW
+                stage["reason"] = allowed["reason"]
+    return allowed
+
+
+def _confirm_edits_enabled() -> bool:
+    value = os.environ.get(_CONFIRM_EDITS_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _patch_paths_inside_cwd(log_input: dict, cwd: str) -> bool:
+    if not cwd:
+        return False
+    paths = log_input.get("_nah_patch_paths", [])
+    if not isinstance(paths, list) or not paths:
+        return False
+    try:
+        root = os.path.abspath(os.path.expanduser(cwd))
+        for raw_path in paths:
+            path = os.path.abspath(os.path.expanduser(str(raw_path)))
+            if os.path.commonpath([root, path]) != root:
+                return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> dict:

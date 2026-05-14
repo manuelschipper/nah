@@ -492,7 +492,27 @@ def test_apply_patch_without_patch_text_returns_no_verdict(project_root):
     assert out == ""
 
 
-def test_apply_patch_safe_project_patch_defaults_to_no_verdict(project_root, tmp_path):
+def test_apply_patch_safe_project_patch_defaults_to_allow(project_root, tmp_path):
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    entries = [
+        json.loads(line)
+        for line in (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
+    ]
+    assert entries[-1]["decision"] == "allow"
+    assert "app.py" in entries[-1]["input"]
+
+
+def test_apply_patch_confirm_edits_returns_no_verdict(project_root, monkeypatch, tmp_path):
+    monkeypatch.setenv("NAH_CODEX_CONFIRM_EDITS", "1")
+
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"input": _patch("app.py")},
@@ -502,15 +522,12 @@ def test_apply_patch_safe_project_patch_defaults_to_no_verdict(project_root, tmp
 
     assert code == 0
     assert out == ""
-    entries = [
-        json.loads(line)
-        for line in (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
-    ]
+    entries = _log_entries(tmp_path)
     assert entries[-1]["decision"] == "ask"
-    assert "app.py" in entries[-1]["input"]
+    assert entries[-1]["reason"] == "apply_patch: safe edit handled by Codex workspace-write"
 
 
-def test_apply_patch_deleted_auto_allow_env_still_returns_no_verdict(project_root, monkeypatch):
+def test_apply_patch_deleted_auto_allow_env_still_allows_by_default(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
@@ -521,10 +538,10 @@ def test_apply_patch_deleted_auto_allow_env_still_returns_no_verdict(project_roo
     })
 
     assert code == 0
-    assert out == ""
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
-def test_apply_patch_deleted_legacy_accept_edits_env_does_not_allow(project_root, monkeypatch):
+def test_apply_patch_deleted_legacy_accept_edits_env_still_allows_by_default(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_ACCEPT_EDITS", "1")
 
     code, out = _run({
@@ -535,10 +552,10 @@ def test_apply_patch_deleted_legacy_accept_edits_env_does_not_allow(project_root
     })
 
     assert code == 0
-    assert out == ""
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
-def test_apply_patch_raw_string_tool_input_returns_no_verdict(project_root, monkeypatch):
+def test_apply_patch_raw_string_tool_input_allows_by_default(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
@@ -549,7 +566,7 @@ def test_apply_patch_raw_string_tool_input_returns_no_verdict(project_root, monk
     })
 
     assert code == 0
-    assert out == ""
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
 def test_apply_patch_dangerous_added_content_denies_even_with_safe_auto_edits(project_root, monkeypatch):
@@ -670,7 +687,7 @@ def test_apply_patch_uses_unmatched_transcript_fallback(project_root, monkeypatc
     })
 
     assert code == 0
-    assert out == ""
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
 def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
@@ -699,7 +716,7 @@ def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
     })
 
     assert code == 0
-    assert out == ""
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
     lines = (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
     entries = [json.loads(line) for line in lines]
     assert not any(entry.get("decision") == "error" for entry in entries)

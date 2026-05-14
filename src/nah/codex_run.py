@@ -25,6 +25,7 @@ class CodexLaunch:
     sandbox_mode: str = ""
     approval_policy: str = ""
     authority_rules_path: str = ""
+    confirm_edits: bool = False
 
 
 _BYPASS_FLAGS = {
@@ -33,6 +34,8 @@ _BYPASS_FLAGS = {
 }
 _DEFAULT_SANDBOX_MODE = "workspace-write"
 _DEFAULT_APPROVAL_POLICY = "untrusted"
+_CONFIRM_EDITS_FLAG = "--confirm-edits"
+_CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
 _REJECT_VALUE_FLAGS = {
     "-s",
     "--sandbox",
@@ -190,9 +193,13 @@ def build_codex_launch(
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    codex_args = list(user_args)
+    codex_args, confirm_edits = _extract_nah_run_flags(list(user_args))
     _validate_user_args(codex_args)
     env = dict(base_env if base_env is not None else os.environ)
+    if confirm_edits:
+        env[_CONFIRM_EDITS_ENV] = "1"
+    else:
+        env.pop(_CONFIRM_EDITS_ENV, None)
     authority_rules_path = ""
     if preflight:
         root = codex_home(env)
@@ -214,6 +221,7 @@ def build_codex_launch(
         sandbox_mode=_DEFAULT_SANDBOX_MODE,
         approval_policy=_DEFAULT_APPROVAL_POLICY,
         authority_rules_path=authority_rules_path,
+        confirm_edits=confirm_edits,
     )
 
 
@@ -239,6 +247,30 @@ def _validate_user_args(args: list[str]) -> None:
     """Reject user flags/subcommands that can disable or bypass nah's hook path."""
     _reject_dangerous_flags(args)
     _reject_unsupported_subcommands(args)
+
+
+def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool]:
+    """Extract nah-owned launcher flags before handing the rest to Codex."""
+    codex_args: list[str] = []
+    confirm_edits = False
+    after_separator = False
+    for tok in args:
+        if after_separator:
+            codex_args.append(tok)
+            continue
+        if tok == "--":
+            after_separator = True
+            codex_args.append(tok)
+            continue
+        if tok == _CONFIRM_EDITS_FLAG:
+            confirm_edits = True
+            continue
+        if tok.startswith(_CONFIRM_EDITS_FLAG + "="):
+            raise CodexRunError(
+                f"nah run codex: {_CONFIRM_EDITS_FLAG} does not take a value",
+            )
+        codex_args.append(tok)
+    return codex_args, confirm_edits
 
 
 def _reject_dangerous_flags(args: list[str]) -> None:

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   creates or refreshes this authority file, `nah codex doctor` and
   `nah codex repair` cover it in preflight, and `nah codex remove-setup`
   removes only the nah-managed setup files. (nah-923)
+- **Codex confirm-edits mode** — safe project-local `apply_patch` add/update
+  edits now allow by default after nah path and content checks, while
+  `nah run codex --confirm-edits` keeps those safe edits on Codex's native
+  approval path for users who want edit confirmations.
 - **Codex PreToolUse observation for taint tracking** — `nah run codex` now
   injects Codex `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks via
   the canonical `features.hooks` flag. PreToolUse observes routine Bash, MCP,
