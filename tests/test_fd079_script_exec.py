@@ -1066,6 +1066,30 @@ class TestPromptEnrichment:
         assert "Script about to execute:" in prompt.user
         assert "print(1)" in prompt.user
 
+    def test_prompt_includes_heredoc_body_beyond_command_preview(self):
+        """Heredoc-fed interpreters pass the inspected body to the LLM prompt."""
+        body = "\n".join(
+            [
+                "from pathlib import Path",
+                "root = Path('/tmp/example')",
+                *[f"# filler {i}" for i in range(80)],
+                "print('tail marker visible to llm')",
+            ]
+        )
+        result = classify_command(f"python3 <<'PY'\n{body}\nPY")
+        prompt = self._build_prompt_for(f"python3 <<'PY'\n{body}\nPY")
+
+        assert result.stages[0].inline_code == body
+        assert "Script about to execute:" in prompt.user
+        assert "print('tail marker visible to llm')" in prompt.user
+        assert "Content inspection: no flags" in prompt.user
+
+    def test_script_veto_prompt_allows_read_only_local_inspection(self):
+        prompt = self._build_prompt_for("python -c 'print(1)'")
+
+        assert "allow read-only inspection of ordinary config" in prompt.system
+        assert "Do not mark a script uncertain only because" in prompt.system
+
     def test_prompt_no_content_for_nonexistent(self, project_root):
         old_cwd = os.getcwd()
         os.chdir(project_root)

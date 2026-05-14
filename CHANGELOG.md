@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edits now allow by default after nah path and content checks, while
   `nah run codex --confirm-edits` keeps those safe edits on Codex's native
   approval path for users who want edit confirmations.
+- **Lang-exec LLM review for heredoc scripts** — LLM script-veto prompts now
+  include the full inspected heredoc body for interpreter commands such as
+  `python3 <<'PY'`, and the review policy now allows plainly read-only local
+  inspection scripts instead of escalating solely for ordinary config/log/state
+  reads.
 - **Codex PreToolUse observation for taint tracking** — `nah run codex` now
   injects Codex `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks via
   the canonical `features.hooks` flag. PreToolUse observes routine Bash, MCP,

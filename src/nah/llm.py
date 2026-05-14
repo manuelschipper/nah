@@ -63,13 +63,22 @@ class LLMCallResult:
 
 _VETO_SYSTEM_TEMPLATE = """\
 You are a security classifier for a CLI tool safety guard. \
-A tool operation passed the deterministic classifier but needs content inspection. \
-Decide: allow or uncertain.
+A language-runtime command passed deterministic checks and needs content review. \
+Decide whether to allow it or leave it for human review.
 
 Rules:
-- allow: content is clearly safe \u2014 no credentials, no destructive ops, no exfiltration
-- uncertain: content may contain secrets, destructive actions, or security risks \u2014 a human should decide
-- A false allow is worse than a false uncertain. When in doubt, say uncertain.
+- allow: the script is read-only or local analysis/test code, uses only local or
+  project files, and shows no credential access, destructive action, persistence,
+  network exfiltration, downloaded-code execution, or other external side effect.
+- allow read-only inspection of ordinary config, log, state, and source files
+  when the path itself is not credential-like or otherwise sensitive.
+- uncertain: the script reads known sensitive paths or credential-like files
+  (.env, .ssh, .aws, credentials, secrets, private keys, tokens), writes/deletes
+  files, changes process/service/container state, contacts a remote host, runs
+  downloaded/obfuscated code, or remains unclear after reviewing the full script.
+- Do not mark a script uncertain only because it is long, uses pathlib/open/read_text,
+  traverses local directories, or reads ordinary config files. Use uncertain only
+  when the observable script contains one of the risk signals above.
 
 Respond with exactly one JSON object, no other text:
 {"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
@@ -712,7 +721,7 @@ def _build_script_veto_prompt(
     ]
 
     if driving_stage is not None:
-        script_content = _read_script_for_llm(driving_stage.tokens)
+        script_content = _script_content_for_llm(driving_stage)
         if script_content:
             parts.extend([
                 "",
@@ -734,6 +743,14 @@ def _build_script_veto_prompt(
         parts.extend(["", transcript_context])
 
     return PromptParts(system=_VETO_SYSTEM_TEMPLATE, user="\n".join(parts))
+
+
+def _script_content_for_llm(stage, max_chars: int = 8192) -> str | None:
+    """Return script content already carried by the classifier or read from disk."""
+    inline_code = str(getattr(stage, "inline_code", "") or "")
+    if inline_code:
+        return inline_code[:max_chars]
+    return _read_script_for_llm(stage.tokens, max_chars)
 
 
 # -- Providers --
