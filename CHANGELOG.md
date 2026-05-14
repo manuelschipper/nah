@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Trusted container exec unwrapping** — opt-in `trusted_containers` config can
+  make `docker exec`, `docker container exec`, and simple
+  `docker compose exec` transparent for narrow read-like payloads inside exact
+  trusted identities, while writes, package scripts, network/database/container
+  actions, unknown tools, credential-marker payloads, and unsupported Docker
+  flags still ask or block. (nah-924)
 - **Codex authority prompt routing** — `nah run codex` now launches Codex with
   `approval_policy="untrusted"` and installs a nah-managed
   `$CODEX_HOME/rules/nah-authority.rules` file so Codex-known-safe command

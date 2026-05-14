@@ -232,6 +232,11 @@ classify:
   db_write:
     - migrate-prod
 
+# Make selected Docker exec wrappers transparent for narrow read-like payloads
+trusted_containers:
+  - hermes-creatbot       # docker exec hermes-creatbot ...
+  - compose:api           # docker compose exec api ...
+
 profile: full
 ```
 
