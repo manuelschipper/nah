@@ -36,6 +36,7 @@ Launch one protected local interactive Codex session. See
 
 ```bash
 nah run codex
+nah run codex --confirm-edits
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
@@ -47,6 +48,10 @@ authority/approval-memory/MCP preflight before launch.
 Codex owns hook review state. On first launch, or after nah adds or changes a
 hook command, open `/hooks` inside Codex and review the nah hooks so
 `PreToolUse`, `PermissionRequest`, and `PostToolUse` are active.
+
+By default, safe project-local `apply_patch` add/update edits are allowed after
+nah checks patch paths and added content. Add `--confirm-edits` to ask before
+those safe edits too.
 
 This path is for local interactive Codex. nah rejects bypass flags, `codex
 exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed

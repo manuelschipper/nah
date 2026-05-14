@@ -39,6 +39,14 @@ The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
 track configured [taint state](../configuration/taint-tracking.md) and
 execution outcomes without changing Codex's native approval UI.
 
+Safe project-local `apply_patch` add/update edits are allowed by default after
+nah checks patch paths and added content. If you want Codex to ask before those
+safe edits too, launch with:
+
+```bash
+nah run codex --confirm-edits
+```
+
 nah owns those safety settings for the protected session. Attempts to override
 Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.
 Normal Codex UI and session flags still pass through.
@@ -118,7 +126,8 @@ Codex reports hooks needing review, accept the nah hooks before testing.
 
 Inside Codex, ask it to edit a project file such as `README.md`. A normal
 project-local edit should use Codex `workspace-write` and not require a nah
-edit mode.
+edit prompt. Use `nah run codex --confirm-edits` when you want even safe
+project-local edits to ask through Codex's native approval UI.
 
 Then ask Codex to run:
 
