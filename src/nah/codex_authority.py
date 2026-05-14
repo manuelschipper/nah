@@ -15,7 +15,7 @@ AUTHORITY_RULES_MARKER = "# nah-managed codex authority rules"
 AUTHORITY_RULES_VERSION = "1"
 AUTHORITY_RULES_HASH_PREFIX = "# nah-managed-sha256: "
 _AUTHORITY_RULES_TMP_PREFIX = ".nah-authority.rules.tmp"
-_AUTHORITY_RULES_JUSTIFICATION = "Route Codex known-safe commands through nah."
+_AUTHORITY_RULES_JUSTIFICATION = "nah requires review of this command before execution."
 
 AUTHORITY_RULE_PREFIXES: tuple[str, ...] = (
     "base64",
