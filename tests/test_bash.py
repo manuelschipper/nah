@@ -376,6 +376,7 @@ class TestDockerExecTrustedContainers:
             "docker exec --detach-keys ctrl-p hermes-creatbot cat /etc/hostname",
             "docker exec --unknown hermes-creatbot cat /etc/hostname",
             "docker exec --user hermes-creatbot",
+            "docker exec --user --workdir /app hermes-creatbot cat /etc/hostname",
             "docker exec",
             "docker exec -- cat",
             "docker exec hermes-creatbot",

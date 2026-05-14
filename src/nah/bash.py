@@ -3434,7 +3434,7 @@ def _extract_docker_exec_inner(tokens: list[str]) -> DockerExecPayload | None:
             i += 1
             continue
         if tok in value_flags:
-            if i + 1 >= len(tokens):
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
                 return _docker_exec_payload(
                     kind,
                     unsupported_reason=f"unsupported docker exec option {tok}: missing value",
