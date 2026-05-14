@@ -547,6 +547,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
         print(f"  allow_paths:           {cfg.allow_paths or '{}'}")
         print(f"  trusted_paths:         {cfg.trusted_paths or '[]'}")
+        print(f"  trusted_containers:    {cfg.trusted_containers or '[]'}")
         print(f"  known_registries:      {cfg.known_registries or '[]'}")
         print(f"  exec_sinks:            {cfg.exec_sinks or '[]'}")
         print(f"  sensitive_basenames:   {cfg.sensitive_basenames or '{}'}")
@@ -1370,6 +1371,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         if "trusted_paths" in scope_rules:
             for p in scope_rules["trusted_paths"]:
                 print(f"  trust-path: {p}")
+        if "trusted_containers" in scope_rules:
+            for identity in scope_rules["trusted_containers"]:
+                print(f"  trust-container: {identity}")
         if "trusted_project_configs" in scope_rules:
             for p in scope_rules["trusted_project_configs"]:
                 print(f"  trust-project: {p}")

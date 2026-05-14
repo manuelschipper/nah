@@ -82,6 +82,49 @@ class EnvWrapperParse:
     env_assignments: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass
+class DockerExecPayload:
+    kind: str = ""
+    identity: str = ""
+    inner: list[str] = field(default_factory=list)
+    unsupported_reason: str = ""
+
+
+_DOCKER_EXEC_INHERIT_ALLOW_TYPES = frozenset({
+    taxonomy.FILESYSTEM_READ,
+    taxonomy.GIT_SAFE,
+    taxonomy.LANG_EXEC,
+})
+_DOCKER_CREDENTIAL_MARKER_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:token|secret|password|credential|api[_-]?key|apikey|private[_-]?key)(?![A-Za-z0-9])"
+)
+
+_DOCKER_EXEC_BOOL_FLAGS = frozenset({
+    "-i",
+    "-t",
+    "-it",
+    "-ti",
+    "--interactive",
+    "--tty",
+})
+_DOCKER_COMPOSE_EXEC_BOOL_FLAGS = _DOCKER_EXEC_BOOL_FLAGS | frozenset({
+    "-T",
+    "--no-tty",
+})
+_DOCKER_EXEC_VALUE_FLAGS = frozenset({"-u", "--user", "-w", "--workdir"})
+_DOCKER_COMPOSE_EXEC_VALUE_FLAGS = _DOCKER_EXEC_VALUE_FLAGS | frozenset({"--index"})
+_DOCKER_EXEC_UNSUPPORTED_FLAGS = frozenset({
+    "-d",
+    "--detach",
+    "--privileged",
+    "-e",
+    "--env",
+    "--env-file",
+    "--dry-run",
+    "--detach-keys",
+})
+
+
 def classify_command(command: str) -> ClassifyResult:
     """Main entry point: classify a bash command string."""
     result = ClassifyResult(command=command)
@@ -3320,6 +3363,287 @@ def _strip_xargs(tokens: list[str]) -> list[str] | None:
     return inner if inner else None
 
 
+def _docker_exec_payload(
+    kind: str,
+    identity: str = "",
+    inner: list[str] | None = None,
+    unsupported_reason: str = "",
+) -> DockerExecPayload:
+    normalized = ""
+    if identity:
+        normalized = _normalize_docker_exec_identity(kind, identity)
+        if not normalized and not unsupported_reason:
+            unsupported_reason = "invalid docker exec identity"
+    return DockerExecPayload(
+        kind=kind,
+        identity=normalized,
+        inner=list(inner or []),
+        unsupported_reason=unsupported_reason,
+    )
+
+
+def _normalize_docker_exec_identity(kind: str, identity: str) -> str:
+    if kind not in {"container", "compose"}:
+        return ""
+    if (
+        not identity
+        or identity.startswith("-")
+        or any(ch.isspace() for ch in identity)
+        or any(ch in identity for ch in "*?[]{}")
+    ):
+        return ""
+    return f"{kind}:{identity}"
+
+
+def _extract_docker_exec_inner(tokens: list[str]) -> DockerExecPayload | None:
+    """Return Docker exec payload details for supported static wrapper forms."""
+    if len(tokens) < 2 or os.path.basename(tokens[0]) != "docker":
+        return None
+
+    kind = ""
+    i = 0
+    if len(tokens) >= 2 and tokens[1] == "exec":
+        kind = "container"
+        i = 2
+    elif len(tokens) >= 3 and tokens[1] == "container" and tokens[2] == "exec":
+        kind = "container"
+        i = 3
+    elif len(tokens) >= 3 and tokens[1] == "compose" and tokens[2] == "exec":
+        kind = "compose"
+        i = 3
+    else:
+        return None
+
+    bool_flags = (
+        _DOCKER_COMPOSE_EXEC_BOOL_FLAGS
+        if kind == "compose"
+        else _DOCKER_EXEC_BOOL_FLAGS
+    )
+    value_flags = (
+        _DOCKER_COMPOSE_EXEC_VALUE_FLAGS
+        if kind == "compose"
+        else _DOCKER_EXEC_VALUE_FLAGS
+    )
+
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            i += 1
+            break
+        if tok in bool_flags:
+            i += 1
+            continue
+        if tok in value_flags:
+            if i + 1 >= len(tokens):
+                return _docker_exec_payload(
+                    kind,
+                    unsupported_reason=f"unsupported docker exec option {tok}: missing value",
+                )
+            i += 2
+            continue
+        if any(tok.startswith(flag + "=") for flag in value_flags if flag.startswith("--")):
+            i += 1
+            continue
+        if tok.startswith("-u") and len(tok) > 2:
+            i += 1
+            continue
+        if tok.startswith("-w") and len(tok) > 2:
+            i += 1
+            continue
+        if tok in _DOCKER_EXEC_UNSUPPORTED_FLAGS or any(
+            tok.startswith(flag + "=")
+            for flag in _DOCKER_EXEC_UNSUPPORTED_FLAGS
+            if flag.startswith("--")
+        ):
+            return _docker_exec_payload(
+                kind,
+                unsupported_reason=f"unsupported docker exec option {tok}",
+            )
+        if tok.startswith("-"):
+            return _docker_exec_payload(
+                kind,
+                unsupported_reason=f"unsupported docker exec option {tok}",
+            )
+        break
+
+    if i >= len(tokens):
+        return _docker_exec_payload(
+            kind,
+            unsupported_reason="missing docker exec container or service",
+        )
+
+    identity = tokens[i]
+    if identity.startswith("-"):
+        return _docker_exec_payload(
+            kind,
+            unsupported_reason="invalid docker exec identity",
+        )
+    i += 1
+
+    inner = tokens[i:]
+    if not inner:
+        return _docker_exec_payload(
+            kind,
+            identity,
+            unsupported_reason="missing docker exec payload",
+        )
+    if inner[0].startswith("-"):
+        return _docker_exec_payload(
+            kind,
+            identity,
+            inner,
+            unsupported_reason="invalid docker exec payload",
+        )
+    return _docker_exec_payload(kind, identity, inner)
+
+
+def _docker_exec_identity_trusted(identity: str) -> bool:
+    if not identity:
+        return False
+    from nah.config import get_config
+
+    return identity in get_config().trusted_containers
+
+
+def _docker_exec_review_result(
+    tokens: list[str],
+    reason: str,
+    user_actions: dict[str, str] | None,
+) -> StageResult:
+    sr = StageResult(tokens=tokens)
+    sr.action_type = taxonomy.CONTAINER_EXEC
+    sr.default_policy = taxonomy.get_policy(taxonomy.CONTAINER_EXEC, user_actions)
+    _apply_policy(sr)
+    if sr.decision == taxonomy.ALLOW:
+        sr.decision = taxonomy.ASK
+    sr.reason = reason
+    return sr
+
+
+def _docker_payload_has_credential_marker(tokens: list[str]) -> bool:
+    return bool(_DOCKER_CREDENTIAL_MARKER_RE.search(" ".join(tokens)))
+
+
+def _prefix_docker_reason(sr: StageResult, identity: str) -> StageResult:
+    prefix = f"docker exec {identity}: "
+    if sr.reason and not sr.reason.startswith(prefix):
+        sr.reason = prefix + sr.reason
+    elif not sr.reason:
+        sr.reason = prefix.rstrip()
+    return sr
+
+
+def _copy_stage_result(sr: StageResult) -> StageResult:
+    return StageResult(
+        tokens=list(sr.tokens),
+        action_type=sr.action_type,
+        default_policy=sr.default_policy,
+        decision=sr.decision,
+        reason=sr.reason,
+        redirect_target=sr.redirect_target,
+        python_module=sr.python_module,
+        transparent_python_formatter=sr.transparent_python_formatter,
+        inline_code=sr.inline_code,
+    )
+
+
+def _docker_visible_stage_results(
+    stage: Stage,
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    profile: str = "full",
+    trust_project: bool = False,
+) -> list[StageResult] | None:
+    """Enumerate visible inner stages for Docker inherited-allow gating."""
+    if depth >= _MAX_UNWRAP_DEPTH:
+        return None
+
+    tokens = stage.tokens
+    is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
+    if is_wrapper and inner:
+        if "$(" in inner or "`" in inner or "<(" in inner or ">(" in inner or _PSUB_PREFIX in inner:
+            return None
+        try:
+            raw_stages = _split_on_operators(inner)
+            inner_stages = _raw_stages_to_stages(raw_stages)
+        except ValueError:
+            return None
+        if not inner_stages:
+            return None
+        results: list[StageResult] = []
+        for inner_stage in inner_stages:
+            inner_stage = _copy_python_metadata(inner_stage, stage)
+            nested = _docker_visible_stage_results(
+                inner_stage,
+                depth + 1,
+                global_table=global_table,
+                builtin_table=builtin_table,
+                project_table=project_table,
+                user_actions=user_actions,
+                profile=profile,
+                trust_project=trust_project,
+            )
+            if nested is None:
+                return None
+            results.extend(nested)
+        return results
+
+    return [
+        _classify_stage(
+            stage,
+            depth,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            profile=profile,
+            trust_project=trust_project,
+        )
+    ]
+
+
+def _apply_docker_exec_inherited_gate(
+    sr: StageResult,
+    visible_results: list[StageResult] | None,
+    payload: DockerExecPayload,
+) -> StageResult:
+    """Keep Docker exec transparent only for narrow trusted read-like payloads."""
+    if sr.decision != taxonomy.ALLOW:
+        return _prefix_docker_reason(sr, payload.identity)
+
+    if visible_results is None:
+        sr.decision = taxonomy.ASK
+        sr.reason = f"docker exec {payload.identity}: inner shell payload requires review"
+        return sr
+
+    for inner in visible_results:
+        if inner.decision != taxonomy.ALLOW:
+            copied = _copy_stage_result(inner)
+            return _prefix_docker_reason(copied, payload.identity)
+        if inner.action_type not in _DOCKER_EXEC_INHERIT_ALLOW_TYPES:
+            copied = _copy_stage_result(inner)
+            copied.decision = taxonomy.ASK
+            copied.reason = (
+                f"docker exec {payload.identity}: "
+                f"inner {inner.action_type} requires review"
+            )
+            return copied
+
+    if _docker_payload_has_credential_marker(payload.inner):
+        sr.decision = taxonomy.ASK
+        sr.reason = (
+            f"docker exec {payload.identity}: "
+            "payload references credential-like material"
+        )
+        return sr
+
+    return _prefix_docker_reason(sr, payload.identity)
+
+
 def _unwrap_shell(
     stage: Stage,
     depth: int,
@@ -3419,6 +3743,48 @@ def _unwrap_shell(
                                builtin_table=builtin_table, project_table=project_table,
                                user_actions=user_actions, profile=profile,
                                trust_project=trust_project)
+
+    docker_payload = _extract_docker_exec_inner(tokens)
+    if docker_payload is not None:
+        if docker_payload.unsupported_reason:
+            return _docker_exec_review_result(
+                tokens,
+                docker_payload.unsupported_reason,
+                user_actions,
+            )
+        if not _docker_exec_identity_trusted(docker_payload.identity):
+            return _docker_exec_review_result(
+                tokens,
+                f"untrusted docker exec identity {docker_payload.identity}",
+                user_actions,
+            )
+
+        inner_stage = _make_stage(docker_payload.inner, stage.operator) or Stage(
+            tokens=docker_payload.inner,
+            operator=stage.operator,
+        )
+        inner_stage = _copy_python_metadata(inner_stage, stage)
+        sr = _classify_stage(
+            inner_stage,
+            depth + 1,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            profile=profile,
+            trust_project=trust_project,
+        )
+        visible_results = _docker_visible_stage_results(
+            inner_stage,
+            depth + 1,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            profile=profile,
+            trust_project=trust_project,
+        )
+        return _apply_docker_exec_inherited_gate(sr, visible_results, docker_payload)
 
     mise_inner = taxonomy._extract_mise_exec_inner(tokens)
     if mise_inner is not None:
@@ -3657,6 +4023,18 @@ def _extract_redirect_literal(stage: Stage) -> str:
 
     cmd = os.path.basename(tokens[0])
     args = tokens[1:]
+
+    docker_payload = _extract_docker_exec_inner(tokens)
+    if (
+        docker_payload is not None
+        and docker_payload.inner
+        and not docker_payload.unsupported_reason
+    ):
+        inner_stage = _make_stage(docker_payload.inner, stage.operator) or Stage(
+            tokens=docker_payload.inner,
+            operator=stage.operator,
+        )
+        return _extract_redirect_literal(inner_stage)
 
     mise_inner = taxonomy._extract_mise_exec_inner(tokens)
     if mise_inner is not None:

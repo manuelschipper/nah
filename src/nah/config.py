@@ -40,6 +40,7 @@ class NahConfig:
     llm_mode: str = "off"
     llm_eligible: str | list = "default"
     trusted_paths: list[str] = field(default_factory=list)
+    trusted_containers: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
     active_allow: bool | list = True
@@ -163,6 +164,10 @@ def apply_override(override_data: dict) -> None:
         tp = override_data["trusted_paths"]
         if isinstance(tp, list):
             cfg.trusted_paths = [str(p) for p in tp]
+    if "trusted_containers" in override_data:
+        cfg.trusted_containers = _normalize_trusted_containers(
+            override_data["trusted_containers"]
+        )
     if "trusted_project_configs" in override_data:
         tpc = override_data["trusted_project_configs"]
         if isinstance(tpc, list):
@@ -469,6 +474,59 @@ def _normalize_taint_config(raw) -> dict:
     return cfg
 
 
+_TRUSTED_CONTAINER_PREFIXES = frozenset({"container", "compose"})
+_TRUSTED_CONTAINER_WILDCARDS = frozenset("*?[]{}")
+
+
+def normalize_trusted_container_identity(raw) -> str | None:
+    """Normalize a trusted container/service identity, or return None."""
+    if not isinstance(raw, str):
+        sys.stderr.write("nah: trusted_containers contains a non-string entry, ignored\n")
+        return None
+
+    value = raw.strip()
+    if not value:
+        sys.stderr.write("nah: trusted_containers contains an empty entry, ignored\n")
+        return None
+    if any(ch.isspace() for ch in value):
+        sys.stderr.write(f"nah: trusted_containers entry {raw!r} contains whitespace, ignored\n")
+        return None
+    if any(ch in value for ch in _TRUSTED_CONTAINER_WILDCARDS):
+        sys.stderr.write(f"nah: trusted_containers entry {raw!r} uses wildcards, ignored\n")
+        return None
+
+    if ":" in value:
+        prefix, name = value.split(":", 1)
+        if prefix not in _TRUSTED_CONTAINER_PREFIXES:
+            sys.stderr.write(f"nah: trusted_containers entry {raw!r} has unknown prefix, ignored\n")
+            return None
+    else:
+        prefix, name = "container", value
+
+    if not name or name.startswith("-"):
+        sys.stderr.write(f"nah: trusted_containers entry {raw!r} is not a valid identity, ignored\n")
+        return None
+    return f"{prefix}:{name}"
+
+
+def _normalize_trusted_containers(raw) -> list[str]:
+    """Parse trusted_containers defensively into exact normalized identities."""
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        sys.stderr.write("nah: trusted_containers must be a list, ignored\n")
+        return []
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        identity = normalize_trusted_container_identity(item)
+        if identity and identity not in seen:
+            result.append(identity)
+            seen.add(identity)
+    return result
+
+
 def _merge_taint_configs(
     base: dict,
     raw_project,
@@ -765,6 +823,19 @@ def _merge_configs(
     for p in _default_trusted:
         if p not in existing:
             config.trusted_paths.append(p)
+
+    # trusted_containers: global config plus trusted project append only.
+    # This loosens docker exec review, so untrusted project and target-scoped
+    # config cannot influence it.
+    config.trusted_containers = _normalize_trusted_containers(
+        global_cfg.get("trusted_containers", [])
+    )
+    if config.project_config_trusted:
+        existing_containers = set(config.trusted_containers)
+        for identity in _normalize_trusted_containers(project_cfg.get("trusted_containers", [])):
+            if identity not in existing_containers:
+                config.trusted_containers.append(identity)
+                existing_containers.add(identity)
 
     # db_targets: global config ONLY — project .nah.yaml silently ignored
     g_targets = global_cfg.get("db_targets", [])

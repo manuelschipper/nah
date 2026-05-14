@@ -584,6 +584,9 @@ def list_rules() -> dict:
         trusted_paths = data.get("trusted_paths", [])
         if isinstance(trusted_paths, list) and trusted_paths:
             result[label]["trusted_paths"] = trusted_paths
+        trusted_containers = data.get("trusted_containers", [])
+        if isinstance(trusted_containers, list) and trusted_containers:
+            result[label]["trusted_containers"] = trusted_containers
         trusted_project_configs = data.get("trusted_project_configs", [])
         if label == "global" and isinstance(trusted_project_configs, list) and trusted_project_configs:
             result[label]["trusted_project_configs"] = trusted_project_configs

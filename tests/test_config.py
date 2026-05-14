@@ -402,6 +402,79 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, {}, target="bash")
         assert cfg.terminal["bypass_env"] == "CUSTOM_BYPASS"
 
+    def test_trusted_containers_normalize_global_entries(self):
+        cfg = _merge_configs(
+            {"trusted_containers": ["hermes-creatbot", "container:worker", "compose:api"]},
+            {},
+        )
+        assert cfg.trusted_containers == [
+            "container:hermes-creatbot",
+            "container:worker",
+            "compose:api",
+        ]
+
+    def test_trusted_project_can_append_trusted_containers(self):
+        cfg = _merge_configs(
+            {"trusted_containers": ["hermes-creatbot"]},
+            {"trusted_containers": ["compose:api", "container:worker"]},
+            project_config_trusted=True,
+        )
+        assert cfg.trusted_containers == [
+            "container:hermes-creatbot",
+            "compose:api",
+            "container:worker",
+        ]
+
+    def test_untrusted_project_cannot_set_trusted_containers(self):
+        cfg = _merge_configs(
+            {"trusted_containers": ["hermes-creatbot"]},
+            {"trusted_containers": ["compose:api"]},
+            project_config_trusted=False,
+        )
+        assert cfg.trusted_containers == ["container:hermes-creatbot"]
+
+    def test_target_scoped_trusted_containers_ignored(self):
+        cfg = _merge_configs(
+            {"targets": {"bash": {"trusted_containers": ["hermes-creatbot"]}}},
+            {},
+            target="bash",
+        )
+        assert cfg.trusted_containers == []
+
+    def test_trusted_containers_drop_malformed_entries(self, capsys):
+        cfg = _merge_configs(
+            {
+                "trusted_containers": [
+                    "hermes-creatbot",
+                    "hermes-creatbot",
+                    "container:worker",
+                    "compose:api",
+                    "",
+                    "bad name",
+                    "container:*",
+                    "service:api",
+                    "-bad",
+                    42,
+                ]
+            },
+            {},
+        )
+        assert cfg.trusted_containers == [
+            "container:hermes-creatbot",
+            "container:worker",
+            "compose:api",
+        ]
+        err = capsys.readouterr().err
+        assert "trusted_containers" in err
+
+    def test_apply_override_can_set_trusted_containers(self):
+        reset_config()
+        apply_override({"trusted_containers": ["hermes-creatbot", "compose:api"]})
+        assert get_config().trusted_containers == [
+            "container:hermes-creatbot",
+            "compose:api",
+        ]
+
     def test_actions_project_adds_new(self):
         """Project can add new action types."""
         global_cfg = {"actions": {}}
