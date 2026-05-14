@@ -3003,6 +3003,7 @@ class TestBashBuiltins:
         ["command", "-V", "git"],
         ["help", "cd"],
         ["alias"],
+        ["clear"],
         ["test", "-f", "file"],
         ["true"],
         ["false"],
@@ -3049,9 +3050,14 @@ class TestSystemInfo:
         ["factor", "42"],
         ["expr", "1", "+", "1"],
         ["time", "ls"],
+        ["getent", "passwd", "pili"],
+        ["getent", "group", "988"],
     ])
     def test_system_info_is_read(self, cmd):
         assert _ct(cmd) == "filesystem_read"
+
+    def test_getent_shadow_stays_unknown(self):
+        assert _ct(["getent", "shadow", "root"]) == "unknown"
 
     @pytest.mark.parametrize("cmd", [
         ["dir"],
