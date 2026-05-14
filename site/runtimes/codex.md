@@ -16,40 +16,56 @@ settings.
 
 ## What nah Sets
 
-`nah run codex` starts Codex with one guarded preset:
+`nah run codex` starts Codex with a guarded preset:
 
 - Codex hooks enabled
 - native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks pointing
   at nah
-- `sandbox_mode="workspace-write"`
+- `sandbox_mode="danger-full-access"` by default
 - `approval_policy="untrusted"`
 - nah-managed Codex exec-policy prompt rules for Codex known-safe command
   prefixes
 - human approval review
 - dynamic MCP dependency installs disabled
 
-`workspace-write` lets ordinary project edits flow inside Codex's filesystem
-sandbox. `untrusted` routes commands that are not already trusted by Codex
-through Codex's native approval path. nah also installs a managed rules file at
+`danger-full-access` gives the Codex process normal host access while nah
+remains the permission authority through Codex's approval hooks. `untrusted`
+normally asks before commands outside Codex's trusted command set. nah also
+installs a managed rules file at
 `$CODEX_HOME/rules/nah-authority.rules` so Codex-known-safe command prefixes,
-such as `cat`, `git`, `ls`, `rg`, and `sed`, are still prompted first and nah
-can apply path-sensitive policy before execution.
+such as `cat`, `git`, `ls`, `rg`, and `sed`, are prompted too and nah can apply
+path-sensitive policy before execution.
+
+Use nah's launcher flag when you want Codex's own sandbox too:
+
+```bash
+nah run codex --sandbox workspace-write
+nah run codex --sandbox workspace-write --network
+nah run codex --sandbox read-only
+```
+
+`--network` enables Codex workspace network access only with
+`--sandbox workspace-write`. With the default `danger-full-access` sandbox,
+network is already host-controlled and the flag is redundant. `workspace-write`
+keeps Codex's filesystem sandbox, which can be useful when you want an
+additional sandbox boundary but can also restrict host-level resources.
 
 The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
 track configured [taint state](../configuration/taint-tracking.md) and
 execution outcomes without changing Codex's native approval UI.
 
-Safe project-local `apply_patch` add/update edits are allowed by default after
-nah checks patch paths and added content. If you want Codex to ask before those
+Safe project-local `apply_patch` add/update edits are allowed by nah after it
+checks patch paths and added content. If you want Codex to ask before those
 safe edits too, launch with:
 
 ```bash
 nah run codex --confirm-edits
 ```
 
-nah owns those safety settings for the protected session. Attempts to override
-Codex sandbox, approval, hook, or dynamic MCP feature settings are rejected.
-Normal Codex UI and session flags still pass through.
+nah owns the safety settings for the protected session. Use nah's `--sandbox`
+launcher flag to select the Codex sandbox. Attempts to override approval,
+hooks, rules, dynamic MCP installs, or nah-owned Codex config with raw Codex
+config are rejected. Normal Codex UI and session flags still pass through.
 
 ## Hook Review
 
@@ -125,9 +141,19 @@ Inside Codex, run `/hooks` first and make sure the nah hooks are active. If
 Codex reports hooks needing review, accept the nah hooks before testing.
 
 Inside Codex, ask it to edit a project file such as `README.md`. A normal
-project-local edit should use Codex `workspace-write` and not require a nah
-edit prompt. Use `nah run codex --confirm-edits` when you want even safe
-project-local edits to ask through Codex's native approval UI.
+project-local edit should be allowed by nah after path and content checks. Use
+`nah run codex --confirm-edits` when you want even safe project-local edits to
+ask through Codex's native approval UI.
+
+If you want to verify Codex workspace sandboxing specifically, launch with:
+
+```bash
+nah run codex --sandbox workspace-write
+```
+
+The default `nah run codex` session is host-capable, so normal host tools can
+work when the current user has permission. nah still decides whether
+permission-relevant commands are allowed, asked, or blocked.
 
 Then ask Codex to run:
 
@@ -151,14 +177,17 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 
 - `--yolo`
 - `--dangerously-bypass-approvals-and-sandbox`
-- `--sandbox` / `-s`
 - `--ask-for-approval` / `-a`
 - user overrides for nah-owned approval, hook, sandbox, rules, and MCP feature
-  keys
+  keys through raw Codex config
 - `codex exec`
 - `codex apply`
 - `codex review`
 - remote/cloud Codex runs
+
+`--sandbox` / `-s` is supported as a nah launcher flag for
+`danger-full-access`, `workspace-write`, and `read-only`. Raw Codex config
+overrides such as `-c sandbox_mode=...` are rejected.
 
 Run `codex ...` directly only when you intentionally want an unguarded Codex
 session.

@@ -524,7 +524,7 @@ def test_apply_patch_confirm_edits_returns_no_verdict(project_root, monkeypatch,
     assert out == ""
     entries = _log_entries(tmp_path)
     assert entries[-1]["decision"] == "ask"
-    assert entries[-1]["reason"] == "apply_patch: safe edit handled by Codex workspace-write"
+    assert entries[-1]["reason"] == "apply_patch: safe project edit handled by nah"
 
 
 def test_apply_patch_deleted_auto_allow_env_still_allows_by_default(project_root, monkeypatch):

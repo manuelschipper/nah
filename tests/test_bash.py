@@ -82,6 +82,11 @@ class TestAcceptanceCriteria:
             "nah run codex",
             "nah run codex --flow",
             "nah run codex --no-sandbox --auto-edits",
+            "nah run codex --sandbox workspace-write",
+            "nah run codex --sandbox danger-full-access",
+            "nah run codex -s read-only",
+            "nah run codex --network",
+            "nah run codex --sandbox workspace-write --network",
         ],
     )
     def test_nah_run_codex_guarded_forms_ask_as_write(self, project_root, command):
@@ -92,9 +97,6 @@ class TestAcceptanceCriteria:
     @pytest.mark.parametrize(
         "command",
         [
-            "nah run codex --sandbox workspace-write",
-            "nah run codex --sandbox danger-full-access",
-            "nah run codex -s read-only",
             "nah run codex -a never",
             "nah run codex --ask-for-approval on-request",
         ],

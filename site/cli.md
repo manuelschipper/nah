@@ -36,14 +36,19 @@ Launch one protected local interactive Codex session. See
 
 ```bash
 nah run codex
+nah run codex --sandbox workspace-write
+nah run codex --sandbox workspace-write --network
 nah run codex --confirm-edits
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
-target. It starts Codex with session-scoped native hooks, forces
-`workspace-write` / `untrusted` safety settings, installs nah-managed Codex
-prompt rules for known-safe command prefixes, and runs Codex
-authority/approval-memory/MCP preflight before launch.
+target. It starts Codex with session-scoped native hooks, uses
+`danger-full-access` / `untrusted` by default, installs nah-managed Codex prompt
+rules for known-safe command prefixes, and runs Codex
+authority/approval-memory/MCP preflight before launch. Use
+`--sandbox workspace-write` when you want Codex filesystem sandboxing too; add
+`--network` with `workspace-write` when that sandbox should allow network
+access.
 
 Codex owns hook review state. On first launch, or after nah adds or changes a
 hook command, open `/hooks` inside Codex and review the nah hooks so
@@ -54,8 +59,9 @@ nah checks patch paths and added content. Add `--confirm-edits` to ask before
 those safe edits too.
 
 This path is for local interactive Codex. nah rejects bypass flags, `codex
-exec`, `codex review`, remote/cloud runs, and user overrides for nah-managed
-permission keys, including sandbox and approval settings.
+exec`, `codex apply`, `codex review`, remote/cloud runs, and user overrides for
+nah-managed permission keys. `--sandbox` is supported as a nah launcher flag;
+raw Codex config overrides for sandbox and approval settings are rejected.
 
 ### nah install
 
