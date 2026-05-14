@@ -26,19 +26,20 @@ class CodexLaunch:
     approval_policy: str = ""
     authority_rules_path: str = ""
     confirm_edits: bool = False
+    network: bool = False
 
 
 _BYPASS_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
     "--yolo",
 }
-_DEFAULT_SANDBOX_MODE = "workspace-write"
+_DEFAULT_SANDBOX_MODE = "danger-full-access"
 _DEFAULT_APPROVAL_POLICY = "untrusted"
 _CONFIRM_EDITS_FLAG = "--confirm-edits"
 _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
+_NETWORK_FLAG = "--network"
+_ALLOWED_SANDBOX_MODES = {"danger-full-access", "read-only", "workspace-write"}
 _REJECT_VALUE_FLAGS = {
-    "-s",
-    "--sandbox",
     "-a",
     "--ask-for-approval",
     "--remote",
@@ -126,6 +127,7 @@ def injected_overrides(
     *,
     sandbox_mode: str = _DEFAULT_SANDBOX_MODE,
     approval_policy: str = _DEFAULT_APPROVAL_POLICY,
+    network: bool = False,
 ) -> list[str]:
     """Return root-level Codex config overrides owned by nah."""
     pre_tool_command = codex_pre_tool_hook_command()
@@ -155,7 +157,7 @@ def injected_overrides(
         "statusMessage = \"nah logging\" "
         "}] }]"
     )
-    return [
+    overrides = [
         "-c", "features.apps=false",
         "-c", "features.hooks=true",
         "-c", "features.skill_mcp_dependency_install=false",
@@ -166,6 +168,9 @@ def injected_overrides(
         "-c", permission_hook_config,
         "-c", post_tool_hook_config,
     ]
+    if network and sandbox_mode == "workspace-write":
+        overrides += ["-c", "sandbox_workspace_write.network_access=true"]
+    return overrides
 
 
 def build_codex_argv(
@@ -193,7 +198,9 @@ def build_codex_launch(
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    codex_args, confirm_edits = _extract_nah_run_flags(list(user_args))
+    codex_args, confirm_edits, sandbox_mode, network = _extract_nah_run_flags(
+        list(user_args),
+    )
     _validate_user_args(codex_args)
     env = dict(base_env if base_env is not None else os.environ)
     if confirm_edits:
@@ -212,16 +219,18 @@ def build_codex_launch(
         except CodexPreflightError as exc:
             raise CodexRunError(str(exc)) from exc
     argv = [executable] + injected_overrides(
-        sandbox_mode=_DEFAULT_SANDBOX_MODE,
+        sandbox_mode=sandbox_mode,
         approval_policy=_DEFAULT_APPROVAL_POLICY,
+        network=network,
     ) + codex_args
     return CodexLaunch(
         argv=argv,
         env=env,
-        sandbox_mode=_DEFAULT_SANDBOX_MODE,
+        sandbox_mode=sandbox_mode,
         approval_policy=_DEFAULT_APPROVAL_POLICY,
         authority_rules_path=authority_rules_path,
         confirm_edits=confirm_edits,
+        network=network,
     )
 
 
@@ -249,28 +258,71 @@ def _validate_user_args(args: list[str]) -> None:
     _reject_unsupported_subcommands(args)
 
 
-def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool]:
+def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool]:
     """Extract nah-owned launcher flags before handing the rest to Codex."""
     codex_args: list[str] = []
     confirm_edits = False
+    sandbox_mode = _DEFAULT_SANDBOX_MODE
+    network = False
     after_separator = False
-    for tok in args:
+    i = 0
+    while i < len(args):
+        tok = args[i]
         if after_separator:
             codex_args.append(tok)
+            i += 1
             continue
         if tok == "--":
             after_separator = True
             codex_args.append(tok)
+            i += 1
             continue
         if tok == _CONFIRM_EDITS_FLAG:
             confirm_edits = True
+            i += 1
             continue
         if tok.startswith(_CONFIRM_EDITS_FLAG + "="):
             raise CodexRunError(
                 f"nah run codex: {_CONFIRM_EDITS_FLAG} does not take a value",
             )
+        if tok == _NETWORK_FLAG:
+            network = True
+            i += 1
+            continue
+        if tok.startswith(_NETWORK_FLAG + "="):
+            raise CodexRunError(
+                f"nah run codex: {_NETWORK_FLAG} does not take a value",
+            )
+        if tok in {"-s", "--sandbox"}:
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                raise CodexRunError("nah run codex: --sandbox requires a value")
+            sandbox_mode = _validate_sandbox_mode(args[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--sandbox="):
+            sandbox_mode = _validate_sandbox_mode(tok.split("=", 1)[1])
+            i += 1
+            continue
+        if tok.startswith("-s="):
+            sandbox_mode = _validate_sandbox_mode(tok.split("=", 1)[1])
+            i += 1
+            continue
         codex_args.append(tok)
-    return codex_args, confirm_edits
+        i += 1
+    if network and sandbox_mode == "read-only":
+        raise CodexRunError(
+            "nah run codex: --network requires --sandbox workspace-write "
+            "or danger-full-access",
+        )
+    return codex_args, confirm_edits, sandbox_mode, network
+
+
+def _validate_sandbox_mode(value: str) -> str:
+    """Return a supported Codex sandbox mode or raise a launcher error."""
+    if value in _ALLOWED_SANDBOX_MODES:
+        return value
+    allowed = ", ".join(sorted(_ALLOWED_SANDBOX_MODES))
+    raise CodexRunError(f"nah run codex: --sandbox must be one of: {allowed}")
 
 
 def _reject_dangerous_flags(args: list[str]) -> None:

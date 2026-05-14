@@ -187,9 +187,11 @@ tighten action, sensitive-path, and content policies only. Trusted project
 config can loosen policy and change non-policy target settings for that exact
 project root.
 
-Codex sandbox and approval settings are fixed by `nah run codex`. Target config
-can tune nah policies and LLM behavior for Codex, but it cannot change Codex
-safety knobs.
+Codex approval settings are owned by `nah run codex`. The launcher defaults to
+Codex `danger-full-access` plus `untrusted` approvals; use
+`nah run codex --sandbox workspace-write` or `--sandbox read-only` when you want
+Codex's own sandbox too. Target config can tune nah policies and LLM behavior
+for Codex, but it cannot change Codex safety knobs directly.
 
 Public `nah test --target` simulation currently supports `claude`, `bash`, and
 `zsh`. Do not use `codex` there unless a later release adds that CLI target.

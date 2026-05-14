@@ -17,7 +17,7 @@ from nah.messages import enrich_decision
 
 _WRITE_ALIASES = {"apply_patch"}
 _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
-_SAFE_APPLY_PATCH_REASON = "apply_patch: safe edit handled by Codex workspace-write"
+_SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -170,10 +170,7 @@ def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict, cwd: 
 
     allowed = copy.deepcopy(decision)
     allowed["decision"] = taxonomy.ALLOW
-    allowed["reason"] = (
-        "apply_patch: safe project edit allowed by nah; Codex workspace-write "
-        "enforces project filesystem access"
-    )
+    allowed["reason"] = "apply_patch: safe project edit allowed by nah"
     meta = allowed.setdefault("_meta", {})
     meta["codex_edit_policy"] = {
         "safe_project_edit": True,

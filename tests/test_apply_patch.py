@@ -232,5 +232,5 @@ def test_classify_safe_patch_asks_even_with_deleted_edit_envs(project_root, monk
     )
 
     assert decision["decision"] == "ask"
-    assert decision["reason"] == "apply_patch: safe edit handled by Codex workspace-write"
+    assert decision["reason"] == "apply_patch: safe project edit handled by nah"
     assert "app.py" in log_input["_nah_patch_paths"][0]

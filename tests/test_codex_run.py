@@ -21,22 +21,23 @@ def _launch(args, *, base_env=None):
     )
 
 
-def test_injects_fixed_workspace_write_preset_before_user_args():
+def test_injects_fixed_danger_full_access_preset_before_user_args():
     launch = _launch(["resume", "abc123"])
     argv = launch.argv
 
     assert argv[0] == "/usr/bin/codex"
     assert argv[-2:] == ["resume", "abc123"]
-    assert launch.sandbox_mode == "workspace-write"
+    assert launch.sandbox_mode == "danger-full-access"
     assert launch.approval_policy == "untrusted"
     assert launch.confirm_edits is False
+    assert launch.network is False
     assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
     assert "features.apps=false" in argv
     assert "features.hooks=true" in argv
     assert "features.codex_hooks=true" not in argv
     assert "features.skill_mcp_dependency_install=false" in argv
     assert 'approval_policy="untrusted"' in argv
-    assert 'sandbox_mode="workspace-write"' in argv
+    assert 'sandbox_mode="danger-full-access"' in argv
     assert 'approvals_reviewer="user"' in argv
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
     assert "_codex-pre-tool-use" in pre_tool_override
@@ -79,7 +80,7 @@ def test_confirm_edits_rejects_value_form():
 def test_deleted_nah_mode_flags_have_no_launcher_behavior(flag):
     launch = _launch([flag, "--no-alt-screen"])
 
-    assert launch.sandbox_mode == "workspace-write"
+    assert launch.sandbox_mode == "danger-full-access"
     assert launch.approval_policy == "untrusted"
     assert flag in launch.argv
     assert launch.argv[-2:] == [flag, "--no-alt-screen"]
@@ -97,7 +98,7 @@ def test_inherited_deleted_edit_envs_do_not_change_launcher_preset():
         },
     )
 
-    assert launch.sandbox_mode == "workspace-write"
+    assert launch.sandbox_mode == "danger-full-access"
     assert launch.approval_policy == "untrusted"
     assert launch.env["NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH"] == "1"
     assert launch.env["NAH_CODEX_ACCEPT_EDITS"] == "1"
@@ -133,9 +134,6 @@ def test_rejects_unsupported_codex_surfaces(args):
 @pytest.mark.parametrize(
     "args",
     [
-        ["-s", "read-only"],
-        ["--sandbox", "workspace-write"],
-        ["--sandbox=danger-full-access"],
         ["-a", "never"],
         ["--ask-for-approval", "on-request"],
         ["--ask-for-approval=on-request"],
@@ -143,11 +141,76 @@ def test_rejects_unsupported_codex_surfaces(args):
         ["--remote-auth-token-env=CODEX_TOKEN"],
     ],
 )
-def test_rejects_permission_sandbox_and_remote_flags(args):
+def test_rejects_approval_and_remote_flags(args):
     with pytest.raises(CodexRunError) as exc:
         _argv(args)
 
     assert "managed by nah" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("args", "sandbox"),
+    [
+        (["-s", "read-only"], "read-only"),
+        (["--sandbox", "workspace-write"], "workspace-write"),
+        (["--sandbox=danger-full-access"], "danger-full-access"),
+        (["-s=danger-full-access"], "danger-full-access"),
+    ],
+)
+def test_sandbox_is_nah_launcher_flag(args, sandbox):
+    launch = _launch(args + ["resume", "abc123"])
+
+    assert launch.sandbox_mode == sandbox
+    assert f'sandbox_mode="{sandbox}"' in launch.argv
+    assert launch.argv[-2:] == ["resume", "abc123"]
+    assert "--sandbox" not in launch.argv
+    assert "-s" not in launch.argv
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--sandbox"],
+        ["--sandbox", "--network"],
+        ["--sandbox=unknown"],
+        ["-s", "unknown"],
+    ],
+)
+def test_sandbox_rejects_missing_or_unknown_values(args):
+    with pytest.raises(CodexRunError) as exc:
+        _launch(args)
+
+    assert "--sandbox" in str(exc.value)
+
+
+def test_network_flag_enables_workspace_write_network_access():
+    launch = _launch(["--sandbox", "workspace-write", "--network", "resume", "abc123"])
+
+    assert launch.sandbox_mode == "workspace-write"
+    assert launch.network is True
+    assert "sandbox_workspace_write.network_access=true" in launch.argv
+    assert "--network" not in launch.argv
+    assert launch.argv[-2:] == ["resume", "abc123"]
+
+
+def test_network_flag_is_redundant_for_default_danger_full_access():
+    launch = _launch(["--network", "resume", "abc123"])
+
+    assert launch.sandbox_mode == "danger-full-access"
+    assert launch.network is True
+    assert "sandbox_workspace_write.network_access=true" not in launch.argv
+    assert "--network" not in launch.argv
+    assert launch.argv[-2:] == ["resume", "abc123"]
+
+
+def test_network_flag_rejects_value_form_and_read_only_sandbox():
+    with pytest.raises(CodexRunError) as value_exc:
+        _launch(["--network=true"])
+    assert "--network does not take a value" in str(value_exc.value)
+
+    with pytest.raises(CodexRunError) as readonly_exc:
+        _launch(["--sandbox", "read-only", "--network"])
+    assert "--network requires --sandbox workspace-write" in str(readonly_exc.value)
 
 
 @pytest.mark.parametrize(

@@ -123,7 +123,7 @@ def classify_codex_apply_patch(
         return _with_stage(content_decision, taxonomy.FILESYSTEM_WRITE), log_input
 
     return _ask(
-        "apply_patch: safe edit handled by Codex workspace-write",
+        "apply_patch: safe project edit handled by nah",
         content_decision.get("_meta", {}),
     ), log_input
 

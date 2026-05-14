@@ -2572,9 +2572,9 @@ def _nah_run_codex_has_dangerous_permission_override(tokens: list[str]) -> bool:
         tok = tokens[i]
         if tok == "--":
             return False
-        if tok in {"-a", "--ask-for-approval", "-s", "--sandbox"}:
+        if tok in {"-a", "--ask-for-approval"}:
             return True
-        if tok.startswith(("--ask-for-approval=", "--sandbox=")):
+        if tok.startswith("--ask-for-approval="):
             return True
         if tok in {"-c", "--config"}:
             if i + 1 < len(tokens) and _codex_config_disables_guard(tokens[i + 1]):

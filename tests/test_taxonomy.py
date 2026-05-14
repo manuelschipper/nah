@@ -1617,6 +1617,12 @@ class TestCodexClassifier:
         ["nah", "run", "codex", "--flow"],
         ["nah", "run", "codex", "--auto-edits"],
         ["nah", "run", "codex", "--no-sandbox", "--auto-edits"],
+        ["nah", "run", "codex", "--sandbox", "workspace-write"],
+        ["nah", "run", "codex", "--sandbox", "danger-full-access"],
+        ["nah", "run", "codex", "--sandbox=danger-full-access"],
+        ["nah", "run", "codex", "-s", "read-only"],
+        ["nah", "run", "codex", "--network"],
+        ["nah", "run", "codex", "--sandbox", "workspace-write", "--network"],
     ])
     def test_nah_run_codex_guarded_interactive_forms(self, tokens):
         assert _ct(tokens) == "agent_exec_write"
@@ -1641,10 +1647,6 @@ class TestCodexClassifier:
 
     @pytest.mark.parametrize("tokens", [
         ["nah", "run", "codex", "--yolo"],
-        ["nah", "run", "codex", "--sandbox", "workspace-write"],
-        ["nah", "run", "codex", "--sandbox", "danger-full-access"],
-        ["nah", "run", "codex", "--sandbox=danger-full-access"],
-        ["nah", "run", "codex", "-s", "read-only"],
         ["nah", "run", "codex", "--ask-for-approval", "on-request"],
         ["nah", "run", "codex", "--ask-for-approval=on-request"],
         ["nah", "run", "codex", "-a", "never"],
