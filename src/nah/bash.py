@@ -62,6 +62,7 @@ class StageResult:
     redirect_target: str = ""
     python_module: str = ""
     transparent_python_formatter: bool = False
+    inline_code: str = ""
 
 
 @dataclass
@@ -2144,6 +2145,7 @@ def _classify_stage(
         if cmd in taxonomy._SCRIPT_INTERPRETERS:
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
+            sr.inline_code = stage.heredoc_literal
             if sr.default_policy == taxonomy.CONTEXT:
                 sr.decision, sr.reason = context.resolve_context(
                     taxonomy.LANG_EXEC, tokens=tokens,
