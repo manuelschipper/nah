@@ -1423,7 +1423,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 def cmd_codex(args: argparse.Namespace) -> None:
     """Diagnose or repair Codex-specific nah preflight state."""
-    from nah.codex_authority import CodexAuthorityError, remove_authority_rules
+    from nah.codex_authority import (
+        CodexAuthorityError,
+        authority_rules_status,
+        ensure_authority_rules,
+        remove_authority_rules,
+    )
     from nah.codex_preflight import (
         blocking_findings,
         format_doctor_output,
@@ -1433,6 +1438,20 @@ def cmd_codex(args: argparse.Namespace) -> None:
 
     action = args.codex_command or "doctor"
     if action == "doctor":
+        findings = scan_preflight()
+        print(format_doctor_output(findings))
+        if blocking_findings(findings):
+            raise SystemExit(1)
+        return
+
+    if action == "setup":
+        try:
+            before = authority_rules_status()
+            status = ensure_authority_rules()
+        except CodexAuthorityError as exc:
+            print(f"nah codex setup: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"{'current' if before.current else 'setup'}: {status.path}")
         findings = scan_preflight()
         print(format_doctor_output(findings))
         if blocking_findings(findings):
@@ -1457,11 +1476,11 @@ def cmd_codex(args: argparse.Namespace) -> None:
             raise SystemExit(1)
         return
 
-    if action == "uninstall":
+    if action == "remove-setup":
         try:
             removed = remove_authority_rules()
         except CodexAuthorityError as exc:
-            print(f"nah codex uninstall: {exc}", file=sys.stderr)
+            print(f"nah codex remove-setup: {exc}", file=sys.stderr)
             raise SystemExit(1)
         if removed:
             print(f"removed: {removed}")
@@ -1866,8 +1885,9 @@ def main():
     codex_parser = sub.add_parser("codex", help="Diagnose or repair Codex integration")
     codex_sub = codex_parser.add_subparsers(dest="codex_command")
     codex_sub.add_parser("doctor", help="Show Codex preflight findings")
+    codex_sub.add_parser("setup", help="Create or refresh nah-managed Codex setup files")
     codex_sub.add_parser("repair", help="Back up and repair supported Codex preflight findings")
-    codex_sub.add_parser("uninstall", help="Remove nah-managed Codex authority rules")
+    codex_sub.add_parser("remove-setup", help="Remove nah-managed Codex setup files")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")

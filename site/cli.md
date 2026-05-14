@@ -170,16 +170,21 @@ Diagnose or repair Codex state that can bypass nah's Codex hook path.
 
 ```bash
 nah codex doctor
+nah codex setup
 nah codex repair
+nah codex remove-setup
 ```
 
-`doctor` scans Codex approval-memory rules and MCP approval modes without
-modifying files. `repair` creates timestamped backups, removes supported
+`doctor` scans Codex authority rules, approval-memory rules, and MCP approval
+modes without modifying files. `setup` creates or refreshes only nah-managed
+Codex setup files. `repair` creates timestamped backups, removes supported
 remembered allow rules, and pins supported MCP approval settings to `prompt`.
+`remove-setup` removes only nah-managed Codex setup files.
 
-If `nah run codex` reports that Codex approval state can bypass nah, run
-`nah codex doctor` for details and `nah codex repair` when you want nah to fix
-the supported files.
+If `nah run codex` reports that Codex authority or approval state can bypass
+nah, run `nah codex doctor` for details, `nah codex setup` when only the
+nah-managed setup file is missing or stale, and `nah codex repair` when you
+want nah to fix supported conflicting Codex state.
 
 ## Test & Inspect
 

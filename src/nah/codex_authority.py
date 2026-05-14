@@ -97,7 +97,7 @@ def render_authority_rules() -> str:
         AUTHORITY_RULES_MARKER,
         f"# version: {AUTHORITY_RULES_VERSION}",
         f"{AUTHORITY_RULES_HASH_PREFIX}{digest}",
-        "# Regenerate with `nah codex repair`; do not edit manually.",
+        "# Regenerate with `nah codex setup`; do not edit manually.",
         "",
     ])
     return f"{header}{body}"
