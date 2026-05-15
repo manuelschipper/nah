@@ -51,8 +51,8 @@ locations include:
 - `~/.config/nah/hook-errors.log`
 - `~/.config/nah/taint/sessions/` when optional taint tracking is enabled
 - target-specific files under `~/.config/nah/`
-- Codex rule/config backups created by `nah codex repair` when you explicitly
-  run it
+- Codex rule/config backups created by `nah codex setup` when it fixes
+  supported Codex drift
 - OS keychain/keyring entries for remote LLM secrets if you use `nah key ...`
   from a PyPI install
 

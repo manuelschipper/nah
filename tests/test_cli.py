@@ -1547,7 +1547,8 @@ class TestCmdCodex:
         out = capsys.readouterr().out
         assert authority_rules_path(home).exists()
         assert "setup:" in out
-        assert "no authority" in out
+        assert "checked: Codex approval memory and MCP approval modes" in out
+        assert "nah codex: ready" in out
 
     def test_codex_setup_reports_remaining_blockers(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
@@ -1557,7 +1558,7 @@ class TestCmdCodex:
         rules = home / "rules"
         rules.mkdir(parents=True)
         (rules / "default.rules").write_text(
-            'prefix_rule(pattern=["curl"], decision="allow")\n',
+            'prefix_rule(pattern=["curl"], decision="forbidden")\n',
             encoding="utf-8",
         )
         monkeypatch.setenv("CODEX_HOME", str(home))
@@ -1565,12 +1566,15 @@ class TestCmdCodex:
         with pytest.raises(SystemExit) as exc:
             cli_mod.cmd_codex(argparse.Namespace(codex_command="setup"))
 
-        out = capsys.readouterr().out
+        captured = capsys.readouterr()
         assert exc.value.code == 1
         assert authority_rules_path(home).exists()
-        assert "default.rules" in out
+        assert "checked: Codex approval memory and MCP approval modes" in captured.out
+        assert "nah codex: still blocked:" in captured.err
+        assert "default.rules" in captured.err
+        assert "Remove this rule or change its decision to `prompt`." in captured.err
 
-    def test_codex_repair_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
+    def test_codex_setup_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path
 
@@ -1581,13 +1585,25 @@ class TestCmdCodex:
         rule.write_text('prefix_rule(pattern=["curl"], decision="allow")\n', encoding="utf-8")
         monkeypatch.setenv("CODEX_HOME", str(home))
 
-        cli_mod.cmd_codex(argparse.Namespace(codex_command="repair"))
+        cli_mod.cmd_codex(argparse.Namespace(codex_command="setup"))
 
         out = capsys.readouterr().out
         assert "backup:" in out
-        assert "repaired:" in out
+        assert "updated:" in out
+        assert "nah codex: ready" in out
         assert rule.read_text(encoding="utf-8") == ""
         assert authority_rules_path(home).exists()
+
+    def test_codex_repair_is_not_a_command(self, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "codex", "repair"])
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 2
+        assert "invalid choice" in capsys.readouterr().err
 
     def test_codex_remove_setup_removes_managed_authority_rules(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod

@@ -78,7 +78,7 @@ nah log --blocks         # show only blocked decisions
 nah log --asks           # show only ask decisions
 nah log --llm            # show only decisions with LLM metadata
 nah codex doctor         # inspect Codex approval-memory/MCP preflight state
-nah codex repair         # repair supported Codex preflight findings
+nah codex setup          # install or fix supported Codex setup state
 nah config show          # show effective merged config
 nah config path          # show config file locations
 

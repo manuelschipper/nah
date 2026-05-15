@@ -86,7 +86,7 @@ event. For example, if `PostToolUse` and `PermissionRequest` log entries appear
 but there is no `PreToolUse` entry, the `PreToolUse` hook is probably still
 pending review.
 
-## Preflight
+## Codex Setup and Checks
 
 Codex can remember approval decisions and load exec-policy rules. A remembered
 allow, conflicting `forbidden` rule, or `host_executable` entry for a
@@ -100,26 +100,49 @@ Inspect without changing files:
 nah codex doctor
 ```
 
-Create or refresh only nah's managed Codex setup files:
+Install, refresh, or fix nah's Codex integration:
 
 ```bash
 nah codex setup
 ```
 
-`setup` installs or refreshes `$CODEX_HOME/rules/nah-authority.rules`, then
-reports any remaining Codex state that can bypass nah. It does not remove
-remembered allows or rewrite MCP approval settings.
+`setup` has three jobs:
 
-Repair supported findings:
+- install or refresh `$CODEX_HOME/rules/nah-authority.rules`
+- check Codex approval-memory rules and MCP approval modes
+- back up and fix supported drift, including remembered allow rules and
+  supported MCP approval settings that should be `prompt`
 
-```bash
-nah codex repair
+Clean setup output is intentionally short:
+
+```text
+$ nah codex setup
+setup: /home/me/.codex/rules/nah-authority.rules
+checked: Codex approval memory and MCP approval modes
+nah codex: ready
 ```
 
-`repair` installs or refreshes nah's managed authority rules, creates backups,
-removes supported remembered allow rules, and pins supported MCP approval
-settings to `prompt`. If preflight blocks startup, run `nah codex doctor` first
-so you can see the exact files and rules involved.
+When setup fixes supported drift, it creates timestamped local backups before
+editing:
+
+```text
+$ nah codex setup
+setup: /home/me/.codex/rules/nah-authority.rules
+backup: /home/me/.codex/rules/default.rules.nah-bak-20260515103412
+updated: /home/me/.codex/rules/default.rules
+checked: Codex approval memory and MCP approval modes
+nah codex: ready
+```
+
+If unsupported blockers remain, setup leaves them untouched and prints exact
+file, rule, or config instructions:
+
+```text
+nah codex: still blocked:
+- /home/me/.codex/rules/default.rules:1
+  Codex prefix_rule forbidden for `git` can deny before nah decides
+  Remove this rule or change its decision to `prompt`.
+```
 
 Remove only nah's managed Codex authority rules:
 

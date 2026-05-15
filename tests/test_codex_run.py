@@ -259,6 +259,7 @@ def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
 
     assert "approval state can bypass nah" in str(exc.value)
     assert "default.rules" in str(exc.value)
+    assert "nah codex setup" in str(exc.value)
     assert (rules / AUTHORITY_RULES_FILE).exists()
 
 

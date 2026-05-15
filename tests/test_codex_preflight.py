@@ -1,4 +1,4 @@
-"""Tests for Codex approval-memory and MCP preflight scanning."""
+"""Tests for Codex approval-memory and MCP preflight setup checks."""
 
 from pathlib import Path
 
@@ -7,7 +7,12 @@ from nah.codex_authority import (
     authority_rules_path,
     ensure_authority_rules,
 )
-from nah.codex_preflight import blocking_findings, repair_preflight, scan_preflight
+from nah.codex_preflight import (
+    blocking_findings,
+    format_setup_blockers,
+    scan_preflight,
+    setup_preflight,
+)
 
 
 def _home(tmp_path, *, authority: bool = True) -> Path:
@@ -47,7 +52,7 @@ def test_stale_authority_rules_blocks_and_is_repairable(tmp_path):
     assert findings[0].repairable is True
 
 
-def test_unmanaged_authority_rules_path_blocks_without_repair(tmp_path):
+def test_unmanaged_authority_rules_path_blocks_without_setup_fix(tmp_path):
     home = _home(tmp_path, authority=False)
     path = authority_rules_path(home)
     path.parent.mkdir(parents=True)
@@ -98,7 +103,7 @@ def test_unknown_rule_decision_blocks_startup(tmp_path):
     assert findings[0].kind == "exec_policy_unknown"
 
 
-def test_forbidden_rule_blocks_without_repair(tmp_path):
+def test_forbidden_rule_blocks_without_setup_fix(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
     rule = rules / "deny.rules"
@@ -111,7 +116,7 @@ def test_forbidden_rule_blocks_without_repair(tmp_path):
     assert findings[0].repairable is False
 
 
-def test_host_executable_for_managed_prefix_blocks_without_repair(tmp_path):
+def test_host_executable_for_managed_prefix_blocks_without_setup_fix(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
     rule = rules / "host.rules"
@@ -257,7 +262,7 @@ def test_active_plugin_mcp_prompt_overlay_passes(tmp_path):
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 
-def test_repair_removes_allows_and_sets_mcp_modes_to_prompt(tmp_path):
+def test_setup_removes_allows_and_sets_mcp_modes_to_prompt(tmp_path):
     home = _home(tmp_path)
     rules = home / "rules"
     rule = rules / "default.rules"
@@ -283,23 +288,24 @@ def test_repair_removes_allows_and_sets_mcp_modes_to_prompt(tmp_path):
         encoding="utf-8",
     )
 
-    result = repair_preflight(home=home, cwd=tmp_path)
+    result = setup_preflight(home=home, cwd=tmp_path)
 
     assert str(rule) in result.changed
     assert str(config) in result.changed
     assert len(result.backups) == 2
     assert 'decision="allow"' not in rule.read_text(encoding="utf-8")
     assert 'decision="prompt"' in rule.read_text(encoding="utf-8")
-    repaired_config = config.read_text(encoding="utf-8")
-    assert 'default_tools_approval_mode = "prompt"' in repaired_config
-    assert 'approval_mode = "prompt"' in repaired_config
+    updated_config = config.read_text(encoding="utf-8")
+    assert 'default_tools_approval_mode = "prompt"' in updated_config
+    assert 'approval_mode = "prompt"' in updated_config
     assert scan_preflight(home=home, cwd=tmp_path) == []
+    assert result.final_findings == []
 
 
-def test_repair_installs_missing_authority_rules(tmp_path):
+def test_setup_installs_missing_authority_rules(tmp_path):
     home = _home(tmp_path, authority=False)
 
-    result = repair_preflight(home=home, cwd=tmp_path)
+    result = setup_preflight(home=home, cwd=tmp_path)
 
     path = authority_rules_path(home)
     assert str(path) in result.changed
@@ -307,19 +313,19 @@ def test_repair_installs_missing_authority_rules(tmp_path):
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 
-def test_repair_refreshes_stale_authority_rules(tmp_path):
+def test_setup_refreshes_stale_authority_rules(tmp_path):
     home = _home(tmp_path, authority=False)
     path = authority_rules_path(home)
     path.parent.mkdir(parents=True)
     path.write_text(f"{AUTHORITY_RULES_MARKER}\nold\n", encoding="utf-8")
 
-    result = repair_preflight(home=home, cwd=tmp_path)
+    result = setup_preflight(home=home, cwd=tmp_path)
 
     assert str(path) in result.changed
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 
-def test_repair_refreshes_stale_authority_rules_with_allow_without_corruption(tmp_path):
+def test_setup_refreshes_stale_authority_rules_with_allow_without_corruption(tmp_path):
     home = _home(tmp_path, authority=False)
     path = authority_rules_path(home)
     path.parent.mkdir(parents=True)
@@ -332,17 +338,17 @@ def test_repair_refreshes_stale_authority_rules_with_allow_without_corruption(tm
         encoding="utf-8",
     )
 
-    result = repair_preflight(home=home, cwd=tmp_path)
+    result = setup_preflight(home=home, cwd=tmp_path)
 
-    repaired = path.read_text(encoding="utf-8")
+    updated = path.read_text(encoding="utf-8")
     assert str(path) in result.changed
-    assert 'pattern = ["cat"]' in repaired
-    assert 'decision = "prompt"' in repaired
-    assert 'decision="allow"' not in repaired
+    assert 'pattern = ["cat"]' in updated
+    assert 'decision = "prompt"' in updated
+    assert 'decision="allow"' not in updated
     assert scan_preflight(home=home, cwd=tmp_path) == []
 
 
-def test_repair_adds_plugin_mcp_prompt_overlay(tmp_path):
+def test_setup_adds_plugin_mcp_prompt_overlay(tmp_path):
     home = _home(tmp_path)
     plugin_root = home / "plugins" / "cache" / "test" / "sample" / "local"
     plugin_root.mkdir(parents=True)
@@ -353,10 +359,23 @@ def test_repair_adds_plugin_mcp_prompt_overlay(tmp_path):
     config = home / "config.toml"
     config.write_text('[plugins."sample@test"]\nenabled = true\n', encoding="utf-8")
 
-    result = repair_preflight(home=home, cwd=tmp_path)
+    result = setup_preflight(home=home, cwd=tmp_path)
 
     assert str(config) in result.changed
-    repaired_config = config.read_text(encoding="utf-8")
-    assert '[plugins."sample@test".mcp_servers.sample]' in repaired_config
-    assert 'default_tools_approval_mode = "prompt"' in repaired_config
+    updated_config = config.read_text(encoding="utf-8")
+    assert '[plugins."sample@test".mcp_servers.sample]' in updated_config
+    assert 'default_tools_approval_mode = "prompt"' in updated_config
     assert scan_preflight(home=home, cwd=tmp_path) == []
+
+
+def test_setup_blockers_include_exact_rule_remediation(tmp_path):
+    home = _home(tmp_path)
+    rule = home / "rules" / "deny.rules"
+    rule.write_text('prefix_rule(pattern=["cat"], decision="forbidden")\n', encoding="utf-8")
+
+    output = format_setup_blockers(scan_preflight(home=home, cwd=tmp_path))
+
+    assert "nah codex: still blocked:" in output
+    assert str(rule) in output
+    assert 'prefix_rule(pattern=["cat"], decision="forbidden")' in output
+    assert "Remove this rule or change its decision to `prompt`." in output

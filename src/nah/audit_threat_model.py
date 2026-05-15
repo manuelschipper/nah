@@ -179,7 +179,7 @@ RULES = (
             "MCP and agent-tool permission coverage: matcher registration, "
             "global-only MCP classification, wildcard safety, database/browser "
             "MCP action typing, Codex MCP hook handling, and Codex "
-            "MCP approval-mode preflight/repair."
+            "MCP approval-mode setup checks."
         ),
         match_any=(
             "tests/test_agents.py::TestMcpMatchers::",
@@ -190,8 +190,8 @@ RULES = (
             "tests/test_codex_preflight.py::test_malformed_mcp_config_table_blocks",
             "tests/test_codex_preflight.py::test_inline_mcp_config_blocks_when_not_evaluable",
             "tests/test_codex_preflight.py::test_active_plugin_mcp_",
-            "tests/test_codex_preflight.py::test_repair_adds_plugin_mcp_",
-            "tests/test_codex_preflight.py::test_repair_removes_allows_and_sets_mcp_modes_to_prompt",
+            "tests/test_codex_preflight.py::test_setup_adds_plugin_mcp_",
+            "tests/test_codex_preflight.py::test_setup_removes_allows_and_sets_mcp_modes_to_prompt",
             "tests/test_hook_classify.py::TestClassifyUnknownTool::test_mcp_",
             "tests/test_hook_classify.py::TestClassifyUnknownToolContext::test_mcp_",
             "tests/test_hook_classify.py::TestPlaywrightMcpClassification::",

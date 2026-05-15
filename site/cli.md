@@ -32,7 +32,7 @@ the guarded path.
 ### nah run codex
 
 Launch one protected local interactive Codex session. See
-[Codex](runtimes/codex.md) for preflight, repair, and unsupported modes.
+[Codex](runtimes/codex.md) for setup checks and unsupported modes.
 
 ```bash
 nah run codex
@@ -177,25 +177,22 @@ not install the `nah` shell command or optional keyring support.
 
 ### nah codex
 
-Diagnose or repair Codex state that can bypass nah's Codex hook path.
+Set up or diagnose Codex state that can bypass nah's Codex hook path.
 
 ```bash
 nah codex doctor
 nah codex setup
-nah codex repair
 nah codex remove-setup
 ```
 
 `doctor` scans Codex authority rules, approval-memory rules, and MCP approval
-modes without modifying files. `setup` creates or refreshes only nah-managed
-Codex setup files. `repair` creates timestamped backups, removes supported
-remembered allow rules, and pins supported MCP approval settings to `prompt`.
+modes without modifying files. `setup` installs nah-managed prompt rules,
+checks approval-memory and MCP drift, then backs up and fixes supported drift.
 `remove-setup` removes only nah-managed Codex setup files.
 
 If `nah run codex` reports that Codex authority or approval state can bypass
-nah, run `nah codex doctor` for details, `nah codex setup` when only the
-nah-managed setup file is missing or stale, and `nah codex repair` when you
-want nah to fix supported conflicting Codex state.
+nah, run `nah codex doctor` for details or `nah codex setup` to apply supported
+fixes.
 
 ## Test & Inspect
 
