@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,8 +28,8 @@ _MCP_POLICY_KINDS = {
     "plugin_mcp_default",
     "plugin_mcp_tool",
 }
-_RULE_REPAIR_KINDS = {"exec_policy_allow", "exec_policy_unknown"}
-_AUTHORITY_REPAIR_KINDS = {"codex_authority_missing", "codex_authority_stale"}
+_RULE_SETUP_FIX_KINDS = {"exec_policy_allow", "exec_policy_unknown"}
+_AUTHORITY_SETUP_FIX_KINDS = {"codex_authority_missing", "codex_authority_stale"}
 _FORBIDDEN_DECISIONS = {"forbidden", "deny"}
 
 
@@ -55,13 +56,13 @@ class Finding:
 
 
 @dataclass
-class RepairResult:
-    """Result of an explicit Codex preflight repair."""
+class SetupResult:
+    """Result of applying supported Codex setup fixes."""
 
     findings: list[Finding] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     backups: list[str] = field(default_factory=list)
-    unrepaired: list[Finding] = field(default_factory=list)
+    final_findings: list[Finding] = field(default_factory=list)
 
 
 @dataclass
@@ -125,7 +126,7 @@ def format_doctor_output(findings: list[Finding]) -> str:
     lines = ["nah codex: authority/approval-memory/MCP preflight findings:"]
     lines.extend(_format_finding_lines(findings))
     if any(f.repairable for f in findings):
-        lines.append("Run `nah codex repair` to back up and repair supported files.")
+        lines.append("Run `nah codex setup` to back up and fix supported files.")
     return "\n".join(lines)
 
 
@@ -134,38 +135,60 @@ def format_block_message(findings: list[Finding]) -> str:
     lines = ["nah run codex: Codex authority or approval state can bypass nah."]
     lines.extend(_format_finding_lines(findings))
     if any(f.repairable for f in findings):
-        lines.append("Run `nah codex repair`, then retry `nah run codex`.")
+        lines.append("Run `nah codex setup`, then retry `nah run codex`.")
     return "\n".join(lines)
 
 
-def repair_preflight(
+def format_setup_blockers(findings: list[Finding]) -> str:
+    """Render final blockers after `nah codex setup` applied supported fixes."""
+    blockers = blocking_findings(findings)
+    if not blockers:
+        return "nah codex: ready"
+    lines = ["nah codex: still blocked:"]
+    for finding in blockers:
+        location = finding.path or "Codex config"
+        if finding.line:
+            location = f"{location}:{finding.line}"
+        lines.append(f"- {location}")
+        lines.append(f"  {finding.message}")
+        snippet = _finding_snippet(finding)
+        if snippet:
+            lines.append("  Offending entry:")
+            for line in snippet.splitlines():
+                lines.append(f"  {line}")
+        for line in _setup_remediation_lines(finding):
+            lines.append(f"  {line}")
+    return "\n".join(lines)
+
+
+def setup_preflight(
     *,
     home: Path | None = None,
     cwd: Path | None = None,
-) -> RepairResult:
-    """Repair supported Codex preflight findings after creating backups."""
+) -> SetupResult:
+    """Apply supported Codex setup fixes after creating backups."""
     root = home or codex_home()
     workdir = cwd or Path.cwd()
     findings = scan_preflight(home=root, cwd=workdir)
-    result = RepairResult(findings=findings)
+    result = SetupResult(findings=findings)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
     if any(
-        finding.kind in _AUTHORITY_REPAIR_KINDS and finding.repairable
+        finding.kind in _AUTHORITY_SETUP_FIX_KINDS and finding.repairable
         for finding in findings
     ):
         try:
             status = ensure_authority_rules(home=root)
             result.changed.append(str(status.path))
         except CodexAuthorityError:
-            # The original blocking finding remains unrepaired below. Repair is
+            # The final scan below keeps the blocking finding visible. Setup is
             # best-effort and must not hide an authority-file write failure.
             pass
 
     rule_ranges: dict[str, list[tuple[int, int]]] = {}
     for finding in findings:
         if (
-            finding.kind in _RULE_REPAIR_KINDS
+            finding.kind in _RULE_SETUP_FIX_KINDS
             and finding.repairable
             and finding.path
             and finding.line
@@ -201,13 +224,7 @@ def repair_preflight(
             if backup:
                 result.backups.append(str(backup))
 
-    repaired = set(result.changed)
-    for finding in findings:
-        if finding.blocking and (
-            not finding.repairable
-            or (finding.repairable and finding.path and finding.path not in repaired)
-        ):
-            result.unrepaired.append(finding)
+    result.final_findings = scan_preflight(home=root, cwd=workdir)
     return result
 
 
@@ -219,6 +236,65 @@ def _format_finding_lines(findings: list[Finding]) -> list[str]:
             location = f"{location}:{finding.line}"
         lines.append(f"- {location}: {finding.message}")
     return lines
+
+
+def _setup_remediation_lines(finding: Finding) -> list[str]:
+    if finding.kind == "codex_authority_conflict":
+        path = Path(finding.path)
+        backup = path.with_name(f"{path.name}.backup")
+        return [
+            "Move the unmanaged file aside, then rerun `nah codex setup`:",
+            f"mv {shlex.quote(str(path))} {shlex.quote(str(backup))}",
+        ]
+    if finding.kind == "codex_authority_unknown":
+        return [
+            "Fix the file permissions or encoding, or move the file aside, then rerun `nah codex setup`.",
+        ]
+    if finding.kind == "exec_policy_forbidden":
+        return [
+            'Remove this rule or change its decision to `prompt`.',
+        ]
+    if finding.kind == "exec_policy_host_executable":
+        return [
+            "Remove this `host_executable` entry or remove the managed command prefix from it so nah's basename prompt rule can match.",
+        ]
+    if finding.kind == "exec_policy_unknown":
+        if "cannot read" in finding.message or "cannot decode" in finding.message:
+            return [
+                "Fix the rules file permissions or encoding, or move the file aside, then rerun `nah codex setup`.",
+            ]
+        return [
+            'Remove this ambiguous rule or rewrite it with `decision = "prompt"`.',
+        ]
+    if finding.kind == "mcp_config_unknown":
+        return [
+            "Rewrite inline or malformed MCP/plugin config as TOML tables nah can inspect, fix file access/encoding, or disable that MCP/plugin entry.",
+        ]
+    if finding.kind in _MCP_POLICY_KINDS and finding.table_path and finding.key:
+        return [
+            "Set this Codex config value to prompt, then rerun `nah codex setup`:",
+            f"[{_render_table_path(finding.table_path)}]",
+            f'{finding.key} = "prompt"',
+        ]
+    return [
+        "Inspect this file and remove or change the bypassing Codex state, then rerun `nah codex setup`.",
+    ]
+
+
+def _finding_snippet(finding: Finding) -> str:
+    if not finding.path or not finding.line:
+        return ""
+    path = Path(finding.path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        # Snippets are diagnostic only. If the file raced, became unreadable,
+        # or has invalid encoding, the finding text still gives the safe
+        # remediation path and setup remains blocked.
+        return ""
+    start = max(finding.line, 1)
+    end = max(finding.end_line or finding.line, start)
+    return "\n".join(lines[start - 1:end])
 
 
 def _scan_authority_rules(root: Path) -> list[Finding]:

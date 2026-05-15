@@ -1426,18 +1426,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 
 def cmd_codex(args: argparse.Namespace) -> None:
-    """Diagnose or repair Codex-specific nah preflight state."""
+    """Diagnose or set up Codex-specific nah preflight state."""
     from nah.codex_authority import (
         CodexAuthorityError,
-        authority_rules_status,
-        ensure_authority_rules,
+        authority_rules_path,
         remove_authority_rules,
     )
     from nah.codex_preflight import (
         blocking_findings,
         format_doctor_output,
-        repair_preflight,
+        format_setup_blockers,
         scan_preflight,
+        setup_preflight,
     )
 
     action = args.codex_command or "doctor"
@@ -1449,35 +1449,21 @@ def cmd_codex(args: argparse.Namespace) -> None:
         return
 
     if action == "setup":
-        try:
-            before = authority_rules_status()
-            status = ensure_authority_rules()
-        except CodexAuthorityError as exc:
-            print(f"nah codex setup: {exc}", file=sys.stderr)
-            raise SystemExit(1)
-        print(f"{'current' if before.current else 'setup'}: {status.path}")
-        findings = scan_preflight()
-        print(format_doctor_output(findings))
-        if blocking_findings(findings):
-            raise SystemExit(1)
-        return
-
-    if action == "repair":
-        result = repair_preflight()
-        if not result.findings:
-            print("nah codex: no authority, approval-memory, or MCP preflight issues found.")
-            return
+        result = setup_preflight()
+        print(f"setup: {authority_rules_path()}")
         if result.backups:
             for backup in result.backups:
                 print(f"backup: {backup}")
         if result.changed:
             for path in result.changed:
-                print(f"repaired: {path}")
-        else:
-            print("nah codex: no supported repairs were applied.")
-        if result.unrepaired:
-            print(format_doctor_output(result.unrepaired), file=sys.stderr)
+                if path != str(authority_rules_path()):
+                    print(f"updated: {path}")
+        print("checked: Codex approval memory and MCP approval modes")
+        output = format_setup_blockers(result.final_findings)
+        if blocking_findings(result.final_findings):
+            print(output, file=sys.stderr)
             raise SystemExit(1)
+        print(output)
         return
 
     if action == "remove-setup":
@@ -1886,11 +1872,10 @@ def main():
     run_sub = run_parser.add_subparsers(dest="run_agent")
     run_sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
     run_sub.add_parser("codex", help="Launch Codex with nah hooks active")
-    codex_parser = sub.add_parser("codex", help="Diagnose or repair Codex integration")
+    codex_parser = sub.add_parser("codex", help="Set up or diagnose Codex integration")
     codex_sub = codex_parser.add_subparsers(dest="codex_command")
     codex_sub.add_parser("doctor", help="Show Codex preflight findings")
-    codex_sub.add_parser("setup", help="Create or refresh nah-managed Codex setup files")
-    codex_sub.add_parser("repair", help="Back up and repair supported Codex preflight findings")
+    codex_sub.add_parser("setup", help="Install or fix nah-managed Codex setup")
     codex_sub.add_parser("remove-setup", help="Remove nah-managed Codex setup files")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")

@@ -66,8 +66,10 @@ def test_ensure_authority_rules_refuses_unmanaged_file(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text('prefix_rule(pattern=["cat"], decision="prompt")\n', encoding="utf-8")
 
-    with pytest.raises(CodexAuthorityError):
+    with pytest.raises(CodexAuthorityError) as exc:
         ensure_authority_rules(home=home)
+
+    assert "nah codex setup" in str(exc.value)
 
 
 def test_remove_authority_rules_removes_only_managed_file(tmp_path):

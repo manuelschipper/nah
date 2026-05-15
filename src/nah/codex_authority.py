@@ -177,7 +177,7 @@ def ensure_authority_rules(home: Path | None = None) -> AuthorityRulesStatus:
     if status.state == "unmanaged":
         raise CodexAuthorityError(
             f"{status.path} exists but is not managed by nah; move it aside or "
-            "delete it before running `nah codex repair`.",
+            "delete it before running `nah codex setup`.",
         )
     if not status.repairable:
         raise CodexAuthorityError(status.message)
