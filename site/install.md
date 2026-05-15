@@ -24,11 +24,12 @@ hook and classifier stdlib-only. Add extras later with `nah[config]`,
 | Runtime | Start here |
 | --- | --- |
 | Claude Code | [`nah run claude`](runtimes/claude-code.md) for one session, or [`nah install claude`](runtimes/claude-code.md#persistent-direct-hooks) for persistent direct hooks |
-| Codex | [`nah run codex`](runtimes/codex.md) for a protected local interactive session |
+| Codex | [`nah codex setup`](runtimes/codex.md#codex-setup-and-checks), then [`nah run codex`](runtimes/codex.md) for a protected local interactive session |
 | Terminal Guard | [`nah install bash`](runtimes/terminal-guard.md) or [`nah install zsh`](runtimes/terminal-guard.md) for commands you type yourself |
 
-For Codex, review the nah hooks from `/hooks` inside Codex after first launch
-or upgrade so newly added hook commands are active.
+For Codex, run setup before the first protected session. Then review the nah
+hooks from `/hooks` inside Codex after first launch or upgrade so newly added
+hook commands are active.
 
 The Claude Code plugin is available for Claude-only protection without the
 `nah` CLI. See [Claude Code](runtimes/claude-code.md#plugin-only-path).
@@ -103,8 +104,10 @@ nah uninstall bash
 nah uninstall zsh
 ```
 
-Codex has no persistent install/update/uninstall target. Upgrade the Python
-package and then launch protected sessions with `nah run codex`.
+Codex has no persistent install/update/uninstall target like Claude or shell
+hooks. Upgrade the Python package, run `nah codex setup` to refresh Codex's
+nah-managed rules, then launch protected sessions with `nah run codex`. Use
+`nah codex remove-setup` when you want to remove those Codex rules.
 
 For plugin-only Claude Code installs:
 

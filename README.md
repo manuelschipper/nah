@@ -95,12 +95,12 @@ secret storage. Then connect the runtime you want to protect:
 | Runtime | Command |
 | --- | --- |
 | Claude Code | `nah run claude` |
-| Codex | `nah run codex` |
+| Codex | `nah codex setup`, then `nah run codex` |
 | Your shell | `nah install bash` or `nah install zsh` |
 
-For Codex, open `/hooks` on first launch after install or upgrade and review
-the nah hooks so `PreToolUse`, `PermissionRequest`, and `PostToolUse` are
-active.
+For Codex, run setup before the first protected session. Then open `/hooks` on
+first launch after install or upgrade and review the nah hooks so `PreToolUse`,
+`PermissionRequest`, and `PostToolUse` are active.
 
 For LLM review, store a provider key when you are ready:
 
@@ -270,6 +270,7 @@ nah log                                # inspect recent decisions
 nah types                              # list action types
 
 nah run claude                         # protect one Claude Code session
+nah codex setup                        # set up Codex rules
 nah run codex                          # protect one Codex session
 nah run codex --sandbox workspace-write # use Codex workspace sandboxing
 nah run codex --confirm-edits           # also confirm safe project edits

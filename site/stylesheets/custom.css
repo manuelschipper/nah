@@ -361,15 +361,6 @@
   background: var(--md-code-bg-color);
 }
 
-.nah-install-card {
-  width: min(42rem, 100%);
-  background: var(--nah-card-bg);
-  border: 1px solid var(--nah-border);
-  border-radius: 0.65rem;
-  padding: 1rem;
-  text-align: left;
-}
-
 .nah-card-label {
   color: var(--nah-muted);
   font-size: 0.64rem;
@@ -383,7 +374,6 @@
   margin-top: 1.15rem;
 }
 
-.md-typeset .nah-install-card pre,
 .md-typeset .nah-decision-row pre,
 .md-typeset .nah-config-card pre,
 .md-typeset .nah-llm-config-card pre {
@@ -391,7 +381,6 @@
   border-radius: 0.45rem;
 }
 
-.md-typeset .nah-install-card code,
 .md-typeset .nah-decision-row code,
 .md-typeset .nah-config-card code,
 .md-typeset .nah-llm-config-card code {
