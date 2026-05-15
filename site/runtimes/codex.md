@@ -1,8 +1,9 @@
 # Codex
 
-Codex protection is session-scoped. Use `nah run codex` for local interactive
-Codex sessions that should route Bash, MCP, and `apply_patch` hooks through
-nah.
+Use `nah run codex` for local interactive Codex sessions that should route
+Bash, MCP, and `apply_patch` hooks through nah. `nah codex setup` also adds a
+persistent Codex rules file, so read [Running Codex Without nah](#running-codex-without-nah)
+if you sometimes start Codex directly.
 
 ```bash
 nah codex setup
@@ -12,7 +13,8 @@ nah run codex
 
 There is no global `nah install codex` path. Codex must be launched through
 `nah run codex` so nah can inject native hooks and session-scoped safety
-settings.
+settings. The rules file created by `nah codex setup` is the one persistent
+Codex change.
 
 ## What nah Sets
 
@@ -113,6 +115,9 @@ nah codex setup
 - back up and fix supported drift, including remembered allow rules and
   supported MCP approval settings that should be `prompt`
 
+The rules file lives in your Codex config, not only in the current terminal.
+Codex reads it in plain `codex` sessions too.
+
 Clean setup output is intentionally short:
 
 ```text
@@ -151,6 +156,41 @@ nah codex remove-setup
 ```
 
 `remove-setup` refuses to remove an unmanaged file at the same path.
+
+## Running Codex Without nah
+
+`nah codex setup` adds a Codex rules file so commands like `bash`, `cat`,
+`git`, `pwd`, and `true` are routed through nah.
+
+Codex reads that file even when you start Codex directly. That means raw bypass
+modes such as `codex --yolo` can fail after setup: Codex sees a rule that asks
+for permission, but bypass mode does not allow asking, so the command is
+rejected.
+
+To run Codex completely without nah, remove nah's Codex rules first:
+
+```bash
+nah codex remove-setup
+```
+
+You can set them up again later:
+
+```bash
+nah codex setup
+```
+
+If `nah codex setup` printed `backup:` and `updated:` lines, it also changed an
+existing Codex rules or config file after making a backup. Use the exact backup
+path printed by setup if you want to restore Codex's previous behavior:
+
+```bash
+cp ~/.codex/rules/default.rules.nah-bak-YYYYMMDDHHMMSS ~/.codex/rules/default.rules
+cp ~/.codex/config.toml.nah-bak-YYYYMMDDHHMMSS ~/.codex/config.toml
+```
+
+Restoring those backups can bring back Codex remembered allows or MCP approval
+settings that skip nah. Do it only when you intentionally want Codex back in
+its previous state.
 
 ## Test It
 
@@ -212,8 +252,9 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 `danger-full-access`, `workspace-write`, and `read-only`. Raw Codex config
 overrides such as `-c sandbox_mode=...` are rejected.
 
-Run `codex ...` directly only when you intentionally want an unguarded Codex
-session.
+Raw `codex --yolo` can still be affected by the rules file created by
+`nah codex setup`. See [Running Codex Without nah](#running-codex-without-nah)
+for how to remove that setup first.
 
 ## Coverage
 

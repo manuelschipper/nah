@@ -188,7 +188,9 @@ nah codex remove-setup
 `doctor` scans Codex authority rules, approval-memory rules, and MCP approval
 modes without modifying files. `setup` installs nah-managed prompt rules,
 checks approval-memory and MCP drift, then backs up and fixes supported drift.
-`remove-setup` removes only nah-managed Codex setup files.
+`remove-setup` removes only nah-managed Codex setup files. It does not restore
+other Codex rules or config files that setup changed; use the printed backup
+paths if you want to restore those manually.
 
 If `nah run codex` reports that Codex authority or approval state can bypass
 nah, run `nah codex doctor` for details or `nah codex setup` to apply supported
