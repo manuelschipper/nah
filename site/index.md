@@ -19,7 +19,7 @@ hide:
     </p>
     <div class="nah-actions">
       <a class="nah-button nah-button-primary" href="install/">Install</a>
-      <a class="nah-button nah-button-secondary" href="how-it-works/">How it works</a>
+      <a class="nah-button nah-button-secondary" href="how-it-works/">Docs</a>
     </div>
   </section>
 
