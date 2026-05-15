@@ -43,28 +43,6 @@ jobs:
         with:
           path: _build
 
-      - name: Push docs to schipper.ai legacy host
-        env:
-          SCHIPPER_AI_DEPLOY: ${{ secrets.SCHIPPER_AI_DEPLOY }}
-        run: |
-          if [ -z "${SCHIPPER_AI_DEPLOY:-}" ]; then
-            echo "SCHIPPER_AI_DEPLOY is not configured" >&2
-            exit 1
-          fi
-
-          git clone --depth 1 https://x-access-token:${SCHIPPER_AI_DEPLOY}@github.com/manuelschipper/schipper.ai.git /tmp/schipper.ai
-          rm -rf /tmp/schipper.ai/static/nah
-          mkdir -p /tmp/schipper.ai/static
-          cp -r _build /tmp/schipper.ai/static/nah
-
-          cd /tmp/schipper.ai
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add static/nah
-          git diff --cached --quiet && echo "No schipper.ai docs changes" && exit 0
-          git commit -m "Update nah docs from nah@${GITHUB_SHA::7}"
-          git push
-
   deploy:
     runs-on: ubuntu-latest
     needs: build
