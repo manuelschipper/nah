@@ -168,7 +168,7 @@ def classify_command(command: str) -> ClassifyResult:
     user_actions = None
     trust_project = False
     try:
-        from nah.config import get_config  # lazy import
+        from nah.config import ConfigError, get_config  # lazy import
         cfg = get_config()
         trust_project = cfg.project_config_trusted
         if cfg.classify_global:
@@ -178,6 +178,10 @@ def classify_command(command: str) -> ClassifyResult:
             project_table = taxonomy.build_user_table(cfg.classify_project)
         if cfg.actions:
             user_actions = cfg.actions
+    except ConfigError as e:
+        result.final_decision = taxonomy.ASK
+        result.reason = f"config error: {e}"
+        return result
     except Exception as e:
         sys.stderr.write(f"nah: config load error: {e}\n")
 

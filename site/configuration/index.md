@@ -91,6 +91,7 @@ When both configs exist, nah merges them with these rules:
 
 | Field | Merge behavior |
 |-------|---------------|
+| `presets` | Global only; selected explicitly for one invocation/session |
 | `trusted_project_configs` | Global only; exact project roots whose `.nah.yaml` can loosen policy |
 | `actions` | Tighten-only (project can only escalate strictness) |
 | `classify` | Global entries are active first; project entries are active only for trusted project roots |
@@ -113,6 +114,7 @@ When both configs exist, nah merges them with these rules:
 
 | Key | Type | Scope | Docs |
 |-----|------|-------|------|
+| `presets` | dict of name → config overlay | global | [Presets](#presets) |
 | `trusted_project_configs` | list of paths | global | This page |
 | `classify` | dict of type → prefix list | global; trusted project roots | [Classification rules](classification-rules.md) |
 | `actions` | dict of type → policy | both | [Action types](actions.md) |
@@ -134,19 +136,6 @@ When both configs exist, nah merges them with these rules:
 | `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#prompt-behavior) |
 
 *\* Project `sensitive_paths_default` can only tighten (ask → block) until the project root is trusted. Target-scoped project overrides can tighten policy by default; non-policy target settings require trusted project config.*
-
-## Legacy `profile` key
-
-Older nah configs and examples may mention `profile: full`, `profile: minimal`,
-or `profile: none`.
-
-nah no longer has taxonomy profiles. The full built-in taxonomy, classifier
-functions, safety lists, sensitive path rules, and content scanners are always
-enabled. Configure behavior with `actions`, `classify`, `sensitive_paths`,
-`known_registries`, `exec_sinks`, and related keys instead.
-
-`profile` is ignored if present. In particular, `profile: none` no longer
-disables built-in classifiers or safety checks.
 
 ## Target overrides
 
@@ -217,6 +206,78 @@ providers directly in global config and store environment-variable names such
 as `llm.openrouter.key_env`, not raw API keys. The secret value behind that
 slot can live either in the current process environment or in the OS keychain
 used by the optional `nah[keys]` extra on PyPI installs.
+
+## Presets
+
+Presets are named global config overlays. Use them when you want a temporary
+policy bundle for one workflow without editing your base config.
+
+```yaml
+# ~/.config/nah/config.yaml
+actions:
+  unknown: ask
+
+presets:
+  strict:
+    actions:
+      network_outbound: ask
+      lang_exec: ask
+      unknown: ask
+
+  work:
+    known_registries:
+      - npm.company.test
+    targets:
+      codex:
+        actions:
+          filesystem_write: ask
+```
+
+Select a preset explicitly:
+
+```bash
+nah run claude --preset strict
+nah run codex --preset work
+nah test --preset strict "python3 script.py"
+nah config show --preset work
+NAH_PRESET=work claude
+```
+
+Inspect configured presets:
+
+```bash
+nah config presets          # list preset names
+nah config presets strict   # show the raw global preset block
+nah config show --preset strict
+```
+
+`nah config presets <name>` shows what you wrote in global config.
+`nah config show --preset <name>` shows the final effective config after base
+global config, the selected preset, project config safety rules, and target
+overrides are applied.
+
+Preset merge rules are intentionally simple:
+
+- Dicts deep-merge, so `actions.network_outbound` can change without restating
+  every action.
+- Scalars replace.
+- Lists replace. This applies to trust/scope lists such as
+  `known_registries`, `trusted_paths`, `trusted_containers`, pattern lists, and
+  `db_targets`.
+
+Presets are global-only in this version. Project `.nah.yaml` files cannot
+define or select presets. Unknown selected preset names fail closed.
+
+## Legacy `profile` key
+
+Older nah versions supported `profile: full`, `profile: minimal`, and
+`profile: none`. That taxonomy-profile concept has been removed. nah now always
+runs the full built-in taxonomy, classifiers, safety lists, sensitive path
+checks, and content scanners.
+
+Existing `profile` keys are accepted for compatibility but ignored. In
+particular, `profile: none` no longer disables built-in safety checks. Use
+presets for named policy bundles.
 
 ## YAML format
 

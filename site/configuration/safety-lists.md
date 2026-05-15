@@ -130,3 +130,7 @@ decode_commands:
 
 !!! warning
     Removing decode commands weakens composition rules (nah prints a stderr warning).
+
+Use [presets](index.md#presets) when you want different safety-list values for
+different workflows. Preset list values replace the base list for that selected
+session.

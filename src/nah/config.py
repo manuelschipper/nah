@@ -1,5 +1,6 @@
 """Config loading — YAML config with global + project merge."""
 
+import copy
 import os
 import sys
 from dataclasses import dataclass, field
@@ -14,10 +15,13 @@ class ConfigError(Exception):
 _CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
+_PRESET_ENV = "NAH_PRESET"
+
 
 @dataclass
 class NahConfig:
     target: str = ""
+    selected_preset: str = ""
     # Compatibility only. Older configs/callers may still pass profile, but
     # nah always runs the full built-in taxonomy and never reads this value.
     profile: str = "full"
@@ -58,7 +62,9 @@ class NahConfig:
 
 _cached_config: NahConfig | None = None
 _cached_target: str | None = None
+_cached_preset: str | None = None
 _active_target = ""
+_active_preset = ""
 
 
 def _roots_are_related(real_root: str, allowed_root: str) -> bool:
@@ -83,12 +89,37 @@ def get_active_target() -> str:
     return _active_target
 
 
-def get_config(target: str | None = None) -> NahConfig:
+def set_active_preset(preset: str | None, *, reset_cache: bool = True) -> None:
+    """Set the process-local preset used by get_config()."""
+    global _active_preset
+    _active_preset = str(preset or "").strip()
+    if reset_cache:
+        reset_config()
+
+
+def get_active_preset() -> str:
+    """Return the process-local or environment-selected preset."""
+    return _resolve_selected_preset(None)
+
+
+def _resolve_selected_preset(preset: str | None) -> str:
+    """Return explicit preset, process preset, or NAH_PRESET."""
+    if preset is not None:
+        return str(preset).strip()
+    if _active_preset:
+        return _active_preset
+    return os.environ.get(_PRESET_ENV, "").strip()
+
+
+def get_config(target: str | None = None, preset: str | None = None) -> NahConfig:
     """Load and return merged config. Cached for process lifetime."""
-    global _cached_config, _cached_target
+    global _cached_config, _cached_target, _cached_preset
     effective_target = target if target is not None else _active_target
-    if _cached_config is not None and (
-        _cached_target is None or _cached_target == effective_target
+    selected_preset = _resolve_selected_preset(preset)
+    if (
+        _cached_config is not None
+        and (_cached_target is None or _cached_target == effective_target)
+        and (_cached_preset is None or _cached_preset == selected_preset)
     ):
         return _cached_config
 
@@ -103,24 +134,25 @@ def get_config(target: str | None = None) -> NahConfig:
         project_config_path = os.path.join(project_root, _PROJECT_CONFIG_NAME)
         project_data = _load_yaml_file(project_config_path)
 
-    project_config_trusted = _is_project_config_trusted(project_root, global_data)
     _cached_config = _merge_configs(
         global_data,
         project_data,
         effective_target,
+        selected_preset=selected_preset,
         project_root=project_root or "",
         project_config_path=project_config_path,
-        project_config_trusted=project_config_trusted,
     )
     _cached_target = effective_target
+    _cached_preset = selected_preset
     return _cached_config
 
 
 def reset_config() -> None:
     """Clear cached config (for testing)."""
-    global _cached_config, _cached_target
+    global _cached_config, _cached_target, _cached_preset
     _cached_config = None
     _cached_target = None
+    _cached_preset = None
 
 
 def _reset_lazy_merge_caches() -> None:
@@ -135,9 +167,10 @@ def _reset_lazy_merge_caches() -> None:
 
 def use_defaults() -> None:
     """Use packaged defaults for the current process, ignoring config files."""
-    global _cached_config, _cached_target
-    _cached_config = _merge_configs({}, {}, _active_target)
+    global _cached_config, _cached_target, _cached_preset
+    _cached_config = _merge_configs({}, {}, _active_target, selected_preset="")
     _cached_target = _active_target
+    _cached_preset = ""
     _reset_lazy_merge_caches()
 
 
@@ -278,6 +311,70 @@ def _load_yaml_file(path: str) -> dict:
 def _validate_dict(val) -> dict:
     """Return val if dict, else empty dict."""
     return val if isinstance(val, dict) else {}
+
+
+def _deep_overlay(base, overlay):
+    """Overlay config values: dicts recurse, scalars/lists replace."""
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        result = copy.deepcopy(base)
+        for key, value in overlay.items():
+            if key in result:
+                result[key] = _deep_overlay(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        return result
+    return copy.deepcopy(overlay)
+
+
+def _global_presets_from_config(global_cfg: dict) -> dict:
+    raw = global_cfg.get("presets", {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def list_global_presets() -> list[str]:
+    """Return configured global preset names."""
+    presets = _global_presets_from_config(_load_yaml_file(_GLOBAL_CONFIG))
+    return sorted(str(name) for name in presets)
+
+
+def get_global_preset(name: str) -> dict:
+    """Return one raw global preset block or raise ConfigError."""
+    global_cfg = _load_yaml_file(_GLOBAL_CONFIG)
+    presets = _global_presets_from_config(global_cfg)
+    preset_name = str(name or "").strip()
+    for raw_name, raw_value in presets.items():
+        if str(raw_name) == preset_name:
+            if not isinstance(raw_value, dict):
+                raise ConfigError(f"preset '{preset_name}' must be a mapping")
+            return copy.deepcopy(raw_value)
+    raise ConfigError(f"unknown preset '{preset_name}'")
+
+
+def _apply_global_preset(global_cfg: dict, preset_name: str) -> tuple[dict, str]:
+    """Return global config with selected preset overlaid."""
+    selected = str(preset_name or "").strip()
+    if not selected:
+        return copy.deepcopy(global_cfg), ""
+
+    presets = _global_presets_from_config(global_cfg)
+    matched = None
+    for raw_name, raw_value in presets.items():
+        if str(raw_name) == selected:
+            matched = raw_value
+            break
+    if matched is None:
+        raise ConfigError(f"unknown preset '{selected}'")
+    if not isinstance(matched, dict):
+        raise ConfigError(f"preset '{selected}' must be a mapping")
+
+    preset_data = copy.deepcopy(matched)
+    if "presets" in preset_data:
+        sys.stderr.write(
+            f"nah: preset '{selected}' contains nested presets; ignoring nested presets\n"
+        )
+        preset_data.pop("presets", None)
+
+    return _deep_overlay(global_cfg, preset_data), selected
 
 
 def _normalize_llm_mode(raw) -> str:
@@ -651,18 +748,26 @@ def _merge_configs(
     project_cfg: dict,
     target: str | None = None,
     *,
+    selected_preset: str = "",
     project_root: str = "",
     project_config_path: str = "",
-    project_config_trusted: bool = False,
+    project_config_trusted: bool | None = None,
 ) -> NahConfig:
     """Merge global and project configs with security rules."""
+    global_cfg, selected_preset = _apply_global_preset(global_cfg, selected_preset)
     config = NahConfig()
     config.target = target or ""
+    config.selected_preset = selected_preset
     config.project_root = project_root
     config.project_config_path = project_config_path
     config.trusted_project_configs = _normalize_trusted_project_configs(
         global_cfg.get("trusted_project_configs", [])
     )
+    if project_config_trusted is None:
+        project_config_trusted = _project_root_matches_trusted(
+            project_root,
+            config.trusted_project_configs,
+        )
     config.project_config_trusted = bool(project_config_trusted)
     config.trust_project_config = False
     if "trust_project_config" in global_cfg:

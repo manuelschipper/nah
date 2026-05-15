@@ -509,10 +509,16 @@ def cmd_config(args: argparse.Namespace) -> None:
     """Config subcommands."""
     sub = getattr(args, "config_command", None)
     if sub == "show":
-        from nah.config import get_config, _load_yaml_file
-        cfg = get_config()
+        from nah.config import ConfigError, get_config, _load_yaml_file
+        preset = getattr(args, "preset", None)
+        try:
+            cfg = get_config(preset=preset)
+        except ConfigError as exc:
+            print(f"nah config show: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
         print("Effective config (merged):")
         print(f"  target:                {cfg.target or '(default)'}")
+        print(f"  selected_preset:       {cfg.selected_preset or '(none)'}")
         print(f"  project_root:          {cfg.project_root or '(none)'}")
         print(f"  project_config_path:   {cfg.project_config_path or '(none)'}")
         print(f"  project_config_trusted: {cfg.project_config_trusted}")
@@ -576,8 +582,36 @@ def cmd_config(args: argparse.Namespace) -> None:
         if cfg.project_root:
             print(f"Root:    {cfg.project_root}")
             print(f"Trusted: {'yes' if cfg.project_config_trusted else 'no'}")
+    elif sub == "presets":
+        from nah.config import ConfigError, get_global_preset, list_global_presets
+        name = getattr(args, "name", None)
+        if name:
+            try:
+                preset = get_global_preset(name)
+            except ConfigError as exc:
+                print(f"nah config presets: {exc}", file=sys.stderr)
+                raise SystemExit(1) from exc
+            print(f"Preset: {name}")
+            print(_format_config_block(preset), end="")
+            return
+        names = list_global_presets()
+        if not names:
+            print("No presets configured.")
+            return
+        for preset_name in names:
+            print(preset_name)
     else:
-        print("Usage: nah config {show|path}")
+        print("Usage: nah config {show|path|presets}")
+
+
+def _format_config_block(data: dict) -> str:
+    """Format a raw config block for CLI display."""
+    try:
+        import yaml
+
+        return yaml.safe_dump(data, sort_keys=False)
+    except ImportError:
+        return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def _bash_test_meta(result) -> dict:
@@ -616,16 +650,38 @@ def _print_user_message(decision: dict) -> None:
         print(f"User message: {brand('nah blocked', human)}")
 
 
+def _selected_preset_for_output() -> str:
+    try:
+        from nah.config import get_config
+
+        return get_config().selected_preset
+    except Exception:
+        return ""
+
+
 def cmd_test(args: argparse.Namespace) -> None:
     """Dry-run classification for a command or tool input."""
     use_default_config = bool(getattr(args, "defaults", False))
     inline_config = getattr(args, "config", None)
+    preset = getattr(args, "preset", None)
     target = getattr(args, "target", None) or ""
     json_output = bool(getattr(args, "json", False))
 
     if use_default_config and inline_config:
         print("Error: --defaults cannot be used with --config", file=sys.stderr)
         raise SystemExit(1)
+    if use_default_config and preset:
+        print("Error: --defaults cannot be used with --preset", file=sys.stderr)
+        raise SystemExit(1)
+
+    if preset:
+        from nah.config import ConfigError, get_config, set_active_preset
+        set_active_preset(preset)
+        try:
+            get_config()
+        except ConfigError as exc:
+            print(f"nah test: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
 
     if target:
         if targets.get_target(target) is None:
@@ -680,6 +736,9 @@ def cmd_test(args: argparse.Namespace) -> None:
                     return
                 if target:
                     print(f"Target:   {target}")
+                selected_preset = _selected_preset_for_output()
+                if selected_preset:
+                    print(f"Preset:   {selected_preset}")
                 print(f"Command:  {terminal_result.command}")
                 print(f"Decision:    {terminal_result.decision.upper()}")
                 print(f"Reason:      {terminal_result.reason}")
@@ -697,6 +756,7 @@ def cmd_test(args: argparse.Namespace) -> None:
             }, "Bash")
             print(json.dumps({
                 "target": target,
+                "selected_preset": _selected_preset_for_output(),
                 "tool": "Bash",
                 "command": result.command,
                 "decision": result.final_decision,
@@ -718,6 +778,9 @@ def cmd_test(args: argparse.Namespace) -> None:
 
         if target:
             print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
         print(f"Command:  {result.command}")
         if result.stages:
             print("Stages:")
@@ -802,6 +865,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if json_output:
             print(json.dumps({
                 "target": target,
+                "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
                 "path": file_path,
                 "decision": decision["decision"],
@@ -811,6 +875,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             return
         if target:
             print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
         print(f"Tool:     {tool}")
         print(f"Path:     {file_path}")
         if content:
@@ -830,6 +897,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if json_output:
             print(json.dumps({
                 "target": target,
+                "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
                 "path": raw_path,
                 "pattern": pattern,
@@ -840,6 +908,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             return
         if target:
             print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
         print(f"Tool:     {tool}")
         print(f"Path:     {raw_path}")
         if pattern:
@@ -857,6 +928,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if json_output:
             print(json.dumps({
                 "target": target,
+                "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
@@ -865,6 +937,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             return
         if target:
             print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
         print(f"Tool:     {tool}")
         print(f"Decision: {decision['decision'].upper()}")
         reason = decision.get("reason", "")
@@ -881,6 +956,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if json_output:
             print(json.dumps({
                 "target": target,
+                "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
                 "input": raw_path,
                 "decision": decision["decision"],
@@ -890,6 +966,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             return
         if target:
             print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
         print(f"Tool:     {tool}")
         print(f"Input:    {raw_path}")
         print(f"Decision: {decision['decision'].upper()}")
@@ -1627,6 +1706,18 @@ def cmd_claude(user_args: list[str]) -> None:
     """Launch Claude Code with nah hooks active for this session."""
     import shutil
 
+    user_args, selected_preset = _extract_run_preset(user_args, "nah run claude")
+    env = dict(os.environ)
+    if selected_preset:
+        env["NAH_PRESET"] = selected_preset
+    try:
+        from nah.config import ConfigError, get_config
+
+        get_config(target=agents.CLAUDE, preset=selected_preset or None)
+    except ConfigError as exc:
+        print(f"nah run claude: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
     for arg in user_args:
         if arg == "--settings" or arg.startswith("--settings="):
             print("nah run claude: --settings is managed by nah; pass other flags directly",
@@ -1660,8 +1751,8 @@ def cmd_claude(user_args: list[str]) -> None:
     if already_installed:
         args = [claude_path] + user_args if os.name == "nt" else ["claude"] + user_args
         if os.name == "nt":
-            raise SystemExit(subprocess.call(args))
-        os.execvp(claude_path, args)
+            raise SystemExit(subprocess.call(args, env=env))
+        os.execvpe(claude_path, args, env)
 
     else:
         _write_hook_script()
@@ -1672,8 +1763,44 @@ def cmd_claude(user_args: list[str]) -> None:
             else ["claude", "--settings", settings_json] + user_args
         )
         if os.name == "nt":
-            raise SystemExit(subprocess.call(args))
-    os.execvp(claude_path, args)
+            raise SystemExit(subprocess.call(args, env=env))
+    os.execvpe(claude_path, args, env)
+
+
+def _extract_run_preset(args: list[str], command_name: str) -> tuple[list[str], str]:
+    """Extract nah-owned --preset from a run command."""
+    result: list[str] = []
+    selected = ""
+    after_separator = False
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if after_separator:
+            result.append(tok)
+            i += 1
+            continue
+        if tok == "--":
+            after_separator = True
+            result.append(tok)
+            i += 1
+            continue
+        if tok == "--preset":
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                print(f"{command_name}: --preset requires a value", file=sys.stderr)
+                raise SystemExit(1)
+            selected = args[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--preset="):
+            selected = tok.split("=", 1)[1]
+            if not selected:
+                print(f"{command_name}: --preset requires a value", file=sys.stderr)
+                raise SystemExit(1)
+            i += 1
+            continue
+        result.append(tok)
+        i += 1
+    return result, selected
 
 
 def _blocked_claude_flag(args: list[str]) -> str:
@@ -1808,6 +1935,7 @@ def main():
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
     test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("--preset", default=None, help="Apply a global config preset")
     test_parser.add_argument("--json", action="store_true", help="Output a stable JSON result")
     test_config_group = test_parser.add_mutually_exclusive_group()
     test_config_group.add_argument("--config", default=None, help="Inline JSON config override")
@@ -1819,7 +1947,10 @@ def main():
     test_parser.add_argument("args", nargs="*", help="Command string or tool input")
     config_parser = sub.add_parser("config", help="Show config info")
     config_sub = config_parser.add_subparsers(dest="config_command")
-    config_sub.add_parser("show", help="Display effective merged config")
+    config_show = config_sub.add_parser("show", help="Display effective merged config")
+    config_show.add_argument("--preset", default=None, help="Apply a global config preset")
+    config_presets = config_sub.add_parser("presets", help="List or show global config presets")
+    config_presets.add_argument("name", nargs="?", help="Preset name to show")
     config_sub.add_parser("path", help="Show config file paths")
     key_parser = sub.add_parser("key", help="Manage built-in LLM provider keys")
     key_sub = key_parser.add_subparsers(dest="key_command")

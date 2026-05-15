@@ -6,10 +6,14 @@ from unittest.mock import patch
 import pytest
 
 from nah.config import (
+    ConfigError,
     NahConfig,
     apply_override,
+    get_global_preset,
     get_config,
+    list_global_presets,
     reset_config,
+    set_active_preset,
     use_defaults,
     is_path_allowed,
     _merge_configs,
@@ -122,6 +126,7 @@ class TestDefaults:
         from nah import config
         try:
             config._cached_config = NahConfig(
+                profile="none",
                 actions={"git_safe": "block"},
                 trusted_paths=["/custom"],
             )
@@ -179,15 +184,180 @@ class TestDefaults:
         from nah import config
         from nah.content import reset_content_patterns, scan_content
         try:
-            config._cached_config = NahConfig(content_patterns_suppress=["hardcoded API key"])
+            config._cached_config = NahConfig()
             reset_content_patterns()
-            assert scan_content("api_secret = 'hunter2hunter2'") == []
+            assert scan_content("api_secret = 'hunter2hunter2'")
 
             use_defaults()
             assert scan_content("api_secret = 'hunter2hunter2'")
         finally:
             reset_content_patterns()
             reset_config()
+
+
+class TestPresets:
+    """Global named config presets."""
+
+    def test_default_has_no_selected_preset(self, tmp_path):
+        paths.set_project_root(str(tmp_path))
+        cfg = _merge_configs({}, {})
+        assert cfg.selected_preset == ""
+
+    def test_selected_preset_deep_merges_dicts_and_replaces_lists(self):
+        cfg = _merge_configs(
+            {
+                "actions": {
+                    "unknown": "ask",
+                    "network_outbound": "allow",
+                },
+                "known_registries": ["github.com", "npmjs.org"],
+                "presets": {
+                    "strict": {
+                        "actions": {"network_outbound": "ask"},
+                        "known_registries": ["registry.company.test"],
+                    },
+                },
+            },
+            {},
+            selected_preset="strict",
+        )
+
+        assert cfg.selected_preset == "strict"
+        assert cfg.actions["unknown"] == "ask"
+        assert cfg.actions["network_outbound"] == "ask"
+        assert cfg.known_registries == ["registry.company.test"]
+
+    def test_selected_preset_targets_flow_through_target_merge(self):
+        cfg = _merge_configs(
+            {
+                "actions": {"lang_exec": "context"},
+                "presets": {
+                    "codex-flow": {
+                        "targets": {
+                            "codex": {
+                                "actions": {"lang_exec": "ask"},
+                            },
+                        },
+                    },
+                },
+            },
+            {},
+            target="codex",
+            selected_preset="codex-flow",
+        )
+
+        assert cfg.selected_preset == "codex-flow"
+        assert cfg.actions["lang_exec"] == "ask"
+
+    def test_unknown_selected_preset_fails_closed(self):
+        with pytest.raises(ConfigError, match="unknown preset 'missing'"):
+            _merge_configs({"presets": {"strict": {}}}, {}, selected_preset="missing")
+
+    def test_project_defined_preset_is_not_selectable(self):
+        with pytest.raises(ConfigError, match="unknown preset 'strict'"):
+            _merge_configs(
+                {},
+                {"presets": {"strict": {"actions": {"unknown": "block"}}}},
+                selected_preset="strict",
+            )
+
+    def test_nested_presets_in_preset_are_ignored(self, capsys):
+        cfg = _merge_configs(
+            {
+                "presets": {
+                    "outer": {
+                        "actions": {"unknown": "block"},
+                        "presets": {"inner": {"actions": {"unknown": "allow"}}},
+                    },
+                },
+            },
+            {},
+            selected_preset="outer",
+        )
+
+        assert cfg.actions["unknown"] == "block"
+        assert "contains nested presets" in capsys.readouterr().err
+
+    def test_list_and_show_raw_presets(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  strict:\n"
+            "    actions:\n"
+            "      unknown: block\n"
+            "  work:\n"
+            "    known_registries:\n"
+            "      - registry.company.test\n",
+            encoding="utf-8",
+        )
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            assert list_global_presets() == ["strict", "work"]
+            assert get_global_preset("strict") == {"actions": {"unknown": "block"}}
+
+    def test_get_config_uses_env_preset_and_cache_key(self, tmp_path, monkeypatch):
+        paths.set_project_root(str(tmp_path))
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  one:\n"
+            "    actions:\n"
+            "      unknown: ask\n"
+            "  two:\n"
+            "    actions:\n"
+            "      unknown: block\n",
+            encoding="utf-8",
+        )
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            monkeypatch.setenv("NAH_PRESET", "one")
+            cfg_one = get_config()
+            monkeypatch.setenv("NAH_PRESET", "two")
+            cfg_two = get_config()
+
+        assert cfg_one.selected_preset == "one"
+        assert cfg_one.actions["unknown"] == "ask"
+        assert cfg_two.selected_preset == "two"
+        assert cfg_two.actions["unknown"] == "block"
+        assert cfg_one is not cfg_two
+
+    def test_explicit_preset_wins_over_env(self, tmp_path, monkeypatch):
+        paths.set_project_root(str(tmp_path))
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  env:\n"
+            "    actions:\n"
+            "      unknown: ask\n"
+            "  cli:\n"
+            "    actions:\n"
+            "      unknown: block\n",
+            encoding="utf-8",
+        )
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            monkeypatch.setenv("NAH_PRESET", "env")
+            cfg = get_config(preset="cli")
+
+        assert cfg.selected_preset == "cli"
+        assert cfg.actions["unknown"] == "block"
+
+    def test_preset_trusted_project_configs_affects_project_trust(self, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        paths.set_project_root(str(project))
+        cfg = _merge_configs(
+            {
+                "presets": {
+                    "trusted": {
+                        "trusted_project_configs": [str(project)],
+                    },
+                },
+            },
+            {"classify": {"db_read": ["inspect-db"]}},
+            selected_preset="trusted",
+            project_root=str(project),
+        )
+
+        assert cfg.project_config_trusted is True
+        assert cfg.classify_project == {"db_read": ["inspect-db"]}
 
 
 class TestLoadYaml:
@@ -689,6 +859,30 @@ class TestSensitivePathsDefault:
         assert cfg.sensitive_paths_default == "block"
 
 
+class TestLegacyProfile:
+    """Legacy profile keys are compatibility-only and do not change behavior."""
+
+    @pytest.mark.parametrize("value", ["full", "minimal", "none", "turbo", ["minimal"]])
+    def test_profile_values_are_ignored(self, value, capsys):
+        cfg = _merge_configs({"profile": value}, {})
+        assert cfg.profile == "full"
+        assert capsys.readouterr().err == ""
+
+    def test_profile_default_full(self):
+        cfg = _merge_configs({}, {})
+        assert cfg.profile == "full"
+
+    def test_profile_ignored_in_project(self):
+        """Project config cannot set the profile."""
+        cfg = _merge_configs({}, {"profile": "none"})
+        assert cfg.profile == "full"
+
+    def test_profile_global_overrides_project(self):
+        """Global and project profile values are both ignored."""
+        cfg = _merge_configs({"profile": "none"}, {"profile": "full"})
+        assert cfg.profile == "full"
+
+
 class TestLlmMode:
     """llm.mode config loading."""
 
@@ -894,12 +1088,12 @@ class TestTrustedPaths:
     def test_project_trusted_paths_ignored(self):
         """Project config cannot set trusted_paths."""
         cfg = _merge_configs({}, {"trusted_paths": ["/tmp"]})
-        # /tmp is in defaults, but project config doesn't add non-default paths.
+        # /tmp may be in defaults for profile: full, but not from project config
         # The key assertion: project config doesn't add non-default paths
         assert "~/sneaky" not in cfg.trusted_paths
 
-    def test_default_tmp_trusted(self):
-        """/tmp and /private/tmp are trusted by default."""
+    def test_default_tmp_trusted_for_full_profile(self):
+        """profile: full includes /tmp and /private/tmp as defaults."""
         cfg = _merge_configs({}, {})
         assert "/tmp" in cfg.trusted_paths
         assert "/private/tmp" in cfg.trusted_paths
@@ -907,7 +1101,7 @@ class TestTrustedPaths:
     def test_invalid_type_dict(self):
         """Invalid type (dict) → only defaults remain."""
         cfg = _merge_configs({"trusted_paths": {"path": "/tmp"}}, {})
-        # User entries ignored, but defaults still present.
+        # User entries ignored, but profile: full defaults still present
         assert "/tmp" in cfg.trusted_paths
         assert "/private/tmp" in cfg.trusted_paths
 
@@ -917,12 +1111,12 @@ class TestTrustedPaths:
         assert "/tmp" in cfg.trusted_paths
 
     def test_empty_list_gets_defaults(self):
-        """Empty user list still gets defaults."""
+        """Empty user list still gets profile: full defaults."""
         cfg = _merge_configs({"trusted_paths": []}, {})
         assert "/tmp" in cfg.trusted_paths
 
     def test_default_includes_tmp(self):
-        """No config includes /tmp by default."""
+        """No config → profile: full defaults include /tmp."""
         cfg = _merge_configs({}, {})
         assert "/tmp" in cfg.trusted_paths
 

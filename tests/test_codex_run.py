@@ -1,6 +1,7 @@
 """Tests for the `nah run codex` launcher."""
 
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -74,6 +75,60 @@ def test_confirm_edits_rejects_value_form():
         _launch(["--confirm-edits=true"])
 
     assert "--confirm-edits does not take a value" in str(exc.value)
+
+
+def test_preset_is_nah_launcher_flag(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        launch = _launch(["--preset", "strict", "resume"])
+
+    assert launch.selected_preset == "strict"
+    assert launch.env["NAH_PRESET"] == "strict"
+    assert "--preset" not in launch.argv
+    assert "strict" not in launch.argv
+    assert launch.argv[-1] == "resume"
+
+
+def test_preset_rejects_value_errors():
+    with pytest.raises(CodexRunError) as exc:
+        _launch(["--preset"])
+
+    assert "--preset requires a value" in str(exc.value)
+
+
+def test_preset_rejects_unknown_name(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        with pytest.raises(CodexRunError) as exc:
+            _launch(["--preset", "missing"])
+
+    assert "unknown preset 'missing'" in str(exc.value)
+
+
+def test_cli_preset_overrides_inherited_env(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("presets:\n  env: {}\n  cli: {}\n", encoding="utf-8")
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        launch = _launch(["--preset=cli"], base_env={"NAH_PRESET": "env"})
+
+    assert launch.selected_preset == "cli"
+    assert launch.env["NAH_PRESET"] == "cli"
+
+
+def test_inherited_preset_is_preserved_and_validated(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("presets:\n  env: {}\n", encoding="utf-8")
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        launch = _launch([], base_env={"NAH_PRESET": "env"})
+
+    assert launch.selected_preset == "env"
+    assert launch.env["NAH_PRESET"] == "env"
 
 
 @pytest.mark.parametrize("flag", ["--flow", "--auto-edits", "--no-sandbox"])

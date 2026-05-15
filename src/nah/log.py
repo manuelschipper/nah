@@ -105,6 +105,16 @@ def build_entry(
         "action_type": _extract_action_type(meta),
         "ms": total_ms,
     }
+    preset = meta.get("selected_preset") or meta.get("preset")
+    if not preset:
+        try:
+            from nah.config import get_config
+
+            preset = get_config().selected_preset
+        except Exception:
+            preset = ""
+    if preset:
+        entry["selected_preset"] = str(preset)
 
     # Detail: classify
     stages = meta.get("stages")

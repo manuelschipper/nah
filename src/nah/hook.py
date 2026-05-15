@@ -795,7 +795,10 @@ def _log_hook_decision(
         log_config = None
         try:
             from nah.config import get_config
-            log_config = get_config().log or None
+            cfg = get_config()
+            log_config = cfg.log or None
+            if cfg.selected_preset:
+                meta["selected_preset"] = cfg.selected_preset
         except Exception as exc:
             sys.stderr.write(f"nah: config: log: {exc}\n")
 

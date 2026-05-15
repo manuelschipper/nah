@@ -13,11 +13,14 @@ you are about to start:
 nah run claude
 nah run claude --resume
 nah run claude -p "fix the failing test"
+nah run claude --preset strict
 ```
 
 `nah run claude` writes the hook shim if needed and passes Claude Code an inline
 `--settings` value for that process. If persistent direct hooks are already
 installed, it launches `claude` normally because the session is already guarded.
+`--preset <name>` applies one named global config preset to that Claude process
+and its nah hooks.
 
 nah rejects Claude flags that bypass or auto-approve permissions:
 

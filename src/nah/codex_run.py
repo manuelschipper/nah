@@ -27,6 +27,7 @@ class CodexLaunch:
     authority_rules_path: str = ""
     confirm_edits: bool = False
     network: bool = False
+    selected_preset: str = ""
 
 
 _BYPASS_FLAGS = {
@@ -37,6 +38,8 @@ _DEFAULT_SANDBOX_MODE = "danger-full-access"
 _DEFAULT_APPROVAL_POLICY = "untrusted"
 _CONFIRM_EDITS_FLAG = "--confirm-edits"
 _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
+_PRESET_FLAG = "--preset"
+_PRESET_ENV = "NAH_PRESET"
 _NETWORK_FLAG = "--network"
 _ALLOWED_SANDBOX_MODES = {"danger-full-access", "read-only", "workspace-write"}
 _REJECT_VALUE_FLAGS = {
@@ -198,11 +201,21 @@ def build_codex_launch(
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    codex_args, confirm_edits, sandbox_mode, network = _extract_nah_run_flags(
+    codex_args, confirm_edits, sandbox_mode, network, selected_preset = _extract_nah_run_flags(
         list(user_args),
     )
     _validate_user_args(codex_args)
     env = dict(base_env if base_env is not None else os.environ)
+    if selected_preset:
+        env[_PRESET_ENV] = selected_preset
+    selected_effective_preset = selected_preset or env.get(_PRESET_ENV, "").strip()
+    if selected_effective_preset:
+        try:
+            from nah.config import ConfigError, get_config
+
+            get_config(target="codex", preset=selected_effective_preset)
+        except ConfigError as exc:
+            raise CodexRunError(f"nah run codex: {exc}") from exc
     if confirm_edits:
         env[_CONFIRM_EDITS_ENV] = "1"
     else:
@@ -231,6 +244,7 @@ def build_codex_launch(
         authority_rules_path=authority_rules_path,
         confirm_edits=confirm_edits,
         network=network,
+        selected_preset=selected_effective_preset,
     )
 
 
@@ -258,12 +272,13 @@ def _validate_user_args(args: list[str]) -> None:
     _reject_unsupported_subcommands(args)
 
 
-def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool]:
+def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool, str]:
     """Extract nah-owned launcher flags before handing the rest to Codex."""
     codex_args: list[str] = []
     confirm_edits = False
     sandbox_mode = _DEFAULT_SANDBOX_MODE
     network = False
+    selected_preset = ""
     after_separator = False
     i = 0
     while i < len(args):
@@ -293,6 +308,18 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool]
             raise CodexRunError(
                 f"nah run codex: {_NETWORK_FLAG} does not take a value",
             )
+        if tok == _PRESET_FLAG:
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                raise CodexRunError("nah run codex: --preset requires a value")
+            selected_preset = args[i + 1]
+            i += 2
+            continue
+        if tok.startswith(_PRESET_FLAG + "="):
+            selected_preset = tok.split("=", 1)[1]
+            if not selected_preset:
+                raise CodexRunError("nah run codex: --preset requires a value")
+            i += 1
+            continue
         if tok in {"-s", "--sandbox"}:
             if i + 1 >= len(args) or args[i + 1].startswith("-"):
                 raise CodexRunError("nah run codex: --sandbox requires a value")
@@ -314,7 +341,7 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool]
             "nah run codex: --network requires --sandbox workspace-write "
             "or danger-full-access",
         )
-    return codex_args, confirm_edits, sandbox_mode, network
+    return codex_args, confirm_edits, sandbox_mode, network, selected_preset
 
 
 def _validate_sandbox_mode(value: str) -> str:

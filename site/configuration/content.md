@@ -127,3 +127,7 @@ credential_patterns:
   add:
     - "\\bINTERNAL_SECRET\\b"  # add a custom credential pattern
 ```
+
+Use [presets](index.md#presets) when you want different content-inspection
+settings for different workflows. Legacy `profile` keys are ignored and do not
+disable built-in content or credential scanners.

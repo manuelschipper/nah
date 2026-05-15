@@ -9,6 +9,7 @@ if you sometimes start Codex directly.
 nah codex setup
 nah codex doctor
 nah run codex
+nah run codex --preset work
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
@@ -45,6 +46,10 @@ nah run codex --sandbox workspace-write
 nah run codex --sandbox workspace-write --network
 nah run codex --sandbox read-only
 ```
+
+Use `--preset <name>` to apply one named global config preset to the protected
+session. The launcher strips the flag before starting Codex and exports
+`NAH_PRESET` so all injected hooks use the same effective config.
 
 `--network` enables Codex workspace network access only with
 `--sandbox workspace-write`. With the default `danger-full-access` sandbox,

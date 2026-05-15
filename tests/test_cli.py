@@ -301,6 +301,77 @@ class TestCmdLog:
         assert f"LLM detail: {llm_detail}" in out
 
 
+class TestCmdConfig:
+    def test_config_presets_lists_names(self, tmp_path, capsys):
+        import nah.cli as cli_mod
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  strict: {}\n"
+            "  work: {}\n",
+            encoding="utf-8",
+        )
+
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            cli_mod.cmd_config(argparse.Namespace(config_command="presets", name=None))
+
+        assert capsys.readouterr().out.splitlines() == ["strict", "work"]
+
+    def test_config_presets_shows_raw_preset(self, tmp_path, capsys):
+        import nah.cli as cli_mod
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  strict:\n"
+            "    actions:\n"
+            "      unknown: block\n",
+            encoding="utf-8",
+        )
+
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            cli_mod.cmd_config(argparse.Namespace(config_command="presets", name="strict"))
+
+        out = capsys.readouterr().out
+        assert "Preset: strict" in out
+        assert "unknown: block" in out
+
+    def test_config_show_applies_preset(self, tmp_path, capsys):
+        import nah.cli as cli_mod
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "actions:\n"
+            "  unknown: ask\n"
+            "presets:\n"
+            "  strict:\n"
+            "    actions:\n"
+            "      unknown: block\n",
+            encoding="utf-8",
+        )
+
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            cli_mod.cmd_config(argparse.Namespace(config_command="show", preset="strict"))
+
+        out = capsys.readouterr().out
+        assert "selected_preset:       strict" in out
+        assert "'unknown': 'block'" in out
+
+    def test_config_show_unknown_preset_fails(self, tmp_path, capsys):
+        import nah.cli as cli_mod
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            with pytest.raises(SystemExit) as exc:
+                cli_mod.cmd_config(argparse.Namespace(config_command="show", preset="missing"))
+
+        assert exc.value.code == 1
+        assert "unknown preset 'missing'" in capsys.readouterr().err
+
+
 class TestKeyCommands:
     def test_key_status_reports_sources_without_leaking_values(self, monkeypatch, capsys):
         from nah import llm_keys
@@ -632,6 +703,61 @@ class TestCmdTest:
         assert '"decision": "block"' in out
         assert '"human_reason": "this downloads code and runs it in bash"' in out
 
+    def test_bash_json_includes_selected_preset(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "presets:\n"
+            "  strict:\n"
+            "    actions:\n"
+            "      git_safe: block\n",
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config=None,
+            defaults=False,
+            preset="strict",
+            target="",
+            json=True,
+            args=["git status"],
+        )
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            cmd_test(args)
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["selected_preset"] == "strict"
+        assert payload["decision"] == "block"
+
+    def test_bash_unknown_preset_fails(self, tmp_path, capsys):
+        from nah.cli import cmd_test
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config=None,
+            defaults=False,
+            preset="missing",
+            target="",
+            json=True,
+            args=["git status"],
+        )
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+            with pytest.raises(SystemExit) as exc:
+                cmd_test(args)
+
+        assert exc.value.code == 1
+        assert "unknown preset 'missing'" in capsys.readouterr().err
+
     def test_bash_script_outside_project_human_reason(self, tmp_path, capsys):
         from nah.cli import cmd_test
 
@@ -808,6 +934,18 @@ class TestCmdTest:
         out = capsys.readouterr().out
         assert "BLOCK" in out
 
+    def test_config_profile_none_is_ignored(self, capsys):
+        """Legacy --config profile:none no longer changes taxonomy behavior."""
+        from nah.cli import cmd_test
+        args = argparse.Namespace(
+            tool=None, path=None, content=None, pattern=None,
+            config='{"profile": "none"}',
+            args=["git", "status"],
+        )
+        cmd_test(args)
+        out = capsys.readouterr().out
+        assert "ALLOW" in out
+
     def test_defaults_ignores_cached_config(self, capsys):
         """--defaults replaces active config for the dry-run process."""
         from nah import config
@@ -823,8 +961,8 @@ class TestCmdTest:
         assert "git_safe" in out
         assert "ALLOW" in out
 
-    def test_defaults_keeps_trusted_tmp(self, capsys):
-        """--defaults uses merged defaults, including /tmp trust."""
+    def test_defaults_keeps_profile_trusted_tmp(self, capsys):
+        """--defaults uses merged defaults, including profile-derived /tmp trust."""
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool="Write", path="/tmp/test.txt",
@@ -839,7 +977,7 @@ class TestCmdTest:
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool=None, path=None, content=None, pattern=None,
-            config='{"actions": {"git_safe": "block"}}', defaults=True, args=["git", "status"],
+            config='{"profile": "none"}', defaults=True, args=["git", "status"],
         )
         with pytest.raises(SystemExit):
             cmd_test(args)
@@ -1318,17 +1456,17 @@ class TestCmdClaude:
         monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
 
         exec_calls = []
-        def mock_execvp(path, args):
-            exec_calls.append((path, args))
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
             raise SystemExit(0)
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", mock_execvp):
+             patch.object(os, "execvpe", mock_execvpe):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude(["--resume"])
 
         assert len(exec_calls) == 1
-        path, args = exec_calls[0]
+        path, args, env = exec_calls[0]
         assert path == "/usr/bin/claude"
         assert args == ["claude", "--resume"]
         assert "--settings" not in args
@@ -1344,17 +1482,17 @@ class TestCmdClaude:
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
 
         exec_calls = []
-        def mock_execvp(path, args):
-            exec_calls.append((path, args))
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
             raise SystemExit(0)
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", mock_execvp):
+             patch.object(os, "execvpe", mock_execvpe):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude(["-p", "fix bug"])
 
         assert len(exec_calls) == 1
-        path, args = exec_calls[0]
+        path, args, env = exec_calls[0]
         assert args[0] == "claude"
         assert args[1] == "--settings"
         settings = json_mod.loads(args[2])
@@ -1373,12 +1511,12 @@ class TestCmdClaude:
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
 
         exec_calls = []
-        def mock_execvp(path, args):
-            exec_calls.append((path, args))
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
             raise SystemExit(0)
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", mock_execvp):
+             patch.object(os, "execvpe", mock_execvpe):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude([])
 
@@ -1395,7 +1533,7 @@ class TestCmdClaude:
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", side_effect=SystemExit(0)):
+             patch.object(os, "execvpe", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude([])
 
@@ -1412,18 +1550,49 @@ class TestCmdClaude:
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
 
         exec_calls = []
-        def mock_execvp(path, args):
-            exec_calls.append((path, args))
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
             raise SystemExit(0)
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", mock_execvp):
+             patch.object(os, "execvpe", mock_execvpe):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude(["--resume", "--verbose"])
 
         args = exec_calls[0][1]
         assert "--resume" in args
         assert "--verbose" in args
+
+    def test_preset_sets_env_and_is_not_passed_to_claude(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import agents
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}")
+        monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
+        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
+        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
+
+        exec_calls = []
+
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
+            raise SystemExit(0)
+
+        with patch("nah.config._GLOBAL_CONFIG", str(config_path)), \
+             patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch.object(os, "execvpe", mock_execvpe):
+            with pytest.raises(SystemExit):
+                cli_mod.cmd_claude(["--preset", "strict", "--resume"])
+
+        args = exec_calls[0][1]
+        env = exec_calls[0][2]
+        assert "--preset" not in args
+        assert "strict" not in args
+        assert "--resume" in args
+        assert env["NAH_PRESET"] == "strict"
 
     def test_windows_uses_subprocess_call(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
@@ -1442,17 +1611,17 @@ class TestCmdClaude:
         monkeypatch.setattr(cli_mod.os, "name", "nt")
 
         calls = []
-        monkeypatch.setattr(cli_mod.subprocess, "call", lambda args: calls.append(args) or 7)
-        monkeypatch.setattr(cli_mod.os, "execvp", lambda *_args: pytest.fail("execvp should not run on Windows"))
+        monkeypatch.setattr(cli_mod.subprocess, "call", lambda args, env=None: calls.append((args, env)) or 7)
+        monkeypatch.setattr(cli_mod.os, "execvpe", lambda *_args: pytest.fail("execvpe should not run on Windows"))
 
         with patch("shutil.which", return_value=r"C:\Tools\claude.exe"):
             with pytest.raises(SystemExit) as exc:
                 cli_mod.cmd_claude(["--resume"])
 
         assert exc.value.code == 7
-        assert calls[0][0] == r"C:\Tools\claude.exe"
-        assert "--settings" in calls[0]
-        assert "--resume" in calls[0]
+        assert calls[0][0][0] == r"C:\Tools\claude.exe"
+        assert "--settings" in calls[0][0]
+        assert "--resume" in calls[0][0]
 
 
 class TestCmdCodex:
@@ -1685,12 +1854,12 @@ class TestCliPluginMode:
 
         exec_calls = []
 
-        def mock_execvp(path, args):
-            exec_calls.append((path, args))
+        def mock_execvpe(path, args, env):
+            exec_calls.append((path, args, env))
             raise SystemExit(0)
 
         with patch("shutil.which", return_value="/usr/bin/claude"), \
-             patch.object(os, "execvp", mock_execvp):
+             patch.object(os, "execvpe", mock_execvpe):
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude(["--resume"])
 

@@ -415,6 +415,11 @@ class TestBuildEntry:
         assert entry["reason"] == ""
         assert entry["ms"] == 18
 
+    def test_selected_preset_from_meta(self):
+        entry = self._build(meta={"selected_preset": "strict"})
+
+        assert entry["selected_preset"] == "strict"
+
     def test_id_length_16_hex(self):
         entry = self._build()
         assert len(entry["id"]) == 16

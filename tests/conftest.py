@@ -15,7 +15,9 @@ def _reset_state(tmp_path, monkeypatch):
     import nah.config
 
     monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("NAH_PRESET", raising=False)
     monkeypatch.setattr(nah.config, "_GLOBAL_CONFIG", str(tmp_path / "config.yaml"))
+    nah.config.set_active_preset("", reset_cache=False)
     reset_config()
     paths.reset_sensitive_paths()
     paths._sensitive_paths_merged = True  # prevent real config from polluting tests

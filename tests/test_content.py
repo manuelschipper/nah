@@ -388,26 +388,30 @@ class TestContentPolicies:
             _cleanup()
 
 
-class TestDefaultContentInspection:
-    """Built-in content inspection stays active unless explicitly suppressed."""
+class TestLegacyProfileContent:
+    """Legacy profile values are ignored by content inspection."""
 
-    def test_default_content_matches(self):
-        _with_config(NahConfig())
+    def test_profile_none_still_uses_builtin_content_patterns(self):
+        _with_config(NahConfig(profile="none"))
         try:
             matches = scan_content("rm -rf /; -----BEGIN PRIVATE KEY-----")
-            assert matches
+            categories = {m.category for m in matches}
+            assert "destructive" in categories
+            assert "secret" in categories
         finally:
             _cleanup()
 
-    def test_default_credential_search(self):
-        _with_config(NahConfig())
+    def test_profile_none_still_uses_builtin_credential_patterns(self):
+        _with_config(NahConfig(profile="none"))
         try:
             assert is_credential_search("password") is True
         finally:
             _cleanup()
 
-    def test_custom_add_keeps_builtins(self):
-        _with_config(NahConfig(content_patterns_add=[
+    def test_profile_none_plus_add_keeps_builtins(self):
+        _with_config(NahConfig(
+            profile="none",
+            content_patterns_add=[
                 {"category": "custom", "pattern": r"\bDANGER\b",
                  "description": "danger word"},
             ],
@@ -416,7 +420,7 @@ class TestDefaultContentInspection:
             matches = scan_content("DANGER zone")
             assert len(matches) == 1
             assert matches[0].category == "custom"
-            assert scan_content("rm -rf /")
+            assert scan_content("rm -rf /") != []
         finally:
             _cleanup()
 

@@ -123,3 +123,7 @@ root triggers an `ask` decision (project boundary check).
 
 !!! warning "Global config only"
     Both `allow_paths` and `trusted_paths` are only accepted in global config. Project `.nah.yaml` cannot modify them.
+
+Use [presets](index.md#presets) when you want different sensitive-path policy
+bundles for different workflows. Legacy `profile` keys are ignored and do not
+disable built-in sensitive path checks.

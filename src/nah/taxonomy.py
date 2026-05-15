@@ -66,8 +66,13 @@ CONTEXT = "context"
 STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
 
 
-def _load_classify_table() -> list[tuple[tuple[str, ...], str]]:
-    """Load the built-in classify table from JSON files."""
+def _effective_profile(profile: str) -> str:
+    """Compatibility shim: nah always runs the full built-in taxonomy."""
+    return "full"
+
+
+def _load_classify_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
+    """Load classify table from JSON files for the given profile."""
     subdir = "classify_full"
     classify_dir = _DATA_DIR / subdir
     table: list[tuple[tuple[str, ...], str]] = []
@@ -90,19 +95,22 @@ def _load_policies() -> dict[str, str]:
         return json.load(f)
 
 
-_BUILTIN_TABLE: list[tuple[tuple[str, ...], str]] = _load_classify_table()
+# Cached built-in table. The optional profile argument is compatibility-only.
+_BUILTIN_TABLES: dict[str, list[tuple[tuple[str, ...], str]]] = {}
 _TYPE_DESCRIPTIONS: dict[str, str] | None = None
 _POLICIES = _load_policies()
 POLICIES = _POLICIES
 
+# Pre-load full profile at module level (most common path).
+_BUILTIN_TABLES["full"] = _load_classify_table("full")
 
-def get_builtin_table(profile: str | None = None) -> list[tuple[tuple[str, ...], str]]:
-    """Get the cached built-in classify table.
 
-    The optional profile argument is accepted for compatibility with older
-    callers; nah no longer has taxonomy profiles.
-    """
-    return _BUILTIN_TABLE
+def get_builtin_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
+    """Get cached built-in classify table; profile is ignored."""
+    profile = _effective_profile(profile)
+    if profile not in _BUILTIN_TABLES:
+        _BUILTIN_TABLES[profile] = _load_classify_table(profile)
+    return _BUILTIN_TABLES[profile]
 
 
 def _validate_classify_pattern(pattern: str) -> None:
@@ -478,13 +486,11 @@ def classify_tokens(
     builtin_table: list | None = None,
     project_table: list | None = None,
     *,
-    profile: str | None = None,
+    profile: str = "full",
     trust_project: bool = False,
     env_assignments: dict[str, str] | None = None,
 ) -> str:
     """Classify command tokens via three-phase lookup.
-
-    ``profile`` is accepted for compatibility with older callers and ignored.
 
     Phase 1: Global table (trusted user config) — always runs.
     Phase 2: Flag classifiers (built-in opinions).
@@ -494,6 +500,7 @@ def classify_tokens(
     """
     if not tokens:
         return UNKNOWN
+    profile = _effective_profile(profile)
 
     # Command normalization — resolve /usr/bin/rm, C:\...\cmd.exe, python3.12.
     base = _normalize_command_name(tokens[0])
@@ -521,6 +528,7 @@ def classify_tokens(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
+        profile=profile,
         trust_project=trust_project,
     )
     if action is not None:
@@ -574,10 +582,10 @@ def classify_tokens(
     action = _classify_httpie(tokens)
     if action is not None:
         return action
-    action = _classify_gh_api(tokens)
+    action = _classify_gh_api(tokens, profile=profile)
     if action is not None:
         return action
-    action = _classify_glab_api(tokens)
+    action = _classify_glab_api(tokens, profile=profile)
     if action is not None:
         return action
     action = _classify_mise_exec_wrapper(
@@ -585,6 +593,7 @@ def classify_tokens(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
+        profile=profile,
         trust_project=trust_project,
     )
     if action is not None:
@@ -615,6 +624,7 @@ def classify_tokens(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
+        profile=profile,
         trust_project=trust_project,
     )
     if action is not None:
@@ -922,6 +932,7 @@ def _classify_find(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
+    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Special classifier for find — inspect -exec payloads conservatively."""
@@ -939,6 +950,7 @@ def _classify_find(
                 global_table=global_table,
                 builtin_table=builtin_table,
                 project_table=project_table,
+                profile=profile,
                 trust_project=trust_project,
             )
             return inner_action if inner_action != UNKNOWN else FILESYSTEM_DELETE
@@ -2283,9 +2295,10 @@ def _gh_api_payload_value_is_file_sourced(payload: str | None) -> bool:
     return value.startswith("@")
 
 
-def _classify_api_cli(tokens: list[str], command: str) -> str | None:
+def _classify_api_cli(tokens: list[str], command: str, *, profile: str = "full") -> str | None:
     """Flag-dependent: API reads are git_safe; writes/bodies are network_write."""
-    if len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
+    profile = _effective_profile(profile)
+    if profile != "full" or len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
         return None
 
     explicit_read_method = False
@@ -2404,14 +2417,14 @@ def _classify_api_cli(tokens: list[str], command: str) -> str | None:
     return GIT_SAFE
 
 
-def _classify_gh_api(tokens: list[str]) -> str | None:
+def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
     """Flag-dependent: gh api reads are git_safe; writes/bodies are network_write."""
-    return _classify_api_cli(tokens, "gh")
+    return _classify_api_cli(tokens, "gh", profile=profile)
 
 
-def _classify_glab_api(tokens: list[str]) -> str | None:
+def _classify_glab_api(tokens: list[str], *, profile: str = "full") -> str | None:
     """Flag-dependent: glab api reads are git_safe; writes/bodies are network_write."""
-    return _classify_api_cli(tokens, "glab")
+    return _classify_api_cli(tokens, "glab", profile=profile)
 
 
 _CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
@@ -3130,6 +3143,7 @@ def _classify_mise_exec_wrapper(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
+    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Classify supported explicit-delimiter mise wrappers by their payload."""
@@ -3142,6 +3156,7 @@ def _classify_mise_exec_wrapper(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
+        profile=profile,
         trust_project=trust_project,
     )
     return inner_action if inner_action != UNKNOWN else UNKNOWN
@@ -3153,6 +3168,7 @@ def _classify_package_exec_wrapper(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
+    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Reclassify package wrappers only when the inner payload is lang_exec."""
@@ -3170,6 +3186,7 @@ def _classify_package_exec_wrapper(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
+        profile=profile,
         trust_project=trust_project,
     )
     if inner_action == LANG_EXEC:

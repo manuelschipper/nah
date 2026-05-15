@@ -1278,8 +1278,10 @@
       "expected": "allow",
       "default_expected": "allow",
       "feature": "FD-050",
-      "config": {},
-      "description": "Flag classifier still applies"
+      "config": {
+        "profile": "none"
+      },
+      "description": "Legacy profile:none is ignored; flag classifiers still run"
     },
     {
       "id": "V5",
@@ -1290,8 +1292,10 @@
       "expected": "allow",
       "default_expected": "allow",
       "feature": "FD-050",
-      "config": {},
-      "description": "Built-in table still applies"
+      "config": {
+        "profile": "none"
+      },
+      "description": "Legacy profile:none is ignored; built-in table still loads"
     },
     {
       "id": "V6",
@@ -1303,13 +1307,14 @@
       "default_expected": "allow",
       "feature": "FD-050",
       "config": {
+        "profile": "none",
         "classify": {
           "filesystem_read": [
             "sed"
           ]
         }
       },
-      "description": "Global table still wins before flag classifiers"
+      "description": "Global table still works when legacy profile:none is present"
     },
     {
       "id": "V7",
@@ -1378,8 +1383,10 @@
       "expected": "ask",
       "default_expected": "ask",
       "feature": "FD-052",
-      "config": {},
-      "description": "Built-in content patterns remain active"
+      "config": {
+        "profile": "none"
+      },
+      "description": "Legacy profile:none is ignored; built-in content patterns still run"
     },
     {
       "id": "V11",

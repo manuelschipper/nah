@@ -521,23 +521,23 @@ class TestGrepCredentialBoundary:
         d = handle_write({"file_path": "~/.ssh/id_rsa", "content": "key"})
         assert d["decision"] == "block"
 
-    def test_write_boundary_asks_outside_project(self, project_root):
-        """Project boundary check applies for Write."""
-        config._cached_config = NahConfig()
+    def test_legacy_profile_none_keeps_boundary(self, project_root):
+        """Legacy profile values are ignored; Write boundary checks remain active."""
+        config._cached_config = NahConfig(profile="none")
         paths._sensitive_paths_merged = False  # allow re-merge
-        d = handle_write({"file_path": "/tmp/anywhere.txt", "content": "hello"})
+        d = handle_write({"file_path": "/var/nah-outside.txt", "content": "hello"})
         assert d["decision"] == "ask"
 
-    def test_sensitive_dirs_block(self, project_root):
-        """Sensitive dirs stay active."""
-        config._cached_config = NahConfig()
+    def test_legacy_profile_none_keeps_sensitive_dirs(self, project_root):
+        """Legacy profile values are ignored; sensitive paths remain active."""
+        config._cached_config = NahConfig(profile="none")
         paths._sensitive_paths_merged = False  # allow re-merge
         d = handle_write({"file_path": "~/.ssh/config", "content": "host"})
         assert d["decision"] == "block"
 
-    def test_hook_self_protection_still_blocks(self, project_root):
-        """Hook self-protection is immutable."""
-        config._cached_config = NahConfig()
+    def test_hook_self_protection_immutable_under_legacy_profile(self, project_root):
+        """Hook self-protection remains active when legacy profile is present."""
+        config._cached_config = NahConfig(profile="none")
         paths._sensitive_paths_merged = False  # allow re-merge
         d = handle_write({"file_path": "~/.claude/hooks/guard.py", "content": "x"})
         assert d["decision"] == "block"

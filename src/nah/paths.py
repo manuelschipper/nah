@@ -14,8 +14,8 @@ _NAH_CONFIG_DIR = os.path.realpath(nah_config_dir())
 _WINDOWS_APPDATA_DIR = windows_appdata_dir()
 
 # Sensitive paths: (resolved_dir, display_name, policy)
-# Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list;
-# they are checked separately via is_hook_path() / is_nah_config_path().
+# Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list.
+# They are checked separately via is_hook_path() / is_nah_config_path().
 # These are hardcoded defaults for FD-004. FD-006 makes them configurable.
 _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".ssh")), "~/.ssh", "block"),
@@ -414,6 +414,8 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
     """Check if path is outside project root + trusted_paths. Returns dict or None (= allow)."""
     if not raw_path:
         return None
+    from nah.config import get_config  # lazy import to avoid circular
+    get_config()
     resolved = resolve_path(raw_path)
     if is_trusted_path(resolved):
         return None  # trusted — allow regardless of project root (FD-107)

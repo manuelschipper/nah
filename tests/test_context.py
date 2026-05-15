@@ -62,7 +62,7 @@ class TestResolveFilesystemContext:
         assert "outside project" in reason
 
     def test_tmp_trusted_by_default(self, project_root):
-        """/tmp is trusted by default."""
+        """/tmp is trusted by default in profile: full."""
         decision, reason = resolve_filesystem_context("/tmp/scratch.txt")
         assert decision == "allow"
         assert "trusted" in reason
@@ -554,7 +554,7 @@ class TestResolveContext:
         assert decision == "allow"
 
     def test_container_write_uses_workspace_context(self, project_root):
-        config._cached_config = NahConfig()
+        config._cached_config = NahConfig(profile="full")
         old_cwd = os.getcwd()
         try:
             os.chdir(project_root)
@@ -565,7 +565,7 @@ class TestResolveContext:
         assert "inside project" in reason
 
     def test_container_write_without_git_root_asks(self, tmp_path):
-        config._cached_config = NahConfig()
+        config._cached_config = NahConfig(profile="full")
         paths.set_project_root(None)
         old_cwd = os.getcwd()
         try:
@@ -615,7 +615,7 @@ class TestResolveContext:
 
 
 class TestKnownHostsConfigurable:
-    """FD-051: known_registries add/remove."""
+    """FD-051: known_registries add/remove/profile-none."""
 
     def _setup_merge(self, cfg):
         """Reset and allow merge to run with given config."""
@@ -651,14 +651,14 @@ class TestKnownHostsConfigurable:
         decision, _ = resolve_network_context(["curl", "https://x.com"])
         assert decision == "ask"
 
-    def test_default_hosts_are_present(self):
-        self._setup_merge(NahConfig())
+    def test_legacy_profile_none_keeps_default_hosts(self):
+        self._setup_merge(NahConfig(profile="none"))
         decision, _ = resolve_network_context(["curl", "https://github.com/repo"])
         assert decision == "allow"
 
-    def test_add_keeps_defaults(self):
-        """User add works without removing default hosts."""
-        self._setup_merge(NahConfig(known_registries=["custom.io"]))
+    def test_legacy_profile_none_with_add_keeps_defaults(self):
+        """Legacy profile values are ignored; defaults and user entries both apply."""
+        self._setup_merge(NahConfig(profile="none", known_registries=["custom.io"]))
         decision, _ = resolve_network_context(["curl", "https://custom.io/pkg"])
         assert decision == "allow"
         decision2, _ = resolve_network_context(["curl", "https://pypi.org/simple/"])
@@ -700,10 +700,10 @@ class TestTrustedPathContext:
         assert decision == "ask"
         assert "outside project" in reason
 
-    def test_project_boundary_checks_untrusted_tmp(self, project_root):
-        """Project boundary checks still apply to untrusted paths."""
-        config._cached_config = NahConfig()
-        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+    def test_legacy_profile_none_does_not_disable_boundary(self, project_root):
+        """Legacy profile values are ignored; project boundary checks still run."""
+        config._cached_config = NahConfig(profile="none")
+        decision, reason = resolve_filesystem_context("/opt/outside-project-file.txt")
         assert decision == "ask"
         assert "outside project" in reason
 

