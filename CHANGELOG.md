@@ -20,9 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$CODEX_HOME/rules/nah-authority.rules` file so Codex-known-safe command
   prefixes such as `cat`, `git`, `rg`, and shell wrappers still route through
   nah's `PermissionRequest` classifier before execution. `nah codex setup`
-  creates or refreshes this authority file, `nah codex doctor` and
-  `nah codex repair` cover it in preflight, and `nah codex remove-setup`
-  removes only the nah-managed setup files. (nah-923)
+  creates or refreshes this authority file, `nah codex doctor` inspects
+  approval-memory/MCP drift, and `nah codex remove-setup` removes only the
+  nah-managed setup files. (nah-923)
 - **Codex confirm-edits mode** — safe project-local `apply_patch` add/update
   edits now allow by default after nah path and content checks, while
   `nah run codex --confirm-edits` keeps those safe edits on Codex's native
@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex setup command surface** — `nah codex setup` now backs up and fixes
+  supported Codex approval-memory/MCP drift, so the separate pre-v1
+  `nah codex repair` command has been removed. (nah-925)
 - **YAML `llm.mode: on/off` parsing** — PyYAML parses unquoted `on` and `off`
   as booleans, so nah now accepts boolean `true`/`false` anywhere it reads LLM
   mode, including target overrides and inline `--config` overrides.
