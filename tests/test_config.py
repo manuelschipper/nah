@@ -514,6 +514,45 @@ class TestMergeConfigs:
         cfg = _merge_configs(global_cfg, project_cfg, target="bash", project_config_trusted=True)
         assert cfg.actions["network_outbound"] == "allow"
 
+    def test_ask_fallback_defaults_empty(self):
+        cfg = _merge_configs({}, {}, target="codex")
+        assert cfg.ask_fallback == ""
+
+    def test_target_ask_fallback_accepts_block_and_allow(self):
+        for mode in ("block", "allow"):
+            cfg = _merge_configs(
+                {"targets": {"codex": {"ask_fallback": mode}}},
+                {},
+                target="codex",
+            )
+            assert cfg.ask_fallback == mode
+
+    def test_target_ask_fallback_rejects_invalid_values(self):
+        with pytest.raises(ConfigError, match="ask_fallback"):
+            _merge_configs(
+                {"targets": {"codex": {"ask_fallback": "prompt"}}},
+                {},
+                target="codex",
+            )
+
+    def test_untrusted_project_target_cannot_set_ask_fallback(self):
+        cfg = _merge_configs(
+            {},
+            {"targets": {"codex": {"ask_fallback": "allow"}}},
+            target="codex",
+            project_config_trusted=False,
+        )
+        assert cfg.ask_fallback == ""
+
+    def test_trusted_project_target_can_set_ask_fallback(self):
+        cfg = _merge_configs(
+            {},
+            {"targets": {"codex": {"ask_fallback": "block"}}},
+            target="codex",
+            project_config_trusted=True,
+        )
+        assert cfg.ask_fallback == "block"
+
     def test_terminal_targets_default_llm_off(self):
         global_cfg = {
             "llm": {

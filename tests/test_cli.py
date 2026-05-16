@@ -739,6 +739,7 @@ class TestCmdTest:
 
         config_path = tmp_path / "config.yaml"
         config_path.write_text("presets:\n  strict: {}\n", encoding="utf-8")
+
         args = argparse.Namespace(
             tool=None,
             path=None,
@@ -757,6 +758,46 @@ class TestCmdTest:
 
         assert exc.value.code == 1
         assert "unknown preset 'missing'" in capsys.readouterr().err
+
+    def test_target_codex_json_applies_ask_fallback_block(self, capsys):
+        from nah.cli import cmd_test
+
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config='{"targets":{"codex":{"ask_fallback":"block"}}}',
+            defaults=False,
+            target="codex",
+            json=True,
+            args=["curl -I https://schipper.ai"],
+        )
+        cmd_test(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["decision"] == "block"
+        assert payload["ask_fallback"]["from"] == "ask"
+        assert payload["ask_fallback"]["to"] == "block"
+
+    def test_target_codex_json_applies_ask_fallback_allow(self, capsys):
+        from nah.cli import cmd_test
+
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config='{"targets":{"codex":{"ask_fallback":"allow"}}}',
+            defaults=False,
+            target="codex",
+            json=True,
+            args=["curl -I https://schipper.ai"],
+        )
+        cmd_test(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["decision"] == "allow"
+        assert payload["ask_fallback"]["from"] == "ask"
+        assert payload["ask_fallback"]["to"] == "allow"
 
     def test_bash_script_outside_project_human_reason(self, tmp_path, capsys):
         from nah.cli import cmd_test

@@ -30,6 +30,15 @@ TARGETS: dict[str, Target] = {
         label="Claude Code",
         description="protect Claude Code with direct hooks",
     ),
+    CODEX: Target(
+        key=CODEX,
+        kind=AGENT,
+        label="OpenAI Codex",
+        description="protect Codex with session hooks",
+        can_install=False,
+        can_update=False,
+        can_uninstall=False,
+    ),
     BASH: Target(
         key=BASH,
         kind=SHELL,
@@ -45,7 +54,7 @@ TARGETS: dict[str, Target] = {
 }
 
 SHELL_TARGETS = {BASH, ZSH}
-AGENT_TARGETS = {CLAUDE}
+AGENT_TARGETS = {CLAUDE, CODEX}
 
 
 def get_target(key: str | None) -> Target | None:

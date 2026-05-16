@@ -69,6 +69,7 @@ def main(
         decision, canonical, tool_input = _decide(payload)
         _attach_permission_runtime(decision, payload)
         decision = _apply_taint_permission(canonical, tool_input, decision, payload)
+        decision = hook._apply_ask_fallback(decision)
         decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
         _emit_decision(stdout, decision, canonical)
         total_ms = int((time.monotonic() - t0) * 1000)

@@ -173,6 +173,10 @@ def build_entry(
     if execution:
         entry["execution"] = execution
 
+    ask_fallback = _copy_log_object(meta.get("ask_fallback"))
+    if ask_fallback:
+        entry["ask_fallback"] = ask_fallback
+
     taint = _copy_log_object(meta.get("taint"))
     if taint:
         entry["taint"] = taint

@@ -763,6 +763,66 @@ class TestClaudeRuntimeOutcomeLogging:
         assert entry["execution"]["state"] == "not_run"
         assert entry["execution"]["ask_outcome"] == "not_applicable"
 
+    def test_pre_tool_ask_fallback_block_logs_not_run(self, tmp_path, monkeypatch, project_root):
+        config._cached_config = NahConfig(ask_fallback="block")
+        config._cached_target = None
+
+        out, entries = _run_claude_hook(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_use_id": "toolu_fallback_block",
+                "tool_name": "Bash",
+                "tool_input": {"command": "curl -I https://schipper.ai"},
+                "transcript_path": "",
+            },
+            tmp_path,
+            monkeypatch,
+        )
+
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+        entry = entries[-1]
+        assert entry["decision"] == "block"
+        assert entry["ask_fallback"] == {
+            "mode": "block",
+            "from": "ask",
+            "to": "block",
+            "reason": "Bash: unknown host: schipper.ai",
+        }
+        assert entry["execution"] == {
+            "state": "not_run",
+            "ask_outcome": "not_applicable",
+        }
+
+    def test_pre_tool_ask_fallback_allow_logs_requested(self, tmp_path, monkeypatch, project_root):
+        config._cached_config = NahConfig(ask_fallback="allow")
+        config._cached_target = None
+
+        out, entries = _run_claude_hook(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_use_id": "toolu_fallback_allow",
+                "tool_name": "Bash",
+                "tool_input": {"command": "curl -I https://schipper.ai"},
+                "transcript_path": "",
+            },
+            tmp_path,
+            monkeypatch,
+        )
+
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow"
+        entry = entries[-1]
+        assert entry["decision"] == "allow"
+        assert entry["ask_fallback"] == {
+            "mode": "allow",
+            "from": "ask",
+            "to": "allow",
+            "reason": "Bash: unknown host: schipper.ai",
+        }
+        assert entry["execution"] == {
+            "state": "requested",
+            "ask_outcome": "not_applicable",
+        }
+
     def test_post_tool_success_logs_executed_without_hook_output_or_response_body(self, tmp_path, monkeypatch):
         out, entries = _run_claude_hook(
             {

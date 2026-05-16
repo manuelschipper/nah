@@ -678,6 +678,33 @@ def _attach_pre_tool_runtime(decision: dict, data: dict) -> None:
     meta["execution"] = _pre_tool_execution(decision)
 
 
+def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
+    """Convert a final ask decision to the configured target fallback."""
+    if decision.get("decision") != taxonomy.ASK:
+        return decision
+    if cfg is None:
+        from nah.config import get_config
+
+        cfg = get_config()
+    mode = getattr(cfg, "ask_fallback", "")
+    if mode not in (taxonomy.ALLOW, taxonomy.BLOCK):
+        return decision
+
+    original_reason = str(decision.get("reason", "") or "")
+    meta = decision.setdefault("_meta", {})
+    meta["ask_fallback"] = {
+        "mode": mode,
+        "from": taxonomy.ASK,
+        "to": mode,
+        "reason": original_reason,
+    }
+    decision["decision"] = mode
+    verb = "blocked" if mode == taxonomy.BLOCK else "allowed"
+    review = original_reason or "review required"
+    decision["reason"] = f"ask fallback {verb} unresolved review: {review}"
+    return decision
+
+
 def _post_tool_execution(data: dict, hook_event_name: str) -> dict:
     """Return conservative execution metadata for post-tool hook payloads."""
     _phase, state = _POST_TOOL_EVENTS[hook_event_name]
@@ -1004,6 +1031,7 @@ def main():
 
         _attach_pre_tool_runtime(decision, data)
         decision = _apply_taint_pre_tool(canonical, tool_input, decision, agent)
+        decision = _apply_ask_fallback(decision)
         decision.setdefault("_meta", {})["execution"] = _pre_tool_execution(decision)
         d = decision.get("decision", taxonomy.ALLOW)
 

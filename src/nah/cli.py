@@ -571,6 +571,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  ui:                    {cfg.ui or '{}'}")
         print(f"  ui_color:              {cfg.ui_color}")
         print(f"  targets:               {cfg.targets or '{}'}")
+        print(f"  ask_fallback:          {cfg.ask_fallback or '(none)'}")
         print(f"  terminal:              {cfg.terminal or '{}'}")
     elif sub == "path":
         from nah.config import get_global_config_path, get_project_config_path
@@ -636,6 +637,21 @@ def _add_human_reason(decision: dict, tool: str) -> dict:
     from nah.messages import enrich_decision
 
     return enrich_decision(decision, tool=tool)
+
+
+def _apply_test_ask_fallback(decision: dict, tool: str) -> dict:
+    from nah.hook import _apply_ask_fallback
+
+    return _add_human_reason(_apply_ask_fallback(decision), tool)
+
+
+def _ask_fallback_meta(decision: dict) -> dict:
+    meta = decision.get("_meta")
+    if isinstance(meta, dict):
+        fallback = meta.get("ask_fallback")
+        if isinstance(fallback, dict):
+            return fallback
+    return {}
 
 
 def _print_user_message(decision: dict) -> None:
@@ -746,21 +762,21 @@ def cmd_test(args: argparse.Namespace) -> None:
 
         from nah.bash import classify_command
         result = classify_command(command)
+        meta = _bash_test_meta(result)
+        decision = _apply_test_ask_fallback({
+            "decision": result.final_decision,
+            "reason": result.reason,
+            "_meta": meta,
+        }, "Bash")
 
         if json_output:
-            meta = _bash_test_meta(result)
-            decision = _add_human_reason({
-                "decision": result.final_decision,
-                "reason": result.reason,
-                "_meta": meta,
-            }, "Bash")
-            print(json.dumps({
+            payload = {
                 "target": target,
                 "selected_preset": _selected_preset_for_output(),
                 "tool": "Bash",
                 "command": result.command,
-                "decision": result.final_decision,
-                "reason": result.reason,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
                 "composition_rule": result.composition_rule,
                 "human_reason": decision.get("human_reason", ""),
                 "stages": [
@@ -773,7 +789,11 @@ def cmd_test(args: argparse.Namespace) -> None:
                     }
                     for sr in result.stages
                 ],
-            }))
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
             return
 
         if target:
@@ -789,15 +809,13 @@ def cmd_test(args: argparse.Namespace) -> None:
                 print(f"  [{i}] {tokens_str} → {sr.action_type} → {sr.default_policy} → {sr.decision} ({sr.reason})")
         if result.composition_rule:
             print(f"Composition: {result.composition_rule} → {result.final_decision.upper()}")
-        print(f"Decision:    {result.final_decision.upper()}")
-        print(f"Reason:      {result.reason}")
-        decision = _add_human_reason({
-            "decision": result.final_decision,
-            "reason": result.reason,
-            "_meta": _bash_test_meta(result),
-        }, "Bash")
+        print(f"Decision:    {decision['decision'].upper()}")
+        print(f"Reason:      {decision.get('reason', '')}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
-        if result.final_decision == "ask":
+        if decision["decision"] == "ask":
             from nah.hook import _is_llm_eligible
             eligible = _is_llm_eligible(result)
             print(f"LLM eligible: {'yes' if eligible else 'no'}")
@@ -861,9 +879,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             ti = {"notebook_path": file_path, "action": "replace", "new_source": content}
             handler = handle_notebookedit
         decision = handler(ti)
-        _add_human_reason(decision, tool)
+        decision = _apply_test_ask_fallback(decision, tool)
         if json_output:
-            print(json.dumps({
+            payload = {
                 "target": target,
                 "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
@@ -871,7 +889,11 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
                 "human_reason": decision.get("human_reason", ""),
-            }))
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
             return
         if target:
             print(f"Target:   {target}")
@@ -886,6 +908,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
     elif tool == "Grep":
         # Grep: path + credential pattern detection
@@ -893,9 +918,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         pattern = getattr(args, "pattern", None) or ""
         decision = handle_grep({"path": raw_path, "pattern": pattern})
-        _add_human_reason(decision, tool)
+        decision = _apply_test_ask_fallback(decision, tool)
         if json_output:
-            print(json.dumps({
+            payload = {
                 "target": target,
                 "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
@@ -904,7 +929,11 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
                 "human_reason": decision.get("human_reason", ""),
-            }))
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
             return
         if target:
             print(f"Target:   {target}")
@@ -919,21 +948,28 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
     elif tool.startswith("mcp__"):
         # MCP tools: classify via taxonomy
         from nah.hook import _classify_unknown_tool
         decision = _classify_unknown_tool(tool)
-        _add_human_reason(decision, tool)
+        decision = _apply_test_ask_fallback(decision, tool)
         if json_output:
-            print(json.dumps({
+            payload = {
                 "target": target,
                 "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
                 "human_reason": decision.get("human_reason", ""),
-            }))
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
             return
         if target:
             print(f"Target:   {target}")
@@ -945,6 +981,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
     else:
         # Path-only tools (Read, Glob, etc.)
@@ -952,9 +991,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         raw_path = getattr(args, "path", None) or " ".join(input_args)
         check = paths.check_path(tool, raw_path)
         decision = check or {"decision": "allow"}  # JSON protocol
-        _add_human_reason(decision, tool)
+        decision = _apply_test_ask_fallback(decision, tool)
         if json_output:
-            print(json.dumps({
+            payload = {
                 "target": target,
                 "selected_preset": _selected_preset_for_output(),
                 "tool": tool,
@@ -962,7 +1001,11 @@ def cmd_test(args: argparse.Namespace) -> None:
                 "decision": decision["decision"],
                 "reason": decision.get("reason", ""),
                 "human_reason": decision.get("human_reason", ""),
-            }))
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
             return
         if target:
             print(f"Target:   {target}")
@@ -975,6 +1018,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
 
 

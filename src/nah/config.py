@@ -16,6 +16,7 @@ _CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
 _PRESET_ENV = "NAH_PRESET"
+_ASK_FALLBACKS = {"allow", "block"}
 
 
 @dataclass
@@ -56,6 +57,7 @@ class NahConfig:
     trusted_project_configs: list[str] = field(default_factory=list)
     trust_project_config: bool = False
     targets: dict = field(default_factory=dict)
+    ask_fallback: str = ""
     terminal: dict = field(default_factory=dict)
     taint: dict = field(default_factory=dict)
 
@@ -384,6 +386,17 @@ def _normalize_llm_mode(raw) -> str:
     if isinstance(raw, bool):
         return "on" if raw else "off"
     return ""
+
+
+def _normalize_ask_fallback(raw, *, context: str) -> str:
+    """Normalize target ask fallback to allow/block/empty or raise."""
+    if raw in (None, ""):
+        return ""
+    if raw in _ASK_FALLBACKS:
+        return raw
+    raise ConfigError(
+        f"{context}.ask_fallback must be 'allow' or 'block', got {raw!r}"
+    )
 
 
 _TAINT_MODES = {"off", "audit", "enforce"}
@@ -1034,6 +1047,12 @@ def _apply_target_data(
                 config.llm_eligible = raw_eligible
             elif isinstance(raw_eligible, list):
                 config.llm_eligible = [str(v) for v in raw_eligible]
+
+    if trusted and "ask_fallback" in data:
+        config.ask_fallback = _normalize_ask_fallback(
+            data.get("ask_fallback"),
+            context=f"targets.{config.target or '<unknown>'}",
+        )
 
 
 def is_path_allowed(sensitive_path: str, project_root: str | None) -> bool:

@@ -215,6 +215,32 @@ class TestRuntimeExecutionMetadata:
         assert entry["taint"]["would_decision"] == "ask"
         assert entry["taint"]["enforced"] is False
 
+    def test_build_entry_preserves_ask_fallback_metadata(self):
+        entry = log.build_entry(
+            "Bash",
+            "curl -I https://example.com",
+            "block",
+            "ask fallback blocked unresolved review: network_outbound -> ask",
+            "codex",
+            "test",
+            3,
+            {
+                "ask_fallback": {
+                    "mode": "block",
+                    "from": "ask",
+                    "to": "block",
+                    "reason": "network_outbound -> ask",
+                },
+            },
+        )
+
+        assert entry["ask_fallback"] == {
+            "mode": "block",
+            "from": "ask",
+            "to": "block",
+            "reason": "network_outbound -> ask",
+        }
+
 
 # -- log_decision --
 
