@@ -34,8 +34,6 @@ def _ensure_known_hosts_merged():
     try:
         from nah.config import get_config, _parse_add_remove
         cfg = get_config()
-        if cfg.profile == "none":
-            _known_hosts.clear()
         add, remove = _parse_add_remove(cfg.known_registries)
         _known_hosts.update(str(h) for h in add)
         _known_hosts.difference_update(str(h) for h in remove)
@@ -132,11 +130,6 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     """
     if not target_path:
         return taxonomy.ALLOW, "no target path"
-
-    # profile: none disables boundary check (defense in depth)
-    from nah.config import get_config
-    if get_config().profile == "none":
-        return taxonomy.ALLOW, "profile: none (no boundary check)"
 
     resolved = paths.resolve_path(target_path)
 
@@ -717,10 +710,6 @@ def resolve_lang_exec_context(
                 return worst, format_content_message("inline", matches)
             return taxonomy.ALLOW, "lang_exec: inline clean"
         return taxonomy.ASK, "lang_exec: inline execution"
-
-    from nah.config import get_config
-    if get_config().profile == "none":
-        return taxonomy.ALLOW, "profile: none (no script inspection)"
 
     resolved = paths.resolve_path(target_path)
 

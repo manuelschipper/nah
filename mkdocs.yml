@@ -64,8 +64,6 @@ nav:
     - Content inspection (Claude Code): configuration/content.md
     - LLM layer: configuration/llm.md
     - Database targets: configuration/database.md
-    - Profiles: configuration/profiles.md
-    - Airgapped environments: configuration/airgapped.md
   - CLI reference: cli.md
   - Privacy: privacy.md
   - License: license.md

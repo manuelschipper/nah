@@ -24,7 +24,7 @@ from nah.config import NahConfig, reset_config
 
 # Helper: classify tokens via taxonomy (Phase 2 flag classifier path)
 def _ct(tokens):
-    return taxonomy.classify_tokens(tokens, builtin_table=taxonomy.get_builtin_table("full"))
+    return taxonomy.classify_tokens(tokens, builtin_table=taxonomy.get_builtin_table())
 
 
 def _write(path, content="print('hello')\n"):
@@ -266,14 +266,12 @@ class TestContextResolver:
         finally:
             os.chmod(path, 0o644)
 
-    def test_profile_none_allows(self, project_root):
-        from nah.config import apply_override
-        apply_override({"profile": "none"})
+    def test_script_content_inspection_asks_on_destructive_code(self, project_root):
         path = os.path.join(project_root, "any.py")
         _write(path, "os.remove('/')\n")
         decision, reason = resolve_lang_exec_context(path)
-        assert decision == "allow"
-        assert "profile: none" in reason
+        assert decision == "ask"
+        assert "script content inspection" in reason
 
 
 # ===================================================================

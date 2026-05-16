@@ -517,7 +517,6 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  project_config_path:   {cfg.project_config_path or '(none)'}")
         print(f"  project_config_trusted: {cfg.project_config_trusted}")
         print(f"  trusted_project_configs: {cfg.trusted_project_configs or '[]'}")
-        print(f"  profile:               {cfg.profile}")
         print(f"  classify_global:       {cfg.classify_global or '{}'}")
         print(f"  classify_project:      {cfg.classify_project or '{}'}")
         if cfg.project_config_path and not cfg.project_config_trusted:
@@ -1327,7 +1326,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 cfg = get_config()
                 user_classify = scope_rules["classify"]
                 user_table = build_user_table(user_classify)
-                builtin_table = get_builtin_table(cfg.profile) if cfg.profile != "none" else []
+                builtin_table = get_builtin_table()
                 table_shadows = find_table_shadows(user_table, builtin_table)
                 flag_shadows = set(find_flag_classifier_shadows(user_table))
             elif scope == "project":
@@ -1513,7 +1512,7 @@ def cmd_types(args: argparse.Namespace) -> None:
         rules = {}
     user_classify = rules.get("global", {}).get("classify", {})
     if user_classify:
-        builtin_table = get_builtin_table(cfg.profile) if cfg.profile != "none" else []
+        builtin_table = get_builtin_table()
         user_table = build_user_table(user_classify)
         table_shadows = find_table_shadows(user_table, builtin_table)
         flag_shadows = set(find_flag_classifier_shadows(user_table))

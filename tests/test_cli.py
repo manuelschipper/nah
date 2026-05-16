@@ -808,18 +808,6 @@ class TestCmdTest:
         out = capsys.readouterr().out
         assert "BLOCK" in out
 
-    def test_config_profile_none(self, capsys):
-        """FD-076: --config profile:none makes everything unknown → ask."""
-        from nah.cli import cmd_test
-        args = argparse.Namespace(
-            tool=None, path=None, content=None, pattern=None,
-            config='{"profile": "none"}',
-            args=["git", "status"],
-        )
-        cmd_test(args)
-        out = capsys.readouterr().out
-        assert "ASK" in out
-
     def test_defaults_ignores_cached_config(self, capsys):
         """--defaults replaces active config for the dry-run process."""
         from nah import config
@@ -835,8 +823,8 @@ class TestCmdTest:
         assert "git_safe" in out
         assert "ALLOW" in out
 
-    def test_defaults_keeps_profile_trusted_tmp(self, capsys):
-        """--defaults uses merged defaults, including profile-derived /tmp trust."""
+    def test_defaults_keeps_trusted_tmp(self, capsys):
+        """--defaults uses merged defaults, including /tmp trust."""
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool="Write", path="/tmp/test.txt",
@@ -851,7 +839,7 @@ class TestCmdTest:
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool=None, path=None, content=None, pattern=None,
-            config='{"profile": "none"}', defaults=True, args=["git", "status"],
+            config='{"actions": {"git_safe": "block"}}', defaults=True, args=["git", "status"],
         )
         with pytest.raises(SystemExit):
             cmd_test(args)

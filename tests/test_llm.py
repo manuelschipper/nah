@@ -1544,10 +1544,10 @@ class TestGetSecretPatterns:
             assert hasattr(regex, "search")
             assert isinstance(desc, str)
 
-    def test_profile_none_returns_empty(self):
+    def test_empty_secret_patterns_returns_empty(self):
         from nah.content import _CONTENT_PATTERNS
         reset_content_patterns()
-        # Simulate profile=none by clearing patterns
+        # Simulate an explicit empty pattern set.
         original = list(_CONTENT_PATTERNS.get("secret", []))
         _CONTENT_PATTERNS["secret"] = []
         try:

@@ -236,8 +236,6 @@ classify:
 trusted_containers:
   - hermes-creatbot       # docker exec hermes-creatbot ...
   - compose:api           # docker compose exec api ...
-
-profile: full
 ```
 
 nah classifies by **action type**, not just command name. Policies are `allow`,

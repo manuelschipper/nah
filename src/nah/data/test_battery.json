@@ -1275,13 +1275,11 @@
       "input": {
         "command": "sed -i 's/foo/bar/' file.txt"
       },
-      "expected": "ask",
+      "expected": "allow",
       "default_expected": "allow",
       "feature": "FD-050",
-      "config": {
-        "profile": "none"
-      },
-      "description": "Flag classifiers skipped → unknown → ask"
+      "config": {},
+      "description": "Flag classifier still applies"
     },
     {
       "id": "V5",
@@ -1289,13 +1287,11 @@
       "input": {
         "command": "git status"
       },
-      "expected": "ask",
+      "expected": "allow",
       "default_expected": "allow",
       "feature": "FD-050",
-      "config": {
-        "profile": "none"
-      },
-      "description": "Builtin table empty + flag classifiers skipped → unknown → ask"
+      "config": {},
+      "description": "Built-in table still applies"
     },
     {
       "id": "V6",
@@ -1307,14 +1303,13 @@
       "default_expected": "allow",
       "feature": "FD-050",
       "config": {
-        "profile": "none",
         "classify": {
           "filesystem_read": [
             "sed"
           ]
         }
       },
-      "description": "Global table still works under profile:none"
+      "description": "Global table still wins before flag classifiers"
     },
     {
       "id": "V7",
@@ -1380,13 +1375,11 @@
         "file_path": "./app.py",
         "content": "AKIA1234567890123456"
       },
-      "expected": "allow",
+      "expected": "ask",
       "default_expected": "ask",
       "feature": "FD-052",
-      "config": {
-        "profile": "none"
-      },
-      "description": "No built-in content patterns loaded → no match → allow"
+      "config": {},
+      "description": "Built-in content patterns remain active"
     },
     {
       "id": "V11",

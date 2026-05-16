@@ -447,7 +447,7 @@ def _redact_secrets(text: str) -> str:
 
     Reuses content.py's 'secret' category patterns (private keys,
     AWS keys, GitHub tokens, sk- keys, hardcoded API keys).
-    Returns text unchanged if no patterns are configured (e.g. profile=none).
+    Returns text unchanged if no redaction patterns are configured.
     """
     from nah.content import get_secret_patterns
 

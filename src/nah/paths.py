@@ -14,8 +14,8 @@ _NAH_CONFIG_DIR = os.path.realpath(nah_config_dir())
 _WINDOWS_APPDATA_DIR = windows_appdata_dir()
 
 # Sensitive paths: (resolved_dir, display_name, policy)
-# Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list —
-# checked separately via is_hook_path() / is_nah_config_path() so they survive profile: none.
+# Hook path (~/.claude/hooks) and nah config (~/.config/nah) are NOT in this list;
+# they are checked separately via is_hook_path() / is_nah_config_path().
 # These are hardcoded defaults for FD-004. FD-006 makes them configurable.
 _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".ssh")), "~/.ssh", "block"),
@@ -310,9 +310,6 @@ def _ensure_sensitive_paths_merged() -> None:
     _sensitive_paths_merged = True
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
-    if cfg.profile == "none":
-        _SENSITIVE_DIRS.clear()
-        _SENSITIVE_BASENAMES.clear()
     if cfg.sensitive_paths:
         build_merged_sensitive_paths(cfg.sensitive_paths, cfg.sensitive_paths_default)
     if cfg.sensitive_basenames:
@@ -385,8 +382,6 @@ def is_trusted_path(resolved: str) -> bool:
     """Check if resolved path is inside a trusted_paths directory."""
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
-    if cfg.profile == "none":
-        return True  # boundary check disabled; defense in depth
     for entry in cfg.trusted_paths:
         trust_dir = resolve_path(entry)
         if resolved == trust_dir or resolved.startswith(trust_dir + os.sep):
@@ -419,9 +414,6 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
     """Check if path is outside project root + trusted_paths. Returns dict or None (= allow)."""
     if not raw_path:
         return None
-    from nah.config import get_config  # lazy import to avoid circular
-    if get_config().profile == "none":
-        return None  # boundary check disabled (D9)
     resolved = resolve_path(raw_path)
     if is_trusted_path(resolved):
         return None  # trusted — allow regardless of project root (FD-107)

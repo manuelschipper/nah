@@ -127,7 +127,3 @@ credential_patterns:
   add:
     - "\\bINTERNAL_SECRET\\b"  # add a custom credential pattern
 ```
-
-## profile: none
-
-Setting `profile: none` clears all built-in content patterns and credential search patterns. Add back only what you need.

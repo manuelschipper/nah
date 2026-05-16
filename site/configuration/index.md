@@ -55,7 +55,7 @@ It **cannot**:
 - Modify safety lists (`known_registries`, `exec_sinks`, etc.)
 - Set `trusted_paths`, `allow_paths`, or `db_targets`
 - Configure provider credentials or the global LLM provider cascade
-- Change the taxonomy profile, UI, terminal settings, or non-policy target knobs
+- Change UI, terminal settings, or non-policy target knobs
 
 This is the **supply-chain safety** model: a malicious repo's `.nah.yaml` can't weaken your protections.
 
@@ -91,7 +91,6 @@ When both configs exist, nah merges them with these rules:
 
 | Field | Merge behavior |
 |-------|---------------|
-| `profile` | Global only |
 | `trusted_project_configs` | Global only; exact project roots whose `.nah.yaml` can loosen policy |
 | `actions` | Tighten-only (project can only escalate strictness) |
 | `classify` | Global entries are active first; project entries are active only for trusted project roots |
@@ -114,7 +113,6 @@ When both configs exist, nah merges them with these rules:
 
 | Key | Type | Scope | Docs |
 |-----|------|-------|------|
-| `profile` | `full` / `none` | global | [Profiles](profiles.md) |
 | `trusted_project_configs` | list of paths | global | This page |
 | `classify` | dict of type → prefix list | global; trusted project roots | [Classification rules](classification-rules.md) |
 | `actions` | dict of type → policy | both | [Action types](actions.md) |
@@ -136,6 +134,19 @@ When both configs exist, nah merges them with these rules:
 | `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#prompt-behavior) |
 
 *\* Project `sensitive_paths_default` can only tighten (ask → block) until the project root is trusted. Target-scoped project overrides can tighten policy by default; non-policy target settings require trusted project config.*
+
+## Legacy `profile` key
+
+Older nah configs and examples may mention `profile: full`, `profile: minimal`,
+or `profile: none`.
+
+nah no longer has taxonomy profiles. The full built-in taxonomy, classifier
+functions, safety lists, sensitive path rules, and content scanners are always
+enabled. Configure behavior with `actions`, `classify`, `sensitive_paths`,
+`known_registries`, `exec_sinks`, and related keys instead.
+
+`profile` is ignored if present. In particular, `profile: none` no longer
+disables built-in classifiers or safety checks.
 
 ## Target overrides
 

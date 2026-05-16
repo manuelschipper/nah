@@ -521,27 +521,23 @@ class TestGrepCredentialBoundary:
         d = handle_write({"file_path": "~/.ssh/id_rsa", "content": "key"})
         assert d["decision"] == "block"
 
-    def test_profile_none_disables_boundary(self, project_root):
-        """profile: none disables boundary check for Write."""
-        config._cached_config = NahConfig(profile="none")
+    def test_write_boundary_asks_outside_project(self, project_root):
+        """Project boundary check applies for Write."""
+        config._cached_config = NahConfig()
         paths._sensitive_paths_merged = False  # allow re-merge
         d = handle_write({"file_path": "/tmp/anywhere.txt", "content": "hello"})
-        assert d["decision"] == "allow"
+        assert d["decision"] == "ask"
 
-    def test_profile_none_clears_sensitive_dirs(self, project_root):
-        """profile: none clears _SENSITIVE_DIRS, allowing ~/.ssh."""
-        config._cached_config = NahConfig(profile="none")
+    def test_sensitive_dirs_block(self, project_root):
+        """Sensitive dirs stay active."""
+        config._cached_config = NahConfig()
         paths._sensitive_paths_merged = False  # allow re-merge
         d = handle_write({"file_path": "~/.ssh/config", "content": "host"})
-        # Sensitive dirs cleared, but...
-        # Note: check_path runs before boundary, and hook check is first.
-        # With profile: none, _SENSITIVE_DIRS is cleared, so sensitive check passes.
-        # Hook check only applies to ~/.claude/hooks. So ~/.ssh should allow.
-        assert d["decision"] == "allow"
+        assert d["decision"] == "block"
 
-    def test_hook_self_protection_immutable_under_none(self, project_root):
-        """Hook self-protection is immutable even under profile: none."""
-        config._cached_config = NahConfig(profile="none")
+    def test_hook_self_protection_still_blocks(self, project_root):
+        """Hook self-protection is immutable."""
+        config._cached_config = NahConfig()
         paths._sensitive_paths_merged = False  # allow re-merge
         d = handle_write({"file_path": "~/.claude/hooks/guard.py", "content": "x"})
         assert d["decision"] == "block"

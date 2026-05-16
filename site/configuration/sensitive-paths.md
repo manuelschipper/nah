@@ -123,7 +123,3 @@ root triggers an `ask` decision (project boundary check).
 
 !!! warning "Global config only"
     Both `allow_paths` and `trusted_paths` are only accepted in global config. Project `.nah.yaml` cannot modify them.
-
-## profile: none
-
-Setting `profile: none` clears all built-in sensitive directories and basenames. The hook self-protection (`~/.claude/hooks/`) remains active regardless.

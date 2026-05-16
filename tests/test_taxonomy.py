@@ -18,7 +18,7 @@ from nah.taxonomy import (
     is_shell_wrapper,
 )
 
-_FULL = get_builtin_table("full")
+_FULL = get_builtin_table()
 
 
 def _ct(tokens: list[str]) -> str:
@@ -250,12 +250,11 @@ class TestClassifyTokens:
     def test_mise_exec_wrapper_keeps_unsupported_and_unknown_payloads_unknown(self, tokens):
         assert classify_tokens(tokens, builtin_table=_FULL) == "unknown"
 
-    def test_mise_exec_wrapper_skipped_with_profile_none(self):
+    def test_mise_exec_wrapper_classifies_git_payload(self):
         assert classify_tokens(
             ["mise", "exec", "--", "git", "status"],
             builtin_table=_FULL,
-            profile="none",
-        ) == "unknown"
+        ) == "git_safe"
 
     @pytest.mark.parametrize("tokens", [
         ["kubectl", "logs", "pod-0"],
@@ -338,12 +337,11 @@ class TestClassifyTokens:
             builtin_table=_FULL,
         ) == "git_safe"
 
-    def test_kubectl_classifier_skipped_with_profile_none(self):
+    def test_kubectl_classifier_classifies_safe_get(self):
         assert classify_tokens(
             ["kubectl", "get", "pods"],
             builtin_table=_FULL,
-            profile="none",
-        ) == "unknown"
+        ) == "container_read"
 
     # find — special case
     def test_find_read(self):
@@ -1051,13 +1049,12 @@ class TestClassifyTokens:
             env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
         ) == "service_read"
 
-    def test_psql_profile_none_does_not_use_builtin_readonly_classifier(self):
+    def test_psql_readonly_classifier_classifies_safe_select(self):
         assert classify_tokens(
             ["psql", "-X", "-c", "SELECT id FROM users"],
-            builtin_table=get_builtin_table("none"),
-            profile="none",
+            builtin_table=get_builtin_table(),
             env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
-        ) == "unknown"
+        ) == "db_read"
 
     # db companion tools → filesystem_write
     @pytest.mark.parametrize("tokens", [
@@ -1204,29 +1201,27 @@ class TestClassifyTokens:
         """Path entry works via project_table (Phase 3), not just global_table."""
         tbl = build_user_table({"testing": ["vendor/bin/codecept run"]})
         assert classify_tokens(
-            ["vendor/bin/codecept", "run"], project_table=tbl, profile="none",
+            ["vendor/bin/codecept", "run"], project_table=tbl,
         ) == "testing"
 
-    def test_project_table_overrides_builtin_prefix(self):
-        """Project classify entries beat builtins for the same command prefix."""
-        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
-        builtin = get_builtin_table("full")
-        assert classify_tokens(
-            ["make", "docker-clean"],
-            builtin_table=builtin,
-            project_table=tbl,
-            profile="none",
-        ) == "container_destructive"
-
-    def test_flag_classifier_beats_project_table_with_full_profile(self):
+    def test_flag_classifier_beats_project_table(self):
         """Phase 2 make reclassification runs before Phase 3 project entries."""
         tbl = build_user_table({"container_destructive": ["make docker-clean"]})
-        builtin = get_builtin_table("full")
+        builtin = get_builtin_table()
         assert classify_tokens(
             ["make", "docker-clean"],
             builtin_table=builtin,
             project_table=tbl,
-            profile="full",
+        ) == "lang_exec"
+
+    def test_flag_classifier_beats_project_table_duplicate_guard(self):
+        """Phase 2 make reclassification runs before Phase 3 project entries."""
+        tbl = build_user_table({"container_destructive": ["make docker-clean"]})
+        builtin = get_builtin_table()
+        assert classify_tokens(
+            ["make", "docker-clean"],
+            builtin_table=builtin,
+            project_table=tbl,
         ) == "lang_exec"
 
     def test_project_cannot_loosen_builtin_without_trust(self):
@@ -1234,23 +1229,21 @@ class TestClassifyTokens:
         # docker rm is container_destructive (ask) in builtins;
         # project tries to reclassify as filesystem_read (allow) — should be denied.
         tbl = build_user_table({"filesystem_read": ["docker rm"]})
-        builtin = get_builtin_table("full")
+        builtin = get_builtin_table()
         assert classify_tokens(
             ["docker", "rm", "abc"],
             builtin_table=builtin,
             project_table=tbl,
-            profile="none",
         ) == "container_destructive"
 
     def test_project_can_loosen_builtin_with_trust(self):
         """With trust_project=True, project classify can weaken a builtin."""
         tbl = build_user_table({"filesystem_read": ["docker rm"]})
-        builtin = get_builtin_table("full")
+        builtin = get_builtin_table()
         assert classify_tokens(
             ["docker", "rm", "abc"],
             builtin_table=builtin,
             project_table=tbl,
-            profile="none",
             trust_project=True,
         ) == "filesystem_read"
 
@@ -1270,7 +1263,7 @@ class TestClassifyTokens:
 
     def test_load_classify_table_no_dotslash_duplicates(self):
         """Built-in table has no duplicate prefixes after normalization."""
-        table = get_builtin_table("full")
+        table = get_builtin_table()
         seen: set[tuple[str, ...]] = set()
         dupes = []
         for prefix, action_type in table:
@@ -1687,20 +1680,11 @@ class TestCodexClassifier:
     def test_codex_unknown_or_malformed_forms(self, tokens):
         assert _ct(tokens) == "unknown"
 
-    @pytest.mark.parametrize("profile", ["full", "minimal"])
-    def test_codex_classifier_runs_in_full_and_deprecated_minimal_alias(self, profile):
+    def test_codex_classifier_runs(self):
         assert classify_tokens(
             ["codex", "exec", "echo hi"],
-            builtin_table=get_builtin_table(profile),
-            profile=profile,
+            builtin_table=get_builtin_table(),
         ) == "agent_exec_write"
-
-    def test_codex_classifier_skips_profile_none(self):
-        assert classify_tokens(
-            ["codex", "exec", "echo hi"],
-            builtin_table=get_builtin_table("none"),
-            profile="none",
-        ) == "unknown"
 
 
 class TestCodexCompanionClassifier:
@@ -1750,12 +1734,11 @@ class TestCodexCompanionClassifier:
         tokens = ["node", "/tmp/codex-companion.mjs", "task", "--background", "review"]
         assert _ct(tokens) == "lang_exec"
 
-    def test_companion_classifier_skips_profile_none(self):
+    def test_companion_classifier_runs(self):
         assert classify_tokens(
             self.tokens("task", "--background", "review"),
-            builtin_table=get_builtin_table("none"),
-            profile="none",
-        ) == "unknown"
+            builtin_table=get_builtin_table(),
+        ) == "agent_exec_read"
 
 
 # --- is_shell_wrapper ---
@@ -2431,7 +2414,7 @@ class TestGhCommands:
 
 
 class TestGhApiClassifier:
-    """FD-093: full-profile flag classifier for gh api."""
+    """FD-093: flag classifier for gh api."""
 
     @pytest.mark.parametrize("tokens", [
         ["gh", "api", "user"],
@@ -2523,15 +2506,13 @@ class TestGhApiClassifier:
             ["gh", "api", "user"],
             global_table=global_t,
             builtin_table=_FULL,
-            profile="full",
         ) == "network_write"
 
-    def test_gh_api_classifier_runs_for_deprecated_minimal_alias(self):
-        minimal = get_builtin_table("minimal")
+    def test_gh_api_classifier_runs_with_builtin_table(self):
+        builtin = get_builtin_table()
         assert classify_tokens(
             ["gh", "api", "user"],
-            builtin_table=minimal,
-            profile="minimal",
+            builtin_table=builtin,
         ) == "git_safe"
 
 
@@ -2558,26 +2539,25 @@ class TestGlabApiClassifier:
     def test_glab_api_writes(self, tokens, expected):
         assert _ct(tokens) == expected
 
-    def test_glab_api_classifier_runs_for_deprecated_minimal_alias(self):
-        minimal = get_builtin_table("minimal")
+    def test_glab_api_classifier_runs_with_builtin_table(self):
+        builtin = get_builtin_table()
         assert classify_tokens(
             ["glab", "api", "projects/1"],
-            builtin_table=minimal,
-            profile="minimal",
+            builtin_table=builtin,
         ) == "git_safe"
 
     def test_other_glab_commands_stay_unknown(self):
         assert _ct(["glab", "issue", "list"]) == "unknown"
 
 
-# --- Profiles (FD-032) ---
+# --- Built-in table ---
 
 
-class TestProfiles:
-    """Built-in classify table loading by profile."""
+class TestBuiltinTable:
+    """Built-in classify table loading."""
 
-    def test_profile_full_loads_all(self):
-        table = get_builtin_table("full")
+    def test_builtin_table_loads_all(self):
+        table = get_builtin_table()
         action_types = {at for _, at in table}
         assert "container_read" in action_types
         assert "container_write" in action_types
@@ -2596,76 +2576,13 @@ class TestProfiles:
         assert "package_install" in action_types
         assert "db_write" in action_types
 
-    def test_profile_minimal_aliases_full_table(self):
-        """Deprecated minimal table lookup keeps old callers on full behavior."""
-        assert get_builtin_table("minimal") is get_builtin_table("full")
+    @pytest.mark.parametrize("profile", ["full", "minimal", "none", "custom"])
+    def test_get_builtin_table_ignores_legacy_profile_argument(self, profile):
+        assert get_builtin_table(profile) is get_builtin_table()
 
-    def test_profile_none_empty(self):
-        table = get_builtin_table("none")
-        assert table == []
-
-    def test_profile_minimal_docker_write_uses_full_behavior(self):
-        """Deprecated minimal no longer leaves full-profile coverage gaps."""
-        table = get_builtin_table("minimal")
-        assert classify_tokens(["docker", "rm", "x"], builtin_table=table) == "container_destructive"
-
-    def test_profile_minimal_docker_read_classified(self):
-        table = get_builtin_table("minimal")
-        assert classify_tokens(["docker", "logs", "api"], builtin_table=table) == "container_read"
-
-    def test_profile_minimal_service_read_classified(self):
-        table = get_builtin_table("minimal")
-        assert classify_tokens(["systemctl", "status", "nginx"], builtin_table=table) == "service_read"
-
-    def test_profile_minimal_rm_still_classified(self):
-        """Deprecated minimal aliases full, so core commands stay classified."""
-        table = get_builtin_table("minimal")
-        assert classify_tokens(["rm", "file"], builtin_table=table) == "filesystem_delete"
-
-    def test_profile_minimal_curl_still_classified(self):
-        table = get_builtin_table("minimal")
-        assert classify_tokens(["curl", "example.com"], builtin_table=table) == "service_read"
-
-    def test_profile_minimal_wrapper_lang_exec_uses_full_behavior(self):
-        table = get_builtin_table("minimal")
-        assert classify_tokens(
-            ["uv", "run", "script.py"],
-            builtin_table=table,
-            profile="minimal",
-        ) == "lang_exec"
-        assert classify_tokens(
-            ["make", "test"],
-            builtin_table=table,
-            profile="minimal",
-        ) == "lang_exec"
-        assert classify_tokens(
-            ["uvx", "ruff", "check", "."],
-            builtin_table=table,
-            profile="minimal",
-        ) == "package_run"
-
-    def test_profile_none_everything_unknown(self):
-        """With none profile, table-only commands are unknown."""
-        table = get_builtin_table("none")
-        assert classify_tokens(["rm", "-rf", "/"], builtin_table=table) == "unknown"
-        assert classify_tokens(["git", "status"], builtin_table=table) == "unknown"
-
-    def test_profile_none_curl_skipped(self):
-        """Flag classifiers skipped under profile=none (FD-050)."""
-        table = get_builtin_table("none")
-        assert classify_tokens(["curl", "x"], builtin_table=table, profile="none") == "unknown"
-
-    def test_profile_none_find_skipped(self):
-        """Flag classifiers skipped under profile=none (FD-050)."""
-        table = get_builtin_table("none")
-        assert classify_tokens(["find", ".", "-name", "*.py"], builtin_table=table, profile="none") == "unknown"
-        assert classify_tokens(["find", ".", "-delete"], builtin_table=table, profile="none") == "unknown"
-
-    def test_profile_none_git_skipped(self):
-        """Flag classifiers skipped under profile=none (FD-050)."""
-        table = get_builtin_table("none")
-        assert classify_tokens(["git", "push", "--force"], builtin_table=table, profile="none") == "unknown"
-        assert classify_tokens(["git", "reset", "--hard"], builtin_table=table, profile="none") == "unknown"
+    @pytest.mark.parametrize("profile", ["full", "minimal", "none", "custom"])
+    def test_classify_tokens_ignores_legacy_profile_argument(self, profile):
+        assert classify_tokens(["git", "status"], builtin_table=get_builtin_table(), profile=profile) == "git_safe"
 
 
 # --- Three-table lookup (FD-032) ---
@@ -2677,20 +2594,20 @@ class TestThreeTableLookup:
     def test_global_wins_over_builtin(self):
         """Global user entry overrides built-in classification."""
         global_t = build_user_table({"package_run": ["docker rm"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         result = classify_tokens(["docker", "rm", "x"], global_t, builtin_t, None)
         assert result == "package_run"  # global wins over container_destructive
 
     def test_builtin_wins_over_project(self):
         """Built-in beats project even with longer prefix (supply-chain safety)."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         project_t = build_user_table({"filesystem_read": ["rm -rf"]})
         result = classify_tokens(["rm", "-rf", "foo"], None, builtin_t, project_t)
         assert result == "filesystem_delete"  # built-in "rm" wins, project "rm -rf" ignored
 
     def test_project_fills_gaps(self):
         """Project entries work for commands with no built-in match."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         project_t = build_user_table({"my_deploys": ["my-tool deploy"]})
         result = classify_tokens(["my-tool", "deploy", "prod"], None, builtin_t, project_t)
         assert result == "my_deploys"
@@ -2698,7 +2615,7 @@ class TestThreeTableLookup:
     def test_global_fills_gaps(self):
         """Global entries also work for unclassified commands."""
         global_t = build_user_table({"my_safe": ["terraform plan"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         result = classify_tokens(["terraform", "plan"], global_t, builtin_t, None)
         assert result == "my_safe"
 
@@ -2709,7 +2626,7 @@ class TestThreeTableLookup:
 
     def test_supply_chain_reclassify_blocked(self):
         """Project can't reclassify rm to bypass filesystem_delete policy."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         # Malicious project tries to reclassify rm variants as safe
         project_t = build_user_table({
             "filesystem_read": ["rm -rf", "rm -f", "rmdir --ignore"],
@@ -2719,17 +2636,17 @@ class TestThreeTableLookup:
         assert classify_tokens(["rm", "-f", "file"], None, builtin_t, project_t) == "filesystem_delete"
         assert classify_tokens(["rmdir", "--ignore", "dir"], None, builtin_t, project_t) == "filesystem_delete"
 
-    def test_project_with_minimal_profile_alias(self):
-        """Deprecated minimal behaves like full, so built-ins still win."""
-        builtin_t = get_builtin_table("minimal")
+    def test_project_table_does_not_weaken_builtin(self):
+        """Built-ins still win over untrusted project loosening."""
+        builtin_t = get_builtin_table()
         project_t = build_user_table({"filesystem_read": ["docker rm"]})
         assert classify_tokens(["docker", "rm", "x"], None, builtin_t, project_t) == "container_destructive"
 
-    def test_global_override_with_minimal_profile_alias(self):
-        """Global can still reclassify when deprecated minimal aliases full."""
+    def test_global_override_wins_over_builtin(self):
+        """Global can still reclassify built-in commands."""
         global_t = build_user_table({"my_safe_rm": ["rm"]})
-        builtin_t = get_builtin_table("minimal")
-        # Global "rm" wins over minimal built-in "rm → filesystem_delete"
+        builtin_t = get_builtin_table()
+        # Global "rm" wins over built-in "rm → filesystem_delete"
         assert classify_tokens(["rm", "file"], global_t, builtin_t, None) == "my_safe_rm"
 
 
@@ -2737,23 +2654,23 @@ class TestThreeTableLookup:
 
 
 class TestGlobalOverridesFlagClassifiers:
-    """FD-050: Global table checked before flag classifiers; profile:none skips them."""
+    """FD-050: Global table checked before flag classifiers."""
 
     # --- V1: Default behavior (no regressions) ---
 
     def test_default_sed_i_unchanged(self):
         """No global table → sed -i still classified by flag classifier."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["sed", "-i", "s/a/b/", "file"], builtin_table=builtin_t) == "filesystem_write"
 
     def test_default_curl_d_unchanged(self):
         """No global table → curl -d still classified by flag classifier."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["curl", "-d", "data", "url"], builtin_table=builtin_t) == "network_write"
 
     def test_default_git_push_force_unchanged(self):
         """No global table → git push --force still classified by flag classifier."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "push", "--force"], builtin_table=builtin_t) == "git_history_rewrite"
 
     # --- V4–V10: Per-classifier override via global table ---
@@ -2761,43 +2678,43 @@ class TestGlobalOverridesFlagClassifiers:
     def test_global_overrides_find(self):
         """Global classify entry overrides _classify_find."""
         global_t = build_user_table({"filesystem_read": ["find"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["find", ".", "-delete"], global_t, builtin_t) == "filesystem_read"
 
     def test_global_overrides_sed(self):
         """Global classify entry overrides _classify_sed."""
         global_t = build_user_table({"filesystem_read": ["sed"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_read"
 
     def test_global_overrides_tar(self):
         """Global classify entry overrides _classify_tar."""
         global_t = build_user_table({"filesystem_read": ["tar"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["tar", "czf", "a.tar.gz", "."], global_t, builtin_t) == "filesystem_read"
 
     def test_global_overrides_git(self):
         """Global classify entry overrides _classify_git."""
         global_t = build_user_table({"git_safe": ["git tag"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_safe"
 
     def test_global_overrides_curl(self):
         """Global classify entry overrides _classify_curl."""
         global_t = build_user_table({"network_outbound": ["curl"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["curl", "-d", "data", "url"], global_t, builtin_t) == "network_outbound"
 
     def test_global_overrides_wget(self):
         """Global classify entry overrides _classify_wget."""
         global_t = build_user_table({"network_outbound": ["wget"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["wget", "--post-data=x", "url"], global_t, builtin_t) == "network_outbound"
 
     def test_global_overrides_httpie(self):
         """Global classify entry overrides _classify_httpie."""
         global_t = build_user_table({"network_outbound": ["http"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["http", "POST", "example.com"], global_t, builtin_t) == "network_outbound"
 
     # --- V11–V13: Granularity (longest-prefix-first) ---
@@ -2808,14 +2725,14 @@ class TestGlobalOverridesFlagClassifiers:
             "filesystem_write": ["sed -i"],
             "filesystem_read": ["sed"],
         })
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_write"
         assert classify_tokens(["sed", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_read"
 
     def test_partial_override_leaves_other_commands(self):
         """Overriding git tag doesn't affect git push (flag classifier still runs)."""
         global_t = build_user_table({"git_safe": ["git tag"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         # git tag overridden
         assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_safe"
         # git push still uses flag classifier
@@ -2827,7 +2744,7 @@ class TestGlobalOverridesFlagClassifiers:
             "git_history_rewrite": ["git push --force"],
             "git_safe": ["git push"],
         })
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "push", "--force"], global_t, builtin_t) == "git_history_rewrite"
         assert classify_tokens(["git", "push", "origin", "main"], global_t, builtin_t) == "git_safe"
 
@@ -2836,60 +2753,32 @@ class TestGlobalOverridesFlagClassifiers:
     def test_git_C_stripped_for_global_lookup(self):
         """git -C /path push --force matches global 'git push --force'."""
         global_t = build_user_table({"git_safe": ["git push --force"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "-C", "/path", "push", "--force"], global_t, builtin_t) == "git_safe"
 
     def test_git_no_pager_stripped_for_global_lookup(self):
         """git --no-pager push matches global 'git push'."""
         global_t = build_user_table({"git_safe": ["git push"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "--no-pager", "push"], global_t, builtin_t) == "git_safe"
 
     def test_git_equals_joined_flag_stripped_for_global_lookup(self):
         """git --git-dir=/path push matches global 'git push'."""
         global_t = build_user_table({"git_safe": ["git push"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "--git-dir=/path", "push"], global_t, builtin_t) == "git_safe"
 
     def test_git_paginate_flag_stripped_for_global_lookup(self):
         """git -P push --force matches global 'git push --force'."""
         global_t = build_user_table({"git_safe": ["git push --force"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         assert classify_tokens(["git", "-P", "push", "--force"], global_t, builtin_t) == "git_safe"
-
-    # --- V16–V21: Profile:none ---
-
-    def test_profile_none_sed_unknown(self):
-        """profile:none → sed -i → unknown (flag classifier skipped)."""
-        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], profile="none") == "unknown"
-
-    def test_profile_none_curl_unknown(self):
-        """profile:none → curl -d → unknown."""
-        assert classify_tokens(["curl", "-d", "data", "url"], profile="none") == "unknown"
-
-    def test_profile_none_find_unknown(self):
-        """profile:none → find -delete → unknown."""
-        assert classify_tokens(["find", ".", "-delete"], profile="none") == "unknown"
-
-    def test_profile_none_git_unknown(self):
-        """profile:none → git push --force → unknown."""
-        assert classify_tokens(["git", "push", "--force"], profile="none") == "unknown"
-
-    def test_profile_none_global_still_works(self):
-        """profile:none + global table → global table still classifies."""
-        global_t = build_user_table({"filesystem_read": ["sed"]})
-        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, profile="none") == "filesystem_read"
-
-    def test_profile_none_ls_unknown(self):
-        """profile:none → ls → unknown (builtin table empty, flag classifiers skipped)."""
-        table = get_builtin_table("none")
-        assert classify_tokens(["ls", "-la"], builtin_table=table, profile="none") == "unknown"
 
     # --- V25: Supply-chain safety ---
 
     def test_project_cannot_override_flag_classifiers(self):
         """Project table is Phase 3 — cannot override flag classifiers."""
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         project_t = build_user_table({"filesystem_read": ["sed"]})
         # Project says sed → filesystem_read, but flag classifier runs first
         assert classify_tokens(["sed", "-i", "s/a/b/", "file"], None, builtin_t, project_t) == "filesystem_write"
@@ -3280,7 +3169,7 @@ class TestFD022Classifiers:
 
 
 class TestExecSinksConfigurable:
-    """FD-051: exec_sinks add/remove/profile-none and new defaults."""
+    """FD-051: exec_sinks add/remove and new defaults."""
 
     def _setup_merge(self, cfg):
         from nah import config
@@ -3331,24 +3220,24 @@ class TestExecSinksConfigurable:
         # Others still present
         assert is_exec_sink("bash")
 
-    def test_profile_none_clears(self):
+    def test_defaults_present_after_merge(self):
         from nah.config import NahConfig
-        self._setup_merge(NahConfig(profile="none"))
-        assert not is_exec_sink("bash")
-        assert not is_exec_sink("python3")
-
-    def test_profile_none_with_add(self):
-        from nah.config import NahConfig
-        self._setup_merge(NahConfig(profile="none", exec_sinks=["bash"]))
+        self._setup_merge(NahConfig())
         assert is_exec_sink("bash")
-        assert not is_exec_sink("python3")
+        assert is_exec_sink("python3")
+
+    def test_add_keeps_defaults(self):
+        from nah.config import NahConfig
+        self._setup_merge(NahConfig(exec_sinks=["bash"]))
+        assert is_exec_sink("bash")
+        assert is_exec_sink("python3")
 
 
 # --- FD-051: Configurable decode commands ---
 
 
 class TestDecodeCommandsConfigurable:
-    """FD-051: decode_commands add/remove/profile-none and new defaults."""
+    """FD-051: decode_commands add/remove and new defaults."""
 
     def _setup_merge(self, cfg):
         from nah import config
@@ -3386,17 +3275,17 @@ class TestDecodeCommandsConfigurable:
         # Others still present
         assert is_decode_stage(["base64", "-d"])
 
-    def test_profile_none_clears(self):
+    def test_defaults_present_after_merge(self):
         from nah.config import NahConfig
-        self._setup_merge(NahConfig(profile="none"))
-        assert not is_decode_stage(["base64", "-d"])
-        assert not is_decode_stage(["xxd", "-r"])
+        self._setup_merge(NahConfig())
+        assert is_decode_stage(["base64", "-d"])
+        assert is_decode_stage(["xxd", "-r"])
 
-    def test_profile_none_with_add(self):
+    def test_add_keeps_defaults(self):
         from nah.config import NahConfig
-        self._setup_merge(NahConfig(profile="none", decode_commands=["uudecode"]))
+        self._setup_merge(NahConfig(decode_commands=["uudecode"]))
         assert is_decode_stage(["uudecode", "file"])
-        assert not is_decode_stage(["base64", "-d"])
+        assert is_decode_stage(["base64", "-d"])
 
 
 # --- Shadow detection (FD-062) ---
@@ -3440,7 +3329,7 @@ class TestFindTableShadows:
     def test_against_real_builtin_table(self):
         """User 'docker' should shadow multiple real builtin docker entries."""
         user = [(("docker",), "container_destructive")]
-        builtin = get_builtin_table("full")
+        builtin = get_builtin_table()
         result = find_table_shadows(user, builtin)
         assert ("docker",) in result
         assert len(result[("docker",)]) >= 2
@@ -4003,7 +3892,7 @@ class TestFD019GlobalInstall:
     def test_global_override_via_user_table(self):
         """Global config can override the global-install flag classifier."""
         global_t = build_user_table({"package_install": ["npm install"]})
-        builtin_t = get_builtin_table("full")
+        builtin_t = get_builtin_table()
         result = classify_tokens(
             ["npm", "install", "-g", "x"], global_t, builtin_t
         )
@@ -4061,7 +3950,7 @@ class TestFD019Roundtrip:
         import json
         from pathlib import Path
         data_dir = Path(__file__).parent.parent / "src" / "nah" / "data" / "classify_full"
-        full_table = get_builtin_table("full")
+        full_table = get_builtin_table()
         failures = []
         for json_file in sorted(data_dir.glob("*.json")):
             expected_type = json_file.stem

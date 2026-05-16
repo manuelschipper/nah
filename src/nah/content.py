@@ -99,11 +99,6 @@ def _ensure_content_patterns_merged() -> None:
         from nah.config import get_config
         cfg = get_config()
 
-        # Profile: none clears all built-in patterns
-        if cfg.profile == "none":
-            _CONTENT_PATTERNS.clear()
-            _CREDENTIAL_SEARCH_PATTERNS.clear()
-
         # --- Content pattern suppression (by description string) ---
         if cfg.content_patterns_suppress:
             suppress_set = {str(s) for s in cfg.content_patterns_suppress}

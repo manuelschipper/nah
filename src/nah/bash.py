@@ -166,16 +166,14 @@ def classify_command(command: str) -> ClassifyResult:
     builtin_table = None
     project_table = None
     user_actions = None
-    profile = "full"
     trust_project = False
     try:
         from nah.config import get_config  # lazy import
         cfg = get_config()
-        profile = cfg.profile
         trust_project = cfg.project_config_trusted
         if cfg.classify_global:
             global_table = taxonomy.build_user_table(cfg.classify_global)
-        builtin_table = taxonomy.get_builtin_table(cfg.profile)
+        builtin_table = taxonomy.get_builtin_table()
         if cfg.project_config_trusted and cfg.classify_project:
             project_table = taxonomy.build_user_table(cfg.classify_project)
         if cfg.actions:
@@ -186,7 +184,7 @@ def classify_command(command: str) -> ClassifyResult:
     # --- FD-103: classify extracted substitution inners ---
     _kw = dict(global_table=global_table, builtin_table=builtin_table,
                project_table=project_table, user_actions=user_actions,
-               profile=profile, trust_project=trust_project)
+               trust_project=trust_project)
     inner_results_by_idx: dict[int, StageResult] = {}
     for sub_idx, (inner_cmd, _start, _end, _kind) in enumerate(active_subs):
         inner_cmd = inner_cmd.strip()
@@ -2148,7 +2146,6 @@ def _classify_stage(
     builtin_table: list | None = None,
     project_table: list | None = None,
     user_actions: dict[str, str] | None = None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> StageResult:
     """Classify a single pipeline stage."""
@@ -2174,7 +2171,7 @@ def _classify_stage(
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
                               builtin_table=builtin_table, project_table=project_table,
-                              user_actions=user_actions, profile=profile,
+                              user_actions=user_actions,
                               trust_project=trust_project)
     if unwrapped is not None:
         return _apply_redirect_guard(stage, unwrapped, user_actions=user_actions)
@@ -2197,7 +2194,7 @@ def _classify_stage(
                 _apply_policy(sr)
             return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
-    safe_python = _safe_python_module_result(stage, user_actions=user_actions, profile=profile)
+    safe_python = _safe_python_module_result(stage, user_actions=user_actions)
     if safe_python is not None:
         return _apply_redirect_guard(stage, safe_python, user_actions=user_actions)
 
@@ -2208,7 +2205,6 @@ def _classify_stage(
         builtin_table=builtin_table,
         project_table=project_table,
         user_actions=user_actions,
-        profile=profile,
         trust_project=trust_project,
     )
     if find_exec is not None:
@@ -2224,7 +2220,6 @@ def _classify_stage(
         global_table,
         builtin_table,
         project_table,
-        profile=profile,
         trust_project=trust_project,
         env_assignments=stage.env_assignments,
     )
@@ -2371,7 +2366,6 @@ def _classify_find_exec(
     builtin_table: list | None,
     project_table: list | None,
     user_actions: dict[str, str] | None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> StageResult | None:
     tokens = stage.tokens
@@ -2404,7 +2398,6 @@ def _classify_find_exec(
                 builtin_table=builtin_table,
                 project_table=project_table,
                 user_actions=user_actions,
-                profile=profile,
                 trust_project=trust_project,
             )
         results.append(_apply_outer_path_guard(stage, sr))
@@ -3555,7 +3548,6 @@ def _docker_visible_stage_results(
     builtin_table: list | None,
     project_table: list | None,
     user_actions: dict[str, str] | None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> list[StageResult] | None:
     """Enumerate visible inner stages for Docker inherited-allow gating."""
@@ -3584,7 +3576,6 @@ def _docker_visible_stage_results(
                 builtin_table=builtin_table,
                 project_table=project_table,
                 user_actions=user_actions,
-                profile=profile,
                 trust_project=trust_project,
             )
             if nested is None:
@@ -3600,7 +3591,6 @@ def _docker_visible_stage_results(
             builtin_table=builtin_table,
             project_table=project_table,
             user_actions=user_actions,
-            profile=profile,
             trust_project=trust_project,
         )
     ]
@@ -3652,7 +3642,6 @@ def _unwrap_shell(
     builtin_table: list | None,
     project_table: list | None,
     user_actions: dict[str, str] | None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> StageResult | None:
     """Try shell unwrapping. Returns StageResult if handled, None if not a wrapper."""
@@ -3672,7 +3661,7 @@ def _unwrap_shell(
             )
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
-                                   user_actions=user_actions, profile=profile,
+                                   user_actions=user_actions,
                                    trust_project=trust_project)
         return None  # Introspection or bare — fall through to classify
 
@@ -3687,7 +3676,7 @@ def _unwrap_shell(
             )
             return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                    builtin_table=builtin_table, project_table=project_table,
-                                   user_actions=user_actions, profile=profile,
+                                   user_actions=user_actions,
                                    trust_project=trust_project)
         sr = StageResult(tokens=tokens)
         sr.action_type = taxonomy.UNKNOWN
@@ -3708,7 +3697,7 @@ def _unwrap_shell(
         inner_stage = _copy_python_metadata(inner_stage, stage)
         sr = _classify_stage(inner_stage, depth + 1, global_table=global_table,
                              builtin_table=builtin_table, project_table=project_table,
-                             user_actions=user_actions, profile=profile,
+                             user_actions=user_actions,
                              trust_project=trust_project)
         if sr.reason and not sr.reason.startswith("sudo: "):
             sr.reason = f"sudo: {sr.reason}"
@@ -3741,7 +3730,7 @@ def _unwrap_shell(
         )
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile,
+                               user_actions=user_actions,
                                trust_project=trust_project)
 
     docker_payload = _extract_docker_exec_inner(tokens)
@@ -3771,7 +3760,6 @@ def _unwrap_shell(
             builtin_table=builtin_table,
             project_table=project_table,
             user_actions=user_actions,
-            profile=profile,
             trust_project=trust_project,
         )
         visible_results = _docker_visible_stage_results(
@@ -3781,7 +3769,6 @@ def _unwrap_shell(
             builtin_table=builtin_table,
             project_table=project_table,
             user_actions=user_actions,
-            profile=profile,
             trust_project=trust_project,
         )
         return _apply_docker_exec_inherited_gate(sr, visible_results, docker_payload)
@@ -3794,7 +3781,7 @@ def _unwrap_shell(
         inner_stage = _copy_python_metadata(inner_stage, stage)
         sr = _classify_stage(inner_stage, depth + 1, global_table=global_table,
                              builtin_table=builtin_table, project_table=project_table,
-                             user_actions=user_actions, profile=profile,
+                             user_actions=user_actions,
                              trust_project=trust_project)
         if sr.reason and not sr.reason.startswith("mise: "):
             sr.reason = f"mise: {sr.reason}"
@@ -3811,7 +3798,7 @@ def _unwrap_shell(
         )
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile,
+                               user_actions=user_actions,
                                trust_project=trust_project)
 
     # xargs unwrap (FD-089)
@@ -3830,7 +3817,7 @@ def _unwrap_shell(
         inner_stage = _copy_python_metadata(Stage(tokens=inner_tokens, operator=stage.operator), stage)
         return _classify_stage(inner_stage, depth + 1, global_table=global_table,
                                builtin_table=builtin_table, project_table=project_table,
-                               user_actions=user_actions, profile=profile,
+                               user_actions=user_actions,
                                trust_project=trust_project)
 
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
@@ -3860,7 +3847,7 @@ def _unwrap_shell(
     # Classify extracted substitution inners
     _ikw = dict(global_table=global_table, builtin_table=builtin_table,
                 project_table=project_table, user_actions=user_actions,
-                profile=profile, trust_project=trust_project)
+                trust_project=trust_project)
     inner_sub_results: dict[int, StageResult] = {}
     for psub_idx, (psub_cmd, _ps, _pe, _pk) in enumerate(inner_active):
         psub_cmd = psub_cmd.strip()
@@ -3906,13 +3893,12 @@ def _classify_inner(
     builtin_table: list | None,
     project_table: list | None,
     user_actions: dict[str, str] | None,
-    profile: str = "full",
     trust_project: bool = False,
     sub_results: dict[int, StageResult] | None = None,
 ) -> StageResult:
     """Classify pre-decomposed inner stages."""
     kw = dict(global_table=global_table, builtin_table=builtin_table,
-              project_table=project_table, user_actions=user_actions, profile=profile,
+              project_table=project_table, user_actions=user_actions,
               trust_project=trust_project)
 
     inner_stages = _expand_intra_chain_vars(inner_stages)
@@ -4405,11 +4391,7 @@ def _safe_python_module_result(
     stage: Stage,
     *,
     user_actions: dict[str, str] | None,
-    profile: str = "full",
 ) -> StageResult | None:
-    if profile == "none":
-        return None
-
     invocation = _python_module_invocation(stage.tokens)
     if invocation is None:
         return None

@@ -388,28 +388,26 @@ class TestContentPolicies:
             _cleanup()
 
 
-class TestProfileNoneContent:
-    """FD-052: profile: none clears built-in patterns."""
+class TestDefaultContentInspection:
+    """Built-in content inspection stays active unless explicitly suppressed."""
 
-    def test_profile_none_no_content_matches(self):
-        _with_config(NahConfig(profile="none"))
+    def test_default_content_matches(self):
+        _with_config(NahConfig())
         try:
             matches = scan_content("rm -rf /; -----BEGIN PRIVATE KEY-----")
-            assert matches == []
+            assert matches
         finally:
             _cleanup()
 
-    def test_profile_none_no_credential_search(self):
-        _with_config(NahConfig(profile="none"))
+    def test_default_credential_search(self):
+        _with_config(NahConfig())
         try:
-            assert is_credential_search("password") is False
+            assert is_credential_search("password") is True
         finally:
             _cleanup()
 
-    def test_profile_none_plus_add(self):
-        _with_config(NahConfig(
-            profile="none",
-            content_patterns_add=[
+    def test_custom_add_keeps_builtins(self):
+        _with_config(NahConfig(content_patterns_add=[
                 {"category": "custom", "pattern": r"\bDANGER\b",
                  "description": "danger word"},
             ],
@@ -418,8 +416,7 @@ class TestProfileNoneContent:
             matches = scan_content("DANGER zone")
             assert len(matches) == 1
             assert matches[0].category == "custom"
-            # Built-in patterns should NOT match
-            assert scan_content("rm -rf /") == []
+            assert scan_content("rm -rf /")
         finally:
             _cleanup()
 

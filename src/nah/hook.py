@@ -826,7 +826,7 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
         cfg = get_config()
 
         global_table = taxonomy.build_user_table(cfg.classify_global) if cfg.classify_global else None
-        builtin_table = taxonomy.get_builtin_table(cfg.profile)
+        builtin_table = taxonomy.get_builtin_table()
 
         # MCP tools: project config cannot classify (untrusted, no builtin coverage)
         is_mcp = canonical.startswith("mcp__")
@@ -838,9 +838,13 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
     except Exception:
         return {"decision": taxonomy.ASK, "reason": f"unrecognized tool: {canonical}"}
 
-    action_type = taxonomy.classify_tokens([canonical], global_table, builtin_table, project_table,
-                                           profile=cfg.profile,
-                                           trust_project=cfg.project_config_trusted)
+    action_type = taxonomy.classify_tokens(
+        [canonical],
+        global_table,
+        builtin_table,
+        project_table,
+        trust_project=cfg.project_config_trusted,
+    )
 
     policy = taxonomy.get_policy(action_type, user_actions)
     stage_reason = (

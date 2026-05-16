@@ -130,17 +130,3 @@ decode_commands:
 
 !!! warning
     Removing decode commands weakens composition rules (nah prints a stderr warning).
-
-## profile: none
-
-Setting `profile: none` clears **all** safety lists to empty. You then build up exactly what you want:
-
-```yaml
-profile: none
-known_registries:
-  - pypi.org
-  - github.com
-exec_sinks:
-  - bash
-  - sh
-```

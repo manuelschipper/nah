@@ -1173,12 +1173,12 @@ class TestSafePythonModuleCarveOut:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
 
-    def test_profile_none_does_not_use_safe_python_module_builtin(self, project_root):
-        config._cached_config = NahConfig(profile="none")
+    def test_safe_python_module_builtin_classifies_readonly(self, project_root):
+        config._cached_config = NahConfig()
         r = classify_command("python3 -m json.tool config.json")
-        assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "unknown"
-        assert r.stages[0].python_module == ""
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+        assert r.stages[0].python_module == "json.tool"
 
     def test_malformed_json_tool_indent_falls_back_to_lang_exec(self, project_root):
         r = classify_command("python3 -m json.tool --indent --sort-keys input.json")
@@ -2547,13 +2547,13 @@ class TestNewActionTypes:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type != "db_read"
 
-    def test_psql_profile_none_keeps_ambiguous_unknown(self, project_root):
-        config._cached_config = NahConfig(profile="none")
+    def test_psql_readonly_classifier_allows_safe_select(self, project_root):
+        config._cached_config = NahConfig()
         r = classify_command(
             'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users"'
         )
-        assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "unknown"
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "db_read"
 
     def test_sqlite3_readonly_select_allow(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite 'SELECT 1'")

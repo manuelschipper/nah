@@ -62,24 +62,12 @@ ASK = "ask"
 BLOCK = "block"
 CONTEXT = "context"
 
-# Valid profiles. ``minimal`` is intentionally not listed: it is a deprecated
-# config alias for ``full`` and should not create a third runtime behavior.
-PROFILES = ("full", "none")
-
 # Strictness ordering — higher = more restrictive. Used for tighten-only merges.
 STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
 
 
-def _effective_profile(profile: str) -> str:
-    """Return the runtime profile for deprecated aliases."""
-    return "full" if profile == "minimal" else profile
-
-
-def _load_classify_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
-    """Load classify table from JSON files for the given profile."""
-    profile = _effective_profile(profile)
-    if profile == "none":
-        return []
+def _load_classify_table() -> list[tuple[tuple[str, ...], str]]:
+    """Load the built-in classify table from JSON files."""
     subdir = "classify_full"
     classify_dir = _DATA_DIR / subdir
     table: list[tuple[tuple[str, ...], str]] = []
@@ -102,22 +90,19 @@ def _load_policies() -> dict[str, str]:
         return json.load(f)
 
 
-# Cached built-in tables keyed by profile name.
-_BUILTIN_TABLES: dict[str, list[tuple[tuple[str, ...], str]]] = {}
+_BUILTIN_TABLE: list[tuple[tuple[str, ...], str]] = _load_classify_table()
 _TYPE_DESCRIPTIONS: dict[str, str] | None = None
 _POLICIES = _load_policies()
 POLICIES = _POLICIES
 
-# Pre-load full profile at module level (most common path).
-_BUILTIN_TABLES["full"] = _load_classify_table("full")
 
+def get_builtin_table(profile: str | None = None) -> list[tuple[tuple[str, ...], str]]:
+    """Get the cached built-in classify table.
 
-def get_builtin_table(profile: str = "full") -> list[tuple[tuple[str, ...], str]]:
-    """Get cached built-in classify table for a profile."""
-    profile = _effective_profile(profile)
-    if profile not in _BUILTIN_TABLES:
-        _BUILTIN_TABLES[profile] = _load_classify_table(profile)
-    return _BUILTIN_TABLES[profile]
+    The optional profile argument is accepted for compatibility with older
+    callers; nah no longer has taxonomy profiles.
+    """
+    return _BUILTIN_TABLE
 
 
 def _validate_classify_pattern(pattern: str) -> None:
@@ -394,8 +379,6 @@ def _ensure_exec_sinks_merged():
     try:
         from nah.config import get_config, _parse_add_remove
         cfg = get_config()
-        if cfg.profile == "none":
-            EXEC_SINKS.clear()
         add, remove = _parse_add_remove(cfg.exec_sinks)
         EXEC_SINKS.update(_normalize_command_name(str(s)) for s in add)
         if remove:
@@ -442,8 +425,6 @@ def _ensure_decode_commands_merged():
     try:
         from nah.config import get_config, _parse_add_remove
         cfg = get_config()
-        if cfg.profile == "none":
-            DECODE_COMMANDS.clear()
         add, remove = _parse_add_remove(cfg.decode_commands)
         # Remove by command name (all flag variants)
         if remove:
@@ -497,21 +478,22 @@ def classify_tokens(
     builtin_table: list | None = None,
     project_table: list | None = None,
     *,
-    profile: str = "full",
+    profile: str | None = None,
     trust_project: bool = False,
     env_assignments: dict[str, str] | None = None,
 ) -> str:
     """Classify command tokens via three-phase lookup.
 
+    ``profile`` is accepted for compatibility with older callers and ignored.
+
     Phase 1: Global table (trusted user config) — always runs.
-    Phase 2: Flag classifiers (built-in opinions) — skipped when profile == "none".
+    Phase 2: Flag classifiers (built-in opinions).
     Phase 3: Remaining tables (project, builtin) — global already checked.
         When trust_project is True, project table wins over builtins even
         when it loosens policy (the active project config root is trusted).
     """
     if not tokens:
         return UNKNOWN
-    profile = _effective_profile(profile)
 
     # Command normalization — resolve /usr/bin/rm, C:\...\cmd.exe, python3.12.
     base = _normalize_command_name(tokens[0])
@@ -534,117 +516,112 @@ def classify_tokens(
                 return result
 
     # --- Phase 2: Flag classifiers (built-in opinions) ---
-    # Skipped entirely when profile == "none".
-    if profile != "none":
-        action = _classify_find(
-            tokens,
-            global_table=global_table,
-            builtin_table=builtin_table,
-            project_table=project_table,
-            profile=profile,
-            trust_project=trust_project,
-        )
+    action = _classify_find(
+        tokens,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        trust_project=trust_project,
+    )
+    if action is not None:
+        return action
+    action = _classify_sed(tokens)
+    if action is not None:
+        return action
+    action = _classify_awk(tokens)
+    if action is not None:
+        return action
+    action = _classify_tar(tokens)
+    if action is not None:
+        return action
+    if tokens[0] == "git":
+        action = _classify_git(tokens)
         if action is not None:
             return action
-        action = _classify_sed(tokens)
-        if action is not None:
-            return action
-        action = _classify_awk(tokens)
-        if action is not None:
-            return action
-        action = _classify_tar(tokens)
-        if action is not None:
-            return action
-        if tokens[0] == "git":
-            action = _classify_git(tokens)
-            if action is not None:
-                return action
-        action = _classify_kubectl(
-            tokens,
-            global_table=global_table,
-        )
-        if action is not None:
-            return action
-        action = _classify_sqlite3(tokens)
-        if action is not None:
-            return action
-        action = _classify_psql_readonly(tokens, env_assignments=env_assignments)
-        if action is not None:
-            return action
-        action = _classify_graphql_operation(tokens)
-        if action is not None:
-            return action
-        action = _classify_json_rpc_operation(tokens)
-        if action is not None:
-            return action
-        action = _classify_grpc_operation(tokens)
-        if action is not None:
-            return action
-        action = _classify_websocket_operation(tokens)
-        if action is not None:
-            return action
-        action = _classify_http_rest_operation(tokens)
-        if action is not None:
-            return action
-        action = _classify_curl(tokens)
-        if action is not None:
-            return action
-        action = _classify_wget(tokens)
-        if action is not None:
-            return action
-        action = _classify_httpie(tokens)
-        if action is not None:
-            return action
-        action = _classify_gh_api(tokens, profile=profile)
-        if action is not None:
-            return action
-        action = _classify_glab_api(tokens, profile=profile)
-        if action is not None:
-            return action
-        action = _classify_mise_exec_wrapper(
-            tokens,
-            global_table=global_table,
-            builtin_table=builtin_table,
-            project_table=project_table,
-            profile=profile,
-            trust_project=trust_project,
-        )
-        if action is not None:
-            return action
-        action = _classify_nah_run_claude(tokens)
-        if action is not None:
-            return action
-        action = _classify_nah_run_codex(tokens)
-        if action is not None:
-            return action
-        action = _classify_codex(tokens)
-        if action is not None:
-            return action
-        action = _classify_codex_companion(tokens)
-        if action is not None:
-            return action
-        action = _classify_global_install(tokens)
-        if action is not None:
-            return action
-        action = _classify_make(tokens)
-        if action is not None:
-            return action
-        action = _classify_windows_shell(tokens)
-        if action is not None:
-            return action
-        action = _classify_package_exec_wrapper(
-            tokens,
-            global_table=global_table,
-            builtin_table=builtin_table,
-            project_table=project_table,
-            profile=profile,
-            trust_project=trust_project,
-        )
-        if action is not None:
-            return action
-        action = _classify_script_exec(tokens)
-        if action is not None:
-            return action
+    action = _classify_kubectl(
+        tokens,
+        global_table=global_table,
+    )
+    if action is not None:
+        return action
+    action = _classify_sqlite3(tokens)
+    if action is not None:
+        return action
+    action = _classify_psql_readonly(tokens, env_assignments=env_assignments)
+    if action is not None:
+        return action
+    action = _classify_graphql_operation(tokens)
+    if action is not None:
+        return action
+    action = _classify_json_rpc_operation(tokens)
+    if action is not None:
+        return action
+    action = _classify_grpc_operation(tokens)
+    if action is not None:
+        return action
+    action = _classify_websocket_operation(tokens)
+    if action is not None:
+        return action
+    action = _classify_http_rest_operation(tokens)
+    if action is not None:
+        return action
+    action = _classify_curl(tokens)
+    if action is not None:
+        return action
+    action = _classify_wget(tokens)
+    if action is not None:
+        return action
+    action = _classify_httpie(tokens)
+    if action is not None:
+        return action
+    action = _classify_gh_api(tokens)
+    if action is not None:
+        return action
+    action = _classify_glab_api(tokens)
+    if action is not None:
+        return action
+    action = _classify_mise_exec_wrapper(
+        tokens,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        trust_project=trust_project,
+    )
+    if action is not None:
+        return action
+    action = _classify_nah_run_claude(tokens)
+    if action is not None:
+        return action
+    action = _classify_nah_run_codex(tokens)
+    if action is not None:
+        return action
+    action = _classify_codex(tokens)
+    if action is not None:
+        return action
+    action = _classify_codex_companion(tokens)
+    if action is not None:
+        return action
+    action = _classify_global_install(tokens)
+    if action is not None:
+        return action
+    action = _classify_make(tokens)
+    if action is not None:
+        return action
+    action = _classify_windows_shell(tokens)
+    if action is not None:
+        return action
+    action = _classify_package_exec_wrapper(
+        tokens,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        trust_project=trust_project,
+    )
+    if action is not None:
+        return action
+    action = _classify_script_exec(tokens)
+    if action is not None:
+        return action
 
     # --- Phase 3: Remaining tables (project, builtin) ---
     # Project table may override built-ins only when it does not weaken policy,
@@ -945,7 +922,6 @@ def _classify_find(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Special classifier for find — inspect -exec payloads conservatively."""
@@ -963,7 +939,6 @@ def _classify_find(
                 global_table=global_table,
                 builtin_table=builtin_table,
                 project_table=project_table,
-                profile=profile,
                 trust_project=trust_project,
             )
             return inner_action if inner_action != UNKNOWN else FILESYSTEM_DELETE
@@ -2308,10 +2283,9 @@ def _gh_api_payload_value_is_file_sourced(payload: str | None) -> bool:
     return value.startswith("@")
 
 
-def _classify_api_cli(tokens: list[str], command: str, *, profile: str = "full") -> str | None:
+def _classify_api_cli(tokens: list[str], command: str) -> str | None:
     """Flag-dependent: API reads are git_safe; writes/bodies are network_write."""
-    profile = _effective_profile(profile)
-    if profile != "full" or len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
+    if len(tokens) < 2 or tokens[0] != command or tokens[1] != "api":
         return None
 
     explicit_read_method = False
@@ -2430,14 +2404,14 @@ def _classify_api_cli(tokens: list[str], command: str, *, profile: str = "full")
     return GIT_SAFE
 
 
-def _classify_gh_api(tokens: list[str], *, profile: str = "full") -> str | None:
+def _classify_gh_api(tokens: list[str]) -> str | None:
     """Flag-dependent: gh api reads are git_safe; writes/bodies are network_write."""
-    return _classify_api_cli(tokens, "gh", profile=profile)
+    return _classify_api_cli(tokens, "gh")
 
 
-def _classify_glab_api(tokens: list[str], *, profile: str = "full") -> str | None:
+def _classify_glab_api(tokens: list[str]) -> str | None:
     """Flag-dependent: glab api reads are git_safe; writes/bodies are network_write."""
-    return _classify_api_cli(tokens, "glab", profile=profile)
+    return _classify_api_cli(tokens, "glab")
 
 
 _CODEX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
@@ -3156,7 +3130,6 @@ def _classify_mise_exec_wrapper(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Classify supported explicit-delimiter mise wrappers by their payload."""
@@ -3169,7 +3142,6 @@ def _classify_mise_exec_wrapper(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
-        profile=profile,
         trust_project=trust_project,
     )
     return inner_action if inner_action != UNKNOWN else UNKNOWN
@@ -3181,7 +3153,6 @@ def _classify_package_exec_wrapper(
     global_table: list | None = None,
     builtin_table: list | None = None,
     project_table: list | None = None,
-    profile: str = "full",
     trust_project: bool = False,
 ) -> str | None:
     """Reclassify package wrappers only when the inner payload is lang_exec."""
@@ -3199,7 +3170,6 @@ def _classify_package_exec_wrapper(
         global_table=global_table,
         builtin_table=builtin_table,
         project_table=project_table,
-        profile=profile,
         trust_project=trust_project,
     )
     if inner_action == LANG_EXEC:

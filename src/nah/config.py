@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from nah.messages import normalize_color_mode
 from nah.platform_paths import nah_config_dir
-from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
+from nah.taxonomy import POLICIES as _POLICIES, STRICTNESS as _STRICTNESS
 
 class ConfigError(Exception):
     """Raised when a config file exists but fails to parse."""
@@ -14,12 +14,12 @@ class ConfigError(Exception):
 _CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
-_DEPRECATED_PROFILE_ALIASES = {"minimal": "full"}
-
 
 @dataclass
 class NahConfig:
     target: str = ""
+    # Compatibility only. Older configs/callers may still pass profile, but
+    # nah always runs the full built-in taxonomy and never reads this value.
     profile: str = "full"
     classify_global: dict[str, list[str]] = field(default_factory=dict)
     classify_project: dict[str, list[str]] = field(default_factory=dict)
@@ -150,10 +150,6 @@ def apply_override(override_data: dict) -> None:
     global _cached_config
     cfg = get_config()  # ensure base is loaded
 
-    if "profile" in override_data:
-        cfg.profile = _normalize_profile(
-            override_data["profile"], warn_unknown=False, fallback=cfg.profile,
-        )
     if "classify" in override_data:
         cfg.classify_global.update(_validate_dict(override_data["classify"]))
     if "actions" in override_data:
@@ -615,26 +611,6 @@ def _is_project_config_trusted(project_root: str | None, global_cfg: dict) -> bo
     return _project_root_matches_trusted(project_root, trusted)
 
 
-def _normalize_profile(raw, *, warn_unknown: bool = True, fallback: str = "full") -> str:
-    """Return the effective profile, warning for deprecated/invalid values."""
-    if not isinstance(raw, str):
-        if warn_unknown:
-            sys.stderr.write(f"nah: unknown profile {raw!r}, using '{fallback}'\n")
-        return fallback
-    if raw in _PROFILES:
-        return raw
-    if raw in _DEPRECATED_PROFILE_ALIASES:
-        effective = _DEPRECATED_PROFILE_ALIASES[raw]
-        sys.stderr.write(
-            f"nah: profile '{raw}' is deprecated; using '{effective}'. "
-            "Use 'none' for a blank-slate profile.\n"
-        )
-        return effective
-    if warn_unknown:
-        sys.stderr.write(f"nah: unknown profile '{raw}', using '{fallback}'\n")
-    return fallback
-
-
 def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
     """Merge two dicts — project can only tighten (stricter policy wins)."""
     merged = dict(global_d)
@@ -695,9 +671,6 @@ def _merge_configs(
             "use trusted_project_configs or nah trust-project\n"
         )
     _merge = _merge_dict_override if config.project_config_trusted else _merge_dict_tighten
-
-    # profile: global config ONLY, validated
-    config.profile = _normalize_profile(global_cfg.get("profile", "full"))
 
     # classify: keep global and trusted project SEPARATE for three-table lookup
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))
@@ -811,10 +784,10 @@ def _merge_configs(
     else:
         config.llm_eligible = "default"
 
-    # trusted_paths: global config ONLY (project .nah.yaml cannot set)
-    # Default: /tmp (and /private/tmp on macOS) for profile: full — standard
-    # scratch space, prompting on every temp file write is pure friction.
-    _default_trusted = ["/tmp", "/private/tmp"] if config.profile == "full" else []
+    # trusted_paths: global config ONLY (project .nah.yaml cannot set).
+    # /tmp and /private/tmp are default scratch space; prompting on every temp
+    # file write is pure friction.
+    _default_trusted = ["/tmp", "/private/tmp"]
     g_trusted = global_cfg.get("trusted_paths", [])
     if isinstance(g_trusted, list):
         config.trusted_paths = [str(p) for p in g_trusted]

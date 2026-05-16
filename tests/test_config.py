@@ -94,24 +94,13 @@ class TestDefaults:
         apply_override({"ui_color": "never"})
         assert get_config().ui_color == "never"
 
-    def test_apply_override_minimal_profile_deprecated_to_full(self, tmp_path, capsys):
+    def test_apply_override_ignores_legacy_profile_key(self, tmp_path, capsys):
         paths.set_project_root(str(tmp_path))
         reset_config()
         with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
-            apply_override({"profile": "minimal"})
+            apply_override({"profile": "none"})
         assert get_config().profile == "full"
-        assert "profile 'minimal' is deprecated" in capsys.readouterr().err
-
-    def test_apply_override_invalid_profile_preserves_current_profile(self, capsys):
-        from nah import config
-        try:
-            config._cached_config = NahConfig(profile="none")
-            config._cached_target = None
-            apply_override({"profile": "turbo"})
-            assert get_config().profile == "none"
-            assert capsys.readouterr().err == ""
-        finally:
-            reset_config()
+        assert capsys.readouterr().err == ""
 
     def test_apply_override_trusted_project_configs_enables_project_classify(self, tmp_path):
         paths.set_project_root(str(tmp_path))
@@ -133,7 +122,6 @@ class TestDefaults:
         from nah import config
         try:
             config._cached_config = NahConfig(
-                profile="none",
                 actions={"git_safe": "block"},
                 trusted_paths=["/custom"],
             )
@@ -191,7 +179,7 @@ class TestDefaults:
         from nah import config
         from nah.content import reset_content_patterns, scan_content
         try:
-            config._cached_config = NahConfig(profile="none")
+            config._cached_config = NahConfig(content_patterns_suppress=["hardcoded API key"])
             reset_content_patterns()
             assert scan_content("api_secret = 'hunter2hunter2'") == []
 
@@ -701,44 +689,6 @@ class TestSensitivePathsDefault:
         assert cfg.sensitive_paths_default == "block"
 
 
-class TestProfile:
-    """Profile loading and validation."""
-
-    def test_profile_minimal_from_global_deprecated_to_full(self, capsys):
-        cfg = _merge_configs({"profile": "minimal"}, {})
-        assert cfg.profile == "full"
-        assert "profile 'minimal' is deprecated" in capsys.readouterr().err
-
-    def test_profile_none(self):
-        cfg = _merge_configs({"profile": "none"}, {})
-        assert cfg.profile == "none"
-
-    def test_profile_default_full(self):
-        cfg = _merge_configs({}, {})
-        assert cfg.profile == "full"
-
-    def test_profile_ignored_in_project(self):
-        """Project config cannot set the profile."""
-        cfg = _merge_configs({}, {"profile": "none"})
-        assert cfg.profile == "full"
-
-    def test_profile_invalid_fallback(self):
-        """Invalid profile falls back to 'full'."""
-        cfg = _merge_configs({"profile": "turbo"}, {})
-        assert cfg.profile == "full"
-
-    def test_profile_non_string_fallback(self, capsys):
-        """Malformed profile values fall back without crashing config load."""
-        cfg = _merge_configs({"profile": ["minimal"]}, {})
-        assert cfg.profile == "full"
-        assert "unknown profile ['minimal']" in capsys.readouterr().err
-
-    def test_profile_global_overrides_project(self):
-        """Global profile wins; project profile ignored."""
-        cfg = _merge_configs({"profile": "none"}, {"profile": "full"})
-        assert cfg.profile == "none"
-
-
 class TestLlmMode:
     """llm.mode config loading."""
 
@@ -944,12 +894,12 @@ class TestTrustedPaths:
     def test_project_trusted_paths_ignored(self):
         """Project config cannot set trusted_paths."""
         cfg = _merge_configs({}, {"trusted_paths": ["/tmp"]})
-        # /tmp may be in defaults for profile: full, but not from project config
+        # /tmp is in defaults, but project config doesn't add non-default paths.
         # The key assertion: project config doesn't add non-default paths
         assert "~/sneaky" not in cfg.trusted_paths
 
-    def test_default_tmp_trusted_for_full_profile(self):
-        """profile: full includes /tmp and /private/tmp as defaults."""
+    def test_default_tmp_trusted(self):
+        """/tmp and /private/tmp are trusted by default."""
         cfg = _merge_configs({}, {})
         assert "/tmp" in cfg.trusted_paths
         assert "/private/tmp" in cfg.trusted_paths
@@ -957,7 +907,7 @@ class TestTrustedPaths:
     def test_invalid_type_dict(self):
         """Invalid type (dict) → only defaults remain."""
         cfg = _merge_configs({"trusted_paths": {"path": "/tmp"}}, {})
-        # User entries ignored, but profile: full defaults still present
+        # User entries ignored, but defaults still present.
         assert "/tmp" in cfg.trusted_paths
         assert "/private/tmp" in cfg.trusted_paths
 
@@ -967,12 +917,12 @@ class TestTrustedPaths:
         assert "/tmp" in cfg.trusted_paths
 
     def test_empty_list_gets_defaults(self):
-        """Empty user list still gets profile: full defaults."""
+        """Empty user list still gets defaults."""
         cfg = _merge_configs({"trusted_paths": []}, {})
         assert "/tmp" in cfg.trusted_paths
 
     def test_default_includes_tmp(self):
-        """No config → profile: full defaults include /tmp."""
+        """No config includes /tmp by default."""
         cfg = _merge_configs({}, {})
         assert "/tmp" in cfg.trusted_paths
 

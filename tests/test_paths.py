@@ -742,10 +742,10 @@ class TestSensitivePathConfigOverride:
 
 
 class TestSensitiveBasenamesConfigurable:
-    """FD-051: sensitive_basenames add/override/allow-remove, profile none."""
+    """FD-051: sensitive_basenames add/override/allow-remove."""
 
-    def _mock_config(self, sensitive_basenames, profile="full"):
-        return NahConfig(sensitive_basenames=sensitive_basenames, profile=profile)
+    def _mock_config(self, sensitive_basenames):
+        return NahConfig(sensitive_basenames=sensitive_basenames)
 
     def test_new_defaults(self):
         """FD-051: new default sensitive basenames are present."""
@@ -787,20 +787,20 @@ class TestSensitiveBasenamesConfigurable:
             matched, _, _ = paths.is_sensitive("/project/.env.local")
         assert matched is True
 
-    def test_profile_none_clears_basenames(self):
-        """profile: none clears all basenames."""
-        with patch("nah.config.get_config", return_value=self._mock_config({}, profile="none")):
+    def test_default_basenames_present(self):
+        """Built-in basenames are active by default."""
+        with patch("nah.config.get_config", return_value=self._mock_config({})):
             paths.reset_sensitive_paths()
             matched, _, _ = paths.is_sensitive("/project/.env")
-        assert matched is False
+        assert matched is True
 
-    def test_profile_none_with_config(self):
-        """profile: none clears defaults, but config entries still apply."""
-        with patch("nah.config.get_config", return_value=self._mock_config({".secrets": "block"}, profile="none")):
+    def test_config_entries_keep_defaults(self):
+        """Config entries add to defaults."""
+        with patch("nah.config.get_config", return_value=self._mock_config({".secrets": "block"})):
             paths.reset_sensitive_paths()
             matched_env, _, _ = paths.is_sensitive("/project/.env")
             matched_secrets, _, policy = paths.is_sensitive("/project/.secrets")
-        assert matched_env is False  # cleared by none
+        assert matched_env is True
         assert matched_secrets is True
         assert policy == "block"
 
@@ -884,9 +884,8 @@ class TestConfigSelfProtection:
         assert write_result["decision"] == "ask"
         assert hook_result["decision"] == "block"
 
-    def test_survives_profile_none(self):
-        """Config path protection is hardcoded — not cleared by profile: none."""
-        # Simulate profile: none clearing _SENSITIVE_DIRS
+    def test_config_path_protection_survives_cleared_sensitive_lists(self):
+        """Config path protection is hardcoded outside regular sensitive lists."""
         paths._SENSITIVE_DIRS.clear()
         paths._SENSITIVE_BASENAMES.clear()
 
@@ -940,8 +939,8 @@ class TestSettingsJsonProtection:
         assert result["decision"] == "ask"
         assert "sensitive path" in result["reason"]
 
-    def test_settings_cleared_by_profile_none(self):
-        """settings.json protection IS cleared by profile: none (by design)."""
+    def test_settings_json_uses_regular_sensitive_list(self):
+        """settings.json protection lives in the regular sensitive path list."""
         paths._SENSITIVE_DIRS.clear()
         resolved = paths.resolve_path("~/.claude/settings.json")
         matched, _, _ = paths.is_sensitive(resolved)
