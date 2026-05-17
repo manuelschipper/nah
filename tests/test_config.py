@@ -49,6 +49,8 @@ class TestDefaults:
         assert cfg.trusted_project_configs == []
         assert cfg.taint["mode"] == "off"
         assert cfg.taint["inherit_sensitive_paths"] is True
+        assert cfg.provenance["mode"] == "off"
+        assert cfg.provenance["policies"]["activation"] == "context"
 
     def test_windows_global_config_dir_uses_appdata(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
@@ -396,6 +398,7 @@ class TestMergeConfigs:
         assert cfg.classify_project == {}
         assert cfg.actions == {}
         assert cfg.taint["mode"] == "off"
+        assert cfg.provenance["mode"] == "off"
 
     def test_taint_config_parses_defaults_when_enabled(self):
         cfg = _merge_configs({"taint": {"mode": "audit"}} , {})
@@ -464,6 +467,60 @@ class TestMergeConfigs:
         )
         assert cfg.taint["mode"] == "enforce"
         assert cfg.taint["inherit_sensitive_paths"] is True
+
+    def test_provenance_config_parses_defaults_when_enabled(self):
+        cfg = _merge_configs({"provenance": {"mode": "audit"}}, {})
+        assert cfg.provenance["mode"] == "audit"
+        assert cfg.provenance["policies"]["activation"] == "context"
+        assert cfg.provenance["policies"]["boundary"] == "ask"
+        assert cfg.provenance["review"]["max_files"] == 50
+
+    def test_provenance_rejects_audit_policy(self, capsys):
+        cfg = _merge_configs(
+            {"provenance": {"mode": "audit", "policies": {"activation": "audit"}}},
+            {},
+        )
+        assert cfg.provenance["policies"]["activation"] == "context"
+        assert "cannot be 'audit'" in capsys.readouterr().err
+
+    def test_untrusted_project_can_tighten_provenance_policy_not_loosen(self):
+        cfg = _merge_configs(
+            {"provenance": {"mode": "enforce", "policies": {"activation": "context"}}},
+            {"provenance": {"mode": "off", "policies": {"activation": "allow", "boundary": "block"}}},
+            project_config_trusted=False,
+        )
+        assert cfg.provenance["mode"] == "enforce"
+        assert cfg.provenance["policies"]["activation"] == "context"
+        assert cfg.provenance["policies"]["boundary"] == "block"
+
+    def test_untrusted_project_cannot_remove_provenance_boundary_category(self, capsys):
+        cfg = _merge_configs(
+            {
+                "provenance": {
+                    "mode": "enforce",
+                    "categories": {"boundary": {"add": ["mytool_upload"]}},
+                }
+            },
+            {"provenance": {"categories": {"boundary": {"remove": ["container_exec"]}}}},
+            project_config_trusted=False,
+        )
+        assert "mytool_upload" in cfg.provenance["categories"]["boundary"]["add"]
+        assert "container_exec" not in cfg.provenance["categories"]["boundary"]["remove"]
+        assert "untrusted provenance.categories.boundary.remove ignored" in capsys.readouterr().err
+
+    def test_trusted_project_can_tune_provenance_categories_and_review(self):
+        cfg = _merge_configs(
+            {"provenance": {"mode": "enforce"}},
+            {
+                "provenance": {
+                    "categories": {"boundary": {"remove": ["container_exec"]}},
+                    "review": {"max_files": 12},
+                }
+            },
+            project_config_trusted=True,
+        )
+        assert "container_exec" in cfg.provenance["categories"]["boundary"]["remove"]
+        assert cfg.provenance["review"]["max_files"] == 12
 
     def test_untrusted_project_classify_ignored(self):
         """Project classify is ignored before the project config root is trusted."""

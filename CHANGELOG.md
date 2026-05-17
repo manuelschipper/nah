@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   activation/boundary policies without weakening existing nah decisions.
   Defaults remain off; terminal guard taint support is audit-only in v1.
   (nah-919)
+- **Session provenance guard** — opt-in `provenance` mode now tracks
+  successful writes from guarded Claude/Codex runs and can pause later
+  activation or boundary actions when they operate over session-written files
+  or repo state. `context` policies build a bounded session-delta packet for
+  LLM review; incomplete packets or uncertain reviews remain asks. (nah-929)
 - **Runtime execution outcome logging** — nah now records append-only
   `runtime` and `execution` metadata for Claude, Codex, and terminal guard
   decisions so audit logs can distinguish a pre-execution permission decision
@@ -57,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default; `nah trust-project` / `nah untrust-project` manage exact project
   roots whose config may loosen policy and activate project `classify` rules.
   (nah-918)
+
+### Changed
+
+- **Taint boundary sinks** — taint tracking now treats network diagnostics,
+  database reads, browser interaction/navigation/exec, container actions, git
+  history rewrites, remote agent execution, and agent servers as boundary sinks
+  by default. Users can tune category membership with
+  `taint.categories.*.add/remove`.
 
 ### Fixed
 

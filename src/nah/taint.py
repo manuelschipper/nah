@@ -38,26 +38,33 @@ TRACKABLE_PROPAGATION = {
 DEFAULT_ACTIVATION = {
     taxonomy.LANG_EXEC,
     taxonomy.PACKAGE_RUN,
-    taxonomy.CONTAINER_EXEC,
-    taxonomy.BROWSER_EXEC,
     taxonomy.AGENT_EXEC_READ,
     taxonomy.AGENT_EXEC_WRITE,
-    taxonomy.AGENT_EXEC_REMOTE,
     taxonomy.AGENT_EXEC_BYPASS,
-    taxonomy.AGENT_SERVER,
 }
 
 DEFAULT_BOUNDARY = {
     taxonomy.NETWORK_OUTBOUND,
     taxonomy.NETWORK_WRITE,
+    taxonomy.NETWORK_DIAGNOSTIC,
     taxonomy.GIT_REMOTE_WRITE,
+    taxonomy.GIT_HISTORY_REWRITE,
+    taxonomy.DB_READ,
     taxonomy.DB_WRITE,
     taxonomy.SERVICE_READ,
     taxonomy.SERVICE_WRITE,
     taxonomy.SERVICE_DESTRUCTIVE,
+    taxonomy.CONTAINER_READ,
+    taxonomy.CONTAINER_WRITE,
+    taxonomy.CONTAINER_EXEC,
+    taxonomy.CONTAINER_DESTRUCTIVE,
+    taxonomy.BROWSER_INTERACT,
     taxonomy.BROWSER_STATE,
+    taxonomy.BROWSER_NAVIGATE,
+    taxonomy.BROWSER_EXEC,
     taxonomy.BROWSER_FILE,
     taxonomy.AGENT_EXEC_REMOTE,
+    taxonomy.AGENT_SERVER,
 }
 
 _STATE_VERSION = 1

@@ -762,6 +762,7 @@ def _log_post_tool_event(
         },
     }
     _apply_taint_post_tool(canonical, tool_input, decision, agent)
+    _apply_provenance_post_tool(canonical, tool_input, decision, agent)
     _log_hook_decision(canonical, tool_input, decision, agent, total_ms)
 
 
@@ -802,6 +803,46 @@ def _apply_taint_post_tool(canonical: str, tool_input: dict, decision: dict, age
         )
     except Exception as exc:
         sys.stderr.write(f"nah: taint post-tool: {exc}\n")
+        return decision
+
+
+def _apply_provenance_pre_tool(canonical: str, tool_input: dict, decision: dict, agent: str) -> dict:
+    """Run the shared provenance layer for pre-tool decisions."""
+    try:
+        from nah import provenance
+
+        meta = decision.setdefault("_meta", {})
+        return provenance.apply_pre_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agent,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=_transcript_path,
+        )
+    except Exception as exc:
+        sys.stderr.write(f"nah: provenance pre-tool: {exc}\n")
+        return decision
+
+
+def _apply_provenance_post_tool(canonical: str, tool_input: dict, decision: dict, agent: str) -> dict:
+    """Run the shared provenance finalizer for post-tool outcome rows."""
+    try:
+        from nah import provenance
+
+        meta = decision.setdefault("_meta", {})
+        return provenance.apply_post_tool(
+            canonical,
+            tool_input,
+            decision,
+            runtime=agent,
+            runtime_meta=meta.get("runtime", {}),
+            execution=meta.get("execution", {}),
+            transcript_path=_transcript_path,
+        )
+    except Exception as exc:
+        sys.stderr.write(f"nah: provenance post-tool: {exc}\n")
         return decision
 
 
@@ -1031,6 +1072,7 @@ def main():
 
         _attach_pre_tool_runtime(decision, data)
         decision = _apply_taint_pre_tool(canonical, tool_input, decision, agent)
+        decision = _apply_provenance_pre_tool(canonical, tool_input, decision, agent)
         decision = _apply_ask_fallback(decision)
         decision.setdefault("_meta", {})["execution"] = _pre_tool_execution(decision)
         d = decision.get("decision", taxonomy.ALLOW)
