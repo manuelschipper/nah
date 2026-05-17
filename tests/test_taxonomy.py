@@ -180,6 +180,37 @@ class TestClassifyTokens:
     def test_package_run(self, tokens):
         assert _ct(tokens) == "package_run"
 
+    @pytest.mark.parametrize("tokens", [
+        ["bazel", "test", "//mypkg:myrules_test"],
+        ["bazel", "test", "//..."],
+        ["bazel", "test", "//mypkg/..."],
+        ["bazel", "test", ":myrules_test"],
+        ["bazel", "test", "mypkg:myrules_test"],
+        ["bazel", "test", "mypkg/..."],
+        ["bazel", "test", "--test_output=errors", "//mypkg:myrules_test"],
+        ["bazel", "test", "--config", "ci", "//mypkg:myrules_test"],
+        ["bazel", "--bazelrc=/dev/null", "test", "//mypkg:myrules_test"],
+        ["bazelisk", "test", "//mypkg:myrules_test"],
+    ])
+    def test_bazel_local_test_targets_are_package_run(self, tokens):
+        assert _ct(tokens) == "package_run"
+
+    @pytest.mark.parametrize("tokens", [
+        ["bazel", "test"],
+        ["bazel", "test", "@external//pkg:target"],
+        ["bazel", "test", "/tmp/pkg:target"],
+        ["bazel", "test", "~/pkg:target"],
+        ["bazel", "test", "../pkg:target"],
+        ["bazel", "test", "//../pkg:target"],
+        ["bazel", "test", "http://example.com/pkg:target"],
+        ["bazel", "test", "--remote_cache=http://cache.example", "//mypkg:target"],
+        ["bazel", "test", "--", "//mypkg:target"],
+        ["bazel", "run", "//tools:deploy"],
+        ["bazel", "build", "//mypkg:target"],
+    ])
+    def test_bazel_nonlocal_or_nontest_shapes_stay_unknown(self, tokens):
+        assert _ct(tokens) == "unknown"
+
     # lang_exec
     @pytest.mark.parametrize("tokens", [
         ["python", "-c", "print(1)"],

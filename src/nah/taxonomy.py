@@ -197,6 +197,7 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "http", "https", "xh", "xhs",
                           "gh", "glab", "mise",
                           "sqlite3", "psql",
+                          "bazel", "bazelisk",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
                           "pip3", "cargo", "gem", "make", "gmake",
@@ -611,6 +612,9 @@ def classify_tokens(
     if action is not None:
         return action
     action = _classify_global_install(tokens)
+    if action is not None:
+        return action
+    action = _classify_bazel_test(tokens)
     if action is not None:
         return action
     action = _classify_make(tokens)
@@ -2971,6 +2975,150 @@ def _global_install_scan_tokens(tokens: list[str]) -> list[str]:
             return tokens[:delimiter_idx]
 
     return tokens
+
+
+_BAZEL_STARTUP_VALUE_FLAGS = {
+    "--bazelrc",
+    "--host_jvm_args",
+    "--host_jvm_debug",
+    "--output_base",
+    "--output_user_root",
+    "--server_javabase",
+    "--max_idle_secs",
+    "--connect_timeout_secs",
+    "--local_startup_timeout_secs",
+    "--io_nice_level",
+}
+_BAZEL_TEST_VALUE_FLAGS = {
+    "-c",
+    "-j",
+    "--build_tag_filters",
+    "--color",
+    "--compilation_mode",
+    "--config",
+    "--cpu",
+    "--curses",
+    "--flaky_test_attempts",
+    "--jobs",
+    "--output_filter",
+    "--platforms",
+    "--runs_per_test",
+    "--spawn_strategy",
+    "--strategy",
+    "--test_arg",
+    "--test_env",
+    "--test_filter",
+    "--test_output",
+    "--test_tag_filters",
+    "--test_timeout",
+    "--ui_event_filters",
+}
+_BAZEL_TEST_BOOLEAN_FLAGS = {
+    "-k",
+    "--build_tests_only",
+    "--check_tests_up_to_date",
+    "--keep_going",
+    "--nocheck_tests_up_to_date",
+    "--nokeep_going",
+    "--notrim_test_configuration",
+    "--trim_test_configuration",
+}
+_BAZEL_EXTERNAL_FLAGS = (
+    "--bes_backend",
+    "--remote_cache",
+    "--remote_downloader",
+    "--remote_executor",
+)
+
+
+def _is_bazel_local_test_target(target: str) -> bool:
+    """Return True for local Bazel labels/patterns, not filesystem paths."""
+    if (
+        not target
+        or "://" in target
+        or any(ch in target for ch in "|;&$`<>")
+        or target.startswith(("@", "~", "-"))
+        or target.startswith("..")
+        or "/../" in target
+        or target.endswith("/..")
+    ):
+        return False
+
+    if target == "//...":
+        return True
+    if target.startswith("//"):
+        rest = target[2:]
+        return bool(rest) and not rest.startswith(("/", "..")) and "/../" not in rest
+    if target.startswith("/"):
+        return False
+    if target.startswith(":"):
+        return len(target) > 1 and "/" not in target
+    if ":" in target:
+        package, name = target.split(":", 1)
+        return bool(package and name) and not package.startswith(".") and "/../" not in package
+    if target.endswith("/..."):
+        package = target[:-4]
+        return bool(package) and not package.startswith(".") and "/../" not in package
+    return False
+
+
+def _classify_bazel_test(tokens: list[str]) -> str | None:
+    """Classify narrow local `bazel test` labels as package_run."""
+    if not tokens or tokens[0] not in {"bazel", "bazelisk"}:
+        return None
+
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "test":
+            i += 1
+            break
+        if tok.startswith(_BAZEL_EXTERNAL_FLAGS):
+            return None
+        if tok in _BAZEL_STARTUP_VALUE_FLAGS:
+            i += 2
+            continue
+        if any(tok.startswith(flag + "=") for flag in _BAZEL_STARTUP_VALUE_FLAGS):
+            i += 1
+            continue
+        if tok.startswith("--") and "=" in tok:
+            i += 1
+            continue
+        if tok.startswith("--no"):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        return None
+    else:
+        return None
+
+    targets: list[str] = []
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return None
+        if tok.startswith(_BAZEL_EXTERNAL_FLAGS):
+            return None
+        if tok in _BAZEL_TEST_VALUE_FLAGS:
+            i += 2
+            continue
+        if any(tok.startswith(flag + "=") for flag in _BAZEL_TEST_VALUE_FLAGS):
+            i += 1
+            continue
+        if tok in _BAZEL_TEST_BOOLEAN_FLAGS or (
+            tok.startswith("--no") and "=" not in tok
+        ):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        targets.append(tok)
+        i += 1
+
+    if targets and all(_is_bazel_local_test_target(target) for target in targets):
+        return PACKAGE_RUN
+    return None
 
 
 def _looks_like_script_path(token: str) -> bool:

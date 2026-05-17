@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bazel test label classification** — local `bazel test` and
+  `bazelisk test` target labels now classify as `package_run`, so valid
+  Bazel labels such as `//pkg:target` no longer pause as unknown commands
+  or get mistaken for filesystem paths. (#62)
 - **Codex setup command surface** — `nah codex setup` now backs up and fixes
   supported Codex approval-memory/MCP drift, so the separate pre-v1
   `nah codex repair` command has been removed. (nah-925)

@@ -163,6 +163,33 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "package_run"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "bazel test //mypkg:myrules_test",
+            "bazel test //...",
+            "bazelisk test //mypkg:myrules_test",
+        ],
+    )
+    def test_bazel_local_test_targets_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "package_run"
+        assert "outside project" not in r.reason
+        assert "script" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "bazel test @external//pkg:target",
+            "bazel run //tools:deploy",
+        ],
+    )
+    def test_bazel_external_or_run_stays_ask(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
 
 class TestPackageWrapperLangExec:
     def test_uv_run_clean_script_allows(self, project_root):
