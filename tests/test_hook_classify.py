@@ -603,12 +603,13 @@ class TestGrepCredentialBoundary:
         d = handle_write({"file_path": "~/.claude/hooks/guard.py", "content": "x"})
         assert d["decision"] == "block"
 
-    def test_write_outside_hint(self, project_root):
-        """Outside-project ask includes hint suggesting nah trust."""
+    def test_write_outside_has_no_remediation_hint(self, project_root):
+        """Outside-project ask does not include auto-allow guidance."""
         d = handle_write({"file_path": "/tmp/foo/bar.txt", "content": "hello"})
         assert d["decision"] == "ask"
-        assert "_hint" in d
-        assert "nah trust" in d["_hint"]
+        assert "outside project" in d["reason"]
+        assert "_hint" not in d
+        assert "hint" not in d.get("_meta", {})
 
     def test_write_nested_trusted(self, project_root):
         """Nested path inside trusted directory is allowed."""

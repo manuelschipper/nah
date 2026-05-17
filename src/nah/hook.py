@@ -84,7 +84,6 @@ def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -
             "decision": decision,
             "reason": format_content_message(tool_name, matches),
             "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
-            "_hint": "(content varies per call — cannot be remembered)",
         }
     return {"decision": taxonomy.ALLOW}
 
@@ -152,7 +151,6 @@ def _scan_and_decide(tool_name: str, content: str) -> dict:
             "decision": decision,
             "reason": format_content_message(tool_name, matches),
             "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
-            "_hint": "(content varies per call — cannot be remembered)",
         }
     return {"decision": taxonomy.ALLOW}
 
@@ -321,7 +319,6 @@ def handle_grep(tool_input: dict) -> dict:
                 return {
                     "decision": taxonomy.ASK,
                     "reason": "Grep: credential search pattern outside project root",
-                    "_hint": "(content varies per call — cannot be remembered)",
                 }
         else:
             # No project root — any credential search is suspicious
@@ -329,20 +326,9 @@ def handle_grep(tool_input: dict) -> dict:
                 return {
                     "decision": taxonomy.ASK,
                     "reason": "Grep: credential search pattern (no project root)",
-                    "_hint": "(content varies per call — cannot be remembered)",
                 }
 
     return {"decision": taxonomy.ALLOW}
-
-
-def _extract_target_from_tokens(tokens: list[str]) -> str | None:
-    """Extract first path-like argument from tokens for hint generation."""
-    for tok in tokens[1:]:  # skip command name
-        if tok.startswith("-"):
-            continue
-        if "/" in tok or tok.startswith("~") or tok.startswith("."):
-            return tok
-    return None
 
 
 def _format_bash_reason(result) -> str:
@@ -490,42 +476,6 @@ def _try_llm_script_veto(classify_result) -> tuple[dict | None, dict]:
         return None, {}
 
 
-def _build_bash_hint(result) -> str | None:
-    """Build an actionable hint for bash ask decisions."""
-    if result.composition_rule:
-        return None
-    for sr in result.stages:
-        if sr.decision != taxonomy.ASK:
-            continue
-        if sr.action_type == taxonomy.UNKNOWN:
-            cmd = sr.tokens[0] if sr.tokens else "command"
-            if cmd.startswith(("(", "{")) or sr.reason == "subshell pipe pending":
-                return None
-            return f"To classify: nah classify {cmd} <type>\n     See available types: nah types"
-        if sr.action_type == taxonomy.NETWORK_WRITE:
-            return f"To always allow: nah allow network_write"
-        if "unknown host: " in sr.reason:
-            # Extract host from reason like "network_outbound → ask (unknown host: example.com)"
-            idx = sr.reason.index("unknown host: ") + len("unknown host: ")
-            host = sr.reason[idx:].rstrip(")")
-            return f"To trust this host: nah trust {host}"
-        if "targets sensitive path:" in sr.reason:
-            # Extract path from reason like "targets sensitive path: ~/.aws"
-            idx = sr.reason.index("targets sensitive path:") + len("targets sensitive path: ")
-            path = sr.reason[idx:].strip()
-            return f"To always allow: nah allow-path {path}"
-        if "outside project" in sr.reason:
-            # Prefer redirect target over token extraction
-            target = getattr(sr, "redirect_target", "") or _extract_target_from_tokens(sr.tokens)
-            if target:
-                dir_hint = paths._suggest_trust_dir(target)
-                if dir_hint != "/":  # Never suggest trusting root
-                    return f"To always allow: nah trust {dir_hint}"
-        # Action policy ask
-        return f"To always allow: nah allow {sr.action_type}"
-    return None
-
-
 def _classify_meta(result) -> dict:
     """Build classification metadata from ClassifyResult."""
     meta = {
@@ -560,14 +510,7 @@ def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
         return {"decision": taxonomy.BLOCK, "reason": _format_bash_reason(result), "_meta": meta}
 
     if result.final_decision == taxonomy.ASK:
-        hint = _build_bash_hint(result)
-        if hint:
-            meta["hint"] = hint
-
-        decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
-        if hint:
-            decision["_hint"] = hint
-        return decision
+        return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
 
     # LLM veto gate for lang_exec scripts (FD-079): even when the deterministic
     # layer allows, the LLM inspects script content and can escalate to ask.
@@ -626,17 +569,11 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
         llm_reason = decision.get("_llm_reason", "")
         if llm_reason:
             reason = f"{reason}\n     LLM: {llm_reason}"
-        hint = decision.get("_hint")
-        if hint:
-            reason = f"{reason}\n     {hint}"
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
         llm_reason = decision.get("_llm_reason", "")
         if llm_reason:
             reason = f"{reason}\n     LLM: {llm_reason}"
-        hint = decision.get("_hint")
-        if hint:
-            reason = f"{reason}\n     {hint}"
         system_message = decision.get("_system_message", "")
         return agents.format_ask(reason, agent, system_message=system_message)
     return agents.format_allow(agent)
