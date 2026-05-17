@@ -10,23 +10,23 @@ same Bash classifier for command-level risk.
 
 ## Current audit
 
-The pytest threat-model audit currently tracks **1,807 category coverage hits**
+The pytest threat-model audit currently tracks **1,755 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Internal category | Hits | What it means |
 | --- | --- | ---: | --- |
-| Sensitive file access | `sensitive_path` | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | `sensitive_path` | 258 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | `wrapper_evasion` | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | `rce` | 234 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
-| Git history damage | `git_history` | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
-| Shell redirection abuse | `shell_redirect` | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
-| Package escalation | `package_escalation` | 153 | package installs, global installs, external-source package actions |
+| Unknown code execution | `rce` | 236 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
+| Git history damage | `git_history` | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
+| Shell redirection abuse | `shell_redirect` | 187 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Package escalation | `package_escalation` | 149 | package installs, global installs, external-source package actions |
 | Secret leaks | `secret_leak` | 92 | private keys, tokens, secret-looking writes, script/content leaks |
 | Destructive container actions | `container_destructive` | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | Secret exfiltration | `credential_exfil` | 88 | sensitive reads flowing into network commands or credential searches |
 | MCP and agent tool permissions | `mcp_permissions` | 83 | third-party MCP tools, global-only classification, wildcard safety, browser/database MCP actions |
 | Guard tampering | `self_protection` | 67 | edits to nah hooks, config, runtime settings, robustness paths |
-| Project boundary escapes | `project_boundary` | 46 | reads/writes outside the project root or trusted paths |
+| Project boundary escapes | `project_boundary` | 24 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | `shell_obfuscation` | 30 | process substitution, command substitution, hidden shell behavior |
 
 Run it locally:
@@ -38,16 +38,16 @@ nah audit-threat-model --format summary
 Current output:
 
 ```text
-rce: 234
+rce: 236
 credential_exfil: 88
 secret_leak: 92
-git_history: 222
-shell_redirect: 213
+git_history: 216
+shell_redirect: 187
 shell_obfuscation: 30
 wrapper_evasion: 236
-sensitive_path: 254
-project_boundary: 46
-package_escalation: 153
+sensitive_path: 258
+project_boundary: 24
+package_escalation: 149
 container_destructive: 89
 mcp_permissions: 83
 self_protection: 67
@@ -99,7 +99,6 @@ The current audit hit distribution is Bash-heavy by design:
 | `tests/test_fd079_script_exec.py` | 186 | Script execution, language runtimes, inspectable local code execution |
 | `tests/test_paths.py` | 183 | Sensitive paths, symlinks, project boundaries, guard config paths |
 | `tests/test_content.py` | 99 | Secret patterns, destructive content, credential-search detection |
-| `tests/test_hint_battery.py` | 75 | Human-facing explanations for risky categories |
 | `tests/test_fd080_write_llm.py` | 70 | Write/Edit/MultiEdit/NotebookEdit review flow |
 | `tests/test_hook_classify.py` | 29 | MCP global-only config, wildcard safety, DB context, and Playwright MCP mapping |
 | `tests/test_cli.py` | 22 | `nah test --tool ...`, CLI path/content/MCP probes |

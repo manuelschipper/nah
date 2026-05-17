@@ -255,10 +255,10 @@ def test_value_sanitization_is_bounded_and_one_line():
 
 
 def test_brand_punctuation_and_multiline_diagnostics():
-    branded = messages.brand("nah paused", "this can rewrite Git history.\n     To always allow: nah allow git_history_rewrite")
+    branded = messages.brand("nah paused", "this can rewrite Git history.\n     LLM: rewrite affects shared history")
     assert branded.startswith("nah paused: this can rewrite Git history.\n")
     assert "Git history.." not in branded
-    assert "nah allow git_history_rewrite" in branded
+    assert "LLM: rewrite affects shared history" in branded
 
 
 def test_brand_can_color_prompt_first_line(monkeypatch):

@@ -290,7 +290,6 @@ def _scan_added_content(content: str) -> dict:
                 )
             ],
         },
-        "_hint": "(content varies per call — cannot be remembered)",
     }
 
 

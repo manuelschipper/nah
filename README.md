@@ -166,23 +166,23 @@ See the [benchmark methodology](docs/benchmarks/novita-bash-friction.md).
 
 ## Threat Model
 
-nah's pytest threat-model audit currently tracks **1,807 category coverage hits**
+nah's pytest threat-model audit currently tracks **1,755 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Hits | What it means |
 | --- | ---: | --- |
-| Sensitive file access | 254 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | 258 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | 234 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
-| Git history damage | 222 | force pushes, resets, branch/tag rewrites, destructive Git flows |
-| Shell redirection abuse | 213 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
-| Package escalation | 153 | package installs, global installs, external-source package actions |
+| Unknown code execution | 236 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
+| Git history damage | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
+| Shell redirection abuse | 187 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Package escalation | 149 | package installs, global installs, external-source package actions |
 | Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
 | Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
 | MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
 | Guard tampering | 67 | edits to nah hooks, config, runtime settings, robustness paths |
-| Project boundary escapes | 46 | reads/writes outside the project root or trusted paths |
+| Project boundary escapes | 24 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
 
 nah guards the approval points each runtime exposes:

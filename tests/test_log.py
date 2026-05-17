@@ -537,10 +537,10 @@ class TestBuildEntry:
         entry = self._build(transcript_path="")
         assert entry["session"] == ""
 
-    def test_hint_included(self):
+    def test_stale_hint_not_included(self):
         meta = {"hint": "nah trust /tmp"}
         entry = self._build(meta=meta)
-        assert entry["hint"] == "nah trust /tmp"
+        assert "hint" not in entry
 
     def test_hint_absent(self):
         entry = self._build(meta={})

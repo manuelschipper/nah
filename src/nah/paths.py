@@ -372,7 +372,6 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         return {
             "decision": taxonomy.ASK,
             "reason": f"{tool_name} {reason}",
-            "_hint": f"To always allow: nah allow-path {friendly_path(resolved)}",
         }
 
     return None
@@ -424,7 +423,6 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
         return {
             "decision": taxonomy.ASK,
             "reason": f"{tool_name} outside project (no project root): {friendly_path(resolved)}",
-            "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
         }
     if is_inside_project_boundary(resolved):
         return None  # inside project
@@ -433,7 +431,6 @@ def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
     return {
         "decision": taxonomy.ASK,
         "reason": f"{tool_name} outside project: {friendly_path(resolved)}",
-        "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
     }
 
 

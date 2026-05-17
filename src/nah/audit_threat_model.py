@@ -80,29 +80,22 @@ RULES = (
     ),
     Rule(
         category="git_history",
-        rationale="Git rewrite and destructive-regression coverage in bash classification, taxonomy, and hints.",
+        rationale="Git rewrite and destructive-regression coverage in bash classification and taxonomy.",
         match_any=(
             "tests/test_bash.py::TestFD017Regressions::",
             "tests/test_bash.py::TestFD017MoreGitRegressions::",
             "tests/test_bash.py::TestFD017TagRegressions::",
             "tests/test_taxonomy.py::TestClassifyGit::",
             "tests/test_taxonomy.py::TestGitSubcommands::",
-            "tests/test_hint_battery.py::TestGitMaintenanceHints::",
         ),
     ),
     Rule(
         category="shell_redirect",
-        rationale="Redirect parsing, redirected content scanning, and redirect-specific hint coverage.",
+        rationale="Redirect parsing, redirected content scanning, and redirect-specific taxonomy coverage.",
         match_any=(
             "tests/test_bash.py::TestDecomposition::",
             "tests/test_bash.py::TestFD095RegexPipeParsing::",
             "tests/test_content.py::TestScanContent::",
-            "tests/test_hint_battery.py::TestRedirectOutsideProject::",
-            "tests/test_hint_battery.py::TestRedirectInsideProject::",
-            "tests/test_hint_battery.py::TestMoreRedirectBroadHints::",
-            "tests/test_hint_battery.py::TestTeeHints::",
-            "tests/test_hint_battery.py::TestTeeLocalFile::",
-            "tests/test_hint_battery.py::TestHereString::",
             "tests/test_taxonomy.py::TestFD019FilesystemWrite::",
         ),
     ),
@@ -148,8 +141,6 @@ RULES = (
             "tests/test_paths.py::TestTrustedPathNoGitRoot::",
             "tests/test_bash.py::TestContextResolverFallback::",
             "tests/test_fd079_script_exec.py::TestContextResolver::",
-            "tests/test_hint_battery.py::TestOutsideProjectHints::",
-            "tests/test_hint_battery.py::TestAbsolutePathCommands::",
         ),
     ),
     Rule(
@@ -157,7 +148,6 @@ RULES = (
         rationale="Package-manager install and external-source escalation coverage.",
         match_any=(
             "tests/test_bash.py::TestAcceptanceCriteria::test_package_manager_create_scaffolds_allow",
-            "tests/test_hint_battery.py::TestPackageManagerHints::",
             "tests/test_taxonomy.py::TestFD019PackageInstall::",
             "tests/test_taxonomy.py::TestFD019GlobalInstall::",
             "tests/test_taxonomy.py::TestPackageEscalationCoverage::",

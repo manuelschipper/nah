@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Decision prompts no longer include auto-allow hints** — ask/block output no
+  longer appends remediation suggestions such as `nah trust`, `nah allow`,
+  `nah allow-path`, or `nah classify`, because misleading shortcuts can loosen
+  policy in the wrong place. Friendly safety reasons and diagnostic metadata
+  remain. (nah-935)
 - **Taint boundary sinks** — taint tracking now treats network diagnostics,
   database reads, browser interaction/navigation/exec, container actions, git
   history rewrites, remote agent execution, and agent servers as boundary sinks
