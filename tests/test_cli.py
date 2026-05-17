@@ -1542,6 +1542,7 @@ class TestCmdClaude:
         assert "PostToolUseFailure" in settings["hooks"]
         assert "-p" in args
         assert "fix bug" in args
+        assert env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
 
     def test_no_settings_file(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
@@ -1634,6 +1635,7 @@ class TestCmdClaude:
         assert "strict" not in args
         assert "--resume" in args
         assert env["NAH_PRESET"] == "strict"
+        assert env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
 
     def test_windows_uses_subprocess_call(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod

@@ -181,6 +181,10 @@ def build_entry(
     if taint:
         entry["taint"] = taint
 
+    provenance = _copy_log_object(meta.get("provenance"))
+    if provenance:
+        entry["provenance"] = provenance
+
     for key in (
         "target",
         "source",

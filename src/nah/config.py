@@ -60,6 +60,7 @@ class NahConfig:
     ask_fallback: str = ""
     terminal: dict = field(default_factory=dict)
     taint: dict = field(default_factory=dict)
+    provenance: dict = field(default_factory=dict)
 
 
 _cached_config: NahConfig | None = None
@@ -286,6 +287,13 @@ def apply_override(override_data: dict) -> None:
             trusted=True,
             allow_global_keys=True,
         )
+    if "provenance" in override_data:
+        cfg.provenance = _merge_provenance_configs(
+            cfg.provenance,
+            override_data.get("provenance", {}),
+            trusted=True,
+            allow_global_keys=True,
+        )
 
     _cached_config = cfg
 
@@ -404,6 +412,15 @@ _TAINT_POLICIES = {"allow", "audit", "ask", "block"}
 _TAINT_POLICY_STRICTNESS = {"allow": 0, "audit": 1, "ask": 2, "block": 3}
 _TAINT_PROPAGATION_KEYS = {"filesystem_write", "git_write", "browser_file"}
 _TAINT_CATEGORY_KEYS = {"activation", "boundary"}
+_PROVENANCE_MODES = {"off", "audit", "enforce"}
+_PROVENANCE_POLICIES = {"allow", "context", "ask", "block"}
+_PROVENANCE_POLICY_STRICTNESS = {"allow": 0, "context": 1, "ask": 2, "block": 3}
+_PROVENANCE_CATEGORY_KEYS = {"activation", "boundary"}
+_DEFAULT_PROVENANCE_REVIEW = {
+    "max_files": 50,
+    "max_bytes_per_file": 16384,
+    "max_bytes_total": 131072,
+}
 
 
 def _default_taint_config() -> dict:
@@ -578,6 +595,184 @@ def _normalize_taint_config(raw) -> dict:
     cfg["categories"] = _normalize_taint_categories(data.get("categories", {}), cfg["categories"])
     cfg["policies"] = _normalize_taint_policies(data.get("policies", {}), cfg["policies"])
     return cfg
+
+
+def _default_provenance_config() -> dict:
+    """Return the full provenance config shape with safe disabled defaults."""
+    return {
+        "mode": "off",
+        "categories": {
+            "activation": {"add": [], "remove": []},
+            "boundary": {"add": [], "remove": []},
+        },
+        "policies": {
+            "activation": "context",
+            "boundary": "ask",
+        },
+        "review": dict(_DEFAULT_PROVENANCE_REVIEW),
+    }
+
+
+def _normalize_provenance_mode(raw) -> str:
+    if raw in _PROVENANCE_MODES:
+        return raw
+    if isinstance(raw, bool):
+        return "audit" if raw else "off"
+    if raw not in (None, ""):
+        sys.stderr.write(f"nah: provenance.mode {raw!r} is invalid, using 'off'\n")
+    return "off"
+
+
+def _normalize_provenance_policy(raw, *, context: str) -> str:
+    if raw in _PROVENANCE_POLICIES:
+        return raw
+    if raw == "audit":
+        sys.stderr.write(
+            f"nah: provenance policy {context} cannot be 'audit'; "
+            "use provenance.mode: audit\n"
+        )
+    elif raw not in (None, ""):
+        sys.stderr.write(
+            f"nah: provenance policy {context}={raw!r} is invalid, ignored\n"
+        )
+    return ""
+
+
+def _normalize_provenance_categories(raw, base: dict | None = None, *, trusted: bool = True) -> dict:
+    result = {
+        name: {
+            "add": list((base or {}).get(name, {}).get("add", [])),
+            "remove": list((base or {}).get(name, {}).get("remove", [])),
+        }
+        for name in _PROVENANCE_CATEGORY_KEYS
+    }
+    if raw in (None, ""):
+        return result
+    if not isinstance(raw, dict):
+        sys.stderr.write("nah: provenance.categories must be a mapping, ignored\n")
+        return result
+    for name in _PROVENANCE_CATEGORY_KEYS:
+        add, remove = _parse_add_remove(raw.get(name, {}))
+        for value in add:
+            text = str(value)
+            if text and text not in result[name]["add"]:
+                result[name]["add"].append(text)
+        if trusted:
+            for value in remove:
+                text = str(value)
+                if text and text not in result[name]["remove"]:
+                    result[name]["remove"].append(text)
+        elif remove:
+            sys.stderr.write(
+                f"nah: untrusted provenance.categories.{name}.remove ignored\n"
+            )
+    return result
+
+
+def _normalize_provenance_policies(
+    raw,
+    base: dict | None = None,
+    *,
+    tighten_only: bool = False,
+) -> dict:
+    result = dict(base or _default_provenance_config()["policies"])
+    if raw in (None, ""):
+        return result
+    if not isinstance(raw, dict):
+        sys.stderr.write("nah: provenance.policies must be a mapping, ignored\n")
+        return result
+    for key, raw_policy in raw.items():
+        key = str(key)
+        policy = _normalize_provenance_policy(raw_policy, context=key)
+        if not policy:
+            continue
+        if tighten_only and key in result:
+            current = result.get(key, "allow")
+            if (
+                _PROVENANCE_POLICY_STRICTNESS[policy]
+                < _PROVENANCE_POLICY_STRICTNESS.get(current, 0)
+            ):
+                continue
+        result[key] = policy
+    return result
+
+
+def _normalize_provenance_review(raw, base: dict | None = None) -> dict:
+    result = dict(base or _DEFAULT_PROVENANCE_REVIEW)
+    if raw in (None, ""):
+        return result
+    if not isinstance(raw, dict):
+        sys.stderr.write("nah: provenance.review must be a mapping, ignored\n")
+        return result
+    for key in ("max_files", "max_bytes_per_file", "max_bytes_total"):
+        if key not in raw:
+            continue
+        try:
+            value = int(raw.get(key))
+        except (TypeError, ValueError):
+            sys.stderr.write(f"nah: provenance.review.{key} must be an integer, ignored\n")
+            continue
+        if value <= 0:
+            sys.stderr.write(f"nah: provenance.review.{key} must be positive, ignored\n")
+            continue
+        result[key] = value
+    return result
+
+
+def _normalize_provenance_config(raw) -> dict:
+    cfg = _default_provenance_config()
+    data = _validate_dict(raw)
+    cfg["mode"] = _normalize_provenance_mode(data.get("mode", "off"))
+    cfg["categories"] = _normalize_provenance_categories(
+        data.get("categories", {}),
+        cfg["categories"],
+    )
+    cfg["policies"] = _normalize_provenance_policies(
+        data.get("policies", {}),
+        cfg["policies"],
+    )
+    cfg["review"] = _normalize_provenance_review(data.get("review", {}), cfg["review"])
+    return cfg
+
+
+def _merge_provenance_configs(
+    base: dict,
+    raw_project,
+    *,
+    trusted: bool,
+    allow_global_keys: bool = False,
+) -> dict:
+    """Merge provenance config without allowing untrusted loosening."""
+    merged = _normalize_provenance_config(base)
+    data = _validate_dict(raw_project)
+    if not data:
+        return merged
+
+    if trusted and allow_global_keys and "mode" in data:
+        merged["mode"] = _normalize_provenance_mode(data.get("mode"))
+    if trusted:
+        merged["categories"] = _normalize_provenance_categories(
+            data.get("categories", {}),
+            merged.get("categories", {}),
+            trusted=True,
+        )
+        merged["review"] = _normalize_provenance_review(
+            data.get("review", {}),
+            merged.get("review", {}),
+        )
+    else:
+        merged["categories"] = _normalize_provenance_categories(
+            data.get("categories", {}),
+            merged.get("categories", {}),
+            trusted=False,
+        )
+
+    merged["policies"] = _normalize_provenance_policies(
+        data.get("policies", {}),
+        merged.get("policies", {}),
+        tighten_only=not trusted,
+    )
+    return merged
 
 
 _TRUSTED_CONTAINER_PREFIXES = frozenset({"container", "compose"})
@@ -873,6 +1068,14 @@ def _merge_configs(
     config.taint = _merge_taint_configs(
         _normalize_taint_config(global_cfg.get("taint", {})),
         project_cfg.get("taint", {}),
+        trusted=config.project_config_trusted,
+    )
+
+    # provenance: mode/review/category loosening are trusted/global only;
+    # untrusted projects can only tighten policies or add stricter categories.
+    config.provenance = _merge_provenance_configs(
+        _normalize_provenance_config(global_cfg.get("provenance", {})),
+        project_cfg.get("provenance", {}),
         trusted=config.project_config_trusted,
     )
 

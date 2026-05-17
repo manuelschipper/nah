@@ -61,6 +61,7 @@ nav:
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
     - Taint tracking: configuration/taint-tracking.md
+    - Session provenance: configuration/provenance.md
     - Content inspection (Claude Code): configuration/content.md
     - LLM layer: configuration/llm.md
     - Database targets: configuration/database.md

@@ -563,6 +563,8 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  credential_patterns_add: {cfg.credential_patterns_add or '[]'}")
         print(f"  credential_patterns_suppress: {cfg.credential_patterns_suppress or '[]'}")
         print(f"  db_targets:            {cfg.db_targets or '[]'}")
+        print(f"  taint:                 {cfg.taint or '{}'}")
+        print(f"  provenance:            {cfg.provenance or '{}'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_mode:              {cfg.llm_mode}")
         print(f"  llm_eligible:          {cfg.llm_eligible}")
@@ -1726,6 +1728,9 @@ def cmd_log(args: argparse.Namespace) -> None:
         line = f"{ts}  {marker}{decision:<5}{state:<17}  {tool_name:<5}  {summary}"
         if reason:
             line += f"  ({reason})"
+        provenance = entry.get("provenance", {})
+        if isinstance(provenance, dict) and provenance.get("category"):
+            line += f"  PROV:{provenance.get('category')}"
         if total_ms != "":
             if total_ms == 0 and llm_ms:
                 line += f"  [llm {llm_ms}ms]"
@@ -1754,6 +1759,10 @@ def cmd_claude(user_args: list[str]) -> None:
 
     user_args, selected_preset = _extract_run_preset(user_args, "nah run claude")
     env = dict(os.environ)
+    if "NAH_PROVENANCE_RUN_ID" not in env:
+        from nah.provenance import new_run_id
+
+        env["NAH_PROVENANCE_RUN_ID"] = new_run_id()
     if selected_preset:
         env["NAH_PRESET"] = selected_preset
     try:

@@ -70,6 +70,14 @@ def test_confirm_edits_env_is_owned_by_launcher():
     assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
 
 
+def test_provenance_run_id_is_created_and_preserves_inherited_value():
+    launch = _launch([])
+    assert launch.env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
+
+    inherited = _launch([], base_env={"NAH_PROVENANCE_RUN_ID": "parent-run"})
+    assert inherited.env["NAH_PROVENANCE_RUN_ID"] == "parent-run"
+
+
 def test_confirm_edits_rejects_value_form():
     with pytest.raises(CodexRunError) as exc:
         _launch(["--confirm-edits=true"])

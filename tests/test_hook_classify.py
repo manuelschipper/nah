@@ -101,6 +101,67 @@ def test_claude_taint_source_finalizes_from_post_tool(project_root, tmp_path, mo
     assert entries[-1]["taint"]["updates"]["source_finalized"] == "active"
 
 
+def test_claude_provenance_write_finalizes_and_later_activation_asks(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance, taxonomy
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-claude-provenance")
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "ask", "boundary": "ask"},
+        }
+    )
+    config._cached_target = None
+    provenance.reset_state()
+
+    target = os.path.join(project_root, "derived.py")
+    pre_payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "sess_claude_prov",
+        "tool_use_id": "toolu_write",
+        "tool_name": "Write",
+        "tool_input": {"file_path": target, "content": "print('ok')\n"},
+        "transcript_path": str(tmp_path / "transcript.jsonl"),
+    }
+    _out, entries = _run_claude_hook(pre_payload, tmp_path, monkeypatch)
+    assert entries[-1]["provenance"]["updates"]["write"]["status"] == "pending"
+
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    post_payload = {
+        "hook_event_name": "PostToolUse",
+        "session_id": "sess_claude_prov",
+        "tool_use_id": "toolu_write",
+        "tool_name": "Write",
+        "tool_input": {"file_path": target, "content": "print('ok')\n"},
+        "transcript_path": str(tmp_path / "transcript.jsonl"),
+    }
+    _out, entries = _run_claude_hook(post_payload, tmp_path, monkeypatch)
+    assert entries[-1]["provenance"]["updates"]["write_finalized"] == "active"
+
+    run_payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "sess_claude_prov",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 derived.py"},
+        "transcript_path": str(tmp_path / "transcript.jsonl"),
+    }
+    out, entries = _run_claude_hook(run_payload, tmp_path, monkeypatch)
+
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == taxonomy.ASK
+    entry = entries[-1]
+    assert entry["decision"] == taxonomy.ASK
+    assert entry["provenance"]["category"] == "activation"
+    assert entry["provenance"]["enforced"] is True
+
+
 class TestClassifyUnknownTool:
     def setup_method(self):
         config._cached_config = NahConfig()

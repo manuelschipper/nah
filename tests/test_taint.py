@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from nah import config, paths, taint, taxonomy
 from nah.config import NahConfig
 
@@ -29,6 +31,18 @@ def _cfg(mode="audit", **taint_overrides):
 def _read_state(runtime="claude", session="sess"):
     with open(taint.state_path(runtime, session), encoding="utf-8") as f:
         return json.load(f)
+
+
+def _activate_secret_source(session="sess"):
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": session},
+        execution={"state": "requested"},
+    )
 
 
 def test_mode_off_does_not_create_state(monkeypatch, tmp_path):
@@ -279,6 +293,221 @@ def test_enforce_service_read_after_source_is_boundary(monkeypatch, tmp_path):
 
     assert service_read["decision"] == taxonomy.ASK
     assert service_read["_meta"]["taint"]["category"] == "boundary"
+
+
+@pytest.mark.parametrize(
+    "action_type",
+    [
+        taxonomy.NETWORK_DIAGNOSTIC,
+        taxonomy.GIT_HISTORY_REWRITE,
+        taxonomy.DB_READ,
+        taxonomy.CONTAINER_READ,
+        taxonomy.CONTAINER_WRITE,
+        taxonomy.CONTAINER_EXEC,
+        taxonomy.CONTAINER_DESTRUCTIVE,
+        taxonomy.BROWSER_INTERACT,
+        taxonomy.BROWSER_NAVIGATE,
+        taxonomy.BROWSER_EXEC,
+    ],
+)
+def test_strict_default_boundary_sinks(action_type, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+    _activate_secret_source()
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": action_type, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": f"{action_type} fixture"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ASK
+    assert sink["_meta"]["taint"]["category"] == "boundary"
+
+
+@pytest.mark.parametrize("action_type", [taxonomy.CONTAINER_EXEC, taxonomy.BROWSER_EXEC])
+def test_execution_shaped_boundaries_do_not_fall_back_to_activation_when_removed(
+    action_type,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(
+        mode="enforce",
+        categories={"boundary": {"remove": [action_type]}},
+        policies={
+            "default": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+            "secret": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+        },
+    )
+    taint.reset_state()
+    _activate_secret_source()
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": action_type, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": f"{action_type} fixture"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ALLOW
+    assert "taint" not in sink["_meta"]
+
+
+def test_agent_exec_remote_is_boundary_not_activation(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    remote = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.AGENT_EXEC_REMOTE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "remote-agent run task"},
+        remote,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert remote["decision"] == taxonomy.ASK
+    assert remote["_meta"]["taint"]["category"] == "boundary"
+
+
+def test_agent_exec_remote_removed_from_boundary_does_not_fall_into_activation(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(
+        mode="enforce",
+        categories={"boundary": {"remove": [taxonomy.AGENT_EXEC_REMOTE]}},
+        policies={
+            "default": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+            "secret": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+        },
+    )
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    remote = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.AGENT_EXEC_REMOTE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "remote-agent run task"},
+        remote,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert remote["decision"] == taxonomy.ALLOW
+    assert "taint" not in remote["_meta"]
+
+
+def test_agent_server_is_boundary_not_activation(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    server = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.AGENT_SERVER, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "codex mcp-server"},
+        server,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert server["decision"] == taxonomy.ASK
+    assert server["_meta"]["taint"]["category"] == "boundary"
+
+
+def test_agent_server_removed_from_boundary_does_not_fall_into_activation(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(
+        mode="enforce",
+        categories={"boundary": {"remove": [taxonomy.AGENT_SERVER]}},
+        policies={
+            "default": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+            "secret": {"activation": "ask", "boundary": "ask", "unknown": "ask"},
+        },
+    )
+    taint.reset_state()
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    server = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.AGENT_SERVER, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Bash",
+        {"command": "codex mcp-server"},
+        server,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    assert server["decision"] == taxonomy.ALLOW
+    assert "taint" not in server["_meta"]
 
 
 def test_filesystem_write_propagates_state_without_prompt(monkeypatch, tmp_path, project_root):

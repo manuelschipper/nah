@@ -13,6 +13,7 @@ from nah.llm import (
     LLMResult,
     PromptParts,
     _UNIFIED_SYSTEM_TEMPLATE,
+    _build_provenance_prompt,
     _build_terminal_guard_prompt,
     _build_unified_prompt,
     _build_write_prompt,
@@ -128,6 +129,44 @@ class TestParseResponse:
     def test_whitespace_around(self):
         r = _parse_response('  \n {"decision": "allow", "reasoning": "ok"} \n  ')
         assert r.decision == "allow"
+
+
+class TestProvenanceReviewPrompt:
+    def test_includes_action_and_session_delta(self):
+        prompt = _build_provenance_prompt({
+            "complete": True,
+            "action": {
+                "tool": "Bash",
+                "action_type": "lang_exec",
+                "category": "activation",
+            },
+            "limits": {"max_files": 50},
+            "files": [{
+                "display": "derived.py",
+                "action_type": "filesystem_write",
+                "stamp": "clean_local",
+                "size": 12,
+                "content": "print('ok')\n",
+            }],
+            "omitted": [],
+        })
+
+        assert "session delta" in prompt.system
+        assert "lang_exec" in prompt.user
+        assert "derived.py" in prompt.user
+        assert "print('ok')" in prompt.user
+
+    def test_incomplete_packet_is_visible_to_reviewer(self):
+        prompt = _build_provenance_prompt({
+            "complete": False,
+            "action": {"tool": "Bash", "action_type": "package_run"},
+            "limits": {"max_files": 1},
+            "files": [],
+            "omitted": [{"identity": "path:/repo/a.py", "reason": "max_files"}],
+        })
+
+        assert "Packet complete: False" in prompt.user
+        assert "max_files" in prompt.user
 
 
 # -- _build_prompt tests --

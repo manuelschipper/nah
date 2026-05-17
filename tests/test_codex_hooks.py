@@ -542,6 +542,67 @@ def test_pre_tool_use_apply_patch_reads_command_and_skips_write_review(
     assert _log_entries(tmp_path) == []
 
 
+def test_codex_provenance_apply_patch_then_lang_exec_asks(project_root, tmp_path, monkeypatch):
+    from nah import provenance
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-provenance")
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "ask", "boundary": "ask"},
+        }
+    )
+    config._cached_target = None
+    provenance.reset_state()
+
+    patch_text = _patch("app.py")
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_provenance",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+    assert code == 0
+    assert out == ""
+    assert _log_entries(tmp_path)[-1]["provenance"]["updates"]["write"]["status"] == "pending"
+
+    (Path(project_root) / "app.py").write_text('print("ok")\n', encoding="utf-8")
+    code, out = _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_provenance",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+    assert code == 0
+    assert out == ""
+    assert _log_entries(tmp_path)[-1]["provenance"]["updates"]["write_finalized"] == "active"
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "session_id": "sess_codex_provenance",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 app.py"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "ask"
+    assert entry["provenance"]["category"] == "activation"
+    assert entry["provenance"]["enforced"] is True
+
+
 def test_codex_taint_boundary_enforcement_can_return_no_verdict(project_root, tmp_path, monkeypatch):
     from nah import taint
 

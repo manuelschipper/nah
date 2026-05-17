@@ -17,7 +17,7 @@ call at a time.
 | **Label** | A user-defined name attached to a source, such as `secret`, `customer_data`, or `prod_config`. |
 | **Propagation** | Tainted state was written into a trackable target, so that target inherits the label. |
 | **Activation** | Code or agent execution after taint exists in the session. |
-| **Boundary** | A remote, network, database, browser-state, service, or git-remote action after taint exists. |
+| **Boundary** | A network, database, service, container, browser, git-remote/history, or remote-agent action after taint exists. |
 | **Unknown** | An unrecognized action after taint exists. In v1 this remains at least `ask`. |
 
 A blocked source access does not taint the session. nah only tracks sources
@@ -142,11 +142,44 @@ activation or boundary sinks.
 
 ## Activation and Boundary Sinks
 
-Built-in activation sinks include code and package execution, container
-execution, browser execution, and agent execution actions.
+Built-in activation sinks are action types that execute code or agent/tool
+behavior inside the current controlled environment:
 
-Built-in boundary sinks include network access, remote git writes, database
-writes, service actions, browser state/file actions, and remote agent actions.
+- `lang_exec`
+- `package_run`
+- `agent_exec_read`
+- `agent_exec_write`
+- `agent_exec_bypass`
+
+Built-in boundary sinks are action types where data, code, or effects leave the
+current controlled environment:
+
+- `network_outbound`
+- `network_write`
+- `network_diagnostic`
+- `git_remote_write`
+- `git_history_rewrite`
+- `db_read`
+- `db_write`
+- `service_read`
+- `service_write`
+- `service_destructive`
+- `container_read`
+- `container_write`
+- `container_exec`
+- `container_destructive`
+- `browser_interact`
+- `browser_state`
+- `browser_navigate`
+- `browser_exec`
+- `browser_file`
+- `agent_exec_remote`
+- `agent_server`
+
+If an action could be read as both execution and boundary crossing, boundary
+wins. For example, `container_exec`, `browser_exec`, `agent_exec_remote`, and
+`agent_server` are execution-shaped, but their permission category is boundary
+because they expose behavior outside the local controlled execution path.
 
 Add or remove action types from the sink categories:
 
@@ -159,7 +192,7 @@ taint:
       remove: []
     boundary:
       add: [mytool_upload]
-      remove: []
+      remove: [container_exec, browser_interact]
 ```
 
 Use this for custom action types that you classify with `nah classify` or
