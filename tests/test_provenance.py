@@ -95,6 +95,46 @@ def test_failed_or_denied_write_does_not_create_active_artifact(monkeypatch, pro
     assert state["pending_writes"] == {}
 
 
+def test_bash_write_candidate_does_not_mark_later_lang_exec_path_as_written(
+    monkeypatch,
+    project_root,
+):
+    monkeypatch.chdir(project_root)
+    _cfg()
+    decision = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [
+                {
+                    "tokens": ["cat"],
+                    "action_type": taxonomy.FILESYSTEM_WRITE,
+                    "decision": taxonomy.ALLOW,
+                    "policy": taxonomy.CONTEXT,
+                    "redirect_target": "out.txt",
+                },
+                {
+                    "tokens": ["python3", "existing.py"],
+                    "action_type": taxonomy.LANG_EXEC,
+                    "decision": taxonomy.ALLOW,
+                    "policy": taxonomy.CONTEXT,
+                },
+            ],
+        },
+    }
+
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "cat > out.txt && python3 existing.py"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-write-exec"},
+        execution={"state": "requested"},
+    )
+
+    pending = _state()["pending_writes"]["tool-write-exec"]["descriptors"]
+    assert [item["raw"] for item in pending] == ["out.txt"]
+
+
 def test_lang_exec_of_session_written_file_triggers_activation(monkeypatch, project_root):
     monkeypatch.chdir(project_root)
     _cfg()
@@ -297,3 +337,53 @@ def test_incomplete_review_packet_cannot_auto_allow(monkeypatch, project_root):
     assert sink["decision"] == taxonomy.ASK
     review = sink["_meta"]["provenance"]["review"]
     assert review["packet_complete"] is False
+
+
+def test_dirty_git_state_without_file_delta_makes_context_packet_incomplete(
+    monkeypatch,
+    project_root,
+):
+    monkeypatch.chdir(project_root)
+    _cfg(policies={"activation": "context", "boundary": "ask"})
+    write = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["git", "commit", "-m", "change"],
+                "action_type": taxonomy.GIT_WRITE,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "git commit -m change"},
+        write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "approved_to_run"},
+    )
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["npm", "test"],
+                "action_type": taxonomy.PACKAGE_RUN,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "npm test"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ASK
+    assert sink["_meta"]["provenance"]["review"]["packet_complete"] is False

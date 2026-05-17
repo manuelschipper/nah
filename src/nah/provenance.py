@@ -445,7 +445,7 @@ def _path_descriptor(target: dict, event: dict, decision: dict) -> dict:
         "raw": target.get("raw", ""),
         "display": target.get("display", ""),
         "repo": _repo_identity_for_path(path),
-        "action_type": _first_write_action(event.get("action_types", [])),
+        "action_type": target.get("action_type") or _first_write_action(event.get("action_types", [])),
         "tool": event.get("tool", ""),
         "stamp": stamp,
         "pre_hash": info.get("hash", ""),
@@ -677,6 +677,9 @@ def build_review_packet(state: dict, event: dict, policy: dict, cfg: dict) -> di
         if repo.get("incomplete_writes"):
             packet["omitted"].append({"repo": repo_id, "reason": "incomplete_write_target"})
             packet["complete"] = False
+        if repo.get("dirty_git_state") and not repo.get("paths"):
+            packet["omitted"].append({"repo": repo_id, "reason": "dirty_git_state_without_file_delta"})
+            packet["complete"] = False
     return packet
 
 
@@ -849,13 +852,24 @@ def _targets(tool: str, tool_input: dict, action_types: list[str], decision: dic
         raw = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("pattern") or ""
         return [_path_target(raw)] if raw else []
     if tool in ("Write", "Edit", "MultiEdit"):
-        return [_path_target(tool_input.get("file_path", ""))]
+        target = _path_target(tool_input.get("file_path", ""))
+        target["action_type"] = taxonomy.FILESYSTEM_WRITE
+        return [target]
     if tool == "NotebookEdit":
-        return [_path_target(tool_input.get("notebook_path", ""))]
+        target = _path_target(tool_input.get("notebook_path", ""))
+        target["action_type"] = taxonomy.FILESYSTEM_WRITE
+        return [target]
     if tool == "apply_patch":
         paths = tool_input.get("_nah_patch_paths", [])
         if isinstance(paths, list):
-            return [_path_target(str(p)) for p in paths if str(p)]
+            targets = []
+            for p in paths:
+                if not str(p):
+                    continue
+                target = _path_target(str(p))
+                target["action_type"] = taxonomy.FILESYSTEM_WRITE
+                targets.append(target)
+            return targets
         return []
     if tool == "Bash":
         return _bash_targets(tool_input, action_types, decision)
@@ -874,7 +888,9 @@ def _bash_targets(tool_input: dict, action_types: list[str], decision: dict) -> 
                 continue
             redirect = stage.get("redirect_target", "")
             if redirect:
-                targets.append(_path_target(str(redirect)))
+                target = _path_target(str(redirect))
+                target["action_type"] = taxonomy.FILESYSTEM_WRITE
+                targets.append(target)
                 continue
             tokens = stage.get("tokens", [])
             action_type = stage.get("action_type")
@@ -884,7 +900,9 @@ def _bash_targets(tool_input: dict, action_types: list[str], decision: dict) -> 
             elif action_type == taxonomy.LANG_EXEC:
                 raw = _lang_exec_path_arg(tokens)
             if raw:
-                targets.append(_path_target(raw))
+                target = _path_target(raw)
+                target["action_type"] = str(action_type or "")
+                targets.append(target)
     if any(a in (taxonomy.GIT_WRITE, taxonomy.GIT_REMOTE_WRITE) for a in action_types):
         repo = _repo_identity()
         targets.append({"kind": "repo", "display": repo.replace("repo:", "", 1), "identity": repo})
@@ -915,8 +933,7 @@ def _is_write_target(tool: str, event: dict, target: dict) -> bool:
         return True
     if tool != "Bash":
         return False
-    action_types = event.get("action_types", [])
-    return taxonomy.FILESYSTEM_WRITE in action_types or taxonomy.BROWSER_FILE in action_types
+    return target.get("action_type") in {taxonomy.FILESYSTEM_WRITE, taxonomy.BROWSER_FILE}
 
 
 def _has_local_write(action_types: list[str]) -> bool:
