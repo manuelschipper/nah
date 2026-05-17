@@ -14,9 +14,12 @@ from nah.llm import (
     LLMCallResult,
     ProviderAttempt,
     PromptParts,
+    _build_codex_permission_request_prompt,
     _build_unified_prompt,
     _read_claude_md,
+    _read_project_instruction_files,
     _read_transcript_tail,
+    try_llm_codex_permission_request,
     try_llm_unified,
 )
 
@@ -75,6 +78,12 @@ def _isolate_auto_state(tmp_path, monkeypatch):
 
 class TestUnifiedPrompt:
     def test_includes_command_action_transcript_and_claude_md(self):
+        stages = [{
+            "action_type": "filesystem_delete",
+            "decision": "ask",
+            "policy": "context",
+            "reason": "outside project",
+        }]
         prompt = _build_unified_prompt(
             "Bash",
             "rm -rf dist/",
@@ -82,15 +91,21 @@ class TestUnifiedPrompt:
             "outside project",
             "User: clean the build output",
             "Project instructions",
+            stages=stages,
         )
 
         assert isinstance(prompt, PromptParts)
+        assert 'eligible "ask" decision' in prompt.user
+        assert "Runtime: Claude Code" in prompt.user
         assert "Bash" in prompt.user
         assert "rm -rf dist/" in prompt.user
         assert "filesystem_delete" in prompt.user
         assert "outside project" in prompt.user
+        assert '"action_type":"filesystem_delete"' in prompt.user
         assert "User: clean the build output" in prompt.user
         assert "Project instructions" in prompt.user
+        assert "blocks stay blocked" in prompt.user
+        assert "High-impact actions are not categorically forbidden here" in prompt.user
 
     def test_missing_claude_md_uses_placeholder(self):
         prompt = _build_unified_prompt(
@@ -102,6 +117,31 @@ class TestUnifiedPrompt:
             "",
         )
         assert "(not available)" in prompt.user
+
+    def test_codex_prompt_uses_shared_rules_with_agent_context(self):
+        prompt = _build_codex_permission_request_prompt(
+            "Bash",
+            "git push origin main",
+            "git_write",
+            "git write requires confirmation",
+            stages=[{
+                "action_type": "git_write",
+                "decision": "ask",
+                "policy": "ask",
+                "reason": "git write requires confirmation",
+            }],
+            transcript_text="User: push the current branch",
+            project_instructions_text="File: AGENTS.md\nProject-specific rules",
+        )
+
+        assert isinstance(prompt, PromptParts)
+        assert "Runtime: Codex PermissionRequest" in prompt.user
+        assert "nah returns an allow verdict to Codex" in prompt.user
+        assert "User: push the current branch" in prompt.user
+        assert "File: AGENTS.md" in prompt.user
+        assert '"action_type":"git_write"' in prompt.user
+        assert "deterministic classification as the safety boundary" in prompt.user
+        assert "High-impact actions are not categorically forbidden here" in prompt.user
 
 
 class TestTranscriptRoles:
@@ -137,8 +177,76 @@ class TestReadClaudeMd:
         with patch("nah.paths.get_project_root", return_value=str(tmp_path)):
             assert _read_claude_md() == ""
 
+    def test_reads_labeled_project_instruction_files(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("agent instructions")
+
+        with patch("nah.paths.get_project_root", return_value=str(tmp_path)):
+            result = _read_project_instruction_files(("AGENTS.md",))
+
+        assert result == "File: AGENTS.md\nagent instructions"
+
 
 class TestUnifiedTryLlm:
+    def test_try_unified_passes_stages_and_project_instructions(self, tmp_path):
+        (tmp_path / "CLAUDE.md").write_text("Claude project rules")
+        captured = {}
+
+        def fake_try_providers(prompt, _cfg, _label):
+            captured["prompt"] = prompt
+            return LLMCallResult(decision={"decision": "uncertain"})
+
+        with patch("nah.paths.get_project_root", return_value=str(tmp_path)), \
+             patch("nah.llm._try_providers", side_effect=fake_try_providers):
+            try_llm_unified(
+                "Bash",
+                "remove build output",
+                "filesystem_delete",
+                "outside project",
+                {},
+                stages=[{
+                    "action_type": "filesystem_delete",
+                    "decision": "ask",
+                    "policy": "context",
+                    "reason": "outside project",
+                }],
+            )
+
+        assert "File: CLAUDE.md" in captured["prompt"].user
+        assert "Claude project rules" in captured["prompt"].user
+        assert '"action_type":"filesystem_delete"' in captured["prompt"].user
+
+    def test_try_codex_reads_transcript_and_agents_md(self, tmp_path):
+        transcript = tmp_path / "transcript.jsonl"
+        transcript.write_text(_jsonl(_user_msg("push the current branch")))
+        (tmp_path / "AGENTS.md").write_text("Codex project rules")
+        captured = {}
+
+        def fake_try_providers(prompt, _cfg, _label):
+            captured["prompt"] = prompt
+            return LLMCallResult(decision={"decision": "uncertain"})
+
+        with patch("nah.paths.get_project_root", return_value=str(tmp_path)), \
+             patch("nah.llm._try_providers", side_effect=fake_try_providers):
+            try_llm_codex_permission_request(
+                "Bash",
+                "git push origin main",
+                "git_write",
+                "git write requires confirmation",
+                {},
+                stages=[{
+                    "action_type": "git_write",
+                    "decision": "ask",
+                    "policy": "ask",
+                    "reason": "git write requires confirmation",
+                }],
+                transcript_path=str(transcript),
+            )
+
+        assert "User: push the current branch" in captured["prompt"].user
+        assert "File: AGENTS.md" in captured["prompt"].user
+        assert "Codex project rules" in captured["prompt"].user
+        assert '"action_type":"git_write"' in captured["prompt"].user
+
     @patch("nah.llm.urllib.request.urlopen")
     def test_block_response_is_treated_as_uncertain(self, mock_urlopen):
         mock_resp = MagicMock()

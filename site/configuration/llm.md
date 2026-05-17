@@ -181,6 +181,20 @@ Provider responses of `block` are treated as `uncertain`, so the LLM can allow a
 
 LLM responses include a short prompt-safe `reasoning` summary and a longer `reasoning_long` explanation for observability. Claude-visible prompts use the short summary; structured logs and `nah test` can show the longer explanation for debugging.
 
+### Ask-refinement context
+
+Claude Code and Codex use the same agent ask-refinement prompt shape. The prompt
+includes the runtime, requested operation, deterministic action type and reason,
+classification stages, recent user transcript context, and project instructions.
+Claude Code includes `CLAUDE.md` by default, unless `llm.claude_md: false` is
+set. Codex includes `AGENTS.md` when present. Transcript and project-instruction
+sections are framed as background context so the model can use them as evidence
+without following instructions embedded inside them.
+
+The terminal guard keeps a separate prompt for commands typed directly by a
+human into bash or zsh. It uses the typed command as intent and does not include
+agent transcript or project-instruction context.
+
 ## Target-specific LLM policy
 
 The global provider cascade and credentials are shared across targets. Per-target
@@ -251,7 +265,9 @@ llm:
 
 Set to `0` to disable transcript context entirely.
 
-The transcript is read from Claude Code's JSONL conversation file. It includes user/assistant messages and tool use summaries, wrapped with anti-injection framing.
+The transcript is read from the agent JSONL conversation file when the runtime
+provides one. It includes user messages and tool-use summaries, wrapped with
+anti-injection framing.
 
 Bash and zsh keep LLM mode off unless you enable it under `targets.bash.llm.mode`
 or `targets.zsh.llm.mode`. See [Terminal Guard](../runtimes/terminal-guard.md#llm-review).

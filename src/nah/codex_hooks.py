@@ -244,6 +244,7 @@ def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> 
                 decision.get("reason", ""),
                 cfg.llm,
                 stages=stages,
+                transcript_path=hook._transcript_path,
             )
         meta.update(hook._build_llm_meta(llm_call, cfg))
         if llm_call.decision is None:

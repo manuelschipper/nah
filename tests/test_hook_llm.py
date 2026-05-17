@@ -264,6 +264,7 @@ class TestMainUnifiedLlm:
 
         assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
         mock_try_llm.assert_called_once()
+        assert mock_try_llm.call_args.kwargs["stages"][0]["action_type"] == "filesystem_delete"
 
     def test_main_skips_ineligible_ask(self):
         with patch("nah.config.get_config", return_value=NahConfig(

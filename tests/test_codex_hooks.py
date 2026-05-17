@@ -207,8 +207,10 @@ def test_permission_request_llm_allow_bypasses_ask_fallback_block(
         llm={"providers": ["fake"], "fake": {}},
     )
     config._cached_target = None
+    captured_kwargs = {}
 
     def fake_llm(*_args, **_kwargs):
+        captured_kwargs.update(_kwargs)
         return LLMCallResult(
             decision={"decision": "allow", "reason": "safe enough"},
             provider="fake",
@@ -229,11 +231,13 @@ def test_permission_request_llm_allow_bypasses_ask_fallback_block(
         "hookEventName": "PermissionRequest",
         "tool_name": "Bash",
         "tool_input": {"command": "curl -I https://schipper.ai"},
-        "transcript_path": "",
+        "transcript_path": "session.jsonl",
     })
 
     assert code == 0
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert captured_kwargs["transcript_path"] == "session.jsonl"
+    assert captured_kwargs["stages"][0]["action_type"]
     entry = _log_entries(tmp_path)[-1]
     assert entry["decision"] == "allow"
     assert entry["llm"]["decision"] == "allow"

@@ -1037,6 +1037,7 @@ def main():
                                 decision.get("reason", ""),
                                 cfg.llm,
                                 _transcript_path,
+                                stages=stages,
                             )
                             meta.update(_build_llm_meta(llm_call, cfg))
                             if llm_call.decision is None:

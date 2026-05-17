@@ -846,6 +846,16 @@ def cmd_test(args: argparse.Namespace) -> None:
                         action_type or "unknown",
                         result.reason,
                         cfg.llm,
+                        stages=[
+                            {
+                                "tokens": sr.tokens,
+                                "action_type": sr.action_type,
+                                "decision": sr.decision,
+                                "policy": sr.default_policy,
+                                "reason": sr.reason,
+                            }
+                            for sr in result.stages
+                        ],
                     )
                     if llm_call.decision is not None:
                         d = llm_call.decision.get("decision", "uncertain")
