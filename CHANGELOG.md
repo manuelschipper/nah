@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Session provenance outside-project identity** — session-written files
+  outside the current project boundary now stay direct-path-only in provenance
+  state instead of being aggregated under the current repo; exact path
+  activation can still trigger provenance review, but base outside-project
+  asks/blocks keep their authority. (nah-939)
 - **Decision prompts no longer include auto-allow hints** — ask/block output no
   longer appends remediation suggestions such as `nah trust`, `nah allow`,
   `nah allow-path`, or `nah classify`, because misleading shortcuts can loosen
