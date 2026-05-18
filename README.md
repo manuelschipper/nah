@@ -69,8 +69,9 @@ Before a guarded action runs, nah turns it into a policy decision:
    composition, target runtime, network hosts, and database targets.
 4. Apply your config and custom classifiers.
 5. Return `allow`, `ask`, or `block`.
-6. For eligible ambiguous cases, optionally ask an LLM. Deterministic blocks
-   stay blocked.
+6. For eligible ambiguous cases, optionally ask an LLM. Apart from write-like
+   review and clean script veto checks, deterministic allows skip the LLM;
+   deterministic blocks stay blocked.
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).

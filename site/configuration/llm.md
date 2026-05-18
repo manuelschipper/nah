@@ -8,6 +8,16 @@ Guarded action → nah (deterministic) → LLM (optional) → agent/terminal app
 
 The deterministic layer always runs first. Unified ask-refinement only sees eligible `ask` decisions. Script inspection can call the LLM as a veto path, and write-like tools can call the LLM for safety + intent review. The LLM cannot relax deterministic blocks. If no LLM is configured or available, the deterministic decision stands.
 
+Outside the two exception paths below, a deterministic `allow` is final and does
+not call the LLM. The LLM is not a second classifier for every allowed action.
+
+| Path | When the LLM runs | What the LLM can change |
+|------|-------------------|-------------------------|
+| Unified ask-refinement | Eligible deterministic `ask` decisions | `ask` can become `allow`; `uncertain`, `block`, or provider failure leaves it as `ask` |
+| Write-like review | `Write`, `Edit`, `MultiEdit`, and `NotebookEdit` when LLM mode is enabled | deterministic `allow` can become `ask`; project-boundary `ask` can become `allow`; `block` stays blocked |
+| Clean `lang_exec` script veto | Inspectable script/inline-code execution that deterministic classification allowed | `allow` can become `ask`; it cannot relax an `ask` or `block` |
+| No LLM path | Any other deterministic `allow` or `block` | final decision stands |
+
 ## Providers
 
 nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
@@ -231,7 +241,17 @@ settings and provider credentials are trusted/global config only. Use
 `nah trust-project` when you want that exact project root to control non-policy
 target settings.
 
-## Write/Edit review
+## Clean script veto
+
+When Bash classification resolves an inspectable `lang_exec` script or inline
+code to deterministic `allow`, nah can still ask the LLM to inspect the script
+content. This is a veto-only path: an LLM `allow` preserves the deterministic
+allow, while `uncertain` or `block` escalates to `ask` for human review.
+
+Deterministic `lang_exec` asks and blocks do not use this veto path. Eligible
+asks route through unified ask-refinement; blocks stay blocked.
+
+## Write-like review
 
 When LLM mode is enabled, Write/Edit/MultiEdit/NotebookEdit operations are reviewed after deterministic checks. Deterministic `block` results skip the LLM and stay blocked.
 
