@@ -628,6 +628,178 @@ def test_direct_lang_exec_context_packet_includes_session_repo_delta(
     assert other_file not in paths_in_packet
 
 
+def test_package_run_context_packet_includes_session_repo_delta(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    from nah import paths
+
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    packets = []
+
+    def fake_review(packet, llm_config):
+        packets.append((packet, llm_config))
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "safe test run"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="safe test run",
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+
+    other_root = str(tmp_path / "other")
+    os.makedirs(other_root, exist_ok=True)
+    other_file = os.path.join(other_root, "package.json")
+    paths.set_project_root(other_root)
+    monkeypatch.chdir(other_root)
+    _write_pre(other_file, event_id="tool-other")
+    with open(other_file, "w", encoding="utf-8") as f:
+        f.write('{"scripts":{"test":"node other.test.js"}}\n')
+    _write_post(other_file, event_id="tool-other")
+
+    paths.set_project_root(project_root)
+    monkeypatch.chdir(project_root)
+    manifest = os.path.join(project_root, "package.json")
+    test_file = os.path.join(project_root, "client.test.js")
+    baseline = os.path.join(project_root, "baseline.js")
+    with open(baseline, "w", encoding="utf-8") as f:
+        f.write("console.log('baseline')\n")
+    _write_pre(manifest, event_id="tool-package")
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write('{"scripts":{"test":"node client.test.js"}}\n')
+    _write_post(manifest, event_id="tool-package")
+    _write_pre(test_file, event_id="tool-test")
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("console.log('test')\n")
+    _write_post(test_file, event_id="tool-test")
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["npm", "test"],
+                "action_type": taxonomy.PACKAGE_RUN,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "npm test"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ALLOW
+    assert sink["_meta"]["provenance"]["match"]["scope"] == "repo"
+    assert packets
+    packet = packets[0][0]
+    assert packet["action"]["category"] == "activation"
+    paths_in_packet = [item["path"] for item in packet["files"]]
+    assert manifest in paths_in_packet
+    assert test_file in paths_in_packet
+    assert baseline not in paths_in_packet
+    assert other_file not in paths_in_packet
+
+
+def test_boundary_context_packet_includes_session_repo_delta(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    from nah import paths
+
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "ask", "boundary": "context"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    packets = []
+
+    def fake_review(packet, llm_config):
+        packets.append((packet, llm_config))
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "safe boundary"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="safe boundary",
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+
+    other_root = str(tmp_path / "other")
+    os.makedirs(other_root, exist_ok=True)
+    other_file = os.path.join(other_root, "other.py")
+    paths.set_project_root(other_root)
+    monkeypatch.chdir(other_root)
+    _write_pre(other_file, event_id="tool-other")
+    with open(other_file, "w", encoding="utf-8") as f:
+        f.write("print('other')\n")
+    _write_post(other_file, event_id="tool-other")
+
+    paths.set_project_root(project_root)
+    monkeypatch.chdir(project_root)
+    app = os.path.join(project_root, "app.py")
+    baseline = os.path.join(project_root, "baseline.py")
+    with open(baseline, "w", encoding="utf-8") as f:
+        f.write("print('baseline')\n")
+    _write_pre(app, event_id="tool-app")
+    with open(app, "w", encoding="utf-8") as f:
+        f.write("print('app')\n")
+    _write_post(app, event_id="tool-app")
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["curl", "-I", "https://api.example.test"],
+                "action_type": taxonomy.NETWORK_OUTBOUND,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "curl -I https://api.example.test"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-boundary"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ALLOW
+    assert sink["_meta"]["provenance"]["match"]["scope"] == "repo"
+    assert packets
+    packet = packets[0][0]
+    assert packet["action"]["category"] == "boundary"
+    paths_in_packet = [item["path"] for item in packet["files"]]
+    assert app in paths_in_packet
+    assert baseline not in paths_in_packet
+    assert other_file not in paths_in_packet
+
+
 @pytest.mark.parametrize("log_prompt", [False, True])
 def test_context_review_records_prompt_hash_and_optional_exact_prompt(
     monkeypatch,

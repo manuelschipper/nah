@@ -1038,6 +1038,161 @@ def test_headless_provenance_context_review_unavailable_fails_closed(
     assert "disabled_for_headless" not in json.dumps(entry)
 
 
+def test_headless_incomplete_provenance_packet_fails_closed_before_review(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "block")
+    monkeypatch.setenv("NAH_CODEX_SANDBOX", "danger-full-access")
+    monkeypatch.setenv("NAH_CODEX_NETWORK", "0")
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-headless-incomplete")
+    config._cached_config = NahConfig(
+        actions={"lang_exec": "allow"},
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+            "review": {
+                "max_files": 50,
+                "max_bytes_per_file": 4,
+                "max_bytes_total": 100,
+            },
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+    provenance.reset_state()
+
+    def fail_review(packet, llm_config):
+        raise AssertionError("incomplete packets must fail closed before LLM review")
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fail_review)
+
+    patch_text = _patch("app.py", 'print("too large for packet")')
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_incomplete",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+    assert code == 0
+    assert out == ""
+
+    (Path(project_root) / "app.py").write_text(
+        'print("too large for packet")\n',
+        encoding="utf-8",
+    )
+    _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_headless_incomplete",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PostToolUse")
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_incomplete",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 app.py"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert entry["provenance"]["category"] == "activation"
+    assert entry["provenance"]["review"]["packet_complete"] is False
+    assert entry["provenance"]["review"]["omitted"] == 1
+    assert entry["ask_fallback"]["to"] == "block"
+
+
+def test_headless_unknown_after_session_write_fails_closed(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "block")
+    monkeypatch.setenv("NAH_CODEX_SANDBOX", "danger-full-access")
+    monkeypatch.setenv("NAH_CODEX_NETWORK", "0")
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-headless-unknown")
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+    )
+    config._cached_target = None
+    provenance.reset_state()
+
+    patch_text = _patch("state.txt", "session written state")
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_unknown",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+    assert code == 0
+    assert out == ""
+
+    (Path(project_root) / "state.txt").write_text(
+        "session written state\n",
+        encoding="utf-8",
+    )
+    _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_headless_unknown",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PostToolUse")
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_unknown",
+        "tool_use_id": "toolu_unknown",
+        "tool_name": "Bash",
+        "tool_input": {"command": "definitely-not-a-real-nah-command --flag"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert entry["action_type"] == "unknown"
+    assert entry["provenance"]["category"] == "unknown"
+    assert entry["provenance"]["match"]["scope"] == "run"
+    assert entry["ask_fallback"]["to"] == "block"
+
+
 def test_headless_outside_project_provenance_allow_still_blocks_base_ask(
     project_root,
     tmp_path,
