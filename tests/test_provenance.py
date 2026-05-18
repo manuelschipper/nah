@@ -304,6 +304,242 @@ def test_context_policy_without_provider_stays_ask(monkeypatch, project_root):
     assert review["status"] == "no_provider"
 
 
+def test_outside_project_write_records_artifact_without_repo_pollution(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    monkeypatch.chdir(project_root)
+    _cfg()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside = outside_dir / "run.py"
+
+    _write_pre(outside)
+    outside.write_text("print('outside')\n", encoding="utf-8")
+    _write_post(outside)
+
+    identity = f"path:{os.path.realpath(outside)}"
+    state = _state()
+    assert identity in state["artifacts"]
+    assert state["artifacts"][identity]["repo"] == ""
+    assert state["repos"] == {}
+
+
+def test_project_activation_ignores_only_outside_project_write(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    monkeypatch.chdir(project_root)
+    _cfg()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside = outside_dir / "run.py"
+
+    _write_pre(outside)
+    outside.write_text("print('outside')\n", encoding="utf-8")
+    _write_post(outside)
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["npm", "test"],
+                "action_type": taxonomy.PACKAGE_RUN,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "npm test"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ALLOW
+    assert "provenance" not in sink["_meta"]
+
+
+def test_exact_outside_project_activation_cannot_weaken_base_ask(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    monkeypatch.chdir(project_root)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside = outside_dir / "run.py"
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+
+    def fake_review(packet, llm_config):
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "safe outside file"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="safe outside file",
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+    _write_pre(outside)
+    outside.write_text("print('outside')\n", encoding="utf-8")
+    _write_post(outside)
+
+    sink = {
+        "decision": taxonomy.ASK,
+        "reason": f"script outside project: {outside}",
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", str(outside)],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ASK,
+                "policy": taxonomy.ASK,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": f"python3 {outside}"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ASK
+    meta = sink["_meta"]["provenance"]
+    assert meta["match"]["scope"] == "path"
+    assert meta["review"]["decision"] == taxonomy.ALLOW
+    assert meta["enforced"] is False
+
+
+def test_trusted_outside_project_path_stays_direct_path_only(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    monkeypatch.chdir(project_root)
+    outside_dir = tmp_path / "trusted"
+    outside_dir.mkdir()
+    outside = outside_dir / "run.py"
+    packets = []
+    config._cached_config = NahConfig(
+        trusted_paths=[str(outside_dir)],
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+
+    def fake_review(packet, llm_config):
+        packets.append(packet)
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "trusted scratch file"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="trusted scratch file",
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+    _write_pre(outside)
+    outside.write_text("print('trusted scratch')\n", encoding="utf-8")
+    _write_post(outside)
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", str(outside)],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": f"python3 {outside}"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    identity = f"path:{os.path.realpath(outside)}"
+    state = _state()
+    assert state["artifacts"][identity]["repo"] == ""
+    assert state["repos"] == {}
+    assert sink["decision"] == taxonomy.ALLOW
+    assert sink["_meta"]["provenance"]["match"]["scope"] == "path"
+    assert [item["identity"] for item in packets[0]["files"]] == [identity]
+
+
+def test_base_block_does_not_run_provenance_context_review(
+    monkeypatch,
+    project_root,
+):
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    target = os.path.join(project_root, "derived.py")
+
+    def fail_review(packet, llm_config):
+        raise AssertionError("blocked base decisions must not call provenance review")
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fail_review)
+    _write_pre(target)
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    _write_post(target)
+
+    sink = {
+        "decision": taxonomy.BLOCK,
+        "reason": "deterministic block",
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", "derived.py"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.BLOCK,
+                "policy": taxonomy.BLOCK,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "python3 derived.py"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.BLOCK
+    assert "review" not in sink["_meta"]["provenance"]
+
+
 def test_direct_lang_exec_context_packet_includes_session_repo_delta(
     monkeypatch,
     project_root,

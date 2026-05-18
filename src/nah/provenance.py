@@ -459,8 +459,8 @@ def _finalize_descriptors(state: dict, descriptors: list[dict], event: dict) -> 
     finalized: list[dict] = []
     for desc in descriptors:
         kind = desc.get("kind", "")
-        repo = desc.get("repo") or _repo_identity()
         if kind == "path":
+            repo = desc.get("repo", "")
             identity = desc.get("identity", "")
             path = identity.replace("path:", "", 1) if identity.startswith("path:") else ""
             info = _file_fingerprint(path)
@@ -480,18 +480,20 @@ def _finalize_descriptors(state: dict, descriptors: list[dict], event: dict) -> 
                 "updated_at": _now(),
             }
             state.setdefault("artifacts", {})[identity] = artifact
-            repo_entry = state.setdefault("repos", {}).setdefault(
-                repo,
-                {"paths": [], "dirty_git_state": False, "incomplete_writes": 0},
-            )
-            if identity and identity not in repo_entry.setdefault("paths", []):
-                repo_entry["paths"].append(identity)
+            if repo:
+                repo_entry = state.setdefault("repos", {}).setdefault(
+                    repo,
+                    {"paths": [], "dirty_git_state": False, "incomplete_writes": 0},
+                )
+                if identity and identity not in repo_entry.setdefault("paths", []):
+                    repo_entry["paths"].append(identity)
             finalized.append({
                 "identity": identity,
                 "display": desc.get("display", ""),
                 "stamp": stamp,
             })
         elif kind == "repo":
+            repo = desc.get("repo") or _repo_identity()
             repo_entry = state.setdefault("repos", {}).setdefault(
                 repo,
                 {"paths": [], "dirty_git_state": False, "incomplete_writes": 0},
@@ -499,6 +501,7 @@ def _finalize_descriptors(state: dict, descriptors: list[dict], event: dict) -> 
             repo_entry["dirty_git_state"] = True
             finalized.append({"repo": repo, "stamp": "indexed"})
         elif kind == "incomplete":
+            repo = desc.get("repo") or _repo_identity()
             repo_entry = state.setdefault("repos", {}).setdefault(
                 repo,
                 {"paths": [], "dirty_git_state": False, "incomplete_writes": 0},
@@ -1016,18 +1019,20 @@ def _repo_identity() -> str:
 
 
 def _repo_identity_for_path(path: str) -> str:
+    if not path:
+        return ""
     try:
         from nah import paths
 
+        resolved = paths.resolve_path(path)
+        if not paths.is_inside_project_boundary(resolved):
+            return ""
         project_root = paths.get_project_root()
-        if project_root:
-            resolved = paths.resolve_path(path)
-            root = paths.resolve_path(project_root)
-            if resolved == root or resolved.startswith(root + os.sep):
-                return f"repo:{root}"
-        return _repo_identity()
+        if not project_root:
+            return ""
+        return f"repo:{paths.resolve_path(project_root)}"
     except Exception:
-        return _repo_identity()
+        return ""
 
 
 def _state_has_written_material(state: dict) -> bool:

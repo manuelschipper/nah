@@ -1038,6 +1038,100 @@ def test_headless_provenance_context_review_unavailable_fails_closed(
     assert "disabled_for_headless" not in json.dumps(entry)
 
 
+def test_headless_outside_project_provenance_allow_still_blocks_base_ask(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance, taxonomy
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "block")
+    monkeypatch.setenv("NAH_CODEX_SANDBOX", "danger-full-access")
+    monkeypatch.setenv("NAH_CODEX_NETWORK", "0")
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-headless-outside")
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside = outside_dir / "run.py"
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+    provenance.reset_state()
+    packets = []
+
+    def fake_review(packet, llm_config):
+        packets.append(packet)
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "safe outside activation"},
+            provider="fake",
+            model="test",
+            latency_ms=2,
+            reasoning="safe outside activation",
+            cascade=[ProviderAttempt("fake", "success", 2, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+    write_decision = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["cat"],
+                "action_type": taxonomy.FILESYSTEM_WRITE,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+                "redirect_target": str(outside),
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": f"cat > {outside}"},
+        write_decision,
+        runtime="codex",
+        runtime_meta={"session_id": "sess_codex_outside", "tool_use_id": "toolu_write"},
+        execution={"state": "requested"},
+    )
+    outside.write_text("print('outside')\n", encoding="utf-8")
+    provenance.apply_post_tool(
+        "Bash",
+        {"command": f"cat > {outside}"},
+        {"decision": taxonomy.ALLOW, "_meta": {}},
+        runtime="codex",
+        runtime_meta={"session_id": "sess_codex_outside", "tool_use_id": "toolu_write"},
+        execution={"state": "executed"},
+    )
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_outside",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": f"python3 {outside}"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    assert packets
+    assert [item["path"] for item in packets[0]["files"]] == [str(outside)]
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert entry["provenance"]["match"]["scope"] == "path"
+    assert entry["provenance"]["review"]["decision"] == "allow"
+    assert entry["provenance"]["enforced"] is False
+    assert entry["ask_fallback"]["to"] == "block"
+
+
 def test_codex_taint_boundary_enforcement_can_return_no_verdict(project_root, tmp_path, monkeypatch):
     from nah import taint
 
