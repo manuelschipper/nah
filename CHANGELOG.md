@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Guarded Codex headless exec** — `nah run codex exec` and `nah run codex e`
+  now guard local headless Codex runs with deterministic PreToolUse
+  enforcement, block unresolved asks by default, disable unsupported headless
+  tool surfaces, and log headless fallback/sandbox metadata. (nah-936)
 - **Trusted container exec unwrapping** — opt-in `trusted_containers` config can
   make `docker exec`, `docker container exec`, and simple
   `docker compose exec` transparent for narrow read-like payloads inside exact
