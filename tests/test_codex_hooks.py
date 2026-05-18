@@ -961,6 +961,75 @@ def test_headless_provenance_context_review_includes_session_repo_delta(
     assert entry["provenance"]["review"]["decision"] == "allow"
 
 
+def test_headless_provenance_context_review_unavailable_fails_closed(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "block")
+    monkeypatch.setenv("NAH_CODEX_SANDBOX", "danger-full-access")
+    monkeypatch.setenv("NAH_CODEX_NETWORK", "0")
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-headless-no-provider")
+    config._cached_config = NahConfig(
+        actions={"lang_exec": "allow"},
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="off",
+        llm={},
+    )
+    config._cached_target = None
+    provenance.reset_state()
+
+    patch_text = _patch("app.py")
+    _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_no_provider",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+    (Path(project_root) / "app.py").write_text('print("ok")\n', encoding="utf-8")
+    _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_headless_no_provider",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PostToolUse")
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_no_provider",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 app.py"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert "session provenance context review unavailable" in entry["reason"]
+    assert entry["provenance"]["category"] == "activation"
+    assert entry["provenance"]["review"]["status"] == "no_provider"
+    assert entry["ask_fallback"]["to"] == "block"
+    assert "disabled_for_headless" not in json.dumps(entry)
+
+
 def test_codex_taint_boundary_enforcement_can_return_no_verdict(project_root, tmp_path, monkeypatch):
     from nah import taint
 
