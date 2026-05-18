@@ -41,6 +41,7 @@ nah run codex --sandbox workspace-write
 nah run codex --sandbox workspace-write --network
 nah run codex --confirm-edits
 nah run codex --preset work
+nah run codex exec "run: git status"
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
@@ -60,10 +61,14 @@ By default, safe project-local `apply_patch` add/update edits are allowed after
 nah checks patch paths and added content. Add `--confirm-edits` to ask before
 those safe edits too.
 
-This path is for local interactive Codex. nah rejects bypass flags, `codex
-exec`, `codex apply`, `codex review`, remote/cloud runs, and user overrides for
-nah-managed permission keys. `--sandbox` is supported as a nah launcher flag;
-raw Codex config overrides for sandbox and approval settings are rejected.
+`nah run codex exec` is the guarded local headless path. In headless mode,
+unresolved asks block by default unless trusted Codex target config sets
+`ask_fallback: allow`.
+
+nah rejects bypass flags, `codex apply`, `codex review`, remote/cloud runs, and
+user overrides for nah-managed permission keys. `--sandbox` is supported as a
+nah launcher flag; raw Codex config overrides for sandbox and approval settings
+are rejected.
 
 ### nah install
 

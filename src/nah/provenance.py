@@ -124,6 +124,7 @@ def apply_pre_tool(
     execution: dict | None = None,
     transcript_path: str = "",
     terminal_audit_only: bool = False,
+    context_review: bool = True,
 ) -> dict:
     """Apply provenance policy to a pre-execution decision."""
     cfg = _effective_provenance_config()
@@ -153,6 +154,7 @@ def apply_pre_tool(
         cfg,
         original_decision,
         terminal_audit_only=terminal_audit_only,
+        context_review=context_review,
     )
 
     if updates or policy or applied:
@@ -536,6 +538,7 @@ def _apply_policy_decision(
     original_decision: str,
     *,
     terminal_audit_only: bool,
+    context_review: bool,
 ) -> dict:
     if not policy:
         return {}
@@ -555,12 +558,17 @@ def _apply_policy_decision(
     reason = _policy_reason(policy)
     review_meta: dict[str, Any] = {}
     if policy_decision == taxonomy.CONTEXT:
-        final_decision, reason, review_meta = _resolve_context_review(
-            state,
-            event,
-            policy,
-            cfg,
-        )
+        if context_review:
+            final_decision, reason, review_meta = _resolve_context_review(
+                state,
+                event,
+                policy,
+                cfg,
+            )
+        else:
+            final_decision = taxonomy.ASK
+            reason = "session provenance context review unavailable in headless deterministic mode"
+            review_meta = {"status": "disabled_for_headless"}
         applied["review"] = review_meta
 
     if final_decision not in (taxonomy.ASK, taxonomy.BLOCK):

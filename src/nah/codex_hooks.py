@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from nah import agents, hook, taxonomy
 from nah.apply_patch import classify_codex_apply_patch
@@ -17,8 +18,14 @@ from nah.messages import enrich_decision
 
 _WRITE_ALIASES = {"apply_patch"}
 _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
+_PRESET_ENV = "NAH_PRESET"
+_HEADLESS_ENV = "NAH_CODEX_HEADLESS"
+_HEADLESS_ASK_FALLBACK_ENV = "NAH_CODEX_HEADLESS_ASK_FALLBACK"
+_HEADLESS_SANDBOX_ENV = "NAH_CODEX_SANDBOX"
+_HEADLESS_NETWORK_ENV = "NAH_CODEX_NETWORK"
 _SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
 
 
 def main(
@@ -44,6 +51,9 @@ def main(
             f"invalid {default_hook_event} JSON: {exc}",
             event_name=default_hook_event,
         )
+        if default_hook_event == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"invalid PreToolUse JSON: {exc}")
+            return 0
         return 0 if _event_fails_open(default_hook_event) else 1
 
     if not isinstance(payload, dict):
@@ -51,12 +61,18 @@ def main(
             f"{default_hook_event} payload was not an object",
             event_name=default_hook_event,
         )
+        if default_hook_event == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"{default_hook_event} payload was not an object")
+            return 0
         return 0 if _event_fails_open(default_hook_event) else 1
 
     try:
         event_name = _hook_event_name(payload, default_hook_event)
         if event_name == "PreToolUse":
             total_ms = int((time.monotonic() - t0) * 1000)
+            if _headless_enabled():
+                _handle_headless_pre_tool_use(payload, total_ms, stdout)
+                return 0
             _log_pre_tool_use(payload, total_ms)
             stdout.flush()
             return 0
@@ -78,6 +94,9 @@ def main(
         return 0
     except Exception as exc:
         _log_codex_hook_error(f"unexpected {event_name} error: {exc}", event_name=event_name)
+        if event_name == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"unexpected PreToolUse error: {exc}")
+            return 0
         return 0 if _event_fails_open(event_name) else 1
 
 
@@ -195,6 +214,18 @@ def _confirm_edits_enabled() -> bool:
     return value.strip().lower() in _TRUTHY_ENV_VALUES
 
 
+def _headless_enabled() -> bool:
+    value = os.environ.get(_HEADLESS_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _headless_ask_fallback_mode() -> str:
+    value = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+    if value in _HEADLESS_ASK_FALLBACKS:
+        return value
+    return taxonomy.BLOCK
+
+
 def _patch_paths_inside_cwd(log_input: dict, cwd: str) -> bool:
     if not cwd:
         return False
@@ -289,6 +320,13 @@ def _pre_tool_execution() -> dict:
     return {"state": "requested", "ask_outcome": "not_applicable"}
 
 
+def _headless_pre_tool_execution(decision: dict) -> dict:
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.BLOCK:
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
 def _attach_permission_runtime(decision: dict, payload: dict) -> None:
     """Attach runtime metadata before policy layers can inspect the decision."""
     meta = decision.setdefault("_meta", {})
@@ -305,6 +343,8 @@ def _apply_taint_permission(
     tool_input: dict,
     decision: dict,
     payload: dict,
+    *,
+    strict: bool = False,
 ) -> dict:
     try:
         from nah import taint
@@ -321,6 +361,8 @@ def _apply_taint_permission(
         )
     except Exception as exc:
         _log_codex_hook_error(f"taint permission failed: {exc}")
+        if strict:
+            return _policy_error_block(decision, f"taint permission failed: {exc}")
         return decision
 
 
@@ -354,6 +396,8 @@ def _apply_provenance_permission(
     tool_input: dict,
     decision: dict,
     payload: dict,
+    *,
+    strict: bool = False,
 ) -> dict:
     try:
         from nah import provenance
@@ -367,10 +411,26 @@ def _apply_provenance_permission(
             runtime_meta=meta.get("runtime", {}),
             execution=meta.get("execution", {}),
             transcript_path=str(payload.get("transcript_path", "") or ""),
+            context_review=not strict,
         )
     except Exception as exc:
         _log_codex_hook_error(f"provenance permission failed: {exc}")
+        if strict:
+            return _policy_error_block(decision, f"provenance permission failed: {exc}")
         return decision
+
+
+def _policy_error_block(decision: dict, reason: str) -> dict:
+    blocked = copy.deepcopy(decision)
+    blocked["decision"] = taxonomy.BLOCK
+    blocked["reason"] = f"headless policy error: {reason}"
+    meta = blocked.setdefault("_meta", {})
+    meta["policy_error"] = {
+        "runtime": agents.CODEX,
+        "phase": "headless_pre_tool",
+        "reason": reason,
+    }
+    return blocked
 
 
 def _apply_provenance_pre_tool_observation(
@@ -452,6 +512,80 @@ def _log_decision(
         )
     finally:
         hook._transcript_path = old_transcript
+
+
+def _handle_headless_pre_tool_use(payload: dict, total_ms: int, stdout) -> None:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        decision, canonical, tool_input = _decide(payload, llm_review=False)
+        mode = _headless_ask_fallback_mode()
+        meta = decision.setdefault("_meta", {})
+        runtime = _runtime_meta(
+            payload,
+            phase="headless_pre_tool",
+            hook_event_name="PreToolUse",
+        )
+        runtime["headless"] = True
+        runtime["ask_fallback_mode"] = mode
+        runtime["sandbox_mode"] = os.environ.get(_HEADLESS_SANDBOX_ENV, "")
+        runtime["network"] = _headless_network_enabled()
+        selected_preset = os.environ.get(_PRESET_ENV, "").strip()
+        if selected_preset:
+            runtime["preset"] = selected_preset
+        configured_mode = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+        if configured_mode and configured_mode not in _HEADLESS_ASK_FALLBACKS:
+            runtime["ask_fallback_invalid"] = configured_mode
+        meta["runtime"] = runtime
+        meta["execution"] = _headless_pre_tool_execution(decision)
+
+        decision = _apply_taint_permission(canonical, tool_input, decision, payload, strict=True)
+        decision = _apply_provenance_permission(canonical, tool_input, decision, payload, strict=True)
+        decision = _apply_headless_ask_fallback(decision, mode)
+        decision.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(decision)
+
+        _log_decision(canonical, tool_input, decision, total_ms, payload)
+        if decision.get("decision") == taxonomy.BLOCK:
+            enrich_decision(decision, tool=canonical)
+            reason = decision.get("human_reason") or decision.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
+        if decision.get("decision") == taxonomy.ASK:
+            blocked = _apply_headless_ask_fallback(decision, taxonomy.BLOCK)
+            blocked.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(blocked)
+            _log_decision(canonical, tool_input, blocked, total_ms, payload)
+            enrich_decision(blocked, tool=canonical)
+            reason = blocked.get("human_reason") or blocked.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
+        stdout.flush()
+    finally:
+        hook._transcript_path = old_transcript
+
+
+def _apply_headless_ask_fallback(decision: dict, mode: str) -> dict:
+    if mode not in _HEADLESS_ASK_FALLBACKS:
+        mode = taxonomy.BLOCK
+    return hook._apply_ask_fallback(decision, SimpleNamespace(ask_fallback=mode))
+
+
+def _headless_network_enabled() -> bool:
+    value = os.environ.get(_HEADLESS_NETWORK_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _emit_headless_error(stdout, reason: str) -> None:
+    _emit_pre_tool_deny(stdout, f"nah headless hook error: {reason}")
+
+
+def _emit_pre_tool_deny(stdout, reason: str) -> None:
+    payload = agents.format_block(reason, agents.CODEX)
+    json.dump(payload, stdout)
+    stdout.write("\n")
+    stdout.flush()
 
 
 def _log_pre_tool_use(payload: dict, total_ms: int) -> None:

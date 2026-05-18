@@ -271,6 +271,7 @@ nah types                              # list action types
 nah run claude                         # protect one Claude Code session
 nah codex setup                        # set up Codex rules
 nah run codex                          # protect one Codex session
+nah run codex exec "run: git status"   # protect one headless Codex run
 nah run codex --sandbox workspace-write # use Codex workspace sandboxing
 nah run codex --confirm-edits           # also confirm safe project edits
 nah install claude                     # protect normal Claude Code sessions

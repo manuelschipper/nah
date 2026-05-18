@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shlex
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 
 from nah.codex_authority import CodexAuthorityError, codex_home, ensure_authority_rules
 from nah.codex_preflight import CodexPreflightError, ensure_preflight
@@ -28,6 +30,8 @@ class CodexLaunch:
     confirm_edits: bool = False
     network: bool = False
     selected_preset: str = ""
+    headless: bool = False
+    headless_ask_fallback: str = ""
 
 
 _BYPASS_FLAGS = {
@@ -41,7 +45,21 @@ _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
 _PRESET_FLAG = "--preset"
 _PRESET_ENV = "NAH_PRESET"
 _NETWORK_FLAG = "--network"
+_HEADLESS_ENV = "NAH_CODEX_HEADLESS"
+_HEADLESS_ASK_FALLBACK_ENV = "NAH_CODEX_HEADLESS_ASK_FALLBACK"
+_HEADLESS_SANDBOX_ENV = "NAH_CODEX_SANDBOX"
+_HEADLESS_NETWORK_ENV = "NAH_CODEX_NETWORK"
 _ALLOWED_SANDBOX_MODES = {"danger-full-access", "read-only", "workspace-write"}
+_HEADLESS_EXEC_SUBCOMMANDS = {"exec", "e"}
+_HEADLESS_NESTED_UNSUPPORTED = {"review", "resume", "apply", "a", "cloud"}
+_HEADLESS_DISABLED_FEATURES = {"unified_exec", "code_mode", "code_mode_only"}
+_HEADLESS_REJECT_FLAGS = {
+    "--dangerously-bypass-hook-trust",
+    "--ignore-user-config",
+    "--ignore-rules",
+}
+_HEADLESS_INTERNAL_EXEC_FLAGS = ["--ignore-rules"]
+_HOOK_TRUST_KEY_PREFIX = "/<session-flags>/config.toml"
 _REJECT_VALUE_FLAGS = {
     "-a",
     "--ask-for-approval",
@@ -85,6 +103,7 @@ _CODEX_VALUE_FLAGS = {
     "--local-provider",
     "-p",
     "--profile",
+    "--profile-v2",
     "-s",
     "--sandbox",
     "-a",
@@ -92,9 +111,13 @@ _CODEX_VALUE_FLAGS = {
     "-C",
     "--cd",
     "--add-dir",
+    "-o",
+    "--output-last-message",
+    "--output-schema",
+    "--color",
 }
 _CODEX_LONG_VALUE_FLAGS = {flag for flag in _CODEX_VALUE_FLAGS if flag.startswith("--")}
-_UNSUPPORTED_SUBCOMMANDS = {"exec", "e", "review", "apply", "a", "cloud"}
+_UNSUPPORTED_SUBCOMMANDS = {"review", "apply", "a", "cloud"}
 
 
 def _toml_string(value: str) -> str:
@@ -131,6 +154,7 @@ def injected_overrides(
     sandbox_mode: str = _DEFAULT_SANDBOX_MODE,
     approval_policy: str = _DEFAULT_APPROVAL_POLICY,
     network: bool = False,
+    headless: bool = False,
 ) -> list[str]:
     """Return root-level Codex config overrides owned by nah."""
     pre_tool_command = codex_pre_tool_hook_command()
@@ -141,7 +165,7 @@ def injected_overrides(
         "type = \"command\", "
         f"command = {_toml_string(pre_tool_command)}, "
         "timeout = 5, "
-        "statusMessage = \"nah observing\" "
+        f"statusMessage = {_toml_string('nah enforcing' if headless else 'nah observing')} "
         "}] }]"
     )
     permission_hook_config = (
@@ -173,7 +197,70 @@ def injected_overrides(
     ]
     if network and sandbox_mode == "workspace-write":
         overrides += ["-c", "sandbox_workspace_write.network_access=true"]
+    if headless:
+        overrides += [
+            "-c", "features.unified_exec=false",
+            "-c", "features.code_mode=false",
+            "-c", "features.code_mode_only=false",
+        ]
     return overrides
+
+
+def _ensure_headless_hook_trust(env: dict[str, str]) -> None:
+    """Trust the session-scoped nah hook commands for headless Codex exec."""
+    from nah.codex_preflight import _ensure_toml_values
+
+    config_path = codex_home(env) / "config.toml"
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    edits = [
+        (
+            ("hooks", "state", _hook_trust_key("pre_tool_use")),
+            "trusted_hash",
+            _hook_trust_hash(
+                "pre_tool_use",
+                codex_pre_tool_hook_command(),
+                "nah enforcing",
+            ),
+        ),
+        (
+            ("hooks", "state", _hook_trust_key("permission_request")),
+            "trusted_hash",
+            _hook_trust_hash(
+                "permission_request",
+                codex_hook_command(),
+                "nah reviewing",
+            ),
+        ),
+        (
+            ("hooks", "state", _hook_trust_key("post_tool_use")),
+            "trusted_hash",
+            _hook_trust_hash(
+                "post_tool_use",
+                codex_post_tool_hook_command(),
+                "nah logging",
+            ),
+        ),
+    ]
+    _ensure_toml_values(config_path, edits, timestamp)
+
+
+def _hook_trust_key(event_label: str) -> str:
+    return f"{_HOOK_TRUST_KEY_PREFIX}:{event_label}:0:0"
+
+
+def _hook_trust_hash(event_label: str, command: str, status_message: str) -> str:
+    identity = {
+        "event_name": event_label,
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": 5,
+            "statusMessage": status_message,
+            "async": False,
+        }],
+    }
+    serialized = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(serialized).hexdigest()
 
 
 def build_codex_argv(
@@ -204,7 +291,10 @@ def build_codex_launch(
     codex_args, confirm_edits, sandbox_mode, network, selected_preset = _extract_nah_run_flags(
         list(user_args),
     )
-    _validate_user_args(codex_args)
+    headless = _is_headless_exec(codex_args)
+    _validate_user_args(codex_args, headless=headless)
+    if headless:
+        codex_args = _inject_headless_exec_args(codex_args)
     env = dict(base_env if base_env is not None else os.environ)
     if "NAH_PROVENANCE_RUN_ID" not in env:
         from nah.provenance import new_run_id
@@ -213,17 +303,30 @@ def build_codex_launch(
     if selected_preset:
         env[_PRESET_ENV] = selected_preset
     selected_effective_preset = selected_preset or env.get(_PRESET_ENV, "").strip()
-    if selected_effective_preset:
+    effective_cfg = None
+    if selected_effective_preset or headless:
         try:
             from nah.config import ConfigError, get_config
 
-            get_config(target="codex", preset=selected_effective_preset)
+            effective_cfg = get_config(target="codex", preset=selected_effective_preset)
         except ConfigError as exc:
             raise CodexRunError(f"nah run codex: {exc}") from exc
     if confirm_edits:
         env[_CONFIRM_EDITS_ENV] = "1"
     else:
         env.pop(_CONFIRM_EDITS_ENV, None)
+    headless_ask_fallback = ""
+    if headless:
+        headless_ask_fallback = getattr(effective_cfg, "ask_fallback", "") or "block"
+        env[_HEADLESS_ENV] = "1"
+        env[_HEADLESS_ASK_FALLBACK_ENV] = headless_ask_fallback
+        env[_HEADLESS_SANDBOX_ENV] = sandbox_mode
+        env[_HEADLESS_NETWORK_ENV] = "1" if network else "0"
+    else:
+        env.pop(_HEADLESS_ENV, None)
+        env.pop(_HEADLESS_ASK_FALLBACK_ENV, None)
+        env.pop(_HEADLESS_SANDBOX_ENV, None)
+        env.pop(_HEADLESS_NETWORK_ENV, None)
     authority_rules_path = ""
     if preflight:
         root = codex_home(env)
@@ -231,15 +334,22 @@ def build_codex_launch(
             status = ensure_authority_rules(home=root)
             authority_rules_path = str(status.path)
             ensure_preflight(home=root)
+            if headless:
+                _ensure_headless_hook_trust(env)
         except CodexAuthorityError as exc:
             raise CodexRunError(f"nah run codex: {exc}") from exc
         except CodexPreflightError as exc:
             raise CodexRunError(str(exc)) from exc
-    argv = [executable] + injected_overrides(
-        sandbox_mode=sandbox_mode,
-        approval_policy=_DEFAULT_APPROVAL_POLICY,
-        network=network,
-    ) + codex_args
+    argv = (
+        [executable]
+        + injected_overrides(
+            sandbox_mode=sandbox_mode,
+            approval_policy=_DEFAULT_APPROVAL_POLICY,
+            network=network,
+            headless=headless,
+        )
+        + codex_args
+    )
     return CodexLaunch(
         argv=argv,
         env=env,
@@ -249,6 +359,8 @@ def build_codex_launch(
         confirm_edits=confirm_edits,
         network=network,
         selected_preset=selected_effective_preset,
+        headless=headless,
+        headless_ask_fallback=headless_ask_fallback,
     )
 
 
@@ -270,10 +382,12 @@ def run_codex(user_args: list[str]) -> int:
     return 127
 
 
-def _validate_user_args(args: list[str]) -> None:
+def _validate_user_args(args: list[str], *, headless: bool = False) -> None:
     """Reject user flags/subcommands that can disable or bypass nah's hook path."""
-    _reject_dangerous_flags(args)
+    _reject_dangerous_flags(args, headless=headless)
     _reject_unsupported_subcommands(args)
+    if headless:
+        _reject_unsupported_headless_exec(args)
 
 
 def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool, str]:
@@ -284,10 +398,11 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool,
     network = False
     selected_preset = ""
     after_separator = False
+    seen_subcommand = False
     i = 0
     while i < len(args):
         tok = args[i]
-        if after_separator:
+        if after_separator or seen_subcommand:
             codex_args.append(tok)
             i += 1
             continue
@@ -338,6 +453,18 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool,
             sandbox_mode = _validate_sandbox_mode(tok.split("=", 1)[1])
             i += 1
             continue
+        if _is_codex_joined_value_flag(tok):
+            codex_args.append(tok)
+            i += 1
+            continue
+        if tok in _CODEX_VALUE_FLAGS:
+            codex_args.append(tok)
+            if i + 1 < len(args):
+                codex_args.append(args[i + 1])
+            i += 2
+            continue
+        if not tok.startswith("-"):
+            seen_subcommand = True
         codex_args.append(tok)
         i += 1
     if network and sandbox_mode == "read-only":
@@ -356,7 +483,7 @@ def _validate_sandbox_mode(value: str) -> str:
     raise CodexRunError(f"nah run codex: --sandbox must be one of: {allowed}")
 
 
-def _reject_dangerous_flags(args: list[str]) -> None:
+def _reject_dangerous_flags(args: list[str], *, headless: bool = False) -> None:
     i = 0
     while i < len(args):
         tok = args[i]
@@ -369,25 +496,38 @@ def _reject_dangerous_flags(args: list[str]) -> None:
                 f"{tok}, or run `codex {tok}` directly if you intentionally "
                 "want an unguarded Codex session.",
             )
+        if headless and tok in _HEADLESS_REJECT_FLAGS:
+            raise CodexRunError(
+                f"nah run codex: {tok} is not supported for guarded headless exec",
+            )
         if tok in {"-c", "--config"}:
             if i + 1 >= len(args):
                 return
             _reject_owned_config(args[i + 1])
+            if headless:
+                _reject_headless_config(args[i + 1])
             i += 2
             continue
         if tok.startswith("--config="):
-            _reject_owned_config(tok.split("=", 1)[1])
+            value = tok.split("=", 1)[1]
+            _reject_owned_config(value)
+            if headless:
+                _reject_headless_config(value)
             i += 1
             continue
         if tok in {"--disable", "--enable"}:
             if i + 1 < len(args) and args[i + 1] in _MANAGED_ENABLE_FLAGS:
                 raise CodexRunError(f"nah run codex: {args[i + 1]} is managed by nah")
+            if headless and tok == "--enable" and i + 1 < len(args):
+                _reject_headless_feature(args[i + 1])
             i += 2
             continue
         if tok.startswith("--disable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
             raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
         if tok.startswith("--enable=") and tok.split("=", 1)[1] in _MANAGED_ENABLE_FLAGS:
             raise CodexRunError(f"nah run codex: {tok.split('=', 1)[1]} is managed by nah")
+        if headless and tok.startswith("--enable="):
+            _reject_headless_feature(tok.split("=", 1)[1])
         if tok in _REJECT_VALUE_FLAGS or any(
             tok.startswith(flag + "=") for flag in _REJECT_VALUE_FLAGS if flag.startswith("--")
         ):
@@ -417,6 +557,40 @@ def _reject_owned_config(value: str) -> None:
         )
 
 
+def _reject_headless_feature(feature: str) -> None:
+    if feature in _HEADLESS_DISABLED_FEATURES:
+        raise CodexRunError(f"nah run codex: {feature} is disabled for guarded headless exec")
+
+
+def _reject_headless_config(value: str) -> None:
+    if "=" not in value:
+        return
+    raw_key, raw_value = value.split("=", 1)
+    key = raw_key.strip().strip("'\"")
+    if not _config_value_truthy(raw_value):
+        return
+    if _is_headless_disabled_feature_key(key) or _is_legacy_unified_exec_key(key):
+        raise CodexRunError(f"nah run codex: {key}=true is disabled for guarded headless exec")
+
+
+def _is_headless_disabled_feature_key(key: str) -> bool:
+    parts = key.split(".")
+    if len(parts) >= 2 and parts[-2] == "features":
+        return parts[-1] in _HEADLESS_DISABLED_FEATURES
+    return False
+
+
+def _is_legacy_unified_exec_key(key: str) -> bool:
+    return key == "experimental_use_unified_exec_tool" or key.endswith(
+        ".experimental_use_unified_exec_tool",
+    )
+
+
+def _config_value_truthy(value: str) -> bool:
+    normalized = value.strip().strip("'\"").lower()
+    return normalized in {"true", "1", "yes", "on"}
+
+
 def _is_owned_config_key(key: str) -> bool:
     for owned in _OWNED_CONFIG_KEYS:
         if key == owned or key.startswith(owned + "."):
@@ -427,15 +601,40 @@ def _is_owned_config_key(key: str) -> bool:
 def _reject_unsupported_subcommands(args: list[str]) -> None:
     sub = _first_subcommand(args)
     if sub in _UNSUPPORTED_SUBCOMMANDS:
-        if sub in {"exec", "e", "review", "apply", "a"}:
+        if sub in {"review", "apply", "a"}:
             raise CodexRunError(
                 f"nah run codex: codex {sub} does not use interactive approvals safely yet",
             )
         raise CodexRunError("nah run codex: remote/cloud Codex runs are not supported yet")
 
 
-def _first_subcommand(args: list[str]) -> str:
-    i = 0
+def _reject_unsupported_headless_exec(args: list[str]) -> None:
+    nested = _first_exec_argument(args)
+    if nested in _HEADLESS_NESTED_UNSUPPORTED:
+        raise CodexRunError(f"nah run codex: codex exec {nested} is not supported yet")
+
+
+def _inject_headless_exec_args(args: list[str]) -> list[str]:
+    sub_idx = _first_subcommand_index(args)
+    if sub_idx < 0 or args[sub_idx] not in _HEADLESS_EXEC_SUBCOMMANDS:
+        return args
+    # Interactive `nah codex setup` installs exec-policy prompt rules so Codex
+    # known-safe commands route through PermissionRequest. Headless exec cannot
+    # ask, so the launcher ignores those rules and makes PreToolUse authoritative.
+    # Hook trust is handled in preflight by recording the session-scoped nah
+    # hook hashes in Codex config before the headless run starts.
+    return args[: sub_idx + 1] + _HEADLESS_INTERNAL_EXEC_FLAGS + args[sub_idx + 1 :]
+
+
+def _is_headless_exec(args: list[str]) -> bool:
+    return _first_subcommand(args) in _HEADLESS_EXEC_SUBCOMMANDS
+
+
+def _first_exec_argument(args: list[str]) -> str:
+    sub_idx = _first_subcommand_index(args)
+    if sub_idx < 0 or args[sub_idx] not in _HEADLESS_EXEC_SUBCOMMANDS:
+        return ""
+    i = sub_idx + 1
     while i < len(args):
         tok = args[i]
         if tok == "--":
@@ -451,6 +650,30 @@ def _first_subcommand(args: list[str]) -> str:
             continue
         return tok
     return ""
+
+
+def _first_subcommand(args: list[str]) -> str:
+    idx = _first_subcommand_index(args)
+    return args[idx] if idx >= 0 else ""
+
+
+def _first_subcommand_index(args: list[str]) -> int:
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            return -1
+        if _is_codex_joined_value_flag(tok):
+            i += 1
+            continue
+        if tok in _CODEX_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return i
+    return -1
 
 
 def _is_codex_joined_value_flag(tok: str) -> bool:

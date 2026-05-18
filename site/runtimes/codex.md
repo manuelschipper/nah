@@ -10,6 +10,7 @@ nah codex setup
 nah codex doctor
 nah run codex
 nah run codex --preset work
+nah run codex exec "run: git status"
 ```
 
 There is no global `nah install codex` path. Codex must be launched through
@@ -57,9 +58,17 @@ network is already host-controlled and the flag is redundant. `workspace-write`
 keeps Codex's filesystem sandbox, which can be useful when you want an
 additional sandbox boundary but can also restrict host-level resources.
 
-The `PreToolUse` and `PostToolUse` hooks are observation-only. They let nah
-track configured [taint state](../configuration/taint-tracking.md) and
-execution outcomes without changing Codex's native approval UI.
+For interactive Codex, the `PreToolUse` and `PostToolUse` hooks are
+observation-only. They let nah track configured
+[taint state](../configuration/taint-tracking.md) and execution outcomes
+without changing Codex's native approval UI. The interactive enforcement
+decision happens in `PermissionRequest`.
+
+For `codex exec`, Codex does not have the same interactive approval loop. In
+that headless mode, nah makes `PreToolUse` authoritative and never emits an
+unsupported ask decision. A deterministic allow continues with empty hook
+output. A deterministic block returns a Codex PreToolUse deny. An unresolved
+ask blocks by default.
 
 Safe project-local `apply_patch` add/update edits are allowed by nah after it
 checks patch paths and added content. If you want Codex to ask before those
@@ -73,6 +82,52 @@ nah owns the safety settings for the protected session. Use nah's `--sandbox`
 launcher flag to select the Codex sandbox. Attempts to override approval,
 hooks, rules, dynamic MCP installs, or nah-owned Codex config with raw Codex
 config are rejected. Normal Codex UI and session flags still pass through.
+
+## Headless Exec
+
+Use `nah run codex exec` when you want an unattended local Codex run guarded by
+nah:
+
+```bash
+nah run codex exec "run: git status"
+nah run codex --preset autonomy exec "run the test suite"
+nah run codex --sandbox workspace-write --network exec "run npm test"
+```
+
+Headless exec uses deterministic PreToolUse enforcement. If nah can allow or
+block the action, that decision is applied before execution. If nah would
+normally ask, headless mode converts the ask through `targets.codex.ask_fallback`.
+The default fallback is `block`.
+
+Trusted global config or a trusted preset can opt into unattended fallback
+allow:
+
+```yaml
+targets:
+  codex:
+    ask_fallback: allow
+```
+
+That only changes unresolved asks. Deterministic blocks remain blocks.
+
+For guarded headless v1, nah disables Codex unified exec, Code Mode, and Code
+Mode Only. It also rejects user flags or raw config that re-enable those
+surfaces, because they can expose tool paths that are not enforceable through
+the current PreToolUse contract.
+
+The launcher also ignores Codex exec-policy rule files for the headless run.
+Those rule files are useful for interactive Codex because they force known-safe
+commands into `PermissionRequest`; in headless exec there is no approval prompt,
+so nah uses authoritative `PreToolUse` instead.
+
+Headless exec also records Codex hook trust for the session-scoped nah hooks
+that the launcher injects. Interactive `nah run codex` still uses Codex's hook
+review UI; headless cannot safely depend on a prompt that never appears.
+
+The default headless sandbox is still `danger-full-access`. That keeps local
+developer workflows working while nah remains the hook-visible policy gate. Use
+`--sandbox workspace-write --network` when you want Codex's filesystem sandbox
+as an additional boundary.
 
 ## Hook Review
 
@@ -248,7 +303,6 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 - `--ask-for-approval` / `-a`
 - user overrides for nah-owned approval, hook, sandbox, rules, and MCP feature
   keys through raw Codex config
-- `codex exec`
 - `codex apply`
 - `codex review`
 - remote/cloud Codex runs
@@ -264,5 +318,9 @@ for how to remove that setup first.
 ## Coverage
 
 `nah run codex` guards local interactive Codex Bash, MCP, and `apply_patch`
-hook payloads. It does not guard remote/cloud Codex sessions, non-interactive
-`codex exec`, or Codex surfaces that do not emit local interactive hooks.
+hook payloads through `PermissionRequest`. `nah run codex exec` guards local
+headless Codex Bash, MCP, and `apply_patch` hook payloads through
+authoritative `PreToolUse`.
+
+nah does not guard remote/cloud Codex sessions or Codex surfaces that do not
+emit local hooks.
