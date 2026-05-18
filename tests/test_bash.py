@@ -1389,6 +1389,97 @@ class TestDecomposition:
         assert r.stages[0].action_type == "filesystem_write"
         assert "inside project" in r.reason
 
+    def test_redirect_after_cd_uses_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"cd {outside} && echo hello > out.txt")
+
+        assert r.final_decision == "ask"
+        assert r.stages[1].action_type == "filesystem_write"
+        assert "outside project" in r.reason
+
+    def test_filesystem_write_after_cd_uses_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"cd {outside} && touch out.txt")
+
+        assert r.final_decision == "ask"
+        assert r.stages[1].action_type == "filesystem_write"
+        assert "outside project" in r.reason
+
+    def test_redirect_after_cd_inside_project_still_allows(self, project_root):
+        r = classify_command(f"cd {project_root} && echo hello > out.txt")
+
+        assert r.final_decision == "allow"
+        assert r.stages[1].action_type == "filesystem_write"
+        assert "inside project" in r.stages[1].reason
+
+    def test_bash_c_inner_cd_uses_inner_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"bash -c 'cd {outside} && touch out.txt'")
+
+        assert r.final_decision == "ask"
+        assert "outside project" in r.reason
+
+    def test_bash_c_inner_cd_redirect_uses_inner_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"bash -c 'cd {outside} && echo hi > out.txt'")
+
+        assert r.final_decision == "ask"
+        assert "outside project" in r.reason
+
+    def test_command_substitution_after_cd_uses_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"cd {outside} && echo $(touch out.txt)")
+
+        assert r.final_decision == "ask"
+        assert "substitution:" in r.reason
+        assert "outside project" in r.reason
+
+    def test_process_substitution_after_cd_uses_shell_cwd(self, project_root):
+        config._cached_config = NahConfig(trusted_paths=[])
+        outside = Path(project_root).parent / "outside"
+        outside.mkdir()
+
+        r = classify_command(f"cd {outside} && cat <(touch out.txt)")
+
+        assert r.final_decision == "ask"
+        assert "substitution:" in r.reason
+        assert "outside project" in r.reason
+
+    def test_cdpath_relative_cd_fails_closed(self, project_root, monkeypatch):
+        config._cached_config = NahConfig(trusted_paths=[])
+        parent = Path(project_root).parent
+        outside = parent / "outside"
+        outside.mkdir()
+        monkeypatch.delenv("CDPATH", raising=False)
+
+        r = classify_command(f"CDPATH={parent} cd outside && touch out.txt")
+
+        assert r.final_decision == "ask"
+        assert "relative path after shell cwd change" in r.reason
+
+    def test_safe_python_write_after_tracked_cd_uses_shell_cwd(self, project_root):
+        Path(project_root, "out.py").write_text("print(1)\n")
+
+        r = classify_command(f"cd {project_root} && python3 -m py_compile out.py")
+
+        assert r.final_decision == "allow"
+        assert r.stages[1].action_type == "filesystem_write"
+
     @pytest.mark.parametrize(
         "command",
         [

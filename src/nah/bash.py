@@ -18,6 +18,7 @@ _REDIRECT_SAFE_SINKS = frozenset({"/dev/null", "/dev/stderr", "/dev/stdout", "/d
 _WINDOWS_REDIRECT_SAFE_SINKS = frozenset({"nul", "con"})
 _WINDOWS_QUOTED_TRAILING_BACKSLASH_RE = re.compile(r"""(["'])([A-Za-z]:\\[^"']*\\)\1""")
 _LITERAL_OUTPUT_REDIRECT_SENTINEL = "\x1fNAH_LITERAL_GT\x1f"
+_UNKNOWN_SHELL_CWD_PATH = "\x1fNAH_UNKNOWN_SHELL_CWD_PATH\x1f"
 
 _PYTHON_READ_ONLY_MODULES = frozenset({"json.tool", "tabnanny", "tokenize"})
 _PYTHON_WRITE_MODULES = frozenset({"py_compile", "compileall"})
@@ -50,6 +51,8 @@ class Stage:
     python_prior_env_risk: str = ""
     python_prior_cwd_risk: bool = False
     env_assignments: dict[str, str] = field(default_factory=dict)
+    shell_cwd: str = ""
+    shell_cwd_unknown: bool = False
 
 
 @dataclass
@@ -185,31 +188,9 @@ def classify_command(command: str) -> ClassifyResult:
     except Exception as e:
         sys.stderr.write(f"nah: config load error: {e}\n")
 
-    # --- FD-103: classify extracted substitution inners ---
     _kw = dict(global_table=global_table, builtin_table=builtin_table,
                project_table=project_table, user_actions=user_actions,
                trust_project=trust_project)
-    inner_results_by_idx: dict[int, StageResult] = {}
-    for sub_idx, (inner_cmd, _start, _end, _kind) in enumerate(active_subs):
-        inner_cmd = inner_cmd.strip()
-        if not inner_cmd:
-            continue
-        try:
-            inner_raw = _split_on_operators(inner_cmd)
-        except ValueError:
-            inner_results_by_idx[sub_idx] = _obfuscated_result(
-                [inner_cmd], "unparseable substitution", user_actions)
-            continue
-        try:
-            inner_stages = _raw_stages_to_stages(inner_raw)
-        except ValueError:
-            inner_results_by_idx[sub_idx] = _obfuscated_result(
-                [inner_cmd], "unparseable substitution", user_actions)
-            continue
-        if inner_stages:
-            outer_placeholder = Stage(tokens=[f"__nah_psub_{sub_idx}__"])
-            inner_results_by_idx[sub_idx] = _classify_inner(
-                inner_stages, outer_placeholder, 1, **_kw)
 
     # Decompose each raw stage into classified stages
     try:
@@ -236,16 +217,30 @@ def classify_command(command: str) -> ClassifyResult:
     # allowlisted python -m invocation resolve non-stdlib code.
     python_prior_env_risk = ""
     python_prior_cwd_risk = False
+    shell_cwd = os.getcwd()
+    shell_cwd_unknown = False
     for idx, stage in enumerate(stages):
+        stage = replace(stage, shell_cwd=shell_cwd, shell_cwd_unknown=shell_cwd_unknown)
+        stages[idx] = stage
         if python_prior_env_risk or python_prior_cwd_risk:
             stage = replace(
                 stage,
                 python_prior_env_risk=python_prior_env_risk,
                 python_prior_cwd_risk=python_prior_cwd_risk,
+                shell_cwd=shell_cwd,
+                shell_cwd_unknown=shell_cwd_unknown,
             )
             stages[idx] = stage
 
         sr = _classify_stage(stage, **_kw)
+        sub_results = _classify_substitution_results_for_stage(
+            stage,
+            active_subs,
+            1,
+            **_kw,
+        )
+        if sub_results:
+            _tighten_from_inner(stage, sr, sub_results)
         result.stages.append(sr)
 
         if stage.operator != "|":
@@ -254,11 +249,12 @@ def classify_command(command: str) -> ClassifyResult:
                 python_prior_env_risk = env_risk
             if _stage_can_change_cwd(stage):
                 python_prior_cwd_risk = True
-
-    # --- FD-103: tighten outer results from inner process sub classifications ---
-    if inner_results_by_idx:
-        for i, sr in enumerate(result.stages):
-            _tighten_from_inner(stages[i], sr, inner_results_by_idx)
+            if stage.operator in {"&&", ";"}:
+                shell_cwd, shell_cwd_unknown = _stage_shell_cwd_update(
+                    stage,
+                    shell_cwd,
+                    shell_cwd_unknown,
+                )
 
     # Check pipe composition rules
     comp_decision, comp_reason, comp_rule = _check_composition(result.stages, stages)
@@ -1761,7 +1757,7 @@ def _classify_export_assignment(
     sr = StageResult(tokens=tokens)
     sr.action_type = action_type
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
-    _apply_policy(sr)
+    _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
     sr.reason = reason
     return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
@@ -1844,7 +1840,28 @@ def _tighten_from_inner(
     """
     worst: StageResult | None = None
     worst_s = -1
-    for tok in stage.tokens:
+    for idx in _substitution_indices(stage.tokens):
+        ir = inner_results.get(idx)
+        if ir is not None:
+            s = taxonomy.STRICTNESS.get(ir.decision, 2)
+            if s > worst_s:
+                worst_s = s
+                worst = ir
+    if worst is None:
+        return
+    current_s = taxonomy.STRICTNESS.get(sr.decision, 0)
+    if worst_s > current_s:
+        sr.action_type = worst.action_type
+        sr.default_policy = worst.default_policy
+        sr.decision = worst.decision
+        sr.reason = f"substitution: {worst.reason}"
+
+
+def _substitution_indices(tokens: list[str]) -> list[int]:
+    """Return process/command substitution placeholder indexes in token order."""
+    indexes: list[int] = []
+    seen: set[int] = set()
+    for tok in tokens:
         pos = 0
         while True:
             start = tok.find(_PSUB_PREFIX, pos)
@@ -1858,21 +1875,81 @@ def _tighten_from_inner(
             except ValueError:
                 pos = end + len(_PSUB_SUFFIX)
                 continue
-            ir = inner_results.get(idx)
-            if ir is not None:
-                s = taxonomy.STRICTNESS.get(ir.decision, 2)
-                if s > worst_s:
-                    worst_s = s
-                    worst = ir
+            if idx not in seen:
+                indexes.append(idx)
+                seen.add(idx)
             pos = end + len(_PSUB_SUFFIX)
-    if worst is None:
-        return
-    current_s = taxonomy.STRICTNESS.get(sr.decision, 0)
-    if worst_s > current_s:
-        sr.action_type = worst.action_type
-        sr.default_policy = worst.default_policy
-        sr.decision = worst.decision
-        sr.reason = f"substitution: {worst.reason}"
+    return indexes
+
+
+def _classify_substitution_results_for_stage(
+    stage: Stage,
+    substitutions: list[tuple[str, int, int, str]],
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    trust_project: bool = False,
+) -> dict[int, StageResult]:
+    """Classify substitutions at the cwd where their containing stage expands."""
+    results: dict[int, StageResult] = {}
+    if not substitutions:
+        return results
+
+    kw = dict(global_table=global_table, builtin_table=builtin_table,
+              project_table=project_table, user_actions=user_actions,
+              trust_project=trust_project)
+    for idx in _substitution_indices(stage.tokens):
+        if idx < 0 or idx >= len(substitutions):
+            continue
+        inner_cmd = substitutions[idx][0].strip()
+        if not inner_cmd:
+            continue
+        results[idx] = _classify_substitution_inner(inner_cmd, stage, depth, **kw)
+    return results
+
+
+def _classify_substitution_inner(
+    inner_cmd: str,
+    outer_stage: Stage,
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    trust_project: bool = False,
+) -> StageResult:
+    try:
+        inner_raw = _split_on_operators(inner_cmd)
+    except ValueError:
+        return _obfuscated_result([inner_cmd], "unparseable substitution", user_actions)
+    try:
+        inner_stages = _raw_stages_to_stages(inner_raw)
+    except ValueError:
+        return _obfuscated_result([inner_cmd], "unparseable substitution", user_actions)
+    if not inner_stages:
+        sr = StageResult(tokens=[])
+        sr.action_type = taxonomy.FILESYSTEM_READ
+        sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+        _apply_policy(sr, shell_cwd=outer_stage.shell_cwd,
+                      shell_cwd_unknown=outer_stage.shell_cwd_unknown)
+        sr.reason = "empty substitution"
+        return sr
+
+    inner_stages = [_copy_python_metadata(s, outer_stage) for s in inner_stages]
+    return _classify_inner(
+        inner_stages,
+        outer_stage,
+        depth,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        user_actions=user_actions,
+        trust_project=trust_project,
+    )
 
 
 def _env_assignment_parts(tok: str) -> tuple[str, str] | None:
@@ -2164,7 +2241,7 @@ def _classify_stage(
     if stage.action_hint:
         sr.action_type = stage.action_hint
         sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
-        _apply_policy(sr)
+        _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
@@ -2195,7 +2272,7 @@ def _classify_stage(
                     taxonomy.LANG_EXEC, tokens=tokens,
                     target_path=None, inline_code=stage.heredoc_literal)
             else:
-                _apply_policy(sr)
+                _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
             return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
     safe_python = _safe_python_module_result(stage, user_actions=user_actions)
@@ -2230,12 +2307,16 @@ def _classify_stage(
     sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Apply policy → decision
-    _apply_policy(sr)
+    _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
     if stage.action_reason and sr.action_type.startswith("agent_"):
         sr.reason = stage.action_reason
 
     # Path extraction + checking (regardless of policy)
-    path_decision, path_reason = _check_extracted_paths(tokens)
+    path_decision, path_reason = _check_extracted_paths(
+        tokens,
+        shell_cwd=stage.shell_cwd,
+        shell_cwd_unknown=stage.shell_cwd_unknown,
+    )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
         sr.reason = path_reason
@@ -2278,7 +2359,11 @@ def _classify_nah_cli(
 
 
 def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
-    path_decision, path_reason = _check_extracted_paths(stage.tokens)
+    path_decision, path_reason = _check_extracted_paths(
+        stage.tokens,
+        shell_cwd=stage.shell_cwd,
+        shell_cwd_unknown=stage.shell_cwd_unknown,
+    )
     if path_decision == taxonomy.BLOCK or (
         path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW
     ):
@@ -2290,11 +2375,22 @@ def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
         and sr.action_type in (taxonomy.FILESYSTEM_WRITE, taxonomy.FILESYSTEM_DELETE)
     ):
         for root in _find_search_roots(stage.tokens):
-            root_decision, root_reason = context.resolve_context(
-                sr.action_type,
-                tokens=stage.tokens,
-                target_path=root,
+            scoped_root = _path_for_shell_cwd(
+                root,
+                stage.shell_cwd,
+                stage.shell_cwd_unknown,
             )
+            if scoped_root is None:
+                root_decision, root_reason = (
+                    taxonomy.ASK,
+                    f"relative path after shell cwd change: {root}",
+                )
+            else:
+                root_decision, root_reason = context.resolve_context(
+                    sr.action_type,
+                    tokens=stage.tokens,
+                    target_path=scoped_root,
+                )
             if taxonomy.STRICTNESS.get(root_decision, 2) > taxonomy.STRICTNESS.get(sr.decision, 2):
                 sr.decision = root_decision
                 sr.reason = root_reason
@@ -2358,7 +2454,7 @@ def _find_delete_result(stage: Stage, user_actions: dict[str, str] | None) -> St
     sr = StageResult(tokens=stage.tokens)
     sr.action_type = taxonomy.FILESYSTEM_DELETE
     sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_DELETE, user_actions)
-    _apply_policy(sr)
+    _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
     return _apply_outer_path_guard(stage, sr)
 
 
@@ -2465,6 +2561,8 @@ def _copy_python_metadata(
     inner_stage.python_prior_cwd_risk = (
         inner_stage.python_prior_cwd_risk or outer_stage.python_prior_cwd_risk
     )
+    inner_stage.shell_cwd = outer_stage.shell_cwd
+    inner_stage.shell_cwd_unknown = outer_stage.shell_cwd_unknown
     if preserve_env_assignments and outer_stage.env_assignments:
         merged = dict(outer_stage.env_assignments)
         merged.update(inner_stage.env_assignments)
@@ -2493,6 +2591,117 @@ def _stage_can_change_cwd(stage: Stage) -> bool:
     if not tokens:
         return False
     return os.path.basename(tokens[0]) in {"cd", "pushd", "popd"}
+
+
+def _stage_shell_cwd_update(
+    stage: Stage,
+    current_cwd: str,
+    current_unknown: bool,
+) -> tuple[str, bool]:
+    """Return the shell cwd after a simple cwd-changing stage.
+
+    Only deterministic ``cd`` targets update the cwd. Dynamic targets and
+    directory-stack operations make later relative filesystem targets ask.
+    """
+    tokens = _effective_command_tokens(stage)
+    if not tokens:
+        return current_cwd, current_unknown
+
+    cmd = os.path.basename(tokens[0])
+    if cmd in {"pushd", "popd"}:
+        return current_cwd, True
+    if cmd != "cd":
+        return current_cwd, current_unknown
+
+    target = _parse_cd_target(tokens[1:])
+    if target is None:
+        return current_cwd, True
+    if target == "":
+        target = os.path.expanduser("~")
+    if target == "-" or "$" in target or "`" in target:
+        return current_cwd, True
+
+    expanded = os.path.expanduser(os.path.expandvars(target))
+    if os.path.isabs(expanded):
+        candidate = expanded
+    elif _cdpath_may_affect(stage, target):
+        return current_cwd, True
+    elif current_unknown:
+        return current_cwd, True
+    else:
+        candidate = os.path.join(current_cwd, expanded)
+
+    resolved = os.path.realpath(candidate)
+    if os.path.isdir(resolved):
+        return resolved, False
+    return current_cwd, current_unknown
+
+
+def _cdpath_may_affect(stage: Stage, target: str) -> bool:
+    """Return True when CDPATH can make a relative cd land elsewhere."""
+    cdpath = stage.env_assignments.get("CDPATH", os.environ.get("CDPATH", ""))
+    if not cdpath:
+        return False
+    if os.path.isabs(os.path.expanduser(target)):
+        return False
+    return not (target == "." or target == ".." or target.startswith("./") or target.startswith("../"))
+
+
+def _parse_cd_target(args: list[str]) -> str | None:
+    """Return a simple ``cd`` target, empty string for home, or None if opaque."""
+    targets: list[str] = []
+    after_double_dash = False
+    for arg in args:
+        if not after_double_dash and arg == "--":
+            after_double_dash = True
+            continue
+        if not after_double_dash and arg in {"-L", "-P", "-e"}:
+            continue
+        if not after_double_dash and arg.startswith("-") and arg != "-":
+            return None
+        targets.append(arg)
+    if not targets:
+        return ""
+    if len(targets) != 1:
+        return None
+    return targets[0]
+
+
+def _path_for_shell_cwd(target: str, shell_cwd: str, shell_cwd_unknown: bool) -> str | None:
+    """Resolve a shell-relative target against the tracked cwd.
+
+    None means the path is relative but the cwd is no longer deterministic.
+    """
+    if not target:
+        return target
+    expanded = os.path.expanduser(os.path.expandvars(target))
+    if os.path.isabs(expanded):
+        return target
+    if shell_cwd_unknown:
+        return None
+    return os.path.join(shell_cwd or os.getcwd(), target)
+
+
+def _resolve_filesystem_context_for_shell_cwd(
+    target: str,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str]:
+    resolved_target = _path_for_shell_cwd(target, shell_cwd, shell_cwd_unknown)
+    if resolved_target is None:
+        return taxonomy.ASK, f"relative path after shell cwd change: {target}"
+    return context.resolve_filesystem_context(resolved_target)
+
+
+def _check_path_basic_raw_for_shell_cwd(
+    target: str,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str] | None:
+    resolved_target = _path_for_shell_cwd(target, shell_cwd, shell_cwd_unknown)
+    if resolved_target is None:
+        return taxonomy.ASK, f"relative path after shell cwd change: {target}"
+    return paths.check_path_basic_raw(resolved_target)
 
 
 def _env_assignment_name(tok: str) -> str:
@@ -3685,7 +3894,7 @@ def _unwrap_shell(
         sr = StageResult(tokens=tokens)
         sr.action_type = taxonomy.UNKNOWN
         sr.default_policy = taxonomy.get_policy(taxonomy.UNKNOWN, user_actions)
-        _apply_policy(sr)
+        _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
         sr.reason = "unsupported time wrapper flags"
         return sr
 
@@ -3717,7 +3926,7 @@ def _unwrap_shell(
             sr = StageResult(tokens=tokens)
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
-            _apply_policy(sr)
+            _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
             sr.reason = (
                 f"env wrapper {parsed_env.risk_reason}: "
                 f"{sr.action_type} → {sr.decision}"
@@ -3815,7 +4024,7 @@ def _unwrap_shell(
             sr = StageResult(tokens=tokens)
             sr.action_type = taxonomy.LANG_EXEC
             sr.default_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, user_actions)
-            _apply_policy(sr)
+            _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
             sr.reason = f"xargs wraps exec sink: {inner_tokens[0]}"
             return sr
         inner_stage = _copy_python_metadata(Stage(tokens=inner_tokens, operator=stage.operator), stage)
@@ -3848,31 +4057,9 @@ def _unwrap_shell(
     except ValueError:
         return _obfuscated_result(tokens, "unparseable inner command", user_actions)
 
-    # Classify extracted substitution inners
     _ikw = dict(global_table=global_table, builtin_table=builtin_table,
                 project_table=project_table, user_actions=user_actions,
                 trust_project=trust_project)
-    inner_sub_results: dict[int, StageResult] = {}
-    for psub_idx, (psub_cmd, _ps, _pe, _pk) in enumerate(inner_active):
-        psub_cmd = psub_cmd.strip()
-        if not psub_cmd:
-            continue
-        try:
-            psub_raw = _split_on_operators(psub_cmd)
-        except ValueError:
-            inner_sub_results[psub_idx] = _obfuscated_result(
-                [psub_cmd], "unparseable substitution", user_actions)
-            continue
-        try:
-            psub_stages = _raw_stages_to_stages(psub_raw)
-        except ValueError:
-            inner_sub_results[psub_idx] = _obfuscated_result(
-                [psub_cmd], "unparseable substitution", user_actions)
-            continue
-        if psub_stages:
-            ph = Stage(tokens=[f"__nah_psub_{psub_idx}__"])
-            inner_sub_results[psub_idx] = _classify_inner(
-                psub_stages, ph, depth + 1, **_ikw)
 
     try:
         inner_stages = _raw_stages_to_stages(raw_stages)
@@ -3883,7 +4070,7 @@ def _unwrap_shell(
     if inner_stages:
         inner_stages = [_copy_python_metadata(s, stage) for s in inner_stages]
         return _classify_inner(inner_stages, stage, depth + 1,
-                               sub_results=inner_sub_results or None, **_ikw)
+                               sub_commands=inner_active or None, **_ikw)
 
     return None
 
@@ -3899,6 +4086,7 @@ def _classify_inner(
     user_actions: dict[str, str] | None,
     trust_project: bool = False,
     sub_results: dict[int, StageResult] | None = None,
+    sub_commands: list[tuple[str, int, int, str]] | None = None,
 ) -> StageResult:
     """Classify pre-decomposed inner stages."""
     kw = dict(global_table=global_table, builtin_table=builtin_table,
@@ -3906,21 +4094,31 @@ def _classify_inner(
               trust_project=trust_project)
 
     inner_stages = _expand_intra_chain_vars(inner_stages)
+    shell_cwd = outer_stage.shell_cwd or os.getcwd()
+    shell_cwd_unknown = outer_stage.shell_cwd_unknown
 
     if len(inner_stages) <= 1:
         # Simple case — single command, no operators
         s = inner_stages[0] if inner_stages else Stage(tokens=[])
+        s = replace(s, shell_cwd=shell_cwd, shell_cwd_unknown=shell_cwd_unknown)
         sr = _classify_stage(s, depth, **kw)
         if sub_results:
             _tighten_from_inner(s, sr, sub_results)
+        if sub_commands:
+            stage_sub_results = _classify_substitution_results_for_stage(
+                s, sub_commands, depth + 1, **kw)
+            if stage_sub_results:
+                _tighten_from_inner(s, sr, stage_sub_results)
         return sr
 
     # Multiple stages — classify each, check composition, aggregate.
-    # Mirror top-level Python resolution state tracking inside unwrapped shells.
+    # Mirror top-level Python and shell-cwd state tracking inside unwrapped shells.
     inner_results = []
     python_prior_env_risk = ""
     python_prior_cwd_risk = False
     for idx, s in enumerate(inner_stages):
+        s = replace(s, shell_cwd=shell_cwd, shell_cwd_unknown=shell_cwd_unknown)
+        inner_stages[idx] = s
         if python_prior_env_risk or python_prior_cwd_risk:
             s = replace(
                 s,
@@ -3928,10 +4126,17 @@ def _classify_inner(
                     s.python_prior_env_risk, python_prior_env_risk
                 ),
                 python_prior_cwd_risk=s.python_prior_cwd_risk or python_prior_cwd_risk,
+                shell_cwd=shell_cwd,
+                shell_cwd_unknown=shell_cwd_unknown,
             )
             inner_stages[idx] = s
 
         sr = _classify_stage(s, depth, **kw)
+        if sub_commands:
+            stage_sub_results = _classify_substitution_results_for_stage(
+                s, sub_commands, depth + 1, **kw)
+            if stage_sub_results:
+                _tighten_from_inner(s, sr, stage_sub_results)
         inner_results.append(sr)
 
         if s.operator != "|":
@@ -3940,6 +4145,12 @@ def _classify_inner(
                 python_prior_env_risk = env_risk
             if _stage_can_change_cwd(s):
                 python_prior_cwd_risk = True
+            if s.operator in {"&&", ";"}:
+                shell_cwd, shell_cwd_unknown = _stage_shell_cwd_update(
+                    s,
+                    shell_cwd,
+                    shell_cwd_unknown,
+                )
 
     # FD-103: tighten from inner process sub results before composition
     if sub_results:
@@ -3963,13 +4174,23 @@ def _classify_inner(
     return worst
 
 
-def _apply_policy(sr: StageResult) -> None:
+def _apply_policy(
+    sr: StageResult,
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> None:
     """Map default_policy to decision + reason. Mutates sr in place."""
     if sr.default_policy in (taxonomy.ALLOW, taxonomy.BLOCK, taxonomy.ASK):
         sr.decision = sr.default_policy
         sr.reason = f"{sr.action_type} → {sr.default_policy}"
     elif sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, sr.reason = _resolve_context(sr.action_type, sr.tokens)
+        sr.decision, sr.reason = _resolve_context(
+            sr.action_type,
+            sr.tokens,
+            shell_cwd=shell_cwd,
+            shell_cwd_unknown=shell_cwd_unknown,
+        )
     else:
         sr.decision = taxonomy.ASK
         sr.reason = f"unknown policy: {sr.default_policy}"
@@ -4085,10 +4306,10 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
     sr = StageResult(tokens=stage.tokens)
     sr.action_type = taxonomy.FILESYSTEM_WRITE
     sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_WRITE, user_actions)
-    _apply_policy(sr)
+    _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
 
     if sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, reason = _check_redirect(stage.redirect_target)
+        sr.decision, reason = _check_redirect(stage)
         sr.reason = f"redirect target: {reason}"
 
     literal = _extract_redirect_literal(stage) if stage.redirect_fd in ("", "1", "&") else ""
@@ -4130,20 +4351,31 @@ def _apply_redirect_guard(
     return sr
 
 
-def _check_redirect(target: str) -> tuple[str, str]:
+def _check_redirect(stage: Stage | str) -> tuple[str, str]:
     """Check redirect target as a filesystem write."""
+    if isinstance(stage, str):
+        stage = Stage(tokens=[], redirect_target=stage, shell_cwd=os.getcwd())
+    target = stage.redirect_target
     if not target:
         return taxonomy.ALLOW, ""
     if _is_redirect_safe_sink(target):
         return taxonomy.ALLOW, ""
-    basic = paths.check_path_basic_raw(target)
+    basic = _check_path_basic_raw_for_shell_cwd(
+        target,
+        stage.shell_cwd,
+        stage.shell_cwd_unknown,
+    )
     if basic:
         decision, reason = basic
         # reason is "targets X: detail" — rewrite as "redirect to X: detail"
         display = reason.replace("targets ", "", 1) if reason.startswith("targets ") else reason
         return decision, f"redirect to {display}"
 
-    return context.resolve_filesystem_context(target)
+    return _resolve_filesystem_context_for_shell_cwd(
+        target,
+        stage.shell_cwd,
+        stage.shell_cwd_unknown,
+    )
 
 
 def _is_redirect_safe_sink(target: str) -> bool:
@@ -4343,9 +4575,16 @@ def _parse_safe_python_module_args(module: str, args: list[str]) -> tuple[str, l
     return None
 
 
-def _python_module_shadow_exists(module: str) -> bool:
+def _python_module_shadow_exists(
+    module: str,
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> bool:
+    if shell_cwd_unknown:
+        return True
     top_level = module.split(".", 1)[0]
-    roots = [os.getcwd()]
+    roots = [shell_cwd or os.getcwd()]
     project_root = paths.get_project_root()
     if project_root:
         roots.append(project_root)
@@ -4368,23 +4607,36 @@ def _safe_python_clean_risk(stage: Stage, module: str) -> str:
         return stage.python_env_risk
     if stage.python_prior_env_risk:
         return stage.python_prior_env_risk
-    if stage.python_prior_cwd_risk:
+    if stage.python_prior_cwd_risk and stage.shell_cwd_unknown:
         return "python module resolution after cwd change"
     if os.environ.get("PYTHONPYCACHEPREFIX"):
         return "ambient PYTHONPYCACHEPREFIX"
-    if _python_module_shadow_exists(module):
+    if _python_module_shadow_exists(
+        module,
+        shell_cwd=stage.shell_cwd,
+        shell_cwd_unknown=stage.shell_cwd_unknown,
+    ):
         return "python module shadow in cwd/project"
     return ""
 
 
-def _resolve_filesystem_targets_context(targets: list[str]) -> tuple[str, str]:
+def _resolve_filesystem_targets_context(
+    targets: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str]:
     if not targets:
         return taxonomy.ALLOW, "filesystem_write: no target path"
 
     worst_decision = taxonomy.ALLOW
     worst_reason = ""
     for target in targets:
-        decision, reason = context.resolve_filesystem_context(target)
+        decision, reason = _resolve_filesystem_context_for_shell_cwd(
+            target,
+            shell_cwd,
+            shell_cwd_unknown,
+        )
         if taxonomy.STRICTNESS.get(decision, 0) > taxonomy.STRICTNESS.get(worst_decision, 0):
             worst_decision = decision
             worst_reason = reason
@@ -4418,11 +4670,19 @@ def _safe_python_module_result(
     sr.transparent_python_formatter = transparent_formatter
 
     if action_type == taxonomy.FILESYSTEM_WRITE and sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, sr.reason = _resolve_filesystem_targets_context(write_targets)
+        sr.decision, sr.reason = _resolve_filesystem_targets_context(
+            write_targets,
+            shell_cwd=stage.shell_cwd,
+            shell_cwd_unknown=stage.shell_cwd_unknown,
+        )
     else:
-        _apply_policy(sr)
+        _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
 
-    path_decision, path_reason = _check_extracted_paths(stage.tokens)
+    path_decision, path_reason = _check_extracted_paths(
+        stage.tokens,
+        shell_cwd=stage.shell_cwd,
+        shell_cwd_unknown=stage.shell_cwd_unknown,
+    )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
         sr.reason = path_reason
@@ -4439,15 +4699,31 @@ def _is_transparent_python_formatter(stage: Stage, sr: StageResult) -> bool:
     )
 
 
-def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
+def _resolve_context(
+    action_type: str,
+    tokens: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
     target_path = None
     inline_code = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         target_path = _extract_primary_target(tokens)
+        if target_path:
+            target_path = _path_for_shell_cwd(target_path, shell_cwd, shell_cwd_unknown)
+            if target_path is None:
+                return taxonomy.ASK, "relative path after shell cwd change"
     elif action_type == taxonomy.LANG_EXEC:
-        target_path = _resolve_script_path(tokens)
+        target_path = _resolve_script_path(
+            tokens,
+            shell_cwd=shell_cwd,
+            shell_cwd_unknown=shell_cwd_unknown,
+        )
+        if target_path == _UNKNOWN_SHELL_CWD_PATH:
+            return taxonomy.ASK, "script path after shell cwd change"
         if target_path is None:
             inline_code = _extract_inline_code(tokens)
     return context.resolve_context(action_type, tokens=tokens, target_path=target_path,
@@ -4484,7 +4760,12 @@ def _unwrap_lang_exec_wrapper(tokens: list[str]) -> list[str] | None:
     return taxonomy._extract_package_exec_inner(tokens)
 
 
-def _resolve_makefile_path(tokens: list[str]) -> str | None:
+def _resolve_makefile_path(
+    tokens: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> str | None:
     """Resolve the makefile path for make/gmake execution."""
     if not tokens:
         return None
@@ -4493,12 +4774,15 @@ def _resolve_makefile_path(tokens: list[str]) -> str | None:
     if cmd not in {"make", "gmake"}:
         return None
 
-    def _join(base_dir: str, value: str) -> str:
+    def _join(base_dir: str, value: str, base_unknown: bool) -> str:
         if os.path.isabs(value):
             return value
+        if base_unknown:
+            return _UNKNOWN_SHELL_CWD_PATH
         return os.path.join(base_dir, value)
 
-    effective_dir = os.getcwd()
+    effective_dir = shell_cwd or os.getcwd()
+    effective_dir_unknown = shell_cwd_unknown
     makefiles: list[str] = []
     i = 1
     while i < len(tokens):
@@ -4508,35 +4792,39 @@ def _resolve_makefile_path(tokens: list[str]) -> str | None:
         if tok == "-C":
             if i + 1 >= len(tokens):
                 return None
-            effective_dir = _join(effective_dir, tokens[i + 1])
+            effective_dir = _join(effective_dir, tokens[i + 1], effective_dir_unknown)
+            effective_dir_unknown = effective_dir == _UNKNOWN_SHELL_CWD_PATH
             i += 2
             continue
         if tok.startswith("-C") and len(tok) > 2:
-            effective_dir = _join(effective_dir, tok[2:])
+            effective_dir = _join(effective_dir, tok[2:], effective_dir_unknown)
+            effective_dir_unknown = effective_dir == _UNKNOWN_SHELL_CWD_PATH
             i += 1
             continue
         if tok == "--directory":
             if i + 1 >= len(tokens):
                 return None
-            effective_dir = _join(effective_dir, tokens[i + 1])
+            effective_dir = _join(effective_dir, tokens[i + 1], effective_dir_unknown)
+            effective_dir_unknown = effective_dir == _UNKNOWN_SHELL_CWD_PATH
             i += 2
             continue
         if tok.startswith("--directory="):
-            effective_dir = _join(effective_dir, tok.split("=", 1)[1])
+            effective_dir = _join(effective_dir, tok.split("=", 1)[1], effective_dir_unknown)
+            effective_dir_unknown = effective_dir == _UNKNOWN_SHELL_CWD_PATH
             i += 1
             continue
         if tok in {"-f", "--file", "--makefile"}:
             if i + 1 >= len(tokens):
                 return None
-            makefiles.append(_join(effective_dir, tokens[i + 1]))
+            makefiles.append(_join(effective_dir, tokens[i + 1], effective_dir_unknown))
             i += 2
             continue
         if tok.startswith("-f") and len(tok) > 2:
-            makefiles.append(_join(effective_dir, tok[2:]))
+            makefiles.append(_join(effective_dir, tok[2:], effective_dir_unknown))
             i += 1
             continue
         if tok.startswith("--file=") or tok.startswith("--makefile="):
-            makefiles.append(_join(effective_dir, tok.split("=", 1)[1]))
+            makefiles.append(_join(effective_dir, tok.split("=", 1)[1], effective_dir_unknown))
             i += 1
             continue
         i += 1
@@ -4545,6 +4833,8 @@ def _resolve_makefile_path(tokens: list[str]) -> str | None:
         return None
     if len(makefiles) == 1:
         return makefiles[0]
+    if effective_dir_unknown:
+        return _UNKNOWN_SHELL_CWD_PATH
 
     for name in ("GNUmakefile", "makefile", "Makefile"):
         candidate = os.path.join(effective_dir, name)
@@ -4553,7 +4843,12 @@ def _resolve_makefile_path(tokens: list[str]) -> str | None:
     return None
 
 
-def _resolve_script_path(tokens: list[str]) -> str | None:
+def _resolve_script_path(
+    tokens: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> str | None:
     """Extract script file path from interpreter command tokens.
 
     Returns resolved path (even if file doesn't exist) so context resolver
@@ -4580,7 +4875,11 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     cmd = _normalize_command_name(tokens[0])
 
     if cmd in {"make", "gmake"}:
-        return _resolve_makefile_path(tokens)
+        return _resolve_makefile_path(
+            tokens,
+            shell_cwd=shell_cwd,
+            shell_cwd_unknown=shell_cwd_unknown,
+        )
 
     if _windows_shell_inline_arg_index(tokens) is not None:
         return None
@@ -4590,7 +4889,8 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
         sourced = os.path.expanduser(sourced)
         if os.path.isabs(sourced):
             return sourced
-        return os.path.join(os.getcwd(), sourced)
+        resolved = _path_for_shell_cwd(sourced, shell_cwd, shell_cwd_unknown)
+        return resolved if resolved is not None else _UNKNOWN_SHELL_CWD_PATH
 
     raw = tokens[0]
     _, ext = os.path.splitext(cmd)
@@ -4602,9 +4902,12 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
     ):
         if os.path.isabs(raw):
             return raw
-        if os.path.isfile(raw):
-            return os.path.realpath(raw)
-        return os.path.join(os.getcwd(), raw)
+        raw_path = _path_for_shell_cwd(raw, shell_cwd, shell_cwd_unknown)
+        if raw_path is None:
+            return _UNKNOWN_SHELL_CWD_PATH
+        if os.path.isfile(raw_path):
+            return os.path.realpath(raw_path)
+        return raw_path
 
     inline = _INLINE_FLAGS.get(cmd, set())
     module = _MODULE_FLAGS.get(cmd, set())
@@ -4618,7 +4921,11 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
         if tok in inline:
             return None  # inline code, no file
         if tok in module and i + 1 < len(tokens):
-            return _resolve_module_path(tokens[i + 1])
+            return _resolve_module_path(
+                tokens[i + 1],
+                shell_cwd=shell_cwd,
+                shell_cwd_unknown=shell_cwd_unknown,
+            )
         if tok in value_flags:
             skip_next = True  # skip flag + its value argument
             continue
@@ -4628,8 +4935,8 @@ def _resolve_script_path(tokens: list[str]) -> str | None:
         # distinguishes "file not found" from "inline execution" (None).
         if os.path.isabs(tok):
             return tok
-        cwd = os.getcwd()
-        return os.path.join(cwd, tok)
+        resolved = _path_for_shell_cwd(tok, shell_cwd, shell_cwd_unknown)
+        return resolved if resolved is not None else _UNKNOWN_SHELL_CWD_PATH
 
     return None
 
@@ -4695,9 +5002,16 @@ def _windows_shell_inline_arg_index(tokens: list[str]) -> int | None:
     return None
 
 
-def _resolve_module_path(module_name: str) -> str | None:
+def _resolve_module_path(
+    module_name: str,
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> str | None:
     """Best-effort resolution of python -m module_name to a file path."""
-    cwd = os.getcwd()
+    if shell_cwd_unknown:
+        return _UNKNOWN_SHELL_CWD_PATH
+    cwd = shell_cwd or os.getcwd()
     pkg_main = os.path.join(cwd, module_name, "__main__.py")
     if os.path.isfile(pkg_main):
         return pkg_main
@@ -4707,7 +5021,12 @@ def _resolve_module_path(module_name: str) -> str | None:
     return None
 
 
-def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
+def _check_extracted_paths(
+    tokens: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str]:
     """Check all path-like tokens against sensitive paths. Most restrictive wins."""
     from nah.config import is_path_allowed  # lazy import to avoid circular
 
@@ -4720,11 +5039,19 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
         if check_tok.startswith("-"):
             continue
         if "/" in check_tok or check_tok.startswith("~") or check_tok.startswith("."):
-            basic = paths.check_path_basic_raw(check_tok)
+            resolved_check = _path_for_shell_cwd(check_tok, shell_cwd, shell_cwd_unknown)
+            if resolved_check is None:
+                if ask_result is None:
+                    ask_result = (
+                        taxonomy.ASK,
+                        f"relative path after shell cwd change: {check_tok}",
+                    )
+                continue
+            basic = paths.check_path_basic_raw(resolved_check)
             if basic:
                 decision, reason = basic
                 # Check allow_paths exemption (same as check_path does for file tools)
-                if is_path_allowed(check_tok, project_root):
+                if is_path_allowed(resolved_check, project_root):
                     continue  # exempted
                 if decision == taxonomy.BLOCK:
                     block_result = (taxonomy.BLOCK, reason)
