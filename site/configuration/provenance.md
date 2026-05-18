@@ -220,6 +220,28 @@ targets:
 That gives the runtime a productive path for clear allows while preventing it
 from getting stuck on a prompt it cannot answer.
 
+## Boundaries and Limits
+
+Normal nah policy runs first. Provenance can add review, ask, or block on top
+of that decision, but it cannot weaken a deterministic block or turn an
+untrusted outside-project ask into an allow.
+
+For in-project activation, context review uses the bounded same-session repo
+delta: directly targeted session-written files first, then related
+session-written project files such as manifests and source files. It does not
+inspect the whole repo, installed dependencies, or a full language dependency
+closure.
+
+Outside-project writes are conservative. nah can match a session-written file
+by exact path, but that file is not grouped into the current repo. Trusted paths
+can remove normal outside-project path friction, but they do not skip
+provenance activation review.
+
+Example: if a guarded run writes `helper.py` and `main.py` in the project, then
+runs `python3 main.py`, context review can include both session-written files.
+If it writes `/tmp/run.py`, then runs `python3 /tmp/run.py`, provenance can
+review that exact file, but it is not treated as part of the project.
+
 ## Project Config Trust
 
 Global config and selected global presets can set the full provenance shape.
