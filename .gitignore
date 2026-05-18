@@ -36,3 +36,6 @@ site/
 
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
+
+# nix default build output dir
+result/
