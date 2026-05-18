@@ -40,6 +40,12 @@ _BYPASS_FLAGS = {
 }
 _DEFAULT_SANDBOX_MODE = "danger-full-access"
 _DEFAULT_APPROVAL_POLICY = "untrusted"
+_INTERACTIVE_PRE_TOOL_TIMEOUT = 10
+_INTERACTIVE_PERMISSION_TIMEOUT = 15
+_INTERACTIVE_POST_TOOL_TIMEOUT = 10
+_HEADLESS_PRE_TOOL_TIMEOUT = 30
+_HEADLESS_PERMISSION_TIMEOUT = 15
+_HEADLESS_POST_TOOL_TIMEOUT = 10
 _CONFIRM_EDITS_FLAG = "--confirm-edits"
 _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
 _PRESET_FLAG = "--preset"
@@ -160,11 +166,20 @@ def injected_overrides(
     pre_tool_command = codex_pre_tool_hook_command()
     hook_command = codex_hook_command()
     post_tool_command = codex_post_tool_hook_command()
+    pre_tool_timeout = (
+        _HEADLESS_PRE_TOOL_TIMEOUT if headless else _INTERACTIVE_PRE_TOOL_TIMEOUT
+    )
+    permission_timeout = (
+        _HEADLESS_PERMISSION_TIMEOUT if headless else _INTERACTIVE_PERMISSION_TIMEOUT
+    )
+    post_tool_timeout = (
+        _HEADLESS_POST_TOOL_TIMEOUT if headless else _INTERACTIVE_POST_TOOL_TIMEOUT
+    )
     pre_tool_hook_config = (
         "hooks.PreToolUse=[{ hooks = [{ "
         "type = \"command\", "
         f"command = {_toml_string(pre_tool_command)}, "
-        "timeout = 5, "
+        f"timeout = {pre_tool_timeout}, "
         f"statusMessage = {_toml_string('nah enforcing' if headless else 'nah observing')} "
         "}] }]"
     )
@@ -172,7 +187,7 @@ def injected_overrides(
         "hooks.PermissionRequest=[{ hooks = [{ "
         "type = \"command\", "
         f"command = {_toml_string(hook_command)}, "
-        "timeout = 5, "
+        f"timeout = {permission_timeout}, "
         "statusMessage = \"nah reviewing\" "
         "}] }]"
     )
@@ -180,7 +195,7 @@ def injected_overrides(
         "hooks.PostToolUse=[{ hooks = [{ "
         "type = \"command\", "
         f"command = {_toml_string(post_tool_command)}, "
-        "timeout = 5, "
+        f"timeout = {post_tool_timeout}, "
         "statusMessage = \"nah logging\" "
         "}] }]"
     )
@@ -220,6 +235,7 @@ def _ensure_headless_hook_trust(env: dict[str, str]) -> None:
                 "pre_tool_use",
                 codex_pre_tool_hook_command(),
                 "nah enforcing",
+                timeout=_HEADLESS_PRE_TOOL_TIMEOUT,
             ),
         ),
         (
@@ -229,6 +245,7 @@ def _ensure_headless_hook_trust(env: dict[str, str]) -> None:
                 "permission_request",
                 codex_hook_command(),
                 "nah reviewing",
+                timeout=_HEADLESS_PERMISSION_TIMEOUT,
             ),
         ),
         (
@@ -238,6 +255,7 @@ def _ensure_headless_hook_trust(env: dict[str, str]) -> None:
                 "post_tool_use",
                 codex_post_tool_hook_command(),
                 "nah logging",
+                timeout=_HEADLESS_POST_TOOL_TIMEOUT,
             ),
         ),
     ]
@@ -248,13 +266,19 @@ def _hook_trust_key(event_label: str) -> str:
     return f"{_HOOK_TRUST_KEY_PREFIX}:{event_label}:0:0"
 
 
-def _hook_trust_hash(event_label: str, command: str, status_message: str) -> str:
+def _hook_trust_hash(
+    event_label: str,
+    command: str,
+    status_message: str,
+    *,
+    timeout: int,
+) -> str:
     identity = {
         "event_name": event_label,
         "hooks": [{
             "type": "command",
             "command": command,
-            "timeout": 5,
+            "timeout": timeout,
             "statusMessage": status_message,
             "async": False,
         }],

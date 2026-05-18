@@ -42,10 +42,13 @@ def test_injects_fixed_danger_full_access_preset_before_user_args():
     assert 'approvals_reviewer="user"' in argv
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
     assert "_codex-pre-tool-use" in pre_tool_override
+    assert "timeout = 10" in pre_tool_override
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
     assert "_codex-permission-request" in hook_override
+    assert "timeout = 15" in hook_override
     post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
     assert "_codex-post-tool-use" in post_tool_override
+    assert "timeout = 10" in post_tool_override
 
 
 def test_headless_exec_is_guarded_by_pre_tool_use():
@@ -65,6 +68,11 @@ def test_headless_exec_is_guarded_by_pre_tool_use():
     assert "features.code_mode_only=false" in argv
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
     assert "nah enforcing" in pre_tool_override
+    assert "timeout = 30" in pre_tool_override
+    hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
+    assert "timeout = 15" in hook_override
+    post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
+    assert "timeout = 10" in post_tool_override
 
 
 def test_headless_exec_alias_is_guarded():

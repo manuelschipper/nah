@@ -1,5 +1,6 @@
 """Unit tests for session provenance tracking."""
 
+import hashlib
 import json
 import os
 
@@ -389,6 +390,73 @@ def test_direct_lang_exec_context_packet_includes_session_repo_delta(
     assert helper in paths_in_packet
     assert baseline not in paths_in_packet
     assert other_file not in paths_in_packet
+
+
+@pytest.mark.parametrize("log_prompt", [False, True])
+def test_context_review_records_prompt_hash_and_optional_exact_prompt(
+    monkeypatch,
+    project_root,
+    log_prompt,
+):
+    monkeypatch.chdir(project_root)
+    exact_prompt = "exact provenance review prompt\nwith session delta"
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+        log={"llm_prompt": log_prompt},
+    )
+
+    def fake_review(packet, llm_config):
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "safe delta"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="safe delta",
+            prompt=exact_prompt,
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+    target = os.path.join(project_root, "derived.py")
+    _write_pre(target)
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    _write_post(target)
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", "derived.py"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "python3 derived.py"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    review = sink["_meta"]["provenance"]["review"]
+    expected_hash = "sha256:" + hashlib.sha256(
+        exact_prompt.encode("utf-8", "replace"),
+    ).hexdigest()
+    assert review["prompt_hash"] == expected_hash
+    if log_prompt:
+        assert review["prompt"] == exact_prompt
+    else:
+        assert "prompt" not in review
 
 
 def test_incomplete_review_packet_cannot_auto_allow(monkeypatch, project_root):

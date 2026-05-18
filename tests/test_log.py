@@ -395,6 +395,22 @@ class TestReadLog:
         assert len(entries) == 1
         assert "llm" in entries[0]
 
+    def test_filter_by_llm_includes_provenance_review(self, tmp_path):
+        log.log_decision({"decision": "allow", "tool": "Bash"})
+        log.log_decision({
+            "decision": "allow",
+            "tool": "Bash",
+            "provenance": {
+                "review": {
+                    "provider": "openrouter",
+                    "prompt_hash": "sha256:abc",
+                },
+            },
+        })
+        entries = log.read_log(filters={"llm": True})
+        assert len(entries) == 1
+        assert entries[0]["provenance"]["review"]["provider"] == "openrouter"
+
     def test_limit(self, tmp_path):
         for i in range(20):
             log.log_decision({"decision": "allow", "i": i})

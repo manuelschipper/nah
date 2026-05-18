@@ -128,6 +128,16 @@ def human_reason(
         return _finalize("this shell loop uses shell expansion nah cannot inspect safely")
     if "hidden by shell syntax" in clean_reason.lower():
         return _finalize("this shell loop hides a variable in shell syntax nah cannot inspect safely")
+    if "session provenance" in clean_reason.lower():
+        return _finalize("this activates files written in this session and needs review")
+
+    provenance = meta.get("provenance")
+    if isinstance(provenance, dict):
+        category = str(provenance.get("category") or "")
+        if category == "activation":
+            return _finalize("this activates files written in this session and needs review")
+        if category == "boundary":
+            return _finalize("this moves session-written state across a trust boundary")
 
     pattern_message = _reason_pattern_message(clean_reason, tool)
     if pattern_message:

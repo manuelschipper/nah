@@ -46,11 +46,43 @@ def test_composition_reason_text_translates_without_metadata():
             "for-loop variable is hidden by shell syntax",
             "this shell loop hides a variable in shell syntax nah cannot inspect safely",
         ),
+        (
+            "ask fallback blocked unresolved review: session provenance context review unavailable",
+            "this activates files written in this session and needs review",
+        ),
     ]
     for reason, expected in cases:
         fragment = messages.human_reason(reason, decision=taxonomy.BLOCK)
         assert fragment == expected
         assert_clean(fragment)
+
+
+def test_provenance_metadata_takes_priority_over_generic_action_type():
+    activation = messages.human_reason(
+        "ask fallback blocked unresolved review: reviewer was uncertain",
+        decision=taxonomy.BLOCK,
+        meta={
+            "provenance": {"category": "activation"},
+            "stages": [{
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+            }],
+        },
+    )
+    assert activation == "this activates files written in this session and needs review"
+
+    boundary = messages.human_reason(
+        "ask fallback blocked unresolved review: reviewer was uncertain",
+        decision=taxonomy.BLOCK,
+        meta={
+            "provenance": {"category": "boundary"},
+            "stages": [{
+                "action_type": taxonomy.NETWORK_WRITE,
+                "decision": taxonomy.ALLOW,
+            }],
+        },
+    )
+    assert boundary == "this moves session-written state across a trust boundary"
 
 
 def test_reason_pattern_messages():

@@ -66,6 +66,18 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
             pass
 
 
+def _entry_has_llm(entry: dict) -> bool:
+    if "llm" in entry:
+        return True
+    provenance = entry.get("provenance", {})
+    if not isinstance(provenance, dict):
+        return False
+    review = provenance.get("review", {})
+    if not isinstance(review, dict):
+        return False
+    return bool(review.get("provider") or review.get("prompt_hash"))
+
+
 def _rotate() -> None:
     """Rotate log: current -> .1, start fresh."""
     try:
@@ -279,7 +291,7 @@ def read_log(filters: dict | None = None, limit: int = 50) -> list[dict]:
                     continue
                 if "tool" in filters and entry.get("tool") != filters["tool"]:
                     continue
-                if filters.get("llm") and "llm" not in entry:
+                if filters.get("llm") and not _entry_has_llm(entry):
                     continue
 
                 entries.append(entry)

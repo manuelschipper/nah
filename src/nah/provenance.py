@@ -605,6 +605,7 @@ def _resolve_context_review(
             review_meta["status"] = "no_provider"
             return taxonomy.ASK, "session provenance context review unavailable", review_meta
         llm_call = try_llm_provenance_review(packet, config.llm)
+        prompt = getattr(llm_call, "prompt", "")
         review_meta.update({
             "provider": llm_call.provider,
             "model": llm_call.model,
@@ -616,6 +617,10 @@ def _resolve_context_review(
             "reasoning": llm_call.reasoning,
             "reasoning_long": getattr(llm_call, "reasoning_long", ""),
         })
+        if prompt:
+            review_meta["prompt_hash"] = _text_fingerprint(prompt)
+            if config.log and config.log.get("llm_prompt", False):
+                review_meta["prompt"] = prompt
         if llm_call.decision and llm_call.decision.get("decision") == taxonomy.ALLOW:
             return taxonomy.ALLOW, "session provenance reviewer allowed activation", review_meta
         return taxonomy.ASK, llm_call.reasoning or "session provenance reviewer was uncertain", review_meta
@@ -1049,6 +1054,10 @@ def _file_fingerprint(path: str) -> dict:
         return {"hash": f"sha256:{h.hexdigest()}", "size": size}
     except OSError:
         return {}
+
+
+def _text_fingerprint(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
 
 
 def _event_id(tool: str, tool_input: dict, runtime_meta: dict) -> str:

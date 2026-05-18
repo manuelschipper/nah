@@ -99,6 +99,13 @@ block the action, that decision is applied before execution. If nah would
 normally ask, headless mode converts the ask through `targets.codex.ask_fallback`.
 The default fallback is `block`.
 
+When [session provenance](../configuration/provenance.md) is enabled with a
+`context` policy, headless PreToolUse can also run nah's configured LLM
+reviewer before activating session-written files or repo state. A complete LLM
+`allow` lets the action continue. Missing providers, provider errors, timeouts,
+uncertain answers, malformed output, or incomplete review packets remain
+unresolved asks and are handled by `targets.codex.ask_fallback`.
+
 Trusted global config or a trusted preset can opt into unattended fallback
 allow:
 

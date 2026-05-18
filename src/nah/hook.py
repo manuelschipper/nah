@@ -639,6 +639,8 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
     verb = "blocked" if mode == taxonomy.BLOCK else "allowed"
     review = original_reason or "review required"
     decision["reason"] = f"ask fallback {verb} unresolved review: {review}"
+    decision.pop("human_reason", None)
+    meta.pop("human_reason", None)
     return decision
 
 

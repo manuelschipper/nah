@@ -188,6 +188,25 @@ Only a complete, well-formed LLM `allow` can allow a `context` decision. An
 uncertain answer, provider error, timeout, missing provider, malformed output,
 redaction failure, or incomplete packet becomes `ask`.
 
+Each provenance LLM review logs a `provenance.review.prompt_hash` value so the
+review input can be correlated later without storing code content. To also log
+the exact prompt sent to the audit LLM, enable global prompt logging:
+
+```yaml
+log:
+  llm_prompt: true
+```
+
+With that setting, the exact prompt appears under `provenance.review.prompt` in
+the nah log. Keep this off unless you explicitly want audit logs to contain the
+session-written file contents sent for review.
+
+In `nah run codex exec`, provenance `context` review runs during authoritative
+headless `PreToolUse`. That means a headless run can write a file, attempt to
+execute it, and continue only if the session-delta reviewer returns `allow`.
+If the reviewer is unavailable or uncertain, the unresolved ask is converted by
+`targets.codex.ask_fallback`; the default is `block`.
+
 For unattended agents, combine this with target ask fallback:
 
 ```yaml
@@ -215,4 +234,3 @@ Project `.nah.yaml` files are restricted until the project root is trusted:
 
 This keeps a malicious repo from disabling the provenance guard that would
 review its own generated code.
-

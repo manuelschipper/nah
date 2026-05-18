@@ -1747,6 +1747,16 @@ def cmd_log(args: argparse.Namespace) -> None:
             else:
                 line += f"  [{total_ms}ms]"
         llm_prov = llm.get("provider", "")
+        provenance_review = (
+            provenance.get("review", {})
+            if isinstance(provenance, dict) else {}
+        )
+        provenance_llm = (
+            provenance_review
+            if isinstance(provenance_review, dict)
+            and (provenance_review.get("provider") or provenance_review.get("prompt_hash"))
+            else {}
+        )
         if llm_prov:
             llm_model = entry.get("llm", {}).get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
@@ -1756,11 +1766,24 @@ def cmd_log(args: argparse.Namespace) -> None:
             llm_reason = llm.get("reasoning", "")
             if llm_reason:
                 line += f" — {llm_reason}"
+        elif provenance_llm:
+            llm_prov = provenance_llm.get("provider", "(provenance)")
+            llm_model = provenance_llm.get("model", "")
+            llm_tag = f"  LLM:{llm_prov}"
+            if llm_model:
+                llm_tag += f"/{llm_model}"
+            line += llm_tag
+            llm_reason = provenance_llm.get("reasoning", "")
+            if llm_reason:
+                line += f" — {llm_reason}"
         print(line)
         if getattr(args, "llm", False):
             llm_long = llm.get("reasoning_long", "")
             if llm_long and llm_long != llm.get("reasoning", ""):
                 print(f"     LLM detail: {llm_long}")
+            provenance_long = provenance_llm.get("reasoning_long", "")
+            if provenance_long and provenance_long != provenance_llm.get("reasoning", ""):
+                print(f"     LLM detail: {provenance_long}")
 
 
 def cmd_claude(user_args: list[str]) -> None:

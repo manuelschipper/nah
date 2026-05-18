@@ -885,6 +885,7 @@ def test_headless_provenance_context_review_includes_session_repo_delta(
         },
         llm_mode="on",
         llm={"providers": ["fake"], "fake": {}},
+        log={"llm_prompt": True},
     )
     config._cached_target = None
     provenance.reset_state()
@@ -898,6 +899,7 @@ def test_headless_provenance_context_review_includes_session_repo_delta(
             model="test",
             latency_ms=3,
             reasoning="safe activation",
+            prompt="exact headless provenance review prompt",
             cascade=[ProviderAttempt("fake", "success", 3, "test")],
         )
 
@@ -959,6 +961,12 @@ def test_headless_provenance_context_review_includes_session_repo_delta(
     assert entry["decision"] == "allow"
     assert entry["provenance"]["category"] == "activation"
     assert entry["provenance"]["review"]["decision"] == "allow"
+    assert entry["provenance"]["review"]["reasoning"] == "safe activation"
+    assert (
+        entry["provenance"]["review"]["prompt"]
+        == "exact headless provenance review prompt"
+    )
+    assert entry["provenance"]["review"]["prompt_hash"].startswith("sha256:")
 
 
 def test_headless_provenance_context_review_unavailable_fails_closed(
