@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now guard local headless Codex runs with deterministic PreToolUse
   enforcement, block unresolved asks by default, disable unsupported headless
   tool surfaces, and log headless fallback/sandbox metadata. (nah-936)
+- **First-class Nix packaging** — added `default.nix`, a flake, and Nix CI so
+  users can install the full `nah` CLI with YAML config and OS keyring support
+  through `nix profile add github:manuelschipper/nah`. Nix and
+  `pip install "nah[config,keys]"` are now peer recommended CLI install paths;
+  the Claude plugin remains a separate Claude-only distribution. Inspired by
+  PR #82 from `ryanswrt`. (nah-937)
 - **Trusted container exec unwrapping** — opt-in `trusted_containers` config can
   make `docker exec`, `docker container exec`, and simple
   `docker compose exec` transparent for narrow read-like payloads inside exact

@@ -1,0 +1,57 @@
+name: Nix
+
+on:
+  push:
+    paths:
+      - ".github/workflows/nix.yml"
+      - ".gitignore"
+      - "default.nix"
+      - "flake.lock"
+      - "flake.nix"
+      - "pyproject.toml"
+      - "src/**"
+  pull_request:
+    paths:
+      - ".github/workflows/nix.yml"
+      - ".gitignore"
+      - "default.nix"
+      - "flake.lock"
+      - "flake.nix"
+      - "pyproject.toml"
+      - "src/**"
+  workflow_dispatch:
+
+jobs:
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check flake
+        run: nix flake check
+
+      - name: Build package
+        run: nix build
+
+      - name: Smoke CLI
+        run: |
+          nix run . -- --version
+          nix run . -- types >/dev/null
+          nix run . -- test "python3 -c 'print(1)'" >/dev/null
+
+      - name: Smoke optional CLI dependencies
+        run: |
+          tmp_home="$(mktemp -d)"
+          HOME="$tmp_home" nix run . -- allow git_safe >/dev/null
+          test -f "$tmp_home/.config/nah/config.yaml"
+          grep -F "git_safe: allow" "$tmp_home/.config/nah/config.yaml" >/dev/null
+
+          if nix run . -- key status | grep -F "pip install 'nah[keys]'"; then
+            echo "default Nix package is missing keyring support" >&2
+            exit 1
+          fi

