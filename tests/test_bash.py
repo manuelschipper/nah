@@ -1256,6 +1256,22 @@ class TestTransparentSuffixComposition:
         assert r.final_decision == "allow"
         assert r.composition_rule == ""
 
+    def test_file_read_jq_suffix_allows(self, project_root):
+        r = classify_command("cat package.json | jq '.name'")
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert [stage.action_type for stage in r.stages] == [
+            "filesystem_read",
+            "filesystem_read",
+        ]
+
+    def test_jq_filter_pipe_is_not_shell_pipe(self, project_root):
+        r = classify_command("cat package.json | jq '.metadata | {stage, code_branch}'")
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert len(r.stages) == 2
+        assert r.stages[1].action_type == "filesystem_read"
+
     def test_python_formatter_followed_by_head_is_transparent_suffix(self, project_root):
         r = classify_command("python3 -m json.tool package.json | head -20")
         assert r.final_decision == "allow"
@@ -1293,6 +1309,10 @@ class TestTransparentSuffixComposition:
 
     def test_sensitive_read_to_json_tool_still_blocks(self, project_root):
         r = classify_command("cat ~/.ssh/id_rsa | python3 -m json.tool")
+        assert r.final_decision == "block"
+
+    def test_sensitive_read_to_jq_still_blocks(self, project_root):
+        r = classify_command("cat ~/.ssh/id_rsa | jq -r .private_key")
         assert r.final_decision == "block"
 
     def test_safe_formatter_plus_safe_text_stage_suffix_allows(self, project_root):

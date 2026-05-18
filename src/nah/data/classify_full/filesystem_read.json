@@ -19,6 +19,7 @@
   "grep",
   "rg",
   "awk",
+  "jq",
   "cd",
   "pwd",
   "type",

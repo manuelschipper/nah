@@ -40,7 +40,7 @@ class TestClassifyTokens:
     # filesystem_read
     @pytest.mark.parametrize("cmd", ["cat", "head", "tail", "less", "more", "file",
                                       "wc", "stat", "du", "df", "ls", "tree", "bat",
-                                      "echo", "printf", "diff", "grep", "rg", "awk", "sed"])
+                                      "echo", "printf", "diff", "grep", "rg", "awk", "jq", "sed"])
     def test_filesystem_read(self, cmd):
         assert _ct([cmd, "file.txt"]) == "filesystem_read"
 
@@ -3156,6 +3156,10 @@ class TestCoreutilsExpanded:
         ["zgrep", "pattern", "file.gz"],
         ["zless", "file.gz"],
         ["zmore", "file.gz"],
+        # JSON processing
+        ["jq", ".name", "package.json"],
+        ["jq", "-r", ".items[].name"],
+        ["jq", "-f", "filter.jq", "input.json"],
         # Misc
         ["getconf", "PAGE_SIZE"],
         ["locale"],
