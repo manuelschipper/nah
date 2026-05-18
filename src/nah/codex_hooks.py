@@ -226,6 +226,15 @@ def _headless_ask_fallback_mode() -> str:
     return taxonomy.BLOCK
 
 
+def _headless_ask_fallback_error() -> str:
+    value = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+    if value in _HEADLESS_ASK_FALLBACKS:
+        return ""
+    if value:
+        return f"invalid headless ask fallback: {value}"
+    return "missing headless ask fallback"
+
+
 def _patch_paths_inside_cwd(log_input: dict, cwd: str) -> bool:
     if not cwd:
         return False
@@ -424,6 +433,7 @@ def _policy_error_block(decision: dict, reason: str) -> dict:
     blocked = copy.deepcopy(decision)
     blocked["decision"] = taxonomy.BLOCK
     blocked["reason"] = f"headless policy error: {reason}"
+    blocked["human_reason"] = blocked["reason"]
     meta = blocked.setdefault("_meta", {})
     meta["policy_error"] = {
         "runtime": agents.CODEX,
@@ -541,6 +551,15 @@ def _handle_headless_pre_tool_use(payload: dict, total_ms: int, stdout) -> None:
             runtime["ask_fallback_invalid"] = configured_mode
         meta["runtime"] = runtime
         meta["execution"] = _headless_pre_tool_execution(decision)
+        fallback_error = _headless_ask_fallback_error()
+        if fallback_error:
+            decision = _policy_error_block(decision, fallback_error)
+            decision.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(decision)
+            _log_decision(canonical, tool_input, decision, total_ms, payload)
+            enrich_decision(decision, tool=canonical)
+            reason = decision.get("human_reason") or decision.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
 
         decision = _apply_taint_permission(canonical, tool_input, decision, payload, strict=True)
         decision = _apply_provenance_permission(canonical, tool_input, decision, payload, strict=True)

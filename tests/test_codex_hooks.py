@@ -236,6 +236,46 @@ def test_headless_pre_tool_malformed_json_fails_closed(tmp_path, monkeypatch):
     assert entry["decision"] == "error"
 
 
+@pytest.mark.parametrize(
+    ("env_value", "reason"),
+    [
+        (None, "missing headless ask fallback"),
+        ("sometimes", "invalid headless ask fallback: sometimes"),
+    ],
+)
+def test_headless_pre_tool_bad_fallback_env_fails_closed(
+    project_root,
+    tmp_path,
+    monkeypatch,
+    env_value,
+    reason,
+):
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    if env_value is None:
+        monkeypatch.delenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", raising=False)
+    else:
+        monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", env_value)
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "git status"},
+        "transcript_path": "",
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    assert reason in decision["permissionDecisionReason"]
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert reason in entry["reason"]
+    assert entry["execution"] == {
+        "state": "not_run",
+        "ask_outcome": "not_applicable",
+    }
+
+
 def test_headless_pre_tool_does_not_call_llm_review(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
     monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "allow")
