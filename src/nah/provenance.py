@@ -697,12 +697,37 @@ def _review_identities(state: dict, event: dict, policy: dict) -> list[str]:
         identity = target.get("identity", "")
         if identity in state.get("artifacts", {}):
             direct.append(identity)
-    repos = _matched_repos(state, event, policy.get("category", ""), policy.get("action_type", ""))
+    repos = [
+        *_matched_repos(state, event, policy.get("category", ""), policy.get("action_type", "")),
+        *_review_repos_for_direct_artifacts(state, direct),
+    ]
     repo_paths: list[str] = []
-    for repo in repos:
+    for repo in dict.fromkeys(repos):
         repo_paths.extend(state.get("repos", {}).get(repo, {}).get("paths", []))
     identities = [*direct, *_prioritized_paths(state, repo_paths)]
     return list(dict.fromkeys(identities))
+
+
+def _review_repos_for_direct_artifacts(state: dict, identities: list[str]) -> list[str]:
+    repos: list[str] = []
+    for identity in identities:
+        if not identity.startswith("path:"):
+            continue
+        path = identity.replace("path:", "", 1)
+        if not _path_inside_project_boundary(path):
+            continue
+        repo = state.get("artifacts", {}).get(identity, {}).get("repo", "")
+        if repo and repo in state.get("repos", {}) and repo not in repos:
+            repos.append(repo)
+    return repos
+
+
+def _path_inside_project_boundary(path: str) -> bool:
+    if not path:
+        return False
+    from nah import paths
+
+    return paths.is_inside_project_boundary(paths.resolve_path(path))
 
 
 def _prioritized_paths(state: dict, identities: list[str]) -> list[str]:

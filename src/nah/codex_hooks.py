@@ -420,7 +420,7 @@ def _apply_provenance_permission(
             runtime_meta=meta.get("runtime", {}),
             execution=meta.get("execution", {}),
             transcript_path=str(payload.get("transcript_path", "") or ""),
-            context_review=not strict,
+            context_review=True,
         )
     except Exception as exc:
         _log_codex_hook_error(f"provenance permission failed: {exc}")

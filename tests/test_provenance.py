@@ -7,6 +7,7 @@ import pytest
 
 from nah import config, provenance, taxonomy
 from nah.config import NahConfig
+from nah.llm import LLMCallResult, ProviderAttempt
 
 
 def _cfg(**provenance_overrides):
@@ -300,6 +301,94 @@ def test_context_policy_without_provider_stays_ask(monkeypatch, project_root):
     assert sink["decision"] == taxonomy.ASK
     review = sink["_meta"]["provenance"]["review"]
     assert review["status"] == "no_provider"
+
+
+def test_direct_lang_exec_context_packet_includes_session_repo_delta(
+    monkeypatch,
+    project_root,
+    tmp_path,
+):
+    from nah import paths
+
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    packets = []
+
+    def fake_review(packet, llm_config):
+        packets.append((packet, llm_config))
+        return LLMCallResult(
+            decision={"decision": taxonomy.ALLOW, "reason": "safe delta"},
+            provider="fake",
+            model="test",
+            latency_ms=1,
+            reasoning="safe delta",
+            cascade=[ProviderAttempt("fake", "success", 1, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+
+    other_root = str(tmp_path / "other")
+    os.makedirs(other_root, exist_ok=True)
+    other_file = os.path.join(other_root, "other.py")
+    paths.set_project_root(other_root)
+    monkeypatch.chdir(other_root)
+    _write_pre(other_file, event_id="tool-other")
+    with open(other_file, "w", encoding="utf-8") as f:
+        f.write("print('other')\n")
+    _write_post(other_file, event_id="tool-other")
+
+    paths.set_project_root(project_root)
+    monkeypatch.chdir(project_root)
+    helper = os.path.join(project_root, "helper.py")
+    main = os.path.join(project_root, "main.py")
+    baseline = os.path.join(project_root, "baseline.py")
+    with open(baseline, "w", encoding="utf-8") as f:
+        f.write("print('baseline')\n")
+    _write_pre(helper, event_id="tool-helper")
+    with open(helper, "w", encoding="utf-8") as f:
+        f.write("def value():\n    return 42\n")
+    _write_post(helper, event_id="tool-helper")
+    _write_pre(main, event_id="tool-main")
+    with open(main, "w", encoding="utf-8") as f:
+        f.write("from helper import value\nprint(value())\n")
+    _write_post(main, event_id="tool-main")
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", "main.py"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "python3 main.py"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ALLOW
+    assert sink["_meta"]["provenance"]["match"]["scope"] == "path"
+    assert packets
+    packet = packets[0][0]
+    paths_in_packet = [item["path"] for item in packet["files"]]
+    assert paths_in_packet[0] == main
+    assert helper in paths_in_packet
+    assert baseline not in paths_in_packet
+    assert other_file not in paths_in_packet
 
 
 def test_incomplete_review_packet_cannot_auto_allow(monkeypatch, project_root):

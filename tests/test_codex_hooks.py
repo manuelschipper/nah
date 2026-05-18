@@ -61,6 +61,15 @@ def _patch(path, added='print("ok")'):
 """
 
 
+def _patch_add_files(files):
+    lines = ["*** Begin Patch"]
+    for path, content in files:
+        lines.append(f"*** Add File: {path}")
+        lines.extend(f"+{line}" for line in content.splitlines())
+    lines.append("*** End Patch")
+    return "\n".join(lines) + "\n"
+
+
 def test_safe_bash_permission_request_allows(project_root):
     code, out = _run({
         "tool_name": "Bash",
@@ -852,6 +861,104 @@ def test_codex_provenance_apply_patch_then_lang_exec_asks(project_root, tmp_path
     assert entry["decision"] == "ask"
     assert entry["provenance"]["category"] == "activation"
     assert entry["provenance"]["enforced"] is True
+
+
+def test_headless_provenance_context_review_includes_session_repo_delta(
+    project_root,
+    tmp_path,
+    monkeypatch,
+):
+    from nah import provenance
+
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "block")
+    monkeypatch.setenv("NAH_CODEX_SANDBOX", "danger-full-access")
+    monkeypatch.setenv("NAH_CODEX_NETWORK", "0")
+    monkeypatch.setenv("NAH_PROVENANCE_RUN_ID", "run-codex-headless-delta")
+    config._cached_config = NahConfig(
+        actions={"lang_exec": "allow"},
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+    provenance.reset_state()
+    packets = []
+
+    def fake_review(packet, llm_config):
+        packets.append((packet, llm_config))
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "safe activation"},
+            provider="fake",
+            model="test",
+            latency_ms=3,
+            reasoning="safe activation",
+            cascade=[ProviderAttempt("fake", "success", 3, "test")],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fake_review)
+
+    patch_text = _patch_add_files([
+        ("helper.py", "def value():\n    return 42"),
+        ("main.py", "from helper import value\nprint(value())"),
+    ])
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_delta",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+    assert code == 0
+    assert out == ""
+
+    (Path(project_root) / "helper.py").write_text("def value():\n    return 42\n", encoding="utf-8")
+    (Path(project_root) / "main.py").write_text(
+        "from helper import value\nprint(value())\n",
+        encoding="utf-8",
+    )
+    code, out = _run({
+        "hookEventName": "PostToolUse",
+        "session_id": "sess_codex_headless_delta",
+        "tool_use_id": "toolu_patch",
+        "tool_name": "apply_patch",
+        "tool_input": {"command": patch_text},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PostToolUse")
+    assert code == 0
+    assert out == ""
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_codex_headless_delta",
+        "tool_use_id": "toolu_run",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 main.py"},
+        "cwd": project_root,
+        "transcript_path": str(tmp_path / "codex.jsonl"),
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    assert out == ""
+    assert packets
+    packet = packets[0][0]
+    assert packet["action"]["category"] == "activation"
+    assert packet["complete"] is True
+    paths = [item["path"] for item in packet["files"]]
+    assert paths[0] == str(Path(project_root) / "main.py")
+    assert str(Path(project_root) / "helper.py") in paths
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "allow"
+    assert entry["provenance"]["category"] == "activation"
+    assert entry["provenance"]["review"]["decision"] == "allow"
 
 
 def test_codex_taint_boundary_enforcement_can_return_no_verdict(project_root, tmp_path, monkeypatch):
