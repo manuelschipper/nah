@@ -48,6 +48,50 @@ def test_injects_fixed_danger_full_access_preset_before_user_args():
     assert "_codex-post-tool-use" in post_tool_override
 
 
+def test_headless_exec_is_guarded_by_pre_tool_use():
+    launch = _launch(["exec", "run git status"])
+    argv = launch.argv
+
+    assert argv[-3:] == ["exec", "--ignore-rules", "run git status"]
+    assert launch.headless is True
+    assert launch.headless_ask_fallback == "block"
+    assert launch.sandbox_mode == "danger-full-access"
+    assert launch.env["NAH_CODEX_HEADLESS"] == "1"
+    assert launch.env["NAH_CODEX_HEADLESS_ASK_FALLBACK"] == "block"
+    assert launch.env["NAH_CODEX_SANDBOX"] == "danger-full-access"
+    assert launch.env["NAH_CODEX_NETWORK"] == "0"
+    assert "features.unified_exec=false" in argv
+    assert "features.code_mode=false" in argv
+    assert "features.code_mode_only=false" in argv
+    pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
+    assert "nah enforcing" in pre_tool_override
+
+
+def test_headless_exec_alias_is_guarded():
+    launch = _launch(["e", "run git status"])
+
+    assert launch.headless is True
+    assert launch.argv[-3:] == ["e", "--ignore-rules", "run git status"]
+
+
+def test_interactive_launch_scrubs_inherited_headless_env():
+    launch = _launch(
+        ["resume"],
+        base_env={
+            "NAH_CODEX_HEADLESS": "1",
+            "NAH_CODEX_HEADLESS_ASK_FALLBACK": "allow",
+            "NAH_CODEX_SANDBOX": "read-only",
+            "NAH_CODEX_NETWORK": "1",
+        },
+    )
+
+    assert launch.headless is False
+    assert "NAH_CODEX_HEADLESS" not in launch.env
+    assert "NAH_CODEX_HEADLESS_ASK_FALLBACK" not in launch.env
+    assert "NAH_CODEX_SANDBOX" not in launch.env
+    assert "NAH_CODEX_NETWORK" not in launch.env
+
+
 def test_passes_normal_codex_ui_flags_through():
     argv = _argv(["--no-alt-screen"])
 
@@ -181,8 +225,6 @@ def test_rejects_bypass_aliases():
 @pytest.mark.parametrize(
     "args",
     [
-        ["exec", "echo hi"],
-        ["e", "echo hi"],
         ["review", "--diff"],
         ["apply"],
         ["a"],
@@ -266,6 +308,16 @@ def test_network_flag_is_redundant_for_default_danger_full_access():
     assert launch.argv[-2:] == ["resume", "abc123"]
 
 
+def test_headless_network_metadata_is_set_for_default_danger_full_access():
+    launch = _launch(["--network", "exec", "run curl -I https://example.com"])
+
+    assert launch.headless is True
+    assert launch.network is True
+    assert launch.env["NAH_CODEX_NETWORK"] == "1"
+    assert "sandbox_workspace_write.network_access=true" not in launch.argv
+    assert launch.argv[-3:] == ["exec", "--ignore-rules", "run curl -I https://example.com"]
+
+
 def test_network_flag_rejects_value_form_and_read_only_sandbox():
     with pytest.raises(CodexRunError) as value_exc:
         _launch(["--network=true"])
@@ -307,6 +359,72 @@ def test_rejects_user_owned_config(args):
     assert "--flow" not in str(exc.value)
 
 
+def test_headless_uses_trusted_target_ask_fallback(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "targets:\n  codex:\n    ask_fallback: allow\n",
+        encoding="utf-8",
+    )
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        launch = _launch(["exec", "run curl -I https://example.com"])
+
+    assert launch.headless is True
+    assert launch.headless_ask_fallback == "allow"
+    assert launch.env["NAH_CODEX_HEADLESS_ASK_FALLBACK"] == "allow"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["exec", "--dangerously-bypass-hook-trust", "run git status"],
+        ["exec", "--ignore-user-config", "run git status"],
+        ["exec", "--ignore-rules", "run git status"],
+    ],
+)
+def test_headless_rejects_flags_that_can_bypass_hooks_or_config(args):
+    with pytest.raises(CodexRunError) as exc:
+        _launch(args)
+
+    assert "guarded headless exec" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--enable", "unified_exec", "exec", "run git status"],
+        ["--enable=code_mode", "exec", "run git status"],
+        ["-c", "features.unified_exec=true", "exec", "run git status"],
+        ["-c", "features.code_mode=true", "exec", "run git status"],
+        ["-c", "profiles.auto.features.code_mode_only=true", "exec", "run git status"],
+        ["-c", "experimental_use_unified_exec_tool=true", "exec", "run git status"],
+        ["-c", "profiles.auto.experimental_use_unified_exec_tool=true", "exec", "run git status"],
+    ],
+)
+def test_headless_rejects_reenabling_disabled_tool_surfaces(args):
+    with pytest.raises(CodexRunError) as exc:
+        _launch(args)
+
+    assert "disabled for guarded headless exec" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["exec", "review"],
+        ["exec", "resume"],
+        ["exec", "apply"],
+        ["exec", "a"],
+        ["exec", "cloud"],
+    ],
+)
+def test_headless_rejects_nested_unsupported_surfaces(args):
+    with pytest.raises(CodexRunError) as exc:
+        _launch(args)
+
+    assert "codex exec" in str(exc.value)
+
+
 def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
     codex_home = tmp_path / "codex"
     rules = codex_home / "rules"
@@ -335,6 +453,23 @@ def test_preflight_installs_authority_rules_before_scanning(tmp_path, monkeypatc
     path = authority_rules_path(codex_home)
     assert path.exists()
     assert launch.authority_rules_path == str(path)
+
+
+def test_headless_preflight_trusts_session_scoped_nah_hooks(tmp_path, monkeypatch):
+    codex_home = tmp_path / "codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    launch = build_codex_launch(
+        ["exec", "run git status"],
+        codex_path="/usr/bin/codex",
+    )
+
+    config = (codex_home / "config.toml").read_text(encoding="utf-8")
+    assert launch.headless is True
+    assert '[hooks.state."/<session-flags>/config.toml:pre_tool_use:0:0"]' in config
+    assert '[hooks.state."/<session-flags>/config.toml:permission_request:0:0"]' in config
+    assert '[hooks.state."/<session-flags>/config.toml:post_tool_use:0:0"]' in config
+    assert "trusted_hash = \"sha256:" in config
 
 
 def test_windows_hook_command_is_quoted(monkeypatch):
