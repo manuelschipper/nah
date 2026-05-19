@@ -111,8 +111,8 @@ For Nix profiles, find the nah profile entry and upgrade or remove that entry:
 
 ```bash
 nix profile list
-nix profile upgrade <index>
-nix profile remove <index>
+nix profile upgrade nah
+nix profile remove nah
 ```
 
 For pip:
