@@ -1,6 +1,6 @@
 """Agent support — tool name mapping, agent detection, output formatting.
 
-Supports Claude Code hooks and Codex permission-hook logging. The hook script
+Supports Claude Code hooks and Codex permission-hook logging. The hook runtime
 detects the calling agent from payload fields and formats output accordingly.
 """
 

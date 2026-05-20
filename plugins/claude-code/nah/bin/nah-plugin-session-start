@@ -30,7 +30,7 @@ project = Path(project_dir)
 paths.append(project / ".claude" / "settings.json")
 paths.append(project / ".claude" / "settings.local.json")
 
-legacy_paths = []
+direct_paths = []
 for path in dict.fromkeys(paths):
     if not path.exists():
         continue
@@ -43,27 +43,29 @@ for path in dict.fromkeys(paths):
     hooks = data.get("hooks", {})
     if not isinstance(hooks, dict):
         continue
-    pre_tool_use = hooks.get("PreToolUse", [])
-    if not isinstance(pre_tool_use, list):
-        continue
-    for entry in pre_tool_use:
-        if not isinstance(entry, dict):
+    for event_entries in hooks.values():
+        if not isinstance(event_entries, list):
             continue
-        for hook in entry.get("hooks", []):
-            if not isinstance(hook, dict):
+        for entry in event_entries:
+            if not isinstance(entry, dict):
                 continue
-            command = hook.get("command", "")
-            if isinstance(command, str) and "nah_guard.py" in command:
-                legacy_paths.append(str(path))
-                break
+            for hook in entry.get("hooks", []):
+                if not isinstance(hook, dict):
+                    continue
+                command = hook.get("command", "")
+                if isinstance(command, str) and (
+                    "nah_guard.py" in command or "_claude-hook" in command
+                ):
+                    direct_paths.append(str(path))
+                    break
 
-if legacy_paths:
-    unique = ", ".join(sorted(set(legacy_paths)))
+if direct_paths:
+    unique = ", ".join(sorted(set(direct_paths)))
     json.dump({
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": (
-                "nah plugin detected legacy direct nah hooks in "
+                "nah plugin detected direct nah hooks in "
                 f"{unique}. Run `nah uninstall` or remove those direct hooks "
                 "to avoid mixed plugin/direct-hook behavior."
             ),

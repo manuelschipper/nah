@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from nah import __version__, agents
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -389,7 +391,14 @@ def test_post_tool_shell_wrapper_missing_runner_fails_open(tmp_path):
     assert result.stdout == ""
 
 
-def test_session_start_warns_about_legacy_hooks_without_mutating(tmp_path):
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 ~/.claude/hooks/nah_guard.py",
+        '"/opt/nah/bin/nah" "_claude-hook"',
+    ],
+)
+def test_session_start_warns_about_direct_hooks_without_mutating(tmp_path, command):
     out = tmp_path / "nah"
     home = tmp_path / "home"
     settings_file = home / ".claude" / "settings.json"
@@ -398,7 +407,7 @@ def test_session_start_warns_about_legacy_hooks_without_mutating(tmp_path):
         "hooks": {
             "PreToolUse": [{
                 "matcher": "Bash",
-                "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/nah_guard.py"}],
+                "hooks": [{"type": "command", "command": command}],
             }]
         }
     }
@@ -420,6 +429,6 @@ def test_session_start_warns_about_legacy_hooks_without_mutating(tmp_path):
     assert result.returncode == 0
     data = json.loads(result.stdout)
     context = data["hookSpecificOutput"]["additionalContext"]
-    assert "legacy direct nah hooks" in context
+    assert "direct nah hooks" in context
     assert "nah uninstall" in context
     assert settings_file.read_text(encoding="utf-8") == original

@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import hashlib
 import os
-import shlex
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 
+from nah import hook_command
 from nah.codex_authority import CodexAuthorityError, codex_home, ensure_authority_rules
 from nah.codex_preflight import CodexPreflightError, ensure_preflight
 
@@ -133,26 +133,17 @@ def _toml_string(value: str) -> str:
 
 def codex_hook_command() -> str:
     """Return the shell command Codex should run for PermissionRequest hooks."""
-    argv = [sys.executable, "-m", "nah.cli", "_codex-permission-request"]
-    if os.name == "nt":
-        return subprocess.list2cmdline(argv)
-    return shlex.join(argv)
+    return hook_command.codex_hook_command("_codex-permission-request")
 
 
 def codex_pre_tool_hook_command() -> str:
     """Return the shell command Codex should run for PreToolUse hooks."""
-    argv = [sys.executable, "-m", "nah.cli", "_codex-pre-tool-use"]
-    if os.name == "nt":
-        return subprocess.list2cmdline(argv)
-    return shlex.join(argv)
+    return hook_command.codex_hook_command("_codex-pre-tool-use")
 
 
 def codex_post_tool_hook_command() -> str:
     """Return the shell command Codex should run for PostToolUse hooks."""
-    argv = [sys.executable, "-m", "nah.cli", "_codex-post-tool-use"]
-    if os.name == "nt":
-        return subprocess.list2cmdline(argv)
-    return shlex.join(argv)
+    return hook_command.codex_hook_command("_codex-post-tool-use")
 
 
 def injected_overrides(

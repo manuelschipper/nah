@@ -1,12 +1,16 @@
 """Tests for the `nah run codex` launcher."""
 
-import os
 from unittest.mock import patch
 
 import pytest
 
 from nah.codex_authority import AUTHORITY_RULES_FILE, authority_rules_path
 from nah.codex_run import CodexRunError, build_codex_argv, build_codex_launch
+
+
+@pytest.fixture(autouse=True)
+def _patch_nah_executable(monkeypatch):
+    monkeypatch.setattr("nah.hook_command.resolve_nah_executable", lambda: "/usr/local/bin/nah")
 
 
 def _argv(args):
@@ -42,12 +46,18 @@ def test_injects_fixed_danger_full_access_preset_before_user_args():
     assert 'approvals_reviewer="user"' in argv
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
     assert "_codex-pre-tool-use" in pre_tool_override
+    assert "/usr/local/bin/nah" in pre_tool_override
+    assert "-m nah.cli" not in pre_tool_override
     assert "timeout = 10" in pre_tool_override
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
     assert "_codex-permission-request" in hook_override
+    assert "/usr/local/bin/nah" in hook_override
+    assert "-m nah.cli" not in hook_override
     assert "timeout = 15" in hook_override
     post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
     assert "_codex-post-tool-use" in post_tool_override
+    assert "/usr/local/bin/nah" in post_tool_override
+    assert "-m nah.cli" not in post_tool_override
     assert "timeout = 10" in post_tool_override
 
 
@@ -483,11 +493,15 @@ def test_headless_preflight_trusts_session_scoped_nah_hooks(tmp_path, monkeypatc
 def test_windows_hook_command_is_quoted(monkeypatch):
     import nah.codex_run as codex_run
 
+    monkeypatch.setattr(
+        "nah.hook_command.resolve_nah_executable",
+        lambda: r"C:\Program Files\nah\nah.exe",
+    )
     monkeypatch.setattr(codex_run.os, "name", "nt")
     argv = _argv([])
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
-    assert os.path.basename(codex_run.sys.executable) in hook_override
+    assert r"C:\\Program Files\\nah\\nah.exe" in hook_override
     pre_tool_override = next(arg for arg in argv if arg.startswith("hooks.PreToolUse="))
-    assert os.path.basename(codex_run.sys.executable) in pre_tool_override
+    assert r"C:\\Program Files\\nah\\nah.exe" in pre_tool_override
     post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
-    assert os.path.basename(codex_run.sys.executable) in post_tool_override
+    assert r"C:\\Program Files\\nah\\nah.exe" in post_tool_override

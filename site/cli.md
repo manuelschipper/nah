@@ -22,7 +22,9 @@ nah run claude -p "fix bug" # non-interactive mode
 nah run claude --preset strict
 ```
 
-Writes the hook shim if missing, then execs `claude --settings <hooks-json>`. If `nah install claude` has already been run, skips `--settings` injection and launches `claude` directly.
+Builds inline hook settings that call the installed `nah` executable, then
+execs `claude --settings <hooks-json>`. If `nah install claude` has already
+been run, skips `--settings` injection and launches `claude` directly.
 
 Most flags after `nah run claude` are passed through to the `claude` CLI. nah
 rejects flags that bypass or auto-approve Claude Code permissions, including
@@ -83,9 +85,10 @@ nah install zsh            # interactive zsh guard
 ```
 
 Bare `nah install` exits nonzero with a target list instead of assuming Claude
-Code. `nah install claude` creates the hook shim at
-`~/.claude/hooks/nah_guard.py` (read-only, chmod 444) and adds `PreToolUse` hook
-entries to Claude Code's `settings.json`.
+Code. `nah install claude` registers direct hook entries in Claude Code's
+`settings.json`; those hooks call the installed `nah` executable, so package
+manager wrappers such as Nix, pipx, and venv installs stay on the import path
+they set up.
 
 `nah install bash` and `nah install zsh` write generated shell snippets under
 `~/.config/nah/terminal/` and add a small managed source block to the matching
@@ -103,7 +106,9 @@ LLM provider setup lives in config, not `nah install`. See
 
 ### nah update
 
-Update installed files after a pip upgrade.
+Update installed hook commands after a Nix, pip, pipx, or other package-manager
+upgrade. This rewrites persistent Claude direct hooks to the current installed
+`nah` executable path.
 
 ```bash
 nah update claude
@@ -111,10 +116,11 @@ nah update bash
 nah update zsh
 ```
 
-`nah update claude` unlocks the hook script, overwrites it with the current
-version, and re-locks it (chmod 444). It also updates the interpreter path and
-command in Claude settings. Shell targets regenerate snippets and refresh the
-managed rc block without duplicating it.
+`nah update claude` rewrites direct hook commands in Claude settings to the
+current installed `nah` executable and repairs newly added hook matchers. It
+also cleans up the old legacy shim file when migrating an old direct-hook
+install. Shell targets regenerate snippets and refresh the managed rc block
+without duplicating it.
 
 Codex has no persistent `nah update codex` target. After upgrading the Python
 package, run `nah codex setup` to refresh Codex's nah-managed rules, then
@@ -131,8 +137,8 @@ nah uninstall zsh
 ```
 
 `nah uninstall claude` removes direct hook entries from Claude Code settings and
-deletes the hook script if no direct integration still uses it. Shell targets
-remove only nah-owned marked rc blocks and generated snippets.
+deletes the old legacy shim file when present. Shell targets remove only
+nah-owned marked rc blocks and generated snippets.
 
 Codex has no persistent uninstall target; close the protected session or stop
 using `nah run codex`. To remove the persistent Codex rules created by setup,

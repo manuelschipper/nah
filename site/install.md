@@ -50,6 +50,9 @@ For Codex, run setup before the first protected session. Then review the nah
 hooks from `/hooks` inside Codex after first launch or upgrade so newly added
 hook commands are active.
 
+For persistent Claude direct hooks, run `nah update claude` after package
+manager upgrades when the installed `nah` executable path may have changed.
+
 The Claude Code plugin is available for Claude-only protection without the
 `nah` CLI. See [Claude Code](runtimes/claude-code.md#plugin-only-path).
 

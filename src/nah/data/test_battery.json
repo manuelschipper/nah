@@ -511,7 +511,7 @@
     {
       "id": 39,
       "story": "path_boundary_protection",
-      "narration": "Reading nah's own hook script. Hook reads are allowed for debugging; only modifications are blocked.",
+      "narration": "Reading nah's legacy direct-hook script path. Hook reads are allowed for debugging; only modifications are blocked.",
       "category": "read_tool",
       "tool": "Read",
       "input": {
@@ -870,7 +870,7 @@
     {
       "id": 65,
       "story": "path_boundary_protection",
-      "narration": "Overwriting nah's own guard script. Self-protection is immutable and hardcoded -- the whole system is pointless if it can be disabled.",
+      "narration": "Overwriting nah's legacy direct-hook script path. Self-protection is immutable and hardcoded -- the whole system is pointless if it can be disabled.",
       "category": "pipeline_security",
       "tool": "Write",
       "input": {

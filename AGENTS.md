@@ -20,7 +20,7 @@ Context aware safety guard for coding agents. Guards Claude Code tools and local
 - **LLM layer** uses `urllib.request` (stdlib) — no `requests` dependency
 - **Entry point**: `nah` CLI via `nah.cli:main`
 - **Config format**: YAML (`~/.config/nah/config.yaml` + `.nah.yaml` per project)
-- **Hook script**: `~/.claude/hooks/nah_guard.py` (installed read-only, chmod 444)
+- **Claude direct hooks**: settings entries call the installed `nah` executable with `_claude-hook`
 - **Testing commands**: Always use `nah test "..."` — never `python -m nah ...` (nah flags the latter as `lang_exec`)
 
 ## Error Handling

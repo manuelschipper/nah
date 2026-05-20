@@ -68,8 +68,56 @@ def test_detects_mixed_direct_and_plugin_hooks(tmp_path):
     assert state.has_legacy
     assert state.has_plugin
     assert len(state.legacy_hooks) == 1
+    assert len(state.direct_hooks) == 1
     assert len(state.plugin_hooks) == 1
     assert state.plugin_hooks[0].detail == "PostToolUse[0]"
+
+
+def test_detects_executable_direct_hooks(tmp_path):
+    settings = _write(
+        tmp_path / "settings.json",
+        {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": '"/opt/nah/bin/nah" "_claude-hook"'}],
+                    },
+                ],
+            },
+        },
+    )
+
+    state = plugin_state.detect_nah_install_state(settings_paths=[settings])
+
+    assert state.mode == "direct"
+    assert state.has_direct
+    assert state.has_executable
+    assert not state.has_legacy
+    assert len(state.executable_hooks) == 1
+    assert len(state.direct_hooks) == 1
+
+
+def test_detects_project_scope_direct_hooks(tmp_path):
+    user = _write(tmp_path / "user" / "settings.json", {})
+    project = _write(
+        tmp_path / "project" / ".claude" / "settings.local.json",
+        {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": '"/opt/nah/bin/nah" "_claude-hook"'}],
+                    },
+                ],
+            },
+        },
+    )
+
+    state = plugin_state.detect_nah_install_state(settings_paths=[user, project])
+
+    assert state.has_direct
+    assert state.executable_hooks[0].path == project
 
 
 def test_malformed_settings_reports_error(tmp_path):

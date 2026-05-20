@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 LEGACY_HOOK_MARKERS = ("nah_guard.py",)
+EXECUTABLE_HOOK_MARKERS = ("_claude-hook",)
 PLUGIN_HOOK_MARKERS = ("nah-plugin-hook", "nah-plugin-post-tool", "nah_plugin_runner.py")
 TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
@@ -26,6 +27,7 @@ class NahInstallState:
     """Detected nah installation state across Claude settings files."""
 
     legacy_hooks: list[SettingsFinding] = field(default_factory=list)
+    executable_hooks: list[SettingsFinding] = field(default_factory=list)
     plugin_hooks: list[SettingsFinding] = field(default_factory=list)
     enabled_plugins: list[SettingsFinding] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -35,22 +37,36 @@ class NahInstallState:
         return bool(self.legacy_hooks)
 
     @property
+    def has_executable(self) -> bool:
+        return bool(self.executable_hooks)
+
+    @property
+    def direct_hooks(self) -> list[SettingsFinding]:
+        return [*self.legacy_hooks, *self.executable_hooks]
+
+    @property
+    def has_direct(self) -> bool:
+        return bool(self.direct_hooks)
+
+    @property
     def has_plugin(self) -> bool:
         return bool(self.plugin_hooks or self.enabled_plugins)
 
     @property
     def mode(self) -> str:
-        if self.has_legacy and self.has_plugin:
+        if self.has_direct and self.has_plugin:
             return "mixed"
         if self.has_plugin:
             return "plugin"
+        if self.has_executable:
+            return "direct"
         if self.has_legacy:
             return "legacy"
         return "none"
 
 
 def is_legacy_nah_hook(hook_entry: dict) -> bool:
-    """Return True when a hook entry points at nah's direct hook shim."""
+    """Return True when a hook entry points at nah's legacy direct-hook shim."""
     for hook in hook_entry.get("hooks", []):
         if not isinstance(hook, dict):
             continue
@@ -58,6 +74,22 @@ def is_legacy_nah_hook(hook_entry: dict) -> bool:
         if isinstance(command, str) and any(marker in command for marker in LEGACY_HOOK_MARKERS):
             return True
     return False
+
+
+def is_executable_nah_hook(hook_entry: dict) -> bool:
+    """Return True when a hook entry points at nah's executable direct hook."""
+    for hook in hook_entry.get("hooks", []):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if isinstance(command, str) and any(marker in command for marker in EXECUTABLE_HOOK_MARKERS):
+            return True
+    return False
+
+
+def is_direct_nah_hook(hook_entry: dict) -> bool:
+    """Return True when a hook entry belongs to nah's direct-hook install."""
+    return is_legacy_nah_hook(hook_entry) or is_executable_nah_hook(hook_entry)
 
 
 def is_plugin_nah_hook(hook_entry: dict) -> bool:
@@ -166,6 +198,8 @@ def detect_nah_install_state(
                     continue
                 if is_legacy_nah_hook(entry):
                     state.legacy_hooks.append(SettingsFinding(path, f"{event_name}[{index}]"))
+                if is_executable_nah_hook(entry):
+                    state.executable_hooks.append(SettingsFinding(path, f"{event_name}[{index}]"))
                 if is_plugin_nah_hook(entry):
                     state.plugin_hooks.append(SettingsFinding(path, f"{event_name}[{index}]"))
 

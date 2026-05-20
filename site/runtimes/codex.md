@@ -148,6 +148,10 @@ active. `nah run codex` injects the session hooks, but Codex stores per-hook
 review state in its own config. If a hook is new or its command changed, Codex
 can show it as needing review.
 
+Because nah hook commands call the installed `nah` executable, package-manager
+upgrades can change the executable path that Codex sees. Reopen `/hooks` after
+upgrades when Codex reports newly changed nah hooks.
+
 Open the hooks panel inside Codex:
 
 ```text

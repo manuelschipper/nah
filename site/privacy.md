@@ -57,9 +57,10 @@ locations include:
   from a PyPI install
 
 If you install direct Claude Code hooks, nah may also write Claude hook settings
-or hook scripts under Claude Code's local configuration directory. If you use the
-Claude Code plugin, Claude Code's plugin manager handles plugin installation and
-state. If you use `nah run codex`, nah passes session-scoped Codex config
+under Claude Code's local configuration directory and remove old legacy hook
+scripts during migration. If you use the Claude Code plugin, Claude Code's
+plugin manager handles plugin installation and state. If you use `nah run codex`,
+nah passes session-scoped Codex config
 overrides on the Codex command line and may inspect Codex config/rule files
 during preflight. nah does not copy LLM secret values into its YAML config files
 or decision logs.

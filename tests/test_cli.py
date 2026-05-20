@@ -15,10 +15,14 @@ from nah.content import reset_content_patterns
 
 
 @pytest.fixture(autouse=True)
-def _reset(tmp_path):
+def _reset(tmp_path, monkeypatch):
     """Reset caches between tests."""
     paths.set_project_root(str(tmp_path / "project"))
     (tmp_path / "project").mkdir()
+    monkeypatch.setattr(
+        "nah.hook_command.resolve_nah_executable",
+        lambda: str(tmp_path / "bin" / "nah"),
+    )
     reset_config()
     yield
     paths.reset_project_root()
@@ -1085,133 +1089,20 @@ class TestCmdTestQuotePreservation:
         assert "Decision:" in out or "decision" in out.lower()
 
 
-# --- FD-084: Hook write optimization ---
+# --- Claude direct hook runner ---
 
 
-class TestWriteHookScriptOptimization:
-    """FD-084: skip hook write when content unchanged."""
-
-    def test_skip_write_when_identical(self, tmp_path, monkeypatch):
-        """Hook script not rewritten when content matches."""
-        import nah.cli as cli_mod
-        hook_path = tmp_path / "nah_guard.py"
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-
-        cli_mod._write_hook_script()
-        mtime1 = hook_path.stat().st_mtime_ns
-
-        cli_mod._write_hook_script()
-        mtime2 = hook_path.stat().st_mtime_ns
-
-        assert mtime1 == mtime2
-
-    def test_write_when_content_differs(self, tmp_path, monkeypatch):
-        """Hook script rewritten when content changes."""
-        import nah.cli as cli_mod
-        hook_path = tmp_path / "nah_guard.py"
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-
-        cli_mod._write_hook_script()
-        # Corrupt the file
-        hook_path.chmod(0o644)
-        hook_path.write_text("stale")
-        hook_path.chmod(0o444)
-
-        cli_mod._write_hook_script()
-        assert "stale" not in hook_path.read_text()
-
-    def test_windows_skips_posix_chmod(self, tmp_path, monkeypatch):
-        """Windows hook writes do not rely on Unix mode bits."""
-        import nah.cli as cli_mod
-        hook_path = tmp_path / "nah_guard.py"
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-        monkeypatch.setattr(cli_mod.os, "name", "nt")
-
-        chmod_calls = []
-        monkeypatch.setattr(cli_mod.os, "chmod", lambda *args: chmod_calls.append(args))
-
-        cli_mod._write_hook_script()
-        assert hook_path.exists()
-        assert chmod_calls == []
-
-
-class TestWriteHookScriptEncoding:
-    """Hook shim must be written and read as UTF-8 on all platforms."""
-
-    def test_shim_has_utf8_coding_cookie(self):
+class TestClaudeHiddenHookCommand:
+    def test_claude_hidden_hook_dispatch(self, monkeypatch):
         import nah.cli as cli_mod
 
-        assert "# -*- coding: utf-8 -*-" in cli_mod._SHIM_TEMPLATE
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "_claude-hook"])
+        monkeypatch.setattr("nah.claude_hooks.main", lambda: 6)
 
-    def test_hook_written_as_utf8(self, tmp_path, monkeypatch):
-        import nah.cli as cli_mod
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
 
-        hook_path = tmp_path / "nah_guard.py"
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-
-        cli_mod._write_hook_script()
-
-        text = hook_path.read_bytes().decode("utf-8")
-        assert "\u2014" in text
-
-    def test_skip_write_tolerates_non_utf8_existing(self, tmp_path, monkeypatch):
-        import nah.cli as cli_mod
-
-        hook_path = tmp_path / "nah_guard.py"
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-
-        hook_path.write_bytes(b"old \x97 content")
-        hook_path.chmod(0o444)
-
-        cli_mod._write_hook_script()
-
-        text = hook_path.read_text(encoding="utf-8")
-        assert "nah guard" in text
-
-    def test_direct_shim_failure_fallback_is_event_aware(self, tmp_path, monkeypatch):
-        import subprocess
-        import nah.cli as cli_mod
-
-        hook_path = tmp_path / "nah_guard.py"
-        fake_lib = tmp_path / "fake-lib"
-        fake_pkg = fake_lib / "nah"
-        fake_pkg.mkdir(parents=True)
-        (fake_pkg / "__init__.py").write_text("", encoding="utf-8")
-        (fake_pkg / "hook.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
-        monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path)
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", hook_path)
-
-        cli_mod._write_hook_script()
-
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(fake_lib)
-        env["HOME"] = str(tmp_path / "home")
-        pre = subprocess.run(
-            [sys.executable, str(hook_path)],
-            input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash"}),
-            capture_output=True,
-            text=True,
-            cwd=tmp_path,
-            env=env,
-        )
-        post = subprocess.run(
-            [sys.executable, str(hook_path)],
-            input=json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Bash"}),
-            capture_output=True,
-            text=True,
-            cwd=tmp_path,
-            env=env,
-        )
-
-        assert pre.returncode == 0
-        assert json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
-        assert post.returncode == 0
-        assert post.stdout == ""
+        assert exc.value.code == 6
 
 
 class TestCmdUpdateMatchers:
@@ -1228,7 +1119,6 @@ class TestCmdUpdateMatchers:
         monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
         monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
-        cli_mod._write_hook_script()
         return settings_file
 
     def test_string_matchers_update_command(self, tmp_path, monkeypatch):
@@ -1245,8 +1135,9 @@ class TestCmdUpdateMatchers:
 
         updated = json_mod.loads(settings_file.read_text(encoding="utf-8"))
         for entry in updated["hooks"]["PreToolUse"]:
-            if "nah_guard.py" in entry["hooks"][0]["command"]:
-                assert "old" not in entry["hooks"][0]["command"]
+            command = entry["hooks"][0]["command"]
+            assert "_claude-hook" in command
+            assert "nah_guard.py" not in command
 
     def test_string_matchers_adds_missing_tools(self, tmp_path, monkeypatch):
         import json as json_mod
@@ -1274,11 +1165,20 @@ class TestCmdUpdateMatchers:
         from nah import agents
 
         settings_file = tmp_path / "settings.json"
-        settings_file.write_text("{}", encoding="utf-8")
+        settings_file.write_text(
+            json_mod.dumps({
+                "hooks": {
+                    "PostToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": "old nah_guard.py"}],
+                    }]
+                }
+            }),
+            encoding="utf-8",
+        )
         monkeypatch.setattr(agents, "AGENT_SETTINGS", {agents.CLAUDE: settings_file})
         monkeypatch.setattr(cli_mod, "_HOOKS_DIR", tmp_path / "hooks")
         monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT", tmp_path / "hooks" / "nah_guard.py")
-        cli_mod._write_hook_script()
 
         cli_mod.cmd_update(argparse.Namespace(target="claude"))
 
@@ -1540,6 +1440,10 @@ class TestCmdClaude:
         assert "PreToolUse" in settings["hooks"]
         assert "PostToolUse" in settings["hooks"]
         assert "PostToolUseFailure" in settings["hooks"]
+        first_command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        assert "_claude-hook" in first_command
+        assert "nah_guard.py" not in first_command
+        assert "python" not in first_command
         assert "-p" in args
         assert "fix bug" in args
         assert env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
@@ -1563,9 +1467,9 @@ class TestCmdClaude:
                 cli_mod.cmd_claude([])
 
         assert exec_calls[0][1][1] == "--settings"
-        assert (tmp_path / "hooks" / "nah_guard.py").exists()
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
 
-    def test_writes_shim_when_missing(self, tmp_path, monkeypatch):
+    def test_does_not_write_shim_when_missing(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
         from nah import agents
         settings_file = tmp_path / "settings.json"
@@ -1579,8 +1483,7 @@ class TestCmdClaude:
             with pytest.raises(SystemExit):
                 cli_mod.cmd_claude([])
 
-        assert (tmp_path / "hooks" / "nah_guard.py").exists()
-        assert "nah" in (tmp_path / "hooks" / "nah_guard.py").read_text()
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
 
     def test_passthrough_flags(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
@@ -1879,12 +1782,31 @@ class TestCliPluginMode:
 
         cli_mod.cmd_install(argparse.Namespace(target="claude", force=True))
 
-        assert (tmp_path / "hooks" / "nah_guard.py").exists()
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
         settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
         assert settings["enabledPlugins"]["nah@local"] is True
         assert settings["hooks"]["PreToolUse"]
         assert settings["hooks"]["PostToolUse"]
         assert settings["hooks"]["PostToolUseFailure"]
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        assert "_claude-hook" in command
+        assert "nah_guard.py" not in command
+
+    def test_update_plugin_only_does_not_add_direct_hooks(self, tmp_path, monkeypatch):
+        import json as json_mod
+        import nah.cli as cli_mod
+
+        settings_file = self._patch_claude_paths(
+            tmp_path,
+            monkeypatch,
+            {"enabledPlugins": {"nah@local": True}},
+        )
+
+        cli_mod.cmd_update(argparse.Namespace(target="claude"))
+
+        settings = json_mod.loads(settings_file.read_text(encoding="utf-8"))
+        assert settings == {"enabledPlugins": {"nah@local": True}}
+        assert not (tmp_path / "hooks" / "nah_guard.py").exists()
 
     def test_claude_with_plugin_enabled_execs_directly(self, tmp_path, monkeypatch):
         import nah.cli as cli_mod
@@ -1945,44 +1867,44 @@ class TestCliPluginMode:
 
 
 class TestHookCommand:
-    """_hook_command() must produce quoted POSIX paths for bash compatibility."""
+    """_hook_command() must call the installed nah executable."""
 
     def test_windows_backslashes_converted(self, monkeypatch):
-        """Backslash paths from sys.executable/pathlib are converted to forward slashes."""
+        """Backslash paths are converted to forward slashes for Claude settings."""
         import shlex
         import nah.cli as cli_mod
-        from pathlib import PureWindowsPath
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
-                            PureWindowsPath(r"C:\Users\test\.claude\hooks\nah_guard.py"))
-        monkeypatch.setattr("sys.executable",
-                            r"C:\Users\test\AppData\Local\Python\python.exe")
+        from nah import hook_command
+
+        monkeypatch.setattr(
+            hook_command,
+            "resolve_nah_executable",
+            lambda: r"C:\Users\test\AppData\Local\nah\nah.exe",
+        )
         cmd = cli_mod._hook_command()
         assert "\\" not in cmd
         assert "C:/Users/test" in cmd
         assert len(shlex.split(cmd)) == 2
+        assert "_claude-hook" in cmd
 
     def test_shlex_parses_to_two_tokens(self, monkeypatch):
         """Output is a valid shell command with exactly two tokens."""
         import shlex
         import nah.cli as cli_mod
-        from pathlib import PurePosixPath
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
-                            PurePosixPath("/home/user/.claude/hooks/nah_guard.py"))
-        monkeypatch.setattr("sys.executable", "/usr/bin/python3")
+        from nah import hook_command
+
+        monkeypatch.setattr(hook_command, "resolve_nah_executable", lambda: "/usr/local/bin/nah")
         parts = shlex.split(cli_mod._hook_command())
         assert len(parts) == 2
-        assert "python" in parts[0]
-        assert parts[1].endswith("nah_guard.py")
+        assert parts == ["/usr/local/bin/nah", "_claude-hook"]
 
     def test_spaces_in_paths_preserved(self, monkeypatch):
         """Paths with spaces are quoted so bash treats each as one token."""
         import shlex
         import nah.cli as cli_mod
-        from pathlib import PurePosixPath
-        monkeypatch.setattr(cli_mod, "_HOOK_SCRIPT",
-                            PurePosixPath("/home/my user/.claude/hooks/nah_guard.py"))
-        monkeypatch.setattr("sys.executable", "/opt/my python/bin/python3")
+        from nah import hook_command
+
+        monkeypatch.setattr(hook_command, "resolve_nah_executable", lambda: "/opt/my nah/bin/nah")
         parts = shlex.split(cli_mod._hook_command())
         assert len(parts) == 2
-        assert "my python" in parts[0]
-        assert "my user" in parts[1]
+        assert parts[0] == "/opt/my nah/bin/nah"
+        assert parts[1] == "_claude-hook"

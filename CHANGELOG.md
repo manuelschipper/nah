@@ -73,6 +73,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roots whose config may loosen policy and activate project `classify` rules.
   (nah-918)
 
+### Fixed
+
+- **Agent hook executable transport** — Claude direct hooks and Codex hook
+  overrides now call the installed `nah` executable instead of a raw Python
+  interpreter plus import path. This fixes Nix and wrapper-based installs where
+  the package is importable through the `nah` executable but not through the
+  bare interpreter. `nah update claude` migrates old direct-hook settings even
+  when the old shim file is missing. Reported in [#83](https://github.com/manuelschipper/nah/issues/83)
+  by `ryanswrt`. (nah-943)
+
 ### Changed
 
 - **Session provenance outside-project identity** — session-written files

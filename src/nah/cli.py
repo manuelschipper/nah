@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from nah import __version__, agents, plugin_state, targets
+from nah import __version__, agents, hook_command, plugin_state, targets
 
 _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
@@ -35,140 +35,22 @@ def _trust_target_is_path(target: str) -> bool:
         and (len(target) == 2 or target[2] in ("/", "\\"))
     )
 
-_SHIM_TEMPLATE = '''\
-#!{interpreter}
-# -*- coding: utf-8 -*-
-"""nah guard — thin shim that imports from the installed nah package."""
-import sys, json, os, io
-
-# Capture real stdout immediately — before anything can reassign it.
-_REAL_STDOUT = sys.stdout
-_ASK = '{{"hookSpecificOutput": {{"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "nah: error, requesting confirmation"}}}}\\n'
-_POST_TOOL_EVENTS = {{"PostToolUse", "PostToolUseFailure"}}
-def _nah_config_dir():
-    appdata = os.environ.get("APPDATA") if sys.platform == "win32" else ""
-    if appdata:
-        return os.path.join(appdata, "nah")
-    return os.path.join(os.path.expanduser("~"), ".config", "nah")
-
-if sys.platform == "win32" and hasattr(_REAL_STDOUT, "reconfigure"):
-    try:
-        _REAL_STDOUT.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-_LOG_PATH = os.path.join(_nah_config_dir(), "hook-errors.log")
-_LOG_MAX = 1_000_000  # 1 MB
-
-def _log_error(tool_name, error):
-    """Append crash entry to log file. Never raises."""
-    try:
-        from datetime import datetime
-        ts = datetime.now().isoformat(timespec="seconds")
-        etype = type(error).__name__
-        msg = str(error)[:200]
-        line = f"{{ts}} {{tool_name or 'unknown'}} {{etype}}: {{msg}}\\n"
-        os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
-        try:
-            size = os.path.getsize(_LOG_PATH)
-        except OSError:
-            size = 0
-        if size > _LOG_MAX:
-            with open(_LOG_PATH, "w", encoding="utf-8") as f:
-                f.write(line)
-        else:
-            with open(_LOG_PATH, "a", encoding="utf-8") as f:
-                f.write(line)
-    except Exception:
-        pass
-
-def _safe_write(data):
-    """Write string to real stdout, exit clean on broken pipe."""
-    try:
-        _REAL_STDOUT.write(data)
-        _REAL_STDOUT.flush()
-    except BrokenPipeError:
-        pass
-
-def _extract_tool_name(payload):
-    try:
-        data = json.loads(payload or "{{}}")
-    except json.JSONDecodeError:
-        return ""
-    if isinstance(data, dict):
-        return str(data.get("tool_name") or "")
-    return ""
-
-def _extract_hook_event(payload):
-    try:
-        data = json.loads(payload or "{{}}")
-    except json.JSONDecodeError:
-        return ""
-    if isinstance(data, dict):
-        return str(data.get("hook_event_name") or data.get("hookEventName") or "PreToolUse")
-    return ""
-
-def _fallback_output(event_name):
-    """Return event-appropriate fallback output for hook failures."""
-    if event_name in _POST_TOOL_EVENTS:
-        return ""
-    return _ASK
-
-tool_name = ""
-event_name = ""
-try:
-    payload = sys.stdin.read()
-    tool_name = _extract_tool_name(payload)
-    event_name = _extract_hook_event(payload)
-    buf = io.StringIO()
-    sys.stdin = io.StringIO(payload)
-    sys.stdout = buf
-    from nah.hook import main
-    main()
-    sys.stdout = _REAL_STDOUT
-    output = buf.getvalue()
-    # Non-empty output = active decision (allow, ask, or deny).
-    # Empty output = active_allow disabled, falls through to Claude Code's permission system.
-    if not output.strip():
-        pass  # active_allow disabled — fall through to Claude Code
-    else:
-        try:
-            json.loads(output)
-            _safe_write(output)
-        except (json.JSONDecodeError, ValueError):
-            _log_error(tool_name, ValueError(f"invalid JSON from main: {{output[:200]}}"))
-            _safe_write(_fallback_output(event_name))
-except SystemExit as e:
-    sys.stdout = _REAL_STDOUT
-    if event_name in _POST_TOOL_EVENTS:
-        os._exit(0)
-    os._exit(e.code if e.code is not None else 0)
-except BaseException as e:
-    sys.stdout = _REAL_STDOUT
-    _log_error(tool_name, e)
-    _safe_write(_fallback_output(event_name))
-
-# Always exit clean — prevent Python shutdown from flushing/crashing.
-os._exit(0)
-'''
-
-
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
-    # Use POSIX forward-slash paths: safe in both bash and cmd.exe on Windows.
-    # shlex.quote() produces POSIX single-quoting which only works when the
-    # command is interpreted by a POSIX shell. Claude Code may invoke hooks
-    # via cmd.exe or direct OS spawn, where single quotes are literal chars.
-    # Replace backslashes explicitly because Path(...).as_posix() does not
-    # normalize Windows-style strings when running on POSIX.
-    exe = str(sys.executable).replace("\\", "/")
-    script = str(_HOOK_SCRIPT).replace("\\", "/")
-    return f'"{exe}" "{script}"'
+    return hook_command.claude_hook_command()
 
 
-def _build_hooks_settings() -> dict:
+def _require_hook_command(command_name: str) -> str:
+    try:
+        return _hook_command()
+    except hook_command.HookCommandError as exc:
+        print(f"nah {command_name}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def _build_hooks_settings(command: str | None = None) -> dict:
     """Build a settings dict containing nah tool hooks for Claude Code."""
-    command = _hook_command()
+    command = command or _hook_command()
     hook_events = {}
     for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
         hook_events[event_name] = _tool_hook_entries(
@@ -214,18 +96,43 @@ def _write_settings(settings_file: Path, data: dict) -> None:
 
 def _is_nah_hook(hook_entry: dict) -> bool:
     """Check if a hook entry belongs to nah."""
-    return plugin_state.is_legacy_nah_hook(hook_entry)
+    return plugin_state.is_direct_nah_hook(hook_entry)
 
 
-def _settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
-    """Return user/project settings paths to scan for nah install state."""
+def _user_settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
+    """Return user settings paths owned by nah lifecycle commands."""
     paths: list[Path] = []
     for key in agent_keys:
         settings_file = agents.AGENT_SETTINGS.get(key)
         if settings_file is not None:
             paths.append(settings_file)
+    return paths
+
+
+def _settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
+    """Return user/project settings paths to scan for nah install state."""
+    paths = _user_settings_paths_for_agent_keys(agent_keys)
     paths.extend(plugin_state.project_settings_paths())
     return paths
+
+
+def _settings_path_key(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve(strict=False)
+    except OSError:
+        return path.expanduser().absolute()
+
+
+def _outside_user_direct_findings(
+    state: plugin_state.NahInstallState,
+    user_paths: list[Path],
+) -> list[plugin_state.SettingsFinding]:
+    user_keys = {_settings_path_key(path) for path in user_paths}
+    return [
+        finding
+        for finding in state.direct_hooks
+        if _settings_path_key(finding.path) not in user_keys
+    ]
 
 
 def _detect_install_state(agent_keys: list[str]) -> plugin_state.NahInstallState:
@@ -321,40 +228,26 @@ def _agent_keys_for_target(target: str) -> list[str]:
     return []
 
 
-def _write_hook_script() -> None:
-    """Write the shared hook shim script (used by all agents)."""
-    _HOOKS_DIR.mkdir(parents=True, exist_ok=True)
-
-    shim_content = _SHIM_TEMPLATE.format(interpreter=sys.executable)
-
-    # Skip write if content is identical
-    if _HOOK_SCRIPT.exists():
-        try:
-            if _HOOK_SCRIPT.read_text(encoding="utf-8") == shim_content:
-                return
-        except (OSError, UnicodeDecodeError):
-            # Read is best-effort optimization; if it fails (race with
-            # deletion, permissions, disk, or an old non-UTF-8 shim), the
-            # safe default is to fall through to the write path which will
-            # surface real errors.
-            pass
-
-    if _HOOK_SCRIPT.exists() and _supports_posix_chmod():
-        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-
-    with open(_HOOK_SCRIPT, "w", encoding="utf-8") as f:
-        f.write(shim_content)
-
-    if _supports_posix_chmod():
-        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 444
-
-
 def _supports_posix_chmod() -> bool:
     """Return False on Windows where Unix mode bits do not protect hooks."""
     return os.name != "nt"
 
 
-def _install_for_agent(agent_key: str) -> None:
+def _cleanup_legacy_hook_script() -> bool:
+    """Delete the old direct-hook shim file when present."""
+    if not _HOOK_SCRIPT.exists():
+        return False
+    try:
+        if _supports_posix_chmod():
+            os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR)
+        _HOOK_SCRIPT.unlink()
+        return True
+    except OSError as exc:
+        print(f"nah: could not remove legacy hook script {_HOOK_SCRIPT}: {exc}", file=sys.stderr)
+        return False
+
+
+def _install_for_agent(agent_key: str, command: str) -> None:
     """Patch a single agent's settings.json with nah hook entries."""
     settings_file = agents.AGENT_SETTINGS[agent_key]
     tool_names = agents.AGENT_TOOL_MATCHERS[agent_key]
@@ -362,8 +255,6 @@ def _install_for_agent(agent_key: str) -> None:
 
     settings = _read_settings(settings_file)
     hooks = settings.setdefault("hooks", {})
-
-    command = _hook_command()
 
     for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
         _ensure_nah_event_hooks(hooks, event_name, tool_names, command)
@@ -408,14 +299,13 @@ def cmd_install(args: argparse.Namespace) -> None:
             )
             raise SystemExit(1)
 
-    _write_hook_script()
+    command = _require_hook_command("install claude")
 
     print(f"nah {__version__} installed:")
-    print(f"  Hook script: {_HOOK_SCRIPT} (read-only)")
-    print(f"  Interpreter: {sys.executable}")
+    print(f"  Hook command: {command}")
 
     for key in agent_keys:
-        _install_for_agent(key)
+        _install_for_agent(key, command)
 
     print()
     print("Ready. Safe commands go through silently, dangerous ones are")
@@ -446,7 +336,7 @@ def _print_shell_reload_hint(shell: str) -> None:
 
 
 def cmd_update(args: argparse.Namespace) -> None:
-    """Update hook script: unlock → overwrite → re-lock. Update settings for targeted agents."""
+    """Update direct hook commands and matchers for targeted agents."""
     target = _require_lifecycle_target(args, "update")
     if target.key in targets.SHELL_TARGETS:
         from nah import terminal_guard
@@ -457,25 +347,35 @@ def cmd_update(args: argparse.Namespace) -> None:
 
     agent_keys = _agent_keys_for_target(target.key)
 
+    user_paths = _user_settings_paths_for_agent_keys(agent_keys)
     state = _detect_install_state(agent_keys)
+    user_state = plugin_state.detect_nah_install_state(
+        settings_paths=user_paths,
+    )
+    outside_user_direct = _outside_user_direct_findings(state, user_paths)
     _warn_install_state_errors(state, "update")
     if state.has_plugin:
         print(
-            "nah update: plugin-managed nah detected; updating legacy direct hooks only.",
+            "nah update: plugin-managed nah detected; updating direct hooks only.",
+            file=sys.stderr,
+        )
+    if outside_user_direct:
+        paths = ", ".join(sorted({str(finding.path) for finding in outside_user_direct}))
+        print(
+            "nah update: project-scope direct hooks are unchanged: "
+            f"{paths}",
             file=sys.stderr,
         )
 
-    if not _HOOK_SCRIPT.exists():
-        print(f"Hook script not found: {_HOOK_SCRIPT}")
+    if not user_state.has_direct:
         if state.has_plugin:
             print("Plugin-managed nah is unchanged.")
         else:
-            print("Run `nah install claude` first.")
+            print("No user-level direct Claude hooks found. Run `nah install claude` first.")
         return
 
-    _write_hook_script()
-
-    command = _hook_command()
+    command = _require_hook_command("update claude")
+    removed_legacy_shim = False
 
     for key in agent_keys:
         settings_file = agents.AGENT_SETTINGS[key]
@@ -500,9 +400,13 @@ def cmd_update(args: argparse.Namespace) -> None:
                     msg += f", {missing_total} new tool hook matchers added"
                 print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({msg})")
 
+    if state.has_legacy:
+        removed_legacy_shim = _cleanup_legacy_hook_script()
+
     print(f"nah {__version__} updated:")
-    print(f"  Hook script: {_HOOK_SCRIPT} (re-locked read-only)")
-    print(f"  Interpreter: {sys.executable}")
+    print(f"  Hook command: {command}")
+    if removed_legacy_shim:
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (deleted)")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
@@ -1046,8 +950,17 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
 
     agent_keys = _agent_keys_for_target(target.key)
 
+    user_paths = _user_settings_paths_for_agent_keys(agent_keys)
     state = _detect_install_state(agent_keys)
+    outside_user_direct = _outside_user_direct_findings(state, user_paths)
     _warn_install_state_errors(state, "uninstall")
+    if outside_user_direct:
+        paths = ", ".join(sorted({str(finding.path) for finding in outside_user_direct}))
+        print(
+            "nah uninstall: project-scope direct hooks are unchanged: "
+            f"{paths}",
+            file=sys.stderr,
+        )
 
     # 1. Remove nah entries from each agent's config
     for key in agent_keys:
@@ -1070,7 +983,7 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
         else:
             print(f"  {agent_name}: settings not found (nothing to clean)")
 
-    # 2. Remove hook script only if no other agents still have nah hooks
+    # 2. Remove the old shim file only if no other agents still have direct hooks.
     any_remaining = False
     for key in agents.INSTALLABLE_AGENTS:
         if key in agent_keys:
@@ -1091,13 +1004,11 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
                 sys.stderr.write(f"nah: uninstall: {exc}\n")
 
     if any_remaining:
-        print(f"  Hook script: {_HOOK_SCRIPT} (kept — other agents still use it)")
-    elif _HOOK_SCRIPT.exists():
-        os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR)
-        _HOOK_SCRIPT.unlink()
-        print(f"  Hook script: {_HOOK_SCRIPT} (deleted)")
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (kept — other agents still use it)")
+    elif _cleanup_legacy_hook_script():
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (deleted)")
     else:
-        print(f"  Hook script: {_HOOK_SCRIPT} (not found)")
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (not found)")
 
     if state.has_plugin:
         print("  Plugin-managed nah: still enabled; disable/uninstall it with Claude's plugin manager.")
@@ -1539,9 +1450,11 @@ def cmd_target_status(target_key: str) -> None:
         state = _detect_install_state([agents.CLAUDE])
         _warn_install_state_errors(state, "status")
         print("claude:")
-        print(f"  direct hooks: {'installed' if state.has_legacy else 'not installed'}")
+        print(f"  direct hooks: {'installed' if state.has_direct else 'not installed'}")
+        print(f"  executable hooks: {'installed' if state.has_executable else 'not installed'}")
+        print(f"  old shim hooks: {'installed' if state.has_legacy else 'not installed'}")
         print(f"  plugin:       {'enabled' if state.has_plugin else 'not detected'}")
-        print(f"  hook script:  {_HOOK_SCRIPT}")
+        print(f"  legacy shim:  {_HOOK_SCRIPT} ({'present' if _HOOK_SCRIPT.exists() else 'not found'})")
         return
 
 
@@ -1834,17 +1747,23 @@ def cmd_claude(user_args: list[str]) -> None:
         settings_paths=[settings_file] + plugin_state.project_settings_paths(),
     )
     _warn_install_state_errors(state, "claude")
-    already_installed = state.has_plugin or state.has_legacy
+    already_installed = state.has_plugin or state.has_direct
 
     if already_installed:
+        if state.has_legacy:
+            print(
+                "nah run claude: old direct hook shim detected; "
+                "run `nah update claude` to migrate hooks to the nah executable.",
+                file=sys.stderr,
+            )
         args = [claude_path] + user_args if os.name == "nt" else ["claude"] + user_args
         if os.name == "nt":
             raise SystemExit(subprocess.call(args, env=env))
         os.execvpe(claude_path, args, env)
 
     else:
-        _write_hook_script()
-        settings_json = json.dumps(_build_hooks_settings())
+        command = _require_hook_command("run claude")
+        settings_json = json.dumps(_build_hooks_settings(command))
         args = (
             [claude_path, "--settings", settings_json] + user_args
             if os.name == "nt"
@@ -1957,6 +1876,10 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "_terminal-decision":
         _run_hidden_terminal_decision(sys.argv[2:])
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "_claude-hook":
+        from nah.claude_hooks import main as claude_hooks_main
+
+        raise SystemExit(claude_hooks_main())
     if len(sys.argv) >= 2 and sys.argv[1] == "_codex-permission-request":
         from nah.codex_hooks import main as codex_hooks_main
 

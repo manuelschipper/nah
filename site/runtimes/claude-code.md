@@ -16,11 +16,11 @@ nah run claude -p "fix the failing test"
 nah run claude --preset strict
 ```
 
-`nah run claude` writes the hook shim if needed and passes Claude Code an inline
-`--settings` value for that process. If persistent direct hooks are already
-installed, it launches `claude` normally because the session is already guarded.
-`--preset <name>` applies one named global config preset to that Claude process
-and its nah hooks.
+`nah run claude` passes Claude Code an inline `--settings` value for that
+process. The hook command calls the installed `nah` executable directly. If
+persistent direct hooks are already installed, it launches `claude` normally
+because the session is already guarded. `--preset <name>` applies one named
+global config preset to that Claude process and its nah hooks.
 
 nah rejects Claude flags that bypass or auto-approve permissions:
 
@@ -44,9 +44,10 @@ nah status claude
 nah doctor claude
 ```
 
-`nah install claude` writes the hook script to
-`~/.claude/hooks/nah_guard.py`, locks it read-only, and registers PreToolUse
-and post-tool hooks in Claude Code settings.
+`nah install claude` registers PreToolUse and post-tool hooks in Claude Code
+settings. Direct hook commands call the installed `nah` executable with a
+hidden Claude hook entrypoint, which keeps Nix, pipx, venv, and similar package
+manager wrappers in control of the Python import path.
 
 Update or remove direct hooks with:
 
@@ -54,6 +55,10 @@ Update or remove direct hooks with:
 nah update claude
 nah uninstall claude
 ```
+
+Run `nah update claude` after upgrading nah through Nix, pip, pipx, Homebrew, or
+another package manager if persistent direct hooks may still point at an older
+executable path. Plugin-only installs are unchanged by `nah update claude`.
 
 ## Plugin-Only Path
 
