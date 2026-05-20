@@ -60,6 +60,7 @@ nav:
     - Classification rules: configuration/classification-rules.md
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
+    - Presets: configuration/profiles.md
     - Taint tracking: configuration/taint-tracking.md
     - Session provenance: configuration/provenance.md
     - Content inspection (Claude Code): configuration/content.md
