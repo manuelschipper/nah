@@ -52,6 +52,8 @@ nav:
     - Claude Code: runtimes/claude-code.md
     - Codex: runtimes/codex.md
     - Terminal Guard: runtimes/terminal-guard.md
+  - Guides:
+    - Using nah as a team: guides/team-configuration.md
   - How it works: how-it-works.md
   - Threat model: threat-model.md
   - Configuration:
