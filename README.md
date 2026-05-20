@@ -21,6 +21,8 @@
 
 ## The Problem
 
+### Permissions by commands don't scale
+
 Trusting commands by name is the wrong abstraction.
 
 `git` can check status, or it can rewrite history.
@@ -42,6 +44,8 @@ Even when you curate permissions, agents can route around command names through
 shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
 through prompts.
+
+### Auto modes are just advice, not enforcement
 
 Auto modes like Claude Code's Auto Mode and Codex auto review can reduce
 interruptions, but they still lean on model judgement and prompt instructions.
@@ -75,11 +79,6 @@ Before a guarded action runs, nah turns it into a policy decision:
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).
-
-Optional [taint tracking](https://nah.build/configuration/taint-tracking/) can
-remember successful sensitive reads within a session and flag later activation
-or boundary actions, such as code execution, network access, database writes,
-or remote git pushes.
 
 ## Install
 
