@@ -21,9 +21,7 @@
 
 ## The Problem
 
-### Permissions by commands don't scale
-
-Trusting commands by name is the wrong abstraction.
+### Command names are the wrong abstraction
 
 `git` can check status, or it can rewrite history.
 
