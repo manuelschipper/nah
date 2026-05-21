@@ -62,9 +62,10 @@ Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
 config files.
 
 For remote providers, the secret value can live either in the process
-environment or in the OS keychain used by the optional `nah[keys]` extra. On a
-PyPI install, this keeps the YAML config stable while moving the secret out of
-shell exports:
+environment or in an OS keychain/keyring when your CLI install includes
+keyring support, such as `pip install "nah[keys]"`, `pipx inject nah keyring`,
+or the default Nix package on systems with a usable keyring backend. This keeps
+the YAML config stable while moving the secret out of shell exports:
 
 ```bash
 pip install "nah[config,keys]"
@@ -73,11 +74,11 @@ nah key status
 ```
 
 If you already exported a provider key, `nah key import-env openrouter` copies
-that value into the OS keyring for the `OPENROUTER_API_KEY` slot. It does not
-remove the existing env var from your current shell or shell startup files.
+that value into the configured keyring slot for `OPENROUTER_API_KEY`. It does
+not remove the existing env var from your current shell or shell startup files.
 
-The Claude Code plugin does not install the `nah` CLI, so `nah key ...` is a
-PyPI-only workflow. For custom `key_env` values, you can manually store a
+The Claude Code plugin does not install the `nah` CLI, so `nah key ...`
+requires a CLI install. For custom `key_env` values, you can manually store a
 matching slot in your keyring under the service name `nah.llm`.
 
 ### Provider examples

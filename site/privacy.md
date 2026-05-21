@@ -16,7 +16,8 @@ yourself. This page describes what nah itself collects, stores, and sends.
 - Decision logs and configuration are stored locally.
 - Optional taint tracking stores local session state when enabled.
 - Optional LLM credentials can be stored locally in your OS keychain or
-  keyring when you use `nah key ...` from a PyPI install.
+  keyring when you use `nah key ...` from a CLI install with usable keyring
+  support.
 - Optional LLM review only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
 - nah applies best-effort redaction for known secret patterns in transcript and
@@ -54,7 +55,7 @@ locations include:
 - Codex rule/config backups created by `nah codex setup` when it fixes
   supported Codex drift
 - OS keychain/keyring entries for remote LLM secrets if you use `nah key ...`
-  from a PyPI install
+  from a CLI install with usable keyring support
 
 If you install direct Claude Code hooks, nah may also write Claude hook settings
 under Claude Code's local configuration directory and remove old legacy hook
@@ -111,7 +112,8 @@ You can:
   `off`
 - use a local LLM provider such as Ollama instead of a remote provider
 - reduce or disable transcript context with `llm.context_chars`
-- remove stored provider keys with `nah key rm <provider>` from a PyPI install
+- remove stored provider keys with `nah key rm <provider>` from a CLI install
+  with usable keyring support
 - uninstall the Claude Code plugin with `claude plugin uninstall nah@nah`
 - uninstall direct hooks with `nah uninstall claude`
 - delete local nah logs and config files from `~/.config/nah/`

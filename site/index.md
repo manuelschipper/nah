@@ -369,7 +369,7 @@ llm:
     model: google/gemini-3.1-flash-lite-preview</code></pre>
       <div class="nah-card-label nah-card-label-secondary">CLI</div>
       <pre><code>nah key set openrouter</code></pre>
-      <span>Secrets stay in your OS keychain. Project config cannot set provider keys.</span>
+      <span>Secrets can use your OS keychain. Project config cannot set provider keys.</span>
     </article>
     <a class="nah-inline-link" href="configuration/llm/">Configure LLM review</a>
   </section>

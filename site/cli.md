@@ -187,7 +187,8 @@ it is trusted.
 
 ### nah key
 
-Manage built-in remote-provider key slots for the PyPI CLI.
+Manage built-in remote-provider key slots for CLI installs with keyring
+support.
 
 ```bash
 nah key status
@@ -197,13 +198,14 @@ nah key rm openrouter
 ```
 
 `nah key status` shows whether each built-in provider is currently using a
-value from the OS keyring, the environment, or neither. `nah key set` prompts
-with hidden input on a real TTY and stores the secret in your OS keychain.
-`nah key import-env` copies the current env-var value into that same key slot,
-but it does not remove the env var from your shell or dotfiles.
+value from the OS keyring/keychain, the environment, or neither. `nah key set`
+prompts with hidden input on a real TTY and stores the secret through the
+configured keyring backend. `nah key import-env` copies the current env-var
+value into that same key slot, but it does not remove the env var from your
+shell or dotfiles.
 
-These commands are available only on PyPI installs. The Claude Code plugin does
-not install the `nah` shell command or optional keyring support.
+These commands require a CLI install with keyring support. The Claude Code
+plugin does not install the `nah` shell command or optional keyring support.
 
 ### nah codex
 

@@ -8,6 +8,7 @@ result/
 .eggs/
 *.egg
 .venv/
+.venv-docs/
 venv/
 .pytest_cache/
 .mypy_cache/

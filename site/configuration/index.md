@@ -206,8 +206,8 @@ target override such as
 Provider credentials and provider selection stay global-only. Configure LLM
 providers directly in global config and store environment-variable names such
 as `llm.openrouter.key_env`, not raw API keys. The secret value behind that
-slot can live either in the current process environment or in the OS keychain
-used by the optional `nah[keys]` extra on PyPI installs.
+slot can live either in the current process environment or in an OS
+keychain/keyring when your CLI install includes keyring support.
 
 ## Presets
 
@@ -292,6 +292,8 @@ files or commands that write config (`nah allow`, `nah deny`, `nah classify`,
 `nah trust`). With pipx, use `pipx inject nah pyyaml`.
 
 Optional dependency: `pip install "nah[keys]"` installs keyring support for the
-PyPI CLI so remote-provider secret values can live in your OS keychain instead
-of exported env vars. If you want both YAML config support and key management,
-use `pip install "nah[config,keys]"` or `pipx inject nah pyyaml keyring`.
+PyPI CLI so remote-provider secret values can live in your OS keychain/keyring
+instead of exported env vars. The default Nix package also includes Python
+keyring integration, but actual OS keychain/keyring availability depends on
+the host backend. If you want both YAML config support and key management with
+pip, use `pip install "nah[config,keys]"` or `pipx inject nah pyyaml keyring`.

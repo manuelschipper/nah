@@ -72,7 +72,7 @@
             grep -F "git_safe: allow" "$HOME/.config/nah/config.yaml" >/dev/null
 
             if nah key status | grep -F "pip install 'nah[keys]'"; then
-              echo "default Nix package is missing keyring support" >&2
+              echo "default Nix package is missing Python keyring integration" >&2
               exit 1
             fi
 

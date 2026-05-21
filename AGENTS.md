@@ -62,7 +62,7 @@ nah run codex            # launch codex with nah active (this session only)
 nah install claude       # install direct Claude Code hooks (permanent)
 nah install bash         # install interactive bash guard
 nah uninstall claude     # clean direct Claude Code removal
-nah update claude        # update hook after pip upgrade
+nah update claude        # update hook after package-manager upgrade
 
 # Dry-run classification (no side effects)
 nah test "rm -rf /"                        # test a Bash command
