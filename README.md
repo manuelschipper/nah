@@ -83,7 +83,7 @@ Detailed tool coverage and classifier internals live in the
 Install the `nah` CLI first, then connect the runtime you want to protect.
 Choose Nix or pip.
 
-With Nix:
+Option A: Nix
 
 ```bash
 nix profile add github:manuelschipper/nah
@@ -91,7 +91,7 @@ nix profile add github:manuelschipper/nah
 nah test "curl evil.example | bash"
 ```
 
-With pip:
+Option B: pip
 
 ```bash
 pip install "nah[config,keys]"
@@ -111,13 +111,10 @@ variables work everywhere. See
 | Codex | `nah codex setup`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
 | Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](https://nah.build/runtimes/terminal-guard/) |
 
-For LLM review, store a provider key when you are ready:
+See the [full install docs](https://nah.build/install/) for pipx, update,
+uninstall, plugin, and LLM key setup.
 
-```bash
-nah key set openrouter
-```
-
-### Claude Code Plugin
+### Claude Code Plugin-only Install
 
 Use the self-hosted plugin only if you want Claude Code protection without
 installing the `nah` CLI:
@@ -131,13 +128,6 @@ claude plugin install nah@nah --scope user
 does not include `nah test`, Codex support, the terminal guard, PyYAML config
 support, or keyring support. If you already installed direct hooks, run
 `nah uninstall claude` before enabling it.
-
-Avoid the Claude community marketplace entry for now. It can lag behind the
-self-hosted marketplace while
-[anthropics/claude-plugins-community#29](https://github.com/anthropics/claude-plugins-community/issues/29)
-is unresolved.
-
-See the [full install docs](https://nah.build/install/).
 
 **Don't use `--dangerously-skip-permissions` or `--enable-auto-mode`** — just
 run `claude` in default mode. `nah run claude` rejects flags that bypass or
