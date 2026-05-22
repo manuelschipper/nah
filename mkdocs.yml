@@ -55,7 +55,7 @@ nav:
   - Guides:
     - How It Works: how-it-works.md
     - Using nah as a Team: guides/team-configuration.md
-    - Working with Sensitive Data: guides/sensitive-data.md
+    - Working with sensitive data: guides/sensitive-data.md
     - Threat Model: threat-model.md
   - Configuration:
     - Overview: configuration/index.md
