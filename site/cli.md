@@ -503,15 +503,14 @@ modifications. Global classify entries that shadow built-in rules show
 annotations. Project `classify` entries in an untrusted project config are
 listed as ignored until `nah trust-project`.
 
-Target status summarizes direct Claude hook/plugin state, shell guard
-installation, and loaded markers.
+Target status summarizes direct Claude hook/plugin state, Claude settings and
+executable paths, shell guard installation, and loaded markers.
 
 ### nah doctor
 
-Show deeper diagnostics for a target.
+Show deeper diagnostics for a shell target.
 
 ```bash
-nah doctor claude
 nah doctor bash
 nah doctor zsh
 ```

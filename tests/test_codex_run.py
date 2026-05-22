@@ -53,7 +53,7 @@ def test_injects_fixed_danger_full_access_preset_before_user_args():
     assert "_codex-permission-request" in hook_override
     assert "/usr/local/bin/nah" in hook_override
     assert "-m nah.cli" not in hook_override
-    assert "timeout = 15" in hook_override
+    assert "timeout = 14" in hook_override
     post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
     assert "_codex-post-tool-use" in post_tool_override
     assert "/usr/local/bin/nah" in post_tool_override
@@ -80,7 +80,7 @@ def test_headless_exec_is_guarded_by_pre_tool_use():
     assert "nah enforcing" in pre_tool_override
     assert "timeout = 30" in pre_tool_override
     hook_override = next(arg for arg in argv if arg.startswith("hooks.PermissionRequest="))
-    assert "timeout = 15" in hook_override
+    assert "timeout = 14" in hook_override
     post_tool_override = next(arg for arg in argv if arg.startswith("hooks.PostToolUse="))
     assert "timeout = 10" in post_tool_override
 

@@ -21,6 +21,7 @@ class Target:
     can_install: bool = True
     can_update: bool = True
     can_uninstall: bool = True
+    can_doctor: bool = True
 
 
 TARGETS: dict[str, Target] = {
@@ -29,6 +30,7 @@ TARGETS: dict[str, Target] = {
         kind=AGENT,
         label="Claude Code",
         description="protect Claude Code with direct hooks",
+        can_doctor=False,
     ),
     CODEX: Target(
         key=CODEX,
@@ -38,6 +40,7 @@ TARGETS: dict[str, Target] = {
         can_install=False,
         can_update=False,
         can_uninstall=False,
+        can_doctor=False,
     ),
     BASH: Target(
         key=BASH,
@@ -89,6 +92,8 @@ def _target_supports_command(target: Target, command: str) -> bool:
         return target.can_update
     if command == "uninstall":
         return target.can_uninstall
+    if command == "doctor":
+        return target.can_doctor
     return True
 
 
@@ -99,6 +104,11 @@ def format_unsupported_target(command: str, target_key: str) -> str:
             f"nah {command} codex: Codex has no persistent {command} target.\n\n"
             "Use `nah run codex` to launch a protected Codex session. "
             "After upgrading the nah package, the next `nah run codex` uses the new version."
+        )
+    if target_key == CODEX and command == "doctor":
+        return (
+            "nah doctor codex: Codex diagnostics live under `nah codex doctor`.\n\n"
+            "Use `nah codex doctor` to inspect Codex preflight state."
         )
     return (
         f"nah {command}: target '{target_key}' does not support {command}\n\n"
@@ -112,11 +122,7 @@ def format_target_help(command: str) -> str:
     lines = [f"nah {command}: choose {action}", ""]
     for key in (CLAUDE, BASH, ZSH):
         target = TARGETS[key]
-        if command == "update" and not target.can_update:
-            continue
-        if command == "uninstall" and not target.can_uninstall:
-            continue
-        if command == "install" and not target.can_install:
+        if not _target_supports_command(target, command):
             continue
         lines.append(f"  nah {command} {key:<10} {target.description}")
     if command in ("install", "update", "uninstall"):

@@ -1275,6 +1275,76 @@ class TestTargetLifecycleCli:
         assert exc.value.code == 2
         assert "unknown target 'openrouter'" in capsys.readouterr().err
 
+    def test_status_claude_includes_install_diagnostics(
+        self,
+        tmp_path,
+        monkeypatch,
+        capsys,
+    ):
+        import nah.cli as cli_mod
+        from nah import agents
+
+        settings_file = tmp_path / ".claude" / "settings.json"
+        settings_file.parent.mkdir()
+        settings_file.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            agents,
+            "AGENT_SETTINGS",
+            {agents.CLAUDE: settings_file},
+        )
+        monkeypatch.setattr(
+            cli_mod,
+            "_HOOK_SCRIPT",
+            tmp_path / "hooks" / "nah_guard.py",
+        )
+        monkeypatch.setattr(
+            cli_mod.shutil,
+            "which",
+            lambda name: "/usr/bin/claude" if name == "claude" else None,
+        )
+        state = cli_mod.plugin_state.NahInstallState(
+            executable_hooks=[
+                cli_mod.plugin_state.SettingsFinding(settings_file, "PreToolUse")
+            ],
+        )
+        monkeypatch.setattr(cli_mod, "_detect_install_state", lambda agent_keys: state)
+
+        cli_mod.cmd_status(argparse.Namespace(target="claude"))
+
+        out = capsys.readouterr().out
+        assert "direct hooks: installed" in out
+        assert "executable hooks: installed" in out
+        assert f"settings:     {settings_file}" in out
+        assert "settings dir: exists" in out
+        assert "claude path:  /usr/bin/claude" in out
+
+    def test_doctor_claude_is_not_supported(self, capsys):
+        import nah.cli as cli_mod
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_doctor(argparse.Namespace(target="claude"))
+
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert "target 'claude' does not support doctor" in err
+        assert "nah doctor bash" in err
+        assert "nah doctor zsh" in err
+        assert "nah doctor claude" not in err
+
+    def test_doctor_codex_points_to_codex_subcommand(self, capsys):
+        import nah.cli as cli_mod
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_doctor(argparse.Namespace(target="codex"))
+
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert (
+            "nah doctor codex: Codex diagnostics live under `nah codex doctor`."
+            in err
+        )
+        assert "Use `nah codex doctor`" in err
+
     def test_hidden_terminal_decision(self, capsys):
         import nah.cli as cli_mod
         args = argparse.Namespace(

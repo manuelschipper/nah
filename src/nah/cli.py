@@ -1455,6 +1455,10 @@ def cmd_target_status(target_key: str) -> None:
         print(f"  old shim hooks: {'installed' if state.has_legacy else 'not installed'}")
         print(f"  plugin:       {'enabled' if state.has_plugin else 'not detected'}")
         print(f"  legacy shim:  {_HOOK_SCRIPT} ({'present' if _HOOK_SCRIPT.exists() else 'not found'})")
+        settings = agents.AGENT_SETTINGS[agents.CLAUDE]
+        print(f"  settings:     {settings}")
+        print(f"  settings dir: {'exists' if settings.parent.exists() else 'missing'}")
+        print(f"  claude path:  {shutil.which('claude') or '(not on PATH)'}")
         return
 
 
@@ -1464,13 +1468,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     if target.kind == targets.SHELL:
         from nah import terminal_guard
         terminal_guard.print_doctor(target.key)
-        return
-    if target.key == targets.CLAUDE:
-        cmd_target_status(target.key)
-        settings = agents.AGENT_SETTINGS[agents.CLAUDE]
-        print(f"  settings:     {settings}")
-        print(f"  settings dir: {'exists' if settings.parent.exists() else 'missing'}")
-        print(f"  claude path:  {shutil.which('claude') or '(not on PATH)'}")
         return
 
 
@@ -2007,8 +2004,8 @@ def main():
     untrust_project_parser.add_argument("path", nargs="?", help="Project directory to untrust (default: active project or cwd)")
     status_parser = sub.add_parser("status", help="Show custom rules or target status")
     status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
-    doctor_parser = sub.add_parser("doctor", help="Diagnose a nah target")
-    doctor_parser.add_argument("target", nargs="?", help="Target: claude, bash, zsh")
+    doctor_parser = sub.add_parser("doctor", help="Diagnose a shell target")
+    doctor_parser.add_argument("target", nargs="?", help="Target: bash, zsh")
     run_parser = sub.add_parser("run", help="Launch an agent with nah active")
     run_sub = run_parser.add_subparsers(dest="run_agent")
     run_sub.add_parser("claude", help="Launch Claude Code with nah hooks active")

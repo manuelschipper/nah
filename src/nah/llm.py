@@ -6,6 +6,8 @@ import re
 import sys
 import time
 import urllib.request
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import NamedTuple
 from urllib.error import URLError
@@ -14,6 +16,11 @@ from nah.llm_keys import resolve_key
 
 _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
+_MIN_BUDGETED_PROVIDER_TIMEOUT = 0.25
+_ACTIVE_LLM_DEADLINE: ContextVar[float | None] = ContextVar(
+    "nah_active_llm_deadline",
+    default=None,
+)
 _SKILL_BASE_DIR_PREFIX = "Base directory for this skill: "
 _SKILL_BODY_MAX_CHARS = 2048
 _SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -57,6 +64,58 @@ class LLMCallResult:
     reasoning_long: str = ""
     prompt: str = ""
     cascade: list[ProviderAttempt] = field(default_factory=list)
+
+
+@contextmanager
+def llm_timeout_budget(seconds: float | int | None):
+    """Cap provider calls inside this context to a shared wall-clock budget."""
+    deadline = _budget_deadline(seconds)
+    current = _ACTIVE_LLM_DEADLINE.get()
+    if current is not None:
+        deadline = current if deadline is None else min(current, deadline)
+    token = _ACTIVE_LLM_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _ACTIVE_LLM_DEADLINE.reset(token)
+
+
+def _budget_deadline(seconds: float | int | None) -> float | None:
+    try:
+        budget = float(seconds)
+    except (TypeError, ValueError):
+        return None
+    if budget <= 0:
+        return None
+    return time.monotonic() + budget
+
+
+def _remaining_budget_seconds(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    return max(0.0, deadline - time.monotonic())
+
+
+def _positive_float(value) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _provider_config_with_budget(config: dict, remaining_seconds: float | None) -> dict:
+    if remaining_seconds is None:
+        return config
+    budgeted = dict(config)
+    configured = _positive_float(budgeted.get("timeout"))
+    if configured is None:
+        budgeted["timeout"] = max(_MIN_BUDGETED_PROVIDER_TIMEOUT, remaining_seconds)
+    else:
+        budgeted["timeout"] = min(configured, remaining_seconds)
+    return budgeted
 
 
 # -- Prompt templates --
@@ -1189,6 +1248,7 @@ def _try_providers(
 ) -> LLMCallResult:
     """Iterate providers in priority order. Returns LLMCallResult."""
     call_result = LLMCallResult()
+    deadline = _ACTIVE_LLM_DEADLINE.get()
     providers = (
         llm_config.get("providers", [])
         or llm_config.get("backends", [])
@@ -1204,6 +1264,19 @@ def _try_providers(
         model = provider_config.get(
             "model", _DEFAULT_MODELS.get(provider_name, ""),
         )
+        remaining = _remaining_budget_seconds(deadline)
+        if remaining is not None and remaining < _MIN_BUDGETED_PROVIDER_TIMEOUT:
+            call_result.cascade.append(
+                ProviderAttempt(
+                    provider_name,
+                    "error",
+                    0,
+                    model,
+                    "LLM budget exhausted before provider",
+                ),
+            )
+            break
+        provider_config = _provider_config_with_budget(provider_config, remaining)
         result, elapsed, error = _call_provider(
             provider_name, provider_config, prompt,
         )

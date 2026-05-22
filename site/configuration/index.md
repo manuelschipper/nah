@@ -135,7 +135,7 @@ When both configs exist, nah merges them with these rules:
 | `targets` | dict of target → overrides | both* | This page |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |
-| `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#prompt-behavior) |
+| `active_allow` | `true`, `false`, or list of tool names | global | [Claude Code](../runtimes/claude-code.md#setup) |
 
 *\* Project `sensitive_paths_default` can only tighten (ask → block) until the project root is trusted. Project `taint` and `provenance` can tighten policies by default; non-policy shape changes require trusted project config. Target-scoped project overrides can tighten policy by default; non-policy target settings require trusted project config.*
 

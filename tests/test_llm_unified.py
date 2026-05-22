@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import nah.llm as llm_mod
 from nah import hook, taxonomy
 from nah.bash import ClassifyResult, StageResult
 from nah.config import NahConfig
@@ -16,6 +17,8 @@ from nah.llm import (
     PromptParts,
     _build_codex_permission_request_prompt,
     _build_unified_prompt,
+    _try_providers,
+    llm_timeout_budget,
     _read_claude_md,
     _read_project_instruction_files,
     _read_transcript_tail,
@@ -56,6 +59,48 @@ def _ask_result(command: str = "rm -rf dist/") -> ClassifyResult:
         final_decision=taxonomy.ASK,
         reason="outside project",
     )
+
+
+def test_llm_timeout_budget_caps_provider_timeout(monkeypatch):
+    seen = []
+
+    def fake_provider(provider_config, _prompt):
+        seen.append(provider_config["timeout"])
+        return None
+
+    monkeypatch.setitem(llm_mod._PROVIDERS, "fake", fake_provider)
+
+    with llm_timeout_budget(10):
+        result = _try_providers(
+            PromptParts("system", "user"),
+            {"providers": ["fake"], "fake": {"timeout": 99, "model": "test"}},
+            "Bash",
+        )
+
+    assert result.cascade[0].status == "error"
+    assert 0 < seen[0] <= 10
+
+
+def test_llm_timeout_budget_skips_provider_when_exhausted(monkeypatch):
+    called = False
+
+    def fake_provider(_provider_config, _prompt):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setitem(llm_mod._PROVIDERS, "fake", fake_provider)
+
+    with llm_timeout_budget(0.001):
+        result = _try_providers(
+            PromptParts("system", "user"),
+            {"providers": ["fake"], "fake": {"timeout": 99, "model": "test"}},
+            "Bash",
+        )
+
+    assert called is False
+    assert result.cascade[0].status == "error"
+    assert result.cascade[0].error == "LLM budget exhausted before provider"
 
 
 def _run_hook(payload: dict) -> dict:

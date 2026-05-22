@@ -26,6 +26,7 @@ _HEADLESS_NETWORK_ENV = "NAH_CODEX_NETWORK"
 _SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
+_CODEX_PERMISSION_LLM_BUDGET_SECONDS = 10
 
 
 def main(
@@ -82,15 +83,16 @@ def main(
             stdout.flush()
             return 0
 
-        decision, canonical, tool_input = _decide(payload)
-        _attach_permission_runtime(decision, payload)
-        decision = _apply_taint_permission(canonical, tool_input, decision, payload)
-        decision = _apply_provenance_permission(canonical, tool_input, decision, payload)
-        decision = hook._apply_ask_fallback(decision)
-        decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
-        _emit_decision(stdout, decision, canonical)
-        total_ms = int((time.monotonic() - t0) * 1000)
-        _log_decision(canonical, tool_input, decision, total_ms, payload)
+        with _codex_permission_llm_budget():
+            decision, canonical, tool_input = _decide(payload)
+            _attach_permission_runtime(decision, payload)
+            decision = _apply_taint_permission(canonical, tool_input, decision, payload)
+            decision = _apply_provenance_permission(canonical, tool_input, decision, payload)
+            decision = hook._apply_ask_fallback(decision)
+            decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
+            _emit_decision(stdout, decision, canonical)
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_decision(canonical, tool_input, decision, total_ms, payload)
         return 0
     except Exception as exc:
         _log_codex_hook_error(f"unexpected {event_name} error: {exc}", event_name=event_name)
@@ -103,6 +105,17 @@ def main(
 def _event_fails_open(event_name: str) -> bool:
     """Return whether hook failures should allow Codex to continue."""
     return event_name in {"PreToolUse", "PostToolUse"}
+
+
+@contextlib.contextmanager
+def _codex_permission_llm_budget():
+    try:
+        from nah.llm import llm_timeout_budget
+    except ImportError:
+        yield
+        return
+    with llm_timeout_budget(_CODEX_PERMISSION_LLM_BUDGET_SECONDS):
+        yield
 
 
 def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]:
