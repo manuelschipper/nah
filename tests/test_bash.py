@@ -1280,6 +1280,53 @@ class TestTransparentSuffixComposition:
     @pytest.mark.parametrize(
         "command",
         [
+            "cat package.json | python3 -m json.tool | sed -n '1,80p'",
+            "cat package.json | python3 -m json.tool | sed --quiet '$p'",
+            "cat package.json | python3 -m json.tool | sed --silent --expression='80p'",
+            "cat package.json | python3 -m json.tool | sed -e '1,$p' -n",
+            "cat package.json | python3 -m json.tool | sed -ne '80p'",
+            "cat package.json | python3 -m json.tool | sed -en '80p'",
+            "cat package.json | python3 -m json.tool | sed -n -e1p -e '80p'",
+        ],
+    )
+    def test_python_formatter_followed_by_sed_display_suffix_allows(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert [stage.action_type for stage in r.stages] == [
+            "filesystem_read",
+            "filesystem_read",
+            "filesystem_read",
+        ]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat package.json | python3 -m json.tool | sed -n 's/a/b/p'",
+            "cat package.json | python3 -m json.tool | sed -n '/name/p'",
+            "cat package.json | python3 -m json.tool | sed -n '1,80p' out.txt",
+            "cat package.json | python3 -m json.tool | sed -f script.sed",
+            "cat package.json | python3 -m json.tool | sed 's/a/b/'",
+        ],
+    )
+    def test_python_formatter_followed_by_unsafe_sed_suffix_still_asks(
+        self, project_root, command
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.composition_rule == "read | exec"
+
+    def test_python_formatter_followed_by_in_place_sed_suffix_is_not_transparent(
+        self, project_root
+    ):
+        r = classify_command("cat package.json | python3 -m json.tool | sed -i 's/a/b/'")
+        assert r.final_decision == "ask"
+        assert r.composition_rule == "read | exec"
+        assert r.stages[-1].action_type == "filesystem_write"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
             "npm run test:e2e -- --project=chromium -g smoke | tail -60",
             "pnpm run test -- --global | tail -20",
             "bun run test -- --target browser | tail -20",

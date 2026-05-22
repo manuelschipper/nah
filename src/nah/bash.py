@@ -19,6 +19,7 @@ _WINDOWS_REDIRECT_SAFE_SINKS = frozenset({"nul", "con"})
 _WINDOWS_QUOTED_TRAILING_BACKSLASH_RE = re.compile(r"""(["'])([A-Za-z]:\\[^"']*\\)\1""")
 _LITERAL_OUTPUT_REDIRECT_SENTINEL = "\x1fNAH_LITERAL_GT\x1f"
 _UNKNOWN_SHELL_CWD_PATH = "\x1fNAH_UNKNOWN_SHELL_CWD_PATH\x1f"
+_SED_PRINT_SELECTOR_RE = re.compile(r"(?:\d+|\$)(?:,(?:\d+|\$))?p")
 
 _PYTHON_READ_ONLY_MODULES = frozenset({"json.tool", "tabnanny", "tokenize"})
 _PYTHON_WRITE_MODULES = frozenset({"py_compile", "compileall"})
@@ -5151,9 +5152,73 @@ def _is_transparent_suffix_stage(stage: Stage, sr: StageResult) -> bool:
     cmd = os.path.basename(sr.tokens[0])
     if cmd in {"tail", "head", "wc", "sort", "uniq"}:
         return sr.action_type == taxonomy.FILESYSTEM_READ
+    if cmd == "sed":
+        return _is_transparent_sed_display_stage(sr)
     if cmd == "tee":
         return _is_transparent_tee_stage(sr)
     return False
+
+
+def _is_transparent_sed_display_stage(sr: StageResult) -> bool:
+    if sr.action_type != taxonomy.FILESYSTEM_READ:
+        return False
+
+    scripts: list[str] = []
+    saw_suppress_output = False
+    used_expression = False
+    saw_positional_script = False
+    args = sr.tokens[1:]
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in {"-n", "--quiet", "--silent"}:
+            saw_suppress_output = True
+            i += 1
+            continue
+        if tok in {"-ne", "-en"}:
+            saw_suppress_output = True
+            if i + 1 >= len(args):
+                return False
+            scripts.append(args[i + 1])
+            used_expression = True
+            i += 2
+            continue
+        if tok in {"-e", "--expression"}:
+            if i + 1 >= len(args):
+                return False
+            scripts.append(args[i + 1])
+            used_expression = True
+            i += 2
+            continue
+        if tok.startswith("--expression="):
+            script = tok.split("=", 1)[1]
+            if not script:
+                return False
+            scripts.append(script)
+            used_expression = True
+            i += 1
+            continue
+        if tok.startswith("-e") and tok != "-e":
+            script = tok[2:]
+            if not script:
+                return False
+            scripts.append(script)
+            used_expression = True
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return False
+        if used_expression or saw_positional_script:
+            return False
+        scripts.append(tok)
+        saw_positional_script = True
+        i += 1
+
+    return (
+        saw_suppress_output
+        and bool(scripts)
+        and all(_SED_PRINT_SELECTOR_RE.fullmatch(script) for script in scripts)
+    )
 
 
 def _is_transparent_tee_stage(sr: StageResult) -> bool:
