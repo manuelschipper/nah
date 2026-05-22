@@ -350,16 +350,16 @@ history.
 
 ### Claude Code demo
 
-Claude Code-only live security demo. Clone the
+Claude Code-only security demo. Clone the
 [nah repo](https://github.com/manuelschipper/nah) and run the demo slash
 command from within Claude Code. The slash command is defined in
 `.claude/commands/`.
 
 ```
-/nah-demo                        # 25 cases across 8 threat categories
-/nah-demo --full                 # all 90 cases + config variants
-/nah-demo --story rce            # deep-dive into a single category
+/nah-demo                        # 25 curated cases across 8 threat categories
 ```
+
+The demo is intentionally small. Use pytest for regression coverage.
 
 **Stories:**
 

@@ -146,9 +146,9 @@ cd nah
 /nah-demo
 ```
 
-25 live Claude Code tool-call cases across 8 threat categories: remote code
+25 curated Claude Code tool-call cases across 8 threat categories: remote code
 execution, data exfiltration, obfuscated commands, and others. Takes ~5
-minutes.
+minutes. The demo is intentionally small; pytest is the regression suite.
 
 ## Benchmark
 

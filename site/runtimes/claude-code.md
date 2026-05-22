@@ -155,9 +155,9 @@ cd nah
 /nah-demo
 ```
 
-The demo runs live Claude Code tool-call cases across remote code execution,
-data exfiltration, obfuscated commands, destructive operations, and other
-categories.
+The demo runs 25 curated Claude Code tool-call cases across remote code
+execution, data exfiltration, obfuscated commands, destructive operations, and
+other categories. It is a short product demo; pytest is the regression suite.
 
 ## Coverage
 
