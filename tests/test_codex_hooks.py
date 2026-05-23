@@ -500,6 +500,73 @@ def test_permission_request_llm_allow_bypasses_ask_fallback_block(
     assert "ask_fallback" not in entry
 
 
+def test_permission_request_default_llm_reviews_visible_read_exec_composition(
+    project_root,
+    monkeypatch,
+):
+    (Path(project_root) / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        llm_mode="on",
+        llm_eligible="default",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+
+    def fake_llm(*_args, **_kwargs):
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "safe local filter"},
+            provider="fake",
+            model="test",
+            reasoning="safe local filter",
+            cascade=[ProviderAttempt(provider="fake", status="ok", latency_ms=1)],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'",
+        },
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_permission_request_default_llm_skips_file_backed_read_exec_composition(
+    project_root,
+    monkeypatch,
+):
+    (Path(project_root) / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+    (Path(project_root) / "filter.py").write_text("print('demo')\n", encoding="utf-8")
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        llm_mode="on",
+        llm_eligible="default",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("file-backed read|exec should remain human-gated")
+
+    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fail)
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {"command": "cat package.json | python3 filter.py"},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
 def test_post_tool_use_logs_executed_runtime_metadata_without_output(project_root, tmp_path):
     code, out = _run({
         "hookEventName": "PostToolUse",
