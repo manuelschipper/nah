@@ -53,10 +53,10 @@ nav:
     - Codex: runtimes/codex.md
     - Terminal Guard: runtimes/terminal-guard.md
   - Guides:
-    - How It Works: how-it-works.md
-    - Using nah as a Team: guides/team-configuration.md
+    - How it works: how-it-works.md
+    - Using nah as a team: guides/team-configuration.md
     - Working with sensitive data: guides/sensitive-data.md
-    - Threat Model: threat-model.md
+    - Threat model: threat-model.md
   - Configuration:
     - Overview: configuration/index.md
     - Action types: configuration/actions.md

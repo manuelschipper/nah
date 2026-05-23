@@ -1,4 +1,4 @@
-# Threat Model
+# Threat model
 
 nah's threat model starts with what an action can do: run unknown code, expose
 secrets, rewrite history, escape the project, hide behavior behind shell tricks,

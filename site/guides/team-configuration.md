@@ -1,4 +1,4 @@
-# Using nah as a Team
+# Using nah as a team
 
 nah works out of the box, but teams usually want a small amount of shared
 policy per repo.

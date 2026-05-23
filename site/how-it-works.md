@@ -1,4 +1,4 @@
-# How it Works
+# How it works
 
 nah is a local classifier that sits in front of guarded agent and terminal
 actions. Claude Code uses [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks),
