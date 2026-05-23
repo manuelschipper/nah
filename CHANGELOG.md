@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   25-case curated demo file instead of the former 90-case plus variant test
   battery. The slash command is a short product demo; pytest remains the
   regression suite. (nah-962)
+- **LLM ask refinement defaults** — default LLM eligibility now includes
+  process signals and safe local read-to-filter pipelines with inline visible
+  exec payloads, while file-backed scripts, sensitive reads, remote/decode
+  chains, destructive actions, and bypass paths remain human-gated. Claude and
+  Codex ask-refinement prompts now include labeled project and user-global
+  instruction context when available. (nah-963)
 
 ## [0.9.0] - 2026-05-21
 
