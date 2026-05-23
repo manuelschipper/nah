@@ -246,6 +246,108 @@ def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
     }
 
 
+def test_terminal_default_llm_reviews_visible_read_exec_composition(
+    monkeypatch,
+    tmp_path,
+    project_root,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+    package_json = os.path.join(project_root, "package.json")
+    with open(package_json, "w", encoding="utf-8") as f:
+        f.write('{"name":"demo"}\n')
+    monkeypatch.chdir(project_root)
+
+    def fake_llm(*_args, **_kwargs):
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "safe local filter"},
+            provider="fake",
+            model="fake-model",
+            latency_ms=1,
+            reasoning="safe local filter",
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
+
+    result = terminal_guard.decide_terminal_command(
+        "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'",
+        "bash",
+        log=False,
+    )
+
+    assert result.exit_code == terminal_guard.EXIT_ALLOW
+    assert result.decision == "allow"
+    assert result.reason == "safe local filter"
+
+
+def test_terminal_default_llm_skips_file_backed_read_exec_composition(
+    monkeypatch,
+    tmp_path,
+    project_root,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg_dir = tmp_path / ".config" / "nah"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "config.yaml"
+    cfg_path.write_text(
+        "\n".join([
+            "llm:",
+            '  mode: "on"',
+            "  providers:",
+            "    - fake",
+            "  fake:",
+            "    key_env: FAKE_KEY",
+            "targets:",
+            "  bash:",
+            "    llm:",
+            '      mode: "on"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
+    reset_config()
+    with open(os.path.join(project_root, "package.json"), "w", encoding="utf-8") as f:
+        f.write('{"name":"demo"}\n')
+    with open(os.path.join(project_root, "filter.py"), "w", encoding="utf-8") as f:
+        f.write("print('demo')\n")
+    monkeypatch.chdir(project_root)
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("file-backed read|exec should remain human-gated")
+
+    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fail)
+
+    result = terminal_guard.decide_terminal_command(
+        "cat package.json | python3 filter.py",
+        "bash",
+        log=False,
+    )
+
+    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
+    assert result.decision == "ask"
+
+
 def test_terminal_skip_llm_keeps_eligible_ask(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     cfg_dir = tmp_path / ".config" / "nah"

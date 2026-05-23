@@ -17,6 +17,7 @@ from nah.llm import (
     PromptParts,
     _build_codex_permission_request_prompt,
     _build_unified_prompt,
+    _read_instruction_context,
     _try_providers,
     llm_timeout_budget,
     _read_claude_md,
@@ -151,6 +152,8 @@ class TestUnifiedPrompt:
         assert "Project instructions" in prompt.user
         assert "blocks stay blocked" in prompt.user
         assert "High-impact actions are not categorically forbidden here" in prompt.user
+        assert "safe local read-to-filter pipelines" in prompt.user
+        assert "For process signals" in prompt.user
 
     def test_missing_claude_md_uses_placeholder(self):
         prompt = _build_unified_prompt(
@@ -187,6 +190,8 @@ class TestUnifiedPrompt:
         assert '"action_type":"git_write"' in prompt.user
         assert "deterministic classification as the safety boundary" in prompt.user
         assert "High-impact actions are not categorically forbidden here" in prompt.user
+        assert "safe local read-to-filter pipelines" in prompt.user
+        assert "For process signals" in prompt.user
 
 
 class TestTranscriptRoles:
@@ -230,6 +235,79 @@ class TestReadClaudeMd:
 
         assert result == "File: AGENTS.md\nagent instructions"
 
+    def test_claude_instruction_context_reads_project_global_and_local_include(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        home.mkdir()
+        project.mkdir()
+        (project / "CLAUDE.md").write_text("Project Claude rules\n@AGENTS.md")
+        (project / "AGENTS.md").write_text("Shared agent rules")
+        (home / ".claude").mkdir()
+        (home / ".claude" / "CLAUDE.md").write_text("Global Claude rules")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(project)
+
+        with patch("nah.paths.get_project_root", return_value=str(project)):
+            result = _read_instruction_context("claude")
+
+        assert "Project instructions:" in result
+        assert str(project / "CLAUDE.md") in result
+        assert "Project Claude rules" in result
+        assert "Included file:" in result
+        assert "Shared agent rules" in result
+        assert "Global instructions:" in result
+        assert "Global Claude rules" in result
+
+    def test_codex_instruction_context_prefers_overrides_and_reads_global(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        project = tmp_path / "project"
+        codex_home = tmp_path / "codex"
+        project.mkdir()
+        codex_home.mkdir()
+        (project / "AGENTS.md").write_text("Project base rules")
+        (project / "AGENTS.override.md").write_text("Project override rules\n@CLAUDE.md")
+        (project / "CLAUDE.md").write_text("Local Claude include")
+        (codex_home / "AGENTS.md").write_text("Global base rules")
+        (codex_home / "AGENTS.override.md").write_text("Global override rules")
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.chdir(project)
+
+        with patch("nah.paths.get_project_root", return_value=str(project)):
+            result = _read_instruction_context("codex")
+
+        assert "Project override rules" in result
+        assert "Project base rules" not in result
+        assert "Included file:" in result
+        assert "Local Claude include" in result
+        assert "Global override rules" in result
+        assert "Global base rules" not in result
+
+    def test_instruction_context_truncates_with_visible_marker(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        project = tmp_path / "project"
+        codex_home = tmp_path / "codex"
+        project.mkdir()
+        codex_home.mkdir()
+        (project / "AGENTS.md").write_text("A" * 5000)
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.chdir(project)
+
+        with patch("nah.paths.get_project_root", return_value=str(project)):
+            result = _read_instruction_context("codex", max_chars=1000)
+
+        assert "[truncated:" in result
+        assert len(result) <= 1100
+
 
 class TestUnifiedTryLlm:
     def test_try_unified_passes_stages_and_project_instructions(self, tmp_path):
@@ -256,7 +334,8 @@ class TestUnifiedTryLlm:
                 }],
             )
 
-        assert "File: CLAUDE.md" in captured["prompt"].user
+        assert "Project instructions:" in captured["prompt"].user
+        assert "CLAUDE.md" in captured["prompt"].user
         assert "Claude project rules" in captured["prompt"].user
         assert '"action_type":"filesystem_delete"' in captured["prompt"].user
 
@@ -288,7 +367,8 @@ class TestUnifiedTryLlm:
             )
 
         assert "User: push the current branch" in captured["prompt"].user
-        assert "File: AGENTS.md" in captured["prompt"].user
+        assert "Project instructions:" in captured["prompt"].user
+        assert "AGENTS.md" in captured["prompt"].user
         assert "Codex project rules" in captured["prompt"].user
         assert '"action_type":"git_write"' in captured["prompt"].user
 

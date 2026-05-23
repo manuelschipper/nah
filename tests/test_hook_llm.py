@@ -124,14 +124,13 @@ class TestIsLlmEligible:
 
     def test_default_includes_middle_ground_ask_types(self):
         config._cached_config = NahConfig(llm_eligible="default")
-        for action_type in ("package_uninstall", "container_exec", "browser_exec", "agent_exec_read"):
+        for action_type in ("package_uninstall", "container_exec", "browser_exec", "agent_exec_read", "process_signal"):
             result = _ask_result_for_action(action_type)
             assert hook._is_llm_eligible(result) is True
 
     def test_default_excludes_high_risk_ask_types(self):
         config._cached_config = NahConfig(llm_eligible="default")
         excluded = (
-            "process_signal",
             "service_write",
             "git_remote_write",
             "git_discard",
@@ -163,6 +162,106 @@ class TestIsLlmEligible:
             composition_rule="unknown | lang_exec",
         )
         assert hook._is_llm_eligible(result) is False
+
+    def test_default_allows_safe_visible_read_exec_composition(self):
+        stages = [
+            {
+                "tokens": ["cat", "package.json"],
+                "action_type": taxonomy.FILESYSTEM_READ,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "filesystem_read -> allow",
+            },
+            {
+                "tokens": ["python3", "-c", "import sys,json; print(json.load(sys.stdin).get('name'))"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "lang_exec -> allow",
+            },
+        ]
+
+        assert hook._is_llm_eligible_stages(
+            taxonomy.FILESYSTEM_READ,
+            stages,
+            "default",
+            "read | exec",
+        ) is True
+
+    def test_default_rejects_file_backed_read_exec_composition(self):
+        stages = [
+            {
+                "tokens": ["cat", "package.json"],
+                "action_type": taxonomy.FILESYSTEM_READ,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "filesystem_read -> allow",
+            },
+            {
+                "tokens": ["python3", "scripts/filter.py"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "lang_exec -> allow",
+            },
+        ]
+
+        assert hook._is_llm_eligible_stages(
+            taxonomy.FILESYSTEM_READ,
+            stages,
+            "default",
+            "read | exec",
+        ) is False
+
+    def test_default_rejects_sensitive_read_exec_composition(self):
+        stages = [
+            {
+                "tokens": ["cat", "private-data.txt"],
+                "action_type": taxonomy.FILESYSTEM_READ,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "filesystem_read -> allow; sensitive path",
+            },
+            {
+                "tokens": ["python3", "-c", "import sys; print(sys.stdin.read())"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "lang_exec -> allow",
+            },
+        ]
+
+        assert hook._is_llm_eligible_stages(
+            taxonomy.FILESYSTEM_READ,
+            stages,
+            "default",
+            "read | exec",
+        ) is False
+
+    def test_strict_does_not_inherit_read_exec_composition_carveout(self):
+        stages = [
+            {
+                "tokens": ["cat", "package.json"],
+                "action_type": taxonomy.FILESYSTEM_READ,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "filesystem_read -> allow",
+            },
+            {
+                "tokens": ["python3", "-c", "import sys; print(sys.stdin.read())"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.ALLOW,
+                "reason": "lang_exec -> allow",
+            },
+        ]
+
+        assert hook._is_llm_eligible_stages(
+            taxonomy.FILESYSTEM_READ,
+            stages,
+            "strict",
+            "read | exec",
+        ) is False
 
     def test_strict_preserves_conservative_bundle(self):
         config._cached_config = NahConfig(llm_eligible="strict")

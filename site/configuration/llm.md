@@ -184,7 +184,9 @@ llm:
 
 `strict` routes `unknown`, `lang_exec`, and non-sensitive `context` asks to the LLM.
 
-`default` adds `package_uninstall`, `container_exec`, `browser_exec`, and `agent_exec_read`. It keeps `process_signal`, service writes, destructive container/service actions, git discard/history/remote writes, agent write/remote/server/bypass actions, `composition`, and `sensitive` prompts human-gated by default.
+`default` adds `package_uninstall`, `container_exec`, `browser_exec`, `agent_exec_read`, and `process_signal`. It can also review safe local read-to-filter pipelines such as a local file read piped into inline, visible Python or shell code. The deterministic decision remains an `ask`; the LLM can only return `allow` or leave the human prompt in place.
+
+Broad composition review is still opt-in. File-backed scripts such as `python3 script.py`, sensitive reads, network/download stages, decode stages, destructive actions, bypass actions, and remote/shared-state writes stay human-gated under `default`. Service writes, destructive container/service actions, git discard/history/remote writes, agent write/remote/server/bypass actions, and `sensitive` prompts also stay human-gated by default.
 
 Explicit lists can combine presets and action types. `composition` and `sensitive` are gates: add them explicitly, or use top-level `eligible: all`, if you want those asks routed to the LLM.
 
@@ -196,11 +198,21 @@ LLM responses include a short prompt-safe `reasoning` summary and a longer `reas
 
 Claude Code and Codex use the same agent ask-refinement prompt shape. The prompt
 includes the runtime, requested operation, deterministic action type and reason,
-classification stages, recent user transcript context, and project instructions.
-Claude Code includes `CLAUDE.md` by default, unless `llm.claude_md: false` is
-set. Codex includes `AGENTS.md` when present. Transcript and project-instruction
-sections are framed as background context so the model can use them as evidence
-without following instructions embedded inside them.
+classification stages, recent user transcript context, and instruction context.
+
+Claude Code includes relevant `CLAUDE.md` files by default, unless
+`llm.claude_md: false` is set. nah reads project instruction files from the
+project root toward the current directory, then reads the user-global
+`~/.claude/CLAUDE.md` when present. Codex reads project `AGENTS.override.md` or
+`AGENTS.md`, then reads `${CODEX_HOME:-~/.codex}/AGENTS.override.md` or
+`AGENTS.md` when present. Simple same-directory `@AGENTS.md` and `@CLAUDE.md`
+references are expanded so delegated instructions are visible to the prompt.
+
+Instruction context is capped and marked when truncated. Transcript and
+instruction sections are framed as background context so the model can use them
+as evidence without following instructions embedded inside them. These files
+cannot weaken nah policy: deterministic blocks stay blocked, and in
+ask-refinement an LLM `block` response is treated as `uncertain`.
 
 The terminal guard keeps a separate prompt for commands typed directly by a
 human into bash or zsh. It uses the typed command as intent and does not include
@@ -306,9 +318,18 @@ Provider `uncertain` responses stop the cascade. In ask-refinement they leave th
 ## Testing
 
 ```bash
+nah config show
 nah test "python3 -c 'import os; os.system(\"rm -rf /\")'"
+nah test "kill -9 1234"
+nah test "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'"
+nah test "cat package.json | python3 script.py"
 nah test --target bash -- "python3 -c 'print(1)'"
+nah log --asks
+nah log --llm
 # Shows: LLM eligible: yes/no, LLM decision (if configured)
 ```
 
-The `nah test` command shows LLM eligibility and, if enabled, makes a live LLM call so you can verify the full pipeline.
+The `nah test` command shows LLM eligibility and, if enabled, makes a live LLM
+call so you can verify the full pipeline. The inline read-to-filter example can
+be LLM-eligible under `default`; the file-backed script example should remain a
+human prompt unless you explicitly opt into broader composition review.

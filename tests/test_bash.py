@@ -1105,6 +1105,26 @@ class TestComposition:
         assert r.final_decision == "ask"
         assert r.composition_rule == "read | exec"
 
+    def test_read_pipe_visible_inline_python_exec_ask(self, project_root):
+        r = classify_command(
+            "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'"
+        )
+        assert r.final_decision == "ask"
+        assert r.composition_rule == "read | exec"
+        assert [stage.action_type for stage in r.stages] == [
+            "filesystem_read",
+            "lang_exec",
+        ]
+
+    def test_read_pipe_file_backed_python_exec_ask(self, project_root):
+        r = classify_command("cat package.json | python3 filter.py")
+        assert r.final_decision == "ask"
+        assert r.composition_rule == "read | exec"
+        assert [stage.action_type for stage in r.stages] == [
+            "filesystem_read",
+            "lang_exec",
+        ]
+
     def test_safe_pipe_safe_allow(self, project_root):
         r = classify_command("ls | grep foo")
         assert r.final_decision == "allow"

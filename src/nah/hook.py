@@ -24,7 +24,50 @@ _LLM_ELIGIBLE_PRESETS = {
         taxonomy.CONTAINER_EXEC,
         taxonomy.BROWSER_EXEC,
         taxonomy.AGENT_EXEC_READ,
+        taxonomy.PROCESS_SIGNAL,
     ),
+}
+_DEFAULT_SAFE_COMPOSITION_RULE = "read | exec"
+_DEFAULT_SAFE_COMPOSITION_ALLOWED_ACTIONS = {
+    taxonomy.FILESYSTEM_READ,
+    taxonomy.LANG_EXEC,
+}
+_DEFAULT_SAFE_COMPOSITION_FORBIDDEN_ACTIONS = {
+    taxonomy.FILESYSTEM_DELETE,
+    taxonomy.FILESYSTEM_WRITE,
+    taxonomy.GIT_REMOTE_WRITE,
+    taxonomy.GIT_DISCARD,
+    taxonomy.GIT_HISTORY_REWRITE,
+    taxonomy.NETWORK_OUTBOUND,
+    taxonomy.NETWORK_WRITE,
+    taxonomy.PACKAGE_INSTALL,
+    taxonomy.CONTAINER_WRITE,
+    taxonomy.CONTAINER_DESTRUCTIVE,
+    taxonomy.SERVICE_WRITE,
+    taxonomy.SERVICE_DESTRUCTIVE,
+    taxonomy.DB_WRITE,
+    taxonomy.AGENT_WRITE,
+    taxonomy.AGENT_EXEC_WRITE,
+    taxonomy.AGENT_EXEC_REMOTE,
+    taxonomy.AGENT_SERVER,
+    taxonomy.AGENT_EXEC_BYPASS,
+    taxonomy.OBFUSCATED,
+    taxonomy.UNKNOWN,
+}
+_INLINE_EXEC_FLAGS = {
+    "python": {"-c"},
+    "python3": {"-c"},
+    "node": {"-e", "--eval", "-p", "--print"},
+    "ruby": {"-e"},
+    "perl": {"-e"},
+    "php": {"-r"},
+    "bash": {"-c"},
+    "sh": {"-c"},
+    "dash": {"-c"},
+    "zsh": {"-c"},
+    "fish": {"-c"},
+    "pwsh": {"-c", "-command", "-encodedcommand"},
+    "powershell": {"-c", "-command", "-encodedcommand"},
 }
 
 
@@ -351,6 +394,11 @@ def _is_llm_eligible_stages(
         return True
 
     if composition_rule and "composition" not in expanded:
+        if (
+            _eligible_uses_default_preset(eligible)
+            and _is_default_safe_read_exec_composition(stages, composition_rule)
+        ):
+            return True
         return False
 
     for sr in stages:
@@ -368,6 +416,73 @@ def _is_llm_eligible_stages(
         if taxonomy.CONTEXT in expanded and sr.get("policy") == taxonomy.CONTEXT:
             return True
     return False
+
+
+def _eligible_uses_default_preset(eligible) -> bool:
+    """Return whether the raw eligible config explicitly includes default."""
+    raw_items = eligible if isinstance(eligible, list) else [eligible]
+    return any(str(item) == "default" for item in raw_items)
+
+
+def _is_default_safe_read_exec_composition(
+    stages: list[dict],
+    composition_rule: str,
+) -> bool:
+    """Return True for default-only, visible local read-to-filter pipelines."""
+    if composition_rule != _DEFAULT_SAFE_COMPOSITION_RULE or len(stages) < 2:
+        return False
+
+    for stage in stages:
+        if stage.get("decision") != taxonomy.ALLOW:
+            return False
+        if _stage_has_forbidden_default_composition_signal(stage):
+            return False
+
+    for left, right in zip(stages, stages[1:]):
+        if left.get("action_type") != taxonomy.FILESYSTEM_READ:
+            continue
+        if right.get("action_type") != taxonomy.LANG_EXEC:
+            continue
+        if _stage_has_visible_inline_exec(right):
+            return True
+    return False
+
+
+def _stage_has_forbidden_default_composition_signal(stage: dict) -> bool:
+    action_type = str(stage.get("action_type", ""))
+    if action_type not in _DEFAULT_SAFE_COMPOSITION_ALLOWED_ACTIONS:
+        return True
+    if action_type in _DEFAULT_SAFE_COMPOSITION_FORBIDDEN_ACTIONS:
+        return True
+    reason = str(stage.get("reason", "")).lower()
+    return any(
+        needle in reason
+        for needle in (
+            "sensitive",
+            "credential",
+            "secret",
+            "network",
+            "remote",
+            "decode",
+            "obfuscat",
+            "bypass",
+            "destructive",
+            "delete",
+            "write",
+        )
+    )
+
+
+def _stage_has_visible_inline_exec(stage: dict) -> bool:
+    tokens = stage.get("tokens", [])
+    if not isinstance(tokens, list) or len(tokens) < 2:
+        return False
+    cmd = os.path.basename(str(tokens[0])).lower()
+    inline_flags = _INLINE_EXEC_FLAGS.get(cmd)
+    if not inline_flags:
+        return False
+    lowered = [str(token).lower() for token in tokens[1:]]
+    return any(flag in lowered for flag in inline_flags)
 
 
 def _expand_llm_eligible(eligible) -> tuple[bool, set[str]]:
@@ -411,6 +526,7 @@ def _is_llm_eligible(result) -> bool:
 
     stages = [
         {
+            "tokens": sr.tokens,
             "action_type": sr.action_type,
             "decision": sr.decision,
             "policy": sr.default_policy,
