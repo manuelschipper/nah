@@ -184,9 +184,9 @@ llm:
 
 `strict` routes `unknown`, `lang_exec`, and non-sensitive `context` asks to the LLM.
 
-`default` adds `package_uninstall`, `container_exec`, `browser_exec`, `agent_exec_read`, and `process_signal`. It can also review safe local read-to-filter pipelines such as a local file read piped into inline, visible Python or shell code. The deterministic decision remains an `ask`; the LLM can only return `allow` or leave the human prompt in place.
+`default` adds `package_uninstall`, `container_exec`, `browser_exec`, `agent_exec_read`, `process_signal`, and `git_remote_write`. It can also review safe local read-to-filter pipelines such as a local file read piped into inline, visible Python or shell code. The deterministic decision remains an `ask`; the LLM can only return `allow` or leave the human prompt in place.
 
-Broad composition review is still opt-in. File-backed scripts such as `python3 script.py`, sensitive reads, network/download stages, decode stages, destructive actions, bypass actions, and remote/shared-state writes stay human-gated under `default`. Service writes, destructive container/service actions, git discard/history/remote writes, agent write/remote/server/bypass actions, and `sensitive` prompts also stay human-gated by default.
+Broad composition review is still opt-in. File-backed scripts such as `python3 script.py`, sensitive reads, network/download stages, decode stages, destructive actions, bypass actions, and remote/shared-state writes stay human-gated under `default`. Service writes, destructive container/service actions, git discard/history rewrites, agent write/remote/server/bypass actions, and `sensitive` prompts also stay human-gated by default. Plain Git pushes can be LLM-reviewed when recent intent is clear; force pushes, branch/tag deletion, mirror/all pushes, and release-looking pushes should remain human prompts.
 
 Explicit lists can combine presets and action types. `composition` and `sensitive` are gates: add them explicitly, or use top-level `eligible: all`, if you want those asks routed to the LLM.
 

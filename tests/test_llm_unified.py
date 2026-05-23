@@ -154,6 +154,7 @@ class TestUnifiedPrompt:
         assert "High-impact actions are not categorically forbidden here" in prompt.user
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
+        assert "For remote Git writes" in prompt.user
 
     def test_missing_claude_md_uses_placeholder(self):
         prompt = _build_unified_prompt(
@@ -192,6 +193,7 @@ class TestUnifiedPrompt:
         assert "High-impact actions are not categorically forbidden here" in prompt.user
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
+        assert "For remote Git writes" in prompt.user
 
 
 class TestTranscriptRoles:
@@ -430,6 +432,17 @@ class TestEligibility:
         }]
         assert hook._is_llm_eligible_stages(
             "package_uninstall", stages, "default",
+        ) is True
+
+    def test_default_includes_git_remote_write(self):
+        stages = [{
+            "action_type": "git_remote_write",
+            "decision": "ask",
+            "policy": taxonomy.ASK,
+            "reason": "git_remote_write -> ask",
+        }]
+        assert hook._is_llm_eligible_stages(
+            "git_remote_write", stages, "default",
         ) is True
 
     def test_default_excludes_service_write(self):

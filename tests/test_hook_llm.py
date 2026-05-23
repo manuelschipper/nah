@@ -124,7 +124,14 @@ class TestIsLlmEligible:
 
     def test_default_includes_middle_ground_ask_types(self):
         config._cached_config = NahConfig(llm_eligible="default")
-        for action_type in ("package_uninstall", "container_exec", "browser_exec", "agent_exec_read", "process_signal"):
+        for action_type in (
+            "package_uninstall",
+            "container_exec",
+            "browser_exec",
+            "agent_exec_read",
+            "process_signal",
+            "git_remote_write",
+        ):
             result = _ask_result_for_action(action_type)
             assert hook._is_llm_eligible(result) is True
 
@@ -132,7 +139,6 @@ class TestIsLlmEligible:
         config._cached_config = NahConfig(llm_eligible="default")
         excluded = (
             "service_write",
-            "git_remote_write",
             "git_discard",
             "git_history_rewrite",
             "container_destructive",

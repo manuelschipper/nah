@@ -271,6 +271,7 @@ class TestBuildTerminalGuardPrompt:
         assert "network_outbound \u2192 ask" in prompt.user
         assert "Safe local read-to-filter pipelines" in prompt.user
         assert "Process signals" in prompt.user
+        assert "Ordinary Git pushes" in prompt.user
 
     def test_terminal_prompt_omits_agent_context_sections(self):
         prompt = _build_terminal_guard_prompt(

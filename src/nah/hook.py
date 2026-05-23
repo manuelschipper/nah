@@ -25,6 +25,7 @@ _LLM_ELIGIBLE_PRESETS = {
         taxonomy.BROWSER_EXEC,
         taxonomy.AGENT_EXEC_READ,
         taxonomy.PROCESS_SIGNAL,
+        taxonomy.GIT_REMOTE_WRITE,
     ),
 }
 _DEFAULT_SAFE_COMPOSITION_RULE = "read | exec"
