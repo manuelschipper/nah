@@ -5,6 +5,8 @@ repo_url: https://github.com/manuelschipper/nah
 repo_name: manuelschipper/nah
 docs_dir: site
 site_dir: _build
+not_in_nav: |
+  configuration/claude-code.md
 
 theme:
   name: material
