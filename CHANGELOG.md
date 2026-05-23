@@ -14,12 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery. The slash command is a short product demo; pytest remains the
   regression suite. (nah-962)
 - **LLM ask refinement defaults** — default LLM eligibility now includes
-  process signals, plain remote Git writes, and safe local read-to-filter
-  pipelines with inline visible exec payloads, while file-backed scripts,
-  force pushes/history rewrites, sensitive reads, remote/decode chains,
-  destructive actions, and bypass paths remain human-gated. Claude and Codex
-  ask-refinement prompts now include labeled project and user-global
+  process signals and safe local read-to-filter pipelines with inline visible
+  exec payloads, while file-backed scripts, sensitive reads, remote/decode
+  chains, destructive actions, and bypass paths remain human-gated. Claude and
+  Codex ask-refinement prompts now include labeled project and user-global
   instruction context when available. (nah-963)
+- **Plain Git push LLM review** — default LLM eligibility now includes
+  `git_remote_write`, so an agent told to "commit and push" can auto-approve a
+  normal `git push` when recent intent is clear. Force pushes, history
+  rewrites, branch/tag deletion, mirror/all pushes, and release-looking pushes
+  remain human-gated.
 
 ## [0.9.0] - 2026-05-21
 
