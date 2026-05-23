@@ -4712,6 +4712,14 @@ def _resolve_context(
     inline_code = None
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
+        if action_type == taxonomy.FILESYSTEM_WRITE:
+            tee_context = _resolve_tee_targets_context(
+                tokens,
+                shell_cwd=shell_cwd,
+                shell_cwd_unknown=shell_cwd_unknown,
+            )
+            if tee_context is not None:
+                return tee_context
         target_path = _extract_primary_target(tokens)
         if target_path:
             target_path = _path_for_shell_cwd(target_path, shell_cwd, shell_cwd_unknown)
@@ -4747,6 +4755,57 @@ def _extract_primary_target(tokens: list[str]) -> str:
     # Return last path-like candidate, or fall back to last non-flag arg
     # (handles bare relative paths like "new_dir")
     return candidates[-1] if candidates else last_non_flag
+
+
+def _parse_tee_targets(tokens: list[str]) -> list[str] | None:
+    """Return tee FILE operands, or None for unsupported/non-tee forms."""
+    if not tokens or taxonomy._normalize_command_name(tokens[0]) != "tee":
+        return None
+
+    targets: list[str] = []
+    after_double_dash = False
+    for tok in tokens[1:]:
+        if tok == "--" and not after_double_dash:
+            after_double_dash = True
+            continue
+        if not after_double_dash and tok in {
+            "-a",
+            "--append",
+            "-i",
+            "--ignore-interrupts",
+            "-p",
+            "--output-error",
+        }:
+            continue
+        if not after_double_dash and tok.startswith("--output-error="):
+            continue
+        if not after_double_dash and tok.startswith("-"):
+            return None
+        targets.append(tok)
+    return targets
+
+
+def _resolve_tee_targets_context(
+    tokens: list[str],
+    *,
+    shell_cwd: str = "",
+    shell_cwd_unknown: bool = False,
+) -> tuple[str, str] | None:
+    targets = _parse_tee_targets(tokens)
+    if targets is None:
+        return None
+    if not targets:
+        return taxonomy.ALLOW, "tee stdout only"
+
+    filesystem_targets = [target for target in targets if not _is_redirect_safe_sink(target)]
+    if not filesystem_targets:
+        return taxonomy.ALLOW, "tee safe sink"
+
+    return _resolve_filesystem_targets_context(
+        filesystem_targets,
+        shell_cwd=shell_cwd,
+        shell_cwd_unknown=shell_cwd_unknown,
+    )
 
 
 def _unwrap_lang_exec_wrapper(tokens: list[str]) -> list[str] | None:
@@ -5225,32 +5284,9 @@ def _is_transparent_tee_stage(sr: StageResult) -> bool:
     if sr.action_type != taxonomy.FILESYSTEM_WRITE:
         return False
 
-    targets: list[str] = []
-    args = sr.tokens[1:]
-    i = 0
-    after_double_dash = False
-    while i < len(args):
-        tok = args[i]
-        if tok == "--" and not after_double_dash:
-            after_double_dash = True
-            i += 1
-            continue
-        if not after_double_dash and tok in {"-a", "--append", "-i", "--ignore-interrupts", "-p"}:
-            i += 1
-            continue
-        if not after_double_dash and tok == "--output-error":
-            if i + 1 >= len(args):
-                return False
-            i += 2
-            continue
-        if not after_double_dash and tok.startswith("--output-error="):
-            i += 1
-            continue
-        if not after_double_dash and tok.startswith("-"):
-            return False
-        targets.append(tok)
-        i += 1
-
+    targets = _parse_tee_targets(sr.tokens)
+    if targets is None:
+        return False
     if not targets:
         return True
     for target in targets:

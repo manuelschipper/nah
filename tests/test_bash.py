@@ -1280,6 +1280,33 @@ class TestTransparentSuffixComposition:
     @pytest.mark.parametrize(
         "command",
         [
+            "cat package.json | python3 -m json.tool | tee",
+            "cat package.json | python3 -m json.tool | tee /dev/null",
+            "cat package.json | python3 -m json.tool | tee --output-error=warn /dev/stderr",
+        ],
+    )
+    def test_python_formatter_followed_by_tee_safe_suffix_allows(
+        self, project_root, command
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert r.stages[-1].action_type == "filesystem_write"
+
+    def test_python_formatter_followed_by_tee_output_error_file_target_asks(
+        self, project_root
+    ):
+        r = classify_command(
+            "cat package.json | python3 -m json.tool | tee --output-error /opt/nah-854-out"
+        )
+        assert r.final_decision == "ask"
+        assert r.composition_rule == "read | exec"
+        assert r.stages[-1].action_type == "filesystem_write"
+        assert "/opt/nah-854-out" in r.stages[-1].reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
             "cat package.json | python3 -m json.tool | sed -n '1,80p'",
             "cat package.json | python3 -m json.tool | sed --quiet '$p'",
             "cat package.json | python3 -m json.tool | sed --silent --expression='80p'",
@@ -3076,6 +3103,62 @@ class TestContextResolverFallback:
         target = os.path.join(project_root, "output.txt")
         r = classify_command(f"tee {target}")
         assert r.final_decision == "allow"  # inside project → allow
+
+    def test_bare_tee_is_stdout_only(self, project_root):
+        r = classify_command("echo test | tee")
+        assert r.final_decision == "allow"
+        assert r.stages[-1].action_type == "filesystem_write"
+        assert r.stages[-1].reason == "tee stdout only"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo test | tee /dev/null",
+            "echo test | tee /dev/stderr",
+            "echo test | tee /dev/stdout",
+            "echo test | tee /dev/fd/2",
+            "echo test | tee -a /dev/null",
+            "echo test | tee --output-error=warn /dev/stderr",
+            "echo test | tee -- /dev/null",
+        ],
+    )
+    def test_tee_safe_sink_targets_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[-1].action_type == "filesystem_write"
+        assert r.stages[-1].reason == "tee safe sink"
+        assert "/proc/" not in r.reason
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo test | tee /opt/nah-854-out /dev/null",
+            "echo test | tee /dev/null /opt/nah-854-out",
+            "echo test | tee -a /opt/nah-854-out /dev/null",
+        ],
+    )
+    def test_tee_mixed_safe_sink_and_real_target_asks_on_real_target(
+        self, project_root, command
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert "/opt/nah-854-out" in r.reason
+        assert "/dev/null" not in r.reason
+
+    def test_tee_unsafe_device_target_still_asks(self, project_root):
+        r = classify_command("echo test | tee /dev/sda")
+        assert r.final_decision == "ask"
+        assert "/dev/sda" in r.reason
+
+    def test_tee_bare_output_error_keeps_following_file_operand(self, project_root):
+        r = classify_command("echo test | tee --output-error /opt/nah-854-out")
+        assert r.final_decision == "ask"
+        assert "/opt/nah-854-out" in r.reason
+
+    def test_tee_unknown_option_falls_back_to_existing_context(self, project_root):
+        r = classify_command("echo test | tee --not-a-real-option /dev/null")
+        assert r.final_decision == "ask"
+        assert "/dev/null" in r.reason
 
 
 # --- FD-042: Database context resolution E2E ---
