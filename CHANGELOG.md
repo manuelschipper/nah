@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rewrites, branch/tag deletion, mirror/all pushes, and release-looking pushes
   remain human-gated.
 
+### Fixed
+
+- **`tee` stream sink false positives** — bare `tee` and `tee` targets such as
+  `/dev/null`, `/dev/stderr`, `/dev/stdout`, and `/dev/fd/*` now allow
+  deterministically, while mixed real file/device targets still resolve through
+  filesystem context. (nah-854)
+
 ## [0.9.0] - 2026-05-21
 
 ### Added
