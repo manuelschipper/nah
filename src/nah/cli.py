@@ -17,10 +17,12 @@ _HOOKS_DIR = Path.home() / ".claude" / "hooks"
 _HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
 _KEY_PROVIDERS = ("openai", "anthropic", "openrouter", "cortex", "azure")
 _CLAUDE_BLOCKED_FLAGS = {
+    "--allow-dangerously-skip-permissions",
+    "--bare",
     "--dangerously-skip-permissions",
     "--enable-auto-mode",
 }
-_CLAUDE_BYPASS_PERMISSION_MODE = "bypassPermissions"
+_CLAUDE_BLOCKED_PERMISSION_MODES = {"auto", "bypassPermissions"}
 _CLAUDE_TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
@@ -1726,8 +1728,8 @@ def cmd_claude(user_args: list[str]) -> None:
     if blocked:
         print(
             f"nah run claude: {blocked} is not allowed because nah cannot "
-            "protect a Claude Code session launched with permission bypass "
-            "or auto-approval enabled. Run `nah run claude` without that "
+            "protect a Claude Code session launched with permission bypass, "
+            "hook bypass, or auto-approval enabled. Run `nah run claude` without that "
             "flag, or run `claude` directly if you intentionally want an "
             "unguarded session.",
             file=sys.stderr,
@@ -1818,11 +1820,14 @@ def _blocked_claude_flag(args: list[str]) -> str:
         if arg.startswith("--enable-auto-mode="):
             return arg
         if arg == "--permission-mode":
-            if i + 1 < len(args) and args[i + 1] == _CLAUDE_BYPASS_PERMISSION_MODE:
-                return "--permission-mode bypassPermissions"
+            if i + 1 < len(args) and args[i + 1] in _CLAUDE_BLOCKED_PERMISSION_MODES:
+                return f"--permission-mode {args[i + 1]}"
             i += 2
             continue
-        if arg == "--permission-mode=bypassPermissions":
+        if (
+            arg.startswith("--permission-mode=")
+            and arg.split("=", 1)[1] in _CLAUDE_BLOCKED_PERMISSION_MODES
+        ):
             return arg
         i += 1
     return ""

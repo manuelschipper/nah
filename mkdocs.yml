@@ -57,6 +57,7 @@ nav:
   - Guides:
     - How it works: how-it-works.md
     - Using nah as a team: guides/team-configuration.md
+    - Running unsupervised agents: guides/unsupervised-agents.md
     - Working with sensitive data: guides/sensitive-data.md
     - Threat model: threat-model.md
   - Configuration:

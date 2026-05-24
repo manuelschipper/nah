@@ -27,10 +27,11 @@ execs `claude --settings <hooks-json>`. If `nah install claude` has already
 been run, skips `--settings` injection and launches `claude` directly.
 
 Most flags after `nah run claude` are passed through to the `claude` CLI. nah
-rejects flags that bypass or auto-approve Claude Code permissions, including
-`--dangerously-skip-permissions`, `--enable-auto-mode`, and
-`--permission-mode bypassPermissions`, because those can run tool calls outside
-the guarded path.
+rejects flags that bypass permissions, skip hooks, or auto-approve Claude Code
+permissions, including `--dangerously-skip-permissions`,
+`--allow-dangerously-skip-permissions`, `--bare`, `--enable-auto-mode`, and
+`--permission-mode auto` / `--permission-mode bypassPermissions`, because those
+can run tool calls outside the guarded path.
 
 ### nah run codex
 

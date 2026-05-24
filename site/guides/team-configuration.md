@@ -186,13 +186,15 @@ presets:
       lang_exec: ask
       unknown: ask
 
-  autonomy:
+  sandboxed-build-agent:
     targets:
       codex:
         ask_fallback: block
+      claude:
+        ask_fallback: block
     actions:
       git_history_rewrite: block
-      git_remote_write: context
+      git_remote_write: block
       db_write: block
       unknown: block
 ```
@@ -201,11 +203,13 @@ Run with a preset:
 
 ```bash
 nah run claude --preset strict
-nah run codex --preset autonomy
-nah run codex --preset autonomy exec "work on the next issue"
+nah run codex --preset sandboxed-build-agent
+nah run codex --preset sandboxed-build-agent exec "work on the next issue"
 ```
 
 Use presets when you want a mode for a session, not a permanent repo rule.
+For a full unattended setup, see
+[Running unsupervised agents](unsupervised-agents.md).
 
 ## Check what nah will use
 

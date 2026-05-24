@@ -1432,9 +1432,13 @@ class TestCmdClaude:
             cmd_claude(["--settings=custom.json"])
 
     @pytest.mark.parametrize("args, expected", [
+        (["--allow-dangerously-skip-permissions"], "--allow-dangerously-skip-permissions"),
+        (["--bare"], "--bare"),
         (["--dangerously-skip-permissions"], "--dangerously-skip-permissions"),
         (["--enable-auto-mode"], "--enable-auto-mode"),
         (["--enable-auto-mode=true"], "--enable-auto-mode=true"),
+        (["--permission-mode", "auto"], "--permission-mode auto"),
+        (["--permission-mode=auto"], "--permission-mode=auto"),
         (["--permission-mode", "bypassPermissions"], "--permission-mode bypassPermissions"),
         (["--permission-mode=bypassPermissions"], "--permission-mode=bypassPermissions"),
     ])

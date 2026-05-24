@@ -90,7 +90,7 @@ nah:
 
 ```bash
 nah run codex exec "run: git status"
-nah run codex --preset autonomy exec "run the test suite"
+nah run codex --preset sandboxed-build-agent exec "run the test suite"
 nah run codex --sandbox workspace-write --network exec "run npm test"
 ```
 
@@ -140,6 +140,9 @@ The default headless sandbox is still `danger-full-access`. That keeps local
 developer workflows working while nah remains the hook-visible policy gate. Use
 `--sandbox workspace-write --network` when you want Codex's filesystem sandbox
 as an additional boundary.
+
+For a complete unattended setup, see
+[Running unsupervised agents](../guides/unsupervised-agents.md).
 
 ## Hook Review
 

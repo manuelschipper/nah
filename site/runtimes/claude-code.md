@@ -39,11 +39,15 @@ Claude process and its nah hooks. `--preset` is a nah launcher flag, not a
 Claude Code flag. If the preset name does not exist, nah stops before starting
 Claude Code.
 
-nah rejects Claude flags that bypass or auto-approve permissions:
+nah rejects Claude flags that bypass permissions, skip hooks, or auto-approve
+permissions:
 
 ```bash
+nah run claude --allow-dangerously-skip-permissions
+nah run claude --bare
 nah run claude --dangerously-skip-permissions
 nah run claude --enable-auto-mode
+nah run claude --permission-mode auto
 nah run claude --permission-mode bypassPermissions
 ```
 
