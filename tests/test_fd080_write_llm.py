@@ -375,13 +375,14 @@ class TestPromptContent:
         assert "Reason: Write: content inspection [destructive]: os.remove" in prompt.user
         assert "Content inspection: Write: content inspection [destructive]: os.remove" in prompt.user
 
-    def test_write_prompt_has_intent_and_secret_reference_criteria(self):
+    def test_write_prompt_has_risk_and_secret_reference_criteria(self):
         prompt = _build_write_prompt("Write", {
             "file_path": "~/.keys",
             "content": "alias ads='OPENAI_API_KEY=${EXISTING_SECRET_VAR} ads-tool'\n",
         }, {"decision": "ask", "reason": "Write outside project: ~/.keys"})
-        assert "clearly asked for this exact edit" in prompt.user
-        assert "target path and edited lines match" in prompt.user
+        assert "Project-local source files and test fixtures are ordinary edit targets" in prompt.user
+        assert "No destructive, exfiltration, persistence" in prompt.user
+        assert "command-injection" in prompt.user
         assert "Existing secret-variable references" in prompt.user
         assert "No new literal credential" in prompt.user
         assert "printed, transmitted, copied" in prompt.user
@@ -430,8 +431,8 @@ class TestPromptContent:
             "file_path": "test.py",
             "content": "hello",
         }, {"decision": "allow"})
-        assert "security classifier" in prompt.system
-        assert "safety + intent review" in prompt.system
+        assert "security reviewer" in prompt.system
+        assert "reviewed for obvious risk" in prompt.system
 
 
 # ===================================================================

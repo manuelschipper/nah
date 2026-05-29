@@ -155,15 +155,20 @@ chain-of-thought.\
 """
 
 _WRITE_REVIEW_SYSTEM_TEMPLATE = """\
-You are a security classifier for a CLI tool safety guard. \
-A write-like tool operation passed the deterministic classifier and needs safety + intent review. \
-Decide: allow or uncertain.
+You are a security reviewer for a CLI safety guard. \
+A write-like tool operation has already passed deterministic checks and is being \
+reviewed for obvious risk.
 
-Rules:
-- allow: the edit is clearly safe, narrow, and aligned with the recent user request
-- uncertain: intent is unclear or content may contain credentials, destructive actions, exfiltration, persistence, auth weakening, or other security risks
-- You cannot block. Use uncertain when a human should decide.
-- A false allow is worse than a false uncertain. When in doubt, say uncertain.
+Return allow when the observable edit is narrow, project-local, and does not \
+introduce security-sensitive behavior.
+
+Return uncertain when the observable edit has risk signals, appears malformed, \
+affects a sensitive execution/persistence/auth boundary, or conflicts with \
+recent user intent.
+
+Use recent conversation context to catch conflicts or clarify why an edit is \
+safe. Do not require an exact line-by-line match between the user request and an \
+ordinary project-local source or test edit.
 
 Respond with exactly one JSON object, no other text:
 {"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
@@ -1772,19 +1777,18 @@ def _build_write_prompt(
     parts.extend([
         "",
         "## Allow Criteria",
-        "- The recent user request clearly asked for this exact edit or directly implied this alias/config change.",
-        "- The target path and edited lines match that request.",
-        "- The edit is narrow.",
+        "- Deterministic result is allow/no flags, the path is inside the project, and the edit is narrow.",
+        "- Project-local source files and test fixtures are ordinary edit targets, even if they are executable or live under directories such as bin/, scripts/, tools/, or tests/.",
         "- No new literal credential, token, key, or password is added.",
-        "- Existing secret-variable references such as ${EXISTING_SECRET_VAR} may be safe when used only as an alias/reference.",
+        "- Existing secret-variable references such as ${EXISTING_SECRET_VAR} may be safe when used only as a reference.",
         "- No secret is printed, transmitted, copied to a less protected place, or broadened in scope.",
-        "- No destructive, exfiltration, persistence, hook, auth-weakening, or safety bypass behavior is introduced.",
+        "- No destructive, exfiltration, persistence, hook, auth-weakening, command-injection, unsafe shell evaluation, downloaded-code execution, obfuscation, or safety bypass behavior is introduced.",
         "",
         "## Uncertain Criteria",
-        "- User intent is absent, vague, or conflicts with the edit.",
-        "- The deterministic reason is sensitive path, nah config, or content inspection.",
-        "- The edit adds or exposes literal credential material.",
-        "- The edit changes shell startup, agent hooks, auth files, package lifecycle scripts, deploy/release automation, or other persistence/execution surfaces in a risky way.",
+        "- The patch appears malformed or syntactically mismatched for the target file type.",
+        "- The edit introduces command injection risk, unsafe shell evaluation, downloaded-code execution, obfuscation, hidden execution, or credential exposure.",
+        "- The edit changes hooks, auth files, shell startup, package lifecycle scripts, deploy/release automation, service/system config, CI secrets, or other persistence/execution boundaries.",
+        "- The edit conflicts with recent user intent.",
     ])
 
     if transcript_context:

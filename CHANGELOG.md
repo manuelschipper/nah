@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM write review prompt** — write-like tool review now focuses on
+  observable risk instead of requiring an exact user-intent match for ordinary
+  project-local source and test edits. It still escalates malformed patches,
+  command-injection risks, persistence/auth boundary changes, credential
+  exposure, and conflicting intent.
 - **Claude Code demo simplification** — `/nah-demo` now uses a dedicated
   25-case curated demo file instead of the former 90-case plus variant test
   battery. The slash command is a short product demo; pytest remains the
