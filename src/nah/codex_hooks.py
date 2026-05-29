@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from nah import agents, hook, taxonomy
+from nah import agents, hook, paths as nah_paths, taxonomy
 from nah.apply_patch import classify_codex_apply_patch
 from nah.messages import enrich_decision
 
@@ -154,7 +154,6 @@ def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]
         decision = _apply_codex_edit_confirmation_policy(
             decision,
             log_input,
-            str(payload.get("cwd", "") or ""),
         )
         return decision, canonical, log_input
 
@@ -191,7 +190,7 @@ def _unsupported_decision(canonical: str, _tool_input: dict) -> dict:
     }
 
 
-def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict, cwd: str) -> dict:
+def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict) -> dict:
     """Allow known-safe project edits unless the launcher asked to confirm them."""
     if decision.get("decision") != taxonomy.ASK:
         return decision
@@ -199,7 +198,7 @@ def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict, cwd: 
         return decision
     if _confirm_edits_enabled():
         return decision
-    if not _patch_paths_inside_cwd(log_input, cwd):
+    if not _patch_paths_inside_project(log_input):
         return decision
 
     allowed = copy.deepcopy(decision)
@@ -248,17 +247,14 @@ def _headless_ask_fallback_error() -> str:
     return "missing headless ask fallback"
 
 
-def _patch_paths_inside_cwd(log_input: dict, cwd: str) -> bool:
-    if not cwd:
-        return False
-    paths = log_input.get("_nah_patch_paths", [])
-    if not isinstance(paths, list) or not paths:
+def _patch_paths_inside_project(log_input: dict) -> bool:
+    patch_paths = log_input.get("_nah_patch_paths", [])
+    if not isinstance(patch_paths, list) or not patch_paths:
         return False
     try:
-        root = os.path.abspath(os.path.expanduser(cwd))
-        for raw_path in paths:
+        for raw_path in patch_paths:
             path = os.path.abspath(os.path.expanduser(str(raw_path)))
-            if os.path.commonpath([root, path]) != root:
+            if not nah_paths.is_inside_project_boundary(path):
                 return False
     except (OSError, RuntimeError, ValueError):
         return False

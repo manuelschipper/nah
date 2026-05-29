@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Codex `apply_patch` friction** — safe project-local same-path
+  delete/add patches now behave like whole-file replacements instead of always
+  requiring native approval, and safe edit auto-approval now uses the project
+  boundary instead of Codex's current subdirectory.
 - **LLM write review prompt** — write-like tool review now focuses on
   observable risk instead of requiring an exact user-intent match for ordinary
   project-local source and test edits. It still escalates malformed patches,

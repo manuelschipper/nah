@@ -1541,6 +1541,62 @@ def test_apply_patch_safe_project_patch_defaults_to_allow(project_root, tmp_path
     assert "app.py" in entries[-1]["input"]
 
 
+def test_apply_patch_safe_project_patch_from_subdir_defaults_to_allow(project_root):
+    src_dir = Path(project_root) / "src"
+    src_dir.mkdir()
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("../app.py")},
+        "cwd": str(src_dir),
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_same_path_replacement_defaults_to_allow(project_root):
+    patch = "\n".join([
+        "*** Begin Patch",
+        "*** Delete File: docs/lifecycle.md",
+        "*** Add File: docs/lifecycle.md",
+        "+# Lifecycle",
+        "+",
+        "+Updated docs.",
+        "*** End Patch",
+        "",
+    ])
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": patch},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_empty_same_path_replacement_returns_no_verdict(project_root):
+    patch = """*** Begin Patch
+*** Delete File: docs/lifecycle.md
+*** Add File: docs/lifecycle.md
+*** End Patch
+"""
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": patch},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+
+
 def test_apply_patch_confirm_edits_returns_no_verdict(project_root, monkeypatch, tmp_path):
     monkeypatch.setenv("NAH_CODEX_CONFIRM_EDITS", "1")
 

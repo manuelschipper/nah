@@ -103,8 +103,9 @@ def classify_codex_apply_patch(
     if content_decision.get("decision") == taxonomy.BLOCK:
         return content_decision, log_input
 
-    if parsed.has_destructive_operation:
-        return _ask("apply_patch: delete/move patch requires native approval"), log_input
+    destructive_reason = _destructive_patch_reason(parsed, cwd)
+    if destructive_reason:
+        return _ask(destructive_reason), log_input
 
     if llm_review and content_decision.get("decision") == taxonomy.ALLOW:
         from nah import hook
@@ -291,6 +292,39 @@ def _scan_added_content(content: str) -> dict:
             ],
         },
     }
+
+
+def _destructive_patch_reason(parsed: ParsedPatch, cwd: str) -> str:
+    """Return a native-approval reason for destructive patch shapes.
+
+    A delete followed by an add for the same resolved path is a whole-file
+    replacement. Treat that like an update after normal path/content checks.
+    True deletes, moves, and cross-path replacements remain native approvals.
+    """
+    delete_counts: dict[str, int] = {}
+    add_counts: dict[str, int] = {}
+    add_has_content: dict[str, bool] = {}
+
+    for op in parsed.operations:
+        if op.kind == "move":
+            return "apply_patch: delete/move patch requires native approval"
+        if op.kind == "delete":
+            path = _resolve_patch_path(op.path, cwd)
+            delete_counts[path] = delete_counts.get(path, 0) + 1
+            continue
+        if op.kind == "add":
+            path = _resolve_patch_path(op.path, cwd)
+            add_counts[path] = add_counts.get(path, 0) + 1
+            if op.added_lines:
+                add_has_content[path] = True
+
+    for path, count in delete_counts.items():
+        if add_counts.get(path, 0) != count:
+            return "apply_patch: delete/move patch requires native approval"
+        if not add_has_content.get(path, False):
+            return "apply_patch: empty replacement patch requires native approval"
+
+    return ""
 
 
 def _resolve_patch_path(path: str, cwd: str) -> str:
