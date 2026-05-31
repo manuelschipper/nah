@@ -540,6 +540,52 @@ def test_base_block_does_not_run_provenance_context_review(
     assert "review" not in sink["_meta"]["provenance"]
 
 
+def test_context_review_error_not_truncated(monkeypatch, project_root):
+    monkeypatch.chdir(project_root)
+    config._cached_config = NahConfig(
+        provenance={
+            "mode": "enforce",
+            "policies": {"activation": "context", "boundary": "ask"},
+        },
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    target = os.path.join(project_root, "derived.py")
+    long_error = "review failed " + ("x" * 400)
+
+    def fail_review(packet, llm_config):
+        raise RuntimeError(long_error)
+
+    monkeypatch.setattr("nah.llm.try_llm_provenance_review", fail_review)
+    _write_pre(target)
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    _write_post(target)
+
+    sink = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {
+            "stages": [{
+                "tokens": ["python3", "derived.py"],
+                "action_type": taxonomy.LANG_EXEC,
+                "decision": taxonomy.ALLOW,
+                "policy": taxonomy.CONTEXT,
+            }],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Bash",
+        {"command": "python3 derived.py"},
+        sink,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-run"},
+        execution={"state": "requested"},
+    )
+
+    assert sink["decision"] == taxonomy.ASK
+    assert sink["_meta"]["provenance"]["review"]["error"] == long_error
+
+
 def test_direct_lang_exec_context_packet_includes_session_repo_delta(
     monkeypatch,
     project_root,

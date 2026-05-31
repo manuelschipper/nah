@@ -904,8 +904,33 @@ class TestConfigSelfProtection:
         assert result["decision"] == "ask"
 
     def test_nah_log_protected(self):
-        """Log file in config dir is protected."""
+        """Log writes in config dir are protected."""
         result = paths.check_path("Write", "~/.config/nah/nah.log")
+        assert result is not None
+        assert result["decision"] == "ask"
+
+    @pytest.mark.parametrize(
+        "raw_path",
+        [
+            "~/.config/nah/nah.log",
+            "~/.config/nah/nah.log.1",
+            "~/.config/nah/nah.log.12",
+        ],
+    )
+    def test_nah_log_read_allowed(self, raw_path):
+        """Exact nah log reads are observability, not self-modification."""
+        assert paths.check_path("Read", raw_path) is None
+        assert paths.check_path("Grep", raw_path) is None
+
+    @pytest.mark.parametrize(
+        "raw_path",
+        [
+            "~/.config/nah/nah.log.old",
+            "~/.config/nah/subdir/nah.log",
+        ],
+    )
+    def test_nah_log_like_read_still_protected(self, raw_path):
+        result = paths.check_path("Read", raw_path)
         assert result is not None
         assert result["decision"] == "ask"
 

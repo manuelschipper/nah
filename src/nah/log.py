@@ -238,7 +238,7 @@ def _extract_action_type(meta: dict) -> str:
 def redact_input(tool: str, tool_input: dict) -> str:
     """Build a redacted input summary string."""
     if tool == "Bash":
-        cmd = tool_input.get("command", "")[:200]
+        cmd = tool_input.get("command", "")
         return _ENV_VALUE_RE.sub(r"\1***", cmd)
 
     if tool in ("Read", "Glob"):
@@ -253,17 +253,17 @@ def redact_input(tool: str, tool_input: dict) -> str:
         return tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
 
     if tool == "apply_patch":
-        summary = str(tool_input.get("_nah_patch_summary", ""))[:200]
+        summary = str(tool_input.get("_nah_patch_summary", ""))
         paths = tool_input.get("_nah_patch_paths", [])
         if summary:
             return summary
         if isinstance(paths, list):
-            return ", ".join(str(p) for p in paths)[:200]
+            return ", ".join(str(p) for p in paths)
         return ""
 
     if tool.startswith("mcp__"):
         for key, val in tool_input.items():
-            return f"{key}={str(val)[:100]}"
+            return f"{key}={str(val)}"
         return ""
 
     return ""

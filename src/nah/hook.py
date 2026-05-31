@@ -781,17 +781,17 @@ def _post_tool_execution(data: dict, hook_event_name: str) -> dict:
 
 
 def _redact_error_summary(error: str) -> str:
-    """Return a bounded error summary without known inline secret tokens."""
+    """Return an error summary without known inline secret tokens."""
     summary = error.replace("\r", "\\r").replace("\n", "\\n")
     try:
         for pattern, _label in get_secret_patterns():
             summary = pattern.sub("***", summary)
     except Exception:
         # Error summaries are diagnostic-only. If custom content patterns are
-        # malformed or unavailable, the bounded string is still preferable to
+        # malformed or unavailable, the raw string is still preferable to
         # dropping the whole post-tool failure row.
         pass
-    return summary[:300]
+    return summary
 
 
 def _log_post_tool_event(

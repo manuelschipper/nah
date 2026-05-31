@@ -2317,6 +2317,7 @@ def _classify_stage(
         tokens,
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
+        allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
     )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
@@ -2364,6 +2365,7 @@ def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
         stage.tokens,
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
+        allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
     )
     if path_decision == taxonomy.BLOCK or (
         path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW
@@ -4683,6 +4685,7 @@ def _safe_python_module_result(
         stage.tokens,
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
+        allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
     )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
@@ -5086,6 +5089,7 @@ def _check_extracted_paths(
     *,
     shell_cwd: str = "",
     shell_cwd_unknown: bool = False,
+    allow_nah_log_read: bool = False,
 ) -> tuple[str, str]:
     """Check all path-like tokens against sensitive paths. Most restrictive wins."""
     from nah.config import is_path_allowed  # lazy import to avoid circular
@@ -5106,6 +5110,8 @@ def _check_extracted_paths(
                         taxonomy.ASK,
                         f"relative path after shell cwd change: {check_tok}",
                     )
+                continue
+            if allow_nah_log_read and paths.is_nah_log_path(resolved_check):
                 continue
             basic = paths.check_path_basic_raw(resolved_check)
             if basic:

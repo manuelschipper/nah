@@ -628,7 +628,7 @@ def _resolve_context_review(
             return taxonomy.ALLOW, "session provenance reviewer allowed activation", review_meta
         return taxonomy.ASK, llm_call.reasoning or "session provenance reviewer was uncertain", review_meta
     except Exception as exc:
-        review_meta["error"] = str(exc)[:200]
+        review_meta["error"] = str(exc)
         return taxonomy.ASK, "session provenance context review failed", review_meta
 
 

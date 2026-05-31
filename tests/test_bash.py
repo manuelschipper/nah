@@ -1292,6 +1292,31 @@ class TestTransparentSuffixComposition:
         assert len(r.stages) == 2
         assert r.stages[1].action_type == "filesystem_read"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "jq -r . ~/.config/nah/nah.log",
+            "tail -n 20 ~/.config/nah/nah.log.2",
+            "cat ~/.config/nah/nah.log.12 | jq -r .decision",
+        ],
+    )
+    def test_nah_log_reads_allow(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.composition_rule == ""
+        assert all(stage.action_type == "filesystem_read" for stage in r.stages)
+
+    def test_nah_config_read_still_asks(self, project_root):
+        r = classify_command("cat ~/.config/nah/config.yaml")
+        assert r.final_decision == "ask"
+        assert "nah config" in r.reason
+
+    def test_nah_log_redirect_write_still_asks(self, project_root):
+        r = classify_command("echo x >> ~/.config/nah/nah.log.2")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "nah config" in r.reason
+
     def test_python_formatter_followed_by_head_is_transparent_suffix(self, project_root):
         r = classify_command("python3 -m json.tool package.json | head -20")
         assert r.final_decision == "allow"

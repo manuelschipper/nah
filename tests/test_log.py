@@ -27,10 +27,10 @@ class TestRedactInput:
         result = log.redact_input("Bash", {"command": "git status"})
         assert result == "git status"
 
-    def test_bash_truncated_at_200(self):
+    def test_bash_not_truncated(self):
         long_cmd = "x" * 300
         result = log.redact_input("Bash", {"command": long_cmd})
-        assert len(result) == 200
+        assert result == long_cmd
 
     def test_bash_env_redacted(self):
         result = log.redact_input("Bash", {"command": "export SECRET_KEY=abc123"})
@@ -84,10 +84,23 @@ class TestRedactInput:
         assert result == "/tmp/a.py, /tmp/b.py"
         assert "api_key" not in result
 
+    def test_apply_patch_paths_fallback_not_truncated(self):
+        path = "/tmp/" + ("x" * 300) + ".py"
+        result = log.redact_input("apply_patch", {
+            "_nah_patch_paths": [path],
+            "input": "plain patch body",
+        })
+        assert result == path
+
     def test_mcp_tool(self):
         result = log.redact_input("mcp__postgres__query", {"query": "SELECT * FROM users"})
         assert "query=" in result
         assert "SELECT" in result
+
+    def test_mcp_tool_not_truncated(self):
+        query = "SELECT '" + ("x" * 300) + "'"
+        result = log.redact_input("mcp__postgres__query", {"query": query})
+        assert result == f"query={query}"
 
     def test_mcp_tool_empty_input(self):
         result = log.redact_input("mcp__foo__bar", {})

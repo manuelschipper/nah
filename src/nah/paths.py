@@ -11,6 +11,7 @@ from nah import taxonomy
 _HOME = os.path.expanduser("~")
 _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
 _NAH_CONFIG_DIR = os.path.realpath(nah_config_dir())
+_NAH_LOG_BASENAME_RE = re.compile(r"^nah\.log(?:\.\d+)?$")
 _WINDOWS_APPDATA_DIR = windows_appdata_dir()
 
 # Sensitive paths: (resolved_dir, display_name, policy)
@@ -116,6 +117,17 @@ def is_nah_config_path(resolved: str) -> bool:
     if not resolved:
         return False
     return resolved == _NAH_CONFIG_DIR or resolved.startswith(_NAH_CONFIG_DIR + os.sep)
+
+
+def is_nah_log_path(resolved: str) -> bool:
+    """Check if path targets nah's decision log files."""
+    if not resolved:
+        return False
+    real_path = resolve_path(resolved)
+    return (
+        os.path.dirname(real_path) == _NAH_CONFIG_DIR
+        and _NAH_LOG_BASENAME_RE.fullmatch(os.path.basename(real_path)) is not None
+    )
 
 
 def is_sensitive(resolved: str) -> tuple[bool, str, str]:
@@ -347,8 +359,11 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
             }
         return None  # Read/Glob/Grep on hooks is fine
 
-    # Config self-protection — ASK for all tools (users legitimately edit config)
+    # Config self-protection — ASK for all tools (users legitimately edit config).
+    # Exact log reads are observability, not self-modification.
     if is_nah_config_path(resolved):
+        if tool_name in {"Read", "Grep"} and is_nah_log_path(resolved):
+            return None
         return {
             "decision": taxonomy.ASK,
             "reason": f"{tool_name} targets nah config: ~/.config/nah/ (guard self-protection)",

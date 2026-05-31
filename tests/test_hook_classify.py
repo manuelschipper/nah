@@ -938,6 +938,6 @@ class TestClaudeRuntimeOutcomeLogging:
         assert entry["execution"]["state"] == "failed"
         assert entry["execution"]["is_interrupt"] is True
         assert entry["execution"]["duration_ms"] == 7
-        assert len(entry["execution"]["error"]) == 300
+        assert ("x" * 400) in entry["execution"]["error"]
         assert "sk-1234567890abcdefghijkl" not in json.dumps(entry)
         assert "***" in entry["execution"]["error"]

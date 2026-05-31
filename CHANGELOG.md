@@ -147,6 +147,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `filesystem_read`, so JSON inspection pipelines such as
   `... --json | jq '.metadata'` no longer pause as unknown commands while
   sensitive-path reads still stay guarded.
+- **nah log reads** — read-only inspection of `nah.log` and rotated
+  `nah.log.<number>` files no longer pauses on nah config self-protection;
+  writes and other `~/.config/nah` paths remain guarded.
+- **Audit log summaries** — Bash input, apply_patch summaries, MCP input
+  summaries, post-tool failure errors, and provenance review errors are no
+  longer length-truncated in the JSONL decision log.
 - **Codex setup command surface** — `nah codex setup` now backs up and fixes
   supported Codex approval-memory/MCP drift, so the separate pre-v1
   `nah codex repair` command has been removed. (nah-925)
