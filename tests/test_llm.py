@@ -1534,16 +1534,20 @@ class TestRedactSecretsInWritePrompt:
         assert '"reasoning_long"' in prompt.system
         assert "prompt-safe summary" in prompt.system
 
-    def test_write_prompt_reviews_observable_risk_not_exact_intent(self):
+    def test_write_prompt_reviews_security_scope(self):
         prompt = _build_write_prompt(
             "Write",
             {"file_path": "/tmp/test.py", "content": "print('ok')"},
             {"decision": "allow", "reason": ""},
         )
         combined = f"{prompt.system}\n{prompt.user}"
-        assert "reviewed for obvious risk" in prompt.system
-        assert "Do not require an exact line-by-line match" in prompt.system
-        assert "Project-local source files and test fixtures are ordinary edit targets" in combined
+        assert "Review only for visible security or safety risk" in prompt.system
+        assert "Choose uncertain only when the edit visibly introduces" in prompt.system
+        assert "If none of those categories is visible, choose allow" in prompt.system
+        assert "Security Review Scope" in prompt.user
+        assert "visible security or safety risk in the edit above" in combined
+        assert "malformed" not in combined
+        assert "syntactically" not in combined
         assert "alias/config change" not in combined
         assert "User intent is absent" not in combined
 

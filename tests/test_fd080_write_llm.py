@@ -375,17 +375,23 @@ class TestPromptContent:
         assert "Reason: Write: content inspection [destructive]: os.remove" in prompt.user
         assert "Content inspection: Write: content inspection [destructive]: os.remove" in prompt.user
 
-    def test_write_prompt_has_risk_and_secret_reference_criteria(self):
+    def test_write_prompt_has_security_scope(self):
         prompt = _build_write_prompt("Write", {
             "file_path": "~/.keys",
             "content": "alias ads='OPENAI_API_KEY=${EXISTING_SECRET_VAR} ads-tool'\n",
         }, {"decision": "ask", "reason": "Write outside project: ~/.keys"})
-        assert "Project-local source files and test fixtures are ordinary edit targets" in prompt.user
-        assert "No destructive, exfiltration, persistence" in prompt.user
-        assert "command-injection" in prompt.user
-        assert "Existing secret-variable references" in prompt.user
-        assert "No new literal credential" in prompt.user
-        assert "printed, transmitted, copied" in prompt.user
+        combined = f"{prompt.system}\n{prompt.user}"
+        assert "Security Review Scope" in prompt.user
+        assert "visible security or safety risk in the edit above" in prompt.user
+        assert "Secret handling" in prompt.system
+        assert "Exfiltration or unauthorized access" in prompt.system
+        assert "Execution or persistence boundaries" in prompt.system
+        assert "Command execution risk" in prompt.system
+        assert "Destructive or broad state changes" in prompt.system
+        assert "Explicit safety-scope conflict" in prompt.system
+        assert "If none of those categories is visible, choose allow" in prompt.system
+        assert "malformed" not in combined
+        assert "syntactically" not in combined
 
     def test_edit_prompt_has_old_and_new(self):
         prompt = _build_write_prompt("Edit", {
@@ -426,13 +432,30 @@ class TestPromptContent:
         assert "b" * half in prompt.user
         assert "b" * (half + 1) not in prompt.user
 
+    def test_apply_patch_prompt_has_patch_context(self):
+        prompt = _build_write_prompt("apply_patch", {
+            "file_path": "src/app.py, tests/test_app.py",
+            "_nah_patch_paths": ["src/app.py", "tests/test_app.py"],
+            "_nah_patch_summary": "update=2 paths=src/app.py,tests/test_app.py",
+            "content": "def value():\n    return 42\n",
+        }, {"decision": "allow"})
+        assert "Tool: apply_patch" in prompt.user
+        assert "Paths:" in prompt.user
+        assert "- src/app.py" in prompt.user
+        assert "- tests/test_app.py" in prompt.user
+        assert "Patch summary: update=2 paths=src/app.py,tests/test_app.py" in prompt.user
+        assert "Added patch content:" in prompt.user
+        assert "return 42" in prompt.user
+        assert "visible security or safety risk in the added patch content, touched paths, or patch summary" in prompt.user
+
     def test_prompt_uses_system_template(self):
         prompt = _build_write_prompt("Write", {
             "file_path": "test.py",
             "content": "hello",
         }, {"decision": "allow"})
         assert "security reviewer" in prompt.system
-        assert "reviewed for obvious risk" in prompt.system
+        assert "passed deterministic checks" in prompt.system
+        assert "Review only for visible security or safety risk" in prompt.system
 
 
 # ===================================================================

@@ -113,6 +113,8 @@ def classify_codex_apply_patch(
         review_input = {
             "file_path": ", ".join(resolved_paths),
             "content": parsed.added_content,
+            "_nah_patch_paths": resolved_paths,
+            "_nah_patch_summary": parsed.summary(),
         }
         content_decision = hook._llm_write_review_gate(
             "apply_patch",

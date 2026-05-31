@@ -136,6 +136,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history rewrites, remote agent execution, and agent servers as boundary sinks
   by default. Users can tune category membership with
   `taint.categories.*.add/remove`.
+- **LLM write review scope** — write-like LLM review prompts now focus on
+  concrete security/safety risk categories instead of code quality, syntax, or
+  malformed-edit concerns; Codex `apply_patch` review also includes patch paths
+  and summary context.
 
 ### Fixed
 

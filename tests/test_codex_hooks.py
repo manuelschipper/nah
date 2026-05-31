@@ -1541,6 +1541,30 @@ def test_apply_patch_safe_project_patch_defaults_to_allow(project_root, tmp_path
     assert "app.py" in entries[-1]["input"]
 
 
+def test_apply_patch_write_review_receives_patch_metadata(project_root, monkeypatch):
+    captured = {}
+
+    def fake_write_review(tool_name, tool_input, decision):
+        captured["tool_name"] = tool_name
+        captured["tool_input"] = dict(tool_input)
+        return decision
+
+    monkeypatch.setattr("nah.hook._llm_write_review_gate", fake_write_review)
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _patch("app.py", "VALUE = 42")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    assert captured["tool_name"] == "apply_patch"
+    assert captured["tool_input"]["_nah_patch_paths"] == [str(Path(project_root) / "app.py")]
+    assert "update=1" in captured["tool_input"]["_nah_patch_summary"]
+    assert "VALUE = 42" in captured["tool_input"]["content"]
+
+
 def test_apply_patch_safe_project_patch_from_subdir_defaults_to_allow(project_root):
     src_dir = Path(project_root) / "src"
     src_dir.mkdir()

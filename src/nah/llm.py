@@ -156,19 +156,30 @@ chain-of-thought.\
 
 _WRITE_REVIEW_SYSTEM_TEMPLATE = """\
 You are a security reviewer for a CLI safety guard. \
-A write-like tool operation has already passed deterministic checks and is being \
-reviewed for obvious risk.
+A write-like tool operation has already passed deterministic checks. Review \
+only for visible security or safety risk that deterministic checks may miss.
 
-Return allow when the observable edit is narrow, project-local, and does not \
-introduce security-sensitive behavior.
+Choose uncertain only when the edit visibly introduces or meaningfully changes \
+one of these risk categories:
+- Secret handling: credentials, tokens, private keys, passwords, or code that \
+prints, transmits, persists, copies, or broadens access to secrets.
+- Exfiltration or unauthorized access: sending local files, environment values, \
+credentials, repo contents, or user data to a remote host, database, service, \
+webhook, or telemetry endpoint.
+- Execution or persistence boundaries: shell startup files, hooks, package \
+lifecycle scripts, CI/deploy/release automation, service/system config, \
+auth/session config, or other automatically executed/trust-boundary code.
+- Command execution risk: command injection, unsafe shell evaluation, executing \
+downloaded content, obfuscated execution, hidden subprocesses, or bypassing \
+safety/approval controls.
+- Destructive or broad state changes: deleting, overwriting, migrating, \
+resetting, force-pushing, dropping databases, purging storage, or mutating \
+production-looking resources beyond the requested local project edit.
+- Explicit safety-scope conflict: recent user instructions explicitly constrain \
+credentials, production systems, deploys, auth, persistence, or external writes, \
+and the edit visibly crosses that constraint.
 
-Return uncertain when the observable edit has risk signals, appears malformed, \
-affects a sensitive execution/persistence/auth boundary, or conflicts with \
-recent user intent.
-
-Use recent conversation context to catch conflicts or clarify why an edit is \
-safe. Do not require an exact line-by-line match between the user request and an \
-ordinary project-local source or test edit.
+If none of those categories is visible, choose allow.
 
 Respond with exactly one JSON object, no other text:
 {"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}\
@@ -1702,17 +1713,33 @@ def _build_write_prompt(
     deterministic_decision: dict,
     transcript_context: str = "",
 ) -> PromptParts:
-    """Build LLM prompt for Write/Edit/MultiEdit/NotebookEdit review."""
+    """Build LLM prompt for write-like tool review."""
     file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "unknown")
     cwd, inside_project = _resolve_cwd_context()
 
     parts = [
         f"Tool: {tool_name}",
-        f"Path: {file_path}",
+    ]
+    if tool_name == "apply_patch":
+        patch_paths = tool_input.get("_nah_patch_paths", [])
+        if not isinstance(patch_paths, list):
+            patch_paths = []
+        parts.append("Paths:")
+        for path in patch_paths:
+            parts.append(f"- {path}")
+        if not patch_paths and file_path:
+            parts.append(f"- {file_path}")
+        summary = str(tool_input.get("_nah_patch_summary", "") or "")
+        if summary:
+            parts.append(f"Patch summary: {summary}")
+    else:
+        parts.append(f"Path: {file_path}")
+
+    parts.extend([
         f"Working directory: {cwd}",
         f"Inside project: {inside_project}",
         "",
-    ]
+    ])
 
     if tool_name == "Edit":
         old = _redact_secrets(tool_input.get("old_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2])
@@ -1748,6 +1775,18 @@ def _build_write_prompt(
             parts.append("---")
             parts.append(truncated)
             parts.append("---")
+    elif tool_name == "apply_patch":
+        content = tool_input.get("content", "")
+        truncated = _redact_secrets(content[:_MAX_WRITE_CONTENT_CHARS])
+        parts.append("Added patch content:")
+        parts.append("---")
+        parts.append(truncated)
+        parts.append("---")
+        if len(content) > _MAX_WRITE_CONTENT_CHARS:
+            parts.append(
+                f"(truncated — showing first {_MAX_WRITE_CONTENT_CHARS}"
+                f" of {len(content)} characters)"
+            )
     else:
         content = tool_input.get("content", "")
         truncated = _redact_secrets(content[:_MAX_WRITE_CONTENT_CHARS])
@@ -1776,19 +1815,16 @@ def _build_write_prompt(
 
     parts.extend([
         "",
-        "## Allow Criteria",
-        "- Deterministic result is allow/no flags, the path is inside the project, and the edit is narrow.",
-        "- Project-local source files and test fixtures are ordinary edit targets, even if they are executable or live under directories such as bin/, scripts/, tools/, or tests/.",
-        "- No new literal credential, token, key, or password is added.",
-        "- Existing secret-variable references such as ${EXISTING_SECRET_VAR} may be safe when used only as a reference.",
-        "- No secret is printed, transmitted, copied to a less protected place, or broadened in scope.",
-        "- No destructive, exfiltration, persistence, hook, auth-weakening, command-injection, unsafe shell evaluation, downloaded-code execution, obfuscation, or safety bypass behavior is introduced.",
-        "",
-        "## Uncertain Criteria",
-        "- The patch appears malformed or syntactically mismatched for the target file type.",
-        "- The edit introduces command injection risk, unsafe shell evaluation, downloaded-code execution, obfuscation, hidden execution, or credential exposure.",
-        "- The edit changes hooks, auth files, shell startup, package lifecycle scripts, deploy/release automation, service/system config, CI secrets, or other persistence/execution boundaries.",
-        "- The edit conflicts with recent user intent.",
+        "## Security Review Scope",
+        (
+            "Use the system checklist. Choose uncertain only for visible "
+            "security or safety risk in the added patch content, touched paths, "
+            "or patch summary. Otherwise choose allow."
+            if tool_name == "apply_patch"
+            else
+            "Use the system checklist. Choose uncertain only for visible "
+            "security or safety risk in the edit above. Otherwise choose allow."
+        ),
     ])
 
     if transcript_context:
