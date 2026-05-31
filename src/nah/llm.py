@@ -653,10 +653,55 @@ def _redact_secrets(text: str) -> str:
 
 def _normalize_transcript_content(content: object) -> list[dict] | None:
     """Normalize transcript message content into Claude-style blocks."""
-    if isinstance(content, list):
-        return content
     if isinstance(content, str):
         return [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        blocks: list[dict] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            normalized = dict(block)
+            if normalized.get("type") in ("input_text", "output_text"):
+                normalized["type"] = "text"
+            blocks.append(normalized)
+        return blocks
+    return None
+
+
+def _transcript_message_from_entry(entry: dict) -> tuple[str, object, bool] | None:
+    """Return (role, content, is_meta) from known transcript JSONL entries."""
+    msg_type = entry.get("type")
+    if msg_type in ("user", "assistant"):
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            return None
+        return msg_type, message.get("content"), entry.get("isMeta") is True
+
+    if msg_type == "response_item":
+        payload = entry.get("payload")
+        if not isinstance(payload, dict) or payload.get("type") != "message":
+            return None
+        role = payload.get("role")
+        if role not in ("user", "assistant"):
+            return None
+        return role, payload.get("content"), False
+
+    if msg_type == "event_msg":
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        event_type = payload.get("type")
+        if event_type == "user_message":
+            role = "user"
+        elif event_type == "agent_message":
+            role = "assistant"
+        else:
+            return None
+        message = payload.get("message")
+        if not isinstance(message, str):
+            return None
+        return role, message, False
+
     return None
 
 
@@ -734,23 +779,12 @@ def _read_transcript_tail_bytes(transcript_path: str, target_bytes: int) -> byte
         return b""
 
 
-def _read_transcript_tail(
-    transcript_path: str,
+def _format_transcript_tail_text(
+    text: str,
     max_chars: int,
     roles: tuple[str, ...] | None = None,
 ) -> str:
-    """Read the tail of the conversation transcript for LLM context.
-
-    Parses JSONL, extracts user/assistant messages with tool_use summaries.
-    Returns formatted context string, or "" on any error.
-    """
-    if not transcript_path or max_chars <= 0:
-        return ""
-    raw = _read_transcript_tail_bytes(transcript_path, max_chars * 4)
-    if not raw:
-        return ""
-    text = raw.decode("utf-8", errors="replace")
-
+    """Extract formatted transcript messages from JSONL text."""
     messages: list[str] = []
     latest_skill_index: dict[str, int] = {}
     for line in text.splitlines():
@@ -763,13 +797,10 @@ def _read_transcript_tail(
             continue
         if not isinstance(entry, dict):
             continue
-        msg_type = entry.get("type")
-        if msg_type not in ("user", "assistant"):
+        parsed_message = _transcript_message_from_entry(entry)
+        if parsed_message is None:
             continue
-        message = entry.get("message")
-        if not isinstance(message, dict):
-            continue
-        raw_content = message.get("content")
+        msg_type, raw_content, is_meta = parsed_message
         content_blocks = _normalize_transcript_content(raw_content)
         if content_blocks is None:
             continue
@@ -803,7 +834,7 @@ def _read_transcript_tail(
         if not text_parts and not tool_parts:
             continue
         skill_meta = None
-        if entry.get("isMeta") is True and text_parts:
+        if is_meta and text_parts:
             skill_meta = _parse_skill_meta_text("\n\n".join(text_parts))
         if skill_meta is not None:
             skill_name, skill_body = skill_meta
@@ -827,6 +858,8 @@ def _read_transcript_tail(
         )
         if tool_parts:
             msg_line += "\n" + "\n".join(f"  {tp}" for tp in tool_parts)
+        if messages and messages[-1] == msg_line:
+            continue
         messages.append(msg_line)
 
     if not messages:
@@ -846,6 +879,34 @@ def _read_transcript_tail(
         if nl >= 0:
             result = result[nl + 1:]
     return result
+
+
+def _read_transcript_tail(
+    transcript_path: str,
+    max_chars: int,
+    roles: tuple[str, ...] | None = None,
+) -> str:
+    """Read the tail of the conversation transcript for LLM context.
+
+    Parses JSONL, extracts user/assistant messages with tool_use summaries.
+    Returns formatted context string, or "" on any error.
+    """
+    if not transcript_path or max_chars <= 0:
+        return ""
+    target_bytes = max_chars * 4
+    raw = _read_transcript_tail_bytes(transcript_path, target_bytes)
+    if not raw:
+        return ""
+    text = raw.decode("utf-8", errors="replace")
+    result = _format_transcript_tail_text(text, max_chars, roles)
+    if result or target_bytes >= _TRANSCRIPT_TAIL_SAFETY_CAP:
+        return result
+
+    raw = _read_transcript_tail_bytes(transcript_path, _TRANSCRIPT_TAIL_SAFETY_CAP)
+    if not raw:
+        return ""
+    text = raw.decode("utf-8", errors="replace")
+    return _format_transcript_tail_text(text, max_chars, roles)
 
 
 def _format_transcript_context(transcript_text: str) -> str:

@@ -29,6 +29,24 @@ def _assistant_list(text, tool_uses=None):
     }
 
 
+def _codex_response_message(role, block_type, text):
+    return {
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": role,
+            "content": [{"type": block_type, "text": text}],
+        },
+    }
+
+
+def _codex_event_message(event_type, text):
+    return {
+        "type": "event_msg",
+        "payload": {"type": event_type, "message": text},
+    }
+
+
 def _skill_meta(skill_name, body):
     return {
         "type": "user",
@@ -166,3 +184,72 @@ class TestTranscriptRoles:
         assert "User: remove the dist directory" in result
         assert "I will do it" not in result
         assert "[Bash: rm -rf dist/]" in result
+
+
+class TestCodexTranscriptFormatting:
+    def test_response_item_input_text_is_kept(self, write_transcript):
+        transcript = write_transcript(
+            _codex_response_message("user", "input_text", "commit and push"),
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000, roles=("user",))
+
+        assert result == "User: commit and push"
+
+    def test_response_item_output_text_is_kept(self, write_transcript):
+        transcript = write_transcript(
+            _codex_response_message("assistant", "output_text", "I will run tests"),
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000)
+
+        assert result == "Assistant: I will run tests"
+
+    def test_roles_filter_hides_codex_assistant_text(self, write_transcript):
+        transcript = write_transcript(
+            _codex_response_message("user", "input_text", "commit and push"),
+            _codex_response_message("assistant", "output_text", "Pushing now"),
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000, roles=("user",))
+
+        assert "User: commit and push" in result
+        assert "Pushing now" not in result
+
+    def test_event_msg_duplicate_is_deduped(self, write_transcript):
+        transcript = write_transcript(
+            _codex_response_message("user", "input_text", "commit and push"),
+            _codex_event_message("user_message", "commit and push"),
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000, roles=("user",))
+
+        assert result == "User: commit and push"
+
+    def test_ignores_non_message_response_items(self, write_transcript):
+        transcript = write_transcript(
+            {"type": "response_item", "payload": {"type": "reasoning", "summary": []}},
+            _codex_response_message("user", "input_text", "debug this"),
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000, roles=("user",))
+
+        assert result == "User: debug this"
+
+    def test_falls_back_past_large_ignored_codex_output(self, write_transcript):
+        transcript = write_transcript(
+            _codex_response_message("user", "input_text", "commit and push"),
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "call_123",
+                    "output": "x" * 80_000,
+                },
+            },
+            {"type": "event_msg", "payload": {"type": "token_count", "info": {}}},
+        )
+
+        result = _read_transcript_tail(str(transcript), 4000, roles=("user",))
+
+        assert result == "User: commit and push"

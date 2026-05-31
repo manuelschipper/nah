@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex transcript context** — LLM ask refinement now reads Codex
+  `response_item` transcript messages and falls back past large ignored tool
+  output lines before reporting recent conversation context as unavailable.
 - **`tee` stream sink false positives** — bare `tee` and `tee` targets such as
   `/dev/null`, `/dev/stderr`, `/dev/stdout`, and `/dev/fd/*` now allow
   deterministically, while mixed real file/device targets still resolve through
