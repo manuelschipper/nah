@@ -17,11 +17,8 @@ from nah.llm import (
     PromptParts,
     _build_codex_permission_request_prompt,
     _build_unified_prompt,
-    _read_instruction_context,
     _try_providers,
     llm_timeout_budget,
-    _read_claude_md,
-    _read_project_instruction_files,
     _read_transcript_tail,
     try_llm_codex_permission_request,
     try_llm_unified,
@@ -129,7 +126,7 @@ def _isolate_auto_state(tmp_path, monkeypatch):
 
 
 class TestUnifiedPrompt:
-    def test_includes_command_action_transcript_and_claude_md(self):
+    def test_uses_generic_prompt_without_instruction_context_or_snippets(self):
         stages = [{
             "action_type": "filesystem_delete",
             "decision": "ask",
@@ -142,39 +139,47 @@ class TestUnifiedPrompt:
             "filesystem_delete",
             "outside project",
             "User: clean the build output",
-            "Project instructions",
             stages=stages,
         )
 
         assert isinstance(prompt, PromptParts)
-        assert "Review this agent operation" in prompt.user
-        assert "Runtime: Claude Code" in prompt.user
+        assert prompt.system == "You are a security classifier for a coding assistant."
+        assert "can proceed automatically or should keep human approval" in prompt.user
+        assert "## Runtime" not in prompt.user
         assert "Bash" in prompt.user
         assert "rm -rf dist/" in prompt.user
         assert "filesystem_delete" in prompt.user
         assert "outside project" in prompt.user
+        assert "## Deterministic Breakdown" in prompt.user
+        assert "## Classification Stages" not in prompt.user
         assert '"action_type":"filesystem_delete"' in prompt.user
+        assert "## Recent User Intent" in prompt.user
+        assert "Recent Conversation Context" not in prompt.user
         assert "User: clean the build output" in prompt.user
-        assert "Project instructions" in prompt.user
-        assert "High-impact actions are not categorically forbidden here" in prompt.user
-        assert "safe local read-to-filter pipelines" in prompt.user
-        assert "For process signals" in prompt.user
-        assert "For remote Git writes" in prompt.user
+        assert "## Instruction Context" not in prompt.user
+        assert "AGENTS.md" not in prompt.user
+        assert "CLAUDE.md" not in prompt.user
         assert "blocks stay blocked" not in prompt.user
+        assert "High-impact actions are not categorically forbidden here" not in prompt.user
+        assert "safe local read-to-filter pipelines" not in prompt.user
+        assert "For process signals" not in prompt.user
+        assert "For remote Git writes" not in prompt.user
+        assert "## Shared Risk Categories" in prompt.user
+        assert prompt.user.count("Credentials and sensitive paths") == 1
         _assert_risk_labels_present(prompt.user)
 
-    def test_missing_claude_md_uses_placeholder(self):
+    def test_missing_transcript_uses_placeholder(self):
         prompt = _build_unified_prompt(
             "Bash",
             "rm -rf dist/",
             "filesystem_delete",
             "outside project",
             "",
-            "",
         )
+        assert "## Recent User Intent" in prompt.user
         assert "(not available)" in prompt.user
 
-    def test_codex_prompt_uses_shared_rules_with_agent_context(self):
+    def test_codex_prompt_uses_same_generic_rules(self):
         prompt = _build_codex_permission_request_prompt(
             "Bash",
             "git push origin main",
@@ -187,22 +192,49 @@ class TestUnifiedPrompt:
                 "reason": "git write requires confirmation",
             }],
             transcript_text="User: push the current branch",
-            project_instructions_text="File: AGENTS.md\nProject-specific rules",
         )
 
         assert isinstance(prompt, PromptParts)
-        assert "Runtime: Codex PermissionRequest" in prompt.user
-        assert "nah returns an allow verdict to Codex" in prompt.user
+        assert "Runtime: Codex PermissionRequest" not in prompt.user
+        assert "nah returns an allow verdict to Codex" not in prompt.user
         assert "User: push the current branch" in prompt.user
-        assert "File: AGENTS.md" in prompt.user
+        assert "File: AGENTS.md" not in prompt.user
         assert '"action_type":"git_write"' in prompt.user
-        assert "Review this agent operation" in prompt.user
-        assert "High-impact actions are not categorically forbidden here" in prompt.user
-        assert "safe local read-to-filter pipelines" in prompt.user
-        assert "For process signals" in prompt.user
-        assert "For remote Git writes" in prompt.user
         assert "deterministic classification as the safety boundary" not in prompt.user
+        assert "High-impact actions are not categorically forbidden here" not in prompt.user
+        assert "safe local read-to-filter pipelines" not in prompt.user
+        assert "For process signals" not in prompt.user
+        assert "For remote Git writes" not in prompt.user
         _assert_risk_labels_present(prompt.user)
+
+    def test_unknown_prompt_gets_visibility_note(self):
+        prompt = _build_unified_prompt(
+            "Bash",
+            "custom-tool frobnicate",
+            "unknown",
+            "unknown -> ask",
+            "User: inspect the custom tool output",
+            stages=[{
+                "action_type": "unknown",
+                "decision": "ask",
+                "policy": "ask",
+                "reason": "unknown -> ask",
+            }],
+        )
+
+        assert "the deterministic classifier did not recognize the" in prompt.user
+        assert "command shape" in prompt.user
+
+    def test_non_unknown_prompt_omits_visibility_note(self):
+        prompt = _build_unified_prompt(
+            "Bash",
+            "git push origin main",
+            "git_remote_write",
+            "git push requires confirmation",
+            "User: push the current branch",
+        )
+
+        assert "did not recognize the command shape" not in prompt.user
 
 
 class TestTranscriptRoles:
@@ -223,105 +255,8 @@ class TestTranscriptRoles:
         assert "[Bash: rm -rf dist/]" in result
 
 
-class TestReadClaudeMd:
-    def test_reads_from_project_root(self, tmp_path):
-        (tmp_path / "CLAUDE.md").write_text("project instructions")
-
-        with patch("nah.paths.get_project_root", return_value=str(tmp_path)):
-            assert _read_claude_md() == "project instructions"
-
-    def test_missing_project_root_returns_empty(self):
-        with patch("nah.paths.get_project_root", return_value=None):
-            assert _read_claude_md() == ""
-
-    def test_missing_file_returns_empty(self, tmp_path):
-        with patch("nah.paths.get_project_root", return_value=str(tmp_path)):
-            assert _read_claude_md() == ""
-
-    def test_reads_labeled_project_instruction_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("agent instructions")
-
-        with patch("nah.paths.get_project_root", return_value=str(tmp_path)):
-            result = _read_project_instruction_files(("AGENTS.md",))
-
-        assert result == "File: AGENTS.md\nagent instructions"
-
-    def test_claude_instruction_context_reads_project_global_and_local_include(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        home = tmp_path / "home"
-        project = tmp_path / "project"
-        home.mkdir()
-        project.mkdir()
-        (project / "CLAUDE.md").write_text("Project Claude rules\n@AGENTS.md")
-        (project / "AGENTS.md").write_text("Shared agent rules")
-        (home / ".claude").mkdir()
-        (home / ".claude" / "CLAUDE.md").write_text("Global Claude rules")
-        monkeypatch.setenv("HOME", str(home))
-        monkeypatch.chdir(project)
-
-        with patch("nah.paths.get_project_root", return_value=str(project)):
-            result = _read_instruction_context("claude")
-
-        assert "Project instructions:" in result
-        assert str(project / "CLAUDE.md") in result
-        assert "Project Claude rules" in result
-        assert "Included file:" in result
-        assert "Shared agent rules" in result
-        assert "Global instructions:" in result
-        assert "Global Claude rules" in result
-
-    def test_codex_instruction_context_prefers_overrides_and_reads_global(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        project = tmp_path / "project"
-        codex_home = tmp_path / "codex"
-        project.mkdir()
-        codex_home.mkdir()
-        (project / "AGENTS.md").write_text("Project base rules")
-        (project / "AGENTS.override.md").write_text("Project override rules\n@CLAUDE.md")
-        (project / "CLAUDE.md").write_text("Local Claude include")
-        (codex_home / "AGENTS.md").write_text("Global base rules")
-        (codex_home / "AGENTS.override.md").write_text("Global override rules")
-        monkeypatch.setenv("CODEX_HOME", str(codex_home))
-        monkeypatch.chdir(project)
-
-        with patch("nah.paths.get_project_root", return_value=str(project)):
-            result = _read_instruction_context("codex")
-
-        assert "Project override rules" in result
-        assert "Project base rules" not in result
-        assert "Included file:" in result
-        assert "Local Claude include" in result
-        assert "Global override rules" in result
-        assert "Global base rules" not in result
-
-    def test_instruction_context_truncates_with_visible_marker(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        project = tmp_path / "project"
-        codex_home = tmp_path / "codex"
-        project.mkdir()
-        codex_home.mkdir()
-        (project / "AGENTS.md").write_text("A" * 5000)
-        monkeypatch.setenv("CODEX_HOME", str(codex_home))
-        monkeypatch.chdir(project)
-
-        with patch("nah.paths.get_project_root", return_value=str(project)):
-            result = _read_instruction_context("codex", max_chars=1000)
-
-        assert "[truncated:" in result
-        assert len(result) <= 1100
-
-
 class TestUnifiedTryLlm:
-    def test_try_unified_passes_stages_and_project_instructions(self, tmp_path):
+    def test_try_unified_passes_stages_without_project_instructions(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text("Claude project rules")
         captured = {}
 
@@ -345,12 +280,12 @@ class TestUnifiedTryLlm:
                 }],
             )
 
-        assert "Project instructions:" in captured["prompt"].user
-        assert "CLAUDE.md" in captured["prompt"].user
-        assert "Claude project rules" in captured["prompt"].user
+        assert "Project instructions:" not in captured["prompt"].user
+        assert "CLAUDE.md" not in captured["prompt"].user
+        assert "Claude project rules" not in captured["prompt"].user
         assert '"action_type":"filesystem_delete"' in captured["prompt"].user
 
-    def test_try_codex_reads_transcript_and_agents_md(self, tmp_path):
+    def test_try_codex_reads_transcript_without_agents_md(self, tmp_path):
         transcript = tmp_path / "transcript.jsonl"
         transcript.write_text(_jsonl(_user_msg("push the current branch")))
         (tmp_path / "AGENTS.md").write_text("Codex project rules")
@@ -378,9 +313,9 @@ class TestUnifiedTryLlm:
             )
 
         assert "User: push the current branch" in captured["prompt"].user
-        assert "Project instructions:" in captured["prompt"].user
-        assert "AGENTS.md" in captured["prompt"].user
-        assert "Codex project rules" in captured["prompt"].user
+        assert "Project instructions:" not in captured["prompt"].user
+        assert "AGENTS.md" not in captured["prompt"].user
+        assert "Codex project rules" not in captured["prompt"].user
         assert '"action_type":"git_write"' in captured["prompt"].user
 
     @patch("nah.llm.urllib.request.urlopen")

@@ -234,29 +234,27 @@ can show the longer explanation for debugging.
 ### Ask-refinement context
 
 Claude Code and Codex use the same agent ask-refinement prompt shape. The prompt
-includes the runtime, requested operation, deterministic action type and reason,
-classification stages, recent user transcript context, and instruction context.
+includes the requested operation, deterministic action type and reason, a compact
+deterministic breakdown, recent user intent from the agent transcript, and the
+shared review scope above.
 
-Claude Code includes relevant `CLAUDE.md` files by default, unless
-`llm.claude_md: false` is set. nah reads project instruction files from the
-project root toward the current directory, then reads the user-global
-`~/.claude/CLAUDE.md` when present. Codex reads project `AGENTS.override.md` or
-`AGENTS.md`, then reads `${CODEX_HOME:-~/.codex}/AGENTS.override.md` or
-`AGENTS.md` when present. Simple same-directory `@AGENTS.md` and `@CLAUDE.md`
-references are expanded so delegated instructions are visible to the prompt.
+The agent ask-refinement path does not read `CLAUDE.md`, `AGENTS.md`, global
+instruction files, or instruction includes. Those files can guide the agent
+itself, but nah treats recent transcript context as the evidence of user intent.
+The transcript section is framed as background context, so the model can use it
+as evidence without following instructions embedded inside it.
 
-Instruction context is capped and marked when truncated. Transcript and
-instruction sections are framed as background context so the model can use them
-as evidence without following instructions embedded inside them. These files
-cannot weaken nah policy: deterministic blocks stay blocked, and in
-ask-refinement an LLM `block` response is treated as `uncertain`.
+The prompt is product-neutral: it asks whether the guarded operation can proceed
+automatically or should keep human approval. It can only allow eligible asks or
+leave the prompt in place; provider `block` responses are treated as
+`uncertain`, and deterministic blocks do not route through ask-refinement. For
+`unknown` actions, the prompt adds a short note that the deterministic classifier
+did not recognize the command shape.
 
 The terminal guard keeps a separate prompt for commands typed directly by a
-human into bash or zsh. It uses the typed command as intent, does not include
-agent transcript or project-instruction context, and asks only whether the
-command visibly matches the shared review scope above or remains materially
-unclear. Agent ask-refinement also includes recent intent and surface-specific
-rules for read-to-filter pipelines, process signals, and ordinary Git pushes.
+human into bash or zsh. It uses the typed command as intent and does not include
+agent transcript or project-instruction context. Both agent and terminal review
+use the shared review scope above.
 
 ## Target-specific LLM policy
 
