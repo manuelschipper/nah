@@ -147,7 +147,7 @@ class TestUnifiedPrompt:
         )
 
         assert isinstance(prompt, PromptParts)
-        assert 'eligible "ask" decision' in prompt.user
+        assert "Review this agent operation" in prompt.user
         assert "Runtime: Claude Code" in prompt.user
         assert "Bash" in prompt.user
         assert "rm -rf dist/" in prompt.user
@@ -156,11 +156,11 @@ class TestUnifiedPrompt:
         assert '"action_type":"filesystem_delete"' in prompt.user
         assert "User: clean the build output" in prompt.user
         assert "Project instructions" in prompt.user
-        assert "blocks stay blocked" in prompt.user
         assert "High-impact actions are not categorically forbidden here" in prompt.user
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
         assert "For remote Git writes" in prompt.user
+        assert "blocks stay blocked" not in prompt.user
         _assert_risk_labels_present(prompt.user)
 
     def test_missing_claude_md_uses_placeholder(self):
@@ -196,11 +196,12 @@ class TestUnifiedPrompt:
         assert "User: push the current branch" in prompt.user
         assert "File: AGENTS.md" in prompt.user
         assert '"action_type":"git_write"' in prompt.user
-        assert "deterministic classification as the safety boundary" in prompt.user
+        assert "Review this agent operation" in prompt.user
         assert "High-impact actions are not categorically forbidden here" in prompt.user
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
         assert "For remote Git writes" in prompt.user
+        assert "deterministic classification as the safety boundary" not in prompt.user
         _assert_risk_labels_present(prompt.user)
 
 

@@ -143,10 +143,20 @@ _AGENT_ASK_RISK_SECTION = render_llm_risk_section(
 _TERMINAL_RISK_SECTION = render_llm_risk_section(
     "Use uncertain when the typed command visibly does one of these risk categories:"
 )
+_JSON_DECISION_FORMAT = (
+    '{"decision": "<allow|uncertain>", '
+    '"reasoning": "<max 10 words, prompt-safe user-visible summary>", '
+    '"reasoning_long": "<2-4 sentence observable-evidence summary>"}'
+)
+_REASONING_INSTRUCTIONS = (
+    "reasoning must be at most 10 words. Prompt-safe means no secrets, "
+    "sensitive values, or hidden reasoning. reasoning_long should summarize "
+    "observable evidence for logs/debugging."
+)
 
 _VETO_SYSTEM_TEMPLATE = f"""\
 You are a security classifier for a CLI tool safety guard. \
-A language-runtime command passed deterministic checks and needs content review. \
+Review a language-runtime command's script content. \
 Decide whether to allow it or leave it for human review.
 
 Rules:
@@ -161,28 +171,23 @@ Rules:
 If none of those categories is visible, choose allow.
 
 Respond with exactly one JSON object, no other text:
-{{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}}\
+{_JSON_DECISION_FORMAT}\
 
-Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
-sentences explaining the observable evidence and decision. Do not include hidden
-chain-of-thought.\
+{_REASONING_INSTRUCTIONS}\
 """
 
 _WRITE_REVIEW_SYSTEM_TEMPLATE = f"""\
 You are a security reviewer for a CLI safety guard. \
-A write-like tool operation has already passed deterministic checks. Review \
-only for visible security or safety risk that deterministic checks may miss.
+Review a write-like tool operation only for visible security or safety risk.
 
 {_WRITE_REVIEW_RISK_SECTION}
 
 If none of those categories is visible, choose allow.
 
 Respond with exactly one JSON object, no other text:
-{{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}}\
+{_JSON_DECISION_FORMAT}\
 
-Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
-sentences explaining the observable evidence and decision. Do not include hidden
-chain-of-thought.\
+{_REASONING_INSTRUCTIONS}\
 """
 
 _PROVENANCE_REVIEW_SYSTEM_TEMPLATE = f"""\
@@ -197,22 +202,16 @@ Rules:
   any listed risk.
 - uncertain: the delta is incomplete, ambiguous, or could externalize or run
   behavior that is not clearly safe.
-- Do not use block. Use uncertain when a human should decide.
 
 {_PROVENANCE_RISK_SECTION}
 
 Respond with exactly one JSON object, no other text:
-{{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}}\
+{_JSON_DECISION_FORMAT}\
 
-Use reasoning for the prompt-safe summary. Use reasoning_long for 3-4 concise
-sentences explaining the observable evidence and decision. Do not include hidden
-chain-of-thought.\
+{_REASONING_INSTRUCTIONS}\
 """
 
-_UNIFIED_SYSTEM_TEMPLATE = (
-    "You are a security classifier for a coding assistant. "
-    "Respond with exactly one JSON object."
-)
+_UNIFIED_SYSTEM_TEMPLATE = "You are a security classifier for a coding assistant."
 
 
 def _resolve_cwd_context() -> tuple[str, str]:
@@ -269,10 +268,8 @@ def _build_agent_ask_refinement_prompt(
     transcript = transcript_text or "(not available)"
     project_instructions = project_instructions_text or "(not available)"
     user = "\n".join([
-        'A nah deterministic policy check returned an eligible "ask" decision.',
-        "",
-        "Decide whether nah can auto-approve this operation or should keep the",
-        "human approval prompt.",
+        "Review this agent operation and decide whether nah can auto-approve",
+        "it or should keep the human approval prompt.",
         "",
         "## Runtime",
         "",
@@ -315,10 +312,6 @@ def _build_agent_ask_refinement_prompt(
         "",
         "## Decision Rules",
         "",
-        "Use the deterministic classification as the safety boundary. This prompt",
-        "only resolves ambiguity inside an already-eligible ask. Deterministic",
-        "blocks stay blocked.",
-        "",
         "Approve when the operation is clear enough to proceed without",
         "interrupting the user:",
         "- it matches recent user intent, or",
@@ -354,17 +347,14 @@ def _build_agent_ask_refinement_prompt(
         "",
         _AGENT_ASK_RISK_SECTION,
         "",
-        "High-impact actions are not categorically forbidden here. If the",
-        "deterministic policy made this ask LLM-eligible and the user clearly",
-        "requested the specific target and effect, you may allow. Otherwise choose",
-        "uncertain.",
+        "High-impact actions are not categorically forbidden here. If the user",
+        "clearly requested the specific target and effect, and no listed risk",
+        "needs human confirmation, you may allow. Otherwise choose uncertain.",
         "",
-        "Respond with exactly one JSON object:",
-        '{"decision":"<allow|uncertain>","reasoning":"<prompt-safe summary>","reasoning_long":"<3-4 sentence observable-evidence summary>"}',
+        "Respond with exactly one JSON object, no other text:",
+        _JSON_DECISION_FORMAT,
         "",
-        "Use reasoning for the prompt-safe summary shown to the user. Use",
-        "reasoning_long for concise observable evidence for logs/debugging. Do",
-        "not include hidden chain-of-thought.",
+        _REASONING_INSTRUCTIONS,
     ])
     return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
 
@@ -404,57 +394,30 @@ def _build_terminal_guard_prompt(
 ) -> PromptParts:
     """Build an ask-refinement prompt for directly typed terminal commands."""
     cwd, inside_project = _resolve_cwd_context()
-    type_desc = _load_type_desc(action_type)
-    type_label = (
-        f"{action_type} - {type_desc}" if type_desc else action_type
-    )
-    stage_text = "(not available)"
-    if stages:
-        stage_text = json.dumps(stages, ensure_ascii=True, separators=(",", ":"))
     user = "\n".join([
         "A command was typed directly by a human user into an interactive terminal.",
         "Treat that direct terminal input as the user's request and intent.",
-        "Decide whether nah can safely auto-allow this deterministic ASK, or",
-        "whether nah should keep prompting the user.",
+        "Review the command for visible security or safety risk.",
         "",
         "Rules:",
-        "- Use allow only when the command is plainly low-risk for an interactive",
-        "  terminal: local, non-destructive, no credential access, no persistence,",
-        "  no downloaded-code execution, and no untrusted remote side effect.",
-        "- Safe local read-to-filter pipelines may be allowed when they read",
-        "  non-sensitive local data into inline, visible code whose behavior is",
-        "  understandable from the command text.",
-        "- Process signals may be allowed only when the target process is clear,",
-        "  task-local, and non-system-looking. Broad process-name signals need a",
-        "  clearly safe target in the command itself.",
-        "- Ordinary Git pushes may be allowed when the command and direct user",
-        "  intent clearly identify the branch/remote. Force pushes, history",
-        "  rewrites, branch/tag deletion, mirror/all pushes, and release-looking",
-        "  pushes should stay uncertain.",
+        "- allow: no listed risk is visible and the command is understandable.",
+        "- uncertain: a listed risk is visible, or the command remains materially",
+        "  unclear.",
         _TERMINAL_RISK_SECTION,
-        "- Use uncertain when the command remains materially unclear from the",
-        "  command itself.",
-        "- When in doubt, choose uncertain. The user will simply be prompted.",
+        "",
+        "If none of those categories is visible, choose allow.",
         "",
         "## Terminal Command",
         f"Target shell: {target or '(unknown)'}",
         f"Command: {command}",
-        f"Classification: {type_label}",
-        f"Structural reason: {reason}",
         f"Working directory: {cwd}",
         f"Inside project: {inside_project}",
         "",
-        "## Classification Stages",
-        stage_text,
-        "",
         "## Decision",
-        "Respond with exactly one JSON object:",
-        '{"decision": "<allow|uncertain>", "reasoning": "<prompt-safe summary>", "reasoning_long": "<3-4 sentence observable-evidence summary>"}',
+        "Respond with exactly one JSON object, no other text:",
+        _JSON_DECISION_FORMAT,
         "",
-        "- Use reasoning for a concise explanation shown in the terminal prompt.",
-        "- Use reasoning_long for 3-4 concise sentences explaining the observable",
-        "  evidence and decision for logs/debugging. Do not include hidden",
-        "  chain-of-thought.",
+        _REASONING_INSTRUCTIONS,
     ])
     return PromptParts(system=_UNIFIED_SYSTEM_TEMPLATE, user=user)
 
@@ -1863,20 +1826,6 @@ def _build_write_prompt(
         parts.append(f"Content inspection: {det_reason}")
     else:
         parts.append("Content inspection: no flags")
-
-    parts.extend([
-        "",
-        "## Security Review Scope",
-        (
-            "Use the system checklist. Choose uncertain only for visible "
-            "security or safety risk in the added patch content, touched paths, "
-            "or patch summary. Otherwise choose allow."
-            if tool_name == "apply_patch"
-            else
-            "Use the system checklist. Choose uncertain only for visible "
-            "security or safety risk in the edit above. Otherwise choose allow."
-        ),
-    ])
 
     if transcript_context:
         parts.append("")

@@ -381,8 +381,8 @@ class TestPromptContent:
             "content": "alias ads='OPENAI_API_KEY=${EXISTING_SECRET_VAR} ads-tool'\n",
         }, {"decision": "ask", "reason": "Write outside project: ~/.keys"})
         combined = f"{prompt.system}\n{prompt.user}"
-        assert "Security Review Scope" in prompt.user
-        assert "visible security or safety risk in the edit above" in prompt.user
+        assert "Security Review Scope" not in prompt.user
+        assert "write operation above" not in prompt.user
         assert "Credentials and sensitive paths" in prompt.system
         assert "Exfiltration or unauthorized access" in prompt.system
         assert "Untrusted or obfuscated execution" in prompt.system
@@ -449,7 +449,7 @@ class TestPromptContent:
         assert "Patch summary: update=2 paths=src/app.py,tests/test_app.py" in prompt.user
         assert "Added patch content:" in prompt.user
         assert "return 42" in prompt.user
-        assert "visible security or safety risk in the added patch content, touched paths, or patch summary" in prompt.user
+        assert "Security Review Scope" not in prompt.user
 
     def test_prompt_uses_system_template(self):
         prompt = _build_write_prompt("Write", {
@@ -457,8 +457,8 @@ class TestPromptContent:
             "content": "hello",
         }, {"decision": "allow"})
         assert "security reviewer" in prompt.system
-        assert "passed deterministic checks" in prompt.system
-        assert "Review only for visible security or safety risk" in prompt.system
+        assert "passed deterministic checks" not in prompt.system
+        assert "Review a write-like tool operation only for visible security or safety risk" in prompt.system
 
 
 # ===================================================================

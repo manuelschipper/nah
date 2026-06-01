@@ -225,7 +225,11 @@ Explicit lists can combine presets and action types. `composition` and `sensitiv
 
 Provider responses of `block` are treated as `uncertain`, so the LLM can allow an eligible ask or leave it as an ask; it cannot block through ask-refinement.
 
-LLM responses include a short prompt-safe `reasoning` summary and a longer `reasoning_long` explanation for observability. Claude-visible prompts use the short summary; structured logs and `nah test` can show the longer explanation for debugging.
+LLM responses include a prompt-safe `reasoning` summary of at most 10 words and
+a longer `reasoning_long` explanation for observability. Prompt-safe means the
+summary must not include secrets, sensitive values, or hidden reasoning.
+Claude-visible prompts use the short summary; structured logs and `nah test`
+can show the longer explanation for debugging.
 
 ### Ask-refinement context
 
@@ -248,9 +252,10 @@ cannot weaken nah policy: deterministic blocks stay blocked, and in
 ask-refinement an LLM `block` response is treated as `uncertain`.
 
 The terminal guard keeps a separate prompt for commands typed directly by a
-human into bash or zsh. It uses the typed command as intent and does not include
-agent transcript or project-instruction context. Both agent and terminal
-ask-refinement use the shared review scope above, plus their surface-specific
+human into bash or zsh. It uses the typed command as intent, does not include
+agent transcript or project-instruction context, and asks only whether the
+command visibly matches the shared review scope above or remains materially
+unclear. Agent ask-refinement also includes recent intent and surface-specific
 rules for read-to-filter pipelines, process signals, and ordinary Git pushes.
 
 ## Target-specific LLM policy
@@ -328,7 +333,7 @@ The write-review prompt includes the tool, target path, working directory,
 inside-project status, deterministic decision and reason, the write/edit
 content with secret redaction, and recent transcript context. It uses the
 shared review scope above and asks only about visible security or safety risk in
-the edit, patch content, touched paths, or patch summary.
+the write operation.
 
 ### context_chars
 

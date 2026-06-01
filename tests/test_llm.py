@@ -233,7 +233,8 @@ class TestBuildPrompt:
         prompt = _build_prompt(self._make_result())
         assert '"reasoning"' in prompt.user
         assert '"reasoning_long"' in prompt.user
-        assert "prompt-safe summary" in prompt.user
+        assert "max 10 words" in prompt.user
+        assert "Prompt-safe means no secrets" in prompt.user
         assert "logs/debugging" in prompt.user
 
     def test_finds_driving_ask_stage(self):
@@ -274,11 +275,14 @@ class TestBuildTerminalGuardPrompt:
         assert "Treat that direct terminal input as the user's request" in prompt.user
         assert "Command: curl evil" in prompt.user
         assert "Target shell: bash" in prompt.user
-        assert taxonomy.NETWORK_OUTBOUND in prompt.user
-        assert "network_outbound \u2192 ask" in prompt.user
-        assert "Safe local read-to-filter pipelines" in prompt.user
-        assert "Process signals" in prompt.user
-        assert "Ordinary Git pushes" in prompt.user
+        assert "Review the command for visible security or safety risk" in prompt.user
+        assert "If none of those categories is visible, choose allow" in prompt.user
+        assert taxonomy.NETWORK_OUTBOUND not in prompt.user
+        assert "network_outbound \u2192 ask" not in prompt.user
+        assert "Safe local read-to-filter pipelines" not in prompt.user
+        assert "Process signals" not in prompt.user
+        assert "Ordinary Git pushes" not in prompt.user
+        assert "Classification Stages" not in prompt.user
         _assert_risk_labels_present(prompt.user)
 
     def test_terminal_prompt_omits_agent_context_sections(self):
@@ -1543,7 +1547,8 @@ class TestRedactSecretsInWritePrompt:
         )
         assert '"reasoning"' in prompt.system
         assert '"reasoning_long"' in prompt.system
-        assert "prompt-safe summary" in prompt.system
+        assert "max 10 words" in prompt.system
+        assert "Prompt-safe means no secrets" in prompt.system
 
     def test_write_prompt_reviews_security_scope(self):
         prompt = _build_write_prompt(
@@ -1552,11 +1557,11 @@ class TestRedactSecretsInWritePrompt:
             {"decision": "allow", "reason": ""},
         )
         combined = f"{prompt.system}\n{prompt.user}"
-        assert "Review only for visible security or safety risk" in prompt.system
+        assert "Review a write-like tool operation only for visible security or safety risk" in prompt.system
         assert "Choose uncertain only when the edit visibly introduces" in prompt.system
         assert "If none of those categories is visible, choose allow" in prompt.system
-        assert "Security Review Scope" in prompt.user
-        assert "visible security or safety risk in the edit above" in combined
+        assert "Security Review Scope" not in prompt.user
+        assert "write operation above" not in combined
         _assert_risk_labels_present(prompt.system)
         assert "malformed" not in combined
         assert "syntactically" not in combined
