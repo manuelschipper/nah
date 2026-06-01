@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project-local source and test edits. It still escalates malformed patches,
   command-injection risks, persistence/auth boundary changes, credential
   exposure, and conflicting intent.
+- **LLM risk taxonomy** — LLM prompt surfaces now render from one canonical
+  code-owned safety risk list, keeping write review, clean script veto,
+  provenance review, agent ask-refinement, and terminal guard prompts aligned.
+  The LLM docs now describe the shared review scope in human-readable terms.
+  (nah-968)
 - **Claude Code demo simplification** — `/nah-demo` now uses a dedicated
   25-case curated demo file instead of the former 90-case plus variant test
   battery. The slash command is a short product demo; pytest remains the
@@ -39,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex transcript context** — LLM ask refinement now reads Codex
   `response_item` transcript messages and falls back past large ignored tool
   output lines before reporting recent conversation context as unavailable.
+- **`nah test` LLM parity** — Bash dry runs now mirror the live clean-script
+  LLM veto path for inline and project-local `lang_exec` commands.
 - **`tee` stream sink false positives** — bare `tee` and `tee` targets such as
   `/dev/null`, `/dev/stderr`, `/dev/stdout`, and `/dev/fd/*` now allow
   deterministically, while mixed real file/device targets still resolve through
