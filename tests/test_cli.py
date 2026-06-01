@@ -826,9 +826,79 @@ class TestCmdTest:
 
         payload = json.loads(capsys.readouterr().out)
         assert payload["decision"] == "ask"
-        assert payload["reason"].startswith("script outside project:")
+        assert payload["reason"].startswith("Bash: script outside project:")
         assert payload["human_reason"].startswith("this runs a script outside the current project:")
         assert "this writes outside" not in payload["human_reason"]
+
+    def test_bash_clean_inline_script_veto_is_shown(self, capsys, monkeypatch):
+        from nah.cli import cmd_test
+
+        def fake_script_veto(result):
+            assert result.stages[0].reason == "lang_exec: inline clean"
+            return {"decision": "allow"}, {
+                "llm_provider": "fake",
+                "llm_model": "test-model",
+                "llm_latency_ms": 12,
+                "llm_decision": "allow",
+                "llm_reasoning": "The inline script is a print-only operation.",
+                "llm_reasoning_long": "The script only prints a literal value.",
+                "llm_cascade": [{"provider": "fake", "status": "success", "latency_ms": 12}],
+            }
+
+        monkeypatch.setattr("nah.hook._try_llm_script_veto", fake_script_veto)
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config=None,
+            defaults=False,
+            target="",
+            json=False,
+            args=["python3 -c 'print(1)'"],
+        )
+
+        cmd_test(args)
+
+        out = capsys.readouterr().out
+        assert "Decision:    ALLOW" in out
+        assert "LLM decision: ALLOW" in out
+        assert "LLM reason:   The inline script is a print-only operation." in out
+
+    def test_bash_clean_inline_script_veto_json_can_raise_ask(self, capsys, monkeypatch):
+        from nah.cli import cmd_test
+
+        def fake_script_veto(_result):
+            return {"decision": "uncertain", "reason": "Bash (LLM): human review needed"}, {
+                "llm_provider": "fake",
+                "llm_model": "test-model",
+                "llm_latency_ms": 12,
+                "llm_decision": "uncertain",
+                "llm_reasoning": "The inline script writes files.",
+                "llm_reasoning_long": "The script contains a write operation.",
+                "llm_cascade": [{"provider": "fake", "status": "uncertain", "latency_ms": 12}],
+            }
+
+        monkeypatch.setattr("nah.hook._try_llm_script_veto", fake_script_veto)
+        args = argparse.Namespace(
+            tool=None,
+            path=None,
+            content=None,
+            pattern=None,
+            config=None,
+            defaults=False,
+            target="",
+            json=True,
+            args=["python3 -c 'print(1)'"],
+        )
+
+        cmd_test(args)
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["decision"] == "ask"
+        assert payload["reason"] == "Bash (LLM): human review needed"
+        assert payload["llm"]["decision"] == "uncertain"
+        assert payload["llm"]["reasoning"] == "The inline script writes files."
 
     def test_target_bash_bypass_prefix(self, capsys, monkeypatch):
         from nah.cli import cmd_test

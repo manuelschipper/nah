@@ -574,6 +574,47 @@ def _print_user_message(decision: dict) -> None:
         print(f"User message: {brand('nah blocked', human)}")
 
 
+def _llm_payload_from_meta(meta: dict) -> dict:
+    if not isinstance(meta, dict) or not meta.get("llm_cascade"):
+        return {}
+    payload = {
+        "provider": meta.get("llm_provider", ""),
+        "model": meta.get("llm_model", ""),
+        "latency_ms": meta.get("llm_latency_ms", 0),
+        "decision": meta.get("llm_decision", ""),
+        "reasoning": meta.get("llm_reasoning", ""),
+        "reasoning_long": meta.get("llm_reasoning_long", ""),
+        "cascade": meta.get("llm_cascade", []),
+    }
+    return {
+        key: value for key, value in payload.items()
+        if value not in ("", [], None)
+    }
+
+
+def _print_llm_meta(meta: dict) -> None:
+    llm = _llm_payload_from_meta(meta)
+    if not llm:
+        return
+    decision = str(llm.get("decision", "") or "")
+    cascade = llm.get("cascade", [])
+    if decision:
+        print(f"LLM decision: {decision.upper()}")
+        print(f"LLM provider: {llm.get('provider', '')} ({llm.get('model', '')})")
+        print(f"LLM latency:  {llm.get('latency_ms', 0)}ms")
+        if llm.get("reasoning"):
+            print(f"LLM reason:   {llm['reasoning']}")
+        reasoning_long = str(llm.get("reasoning_long", "") or "")
+        if reasoning_long and reasoning_long != llm.get("reasoning", ""):
+            print(f"LLM detail:   {reasoning_long}")
+    elif cascade:
+        statuses = ", ".join(
+            f"{a.get('provider', '')}={a.get('status', '')}"
+            for a in cascade
+        )
+        print(f"LLM decision: (uncertain or unavailable) [{statuses}]")
+
+
 def _selected_preset_for_output() -> str:
     try:
         from nah.config import get_config
@@ -668,14 +709,69 @@ def cmd_test(args: argparse.Namespace) -> None:
                 print(f"Reason:      {terminal_result.reason}")
                 return
 
+        from nah import taxonomy
         from nah.bash import classify_command
+        from nah.hook import handle_bash
         result = classify_command(command)
-        meta = _bash_test_meta(result)
-        decision = _apply_test_ask_fallback({
-            "decision": result.final_decision,
-            "reason": result.reason,
-            "_meta": meta,
-        }, "Bash")
+        decision = handle_bash({"command": command})
+        decision.setdefault("reason", result.reason)
+        meta = decision.setdefault("_meta", {})
+        if "stages" not in meta:
+            meta.update(_bash_test_meta(result))
+
+        llm_eligible = None
+        llm_config_message = ""
+        if decision.get("decision") == taxonomy.ASK and not meta.get("llm_veto"):
+            from nah.hook import _is_llm_eligible
+            llm_eligible = _is_llm_eligible(result)
+            if llm_eligible:
+                from nah.config import get_config
+                cfg = get_config()
+                if not cfg.llm:
+                    llm_config_message = "not configured"
+                elif cfg.llm_mode != "on":
+                    llm_config_message = "disabled (set mode: on to activate)"
+                else:
+                    from nah.hook import _build_llm_meta
+                    from nah.llm import try_llm_unified
+                    from nah.log import redact_input
+
+                    action_type = ""
+                    for stage in result.stages:
+                        if stage.decision == taxonomy.ASK:
+                            action_type = stage.action_type
+                            break
+                    if not action_type and result.stages:
+                        action_type = result.stages[0].action_type
+
+                    llm_call = try_llm_unified(
+                        "Bash",
+                        redact_input("Bash", {"command": command}),
+                        action_type or taxonomy.UNKNOWN,
+                        result.reason,
+                        cfg.llm,
+                        stages=[
+                            {
+                                "tokens": sr.tokens,
+                                "action_type": sr.action_type,
+                                "decision": sr.decision,
+                                "policy": sr.default_policy,
+                                "reason": sr.reason,
+                            }
+                            for sr in result.stages
+                        ],
+                    )
+                    meta.update(_build_llm_meta(llm_call, cfg))
+                    if llm_call.decision is not None:
+                        if llm_call.decision.get("decision") == taxonomy.ALLOW:
+                            decision = {
+                                **llm_call.decision,
+                                "_meta": meta,
+                            }
+                        elif llm_call.reasoning:
+                            decision["_llm_reason"] = llm_call.reasoning
+
+        decision = _apply_test_ask_fallback(decision, "Bash")
 
         if json_output:
             payload = {
@@ -701,6 +797,13 @@ def cmd_test(args: argparse.Namespace) -> None:
             fallback = _ask_fallback_meta(decision)
             if fallback:
                 payload["ask_fallback"] = fallback
+            llm_payload = _llm_payload_from_meta(decision.get("_meta", {}))
+            if llm_payload:
+                payload["llm"] = llm_payload
+            if llm_eligible is not None:
+                payload["llm_eligible"] = llm_eligible
+            if llm_config_message:
+                payload["llm_config"] = llm_config_message
             print(json.dumps(payload))
             return
 
@@ -723,62 +826,11 @@ def cmd_test(args: argparse.Namespace) -> None:
         if fallback:
             print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
-        if decision["decision"] == "ask":
-            from nah.hook import _is_llm_eligible
-            eligible = _is_llm_eligible(result)
-            print(f"LLM eligible: {'yes' if eligible else 'no'}")
-            if eligible:
-                from nah.config import get_config
-                cfg = get_config()
-                if not cfg.llm:
-                    print("LLM config:   not configured")
-                elif cfg.llm_mode != "on":
-                    print("LLM config:   disabled (set mode: on to activate)")
-                else:
-                    from nah.llm import try_llm_unified
-                    from nah.log import redact_input
-
-                    action_type = ""
-                    for stage in result.stages:
-                        if stage.decision == "ask":
-                            action_type = stage.action_type
-                            break
-                    if not action_type and result.stages:
-                        action_type = result.stages[0].action_type
-
-                    llm_call = try_llm_unified(
-                        "Bash",
-                        redact_input("Bash", {"command": command}),
-                        action_type or "unknown",
-                        result.reason,
-                        cfg.llm,
-                        stages=[
-                            {
-                                "tokens": sr.tokens,
-                                "action_type": sr.action_type,
-                                "decision": sr.decision,
-                                "policy": sr.default_policy,
-                                "reason": sr.reason,
-                            }
-                            for sr in result.stages
-                        ],
-                    )
-                    if llm_call.decision is not None:
-                        d = llm_call.decision.get("decision", "uncertain")
-                        print(f"LLM decision: {d.upper()}")
-                        print(f"LLM provider: {llm_call.provider} ({llm_call.model})")
-                        print(f"LLM latency:  {llm_call.latency_ms}ms")
-                        if llm_call.reasoning:
-                            print(f"LLM reason:   {llm_call.reasoning}")
-                        reasoning_long = getattr(llm_call, "reasoning_long", "")
-                        if reasoning_long and reasoning_long != llm_call.reasoning:
-                            print(f"LLM detail:   {reasoning_long}")
-                    else:
-                        if llm_call.cascade:
-                            statuses = ", ".join(f"{a.provider}={a.status}" for a in llm_call.cascade)
-                            print(f"LLM decision: (uncertain or unavailable) [{statuses}]")
-                        else:
-                            print("LLM decision: (no providers responded)")
+        if llm_eligible is not None:
+            print(f"LLM eligible: {'yes' if llm_eligible else 'no'}")
+            if llm_config_message:
+                print(f"LLM config:   {llm_config_message}")
+        _print_llm_meta(decision.get("_meta", {}))
     elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         # Write-like tools: path + content inspection
         from nah.hook import handle_write, handle_edit, handle_multiedit, handle_notebookedit

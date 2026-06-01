@@ -26,6 +26,7 @@ from nah.llm import (
     try_llm_codex_permission_request,
     try_llm_unified,
 )
+from nah.llm_risks import LLM_RISK_CATEGORIES
 
 
 def _jsonl(*entries):
@@ -60,6 +61,11 @@ def _ask_result(command: str = "rm -rf dist/") -> ClassifyResult:
         final_decision=taxonomy.ASK,
         reason="outside project",
     )
+
+
+def _assert_risk_labels_present(text: str):
+    for category in LLM_RISK_CATEGORIES:
+        assert category.label in text
 
 
 def test_llm_timeout_budget_caps_provider_timeout(monkeypatch):
@@ -155,6 +161,7 @@ class TestUnifiedPrompt:
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
         assert "For remote Git writes" in prompt.user
+        _assert_risk_labels_present(prompt.user)
 
     def test_missing_claude_md_uses_placeholder(self):
         prompt = _build_unified_prompt(
@@ -194,6 +201,7 @@ class TestUnifiedPrompt:
         assert "safe local read-to-filter pipelines" in prompt.user
         assert "For process signals" in prompt.user
         assert "For remote Git writes" in prompt.user
+        _assert_risk_labels_present(prompt.user)
 
 
 class TestTranscriptRoles:

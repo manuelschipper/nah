@@ -383,12 +383,15 @@ class TestPromptContent:
         combined = f"{prompt.system}\n{prompt.user}"
         assert "Security Review Scope" in prompt.user
         assert "visible security or safety risk in the edit above" in prompt.user
-        assert "Secret handling" in prompt.system
+        assert "Credentials and sensitive paths" in prompt.system
         assert "Exfiltration or unauthorized access" in prompt.system
-        assert "Execution or persistence boundaries" in prompt.system
-        assert "Command execution risk" in prompt.system
-        assert "Destructive or broad state changes" in prompt.system
-        assert "Explicit safety-scope conflict" in prompt.system
+        assert "Untrusted or obfuscated execution" in prompt.system
+        assert "Persistence and trust-boundary changes" in prompt.system
+        assert "Privileged runtime or system state" in prompt.system
+        assert "Destructive or hard-to-reverse state changes" in prompt.system
+        assert "Production, shared, remote, or external mutations" in prompt.system
+        assert "Safety, sandbox, approval, or audit bypass" in prompt.system
+        assert "Explicit user safety-scope conflict" in prompt.system
         assert "If none of those categories is visible, choose allow" in prompt.system
         assert "malformed" not in combined
         assert "syntactically" not in combined

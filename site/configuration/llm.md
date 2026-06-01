@@ -18,6 +18,39 @@ not call the LLM. The LLM is not a second classifier for every allowed action.
 | Clean `lang_exec` script veto | Inspectable script/inline-code execution that deterministic classification allowed | `allow` can become `ask`; it cannot relax an `ask` or `block` |
 | No LLM path | Any other deterministic `allow` or `block` | final decision stands |
 
+## What LLM review looks for
+
+All LLM review paths use the same security scope, adapted to the surface being
+reviewed. nah asks the model to stay uncertain when the reviewed operation
+visibly includes one of these risks:
+
+- Credentials and sensitive paths: credentials, tokens, private keys,
+  passwords, sensitive paths, or broader secret access.
+- Exfiltration or unauthorized access: local data, environment values,
+  repository content, credentials, or user data sent to unauthorized remote
+  destinations.
+- Untrusted or obfuscated execution: downloaded, generated, obfuscated, hidden,
+  or injection-prone execution.
+- Persistence and trust-boundary changes: startup files, hooks, package
+  lifecycle scripts, CI/deploy/release automation, auth/session config, or
+  other trust-boundary changes.
+- Privileged runtime or system state: process, service, container, database,
+  system, or privileged runtime state changes.
+- Destructive or hard-to-reverse state changes: broad deletion, overwrite,
+  migration, reset, purge, force/history rewrite, or hard-to-reverse state
+  mutation.
+- Production, shared, remote, or external mutations: production, shared,
+  remote, or externally visible mutation.
+- Safety, sandbox, approval, or audit bypass: sandbox, approval, audit, policy,
+  hook, or guard bypass.
+- Explicit user safety-scope conflict: recent user instructions constrain
+  credentials, production, deploys, auth, persistence, external writes, safety
+  controls, or similar boundaries, and the operation visibly crosses that
+  constraint.
+
+The code owns this taxonomy. The docs describe it in human-readable terms; the
+internal category IDs are implementation details for tests and maintenance.
+
 ## Providers
 
 nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
@@ -216,7 +249,9 @@ ask-refinement an LLM `block` response is treated as `uncertain`.
 
 The terminal guard keeps a separate prompt for commands typed directly by a
 human into bash or zsh. It uses the typed command as intent and does not include
-agent transcript or project-instruction context.
+agent transcript or project-instruction context. Both agent and terminal
+ask-refinement use the shared review scope above, plus their surface-specific
+rules for read-to-filter pipelines, process signals, and ordinary Git pushes.
 
 ## Target-specific LLM policy
 
@@ -261,6 +296,10 @@ code to deterministic `allow`, nah can still ask the LLM to inspect the script
 content. This is a veto-only path: an LLM `allow` preserves the deterministic
 allow, while `uncertain` or `block` escalates to `ask` for human review.
 
+The clean script veto uses the shared review scope above. It is meant to catch
+visible security or safety risk in otherwise clean script execution, not to
+review code style or general implementation quality.
+
 Deterministic `lang_exec` asks and blocks do not use this veto path. Eligible
 asks route through unified ask-refinement; blocks stay blocked.
 
@@ -285,7 +324,11 @@ These ask classes stay human-gated even if the LLM returns `allow`:
 - deterministic content-pattern asks
 - malformed or unparseable write-like payloads
 
-The write-review prompt includes the tool, target path, working directory, inside-project status, deterministic decision and reason, the write/edit content with secret redaction, and recent transcript context. The LLM is instructed to allow only narrow edits that match recent user intent and do not add or expose literal credentials, exfiltrate data, weaken auth, add persistence, alter hooks, or bypass safety controls.
+The write-review prompt includes the tool, target path, working directory,
+inside-project status, deterministic decision and reason, the write/edit
+content with secret redaction, and recent transcript context. It uses the
+shared review scope above and asks only about visible security or safety risk in
+the edit, patch content, touched paths, or patch summary.
 
 ### context_chars
 

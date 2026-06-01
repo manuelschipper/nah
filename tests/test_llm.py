@@ -28,12 +28,18 @@ from nah.llm import (
     try_llm_unified,
     LLMCallResult,
 )
+from nah.llm_risks import LLM_RISK_CATEGORIES
 
 
 @pytest.fixture(autouse=True)
 def _disable_keyring(monkeypatch):
     """Keep provider tests deterministic by defaulting keyring support off."""
     monkeypatch.setattr("nah.llm_keys._load_keyring", lambda: None)
+
+
+def _assert_risk_labels_present(text: str):
+    for category in LLM_RISK_CATEGORIES:
+        assert category.label in text
 
 
 # -- _parse_response tests --
@@ -155,6 +161,7 @@ class TestProvenanceReviewPrompt:
         assert "lang_exec" in prompt.user
         assert "derived.py" in prompt.user
         assert "print('ok')" in prompt.user
+        _assert_risk_labels_present(prompt.system)
 
     def test_incomplete_packet_is_visible_to_reviewer(self):
         prompt = _build_provenance_prompt({
@@ -272,6 +279,7 @@ class TestBuildTerminalGuardPrompt:
         assert "Safe local read-to-filter pipelines" in prompt.user
         assert "Process signals" in prompt.user
         assert "Ordinary Git pushes" in prompt.user
+        _assert_risk_labels_present(prompt.user)
 
     def test_terminal_prompt_omits_agent_context_sections(self):
         prompt = _build_terminal_guard_prompt(
@@ -1345,6 +1353,9 @@ class TestVetoSystemTemplate:
         assert '"reasoning"' in _VETO_SYSTEM_TEMPLATE
         assert '"reasoning_long"' in _VETO_SYSTEM_TEMPLATE
 
+    def test_uses_canonical_risk_categories(self):
+        _assert_risk_labels_present(_VETO_SYSTEM_TEMPLATE)
+
 
 # -- Generic prompt tests --
 
@@ -1546,6 +1557,7 @@ class TestRedactSecretsInWritePrompt:
         assert "If none of those categories is visible, choose allow" in prompt.system
         assert "Security Review Scope" in prompt.user
         assert "visible security or safety risk in the edit above" in combined
+        _assert_risk_labels_present(prompt.system)
         assert "malformed" not in combined
         assert "syntactically" not in combined
         assert "alias/config change" not in combined
