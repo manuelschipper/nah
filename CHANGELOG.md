@@ -15,14 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundary instead of Codex's current subdirectory.
 - **LLM write review prompt** — write-like tool review now focuses on
   observable risk instead of requiring an exact user-intent match for ordinary
-  project-local source and test edits. It still escalates malformed patches,
-  command-injection risks, persistence/auth boundary changes, credential
-  exposure, and conflicting intent.
+  project-local source and test edits. It still escalates command-injection
+  risks, persistence/auth boundary changes, credential exposure, and conflicting
+  safety scope.
 - **LLM risk taxonomy** — LLM prompt surfaces now render from one canonical
   code-owned safety risk list, keeping write review, clean script veto,
   provenance review, agent ask-refinement, and terminal guard prompts aligned.
   The LLM docs now describe the shared review scope in human-readable terms.
   (nah-968)
+- **LLM ask-refinement prompt** — Claude and Codex agent ask-refinement now uses
+  a product-neutral prompt with operation metadata, deterministic breakdown,
+  recent user intent, and the shared review scope. It no longer reads
+  `CLAUDE.md` / `AGENTS.md` instruction context or embeds action-specific prompt
+  snippets. (nah-971)
 - **Claude Code demo simplification** — `/nah-demo` now uses a dedicated
   25-case curated demo file instead of the former 90-case plus variant test
   battery. The slash command is a short product demo; pytest remains the
@@ -30,9 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LLM ask refinement defaults** — default LLM eligibility now includes
   process signals and safe local read-to-filter pipelines with inline visible
   exec payloads, while file-backed scripts, sensitive reads, remote/decode
-  chains, destructive actions, and bypass paths remain human-gated. Claude and
-  Codex ask-refinement prompts now include labeled project and user-global
-  instruction context when available. (nah-963)
+  chains, destructive actions, and bypass paths remain human-gated. (nah-963)
 - **Plain Git push LLM review** — default LLM eligibility now includes
   `git_remote_write`, so an agent told to "commit and push" can auto-approve a
   normal `git push` when recent intent is clear. Force pushes, history
