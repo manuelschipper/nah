@@ -355,7 +355,10 @@ def build_codex_launch(
         env.pop(_PROBE_DELAY_ENV, None)
     headless_ask_fallback = ""
     if headless:
-        headless_ask_fallback = getattr(effective_cfg, "ask_fallback", "") or "block"
+        # 'defer' has no meaning in non-interactive headless runs (nothing to defer
+        # to), so coerce it — like an empty fallback — to the safe 'block'.
+        _cfg_fallback = getattr(effective_cfg, "ask_fallback", "")
+        headless_ask_fallback = _cfg_fallback if _cfg_fallback in ("allow", "block") else "block"
         env[_HEADLESS_ENV] = "1"
         env[_HEADLESS_ASK_FALLBACK_ENV] = headless_ask_fallback
         env[_HEADLESS_SANDBOX_ENV] = sandbox_mode

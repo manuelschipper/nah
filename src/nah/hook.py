@@ -353,6 +353,20 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
 
         cfg = get_config()
     mode = getattr(cfg, "ask_fallback", "")
+    if mode == "defer":
+        # Defer the unresolved ask to the agent's own permission flow instead of
+        # prompting: keep the ask decision but flag it so the Claude hook emits
+        # nothing, letting Claude's permission/auto-accept layer decide. Claude-only
+        # (Codex coerces defer -> block when headless, treats as ask interactively).
+        meta = decision.setdefault("_meta", {})
+        meta["ask_fallback"] = {
+            "mode": mode,
+            "from": taxonomy.ASK,
+            "to": "defer",
+            "reason": str(decision.get("reason", "") or ""),
+        }
+        decision["_defer"] = True
+        return decision
     if mode not in (taxonomy.ALLOW, taxonomy.BLOCK):
         return decision
 
@@ -595,7 +609,9 @@ def main():
         decision.setdefault("_meta", {})["execution"] = _pre_tool_execution(decision)
         d = decision.get("decision", taxonomy.ALLOW)
 
-        if d != taxonomy.ALLOW or _is_active_allow(canonical):
+        # _defer (ask_fallback: defer) suppresses output on an ask so Claude's own
+        # permission/auto-accept layer decides — same pass-through as a silent allow.
+        if not decision.get("_defer") and (d != taxonomy.ALLOW or _is_active_allow(canonical)):
             enrich_decision(decision, tool=canonical)
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")

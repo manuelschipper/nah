@@ -17,7 +17,7 @@ _CONFIG_DIR = nah_config_dir()
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
 _PRESET_ENV = "NAH_PRESET"
-_ASK_FALLBACKS = {"allow", "block"}
+_ASK_FALLBACKS = {"allow", "block", "defer"}
 
 
 @dataclass
@@ -402,13 +402,13 @@ def _normalize_llm_mode(raw) -> str:
 
 
 def _normalize_ask_fallback(raw, *, context: str) -> str:
-    """Normalize target ask fallback to allow/block/empty or raise."""
+    """Normalize target ask fallback to allow/block/defer/empty or raise."""
     if raw in (None, ""):
         return ""
     if raw in _ASK_FALLBACKS:
         return raw
     raise ConfigError(
-        f"{context}.ask_fallback must be 'allow' or 'block', got {raw!r}"
+        f"{context}.ask_fallback must be 'allow', 'block', or 'defer', got {raw!r}"
     )
 
 
