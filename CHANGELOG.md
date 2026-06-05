@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bash line continuations after operators** — commands such as
+  `git add file && \` followed by `git commit` now remove the shell
+  line-continuation syntax before classification, so the continued stage is
+  recognized deterministically instead of falling to `unknown`. (nah-974)
 - **Codex transcript context** — LLM ask refinement now reads Codex
   `response_item` transcript messages and falls back past large ignored tool
   output lines before reporting recent conversation context as unavailable.

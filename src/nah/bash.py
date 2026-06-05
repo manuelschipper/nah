@@ -138,18 +138,24 @@ def classify_command(command: str) -> ClassifyResult:
         result.reason = "empty command"
         return result
 
+    normalized_command = _remove_shell_line_continuations(command)
+
     # --- FD-103: extract all substitutions before splitting ---
     # Substitutions can contain pipes that _split_on_operators would
     # incorrectly split on.  Extract first, replace with placeholders,
     # then classify inner commands separately.
-    all_subs = _extract_substitutions(command)
+    all_subs = _extract_substitutions(normalized_command)
     # Fail-closed: unbalanced substitution → block
     if any(s[3] == "failed" for s in all_subs):
         result.final_decision = taxonomy.BLOCK
         result.reason = "unbalanced substitution"
         return result
     active_subs = [s for s in all_subs if s[3] != "failed"]
-    sanitized = _replace_substitutions(command, active_subs) if active_subs else command
+    sanitized = (
+        _replace_substitutions(normalized_command, active_subs)
+        if active_subs
+        else normalized_command
+    )
 
     # Split on top-level shell operators while quoting context is available,
     # then shlex.split each stage independently (FD-095).
@@ -268,6 +274,88 @@ def classify_command(command: str) -> ClassifyResult:
     # Aggregate: most restrictive wins
     _aggregate(result)
     return result
+
+
+def _remove_shell_line_continuations(command: str) -> str:
+    """Remove shell backslash-newline continuations before parser splitting.
+
+    Bash removes these pairs before ordinary parsing outside single quotes,
+    including inside double quotes. Heredoc bodies are copied unchanged so
+    nah's existing content-inspection behavior stays stable.
+    """
+    if "\\\n" not in command:
+        return command
+
+    out: list[str] = []
+    i = 0
+    n = len(command)
+
+    while i < n:
+        c = command[i]
+
+        if c == "'":
+            j = command.find("'", i + 1)
+            end = j + 1 if j >= 0 else n
+            out.append(command[i:end])
+            i = end
+            continue
+
+        if c == '"':
+            out.append(c)
+            i += 1
+            while i < n:
+                c = command[i]
+                if (
+                    c == "$"
+                    and i + 1 < n
+                    and command[i + 1] == "("
+                    and (i + 2 >= n or command[i + 2] != "(")
+                ):
+                    close = _match_parens(command, i + 1)
+                    if close >= 0:
+                        inner = command[i + 2:close]
+                        out.append("$(")
+                        out.append(_remove_shell_line_continuations(inner))
+                        out.append(")")
+                        i = close + 1
+                        continue
+                if c == "\\" and i + 1 < n:
+                    if command[i + 1] == "\n":
+                        i += 2
+                        continue
+                    out.append(command[i:i + 2])
+                    i += 2
+                    continue
+                out.append(c)
+                i += 1
+                if c == '"':
+                    break
+            continue
+
+        if (
+            c == "<"
+            and i + 1 < n
+            and command[i + 1] == "<"
+            and (i + 2 >= n or command[i + 2] != "<")
+        ):
+            new_i = _skip_heredoc(command, i)
+            if new_i > i:
+                out.append(command[i:new_i])
+                i = new_i
+                continue
+
+        if c == "\\" and i + 1 < n:
+            if command[i + 1] == "\n":
+                i += 2
+                continue
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+
+        out.append(c)
+        i += 1
+
+    return "".join(out)
 
 
 def _split_on_operators(command: str) -> list[tuple[str, str]]:
@@ -3773,6 +3861,7 @@ def _docker_visible_stage_results(
     tokens = stage.tokens
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
     if is_wrapper and inner:
+        inner = _remove_shell_line_continuations(inner)
         if "$(" in inner or "`" in inner or "<(" in inner or ">(" in inner or _PSUB_PREFIX in inner:
             return None
         try:
@@ -4039,6 +4128,7 @@ def _unwrap_shell(
     is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
     if not is_wrapper or inner is None:
         return None
+    inner = _remove_shell_line_continuations(inner)
 
     # Check for $() or backticks in eval — obfuscated.
     # Also check for placeholders: top-level extraction already replaced
