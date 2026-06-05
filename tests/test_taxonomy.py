@@ -376,6 +376,49 @@ class TestClassifyTokens:
             profile="none",
         ) == "container_read"
 
+    # flux — kubeconfig-style global flags stripped before global-table match.
+    # flux has no built-in classifier; the user config supplies the taxonomy.
+    def _flux_table(self):
+        return build_user_table({
+            "filesystem_read": ["flux get", "flux list", "flux logs"],
+            "network_write": ["flux create", "flux suspend"],
+            "container_destructive": ["flux delete", "flux uninstall"],
+        })
+
+    @pytest.mark.parametrize("tokens,expected", [
+        (["flux", "-n", "flux-system", "get", "kustomizations"], "filesystem_read"),
+        (["flux", "--namespace=apps", "list", "all"], "filesystem_read"),
+        (["flux", "--context", "prod", "-n", "apps", "logs"], "filesystem_read"),
+        (["flux", "--insecure-skip-tls-verify", "get", "sources"], "filesystem_read"),
+        (["flux", "get", "kustomizations"], "filesystem_read"),
+    ])
+    def test_flux_global_flags_stripped_for_reads(self, tokens, expected):
+        assert classify_tokens(
+            tokens, global_table=self._flux_table(), builtin_table=_FULL,
+        ) == expected
+
+    @pytest.mark.parametrize("tokens,expected", [
+        # Safety: stripping must not weaken — destructive subcommands still match.
+        (["flux", "-n", "flux-system", "delete", "kustomization", "app"], "container_destructive"),
+        (["flux", "--namespace=apps", "uninstall"], "container_destructive"),
+        (["flux", "-n", "apps", "suspend", "kustomization", "app"], "network_write"),
+    ])
+    def test_flux_global_flags_preserve_dangerous(self, tokens, expected):
+        assert classify_tokens(
+            tokens, global_table=self._flux_table(), builtin_table=_FULL,
+        ) == expected
+
+    @pytest.mark.parametrize("tokens", [
+        ["flux", "-n"],                          # value flag without value
+        ["flux", "-n", "get", "sources"],        # value is a subcommand
+        ["flux", "--namespace="],                # empty =joined value
+        ["flux", "--unknown-global", "get"],     # unrecognized pre-subcommand flag
+    ])
+    def test_flux_malformed_global_flags_fail_closed(self, tokens):
+        assert classify_tokens(
+            tokens, global_table=self._flux_table(), builtin_table=_FULL,
+        ) == "unknown"
+
     # find — special case
     def test_find_read(self):
         assert _ct(["find", ".", "-name", "*.py"]) == "filesystem_read"

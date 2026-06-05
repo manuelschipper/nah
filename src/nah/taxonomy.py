@@ -523,6 +523,16 @@ def classify_tokens(
             if result != UNKNOWN:
                 return result
 
+    # flux: strip kubeconfig-style global flags (-n namespace, --context, etc.)
+    # first, then re-check the global table. Without this, `flux -n flux-system
+    # get kustomizations` fails to match a `flux get` prefix and falls to unknown.
+    if tokens[0] == "flux":
+        tokens = _strip_flux_global_flags(tokens)
+        if global_table:
+            result = _prefix_match(tokens, global_table)
+            if result != UNKNOWN:
+                return result
+
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     action = _classify_find(
         tokens,
@@ -829,6 +839,75 @@ def _strip_kubectl_global_flags(tokens: list[str]) -> list[str]:
                 return tokens
             i += 1
         elif tok in _KUBECTL_BOOLEAN_FLAGS:
+            i += 1
+        elif tok.startswith("-"):
+            return tokens
+        else:
+            result.extend(tokens[i:])
+            break
+    return result
+
+
+_FLUX_SUBCOMMANDS = {
+    "bootstrap", "build", "check", "completion", "create", "debug", "delete",
+    "diff", "envsubst", "events", "export", "get", "help", "install", "list",
+    "logs", "migrate", "pull", "push", "reconcile", "resume", "stats", "suspend",
+    "tag", "trace", "tree", "uninstall", "version",
+}
+
+# flux global (persistent) flags that take a value and precede the subcommand.
+_FLUX_VALUE_FLAGS = {
+    "-n", "--namespace", "--as", "--as-group", "--as-uid", "--as-user-extra",
+    "--cache-dir", "--certificate-authority", "--client-certificate",
+    "--client-key", "--cluster", "--context", "--kube-api-burst",
+    "--kube-api-qps", "--kubeconfig", "--server", "--timeout",
+    "--tls-server-name", "--token", "--user",
+}
+
+_FLUX_VALUE_FLAG_PREFIXES = (
+    "-n=", "--namespace=", "--as=", "--as-group=", "--as-uid=", "--as-user-extra=",
+    "--cache-dir=", "--certificate-authority=", "--client-certificate=",
+    "--client-key=", "--cluster=", "--context=", "--kube-api-burst=",
+    "--kube-api-qps=", "--kubeconfig=", "--server=", "--timeout=",
+    "--tls-server-name=", "--token=", "--user=",
+)
+
+_FLUX_BOOLEAN_FLAGS = {
+    "--disable-compression", "--insecure-skip-tls-verify", "--verbose", "--help",
+}
+
+
+def _strip_flux_global_flags(tokens: list[str]) -> list[str]:
+    """Strip known flux global flags before the subcommand.
+
+    flux takes kubeconfig-style persistent flags (-n/--namespace, --context,
+    --kubeconfig, etc.) before the subcommand, so `flux -n flux-system get
+    kustomizations` otherwise fails to match a `flux get` prefix. Mirrors
+    _strip_kubectl_global_flags: unknown or malformed pre-subcommand flags fail
+    closed by returning the original token stream.
+    """
+    result = [tokens[0]]
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            if i + 1 >= len(tokens):
+                return tokens
+            result.extend(tokens[i + 1:])
+            break
+        if tok in _FLUX_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                return tokens
+            value = tokens[i + 1]
+            if value.startswith("-") or value in _FLUX_SUBCOMMANDS:
+                return tokens
+            i += 2
+        elif any(tok.startswith(prefix) for prefix in _FLUX_VALUE_FLAG_PREFIXES):
+            _, value = tok.split("=", 1)
+            if not value or value in _FLUX_SUBCOMMANDS:
+                return tokens
+            i += 1
+        elif tok in _FLUX_BOOLEAN_FLAGS:
             i += 1
         elif tok.startswith("-"):
             return tokens
