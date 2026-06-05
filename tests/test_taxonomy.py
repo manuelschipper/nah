@@ -376,6 +376,58 @@ class TestClassifyTokens:
             profile="none",
         ) == "container_read"
 
+    # talosctl — global connection flags stripped before global-table match.
+    # talosctl has no built-in classifier; the user config supplies the
+    # taxonomy, so these go through the global_table after stripping.
+    def _talos_table(self):
+        return build_user_table({
+            "filesystem_read": ["talosctl get", "talosctl read", "talosctl dmesg"],
+            "process_signal": ["talosctl reboot", "talosctl reset"],
+            "network_write": ["talosctl apply-config"],
+        })
+
+    @pytest.mark.parametrize("tokens,expected", [
+        (["talosctl", "-n", "1.2.3.4", "get", "routes"], "filesystem_read"),
+        (["talosctl", "--nodes=1.2.3.4", "dmesg"], "filesystem_read"),
+        (["talosctl", "-e", "1.2.3.4", "-n", "5.6.7.8", "read", "/proc/cmdline"], "filesystem_read"),
+        (["talosctl", "--context", "prod", "get", "members"], "filesystem_read"),
+        (["talosctl", "get", "routes"], "filesystem_read"),
+    ])
+    def test_talosctl_global_flags_stripped_for_reads(self, tokens, expected):
+        assert classify_tokens(
+            tokens, global_table=self._talos_table(), builtin_table=_FULL,
+        ) == expected
+
+    @pytest.mark.parametrize("tokens,expected", [
+        # Safety: stripping must not weaken — dangerous subcommands still match.
+        (["talosctl", "-n", "1.2.3.4", "reboot"], "process_signal"),
+        (["talosctl", "--nodes=1.2.3.4", "reset"], "process_signal"),
+        (["talosctl", "-n", "1.2.3.4", "apply-config", "-f", "c.yaml"], "network_write"),
+    ])
+    def test_talosctl_global_flags_preserve_dangerous(self, tokens, expected):
+        assert classify_tokens(
+            tokens, global_table=self._talos_table(), builtin_table=_FULL,
+        ) == expected
+
+    @pytest.mark.parametrize("tokens", [
+        ["talosctl", "-n"],                       # value flag without value
+        ["talosctl", "-n", "get", "routes"],      # value is a subcommand
+        ["talosctl", "--nodes="],                 # empty =joined value
+        ["talosctl", "--unknown-global", "get"],  # unrecognized pre-subcommand flag
+    ])
+    def test_talosctl_malformed_global_flags_fail_closed(self, tokens):
+        assert classify_tokens(
+            tokens, global_table=self._talos_table(), builtin_table=_FULL,
+        ) == "unknown"
+
+    def test_talosctl_global_table_checked_after_global_flags(self):
+        table = build_user_table({"git_safe": ["talosctl custom-read"]})
+        assert classify_tokens(
+            ["talosctl", "-n", "1.2.3.4", "custom-read"],
+            global_table=table,
+            builtin_table=_FULL,
+        ) == "git_safe"
+
     # find — special case
     def test_find_read(self):
         assert _ct(["find", ".", "-name", "*.py"]) == "filesystem_read"
