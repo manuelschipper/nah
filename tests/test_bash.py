@@ -12,6 +12,7 @@ from nah.bash import (
     _extract_subshell_group,
     _extract_wrapped_redirect_literal,
     _is_transparent_python_formatter,
+    _remove_shell_line_continuations,
     _raw_stage_to_stages,
     _raw_parts_reference_var,
     _stages_reference_var,
@@ -4195,6 +4196,114 @@ class TestShellCommentParsing:
         """Comments inside heredoc should not break parsing."""
         r = classify_command("cat <<'EOF'\n# there's heredoc content\nactual line\nEOF")
         assert "shlex" not in (r.reason or "")
+
+
+class TestShellLineContinuationParsing:
+    """Backslash-newline is shell syntax, not part of the next command word."""
+
+    continuation = "\\" + "\n"
+
+    def assert_no_unknown_stage(self, result):
+        assert result.stages
+        assert all(stage.action_type != "unknown" for stage in result.stages)
+        assert all(
+            not stage.tokens or not stage.tokens[0].startswith("\n")
+            for stage in result.stages
+        )
+
+    def test_and_continuation_preserves_git_stage(self, project_root):
+        r = classify_command(
+            f"git add src/file.py && {self.continuation}"
+            'git commit -m "test"'
+        )
+
+        assert r.final_decision == "allow"
+        assert [stage.action_type for stage in r.stages] == ["git_write", "git_write"]
+        self.assert_no_unknown_stage(r)
+
+    @pytest.mark.parametrize(
+        "operator,command,expected_types",
+        [
+            ("&&", "git status", ["filesystem_read", "git_safe"]),
+            ("||", "git status", ["filesystem_read", "git_safe"]),
+            (";", "git status", ["filesystem_read", "git_safe"]),
+            ("|", "cat", ["filesystem_read", "filesystem_read"]),
+        ],
+    )
+    def test_operator_continuation_keeps_next_command_recognizable(
+        self,
+        project_root,
+        operator,
+        command,
+        expected_types,
+    ):
+        r = classify_command(f"echo ok {operator} {self.continuation}{command}")
+
+        assert [stage.action_type for stage in r.stages] == expected_types
+        self.assert_no_unknown_stage(r)
+
+    def test_continuation_does_not_hide_history_rewrite(self, project_root):
+        r = classify_command(
+            f"echo ok && {self.continuation}git push --force origin main"
+        )
+
+        assert r.final_decision == "ask"
+        assert len(r.stages) == 2
+        assert r.stages[1].tokens[:2] == ["git", "push"]
+        assert r.stages[1].action_type == "git_history_rewrite"
+
+    def test_continuation_does_not_hide_destructive_stage(self, project_root):
+        delete_cmd = "r" + "m -r" + "f /"
+        r = classify_command(f"echo ok && {self.continuation}{delete_cmd}")
+
+        assert r.final_decision == "ask"
+        assert len(r.stages) == 2
+        assert r.stages[1].tokens[:2] == ["rm", "-rf"]
+        assert r.stages[1].action_type == "filesystem_delete"
+
+    def test_double_quoted_continuation_unwraps_cleanly(self, project_root):
+        r = classify_command(
+            f'bash -c "git status && {self.continuation}'
+            'git diff --name-only"'
+        )
+
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_safe"
+        self.assert_no_unknown_stage(r)
+
+    def test_single_quoted_shell_wrapper_continuation_unwraps_inner(self, project_root):
+        r = classify_command(
+            f"bash -c 'git status && {self.continuation}"
+            "git push --force origin main'"
+        )
+
+        assert r.final_decision == "ask"
+        assert r.stages[0].tokens[:2] == ["git", "push"]
+        assert r.stages[0].action_type == "git_history_rewrite"
+
+    def test_single_quoted_backslash_newline_stays_literal(self, project_root):
+        literal = "a" + self.continuation + "b"
+        r = classify_command(f"echo '{literal}' && git status")
+
+        assert r.final_decision == "allow"
+        assert r.stages[0].tokens == ["echo", literal]
+        assert r.stages[1].action_type == "git_safe"
+
+    def test_double_quoted_substitution_heredoc_body_stays_literal(self, project_root):
+        body = "line" + self.continuation + "continued"
+        command = f'git commit -m "$(cat <<EOF\n{body}\nEOF\n)"'
+
+        assert _remove_shell_line_continuations(command) == command
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "git_write"
+
+    def test_escaped_pipe_still_not_pipeline(self, project_root):
+        r = classify_command("echo foo\\|bar")
+
+        assert r.final_decision == "allow"
+        assert len(r.stages) == 1
+        assert r.stages[0].tokens == ["echo", "foo|bar"]
 
 
 class TestHeredocInterpreter:
