@@ -1511,7 +1511,7 @@ def _if_body_dynamic_use_is_safe(
     if not stage.tokens:
         return True
 
-    command = os.path.basename(stage.tokens[0])
+    command = stage.tokens[0]
     if command == "echo":
         return _echo_dynamic_use_is_safe(stage, dynamic_vars, placeholders)
     if command == "printf":
@@ -1526,6 +1526,11 @@ def _echo_dynamic_use_is_safe(
     dynamic_vars: set[str],
     placeholders: set[str],
 ) -> bool:
+    for token in stage.tokens[1:]:
+        if _value_references_if_dynamic_data(token, dynamic_vars, placeholders):
+            break
+        if token == "--" or token.startswith("-"):
+            return False
     return all(
         _display_token_dynamic_use_is_safe(token, dynamic_vars, placeholders)
         for token in stage.tokens[1:]
@@ -1550,6 +1555,8 @@ def _printf_dynamic_use_is_safe(
     fmt = args[0]
     if _value_references_if_dynamic_data(fmt, dynamic_vars, placeholders):
         return False
+    if not _printf_format_is_plain_string(fmt):
+        return False
     dynamic_args = [
         arg for arg in args[1:]
         if _value_references_if_dynamic_data(arg, dynamic_vars, placeholders)
@@ -1558,6 +1565,39 @@ def _printf_dynamic_use_is_safe(
         _display_token_dynamic_use_is_safe(arg, dynamic_vars, placeholders)
         for arg in dynamic_args
     )
+
+
+def _printf_format_is_plain_string(fmt: str) -> bool:
+    i = 0
+    length = len(fmt)
+    while i < length:
+        if fmt[i] != "%":
+            i += 1
+            continue
+        i += 1
+        if i >= length:
+            return False
+        if fmt[i] == "%":
+            i += 1
+            continue
+        if fmt[i] == "(":
+            return False
+        while i < length and fmt[i] in "#0- +":
+            i += 1
+        if i < length and fmt[i] == "*":
+            return False
+        while i < length and fmt[i].isdigit():
+            i += 1
+        if i < length and fmt[i] == ".":
+            i += 1
+            if i < length and fmt[i] == "*":
+                return False
+            while i < length and fmt[i].isdigit():
+                i += 1
+        if i >= length or fmt[i] != "s":
+            return False
+        i += 1
+    return True
 
 
 def _test_dynamic_use_is_safe(

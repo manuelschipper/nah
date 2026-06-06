@@ -3914,8 +3914,11 @@ class TestShellControlFlow:
         [
             'if [ -f /tmp/test ]; then x=$(cat /tmp/test); echo "$x"; fi',
             'if true; then echo "$(cat /tmp/test)"; fi',
+            'if true; then x=$(cat /tmp/test); echo "LAST_SESSION: $x"; fi',
             'if true; then printf "%s\\n" "$(cat /tmp/test)"; fi',
             'if true; then x=$(cat /tmp/test); printf "%s\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%s %s\\n" "$x" ok; fi',
+            'if true; then x=$(cat /tmp/test); printf "%.80s\\n" "$x"; fi',
             'if true; then x=$(cat /tmp/test); y=$x; echo "$y"; fi',
             'if true; then x=$(cat /tmp/test); y=${x}; echo "$y"; fi',
             'if true; then x=$(cat /tmp/test); echo "${x}"; fi',
@@ -3930,6 +3933,67 @@ class TestShellControlFlow:
         r = classify_command(command)
         assert r.final_decision == "allow"
         assert not self._has_if_body_substitution_guard(r)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'if true; then x=$(cat /tmp/test); ./echo "$x"; fi',
+            'if true; then x=$(cat /tmp/test); /tmp/echo "$x"; fi',
+            'if true; then x=$(cat /tmp/test); ./printf "%s\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); /bin/printf "%s\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); ./test -n "$x"; fi',
+            'if true; then x=$(cat /tmp/test); command echo "$x"; fi',
+            'if true; then x=$(cat /tmp/test); builtin echo "$x"; fi',
+        ],
+    )
+    def test_if_body_dynamic_substitution_command_lookalikes_ask(
+        self,
+        project_root,
+        command,
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert self._has_if_body_substitution_guard(r)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'if true; then x=$(cat /tmp/test); echo -e "$x"; fi',
+            'if true; then x=$(cat /tmp/test); echo -E "$x"; fi',
+            'if true; then x=$(cat /tmp/test); echo -n "$x"; fi',
+            'if true; then x=$(cat /tmp/test); echo -ne "$x"; fi',
+            'if true; then x=$(cat /tmp/test); echo -- "$x"; fi',
+        ],
+    )
+    def test_if_body_dynamic_substitution_echo_options_ask(
+        self,
+        project_root,
+        command,
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert self._has_if_body_substitution_guard(r)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'if true; then x=$(cat /tmp/test); printf "%b\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%q\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%Q\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%d\\n" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf "%(../../../tmp)xT" "$x"; fi',
+            'if true; then x=$(cat /tmp/test); printf -- "$x"; fi',
+        ],
+    )
+    def test_if_body_dynamic_substitution_interpreting_printf_formats_ask(
+        self,
+        project_root,
+        command,
+    ):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert self._has_if_body_substitution_guard(r)
 
     def test_if_body_gstack_style_read_filter_display_allows(self, project_root):
         timeline = os.path.join(project_root, "timeline.jsonl")
