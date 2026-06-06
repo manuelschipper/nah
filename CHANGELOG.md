@@ -44,14 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Bash `if` substitution inert display hardening** — path-qualified
-  `echo`/`printf`/`test` lookalikes, option-driven `echo`, and interpreting
-  `printf` formats now keep the dynamic-output guard instead of auto-allowing
-  under the inert display exception. (nah-976)
-- **Bash `if` command substitutions** — inert read/display patterns such as
-  `x=$(cat /tmp/test); echo "$x"` inside `if` blocks now allow
-  deterministically, while dynamic paths, exec sinks, payloads, redirects,
-  pipes, and post-`fi` variable use still ask. (nah-975)
 - **Bash line continuations after operators** — commands such as
   `git add file && \` followed by `git commit` now remove the shell
   line-continuation syntax before classification, so the continued stage is
