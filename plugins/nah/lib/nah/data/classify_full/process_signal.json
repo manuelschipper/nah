@@ -1,0 +1,9 @@
+[
+  "kill -9",
+  "kill -KILL",
+  "kill -SIGKILL",
+  "pkill",
+  "killall",
+  "dolt sql-server",
+  "taskkill"
+]

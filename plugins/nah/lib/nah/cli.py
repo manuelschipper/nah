@@ -1,0 +1,2154 @@
+"""CLI entry point — install/uninstall/test commands."""
+
+import argparse
+import getpass
+import json
+import os
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+from nah import __version__, agents, hook_command, plugin_state, targets
+
+_HOOKS_DIR = Path.home() / ".claude" / "hooks"
+_HOOK_SCRIPT = _HOOKS_DIR / "nah_guard.py"
+_KEY_PROVIDERS = ("openai", "anthropic", "openrouter", "cortex", "azure")
+_CLAUDE_BLOCKED_FLAGS = {
+    "--allow-dangerously-skip-permissions",
+    "--bare",
+    "--dangerously-skip-permissions",
+    "--enable-auto-mode",
+}
+_CLAUDE_BLOCKED_PERMISSION_MODES = {"auto", "bypassPermissions"}
+_CLAUDE_TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
+
+
+def _trust_target_is_path(target: str) -> bool:
+    """Return whether `nah trust` should route the target to trusted_paths."""
+    if target.startswith(("/", "~", ".")):
+        return True
+    return (
+        len(target) >= 2
+        and target[0].isalpha()
+        and target[1] == ":"
+        and (len(target) == 2 or target[2] in ("/", "\\"))
+    )
+
+def _hook_command() -> str:
+    """Build the command string for settings.json hook entries."""
+    return hook_command.claude_hook_command()
+
+
+def _require_hook_command(command_name: str) -> str:
+    try:
+        return _hook_command()
+    except hook_command.HookCommandError as exc:
+        print(f"nah {command_name}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def _build_hooks_settings(command: str | None = None) -> dict:
+    """Build a settings dict containing nah tool hooks for Claude Code."""
+    command = command or _hook_command()
+    hook_events = {}
+    for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+        hook_events[event_name] = _tool_hook_entries(
+            command,
+            agents.AGENT_TOOL_MATCHERS[agents.CLAUDE],
+        )
+    return {"hooks": hook_events}
+
+
+def _tool_hook_entries(command: str, tool_names: list[str]) -> list[dict]:
+    """Return one Claude hook entry per tool matcher."""
+    entries = []
+    for tool_name in tool_names:
+        entries.append({
+            "matcher": tool_name,
+            "hooks": [{"type": "command", "command": command}],
+        })
+    return entries
+
+
+def _read_settings(settings_file: Path) -> dict:
+    """Read a settings.json file, return empty structure if missing."""
+    if settings_file.exists():
+        with open(settings_file, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _write_settings(settings_file: Path, data: dict) -> None:
+    """Write settings.json with backup."""
+    backup = settings_file.with_suffix(".json.bak")
+    if settings_file.exists():
+        with open(settings_file, encoding="utf-8") as f:
+            backup_content = f.read()
+        with open(backup, "w", encoding="utf-8") as f:
+            f.write(backup_content)
+
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(settings_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+
+def _is_nah_hook(hook_entry: dict) -> bool:
+    """Check if a hook entry belongs to nah."""
+    return plugin_state.is_direct_nah_hook(hook_entry)
+
+
+def _user_settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
+    """Return user settings paths owned by nah lifecycle commands."""
+    paths: list[Path] = []
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS.get(key)
+        if settings_file is not None:
+            paths.append(settings_file)
+    return paths
+
+
+def _settings_paths_for_agent_keys(agent_keys: list[str]) -> list[Path]:
+    """Return user/project settings paths to scan for nah install state."""
+    paths = _user_settings_paths_for_agent_keys(agent_keys)
+    paths.extend(plugin_state.project_settings_paths())
+    return paths
+
+
+def _settings_path_key(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve(strict=False)
+    except OSError:
+        return path.expanduser().absolute()
+
+
+def _outside_user_direct_findings(
+    state: plugin_state.NahInstallState,
+    user_paths: list[Path],
+) -> list[plugin_state.SettingsFinding]:
+    user_keys = {_settings_path_key(path) for path in user_paths}
+    return [
+        finding
+        for finding in state.direct_hooks
+        if _settings_path_key(finding.path) not in user_keys
+    ]
+
+
+def _detect_install_state(agent_keys: list[str]) -> plugin_state.NahInstallState:
+    return plugin_state.detect_nah_install_state(
+        settings_paths=_settings_paths_for_agent_keys(agent_keys),
+    )
+
+
+def _warn_install_state_errors(state: plugin_state.NahInstallState, command: str) -> None:
+    for error in state.errors:
+        sys.stderr.write(f"nah {command}: could not inspect Claude settings: {error}\n")
+
+
+def _matcher_tool_names(matcher) -> set[str]:
+    """Return tool names covered by a Claude hook matcher."""
+    if isinstance(matcher, str):
+        return {matcher}
+    if isinstance(matcher, dict):
+        raw = matcher.get("tool_name", [])
+        if isinstance(raw, str):
+            return {raw}
+        if isinstance(raw, list):
+            return {name for name in raw if isinstance(name, str)}
+    return set()
+
+
+def _merge_matcher_tool_names(hook_entry: dict, tool_names: set[str]) -> bool:
+    """Merge tool names into a legacy object-style matcher, if present."""
+    matcher = hook_entry.get("matcher")
+    if not isinstance(matcher, dict) or "tool_name" not in matcher:
+        return False
+    current = _matcher_tool_names(matcher)
+    matcher["tool_name"] = sorted(current | tool_names)
+    return True
+
+
+def _ensure_nah_event_hooks(
+    hooks: dict,
+    event_name: str,
+    tool_names: list[str],
+    command: str,
+) -> tuple[int, int]:
+    """Update/add nah hook entries for one Claude tool hook event."""
+    event_entries = hooks.setdefault(event_name, [])
+    updated = 0
+    nah_entries = [entry for entry in event_entries if _is_nah_hook(entry)]
+    for entry in nah_entries:
+        entry["hooks"] = [{"type": "command", "command": command}]
+        updated += 1
+
+    existing_matchers: set[str] = set()
+    for entry in nah_entries:
+        existing_matchers.update(_matcher_tool_names(entry.get("matcher")))
+    missing = set(tool_names) - existing_matchers
+    if missing:
+        object_entry = next(
+            (
+                entry for entry in nah_entries
+                if isinstance(entry.get("matcher"), dict)
+                and "tool_name" in entry["matcher"]
+            ),
+            None,
+        )
+        if object_entry is not None and _merge_matcher_tool_names(object_entry, missing):
+            pass
+        else:
+            for tool_name in sorted(missing):
+                event_entries.append({
+                    "matcher": tool_name,
+                    "hooks": [{"type": "command", "command": command}],
+                })
+    return updated, len(missing)
+
+
+def _target_arg(args: argparse.Namespace) -> str:
+    """Return the lifecycle target argument, or an empty string."""
+    return getattr(args, "target", None) or ""
+
+
+def _require_lifecycle_target(args: argparse.Namespace, command: str) -> targets.Target:
+    """Validate lifecycle target and exit with a product-facing message."""
+    try:
+        return targets.require_target(_target_arg(args), command)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2)
+
+
+def _agent_keys_for_target(target: str) -> list[str]:
+    """Return installable agent keys for an agent target."""
+    if target == targets.CLAUDE:
+        return [agents.CLAUDE]
+    return []
+
+
+def _supports_posix_chmod() -> bool:
+    """Return False on Windows where Unix mode bits do not protect hooks."""
+    return os.name != "nt"
+
+
+def _cleanup_legacy_hook_script() -> bool:
+    """Delete the old direct-hook shim file when present."""
+    if not _HOOK_SCRIPT.exists():
+        return False
+    try:
+        if _supports_posix_chmod():
+            os.chmod(_HOOK_SCRIPT, stat.S_IRUSR | stat.S_IWUSR)
+        _HOOK_SCRIPT.unlink()
+        return True
+    except OSError as exc:
+        print(f"nah: could not remove legacy hook script {_HOOK_SCRIPT}: {exc}", file=sys.stderr)
+        return False
+
+
+def _install_for_agent(agent_key: str, command: str) -> None:
+    """Patch a single agent's settings.json with nah hook entries."""
+    settings_file = agents.AGENT_SETTINGS[agent_key]
+    tool_names = agents.AGENT_TOOL_MATCHERS[agent_key]
+    agent_name = agents.AGENT_NAMES[agent_key]
+
+    settings = _read_settings(settings_file)
+    hooks = settings.setdefault("hooks", {})
+
+    for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+        _ensure_nah_event_hooks(hooks, event_name, tool_names, command)
+
+    _write_settings(settings_file, settings)
+    backup = settings_file.with_suffix(".json.bak")
+
+    print(f"  {agent_name}:")
+    print(
+        f"    Settings:  {settings_file} "
+        f"({len(tool_names)} matchers x {len(_CLAUDE_TOOL_HOOK_EVENTS)} hook events)"
+    )
+    if backup.exists():
+        print(f"    Backup:    {backup}")
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    target = _require_lifecycle_target(args, "install")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.install_shell(target.key)
+        print(f"nah {__version__} installed for {target.key}.")
+        _print_shell_reload_hint(target.key)
+        return
+
+    agent_keys = _agent_keys_for_target(target.key)
+
+    state = _detect_install_state(agent_keys)
+    _warn_install_state_errors(state, "install")
+    if state.has_plugin:
+        if getattr(args, "force", False):
+            print(
+                "nah install claude: plugin-managed nah detected; installing direct hooks because --force was passed.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "nah install claude: plugin-managed nah is already enabled. "
+                "Disable/uninstall the Claude plugin first, or pass --force "
+                "to install direct hooks anyway.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+    command = _require_hook_command("install claude")
+
+    print(f"nah {__version__} installed:")
+    print(f"  Hook command: {command}")
+
+    for key in agent_keys:
+        _install_for_agent(key, command)
+
+    print()
+    print("Ready. Safe commands go through silently, dangerous ones are")
+    print("blocked, ambiguous ones ask for confirmation.")
+
+
+def _print_shell_reload_hint(shell: str) -> None:
+    """Print the safe reload command for an installed shell guard."""
+    guard_vars = (
+        "NAH_TERMINAL_BYPASS NAH_TERMINAL_GUARD_ACTIVE "
+        "NAH_TERMINAL_GUARD NAH_TERMINAL_SHELL"
+    )
+    if shell == "bash":
+        reload_cmd = (
+            f"NAH_TERMINAL_BYPASS=1 exec env "
+            f"{' '.join(f'-u {name}' for name in guard_vars.split())} "
+            "bash --rcfile ~/.bashrc -i"
+        )
+    else:
+        reload_cmd = (
+            f"NAH_TERMINAL_BYPASS=1 exec env "
+            f"{' '.join(f'-u {name}' for name in guard_vars.split())} "
+            f"{shell} -i"
+        )
+    print(f"Restart {shell}, or run:")
+    print(f"  {reload_cmd}")
+    print("After reload, use `nah-bypass <command>` for one-shot bypasses.")
+
+
+def cmd_update(args: argparse.Namespace) -> None:
+    """Update direct hook commands and matchers for targeted agents."""
+    target = _require_lifecycle_target(args, "update")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.update_shell(target.key)
+        print(f"nah {__version__} terminal guard updated for {target.key}.")
+        _print_shell_reload_hint(target.key)
+        return
+
+    agent_keys = _agent_keys_for_target(target.key)
+
+    user_paths = _user_settings_paths_for_agent_keys(agent_keys)
+    state = _detect_install_state(agent_keys)
+    user_state = plugin_state.detect_nah_install_state(
+        settings_paths=user_paths,
+    )
+    outside_user_direct = _outside_user_direct_findings(state, user_paths)
+    _warn_install_state_errors(state, "update")
+    if state.has_plugin:
+        print(
+            "nah update: plugin-managed nah detected; updating direct hooks only.",
+            file=sys.stderr,
+        )
+    if outside_user_direct:
+        paths = ", ".join(sorted({str(finding.path) for finding in outside_user_direct}))
+        print(
+            "nah update: project-scope direct hooks are unchanged: "
+            f"{paths}",
+            file=sys.stderr,
+        )
+
+    if not user_state.has_direct:
+        if state.has_plugin:
+            print("Plugin-managed nah is unchanged.")
+        else:
+            print("No user-level direct Claude hooks found. Run `nah install claude` first.")
+        return
+
+    command = _require_hook_command("update claude")
+    removed_legacy_shim = False
+
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS[key]
+        if settings_file.exists():
+            settings = _read_settings(settings_file)
+            hooks = settings.setdefault("hooks", {})
+            updated = 0
+            missing_total = 0
+            for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                event_updated, event_missing = _ensure_nah_event_hooks(
+                    hooks,
+                    event_name,
+                    agents.AGENT_TOOL_MATCHERS.get(key, []),
+                    command,
+                )
+                updated += event_updated
+                missing_total += event_missing
+            if updated or missing_total:
+                _write_settings(settings_file, settings)
+                msg = f"{updated} hooks updated"
+                if missing_total:
+                    msg += f", {missing_total} new tool hook matchers added"
+                print(f"  {agents.AGENT_NAMES[key]}: {settings_file} ({msg})")
+
+    if state.has_legacy:
+        removed_legacy_shim = _cleanup_legacy_hook_script()
+
+    print(f"nah {__version__} updated:")
+    print(f"  Hook command: {command}")
+    if removed_legacy_shim:
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (deleted)")
+
+
+def cmd_config(args: argparse.Namespace) -> None:
+    """Config subcommands."""
+    sub = getattr(args, "config_command", None)
+    if sub == "show":
+        from nah.config import ConfigError, get_config, _load_yaml_file
+        preset = getattr(args, "preset", None)
+        try:
+            cfg = get_config(preset=preset)
+        except ConfigError as exc:
+            print(f"nah config show: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print("Effective config (merged):")
+        print(f"  target:                {cfg.target or '(default)'}")
+        print(f"  selected_preset:       {cfg.selected_preset or '(none)'}")
+        print(f"  project_root:          {cfg.project_root or '(none)'}")
+        print(f"  project_config_path:   {cfg.project_config_path or '(none)'}")
+        print(f"  project_config_trusted: {cfg.project_config_trusted}")
+        print(f"  trusted_project_configs: {cfg.trusted_project_configs or '[]'}")
+        print(f"  classify_global:       {cfg.classify_global or '{}'}")
+        print(f"  classify_project:      {cfg.classify_project or '{}'}")
+        if cfg.project_config_path and not cfg.project_config_trusted:
+            raw_project = _load_yaml_file(cfg.project_config_path)
+            ignored = []
+            if raw_project.get("classify"):
+                ignored.append("classify")
+            targets = raw_project.get("targets")
+            if isinstance(targets, dict):
+                policy_target_keys = {
+                    "actions",
+                    "sensitive_paths_default",
+                    "sensitive_paths",
+                    "content_patterns",
+                }
+                has_ignored_target_settings = any(
+                    isinstance(target_data, dict)
+                    and any(key not in policy_target_keys for key in target_data)
+                    for target_data in targets.values()
+                )
+                if has_ignored_target_settings:
+                    ignored.append("non-policy target settings")
+            if ignored:
+                print(f"  project_ignored:       {', '.join(ignored)} (run `nah trust-project` to enable)")
+        print(f"  actions:               {cfg.actions or '{}'}")
+        print(f"  sensitive_paths_default: {cfg.sensitive_paths_default}")
+        print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
+        print(f"  allow_paths:           {cfg.allow_paths or '{}'}")
+        print(f"  trusted_paths:         {cfg.trusted_paths or '[]'}")
+        print(f"  trusted_containers:    {cfg.trusted_containers or '[]'}")
+        print(f"  known_registries:      {cfg.known_registries or '[]'}")
+        print(f"  exec_sinks:            {cfg.exec_sinks or '[]'}")
+        print(f"  sensitive_basenames:   {cfg.sensitive_basenames or '{}'}")
+        print(f"  decode_commands:       {cfg.decode_commands or '[]'}")
+        print(f"  content_patterns_add:  {cfg.content_patterns_add or '[]'}")
+        print(f"  content_patterns_suppress: {cfg.content_patterns_suppress or '[]'}")
+        print(f"  content_policies:      {cfg.content_policies or '{}'}")
+        print(f"  credential_patterns_add: {cfg.credential_patterns_add or '[]'}")
+        print(f"  credential_patterns_suppress: {cfg.credential_patterns_suppress or '[]'}")
+        print(f"  db_targets:            {cfg.db_targets or '[]'}")
+        print(f"  taint:                 {cfg.taint or '{}'}")
+        print(f"  provenance:            {cfg.provenance or '{}'}")
+        print(f"  llm:                   {cfg.llm or '{}'}")
+        print(f"  llm_mode:              {cfg.llm_mode}")
+        print(f"  llm_eligible:          {cfg.llm_eligible}")
+        print(f"  log:                   {cfg.log or '{}'}")
+        print(f"  active_allow:          {cfg.active_allow}")
+        print(f"  ui:                    {cfg.ui or '{}'}")
+        print(f"  ui_color:              {cfg.ui_color}")
+        print(f"  targets:               {cfg.targets or '{}'}")
+        print(f"  ask_fallback:          {cfg.ask_fallback or '(none)'}")
+        print(f"  terminal:              {cfg.terminal or '{}'}")
+    elif sub == "path":
+        from nah.config import get_global_config_path, get_project_config_path
+        from nah.config import get_config
+        print(f"Global:  {get_global_config_path()}")
+        proj = get_project_config_path()
+        cfg = get_config()
+        print(f"Project: {proj or '(no project config root)'}")
+        if cfg.project_root:
+            print(f"Root:    {cfg.project_root}")
+            print(f"Trusted: {'yes' if cfg.project_config_trusted else 'no'}")
+    elif sub == "presets":
+        from nah.config import ConfigError, get_global_preset, list_global_presets
+        name = getattr(args, "name", None)
+        if name:
+            try:
+                preset = get_global_preset(name)
+            except ConfigError as exc:
+                print(f"nah config presets: {exc}", file=sys.stderr)
+                raise SystemExit(1) from exc
+            print(f"Preset: {name}")
+            print(_format_config_block(preset), end="")
+            return
+        names = list_global_presets()
+        if not names:
+            print("No presets configured.")
+            return
+        for preset_name in names:
+            print(preset_name)
+    else:
+        print("Usage: nah config {show|path|presets}")
+
+
+def _format_config_block(data: dict) -> str:
+    """Format a raw config block for CLI display."""
+    try:
+        import yaml
+
+        return yaml.safe_dump(data, sort_keys=False)
+    except ImportError:
+        return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
+def _bash_test_meta(result) -> dict:
+    meta = {
+        "stages": [
+            {
+                "tokens": sr.tokens,
+                "action_type": sr.action_type,
+                "policy": sr.default_policy,
+                "decision": sr.decision,
+                "reason": sr.reason,
+            }
+            for sr in result.stages
+        ],
+    }
+    if result.composition_rule:
+        meta["composition_rule"] = result.composition_rule
+    return meta
+
+
+def _add_human_reason(decision: dict, tool: str) -> dict:
+    from nah.messages import enrich_decision
+
+    return enrich_decision(decision, tool=tool)
+
+
+def _apply_test_ask_fallback(decision: dict, tool: str) -> dict:
+    from nah.hook import _apply_ask_fallback
+
+    return _add_human_reason(_apply_ask_fallback(decision), tool)
+
+
+def _ask_fallback_meta(decision: dict) -> dict:
+    meta = decision.get("_meta")
+    if isinstance(meta, dict):
+        fallback = meta.get("ask_fallback")
+        if isinstance(fallback, dict):
+            return fallback
+    return {}
+
+
+def _print_user_message(decision: dict) -> None:
+    from nah.messages import brand
+    from nah import taxonomy
+
+    d = decision.get("decision")
+    human = decision.get("human_reason", "")
+    if d == taxonomy.ASK and human:
+        print(f"User message: {brand('nah paused', human)}")
+    elif d == taxonomy.BLOCK and human:
+        print(f"User message: {brand('nah blocked', human)}")
+
+
+def _llm_payload_from_meta(meta: dict) -> dict:
+    if not isinstance(meta, dict) or not meta.get("llm_cascade"):
+        return {}
+    payload = {
+        "provider": meta.get("llm_provider", ""),
+        "model": meta.get("llm_model", ""),
+        "latency_ms": meta.get("llm_latency_ms", 0),
+        "decision": meta.get("llm_decision", ""),
+        "reasoning": meta.get("llm_reasoning", ""),
+        "reasoning_long": meta.get("llm_reasoning_long", ""),
+        "cascade": meta.get("llm_cascade", []),
+    }
+    return {
+        key: value for key, value in payload.items()
+        if value not in ("", [], None)
+    }
+
+
+def _print_llm_meta(meta: dict) -> None:
+    llm = _llm_payload_from_meta(meta)
+    if not llm:
+        return
+    decision = str(llm.get("decision", "") or "")
+    cascade = llm.get("cascade", [])
+    if decision:
+        print(f"LLM decision: {decision.upper()}")
+        print(f"LLM provider: {llm.get('provider', '')} ({llm.get('model', '')})")
+        print(f"LLM latency:  {llm.get('latency_ms', 0)}ms")
+        if llm.get("reasoning"):
+            print(f"LLM reason:   {llm['reasoning']}")
+        reasoning_long = str(llm.get("reasoning_long", "") or "")
+        if reasoning_long and reasoning_long != llm.get("reasoning", ""):
+            print(f"LLM detail:   {reasoning_long}")
+    elif cascade:
+        statuses = ", ".join(
+            f"{a.get('provider', '')}={a.get('status', '')}"
+            for a in cascade
+        )
+        print(f"LLM decision: (uncertain or unavailable) [{statuses}]")
+
+
+def _selected_preset_for_output() -> str:
+    try:
+        from nah.config import get_config
+
+        return get_config().selected_preset
+    except Exception:
+        return ""
+
+
+def cmd_test(args: argparse.Namespace) -> None:
+    """Dry-run classification for a command or tool input."""
+    use_default_config = bool(getattr(args, "defaults", False))
+    inline_config = getattr(args, "config", None)
+    preset = getattr(args, "preset", None)
+    target = getattr(args, "target", None) or ""
+    json_output = bool(getattr(args, "json", False))
+
+    if use_default_config and inline_config:
+        print("Error: --defaults cannot be used with --config", file=sys.stderr)
+        raise SystemExit(1)
+    if use_default_config and preset:
+        print("Error: --defaults cannot be used with --preset", file=sys.stderr)
+        raise SystemExit(1)
+
+    if preset:
+        from nah.config import ConfigError, get_config, set_active_preset
+        set_active_preset(preset)
+        try:
+            get_config()
+        except ConfigError as exc:
+            print(f"nah test: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+
+    if target:
+        if targets.get_target(target) is None:
+            print(f"Error: unknown target '{target}'", file=sys.stderr)
+            raise SystemExit(2)
+        from nah.config import set_active_target
+        set_active_target(target)
+
+    if use_default_config:
+        from nah.config import use_defaults
+        use_defaults()
+    elif inline_config:
+        import json as json_mod
+        try:
+            override = json_mod.loads(inline_config)
+        except json.JSONDecodeError as e:
+            print(f"Error: invalid --config JSON: {e}", file=sys.stderr)
+            raise SystemExit(1)
+        from nah.config import apply_override
+        apply_override(override)
+
+    tool = getattr(args, "tool", None) or "Bash"
+    input_args = args.args
+
+    if tool == "Bash":
+        if not input_args:
+            print("Error: nah test requires a command string", file=sys.stderr)
+            raise SystemExit(1)
+        command = input_args[0] if len(input_args) == 1 else shlex.join(input_args)
+        if target in targets.SHELL_TARGETS:
+            from nah import terminal_guard
+
+            terminal_result = terminal_guard.decide_terminal_command(
+                command,
+                target,
+                confirm=False,
+                log=False,
+            )
+            if terminal_result.bypass:
+                if json_output:
+                    print(json.dumps({
+                        "target": target,
+                        "tool": "Bash",
+                        "command": terminal_result.command,
+                        "decision": terminal_result.decision,
+                        "reason": terminal_result.reason,
+                        "composition_rule": "",
+                        "stages": [],
+                        "bypass": True,
+                        "human_reason": terminal_result.human_reason,
+                    }))
+                    return
+                if target:
+                    print(f"Target:   {target}")
+                selected_preset = _selected_preset_for_output()
+                if selected_preset:
+                    print(f"Preset:   {selected_preset}")
+                print(f"Command:  {terminal_result.command}")
+                print(f"Decision:    {terminal_result.decision.upper()}")
+                print(f"Reason:      {terminal_result.reason}")
+                return
+
+        from nah import taxonomy
+        from nah.bash import classify_command
+        from nah.hook import handle_bash
+        result = classify_command(command)
+        decision = handle_bash({"command": command})
+        decision.setdefault("reason", result.reason)
+        meta = decision.setdefault("_meta", {})
+        if "stages" not in meta:
+            meta.update(_bash_test_meta(result))
+
+        llm_eligible = None
+        llm_config_message = ""
+        if decision.get("decision") == taxonomy.ASK and not meta.get("llm_veto"):
+            from nah.hook import _is_llm_eligible
+            llm_eligible = _is_llm_eligible(result)
+            if llm_eligible:
+                from nah.config import get_config
+                cfg = get_config()
+                if not cfg.llm:
+                    llm_config_message = "not configured"
+                elif cfg.llm_mode != "on":
+                    llm_config_message = "disabled (set mode: on to activate)"
+                else:
+                    from nah.hook import _build_llm_meta
+                    from nah.llm import try_llm_unified
+                    from nah.log import redact_input
+
+                    action_type = ""
+                    for stage in result.stages:
+                        if stage.decision == taxonomy.ASK:
+                            action_type = stage.action_type
+                            break
+                    if not action_type and result.stages:
+                        action_type = result.stages[0].action_type
+
+                    llm_call = try_llm_unified(
+                        "Bash",
+                        redact_input("Bash", {"command": command}),
+                        action_type or taxonomy.UNKNOWN,
+                        result.reason,
+                        cfg.llm,
+                        stages=[
+                            {
+                                "tokens": sr.tokens,
+                                "action_type": sr.action_type,
+                                "decision": sr.decision,
+                                "policy": sr.default_policy,
+                                "reason": sr.reason,
+                            }
+                            for sr in result.stages
+                        ],
+                    )
+                    meta.update(_build_llm_meta(llm_call, cfg))
+                    if llm_call.decision is not None:
+                        if llm_call.decision.get("decision") == taxonomy.ALLOW:
+                            decision = {
+                                **llm_call.decision,
+                                "_meta": meta,
+                            }
+                        elif llm_call.reasoning:
+                            decision["_llm_reason"] = llm_call.reasoning
+
+        decision = _apply_test_ask_fallback(decision, "Bash")
+
+        if json_output:
+            payload = {
+                "target": target,
+                "selected_preset": _selected_preset_for_output(),
+                "tool": "Bash",
+                "command": result.command,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+                "composition_rule": result.composition_rule,
+                "human_reason": decision.get("human_reason", ""),
+                "stages": [
+                    {
+                        "tokens": sr.tokens,
+                        "action_type": sr.action_type,
+                        "policy": sr.default_policy,
+                        "decision": sr.decision,
+                        "reason": sr.reason,
+                    }
+                    for sr in result.stages
+                ],
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            llm_payload = _llm_payload_from_meta(decision.get("_meta", {}))
+            if llm_payload:
+                payload["llm"] = llm_payload
+            if llm_eligible is not None:
+                payload["llm_eligible"] = llm_eligible
+            if llm_config_message:
+                payload["llm_config"] = llm_config_message
+            print(json.dumps(payload))
+            return
+
+        if target:
+            print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
+        print(f"Command:  {result.command}")
+        if result.stages:
+            print("Stages:")
+            for i, sr in enumerate(result.stages, 1):
+                tokens_str = " ".join(sr.tokens)
+                print(f"  [{i}] {tokens_str} → {sr.action_type} → {sr.default_policy} → {sr.decision} ({sr.reason})")
+        if result.composition_rule:
+            print(f"Composition: {result.composition_rule} → {result.final_decision.upper()}")
+        print(f"Decision:    {decision['decision'].upper()}")
+        print(f"Reason:      {decision.get('reason', '')}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
+        _print_user_message(decision)
+        if llm_eligible is not None:
+            print(f"LLM eligible: {'yes' if llm_eligible else 'no'}")
+            if llm_config_message:
+                print(f"LLM config:   {llm_config_message}")
+        _print_llm_meta(decision.get("_meta", {}))
+    elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        # Write-like tools: path + content inspection
+        from nah.hook import handle_write, handle_edit, handle_multiedit, handle_notebookedit
+        file_path = getattr(args, "path", None) or " ".join(input_args)
+        content = getattr(args, "content", None) or ""
+        if tool == "Write":
+            ti = {"file_path": file_path, "content": content}
+            handler = handle_write
+        elif tool == "Edit":
+            ti = {"file_path": file_path, "new_string": content}
+            handler = handle_edit
+        elif tool == "MultiEdit":
+            ti = {"file_path": file_path, "edits": [{"old_string": "", "new_string": content}] if content else []}
+            handler = handle_multiedit
+        else:  # NotebookEdit
+            ti = {"notebook_path": file_path, "action": "replace", "new_source": content}
+            handler = handle_notebookedit
+        decision = handler(ti)
+        decision = _apply_test_ask_fallback(decision, tool)
+        if json_output:
+            payload = {
+                "target": target,
+                "selected_preset": _selected_preset_for_output(),
+                "tool": tool,
+                "path": file_path,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
+            return
+        if target:
+            print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
+        print(f"Tool:     {tool}")
+        print(f"Path:     {file_path}")
+        if content:
+            print(f"Content:  {content[:100]}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
+        _print_user_message(decision)
+    elif tool == "Grep":
+        # Grep: path + credential pattern detection
+        from nah.hook import handle_grep
+        raw_path = getattr(args, "path", None) or " ".join(input_args)
+        pattern = getattr(args, "pattern", None) or ""
+        decision = handle_grep({"path": raw_path, "pattern": pattern})
+        decision = _apply_test_ask_fallback(decision, tool)
+        if json_output:
+            payload = {
+                "target": target,
+                "selected_preset": _selected_preset_for_output(),
+                "tool": tool,
+                "path": raw_path,
+                "pattern": pattern,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
+            return
+        if target:
+            print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
+        print(f"Tool:     {tool}")
+        print(f"Path:     {raw_path}")
+        if pattern:
+            print(f"Pattern:  {pattern}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
+        _print_user_message(decision)
+    elif tool.startswith("mcp__"):
+        # MCP tools: classify via taxonomy
+        from nah.hook import _classify_unknown_tool
+        decision = _classify_unknown_tool(tool)
+        decision = _apply_test_ask_fallback(decision, tool)
+        if json_output:
+            payload = {
+                "target": target,
+                "selected_preset": _selected_preset_for_output(),
+                "tool": tool,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
+            return
+        if target:
+            print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
+        print(f"Tool:     {tool}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
+        _print_user_message(decision)
+    else:
+        # Path-only tools (Read, Glob, etc.)
+        from nah import paths
+        raw_path = getattr(args, "path", None) or " ".join(input_args)
+        check = paths.check_path(tool, raw_path)
+        decision = check or {"decision": "allow"}  # JSON protocol
+        decision = _apply_test_ask_fallback(decision, tool)
+        if json_output:
+            payload = {
+                "target": target,
+                "selected_preset": _selected_preset_for_output(),
+                "tool": tool,
+                "input": raw_path,
+                "decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+                "human_reason": decision.get("human_reason", ""),
+            }
+            fallback = _ask_fallback_meta(decision)
+            if fallback:
+                payload["ask_fallback"] = fallback
+            print(json.dumps(payload))
+            return
+        if target:
+            print(f"Target:   {target}")
+        selected_preset = _selected_preset_for_output()
+        if selected_preset:
+            print(f"Preset:   {selected_preset}")
+        print(f"Tool:     {tool}")
+        print(f"Input:    {raw_path}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
+        fallback = _ask_fallback_meta(decision)
+        if fallback:
+            print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
+        _print_user_message(decision)
+
+
+def cmd_uninstall(args: argparse.Namespace) -> None:
+    target = _require_lifecycle_target(args, "uninstall")
+    if target.key in targets.SHELL_TARGETS:
+        from nah import terminal_guard
+        terminal_guard.uninstall_shell(target.key)
+        print(f"nah terminal guard uninstalled for {target.key}.")
+        return
+
+    agent_keys = _agent_keys_for_target(target.key)
+
+    user_paths = _user_settings_paths_for_agent_keys(agent_keys)
+    state = _detect_install_state(agent_keys)
+    outside_user_direct = _outside_user_direct_findings(state, user_paths)
+    _warn_install_state_errors(state, "uninstall")
+    if outside_user_direct:
+        paths = ", ".join(sorted({str(finding.path) for finding in outside_user_direct}))
+        print(
+            "nah uninstall: project-scope direct hooks are unchanged: "
+            f"{paths}",
+            file=sys.stderr,
+        )
+
+    # 1. Remove nah entries from each agent's config
+    for key in agent_keys:
+        settings_file = agents.AGENT_SETTINGS[key]
+        agent_name = agents.AGENT_NAMES[key]
+        if settings_file.exists():
+            settings = _read_settings(settings_file)
+            hooks = settings.get("hooks", {})
+
+            for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                entries = hooks.get(event_name, [])
+                filtered = [entry for entry in entries if not _is_nah_hook(entry)]
+                if filtered:
+                    hooks[event_name] = filtered
+                else:
+                    hooks.pop(event_name, None)
+
+            _write_settings(settings_file, settings)
+            print(f"  {agent_name}: {settings_file} (nah hooks removed)")
+        else:
+            print(f"  {agent_name}: settings not found (nothing to clean)")
+
+    # 2. Remove the old shim file only if no other agents still have direct hooks.
+    any_remaining = False
+    for key in agents.INSTALLABLE_AGENTS:
+        if key in agent_keys:
+            continue
+        sf = agents.AGENT_SETTINGS[key]
+        if sf.exists():
+            try:
+                data = _read_settings(sf)
+                hooks = data.get("hooks", {})
+                for event_name in _CLAUDE_TOOL_HOOK_EVENTS:
+                    for entry in hooks.get(event_name, []):
+                        if _is_nah_hook(entry):
+                            any_remaining = True
+                            break
+                    if any_remaining:
+                        break
+            except Exception as exc:
+                sys.stderr.write(f"nah: uninstall: {exc}\n")
+
+    if any_remaining:
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (kept — other agents still use it)")
+    elif _cleanup_legacy_hook_script():
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (deleted)")
+    else:
+        print(f"  Legacy hook script: {_HOOK_SCRIPT} (not found)")
+
+    if state.has_plugin:
+        print("  Plugin-managed nah: still enabled; disable/uninstall it with Claude's plugin manager.")
+
+    print("nah uninstalled.")
+
+
+def _confirm(message: str) -> bool:
+    """Prompt y/N. Non-interactive (piped) → False."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(f"{message} [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in ("y", "yes")
+
+
+def _require_secret_tty(command: str) -> None:
+    """Require a real TTY before prompting for a secret."""
+    if sys.stdin.isatty() and sys.stderr.isatty():
+        return
+    print(
+        f"nah key {command}: requires an interactive TTY; do not pass secrets via pipes or arguments",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def _key_status_lines() -> tuple[list[str], str]:
+    """Return formatted key status lines plus an optional footer note."""
+    from nah.llm_keys import INSTALL_HINT, _load_keyring, list_builtin_key_statuses
+
+    lines: list[str] = []
+    for status in list_builtin_key_statuses():
+        line = f"  {status.provider:<10} {status.key_env:<22} {status.source}"
+        if status.note:
+            line += f"  ({status.note})"
+        lines.append(line)
+
+    footer = ""
+    try:
+        if _load_keyring() is None:
+            footer = f"Install OS key storage support with: {INSTALL_HINT}"
+    except Exception:
+        footer = ""
+    return lines, footer
+
+
+def cmd_key_status(_args: argparse.Namespace) -> None:
+    """Show effective key source for built-in LLM providers."""
+    lines, footer = _key_status_lines()
+    print("LLM key status:")
+    for line in lines:
+        print(line)
+    if footer:
+        print(footer)
+
+
+def _confirm_key_overwrite(provider: str, key_env: str, force: bool) -> None:
+    """Prompt before overwriting an existing nah-owned keyring entry."""
+    if force:
+        return
+    if not _confirm(f"Overwrite existing stored key for {provider} ({key_env})?"):
+        raise SystemExit(1)
+
+
+def cmd_key_set(args: argparse.Namespace) -> None:
+    """Store a built-in provider key in the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        keyring_entry_exists,
+        set_key,
+    )
+
+    _require_secret_tty("set")
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+
+    try:
+        if keyring_entry_exists(key_env):
+            _confirm_key_overwrite(provider, key_env, bool(getattr(args, "force", False)))
+        secret = getpass.getpass(f"{provider} key ({key_env}): ")
+        if not secret:
+            print("nah key set: secret cannot be empty", file=sys.stderr)
+            raise SystemExit(1)
+        set_key(key_env, secret)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Stored {provider} key in OS keyring slot {key_env}.")
+
+
+def cmd_key_rm(args: argparse.Namespace) -> None:
+    """Remove a built-in provider key from the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        remove_key,
+    )
+
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+    if not getattr(args, "yes", False):
+        if not _confirm(f"Remove stored key for {provider} ({key_env})?"):
+            raise SystemExit(1)
+
+    try:
+        removed = remove_key(key_env)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    if removed:
+        print(f"Removed stored key for {provider} ({key_env}).")
+    else:
+        print(f"No stored key for {provider} ({key_env}).")
+
+
+def cmd_key_import_env(args: argparse.Namespace) -> None:
+    """Copy a provider key from the current environment into the OS keyring."""
+    from nah.llm_keys import (
+        KeyStoreBackendError,
+        KeyStoreMissingEnv,
+        KeyStoreUnavailable,
+        builtin_provider_key_env,
+        keyring_entry_exists,
+        read_env_key,
+        set_key,
+    )
+
+    provider = args.provider
+    key_env = builtin_provider_key_env(provider)
+    try:
+        if keyring_entry_exists(key_env):
+            _confirm_key_overwrite(provider, key_env, bool(getattr(args, "force", False)))
+        secret = read_env_key(key_env)
+        set_key(key_env, secret)
+    except KeyStoreUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreMissingEnv as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except KeyStoreBackendError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Imported {provider} key from {key_env} into the OS keyring.")
+    print(f"Remove {key_env} from your shell startup files and current shell when ready.")
+
+
+def cmd_key(args: argparse.Namespace) -> None:
+    """Dispatch key-management subcommands."""
+    sub = getattr(args, "key_command", None)
+    if sub == "status":
+        cmd_key_status(args)
+    elif sub == "set":
+        cmd_key_set(args)
+    elif sub == "rm":
+        cmd_key_rm(args)
+    elif sub == "import-env":
+        cmd_key_import_env(args)
+    else:
+        print("Usage: nah key {status|set|rm|import-env}", file=sys.stderr)
+        raise SystemExit(2)
+
+
+def _warn_comments(project: bool) -> None:
+    """Warn and confirm if config has comments. Exits on deny."""
+    from nah.remember import has_comments
+    from nah.config import get_global_config_path, get_project_config_path
+    path = get_project_config_path() if project else get_global_config_path()
+    if path and has_comments(path):
+        if not _confirm(
+            f"\u26a0 {os.path.basename(path)} has comments that will be removed by this write.\nProceed?"
+        ):
+            sys.exit(1)
+
+
+def cmd_allow(args: argparse.Namespace) -> None:
+    """Allow an action type."""
+    from nah.remember import write_action, CustomTypeError
+    _warn_comments(args.project)
+    try:
+        msg = write_action(args.action_type, "allow", project=args.project)
+        print(msg)
+    except CustomTypeError:
+        if not _confirm(f"\u26a0 '{args.action_type}' is not a built-in type. Create it?"):
+            sys.exit(1)
+        msg = write_action(args.action_type, "allow", project=args.project, allow_custom=True)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_deny(args: argparse.Namespace) -> None:
+    """Deny an action type."""
+    from nah.remember import write_action, CustomTypeError
+    _warn_comments(args.project)
+    try:
+        msg = write_action(args.action_type, "block", project=args.project)
+        print(msg)
+    except CustomTypeError:
+        if not _confirm(f"\u26a0 '{args.action_type}' is not a built-in type. Create it?"):
+            sys.exit(1)
+        msg = write_action(args.action_type, "block", project=args.project, allow_custom=True)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_allow_path(args: argparse.Namespace) -> None:
+    """Allow a sensitive path for the current project."""
+    from nah.remember import write_allow_path
+    _warn_comments(project=False)
+    try:
+        msg = write_allow_path(args.path)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_classify(args: argparse.Namespace) -> None:
+    """Classify a command prefix as an action type."""
+    from nah.remember import write_classify, CustomTypeError
+    _warn_comments(args.project)
+    try:
+        msg = write_classify(args.command_prefix, args.type, project=args.project)
+        print(msg)
+    except CustomTypeError:
+        if not _confirm(f"\u26a0 '{args.type}' is not a built-in type. Create it?"):
+            sys.exit(1)
+        msg = write_classify(args.command_prefix, args.type, project=args.project, allow_custom=True)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_trust(args: argparse.Namespace) -> None:
+    """Trust a path or network host (global config only)."""
+    target = args.target
+    is_path = _trust_target_is_path(target)
+
+    if is_path and getattr(args, "project", False):
+        print("trusted_paths is global-only — cannot use --project", file=sys.stderr)
+        sys.exit(1)
+
+    _warn_comments(project=False)
+
+    if is_path:
+        from nah.remember import write_trust_path
+        from nah.paths import resolve_path, is_sensitive
+        resolved = resolve_path(target)
+        if resolved == "/":
+            print("nah: refusing to trust filesystem root", file=sys.stderr)
+            sys.exit(1)
+        home = os.path.realpath(os.path.expanduser("~"))
+        if resolved == home:
+            print("\u26a0 Trusting ~ allows writes to your entire home directory.")
+            print("  Sensitive paths (~/.ssh, ~/.aws, ...) are still protected.")
+            if not _confirm("Continue?"):
+                sys.exit(1)
+        # Informational warning if path overlaps a sensitive path
+        matched, pattern, _policy = is_sensitive(resolved)
+        if matched:
+            print(f"\u26a0 {pattern} is a sensitive path \u2014 still blocked/asked regardless.")
+        try:
+            msg = write_trust_path(target)
+            print(msg)
+        except (ValueError, RuntimeError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+    else:
+        from nah.remember import write_trust_host
+        try:
+            msg = write_trust_host(target)
+            print(msg)
+        except (ValueError, RuntimeError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+
+
+def cmd_trust_project(args: argparse.Namespace) -> None:
+    """Trust a project config root (global config only)."""
+    from nah.remember import write_trust_project
+    _warn_comments(project=False)
+    try:
+        print(write_trust_project(getattr(args, "path", None)))
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_untrust_project(args: argparse.Namespace) -> None:
+    """Remove project config root trust."""
+    from nah.remember import write_untrust_project
+    _warn_comments(project=False)
+    try:
+        print(write_untrust_project(getattr(args, "path", None)))
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """Show all custom rules."""
+    target = getattr(args, "target", None) or ""
+    if target:
+        cmd_target_status(target)
+        return
+
+    from nah.remember import list_rules
+    try:
+        rules = list_rules()
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+    any_rules = False
+    for scope in ("global", "project"):
+        scope_rules = rules.get(scope, {})
+        if not scope_rules:
+            continue
+        any_rules = True
+        print(f"{scope.upper()} config:")
+        if "actions" in scope_rules:
+            for action_type, policy in scope_rules["actions"].items():
+                print(f"  action: {action_type} → {policy}")
+        if "allow_paths" in scope_rules:
+            for path, roots in scope_rules["allow_paths"].items():
+                print(f"  allow-path: {path} → {', '.join(roots)}")
+        if "classify" in scope_rules:
+            # Shadow warnings only for global scope — project entries are
+            # Phase 3 (checked after builtin), so they can't shadow.
+            table_shadows: dict = {}
+            flag_shadows: set = set()
+            project_classify_ignored = False
+            if scope == "global":
+                from nah.taxonomy import (build_user_table, get_builtin_table,
+                                          find_table_shadows, find_flag_classifier_shadows)
+                from nah.config import get_config
+                cfg = get_config()
+                user_classify = scope_rules["classify"]
+                user_table = build_user_table(user_classify)
+                builtin_table = get_builtin_table()
+                table_shadows = find_table_shadows(user_table, builtin_table)
+                flag_shadows = set(find_flag_classifier_shadows(user_table))
+            elif scope == "project":
+                from nah.config import get_config
+                project_classify_ignored = not get_config().project_config_trusted
+            for action_type, prefixes in scope_rules["classify"].items():
+                for prefix in prefixes:
+                    prefix_tuple = tuple(prefix.split())
+                    annotations = []
+                    if project_classify_ignored:
+                        annotations.append("ignored until nah trust-project")
+                    if prefix_tuple in table_shadows:
+                        count = len(table_shadows[prefix_tuple])
+                        annotations.append(f"shadows {count} built-in rule{'s' if count != 1 else ''}")
+                    if prefix_tuple in flag_shadows:
+                        annotations.append("shadows flag classifier")
+                    suffix = f"  ({'; '.join(annotations)})" if annotations else ""
+                    print(f"  classify: '{prefix}' → {action_type}{suffix}")
+        if "known_registries" in scope_rules:
+            kr = scope_rules["known_registries"]
+            if isinstance(kr, list):
+                for host in kr:
+                    print(f"  trust: {host}")
+            elif isinstance(kr, dict):
+                from nah.config import _parse_add_remove
+                add, remove = _parse_add_remove(kr)
+                for host in add:
+                    print(f"  trust: {host}")
+                for host in remove:
+                    print(f"  trust: !{host}")
+        if "exec_sinks" in scope_rules:
+            from nah.config import _parse_add_remove
+            add, remove = _parse_add_remove(scope_rules["exec_sinks"])
+            for s in add:
+                print(f"  exec-sink: {s}")
+            for s in remove:
+                print(f"  exec-sink: !{s}")
+        if "sensitive_basenames" in scope_rules:
+            for name, policy in scope_rules["sensitive_basenames"].items():
+                print(f"  sensitive-basename: {name} → {policy}")
+        if "trusted_paths" in scope_rules:
+            for p in scope_rules["trusted_paths"]:
+                print(f"  trust-path: {p}")
+        if "trusted_containers" in scope_rules:
+            for identity in scope_rules["trusted_containers"]:
+                print(f"  trust-container: {identity}")
+        if "trusted_project_configs" in scope_rules:
+            for p in scope_rules["trusted_project_configs"]:
+                print(f"  trust-project: {p}")
+        if "decode_commands" in scope_rules:
+            from nah.config import _parse_add_remove
+            add, remove = _parse_add_remove(scope_rules["decode_commands"])
+            for d in add:
+                print(f"  decode-command: {d}")
+            for d in remove:
+                print(f"  decode-command: !{d}")
+
+    if not any_rules:
+        print("No custom rules configured.")
+
+
+def cmd_target_status(target_key: str) -> None:
+    """Show status for a lifecycle target."""
+    target = targets.get_target(target_key)
+    if target is None:
+        print(f"nah status: unknown target '{target_key}'", file=sys.stderr)
+        raise SystemExit(2)
+    if target.kind == targets.SHELL:
+        from nah import terminal_guard
+        terminal_guard.print_status(target.key)
+        return
+    if target.key == targets.CLAUDE:
+        state = _detect_install_state([agents.CLAUDE])
+        _warn_install_state_errors(state, "status")
+        print("claude:")
+        print(f"  direct hooks: {'installed' if state.has_direct else 'not installed'}")
+        print(f"  executable hooks: {'installed' if state.has_executable else 'not installed'}")
+        print(f"  old shim hooks: {'installed' if state.has_legacy else 'not installed'}")
+        print(f"  plugin:       {'enabled' if state.has_plugin else 'not detected'}")
+        print(f"  legacy shim:  {_HOOK_SCRIPT} ({'present' if _HOOK_SCRIPT.exists() else 'not found'})")
+        settings = agents.AGENT_SETTINGS[agents.CLAUDE]
+        print(f"  settings:     {settings}")
+        print(f"  settings dir: {'exists' if settings.parent.exists() else 'missing'}")
+        print(f"  claude path:  {shutil.which('claude') or '(not on PATH)'}")
+        return
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Show deeper diagnostics for a target."""
+    target = _require_lifecycle_target(args, "doctor")
+    if target.kind == targets.SHELL:
+        from nah import terminal_guard
+        terminal_guard.print_doctor(target.key)
+        return
+
+
+def cmd_codex(args: argparse.Namespace) -> None:
+    """Diagnose or set up Codex-specific nah preflight state."""
+    from nah.codex_authority import (
+        CodexAuthorityError,
+        authority_rules_path,
+        remove_authority_rules,
+    )
+    from nah.codex_preflight import (
+        blocking_findings,
+        format_doctor_output,
+        format_setup_blockers,
+        scan_preflight,
+        setup_preflight,
+    )
+
+    action = args.codex_command or "doctor"
+    if action == "doctor":
+        findings = scan_preflight()
+        print(format_doctor_output(findings))
+        if blocking_findings(findings):
+            raise SystemExit(1)
+        return
+
+    if action == "setup":
+        result = setup_preflight()
+        print(f"setup: {authority_rules_path()}")
+        if result.backups:
+            for backup in result.backups:
+                print(f"backup: {backup}")
+        if result.changed:
+            for path in result.changed:
+                if path != str(authority_rules_path()):
+                    print(f"updated: {path}")
+        print("checked: Codex approval memory and MCP approval modes")
+        output = format_setup_blockers(result.final_findings)
+        if blocking_findings(result.final_findings):
+            print(output, file=sys.stderr)
+            raise SystemExit(1)
+        print(output)
+        return
+
+    if action == "remove-setup":
+        try:
+            removed = remove_authority_rules()
+        except CodexAuthorityError as exc:
+            print(f"nah codex remove-setup: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        if removed:
+            print(f"removed: {removed}")
+        else:
+            print("nah codex: no managed authority rules installed.")
+        return
+
+    print(f"nah codex: unknown command '{action}'", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def cmd_forget(args: argparse.Namespace) -> None:
+    """Remove a rule."""
+    from nah.remember import forget_rule
+    try:
+        msg = forget_rule(args.arg, project=args.project, global_only=args.global_flag)
+        print(msg)
+    except (ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_types(args: argparse.Namespace) -> None:
+    """List all action types."""
+    from nah.taxonomy import (load_type_descriptions, get_policy, build_user_table,
+                              get_builtin_table, find_table_shadows,
+                              find_flag_classifier_shadows)
+    from nah.remember import list_rules
+    from nah.config import get_config
+
+    descriptions = load_type_descriptions()
+    cfg = get_config()
+
+    # Gather shadow data from global classify entries only — project entries
+    # are Phase 3 (checked after builtin), so they can't shadow.
+    override_notes: dict[str, list[str]] = {}
+    try:
+        rules = list_rules()
+    except RuntimeError:
+        rules = {}
+    user_classify = rules.get("global", {}).get("classify", {})
+    if user_classify:
+        builtin_table = get_builtin_table()
+        user_table = build_user_table(user_classify)
+        table_shadows = find_table_shadows(user_table, builtin_table)
+        flag_shadows = set(find_flag_classifier_shadows(user_table))
+        for action_type, prefixes in user_classify.items():
+            for prefix in prefixes:
+                prefix_tuple = tuple(prefix.split())
+                parts = []
+                if prefix_tuple in table_shadows:
+                    count = len(table_shadows[prefix_tuple])
+                    parts.append(f"overrides {count} built-in rule{'s' if count != 1 else ''}")
+                if prefix_tuple in flag_shadows:
+                    parts.append("overrides flag classifier")
+                if parts:
+                    note = f"'{prefix}' {'; '.join(parts)} (nah forget {prefix} to use built-in)"
+                    override_notes.setdefault(action_type, []).append(note)
+
+    for name, desc in descriptions.items():
+        policy = get_policy(name)
+        print(f"  {name:<25} {policy:<8} {desc}")
+        for note in override_notes.get(name, []):
+            print(f"    \u21b3 {note}")
+
+
+def cmd_audit_threat_model(args: argparse.Namespace) -> None:
+    """Run the threat-model coverage audit and print the report."""
+    from nah import audit_threat_model
+
+    try:
+        audit_threat_model.run(args.format)
+    except RuntimeError as exc:
+        sys.stderr.write(f"nah: audit-threat-model: {exc}\n")
+        sys.exit(1)
+
+
+def cmd_log(args: argparse.Namespace) -> None:
+    """Display recent decision log entries."""
+    from nah.log import read_log
+
+    filters: dict = {}
+    if getattr(args, "blocks", False):
+        filters["decision"] = "block"
+    elif getattr(args, "asks", False):
+        filters["decision"] = "ask"
+    if getattr(args, "llm", False):
+        filters["llm"] = True
+    tool = getattr(args, "tool", None)
+    if tool:
+        filters["tool"] = tool
+
+    limit = getattr(args, "limit", 50)
+    json_output = getattr(args, "json", False)
+
+    entries = read_log(filters=filters, limit=limit)
+
+    if not entries:
+        print("No log entries found.")
+        return
+
+    if json_output:
+        for entry in entries:
+            print(json.dumps(entry))
+        return
+
+    for entry in entries:
+        ts = entry.get("ts", "?")[:19]
+        tool_name = entry.get("tool", "?")
+        decision = entry.get("decision", "?").upper()
+        reason = entry.get("human_reason") or entry.get("reason", "")
+        summary = entry.get("input", "")
+        total_ms = entry.get("ms", "")
+        llm = entry.get("llm", {})
+        llm_ms = llm.get("ms", "")
+        execution_state = ""
+        execution = entry.get("execution", {})
+        if isinstance(execution, dict):
+            execution_state = execution.get("state", "")
+
+        if decision == "BLOCK":
+            marker = "! "
+        elif decision == "ASK":
+            marker = "? "
+        else:
+            marker = "  "
+
+        state = f" {execution_state}" if execution_state else ""
+        line = f"{ts}  {marker}{decision:<5}{state:<17}  {tool_name:<5}  {summary}"
+        if reason:
+            line += f"  ({reason})"
+        provenance = entry.get("provenance", {})
+        if isinstance(provenance, dict) and provenance.get("category"):
+            line += f"  PROV:{provenance.get('category')}"
+        if total_ms != "":
+            if total_ms == 0 and llm_ms:
+                line += f"  [llm {llm_ms}ms]"
+            else:
+                line += f"  [{total_ms}ms]"
+        llm_prov = llm.get("provider", "")
+        provenance_review = (
+            provenance.get("review", {})
+            if isinstance(provenance, dict) else {}
+        )
+        provenance_llm = (
+            provenance_review
+            if isinstance(provenance_review, dict)
+            and (provenance_review.get("provider") or provenance_review.get("prompt_hash"))
+            else {}
+        )
+        if llm_prov:
+            llm_model = entry.get("llm", {}).get("model", "")
+            llm_tag = f"  LLM:{llm_prov}"
+            if llm_model:
+                llm_tag += f"/{llm_model}"
+            line += llm_tag
+            llm_reason = llm.get("reasoning", "")
+            if llm_reason:
+                line += f" — {llm_reason}"
+        elif provenance_llm:
+            llm_prov = provenance_llm.get("provider", "(provenance)")
+            llm_model = provenance_llm.get("model", "")
+            llm_tag = f"  LLM:{llm_prov}"
+            if llm_model:
+                llm_tag += f"/{llm_model}"
+            line += llm_tag
+            llm_reason = provenance_llm.get("reasoning", "")
+            if llm_reason:
+                line += f" — {llm_reason}"
+        print(line)
+        if getattr(args, "llm", False):
+            llm_long = llm.get("reasoning_long", "")
+            if llm_long and llm_long != llm.get("reasoning", ""):
+                print(f"     LLM detail: {llm_long}")
+            provenance_long = provenance_llm.get("reasoning_long", "")
+            if provenance_long and provenance_long != provenance_llm.get("reasoning", ""):
+                print(f"     LLM detail: {provenance_long}")
+
+
+def cmd_claude(user_args: list[str]) -> None:
+    """Launch Claude Code with nah hooks active for this session."""
+    import shutil
+
+    user_args, selected_preset = _extract_run_preset(user_args, "nah run claude")
+    env = dict(os.environ)
+    if "NAH_PROVENANCE_RUN_ID" not in env:
+        from nah.provenance import new_run_id
+
+        env["NAH_PROVENANCE_RUN_ID"] = new_run_id()
+    if selected_preset:
+        env["NAH_PRESET"] = selected_preset
+    try:
+        from nah.config import ConfigError, get_config
+
+        get_config(target=agents.CLAUDE, preset=selected_preset or None)
+    except ConfigError as exc:
+        print(f"nah run claude: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    for arg in user_args:
+        if arg == "--settings" or arg.startswith("--settings="):
+            print("nah run claude: --settings is managed by nah; pass other flags directly",
+                  file=sys.stderr)
+            raise SystemExit(1)
+
+    blocked = _blocked_claude_flag(user_args)
+    if blocked:
+        print(
+            f"nah run claude: {blocked} is not allowed because nah cannot "
+            "protect a Claude Code session launched with permission bypass, "
+            "hook bypass, or auto-approval enabled. Run `nah run claude` without that "
+            "flag, or run `claude` directly if you intentionally want an "
+            "unguarded session.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    claude_path = shutil.which("claude")
+    if claude_path is None:
+        print("nah run claude: 'claude' not found on PATH", file=sys.stderr)
+        raise SystemExit(1)
+
+    settings_file = agents.AGENT_SETTINGS[agents.CLAUDE]
+    state = plugin_state.detect_nah_install_state(
+        settings_paths=[settings_file] + plugin_state.project_settings_paths(),
+    )
+    _warn_install_state_errors(state, "claude")
+    already_installed = state.has_plugin or state.has_direct
+
+    if already_installed:
+        if state.has_legacy:
+            print(
+                "nah run claude: old direct hook shim detected; "
+                "run `nah update claude` to migrate hooks to the nah executable.",
+                file=sys.stderr,
+            )
+        args = [claude_path] + user_args if os.name == "nt" else ["claude"] + user_args
+        if os.name == "nt":
+            raise SystemExit(subprocess.call(args, env=env))
+        os.execvpe(claude_path, args, env)
+
+    else:
+        command = _require_hook_command("run claude")
+        settings_json = json.dumps(_build_hooks_settings(command))
+        args = (
+            [claude_path, "--settings", settings_json] + user_args
+            if os.name == "nt"
+            else ["claude", "--settings", settings_json] + user_args
+        )
+        if os.name == "nt":
+            raise SystemExit(subprocess.call(args, env=env))
+    os.execvpe(claude_path, args, env)
+
+
+def _extract_run_preset(args: list[str], command_name: str) -> tuple[list[str], str]:
+    """Extract nah-owned --preset from a run command."""
+    result: list[str] = []
+    selected = ""
+    after_separator = False
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if after_separator:
+            result.append(tok)
+            i += 1
+            continue
+        if tok == "--":
+            after_separator = True
+            result.append(tok)
+            i += 1
+            continue
+        if tok == "--preset":
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                print(f"{command_name}: --preset requires a value", file=sys.stderr)
+                raise SystemExit(1)
+            selected = args[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--preset="):
+            selected = tok.split("=", 1)[1]
+            if not selected:
+                print(f"{command_name}: --preset requires a value", file=sys.stderr)
+                raise SystemExit(1)
+            i += 1
+            continue
+        result.append(tok)
+        i += 1
+    return result, selected
+
+
+def _blocked_claude_flag(args: list[str]) -> str:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            return ""
+        if arg in _CLAUDE_BLOCKED_FLAGS:
+            return arg
+        if arg.startswith("--enable-auto-mode="):
+            return arg
+        if arg == "--permission-mode":
+            if i + 1 < len(args) and args[i + 1] in _CLAUDE_BLOCKED_PERMISSION_MODES:
+                return f"--permission-mode {args[i + 1]}"
+            i += 2
+            continue
+        if (
+            arg.startswith("--permission-mode=")
+            and arg.split("=", 1)[1] in _CLAUDE_BLOCKED_PERMISSION_MODES
+        ):
+            return arg
+        i += 1
+    return ""
+
+
+def cmd_terminal_decision(args: argparse.Namespace) -> None:
+    """Hidden shell-snippet decision helper."""
+    raw_args = list(getattr(args, "args", []))
+    if raw_args and raw_args[0] == "--":
+        raw_args = raw_args[1:]
+    if not raw_args:
+        print("nah: _terminal-decision requires a command", file=sys.stderr)
+        raise SystemExit(2)
+    command = raw_args[0] if len(raw_args) == 1 else shlex.join(raw_args)
+    from nah import terminal_guard
+
+    result = terminal_guard.decide_terminal_command(
+        command,
+        getattr(args, "target", ""),
+        confirm=bool(getattr(args, "confirm", False)),
+        assume_confirmed=bool(getattr(args, "assume_confirmed", False)),
+        skip_llm=bool(getattr(args, "skip_llm", False)),
+        log=not bool(getattr(args, "no_log", False)),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(terminal_guard.decision_to_payload(result)))
+    elif result.exit_code == terminal_guard.EXIT_BLOCK:
+        print(terminal_guard.format_terminal_message(result, "nah blocked"), file=sys.stderr)
+    elif result.exit_code == terminal_guard.EXIT_ASK_DECLINED and not getattr(args, "confirm", False):
+        print(terminal_guard.format_terminal_message(result, "nah paused"), file=sys.stderr)
+    raise SystemExit(result.exit_code)
+
+
+def _run_hidden_terminal_decision(argv: list[str]) -> None:
+    """Parse and run the hidden terminal decision helper."""
+    parser = argparse.ArgumentParser(prog="nah _terminal-decision", add_help=False)
+    parser.add_argument("--target", required=True, choices=("bash", "zsh"))
+    parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--assume-confirmed", action="store_true")
+    parser.add_argument("--skip-llm", action="store_true")
+    parser.add_argument("--no-log", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("args", nargs=argparse.REMAINDER)
+    cmd_terminal_decision(parser.parse_args(argv))
+
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "_terminal-decision":
+        _run_hidden_terminal_decision(sys.argv[2:])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "_claude-hook":
+        from nah.claude_hooks import main as claude_hooks_main
+
+        raise SystemExit(claude_hooks_main())
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-permission-request":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main())
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-pre-tool-use":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main(default_hook_event="PreToolUse"))
+    if len(sys.argv) >= 2 and sys.argv[1] == "_codex-post-tool-use":
+        from nah.codex_hooks import main as codex_hooks_main
+
+        raise SystemExit(codex_hooks_main(default_hook_event="PostToolUse"))
+
+    parser = argparse.ArgumentParser(
+        prog="nah",
+        description="Context aware safety guard for coding agents.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"nah {__version__}",
+    )
+
+    sub = parser.add_subparsers(dest="command")
+    install_parser = sub.add_parser(
+        "install",
+        help="Install nah for a target",
+        usage="nah install <target> [--force]",
+    )
+    install_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+    )
+    install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Install direct hooks even when the Claude plugin is enabled",
+    )
+    update_parser = sub.add_parser(
+        "update",
+        help="Update nah files for a target",
+        usage="nah update <target>",
+    )
+    update_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+    )
+    uninstall_parser = sub.add_parser(
+        "uninstall",
+        help="Remove nah from a target",
+        usage="nah uninstall <target>",
+    )
+    uninstall_parser.add_argument(
+        "target",
+        nargs="?",
+        metavar="target",
+        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+    )
+    test_parser = sub.add_parser("test", help="Dry-run classification for a command")
+    test_parser.add_argument("--target", default=None, help="Target policy to simulate")
+    test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
+    test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
+    test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
+    test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("--preset", default=None, help="Apply a global config preset")
+    test_parser.add_argument("--json", action="store_true", help="Output a stable JSON result")
+    test_config_group = test_parser.add_mutually_exclusive_group()
+    test_config_group.add_argument("--config", default=None, help="Inline JSON config override")
+    test_config_group.add_argument(
+        "--defaults",
+        action="store_true",
+        help="Ignore user/project config and use packaged defaults",
+    )
+    test_parser.add_argument("args", nargs="*", help="Command string or tool input")
+    config_parser = sub.add_parser("config", help="Show config info")
+    config_sub = config_parser.add_subparsers(dest="config_command")
+    config_show = config_sub.add_parser("show", help="Display effective merged config")
+    config_show.add_argument("--preset", default=None, help="Apply a global config preset")
+    config_presets = config_sub.add_parser("presets", help="List or show global config presets")
+    config_presets.add_argument("name", nargs="?", help="Preset name to show")
+    config_sub.add_parser("path", help="Show config file paths")
+    key_parser = sub.add_parser("key", help="Manage built-in LLM provider keys")
+    key_sub = key_parser.add_subparsers(dest="key_command")
+    key_sub.add_parser("status", help="Show effective key source for built-in providers")
+    key_set = key_sub.add_parser("set", help="Store a provider key in the OS keyring")
+    key_set.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_set.add_argument("--force", action="store_true", help="Overwrite an existing stored key without confirmation")
+    key_rm = key_sub.add_parser("rm", help="Remove a provider key from the OS keyring")
+    key_rm.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_rm.add_argument("--yes", action="store_true", help="Delete without confirmation")
+    key_import = key_sub.add_parser("import-env", help="Copy a provider key from the environment into the OS keyring")
+    key_import.add_argument("provider", choices=_KEY_PROVIDERS)
+    key_import.add_argument("--force", action="store_true", help="Overwrite an existing stored key without confirmation")
+    log_parser = sub.add_parser("log", help="Show recent hook decisions")
+    log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
+    log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
+    log_parser.add_argument("--llm", action="store_true", help="Show only entries with LLM metadata")
+    log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
+    log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
+    log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")
+
+    allow_parser = sub.add_parser("allow", help="Allow an action type")
+    allow_parser.add_argument("action_type", help="Action type to allow")
+    allow_parser.add_argument("--project", action="store_true", help="Write to project config")
+    deny_parser = sub.add_parser("deny", help="Deny an action type")
+    deny_parser.add_argument("action_type", help="Action type to deny")
+    deny_parser.add_argument("--project", action="store_true", help="Write to project config")
+    allow_path_parser = sub.add_parser("allow-path", help="Allow a sensitive path for the current project")
+    allow_path_parser.add_argument("path", help="Path to allow")
+    classify_parser = sub.add_parser("classify", help="Classify a command prefix as an action type")
+    classify_parser.add_argument("command_prefix", help="Command prefix to classify")
+    classify_parser.add_argument("type", help="Action type to assign")
+    classify_parser.add_argument("--project", action="store_true", help="Write to project config")
+    trust_parser = sub.add_parser("trust", help="Trust a path or network host (global only)")
+    trust_parser.add_argument("target", help="Path or hostname to trust")
+    trust_parser.add_argument("--project", action="store_true", help="Write to project config (rejected for paths)")
+    trust_project_parser = sub.add_parser(
+        "trust-project",
+        help="Trust this project config root so project config can loosen policy",
+    )
+    trust_project_parser.add_argument("path", nargs="?", help="Project directory to trust (default: active project or cwd)")
+    untrust_project_parser = sub.add_parser("untrust-project", help="Remove project config trust")
+    untrust_project_parser.add_argument("path", nargs="?", help="Project directory to untrust (default: active project or cwd)")
+    status_parser = sub.add_parser("status", help="Show custom rules or target status")
+    status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
+    doctor_parser = sub.add_parser("doctor", help="Diagnose a shell target")
+    doctor_parser.add_argument("target", nargs="?", help="Target: bash, zsh")
+    run_parser = sub.add_parser("run", help="Launch an agent with nah active")
+    run_sub = run_parser.add_subparsers(dest="run_agent")
+    run_sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
+    run_sub.add_parser("codex", help="Launch Codex with nah hooks active")
+    codex_parser = sub.add_parser("codex", help="Set up or diagnose Codex integration")
+    codex_sub = codex_parser.add_subparsers(dest="codex_command")
+    codex_sub.add_parser("doctor", help="Show Codex preflight findings")
+    codex_sub.add_parser("setup", help="Install or fix nah-managed Codex setup")
+    codex_sub.add_parser("remove-setup", help="Remove nah-managed Codex setup files")
+    forget_parser = sub.add_parser("forget", help="Remove a rule")
+    forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
+    forget_parser.add_argument("--project", action="store_true", help="Search only project config")
+    forget_parser.add_argument("--global", dest="global_flag", action="store_true", help="Search only global config")
+    sub.add_parser("types", help="List all action types with descriptions and default policies")
+    audit_parser = sub.add_parser(
+        "audit-threat-model",
+        help="Audit threat-model coverage across the pytest suite",
+    )
+    audit_parser.add_argument(
+        "--format",
+        choices=("markdown", "json", "summary"),
+        default="markdown",
+        help="Output format (default: markdown)",
+    )
+
+    # Manual intercepts bypass argparse for user_args because argparse.REMAINDER
+    # fails when the first pass-through arg starts with "--".
+    if len(sys.argv) >= 2 and sys.argv[1] == "claude":
+        print("nah claude has moved. Run `nah run claude`.", file=sys.stderr)
+        raise SystemExit(1)
+    if len(sys.argv) >= 3 and sys.argv[1] == "run":
+        if sys.argv[2] == "claude":
+            cmd_claude(sys.argv[3:])
+            return
+        if sys.argv[2] == "codex":
+            from nah.codex_run import run_codex
+
+            raise SystemExit(run_codex(sys.argv[3:]))
+
+    args = parser.parse_args()
+
+    if args.command == "install":
+        cmd_install(args)
+    elif args.command == "update":
+        cmd_update(args)
+    elif args.command == "uninstall":
+        cmd_uninstall(args)
+    elif args.command == "test":
+        cmd_test(args)
+    elif args.command == "config":
+        cmd_config(args)
+    elif args.command == "key":
+        cmd_key(args)
+    elif args.command == "log":
+        cmd_log(args)
+    elif args.command == "allow":
+        cmd_allow(args)
+    elif args.command == "deny":
+        cmd_deny(args)
+    elif args.command == "allow-path":
+        cmd_allow_path(args)
+    elif args.command == "classify":
+        cmd_classify(args)
+    elif args.command == "trust":
+        cmd_trust(args)
+    elif args.command == "trust-project":
+        cmd_trust_project(args)
+    elif args.command == "untrust-project":
+        cmd_untrust_project(args)
+    elif args.command == "status":
+        cmd_status(args)
+    elif args.command == "doctor":
+        cmd_doctor(args)
+    elif args.command == "run":
+        parser.error("nah run requires an agent: claude or codex")
+    elif args.command == "codex":
+        cmd_codex(args)
+    elif args.command == "forget":
+        cmd_forget(args)
+    elif args.command == "types":
+        cmd_types(args)
+    elif args.command == "audit-threat-model":
+        cmd_audit_threat_model(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
