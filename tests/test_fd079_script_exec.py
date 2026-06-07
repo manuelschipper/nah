@@ -1087,8 +1087,8 @@ class TestPromptEnrichment:
     def test_script_veto_prompt_allows_read_only_local_inspection(self):
         prompt = self._build_prompt_for("python -c 'print(1)'")
 
-        assert "allow read-only inspection of ordinary config" in prompt.system
-        assert "Do not mark a script uncertain only because" in prompt.system
+        assert "routine local analysis/test code or read-only inspection" in prompt.system
+        assert "If none of those categories is visible, choose allow." in prompt.system
 
     def test_prompt_no_content_for_nonexistent(self, project_root):
         old_cwd = os.getcwd()
