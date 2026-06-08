@@ -523,6 +523,16 @@ def classify_tokens(
             if result != UNKNOWN:
                 return result
 
+    # talosctl: strip global connection flags (-n nodes, -e endpoints, etc.)
+    # first, then re-check the global table. Without this, `talosctl -n 1.2.3.4
+    # get routes` fails to match a `talosctl get` prefix and falls to unknown.
+    if tokens[0] == "talosctl":
+        tokens = _strip_talosctl_global_flags(tokens)
+        if global_table:
+            result = _prefix_match(tokens, global_table)
+            if result != UNKNOWN:
+                return result
+
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     action = _classify_find(
         tokens,
@@ -829,6 +839,72 @@ def _strip_kubectl_global_flags(tokens: list[str]) -> list[str]:
                 return tokens
             i += 1
         elif tok in _KUBECTL_BOOLEAN_FLAGS:
+            i += 1
+        elif tok.startswith("-"):
+            return tokens
+        else:
+            result.extend(tokens[i:])
+            break
+    return result
+
+
+_TALOSCTL_SUBCOMMANDS = {
+    "apply-config", "bootstrap", "cgroups", "cluster", "completion", "config",
+    "conformance", "containers", "copy", "dashboard", "debug", "dmesg", "edit",
+    "etcd", "events", "gen", "get", "health", "help", "image", "inject",
+    "inspect", "kubeconfig", "list", "logs", "machineconfig", "memory", "meta",
+    "mounts", "netstat", "patch", "pcap", "processes", "read", "reboot", "reset",
+    "restart", "rollback", "rotate-ca", "service", "shutdown", "stats", "support",
+    "time", "upgrade", "upgrade-k8s", "usage", "validate", "version", "wipe",
+}
+
+# talosctl global (persistent) flags that take a value and precede the subcommand.
+_TALOSCTL_VALUE_FLAGS = {
+    "-e", "--endpoints",
+    "-n", "--nodes",
+    "-c", "--cluster",
+    "--context",
+    "--talosconfig",
+}
+
+_TALOSCTL_VALUE_FLAG_PREFIXES = (
+    "-e=", "--endpoints=",
+    "-n=", "--nodes=",
+    "-c=", "--cluster=",
+    "--context=",
+    "--talosconfig=",
+)
+
+
+def _strip_talosctl_global_flags(tokens: list[str]) -> list[str]:
+    """Strip known talosctl global connection flags before the subcommand.
+
+    talosctl takes persistent flags (-n/--nodes, -e/--endpoints, --context,
+    etc.) before the subcommand, so `talosctl -n 1.2.3.4 get routes` otherwise
+    fails to match a `talosctl get` prefix. Mirrors _strip_kubectl_global_flags:
+    unknown or malformed pre-subcommand flags fail closed by returning the
+    original token stream, leaving classification on the `unknown` path.
+    """
+    result = [tokens[0]]
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            if i + 1 >= len(tokens):
+                return tokens
+            result.extend(tokens[i + 1:])
+            break
+        if tok in _TALOSCTL_VALUE_FLAGS:
+            if i + 1 >= len(tokens):
+                return tokens
+            value = tokens[i + 1]
+            if value.startswith("-") or value in _TALOSCTL_SUBCOMMANDS:
+                return tokens
+            i += 2
+        elif any(tok.startswith(prefix) for prefix in _TALOSCTL_VALUE_FLAG_PREFIXES):
+            _, value = tok.split("=", 1)
+            if not value or value in _TALOSCTL_SUBCOMMANDS:
+                return tokens
             i += 1
         elif tok.startswith("-"):
             return tokens
