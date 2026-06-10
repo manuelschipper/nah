@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enforces. `nah codex measure-hook-timeout` drives Codex with the probe and
   reports enforced-vs-configured timeouts, defaulting to `PostToolUse` (the only
   event that both fires and is enforced under headless `codex exec`). Documented
-  under Runtimes → Codex → Measuring hook timeouts.
+  in the CLI reference.
 
 ## [0.9.1] - 2026-06-07
 

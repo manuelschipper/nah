@@ -74,8 +74,11 @@ nah launcher flag; raw Codex config overrides for sandbox and approval settings
 are rejected.
 
 `--probe[=DELAY]` is a debug-only flag that makes nah's Codex hooks deliberately
-stall, so you can see what timeout Codex actually enforces. See
-[Measuring hook timeouts](runtimes/codex.md#measuring-hook-timeouts).
+stall (gated behind `NAH_HOOK_PROBE`, capped at 60s, verdict unchanged), so you
+can observe the timeout Codex actually enforces. A hook only times out when the
+stall exceeds that event's limit — `PostToolUse` is 10s, `PermissionRequest` is
+14s — so `--probe=12` forces a `PostToolUse` timeout while `--probe=16` forces a
+`PermissionRequest` timeout. Set `NAH_HOOK_PROBE_EVENT` to stall a single event.
 
 ### nah install
 
@@ -234,8 +237,7 @@ paths if you want to restore those manually.
 Codex actually enforces for a hook event, versus the value nah configured. It
 defaults to `--event PostToolUse` (the only event that both fires and is
 enforced under headless `codex exec`); pass `--probe-high SECONDS` for the
-over-long trial or `--sweep` to binary-search the threshold. See
-[Measuring hook timeouts](runtimes/codex.md#measuring-hook-timeouts).
+over-long trial or `--sweep` to binary-search the threshold.
 
 If `nah run codex` reports that Codex authority or approval state can bypass
 nah, run `nah codex doctor` for details or `nah codex setup` to apply supported
