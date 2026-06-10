@@ -73,6 +73,10 @@ user overrides for nah-managed permission keys. `--sandbox` is supported as a
 nah launcher flag; raw Codex config overrides for sandbox and approval settings
 are rejected.
 
+`--probe[=DELAY]` is a debug-only flag that makes nah's Codex hooks deliberately
+stall, so you can see what timeout Codex actually enforces. See
+[Measuring hook timeouts](runtimes/codex.md#measuring-hook-timeouts).
+
 ### nah install
 
 Install nah for a target. See [Installation](install.md) for the recommended
@@ -216,6 +220,7 @@ Set up or diagnose Codex state that can bypass nah's Codex hook path.
 nah codex doctor
 nah codex setup
 nah codex remove-setup
+nah codex measure-hook-timeout
 ```
 
 `doctor` scans Codex authority rules, approval-memory rules, and MCP approval
@@ -224,6 +229,13 @@ checks approval-memory and MCP drift, then backs up and fixes supported drift.
 `remove-setup` removes only nah-managed Codex setup files. It does not restore
 other Codex rules or config files that setup changed; use the printed backup
 paths if you want to restore those manually.
+
+`measure-hook-timeout` drives Codex with the debug probe and reports the timeout
+Codex actually enforces for a hook event, versus the value nah configured. It
+defaults to `--event PostToolUse` (the only event that both fires and is
+enforced under headless `codex exec`); pass `--probe-high SECONDS` for the
+over-long trial or `--sweep` to binary-search the threshold. See
+[Measuring hook timeouts](runtimes/codex.md#measuring-hook-timeouts).
 
 If `nah run codex` reports that Codex authority or approval state can bypass
 nah, run `nah codex doctor` for details or `nah codex setup` to apply supported

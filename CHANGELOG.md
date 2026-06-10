@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Codex hook-timeout probe** — `nah run codex --probe[=DELAY]` arms a
+  debug-only stall in nah's Codex hooks (gated behind `NAH_HOOK_PROBE`, capped
+  at 60s, verdict unchanged) so you can observe the timeout Codex actually
+  enforces. `nah codex measure-hook-timeout` drives Codex with the probe and
+  reports enforced-vs-configured timeouts, defaulting to `PostToolUse` (the only
+  event that both fires and is enforced under headless `codex exec`). Documented
+  under Runtimes → Codex → Measuring hook timeouts.
+
 ## [0.9.1] - 2026-06-07
 
 ### Changed
