@@ -1966,3 +1966,69 @@ def test_missing_llm_provider_stderr_is_not_logged_as_hook_error(project_root, m
     entries = [json.loads(line) for line in lines]
     assert not any(entry.get("decision") == "error" for entry in entries)
     assert entries[-1]["llm"]["cascade"][0]["provider"] == "fake"
+
+
+# --- Probe delay knob (debug-only; see codex_probe / measure-hook-timeout) ---
+
+
+@pytest.fixture
+def _record_sleep(monkeypatch):
+    calls = []
+    monkeypatch.setattr(codex_hooks.time, "sleep", lambda s: calls.append(s))
+    return calls
+
+
+def _bash_payload(command="echo hi", event="PermissionRequest"):
+    return {"hook_event_name": event, "tool_name": "Bash", "tool_input": {"command": command}}
+
+
+def test_probe_no_delay_when_unarmed(monkeypatch, _record_sleep):
+    monkeypatch.delenv(codex_hooks._PROBE_ENV, raising=False)
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "5")
+    _run(_bash_payload())
+    assert _record_sleep == []
+
+
+def test_probe_env_delay_applied_when_armed(monkeypatch, _record_sleep):
+    monkeypatch.setenv(codex_hooks._PROBE_ENV, "1")
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "3")
+    _run(_bash_payload())
+    assert _record_sleep == [3.0]
+
+
+def test_probe_sentinel_overrides_env(monkeypatch, _record_sleep):
+    monkeypatch.setenv(codex_hooks._PROBE_ENV, "1")
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "3")
+    _run(_bash_payload(command="echo nah-probe-delay:8"))
+    assert _record_sleep == [8.0]
+
+
+def test_probe_delay_capped(monkeypatch, _record_sleep):
+    monkeypatch.setenv(codex_hooks._PROBE_ENV, "1")
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "999")
+    _run(_bash_payload())
+    assert _record_sleep == [codex_hooks._PROBE_DELAY_CAP_SECONDS]
+
+
+def test_probe_event_targeting(monkeypatch, _record_sleep):
+    monkeypatch.setenv(codex_hooks._PROBE_ENV, "1")
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "4")
+    monkeypatch.setenv(codex_hooks._PROBE_EVENT_ENV, "PostToolUse")
+    # Running a PermissionRequest while targeting PostToolUse must not delay.
+    _run(_bash_payload(event="PermissionRequest"))
+    assert _record_sleep == []
+
+
+def test_probe_does_not_change_decision(monkeypatch):
+    # The verdict must be byte-identical with and without the probe armed.
+    # `echo hi` classifies deterministically (allow, no LLM call).
+    monkeypatch.delenv(codex_hooks._PROBE_ENV, raising=False)
+    _, baseline = _run(_bash_payload(command="echo hi"))
+    assert baseline.strip()  # guard: the baseline actually emitted a verdict
+
+    monkeypatch.setenv(codex_hooks._PROBE_ENV, "1")
+    monkeypatch.setenv(codex_hooks._PROBE_DELAY_ENV, "2")
+    monkeypatch.setattr(codex_hooks.time, "sleep", lambda s: None)
+    _, armed = _run(_bash_payload(command="echo hi"))
+
+    assert armed == baseline

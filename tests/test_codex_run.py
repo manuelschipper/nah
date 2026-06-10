@@ -132,6 +132,39 @@ def test_confirm_edits_env_is_owned_by_launcher():
     assert "NAH_CODEX_CONFIRM_EDITS" not in launch.env
 
 
+def test_probe_flag_arms_without_fixed_delay():
+    launch = _launch(["--probe", "resume", "abc123"])
+
+    assert launch.env["NAH_HOOK_PROBE"] == "1"
+    assert "NAH_HOOK_PROBE_DELAY" not in launch.env
+    assert "--probe" not in launch.argv
+    assert launch.argv[-2:] == ["resume", "abc123"]
+
+
+def test_probe_flag_with_delay_sets_env():
+    launch = _launch(["--probe=8", "resume"])
+
+    assert launch.env["NAH_HOOK_PROBE"] == "1"
+    assert launch.env["NAH_HOOK_PROBE_DELAY"] == "8"
+    assert "--probe=8" not in launch.argv
+
+
+def test_probe_env_is_owned_by_launcher():
+    launch = _launch(
+        [],
+        base_env={"NAH_HOOK_PROBE": "1", "NAH_HOOK_PROBE_DELAY": "9"},
+    )
+
+    assert "NAH_HOOK_PROBE" not in launch.env
+    assert "NAH_HOOK_PROBE_DELAY" not in launch.env
+
+
+@pytest.mark.parametrize("flag", ["--probe=", "--probe=abc", "--probe=-3"])
+def test_probe_rejects_bad_delay(flag):
+    with pytest.raises(CodexRunError):
+        _launch([flag])
+
+
 def test_provenance_run_id_is_created_and_preserves_inherited_value():
     launch = _launch([])
     assert launch.env["NAH_PROVENANCE_RUN_ID"].startswith("run-")

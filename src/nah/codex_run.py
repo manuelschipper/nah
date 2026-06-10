@@ -51,6 +51,9 @@ _CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
 _PRESET_FLAG = "--preset"
 _PRESET_ENV = "NAH_PRESET"
 _NETWORK_FLAG = "--network"
+_PROBE_FLAG = "--probe"
+_PROBE_ENV = "NAH_HOOK_PROBE"
+_PROBE_DELAY_ENV = "NAH_HOOK_PROBE_DELAY"
 _HEADLESS_ENV = "NAH_CODEX_HEADLESS"
 _HEADLESS_ASK_FALLBACK_ENV = "NAH_CODEX_HEADLESS_ASK_FALLBACK"
 _HEADLESS_SANDBOX_ENV = "NAH_CODEX_SANDBOX"
@@ -303,9 +306,14 @@ def build_codex_launch(
     executable = codex_path or shutil.which("codex")
     if executable is None:
         raise CodexRunError("nah run codex: 'codex' not found on PATH")
-    codex_args, confirm_edits, sandbox_mode, network, selected_preset = _extract_nah_run_flags(
-        list(user_args),
-    )
+    (
+        codex_args,
+        confirm_edits,
+        sandbox_mode,
+        network,
+        selected_preset,
+        probe,
+    ) = _extract_nah_run_flags(list(user_args))
     headless = _is_headless_exec(codex_args)
     _validate_user_args(codex_args, headless=headless)
     if headless:
@@ -330,6 +338,15 @@ def build_codex_launch(
         env[_CONFIRM_EDITS_ENV] = "1"
     else:
         env.pop(_CONFIRM_EDITS_ENV, None)
+    if probe is not None:
+        env[_PROBE_ENV] = "1"
+        if probe:
+            env[_PROBE_DELAY_ENV] = probe
+        else:
+            env.pop(_PROBE_DELAY_ENV, None)
+    else:
+        env.pop(_PROBE_ENV, None)
+        env.pop(_PROBE_DELAY_ENV, None)
     headless_ask_fallback = ""
     if headless:
         headless_ask_fallback = getattr(effective_cfg, "ask_fallback", "") or "block"
@@ -405,13 +422,21 @@ def _validate_user_args(args: list[str], *, headless: bool = False) -> None:
         _reject_unsupported_headless_exec(args)
 
 
-def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool, str]:
-    """Extract nah-owned launcher flags before handing the rest to Codex."""
+def _extract_nah_run_flags(
+    args: list[str],
+) -> tuple[list[str], bool, str, bool, str, str | None]:
+    """Extract nah-owned launcher flags before handing the rest to Codex.
+
+    The trailing element is the probe setting: None when --probe is absent, an
+    empty string when armed with no fixed delay (sentinel-driven), or the delay
+    string when --probe=<seconds> was given.
+    """
     codex_args: list[str] = []
     confirm_edits = False
     sandbox_mode = _DEFAULT_SANDBOX_MODE
     network = False
     selected_preset = ""
+    probe: str | None = None
     after_separator = False
     seen_subcommand = False
     i = 0
@@ -442,6 +467,14 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool,
             raise CodexRunError(
                 f"nah run codex: {_NETWORK_FLAG} does not take a value",
             )
+        if tok == _PROBE_FLAG:
+            probe = ""
+            i += 1
+            continue
+        if tok.startswith(_PROBE_FLAG + "="):
+            probe = _validate_probe_delay(tok.split("=", 1)[1])
+            i += 1
+            continue
         if tok == _PRESET_FLAG:
             if i + 1 >= len(args) or args[i + 1].startswith("-"):
                 raise CodexRunError("nah run codex: --preset requires a value")
@@ -487,7 +520,23 @@ def _extract_nah_run_flags(args: list[str]) -> tuple[list[str], bool, str, bool,
             "nah run codex: --network requires --sandbox workspace-write "
             "or danger-full-access",
         )
-    return codex_args, confirm_edits, sandbox_mode, network, selected_preset
+    return codex_args, confirm_edits, sandbox_mode, network, selected_preset, probe
+
+
+def _validate_probe_delay(value: str) -> str:
+    """Return a validated non-negative probe delay (seconds) or raise."""
+    value = value.strip()
+    if not value:
+        raise CodexRunError("nah run codex: --probe= requires a delay in seconds")
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise CodexRunError(
+            f"nah run codex: --probe delay must be a number, got {value!r}",
+        ) from None
+    if seconds < 0:
+        raise CodexRunError("nah run codex: --probe delay must be non-negative")
+    return value
 
 
 def _validate_sandbox_mode(value: str) -> str:

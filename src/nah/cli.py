@@ -1566,6 +1566,35 @@ def cmd_codex(args: argparse.Namespace) -> None:
         print(output)
         return
 
+    if action == "measure-hook-timeout":
+        from nah.codex_probe import (
+            configured_timeout_seconds,
+            format_measure_result,
+            live_trial,
+            measure_hook_timeout,
+        )
+
+        event = args.event
+        print(
+            f"nah codex measure-hook-timeout: probing {event} via headless "
+            "`codex exec` (this makes one or more real Codex calls)…",
+            file=sys.stderr,
+        )
+
+        def runner(delay: float):
+            return live_trial(delay, event)
+
+        result = measure_hook_timeout(
+            event,
+            runner=runner,
+            probe_high=args.probe_high,
+            sweep=args.sweep,
+        )
+        print(format_measure_result(result, configured=configured_timeout_seconds(event)))
+        if result.enforced_seconds is None and result.method == "inconclusive":
+            raise SystemExit(1)
+        return
+
     if action == "remove-setup":
         try:
             removed = remove_authority_rules()
@@ -2072,6 +2101,28 @@ def main():
     codex_sub.add_parser("doctor", help="Show Codex preflight findings")
     codex_sub.add_parser("setup", help="Install or fix nah-managed Codex setup")
     codex_sub.add_parser("remove-setup", help="Remove nah-managed Codex setup files")
+    measure_parser = codex_sub.add_parser(
+        "measure-hook-timeout",
+        help="Measure the hook timeout Codex actually enforces",
+    )
+    measure_parser.add_argument(
+        "--event",
+        default="PreToolUse",
+        choices=("PreToolUse", "PermissionRequest", "PostToolUse"),
+        help="Hook event to probe (default: PreToolUse — the one that fires "
+        "reliably in headless exec)",
+    )
+    measure_parser.add_argument(
+        "--probe-high",
+        type=float,
+        default=12.0,
+        help="Delay (s) for the fast over-long trial (default: 12)",
+    )
+    measure_parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Binary-search the threshold instead of reading the reported number",
+    )
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")

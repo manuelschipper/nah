@@ -7,6 +7,7 @@ import copy
 import io
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -27,6 +28,16 @@ _SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
 _CODEX_PERMISSION_LLM_BUDGET_SECONDS = 10
+
+# Debug-only probe knob. Lets the hook deliberately stall so the harness can
+# measure the timeout Codex *actually* enforces (see `nah codex
+# measure-hook-timeout`). Gated behind NAH_HOOK_PROBE so a normal session never
+# delays even if a command happens to contain the sentinel.
+_PROBE_ENV = "NAH_HOOK_PROBE"
+_PROBE_DELAY_ENV = "NAH_HOOK_PROBE_DELAY"
+_PROBE_EVENT_ENV = "NAH_HOOK_PROBE_EVENT"
+_PROBE_SENTINEL_RE = re.compile(r"nah-probe-delay:(\d+(?:\.\d+)?)")
+_PROBE_DELAY_CAP_SECONDS = 60.0
 
 
 def main(
@@ -69,6 +80,7 @@ def main(
 
     try:
         event_name = _hook_event_name(payload, default_hook_event)
+        _maybe_probe_delay(payload, event_name)
         if event_name == "PreToolUse":
             total_ms = int((time.monotonic() - t0) * 1000)
             if _headless_enabled():
@@ -229,6 +241,51 @@ def _confirm_edits_enabled() -> bool:
 def _headless_enabled() -> bool:
     value = os.environ.get(_HEADLESS_ENV, "")
     return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _maybe_probe_delay(payload: dict, event_name: str) -> None:
+    """Deliberately stall the hook when the probe harness is armed.
+
+    Debug-only. Gated behind NAH_HOOK_PROBE so a real session never delays. The
+    sleep happens *before* nah computes its decision, so the verdict is
+    unchanged — only the process wall-time grows, which is exactly what Codex's
+    hook timeout measures. Used to discover Codex's actually-enforced timeout.
+    """
+    if os.environ.get(_PROBE_ENV, "").strip().lower() not in _TRUTHY_ENV_VALUES:
+        return
+    target_event = os.environ.get(_PROBE_EVENT_ENV, "").strip()
+    if target_event and target_event != event_name:
+        return
+    secs = _probe_delay_seconds(payload)
+    if secs <= 0:
+        return
+    secs = min(secs, _PROBE_DELAY_CAP_SECONDS)
+    sys.stderr.write(
+        f"nah: PROBE armed — delaying {event_name} hook {secs:.3f}s before decision\n"
+    )
+    time.sleep(secs)
+
+
+def _probe_delay_seconds(payload: dict) -> float:
+    """Resolve the probe delay: payload sentinel wins, else the env fallback."""
+    # A `nah-probe-delay:<n>` marker in the tool payload lets you trigger a
+    # stall mid-session straight from the REPL (e.g. `echo nah-probe-delay:8`).
+    blob = json.dumps(payload.get("tool_input", "") or "")
+    match = _PROBE_SENTINEL_RE.search(blob)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return 0.0
+    # Fallback: a fixed delay set by the measure harness, which drives codex
+    # with an innocuous command and controls the stall from the environment.
+    raw = os.environ.get(_PROBE_DELAY_ENV, "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
 
 
 def _headless_ask_fallback_mode() -> str:
