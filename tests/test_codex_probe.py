@@ -38,6 +38,19 @@ def test_classify_completed_when_probe_armed_and_no_timeout():
     assert secs is None
 
 
+def test_classify_headless_completed_status():
+    status, secs = classify_trial("hook: PostToolUse Completed", "", hit_outer_timeout=False)
+    assert status == cp.STATUS_COMPLETED
+    assert secs is None
+
+
+def test_classify_headless_failed_status_is_timeout():
+    # Headless exec reports a killed hook as "Failed" with no number.
+    status, secs = classify_trial("hook: PostToolUse Failed", "", hit_outer_timeout=False)
+    assert status == cp.STATUS_TIMEOUT
+    assert secs is None
+
+
 def test_classify_inconclusive_when_probe_never_armed():
     status, secs = classify_trial("nothing", "", hit_outer_timeout=False)
     assert status == cp.STATUS_INCONCLUSIVE

@@ -23,18 +23,27 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
-# Codex prints e.g. "hook timed out after 5s" when it kills a hook. The number
-# is the enforced timeout, so when present we can read it straight off.
+# Interactive Codex prints "hook timed out after 5s" when it kills a hook; the
+# number is the enforced timeout, so when present we read it straight off.
 _TIMEOUT_RE = re.compile(r"timed out after\s+(\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
-# nah's probe writes this to stderr immediately before it sleeps, so its
-# presence confirms the hook actually fired for the event under test.
+# Headless `codex exec` does not print a timeout message — it surfaces a hook
+# status line instead: "hook: PostToolUse Completed" when the hook finished in
+# time, "hook: PostToolUse Failed" when Codex killed it.
+_HOOK_FAILED_RE = re.compile(r"hook:\s*\w+\s+failed", re.IGNORECASE)
+_HOOK_COMPLETED_RE = re.compile(r"hook:\s*\w+\s+completed", re.IGNORECASE)
+# nah's probe writes this to stderr immediately before it sleeps; Codex usually
+# swallows hook stderr, but when present it confirms the hook fired.
 _PROBE_MARK_RE = re.compile(r"nah: PROBE armed")
 
 SUPPORTED_EVENTS = ("PreToolUse", "PermissionRequest", "PostToolUse")
-# PreToolUse fires on every tool call in headless `codex exec`, so it is the one
-# event we can trigger non-interactively. The timeout unit is shared across all
-# injected hooks, so PreToolUse faithfully reveals a unit/cap regression.
-RELIABLE_EVENT = "PreToolUse"
+# Of the three events, only PostToolUse can be measured non-interactively:
+#   - PreToolUse is disabled in this setup (enabled=false in hook trust state),
+#   - PermissionRequest never fires under headless `codex exec` (approval=never),
+#   - PostToolUse is synchronous (async=false) and Codex enforces its timeout.
+# PostToolUse therefore acts as the headless witness for how Codex treats the
+# injected `timeout` field. PermissionRequest must be probed interactively with
+# `nah run codex --probe`.
+RELIABLE_EVENT = "PostToolUse"
 
 STATUS_TIMEOUT = "timeout"
 STATUS_COMPLETED = "completed"
@@ -76,14 +85,17 @@ def classify_trial(
             return STATUS_TIMEOUT, float(match.group(1))
         except ValueError:
             return STATUS_TIMEOUT, None
+    # Headless: a failed hook status means Codex killed it (no number surfaced).
+    if _HOOK_FAILED_RE.search(blob):
+        return STATUS_TIMEOUT, None
     if hit_outer_timeout:
         # Our own subprocess guard fired before Codex reported anything; we
         # cannot tell what happened from this trial.
         return STATUS_INCONCLUSIVE, None
-    if _PROBE_MARK_RE.search(blob):
-        # The hook armed and there is no timeout line, so Codex let it finish.
+    if _HOOK_COMPLETED_RE.search(blob) or _PROBE_MARK_RE.search(blob):
+        # The hook ran to completion within Codex's timeout.
         return STATUS_COMPLETED, None
-    # The probe never armed — the event under test was not triggered.
+    # Nothing recognizable — the event under test was not triggered.
     return STATUS_INCONCLUSIVE, None
 
 
@@ -203,11 +215,12 @@ def configured_timeout_seconds(event: str) -> float | None:
 
 
 def _trigger_argv(event: str, *, sandbox: str = "read-only") -> list[str]:
-    """Codex args that reliably fire ``event`` once, with a harmless command."""
-    prompt = (
-        "Use your shell tool to run exactly this command once and then stop: "
-        "printf nah-probe-ok\\n"
-    )
+    """Codex args that make Codex invoke the shell tool once (fires the hooks).
+
+    Headless `codex exec` exercises PostToolUse; PreToolUse/PermissionRequest do
+    not fire here (see RELIABLE_EVENT) but the call shape is identical.
+    """
+    prompt = "Use your shell tool to run exactly this command once and then stop: echo hi"
     return ["exec", "--sandbox", sandbox, prompt]
 
 
@@ -264,8 +277,8 @@ def format_measure_result(result: MeasureResult, *, configured: float | None = N
         and abs(result.enforced_seconds - configured) > max(1.0, 0.25 * configured)
     ):
         lines.append(
-            "VERDICT:    MISMATCH — Codex is not honoring the configured timeout "
-            "(likely a seconds/milliseconds unit drift)."
+            "VERDICT:    MISMATCH — Codex enforces a shorter timeout than "
+            "configured (likely a per-event cap; verify the field name/unit)."
         )
     elif configured is not None and result.enforced_seconds is not None:
         lines.append("VERDICT:    OK — enforced timeout matches the configured value.")

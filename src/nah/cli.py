@@ -1574,12 +1574,22 @@ def cmd_codex(args: argparse.Namespace) -> None:
             measure_hook_timeout,
         )
 
+        from nah.codex_probe import RELIABLE_EVENT
+
         event = args.event
         print(
             f"nah codex measure-hook-timeout: probing {event} via headless "
             "`codex exec` (this makes one or more real Codex calls)…",
             file=sys.stderr,
         )
+        if event != RELIABLE_EVENT:
+            print(
+                f"warning: {event} does not fire under headless exec "
+                f"(PreToolUse is disabled, PermissionRequest needs an interactive "
+                f"approval). Results will likely be inconclusive — probe "
+                f"{RELIABLE_EVENT}, or use `nah run codex --probe` interactively.",
+                file=sys.stderr,
+            )
 
         def runner(delay: float):
             return live_trial(delay, event)
@@ -2107,10 +2117,11 @@ def main():
     )
     measure_parser.add_argument(
         "--event",
-        default="PreToolUse",
+        default="PostToolUse",
         choices=("PreToolUse", "PermissionRequest", "PostToolUse"),
-        help="Hook event to probe (default: PreToolUse — the one that fires "
-        "reliably in headless exec)",
+        help="Hook event to probe (default: PostToolUse — the only event that "
+        "fires and is enforced under headless exec; use `nah run codex --probe` "
+        "to probe PermissionRequest interactively)",
     )
     measure_parser.add_argument(
         "--probe-high",
