@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from nah import paths, taxonomy
-from nah.content import format_content_message, scan_content
 
 
 _TRANSCRIPT_RETRY_SECONDS = 0.30
@@ -99,15 +98,13 @@ def classify_codex_apply_patch(
         if boundary_decision:
             return _with_stage(boundary_decision, taxonomy.FILESYSTEM_WRITE), log_input
 
-    content_decision = _scan_added_content(parsed.added_content)
-    if content_decision.get("decision") == taxonomy.BLOCK:
-        return content_decision, log_input
+    content_decision = {"decision": taxonomy.ALLOW}
 
     destructive_reason = _destructive_patch_reason(parsed, cwd)
     if destructive_reason:
         return _ask(destructive_reason), log_input
 
-    if llm_review and content_decision.get("decision") == taxonomy.ALLOW:
+    if llm_review:
         from nah import hook
 
         review_input = {
@@ -273,27 +270,6 @@ def _lookup_patch_text_from_transcript(transcript_path: str) -> TranscriptPatchL
     if len(candidates) != 1:
         return TranscriptPatchLookup(None, "missing" if not candidates else "ambiguous")
     return TranscriptPatchLookup(PatchText(candidates[0], "transcript"), "single")
-
-
-def _scan_added_content(content: str) -> dict:
-    matches = scan_content(content)
-    if not matches:
-        return {"decision": taxonomy.ALLOW}
-    return {
-        "decision": taxonomy.BLOCK,
-        "reason": format_content_message("apply_patch", matches),
-        "_meta": {
-            "content_match": ", ".join(m.pattern_desc for m in matches),
-            "stages": [
-                _stage(
-                    taxonomy.FILESYSTEM_WRITE,
-                    taxonomy.BLOCK,
-                    taxonomy.BLOCK,
-                    "apply_patch added dangerous content",
-                )
-            ],
-        },
-    }
 
 
 def _destructive_patch_reason(parsed: ParsedPatch, cwd: str) -> str:

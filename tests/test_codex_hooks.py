@@ -820,7 +820,7 @@ def test_pre_tool_use_malformed_json_fails_open_with_event_error(tmp_path):
     assert entry["decision"] == "error"
 
 
-def test_pre_tool_use_bash_does_not_call_llm_script_veto(
+def test_pre_tool_use_bash_file_script_does_not_call_inline_review(
     project_root,
     tmp_path,
     monkeypatch,
@@ -829,9 +829,9 @@ def test_pre_tool_use_bash_does_not_call_llm_script_veto(
     script.write_text('print("ok")\n', encoding="utf-8")
 
     def fail(*_args, **_kwargs):
-        raise AssertionError("PreToolUse should not call script LLM veto")
+        raise AssertionError("PreToolUse should not call inline LLM review")
 
-    monkeypatch.setattr("nah.hook._try_llm_script_veto", fail)
+    monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fail)
     code, out = _run({
         "hookEventName": "PreToolUse",
         "session_id": "sess_no_llm",
@@ -1552,7 +1552,7 @@ def test_apply_patch_write_review_receives_patch_metadata(project_root, monkeypa
     monkeypatch.setattr("nah.hook._llm_write_review_gate", fake_write_review)
     code, out = _run({
         "tool_name": "apply_patch",
-        "tool_input": {"input": _patch("app.py", "VALUE = 42")},
+        "tool_input": {"input": _patch("app.py", "print('ok')")},
         "cwd": project_root,
         "transcript_path": "",
     })
@@ -1562,7 +1562,7 @@ def test_apply_patch_write_review_receives_patch_metadata(project_root, monkeypa
     assert captured["tool_name"] == "apply_patch"
     assert captured["tool_input"]["_nah_patch_paths"] == [str(Path(project_root) / "app.py")]
     assert "update=1" in captured["tool_input"]["_nah_patch_summary"]
-    assert "VALUE = 42" in captured["tool_input"]["content"]
+    assert "print('ok')" in captured["tool_input"]["content"]
 
 
 def test_apply_patch_safe_project_patch_from_subdir_defaults_to_allow(project_root):
@@ -1680,7 +1680,7 @@ def test_apply_patch_raw_string_tool_input_allows_by_default(project_root, monke
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
-def test_apply_patch_dangerous_added_content_denies_even_with_safe_auto_edits(project_root, monkeypatch):
+def test_apply_patch_added_content_is_not_deterministically_scanned(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_AUTO_ALLOW_SAFE_APPLY_PATCH", "1")
 
     code, out = _run({
@@ -1692,8 +1692,7 @@ def test_apply_patch_dangerous_added_content_denies_even_with_safe_auto_edits(pr
 
     assert code == 0
     decision = json.loads(out)["hookSpecificOutput"]["decision"]
-    assert decision["behavior"] == "deny"
-    assert "delete or overwrite data" in decision["message"]
+    assert decision["behavior"] == "allow"
 
 
 def test_apply_patch_hook_path_denies(project_root, monkeypatch):

@@ -83,6 +83,57 @@ def test_post_tool_success_finalizes_written_path(monkeypatch, project_root):
     assert post["_meta"]["provenance"]["updates"]["write_finalized"] == "active"
 
 
+def test_llm_vetoed_write_finalizes_as_flagged(monkeypatch, project_root):
+    monkeypatch.chdir(project_root)
+    _cfg()
+    target = os.path.join(project_root, "scripts", "flagged.py")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+
+    decision = {
+        "decision": taxonomy.ASK,
+        "_meta": {
+            "llm_veto": True,
+            "stages": [{"action_type": taxonomy.FILESYSTEM_WRITE, "decision": "ask"}],
+        },
+    }
+    provenance.apply_pre_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')\n"},
+        decision,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-flagged"},
+        execution={"state": "requested"},
+    )
+
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    post = {"decision": taxonomy.ALLOW, "_meta": {}}
+    provenance.apply_post_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')\n"},
+        post,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "tool-flagged"},
+        execution={"state": "executed"},
+    )
+
+    assert _state()["artifacts"][f"path:{target}"]["stamp"] == "flagged"
+
+
+def test_clean_write_finalizes_as_clean_local(monkeypatch, project_root):
+    monkeypatch.chdir(project_root)
+    _cfg()
+    target = os.path.join(project_root, "scripts", "clean.py")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+
+    _write_pre(target, event_id="tool-clean")
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('ok')\n")
+    _write_post(target, event_id="tool-clean")
+
+    assert _state()["artifacts"][f"path:{target}"]["stamp"] == "clean_local"
+
+
 def test_failed_or_denied_write_does_not_create_active_artifact(monkeypatch, project_root):
     monkeypatch.chdir(project_root)
     _cfg()

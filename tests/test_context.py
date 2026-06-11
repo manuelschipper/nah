@@ -125,7 +125,7 @@ class TestResolveFilesystemContext:
         decision, reason = resolve_lang_exec_context(str(target))
 
         assert decision == "allow"
-        assert "script clean" in reason
+        assert "script path allowed" in reason
 
 
 # --- resolve_network_context ---

@@ -256,6 +256,38 @@ class TestTranscriptRoles:
 
 
 class TestUnifiedTryLlm:
+    def test_try_unified_uses_user_intent_without_tool_summaries(self, tmp_path):
+        transcript = tmp_path / "transcript.jsonl"
+        transcript.write_text(_jsonl(
+            _user_msg("inspect the build output"),
+            _assistant_msg(
+                "I will inspect it",
+                [{"name": "Bash", "input": {"command": "printf hello"}}],
+            ),
+            _user_msg("then summarize the result"),
+        ))
+        captured = {}
+
+        def fake_try_providers(prompt, _cfg, _label):
+            captured["prompt"] = prompt
+            return LLMCallResult(decision={"decision": "uncertain"})
+
+        with patch("nah.llm._try_providers", side_effect=fake_try_providers):
+            try_llm_unified(
+                "Bash",
+                "printf hello",
+                "filesystem_read",
+                "read",
+                {},
+                transcript_path=str(transcript),
+            )
+
+        user_prompt = captured["prompt"].user
+        assert "User: inspect the build output" in user_prompt
+        assert "User: then summarize the result" in user_prompt
+        assert "Assistant:" not in user_prompt
+        assert "[Bash:" not in user_prompt
+
     def test_try_unified_passes_stages_without_project_instructions(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text("Claude project rules")
         captured = {}

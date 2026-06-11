@@ -290,19 +290,19 @@ class TestIsLlmEligible:
 class TestHandleBash:
     def test_unknown_command_stays_ask_without_handler_llm(self, project_root):
         _set_llm_config()
-        with patch("nah.hook._try_llm_script_veto") as mock_veto:
+        with patch("nah.hook._try_llm_inline_lang_exec") as mock_review:
             result = hook.handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
-        mock_veto.assert_not_called()
+        mock_review.assert_not_called()
 
     def test_known_allow_command_skips_llm(self, project_root):
         _set_llm_config()
-        with patch("nah.hook._try_llm_script_veto") as mock_veto:
+        with patch("nah.hook._try_llm_inline_lang_exec") as mock_review:
             result = hook.handle_bash({"command": "ls"})
         assert result["decision"] == "allow"
-        mock_veto.assert_not_called()
+        mock_review.assert_not_called()
 
-    def test_lang_exec_veto_escalates_to_ask(self, project_root):
+    def test_file_backed_lang_exec_skips_inline_review(self, project_root):
         _set_llm_config()
         script = os.path.join(project_root, "safe.py")
         with open(script, "w", encoding="utf-8") as f:
@@ -311,32 +311,42 @@ class TestHandleBash:
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
-            with patch("nah.hook._try_llm_script_veto", return_value=(
-                {"decision": "block", "reason": "Bash (LLM): suspicious script"},
-                {"llm_provider": "test"},
-            )):
-                result = hook.handle_bash({"command": "python safe.py"})
-        finally:
-            os.chdir(old_cwd)
-
-        assert result["decision"] == "ask"
-        assert "suspicious script" in result["reason"]
-
-    def test_lang_exec_veto_error_keeps_allow(self, project_root):
-        _set_llm_config()
-        script = os.path.join(project_root, "safe.py")
-        with open(script, "w", encoding="utf-8") as f:
-            f.write("print('hi')\n")
-
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            with patch("nah.hook._try_llm_script_veto", return_value=(None, {})):
+            with patch("nah.hook._try_llm_inline_lang_exec") as mock_review:
                 result = hook.handle_bash({"command": "python safe.py"})
         finally:
             os.chdir(old_cwd)
 
         assert result["decision"] == "allow"
+        mock_review.assert_not_called()
+
+    def test_inline_lang_exec_review_escalates_to_ask(self):
+        _set_llm_config()
+        with patch("nah.hook._try_llm_inline_lang_exec", return_value=(
+            {"decision": "uncertain", "reason": "Bash (LLM): suspicious inline"},
+            {"llm_provider": "test"},
+        )):
+            result = hook.handle_bash({"command": "python -c 'print(1)'"})
+
+        assert result["decision"] == "ask"
+        assert "suspicious inline" in result["reason"]
+
+    def test_inline_lang_exec_review_allow_allows(self):
+        _set_llm_config()
+        with patch("nah.hook._try_llm_inline_lang_exec", return_value=(
+            {"decision": "allow", "reason": "Bash (LLM): safe"},
+            {"llm_provider": "test"},
+        )):
+            result = hook.handle_bash({"command": "python -c 'print(1)'"})
+
+        assert result["decision"] == "allow"
+
+    def test_inline_lang_exec_review_error_keeps_ask(self):
+        _set_llm_config()
+        with patch("nah.hook._try_llm_inline_lang_exec", return_value=(None, {})):
+            result = hook.handle_bash({"command": "python -c 'print(1)'"})
+
+        assert result["decision"] == "ask"
+        assert result["_meta"]["inline_lang_exec_review"] == "unavailable"
 
 
 class TestMainUnifiedLlm:

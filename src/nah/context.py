@@ -689,26 +689,15 @@ def resolve_lang_exec_context(
     *,
     inline_code: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve lang_exec context by checking script path and contents.
+    """Resolve lang_exec context with path/boundary checks only.
 
-    For inline code (python -c) with extractable code string: scans content.
-    For inline code without extractable string: ask.
-    For script files: checks path sensitivity, reads file, inspects contents.
-    Content inspection runs even for trusted/in-project paths — being inside
-    the project is necessary but not sufficient for lang_exec.
+    File-backed scripts are trusted by location, not by body inspection.
+    Visible non-shell inline code asks here so the hook can optionally pass
+    the bounded payload to the LLM; opaque inline execution asks directly.
     """
     if not target_path:
         if inline_code:
-            from nah.content import scan_content, format_content_message
-            matches = scan_content(inline_code)
-            if matches:
-                worst = "ask"
-                for m in matches:
-                    if m.policy == "block":
-                        worst = "block"
-                        break
-                return worst, format_content_message("inline", matches)
-            return taxonomy.ALLOW, "lang_exec: inline clean"
+            return taxonomy.ASK, "lang_exec: inline execution requires LLM review"
         return taxonomy.ASK, "lang_exec: inline execution"
 
     resolved = paths.resolve_path(target_path)
@@ -724,38 +713,8 @@ def resolve_lang_exec_context(
     if not inside_project and not paths.is_trusted_path(resolved):
         return taxonomy.ASK, f"script outside project: {paths.friendly_path(resolved)}"
 
-    # Inside project or trusted — read and inspect contents
+    # Inside project or trusted path — allow by structural context only.
     if not os.path.isfile(resolved):
         return taxonomy.ASK, f"script not found: {paths.friendly_path(resolved)}"
 
-    # Note: the LLM layer (llm.py) reads the file independently for prompt
-    # enrichment. The dual read is intentional — this read is the authoritative
-    # deterministic gate; the LLM read is for prompt context. TOCTOU between
-    # the two reads is accepted as a known limitation.
-    content = _read_script_content(resolved)
-    if content is None:
-        return taxonomy.ASK, f"script not readable: {paths.friendly_path(resolved)}"
-
-    from nah.content import scan_content, format_content_message
-    matches = scan_content(content)
-    if matches:
-        worst = "ask"
-        for m in matches:
-            if m.policy == "block":
-                worst = "block"
-                break
-        reason = format_content_message("script", matches)
-        return worst, reason
-
-    return taxonomy.ALLOW, f"script clean: {paths.friendly_path(resolved)}"
-
-
-def _read_script_content(path: str, max_bytes: int = 65_536) -> str | None:
-    """Read script file for content inspection. Returns None on any error."""
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read(max_bytes)
-    except OSError:
-        # Read is best-effort; if it fails (race, permissions, disk),
-        # the caller falls through to ask — never silently allows.
-        return None
+    return taxonomy.ALLOW, f"script path allowed: {paths.friendly_path(resolved)}"

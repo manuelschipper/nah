@@ -6,7 +6,7 @@ import sys
 
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
-from nah.content import scan_content, format_content_message, is_credential_search, get_secret_patterns
+from nah.content import is_credential_search, get_secret_patterns
 from nah.messages import enrich_decision
 
 _transcript_path: str = ""  # set per-invocation by main()
@@ -108,8 +108,8 @@ def _write_auto_state(transcript_path: str, deny_count: int, disabled: bool) -> 
         sys.stderr.write(f"nah: auto-state write: {exc}\n")
 
 
-def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared handler for Write/Edit: path check + boundary check + content inspection."""
+def _check_write_target(tool_name: str, tool_input: dict) -> dict:
+    """Shared handler for Write/Edit: path and boundary checks."""
     file_path = tool_input.get("file_path", "")
     path_check = paths.check_path(tool_name, file_path)
     if path_check:
@@ -117,18 +117,6 @@ def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -
     boundary_check = paths.check_project_boundary(tool_name, file_path)
     if boundary_check:
         return boundary_check
-    content = tool_input.get(content_field, "")
-    matches = scan_content(content)
-    if matches:
-        decision = max(
-            (m.policy for m in matches),
-            key=lambda p: taxonomy.STRICTNESS.get(p, 2),
-        )
-        return {
-            "decision": decision,
-            "reason": format_content_message(tool_name, matches),
-            "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
-        }
     return {"decision": taxonomy.ALLOW}
 
 
@@ -179,24 +167,6 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
     except Exception as exc:
         sys.stderr.write(f"nah: LLM write error: {exc}\n")
         return None, {}
-
-
-def _scan_and_decide(tool_name: str, content: str) -> dict:
-    """Scan content and return deterministic decision dict."""
-    if not content:
-        return {"decision": taxonomy.ALLOW}
-    matches = scan_content(content)
-    if matches:
-        decision = max(
-            (m.policy for m in matches),
-            key=lambda p: taxonomy.STRICTNESS.get(p, 2),
-        )
-        return {
-            "decision": decision,
-            "reason": format_content_message(tool_name, matches),
-            "_meta": {"content_match": ", ".join(m.pattern_desc for m in matches)},
-        }
-    return {"decision": taxonomy.ALLOW}
 
 
 def _is_project_boundary_ask(tool_name: str, det_result: dict) -> bool:
@@ -284,8 +254,8 @@ def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -
 
 
 def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared Write/Edit handler: deterministic check + LLM write review."""
-    det_result = _check_write_content(tool_name, tool_input, content_field)
+    """Shared Write/Edit handler: structural check + LLM write review."""
+    det_result = _check_write_target(tool_name, tool_input)
     if det_result.get("decision") == taxonomy.BLOCK:
         return det_result
     return _llm_write_review_gate(tool_name, tool_input, det_result)
@@ -300,7 +270,7 @@ def handle_edit(tool_input: dict) -> dict:
 
 
 def handle_multiedit(tool_input: dict) -> dict:
-    """Guard MultiEdit: path + boundary + content check on each edit + LLM review."""
+    """Guard MultiEdit: path + boundary checks + LLM review."""
     file_path = tool_input.get("file_path", "")
     path_check = paths.check_path("MultiEdit", file_path)
     if path_check:
@@ -310,16 +280,12 @@ def handle_multiedit(tool_input: dict) -> dict:
     boundary_check = paths.check_project_boundary("MultiEdit", file_path)
     if boundary_check:
         return _llm_write_review_gate("MultiEdit", tool_input, boundary_check)
-    edits = tool_input.get("edits", [])
-    combined = "\n".join(str(e.get("new_string") or "") for e in edits if isinstance(e, dict))
-    det_result = _scan_and_decide("MultiEdit", combined)
-    if det_result.get("decision") == taxonomy.BLOCK:
-        return det_result
+    det_result = {"decision": taxonomy.ALLOW}
     return _llm_write_review_gate("MultiEdit", tool_input, det_result)
 
 
 def handle_notebookedit(tool_input: dict) -> dict:
-    """Guard NotebookEdit: path + boundary + content check on cell source + LLM review."""
+    """Guard NotebookEdit: path + boundary checks + LLM review."""
     file_path = tool_input.get("notebook_path", "")
     path_check = paths.check_path("NotebookEdit", file_path)
     if path_check:
@@ -329,11 +295,7 @@ def handle_notebookedit(tool_input: dict) -> dict:
     boundary_check = paths.check_project_boundary("NotebookEdit", file_path)
     if boundary_check:
         return _llm_write_review_gate("NotebookEdit", tool_input, boundary_check)
-    action = tool_input.get("action", "")
-    content = "" if action == "delete" else str(tool_input.get("new_source") or "")
-    det_result = _scan_and_decide("NotebookEdit", content)
-    if det_result.get("decision") == taxonomy.BLOCK:
-        return det_result
+    det_result = {"decision": taxonomy.ALLOW}
     return _llm_write_review_gate("NotebookEdit", tool_input, det_result)
 
 
@@ -434,19 +396,25 @@ def _is_default_safe_read_exec_composition(
         return False
 
     for stage in stages:
-        if stage.get("decision") != taxonomy.ALLOW:
+        if not _stage_allowed_for_default_read_exec(stage):
             return False
         if _stage_has_forbidden_default_composition_signal(stage):
             return False
 
     for left, right in zip(stages, stages[1:]):
-        if left.get("action_type") != taxonomy.FILESYSTEM_READ:
-            continue
-        if right.get("action_type") != taxonomy.LANG_EXEC:
+        if not _stage_is_filesystem_read(left):
             continue
         if _stage_has_visible_inline_exec(right):
             return True
     return False
+
+
+def _stage_allowed_for_default_read_exec(stage: dict) -> bool:
+    if stage.get("decision") == taxonomy.ALLOW:
+        return True
+    if stage.get("decision") != taxonomy.ASK:
+        return False
+    return _stage_inline_exec_review_state(stage) == "visible"
 
 
 def _stage_has_forbidden_default_composition_signal(stage: dict) -> bool:
@@ -474,16 +442,100 @@ def _stage_has_forbidden_default_composition_signal(stage: dict) -> bool:
     )
 
 
-def _stage_has_visible_inline_exec(stage: dict) -> bool:
-    tokens = stage.get("tokens", [])
+def _stage_value(stage, key: str, default=None):
+    """Read a StageResult/dataclass or serialized stage dict consistently."""
+    if isinstance(stage, dict):
+        return stage.get(key, default)
+    return getattr(stage, key, default)
+
+
+def _stage_tokens(stage) -> list:
+    tokens = _stage_value(stage, "tokens", [])
     if not isinstance(tokens, list) or len(tokens) < 2:
-        return False
-    cmd = os.path.basename(str(tokens[0])).lower()
+        return []
+    return tokens
+
+
+def _stage_action_type(stage) -> str:
+    return str(_stage_value(stage, "action_type", "") or "")
+
+
+def _stage_decision(stage) -> str:
+    return str(_stage_value(stage, "decision", "") or "")
+
+
+def _stage_reason(stage) -> str:
+    return str(_stage_value(stage, "reason", "") or "")
+
+
+def _stage_inline_code(stage) -> str:
+    return str(_stage_value(stage, "inline_code", "") or "")
+
+
+def _stage_is_filesystem_read(stage) -> bool:
+    return _stage_action_type(stage) == taxonomy.FILESYSTEM_READ
+
+
+def _stage_has_visible_inline_exec(stage) -> bool:
+    return (
+        _stage_inline_exec_review_state(stage) == "visible"
+        or _stage_token_inline_exec_visibility(stage) == "visible"
+    )
+
+
+def _stage_inline_exec_review_state(stage) -> str:
+    """Return visible/opaque when a non-shell inline execution needs review."""
+    marker = _stage_value(stage, "inline_exec", None)
+    if isinstance(marker, dict) and marker.get("review") == "required":
+        return "visible" if marker.get("visible") else "opaque"
+
+    if _stage_action_type(stage) != taxonomy.LANG_EXEC:
+        return ""
+    if _stage_decision(stage) != taxonomy.ASK:
+        return ""
+    if _is_shell_inline_stage(stage):
+        return ""
+    if _stage_inline_code(stage):
+        return "visible"
+
+    visibility = _stage_token_inline_exec_visibility(stage)
+    if visibility:
+        return visibility
+
+    if _stage_reason(stage).startswith("lang_exec: inline execution"):
+        return "opaque"
+    return ""
+
+
+def _stage_token_inline_exec_visibility(stage) -> str:
+    """Infer whether inline exec payload is visible from stage tokens."""
+    tokens = _stage_tokens(stage)
+    if len(tokens) < 2:
+        return ""
+    cmd = _stage_command_name(stage)
+
+    if cmd in {"pwsh", "powershell"}:
+        for i, token in enumerate(tokens[1:], 1):
+            flag = str(token).lower()
+            if flag == "-encodedcommand":
+                return "opaque"
+            if flag in {"-c", "-command"}:
+                return "visible" if i + 1 < len(tokens) else "opaque"
+        return ""
+
+    if cmd == "cmd":
+        flag = str(tokens[1]).lower()
+        if flag in {"/c", "/k"}:
+            return "visible" if len(tokens) > 2 else "opaque"
+        return ""
+
     inline_flags = _INLINE_EXEC_FLAGS.get(cmd)
     if not inline_flags:
-        return False
-    lowered = [str(token).lower() for token in tokens[1:]]
-    return any(flag in lowered for flag in inline_flags)
+        return ""
+    for i, token in enumerate(tokens[1:], 1):
+        if str(token).lower() in inline_flags:
+            return "visible" if i + 1 < len(tokens) else "opaque"
+    return ""
 
 
 def _expand_llm_eligible(eligible) -> tuple[bool, set[str]]:
@@ -575,21 +627,36 @@ def _build_llm_meta(llm_call, cfg) -> dict:
     return llm_meta
 
 
-def _try_llm_script_veto(classify_result) -> tuple[dict | None, dict]:
-    """Attempt content veto for clean lang_exec commands."""
+def _try_llm_inline_lang_exec(command: str, stage) -> tuple[dict | None, dict]:
+    """Attempt LLM review for visible non-shell inline lang_exec code."""
     try:
         from nah.config import get_config
         cfg = get_config()
         if cfg.llm_mode != "on" or not cfg.llm:
             return None, {}
-        from nah.llm import _try_llm_script_veto as run_script_veto
+        inline_code = str(getattr(stage, "inline_code", "") or "")
+        if not inline_code:
+            return None, {}
+        from nah.llm import try_llm_inline_lang_exec
 
-        llm_call = run_script_veto(classify_result, cfg.llm, _transcript_path)
+        llm_call = try_llm_inline_lang_exec(
+            command,
+            inline_code,
+            cfg.llm,
+            _transcript_path,
+            stages=[{
+                "tokens": stage.tokens,
+                "action_type": stage.action_type,
+                "decision": stage.decision,
+                "policy": stage.default_policy,
+                "reason": stage.reason,
+            }],
+        )
         return llm_call.decision, _build_llm_meta(llm_call, cfg)
     except ImportError:
         return None, {}
     except Exception as exc:
-        sys.stderr.write(f"nah: LLM script veto error: {exc}\n")
+        sys.stderr.write(f"nah: LLM inline lang_exec error: {exc}\n")
         return None, {}
 
 
@@ -608,6 +675,12 @@ def _classify_meta(result) -> dict:
         }
         if sr.redirect_target:
             stage["redirect_target"] = sr.redirect_target
+        inline_state = _stage_inline_exec_review_state(sr)
+        if inline_state:
+            stage["inline_exec"] = {
+                "review": "required",
+                "visible": inline_state == "visible",
+            }
         meta["stages"].append(stage)
     if result.composition_rule:
         meta["composition_rule"] = result.composition_rule
@@ -615,7 +688,7 @@ def _classify_meta(result) -> dict:
 
 
 def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
-    """Full Bash handler: structural classification + content veto."""
+    """Full Bash handler: structural classification + inline LLM review."""
     command = tool_input.get("command", "")
     if not command:
         return {"decision": taxonomy.ALLOW}
@@ -627,40 +700,53 @@ def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
         return {"decision": taxonomy.BLOCK, "reason": _format_bash_reason(result), "_meta": meta}
 
     if result.final_decision == taxonomy.ASK:
+        inline_stage = _inline_lang_exec_review_stage(result)
+        if inline_stage is not None:
+            meta["inline_lang_exec_review"] = "required"
+            if _stage_inline_exec_review_state(inline_stage) != "visible":
+                meta["inline_lang_exec_review"] = "opaque"
+                return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
+            if llm_review:
+                llm_decision, llm_meta = _try_llm_inline_lang_exec(command, inline_stage)
+                meta.update(llm_meta)
+                if llm_decision is not None and llm_decision.get("decision") == taxonomy.ALLOW:
+                    meta["inline_lang_exec_review"] = "allow"
+                    return {"decision": taxonomy.ALLOW, "_meta": meta}
+                if llm_decision is not None:
+                    meta["inline_lang_exec_review"] = "ask"
+                    meta["llm_veto"] = True
+                    return {
+                        "decision": taxonomy.ASK,
+                        "reason": llm_decision.get("reason", "Bash (LLM): human review needed"),
+                        "_meta": meta,
+                    }
+            meta["inline_lang_exec_review"] = "unavailable"
         return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
-
-    # LLM veto gate for lang_exec scripts (FD-079): even when the deterministic
-    # layer allows, the LLM inspects script content and can escalate to ask.
-    if llm_review and _has_lang_exec_script(result):
-        llm_decision, llm_meta = _try_llm_script_veto(result)
-        meta.update(llm_meta)
-        if llm_decision is not None:
-            llm_d = llm_decision.get("decision")
-            if llm_d != taxonomy.ALLOW:
-                meta["llm_veto"] = True
-                return {
-                    "decision": taxonomy.ASK,
-                    "reason": llm_decision.get("reason", "Bash (LLM): human review needed"),
-                    "_meta": meta,
-                }
-            # LLM says allow — keep structural allow
 
     return {"decision": taxonomy.ALLOW, "_meta": meta}
 
 
-def _has_lang_exec_script(result) -> bool:
-    """Check if result has a lang_exec stage where content was inspected.
-
-    Returns True when the context resolver successfully scanned content —
-    either a script file ('script clean:') or inline code ('inline clean').
-    Returns False for nonexistent files and outside-project scripts.
-    """
+def _inline_lang_exec_review_stage(result):
+    """Return the ASK lang_exec stage that needs inline-code handling."""
     for sr in result.stages:
-        if sr.action_type == taxonomy.LANG_EXEC and (
-            sr.reason.startswith("script clean:") or sr.reason == "lang_exec: inline clean"
-        ):
-            return True
-    return False
+        if _stage_inline_exec_review_state(sr):
+            return sr
+    return None
+
+
+def _stage_command_name(stage) -> str:
+    tokens = _stage_value(stage, "tokens", []) or []
+    if not tokens:
+        return ""
+    try:
+        return taxonomy._normalize_command_name(str(tokens[0]))
+    except AttributeError:
+        name = os.path.basename(str(tokens[0])).lower()
+        return name[:-4] if name.endswith(".exe") else name
+
+
+def _is_shell_inline_stage(stage) -> bool:
+    return _stage_command_name(stage) in {"bash", "sh", "dash", "zsh"}
 
 
 HANDLERS = {
@@ -1067,7 +1153,12 @@ def main():
         d = decision.get("decision", taxonomy.ALLOW)
         meta = decision.setdefault("_meta", {})
 
-        if d == taxonomy.ASK and canonical not in _WRITE_LIKE_TOOLS and not meta.get("llm_veto"):
+        if (
+            d == taxonomy.ASK
+            and canonical not in _WRITE_LIKE_TOOLS
+            and not meta.get("llm_veto")
+            and not meta.get("inline_lang_exec_review")
+        ):
             try:
                 from nah.config import get_config
                 from nah.llm import try_llm_unified

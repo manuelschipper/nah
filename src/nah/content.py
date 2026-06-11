@@ -1,4 +1,4 @@
-"""Content inspection — regex-scan Write/Edit content for dangerous patterns."""
+"""Content pattern helpers for narrow deterministic guard surfaces."""
 
 import re
 import sys

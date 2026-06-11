@@ -20,10 +20,11 @@ from nah.llm import (
     _format_tool_use_summary,
     _format_transcript_context,
     _parse_response,
+    _read_recent_user_intent,
     _read_transcript_tail,
     _read_transcript_tail_bytes,
     _redact_secrets,
-    _VETO_SYSTEM_TEMPLATE,
+    _INLINE_LANG_EXEC_SYSTEM_TEMPLATE,
     try_llm_terminal_guard,
     try_llm_unified,
     LLMCallResult,
@@ -1101,6 +1102,21 @@ class TestReadTranscriptTail:
         result = _read_transcript_tail(str(f), 4000)
         assert "[Bash: rm -rf dist/]" in result
 
+    def test_recent_user_intent_excludes_assistant_and_tool_summaries(self, tmp_path):
+        f = tmp_path / "t.jsonl"
+        f.write_text(_jsonl(
+            _user_msg("please inspect the build"),
+            _assistant_msg("I will inspect it", [{"name": "Bash", "input": {"command": "printf hello"}}]),
+            _user_msg([{"type": "tool_result", "content": "tool output"}]),
+            _user_msg("then summarize it"),
+        ))
+        result = _read_recent_user_intent(str(f), 4000)
+        assert "User: please inspect the build" in result
+        assert "User: then summarize it" in result
+        assert "Assistant:" not in result
+        assert "[Bash:" not in result
+        assert "tool output" not in result
+
     def test_skips_progress(self, tmp_path):
         f = tmp_path / "t.jsonl"
         f.write_text(_jsonl(_progress_msg(), _user_msg("hello"), _progress_msg()))
@@ -1345,21 +1361,21 @@ class TestTryLlmWithTranscript:
 
 class TestVetoSystemTemplate:
     def test_contains_rules(self):
-        assert "allow" in _VETO_SYSTEM_TEMPLATE
-        assert "uncertain" in _VETO_SYSTEM_TEMPLATE
+        assert "allow" in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
+        assert "uncertain" in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
 
     def test_no_block_option(self):
         """Veto template should not offer block — LLM can only allow or uncertain."""
-        assert "<allow|uncertain>" in _VETO_SYSTEM_TEMPLATE
-        assert "<allow|block" not in _VETO_SYSTEM_TEMPLATE
+        assert "<allow|uncertain>" in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
+        assert "<allow|block" not in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
 
     def test_format_instruction_includes_short_and_long_reasoning(self):
         """JSON format spec should request prompt-safe and observability fields."""
-        assert '"reasoning"' in _VETO_SYSTEM_TEMPLATE
-        assert '"reasoning_long"' in _VETO_SYSTEM_TEMPLATE
+        assert '"reasoning"' in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
+        assert '"reasoning_long"' in _INLINE_LANG_EXEC_SYSTEM_TEMPLATE
 
     def test_uses_canonical_risk_categories(self):
-        _assert_risk_labels_present(_VETO_SYSTEM_TEMPLATE)
+        _assert_risk_labels_present(_INLINE_LANG_EXEC_SYSTEM_TEMPLATE)
 
 
 # -- Generic prompt tests --

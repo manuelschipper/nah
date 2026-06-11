@@ -830,11 +830,11 @@ class TestCmdTest:
         assert payload["human_reason"].startswith("this runs a script outside the current project:")
         assert "this writes outside" not in payload["human_reason"]
 
-    def test_bash_clean_inline_script_veto_is_shown(self, capsys, monkeypatch):
+    def test_bash_inline_review_allow_is_shown(self, capsys, monkeypatch):
         from nah.cli import cmd_test
 
-        def fake_script_veto(result):
-            assert result.stages[0].reason == "lang_exec: inline clean"
+        def fake_inline_review(_command, stage):
+            assert stage.reason == "lang_exec: inline execution requires LLM review"
             return {"decision": "allow"}, {
                 "llm_provider": "fake",
                 "llm_model": "test-model",
@@ -845,7 +845,7 @@ class TestCmdTest:
                 "llm_cascade": [{"provider": "fake", "status": "success", "latency_ms": 12}],
             }
 
-        monkeypatch.setattr("nah.hook._try_llm_script_veto", fake_script_veto)
+        monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fake_inline_review)
         args = argparse.Namespace(
             tool=None,
             path=None,
@@ -865,10 +865,10 @@ class TestCmdTest:
         assert "LLM decision: ALLOW" in out
         assert "LLM reason:   The inline script is a print-only operation." in out
 
-    def test_bash_clean_inline_script_veto_json_can_raise_ask(self, capsys, monkeypatch):
+    def test_bash_inline_review_json_can_raise_ask(self, capsys, monkeypatch):
         from nah.cli import cmd_test
 
-        def fake_script_veto(_result):
+        def fake_inline_review(_command, _stage):
             return {"decision": "uncertain", "reason": "Bash (LLM): human review needed"}, {
                 "llm_provider": "fake",
                 "llm_model": "test-model",
@@ -879,7 +879,7 @@ class TestCmdTest:
                 "llm_cascade": [{"provider": "fake", "status": "uncertain", "latency_ms": 12}],
             }
 
-        monkeypatch.setattr("nah.hook._try_llm_script_veto", fake_script_veto)
+        monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fake_inline_review)
         args = argparse.Namespace(
             tool=None,
             path=None,
@@ -947,9 +947,8 @@ class TestCmdTest:
         )
         cmd_test(args)
         out = capsys.readouterr().out
-        assert "ASK" in out
-        assert "AWS access key" in out
-        assert "User message: nah paused: this includes content that looks like a secret." in out
+        assert "ALLOW" in out
+        assert "AWS access key" not in out
 
     def test_write_safe_content(self, tmp_path, capsys):
         from nah.cli import cmd_test
@@ -971,8 +970,8 @@ class TestCmdTest:
         )
         cmd_test(args)
         out = capsys.readouterr().out
-        assert "ASK" in out
-        assert "hardcoded API key" in out
+        assert "ALLOW" in out
+        assert "hardcoded API key" not in out
 
     def test_grep_credential_pattern_outside_project(self, capsys):
         from nah.cli import cmd_test

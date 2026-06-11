@@ -4278,6 +4278,8 @@ def _apply_policy(
         sr.decision = sr.default_policy
         sr.reason = f"{sr.action_type} → {sr.default_policy}"
     elif sr.default_policy == taxonomy.CONTEXT:
+        if sr.action_type == taxonomy.LANG_EXEC and not sr.inline_code:
+            sr.inline_code = _extract_inline_code(sr.tokens) or ""
         sr.decision, sr.reason = _resolve_context(
             sr.action_type,
             sr.tokens,

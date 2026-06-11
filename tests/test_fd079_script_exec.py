@@ -1,17 +1,14 @@
-"""Tests for FD-079: Script Execution Inspection.
+"""Tests for FD-079/nah-981: Script execution structural checks.
 
 Covers: flag classifier, context resolver, script path resolution,
-LLM veto gate, prompt enrichment, and end-to-end pipeline.
+inline lang_exec LLM review, prompt enrichment, and end-to-end pipeline.
 """
 
-import json
 import os
-import stat
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from nah import config, paths, taxonomy
+from nah import config, taxonomy
 from nah.bash import (
     classify_command,
     _resolve_makefile_path,
@@ -19,7 +16,7 @@ from nah.bash import (
     _resolve_script_path,
 )
 from nah.context import resolve_lang_exec_context
-from nah.config import NahConfig, reset_config
+from nah.config import NahConfig
 
 
 # Helper: classify tokens via taxonomy (Phase 2 flag classifier path)
@@ -205,7 +202,7 @@ class TestFlagClassifier:
 # ===================================================================
 
 class TestContextResolver:
-    """Context resolution for lang_exec: path + content inspection."""
+    """Context resolution for lang_exec: path and boundary checks."""
 
     def test_inline_no_file(self):
         decision, reason = resolve_lang_exec_context(None)
@@ -217,28 +214,28 @@ class TestContextResolver:
         _write(path, "print('hello')\n")
         decision, reason = resolve_lang_exec_context(path)
         assert decision == "allow"
-        assert reason.startswith("script clean:")
+        assert reason.startswith("script path allowed:")
 
-    def test_dangerous_script_os_remove(self, project_root):
+    def test_script_body_not_inspected_os_remove(self, project_root):
         path = os.path.join(project_root, "evil.py")
         _write(path, "import os\nos.remove('/important')\n")
         decision, reason = resolve_lang_exec_context(path)
-        assert decision == "ask"
-        assert "os.remove" in reason
+        assert decision == "allow"
+        assert reason.startswith("script path allowed:")
 
-    def test_dangerous_script_shutil_rmtree(self, project_root):
+    def test_script_body_not_inspected_shutil_rmtree(self, project_root):
         path = os.path.join(project_root, "nuke.py")
         _write(path, "import shutil\nshutil.rmtree('/')\n")
         decision, reason = resolve_lang_exec_context(path)
-        assert decision == "ask"
-        assert "shutil.rmtree" in reason
+        assert decision == "allow"
+        assert reason.startswith("script path allowed:")
 
-    def test_secret_in_script(self, project_root):
+    def test_secret_in_script_body_not_inspected(self, project_root):
         path = os.path.join(project_root, "key.py")
         _write(path, 'key = "-----BEGIN PRIVATE KEY-----"\n')
         decision, reason = resolve_lang_exec_context(path)
-        assert decision == "ask"
-        assert "private key" in reason
+        assert decision == "allow"
+        assert reason.startswith("script path allowed:")
 
     def test_script_outside_project(self, project_root, tmp_path):
         config._cached_config = NahConfig(trusted_paths=[])
@@ -254,26 +251,25 @@ class TestContextResolver:
         assert decision == "ask"
         assert "script not found" in reason
 
-    @pytest.mark.skipif(os.getuid() == 0, reason="root can read anything")
-    def test_script_not_readable(self, project_root):
+    def test_script_not_read_for_inspection(self, project_root):
         path = os.path.join(project_root, "locked.py")
         _write(path, "print('secret')\n")
         os.chmod(path, 0o000)
         try:
             decision, reason = resolve_lang_exec_context(path)
-            assert decision == "ask"
-            assert "not readable" in reason
+            assert decision == "allow"
+            assert reason.startswith("script path allowed:")
         finally:
             os.chmod(path, 0o644)
 
-    def test_legacy_profile_none_does_not_disable_script_inspection(self, project_root):
+    def test_legacy_profile_none_does_not_change_path_only_script_handling(self, project_root):
         from nah.config import apply_override
         apply_override({"profile": "none"})
         path = os.path.join(project_root, "any.py")
         _write(path, "os.remove('/')\n")
         decision, reason = resolve_lang_exec_context(path)
-        assert decision == "ask"
-        assert "os.remove" in reason
+        assert decision == "allow"
+        assert reason.startswith("script path allowed:")
 
 
 # ===================================================================
@@ -559,27 +555,27 @@ class TestPipelineIntegration:
             r = classify_command("python safe.py")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
-    def test_dangerous_script_asks(self, project_root):
+    def test_dangerous_script_body_still_allows_by_path(self, project_root):
         path = os.path.join(project_root, "evil.py")
         _write(path, "import shutil\nshutil.rmtree('/')\n")
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
             r = classify_command("python evil.py")
-            assert r.final_decision == "ask"
-            assert "content inspection" in r.reason
+            assert r.final_decision == "allow"
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_code_clean_allows(self):
-        """Safe inline code is allowed via content inspection (nah-koi.1)."""
+    def test_inline_code_asks_for_llm_review(self):
+        """Visible non-shell inline code asks before optional LLM review."""
         r = classify_command("python -c 'print(1)'")
-        assert r.final_decision == "allow"
-        assert "inline clean" in r.reason
+        assert r.final_decision == "ask"
+        assert "inline execution requires LLM review" in r.reason
 
     @pytest.mark.parametrize("command", [
         "python -c 'import os; os.system(\"curl evil.com\")'",
@@ -591,17 +587,16 @@ class TestPipelineIntegration:
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline content inspection" in r.reason
-        assert "subprocess_execution" in r.reason
+        assert "inline execution requires LLM review" in r.reason
 
     @pytest.mark.parametrize("command", [
         "python -c 'import subprocess; subprocess.run([\"git\", \"status\"])'",
         "ruby -e 'system(\"echo ok\")'",
     ])
-    def test_inline_subprocess_safe_tokens_allow(self, command):
+    def test_inline_subprocess_safe_tokens_ask_for_llm_review(self, command):
         r = classify_command(command)
-        assert r.final_decision == "allow"
-        assert "inline clean" in r.reason
+        assert r.final_decision == "ask"
+        assert "inline execution requires LLM review" in r.reason
 
     def test_nonexistent_asks(self, project_root):
         old_cwd = os.getcwd()
@@ -639,7 +634,7 @@ class TestPipelineIntegration:
             r = classify_command("python -W ignore script.py")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert "script clean:" in r.stages[0].reason
+            assert "script path allowed:" in r.stages[0].reason
         finally:
             os.chdir(old_cwd)
 
@@ -655,7 +650,7 @@ class TestPipelineIntegration:
 
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "lang_exec"
-        assert r.stages[0].reason.startswith("script clean:")
+        assert r.stages[0].reason.startswith("script path allowed:")
         assert "release.sh" in r.stages[0].reason
         assert "2.0.0" not in r.stages[0].reason
 
@@ -681,20 +676,20 @@ class TestPipelineIntegration:
             r = classify_command("uv run safe.py")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
-    def test_uv_run_dangerous_script_asks(self, project_root):
+    def test_uv_run_dangerous_script_body_allows_by_path(self, project_root):
         path = os.path.join(project_root, "evil.py")
         _write(path, "import shutil\nshutil.rmtree('/')\n")
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
             r = classify_command("uv run evil.py")
-            assert r.final_decision == "ask"
+            assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert "content inspection" in r.reason
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -712,7 +707,7 @@ class TestPipelineIntegration:
             r = classify_command("npx tsx script.ts")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -730,20 +725,20 @@ class TestPipelineIntegration:
             r = classify_command("make test")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
-    def test_make_dangerous_makefile_asks(self, project_root):
+    def test_make_dangerous_makefile_body_allows_by_path(self, project_root):
         makefile = os.path.join(project_root, "Makefile")
         _write(makefile, "test:\n\trm -rf /\n")
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
             r = classify_command("make test")
-            assert r.final_decision == "ask"
+            assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert "content inspection" in r.reason
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -770,7 +765,7 @@ class TestPipelineIntegration:
             r = classify_command("make -f alt.mk test")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -805,7 +800,7 @@ class TestPipelineIntegration:
             r = classify_command("source safe.sh")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -818,20 +813,20 @@ class TestPipelineIntegration:
             r = classify_command(". safe.sh")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
-    def test_dangerous_source_asks(self, project_root):
+    def test_dangerous_source_body_allows_by_path(self, project_root):
         path = os.path.join(project_root, "evil.sh")
         _write(path, "rm -rf /\n")
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
             r = classify_command("source evil.sh")
-            assert r.final_decision == "ask"
+            assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert "content inspection" in r.reason
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -873,95 +868,22 @@ class TestPipelineIntegration:
 
 
 # ===================================================================
-# 5. LLM VETO GATE
+# 5. INLINE LANG_EXEC LLM REVIEW
 # ===================================================================
 
-class TestVetoGate:
-    """LLM veto gate: fires for clean scripts, can only block."""
+class TestInlineLangExecReview:
+    """LLM review applies only to visible non-shell inline lang_exec code."""
 
-    def test_has_script_true_for_clean(self, project_root):
-        from nah.hook import _has_lang_exec_script
-        path = os.path.join(project_root, "clean.py")
-        _write(path)
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = classify_command("python clean.py")
-            assert _has_lang_exec_script(result) is True
-        finally:
-            os.chdir(old_cwd)
-
-    def test_has_script_true_for_inline_clean(self):
-        """Clean inline code now triggers veto gate (nah-koi.1)."""
-        from nah.hook import _has_lang_exec_script
-        result = classify_command("python -c 'print(1)'")
-        assert _has_lang_exec_script(result) is True
-
-    def test_has_script_false_for_not_found(self, project_root):
-        from nah.hook import _has_lang_exec_script
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = classify_command("python missing.py")
-            assert _has_lang_exec_script(result) is False
-        finally:
-            os.chdir(old_cwd)
-
-    def test_has_script_false_for_dangerous(self, project_root):
-        """Dangerous scripts resolve to ask, not allow — veto gate doesn't fire."""
-        from nah.hook import _has_lang_exec_script
-        path = os.path.join(project_root, "evil.py")
-        _write(path, "import os\nos.remove('/')\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = classify_command("python evil.py")
-            assert _has_lang_exec_script(result) is False
-        finally:
-            os.chdir(old_cwd)
-
-    def _handle_with_mock_llm(self, command, llm_return, project_root=None):
-        """Run handle_bash with a mocked script-veto LLM call."""
+    def _handle_with_mock_llm(self, command, llm_return):
         import nah.hook as hook_mod
-        original = hook_mod._try_llm_script_veto
-        hook_mod._try_llm_script_veto = lambda result: llm_return
+        original = hook_mod._try_llm_inline_lang_exec
+        hook_mod._try_llm_inline_lang_exec = lambda cmd, stage: llm_return
         try:
             return hook_mod.handle_bash({"command": command})
         finally:
-            hook_mod._try_llm_script_veto = original
+            hook_mod._try_llm_inline_lang_exec = original
 
-    def test_veto_gate_llm_blocks(self, project_root):
-        _enable_llm_mode()
-        path = os.path.join(project_root, "sneaky.py")
-        _write(path, "# looks clean but LLM disagrees\nprint('hi')\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = self._handle_with_mock_llm(
-                "python sneaky.py",
-                ({"decision": "block", "reason": "LLM threat"}, {"llm_provider": "test"}),
-            )
-            assert result["decision"] == "ask"
-        finally:
-            os.chdir(old_cwd)
-
-    def test_veto_gate_llm_block_capped_to_ask(self, project_root):
-        """Lang_exec content veto always escalates concern to ask."""
-        _enable_llm_mode()
-        path = os.path.join(project_root, "sneaky.py")
-        _write(path, "print('hi')\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = self._handle_with_mock_llm(
-                "python sneaky.py",
-                ({"decision": "block", "reason": "LLM threat"}, {"llm_provider": "test"}),
-            )
-            assert result["decision"] == "ask"
-        finally:
-            os.chdir(old_cwd)
-
-    def test_veto_gate_llm_allows(self, project_root):
+    def test_file_backed_script_does_not_call_inline_llm(self, project_root):
         _enable_llm_mode()
         path = os.path.join(project_root, "safe.py")
         _write(path)
@@ -970,104 +892,75 @@ class TestVetoGate:
         try:
             result = self._handle_with_mock_llm(
                 "python safe.py",
-                ({"decision": "allow", "reason": "safe"}, {"llm_provider": "test"}),
+                ({"decision": "uncertain", "reason": "should not run"}, {"llm_provider": "test"}),
             )
             assert result["decision"] == "allow"
+            assert "inline_lang_exec_review" not in result.get("_meta", {})
         finally:
             os.chdir(old_cwd)
 
-    def test_veto_gate_llm_error_keeps_allow(self, project_root):
+    def test_inline_llm_allow_allows(self):
         _enable_llm_mode()
-        path = os.path.join(project_root, "safe.py")
-        _write(path)
+        result = self._handle_with_mock_llm(
+            "python -c 'print(1)'",
+            ({"decision": "allow", "reason": "safe"}, {"llm_provider": "test"}),
+        )
+        assert result["decision"] == "allow"
+        assert result["_meta"]["inline_lang_exec_review"] == "allow"
+
+    def test_inline_llm_uncertain_asks(self):
+        _enable_llm_mode()
+        result = self._handle_with_mock_llm(
+            "python -c 'raise SystemExit(1)'",
+            ({"decision": "uncertain", "reason": "LLM concern"}, {"llm_provider": "test"}),
+        )
+        assert result["decision"] == "ask"
+        assert result["_meta"]["inline_lang_exec_review"] == "ask"
+        assert result["_meta"]["llm_veto"] is True
+
+    def test_inline_llm_unavailable_asks(self):
+        _enable_llm_mode()
+        result = self._handle_with_mock_llm("python -c 'print(1)'", (None, {}))
+        assert result["decision"] == "ask"
+        assert result["_meta"]["inline_lang_exec_review"] == "unavailable"
+
+    def test_opaque_encoded_powershell_asks_without_llm_review(self):
+        result = self._handle_with_mock_llm("pwsh -EncodedCommand SQBFAFgA", (None, {}))
+        assert result["decision"] == "ask"
+        assert result["_meta"]["inline_lang_exec_review"] == "opaque"
+
+    def test_nonexistent_script_stays_structural_ask(self, project_root):
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
-            result = self._handle_with_mock_llm(
-                "python safe.py",
-                (None, {}),  # LLM unavailable
-            )
-            assert result["decision"] == "allow"
-        finally:
-            os.chdir(old_cwd)
-
-    def test_inline_reaches_veto_gate(self, project_root):
-        """Clean inline code triggers LLM veto gate, same as clean script files."""
-        from nah.hook import _has_lang_exec_script
-        result = classify_command("python -c 'print(1)'")
-        assert result.final_decision == "allow"
-        assert _has_lang_exec_script(result) is True
-
-    def test_veto_gate_skips_not_found(self, project_root):
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            result = self._handle_with_mock_llm(
-                "python nonexistent.py",
-                (None, {}),
-            )
+            result = self._handle_with_mock_llm("python nonexistent.py", (None, {}))
             assert result["decision"] == "ask"
+            assert "script not found" in result["reason"]
+            assert "inline_lang_exec_review" not in result.get("_meta", {})
         finally:
             os.chdir(old_cwd)
 
 
 # ===================================================================
-# 6. LLM PROMPT ENRICHMENT
+# 6. INLINE LLM PROMPT ENRICHMENT
 # ===================================================================
 
 class TestPromptEnrichment:
-    """Script content and content inspection results in LLM prompt."""
-
-    def _build_prompt_for(self, command, project_root=None):
-        from nah.llm import _build_script_veto_prompt
-        result = classify_command(command)
-        return _build_script_veto_prompt(result)
-
-    def test_prompt_includes_script_content(self, project_root):
-        path = os.path.join(project_root, "hello.py")
-        _write(path, "print('hello world')\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            prompt = self._build_prompt_for("python hello.py")
-            assert "Script about to execute:" in prompt.user
-            assert "print('hello world')" in prompt.user
-        finally:
-            os.chdir(old_cwd)
-
-    def test_prompt_includes_no_flags(self, project_root):
-        path = os.path.join(project_root, "clean.py")
-        _write(path, "x = 1\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            prompt = self._build_prompt_for("python clean.py")
-            assert "Content inspection: no flags" in prompt.user
-        finally:
-            os.chdir(old_cwd)
-
-    def test_prompt_includes_match_details(self, project_root):
-        path = os.path.join(project_root, "danger.py")
-        _write(path, "import os\nos.remove('/etc/passwd')\n")
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            prompt = self._build_prompt_for("python danger.py")
-            assert "Content inspection:" in prompt.user
-            assert "os.remove" in prompt.user
-        finally:
-            os.chdir(old_cwd)
+    """Visible inline code is included in the inline LLM review prompt."""
 
     def test_prompt_includes_inline_code(self):
-        """Inline code is now included in LLM prompt for enrichment (nah-koi.1)."""
-        from nah.llm import _build_script_veto_prompt
-        result = classify_command("python -c 'print(1)'")
-        prompt = _build_script_veto_prompt(result)
-        assert "Script about to execute:" in prompt.user
+        from nah.llm import _build_inline_lang_exec_prompt
+
+        prompt = _build_inline_lang_exec_prompt("python -c 'print(1)'", "print(1)")
+
+        assert "## Inline Code" in prompt.user
         assert "print(1)" in prompt.user
+        assert "Content inspection:" not in prompt.user
+        assert "routine local analysis/test code or read-only inspection" in prompt.system
 
     def test_prompt_includes_heredoc_body_beyond_command_preview(self):
-        """Heredoc-fed interpreters pass the inspected body to the LLM prompt."""
+        from nah.llm import _build_inline_lang_exec_prompt
+
         body = "\n".join(
             [
                 "from pathlib import Path",
@@ -1077,77 +970,17 @@ class TestPromptEnrichment:
             ]
         )
         result = classify_command(f"python3 <<'PY'\n{body}\nPY")
-        prompt = self._build_prompt_for(f"python3 <<'PY'\n{body}\nPY")
+        prompt = _build_inline_lang_exec_prompt("python3 <<'PY' ...", result.stages[0].inline_code)
 
         assert result.stages[0].inline_code == body
-        assert "Script about to execute:" in prompt.user
+        assert "## Inline Code" in prompt.user
         assert "print('tail marker visible to llm')" in prompt.user
-        assert "Content inspection: no flags" in prompt.user
 
-    def test_script_veto_prompt_allows_read_only_local_inspection(self):
-        prompt = self._build_prompt_for("python -c 'print(1)'")
+    def test_prompt_does_not_read_file_backed_script_content(self, project_root):
+        from nah.llm import _build_inline_lang_exec_prompt
 
-        assert "routine local analysis/test code or read-only inspection" in prompt.system
-        assert "If none of those categories is visible, choose allow." in prompt.system
+        path = os.path.join(project_root, "hello.py")
+        _write(path, "print('hello world')\n")
+        prompt = _build_inline_lang_exec_prompt(f"python {path}", "")
 
-    def test_prompt_no_content_for_nonexistent(self, project_root):
-        old_cwd = os.getcwd()
-        os.chdir(project_root)
-        try:
-            prompt = self._build_prompt_for("python nonexistent.py")
-            assert "Script about to execute:" not in prompt.user
-        finally:
-            os.chdir(old_cwd)
-
-
-# ===================================================================
-# 7. _read_script_for_llm UNIT TESTS
-# ===================================================================
-
-class TestReadScriptForLlm:
-    """Direct tests for the LLM script reader."""
-
-    def test_basic_read(self, project_root):
-        from nah.llm import _read_script_for_llm
-        path = os.path.join(project_root, "test.py")
-        _write(path, "print('hello')\n")
-        content = _read_script_for_llm(["python", path])
-        assert content == "print('hello')\n"
-
-    def test_inline_returns_code_string(self):
-        """Inline code is now returned for LLM enrichment (nah-koi.1)."""
-        from nah.llm import _read_script_for_llm
-        assert _read_script_for_llm(["python", "-c", "print(1)"]) == "print(1)"
-
-    def test_module_returns_none(self):
-        from nah.llm import _read_script_for_llm
-        assert _read_script_for_llm(["python", "-m", "http.server"]) is None
-
-    def test_value_flag_skipped(self, project_root):
-        from nah.llm import _read_script_for_llm
-        path = os.path.join(project_root, "script.py")
-        _write(path, "x = 1\n")
-        content = _read_script_for_llm(["python", "-W", "ignore", path])
-        assert content == "x = 1\n"
-
-    def test_single_token_direct_exec(self, project_root):
-        from nah.llm import _read_script_for_llm
-        path = os.path.join(project_root, "run.py")
-        _write(path, "print('direct')\n")
-        content = _read_script_for_llm([path])
-        assert content == "print('direct')\n"
-
-    def test_nonexistent_returns_none(self):
-        from nah.llm import _read_script_for_llm
-        assert _read_script_for_llm(["python", "/tmp/fd079_nonexistent.py"]) is None
-
-    def test_empty_tokens_returns_none(self):
-        from nah.llm import _read_script_for_llm
-        assert _read_script_for_llm([]) is None
-
-    def test_size_cap(self, project_root):
-        from nah.llm import _read_script_for_llm
-        path = os.path.join(project_root, "big.py")
-        _write(path, "x" * 20000)
-        content = _read_script_for_llm(["python", path], max_chars=100)
-        assert len(content) == 100
+        assert "hello world" not in prompt.user

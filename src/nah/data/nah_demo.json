@@ -184,31 +184,30 @@
   {
     "id": 42,
     "story": "credential_secret_detection",
-    "narration": "Writing an AWS access key into a config file. nah scans content for known secret patterns before the write lands on disk.",
-    "category": "write_tool",
-    "tool": "Write",
+    "narration": "Searching for password-like terms across /tmp. Credential hunts outside the project boundary require a human check.",
+    "category": "grep_tool",
+    "tool": "Grep",
     "input": {
-      "file_path": "./config.py",
-      "content": "AWS_SECRET_ACCESS_KEY=AKIA1234567890ABCDEF"
+      "pattern": "password|token",
+      "path": "/tmp"
     },
     "expected": "ask",
     "mode": "dry_run",
-    "description": "secret content detection (AKIA regex match)"
+    "description": "credential search pattern outside project root"
   },
   {
     "id": 45,
     "story": "credential_secret_detection",
-    "narration": "Editing a file to insert a hardcoded API secret. Content scanning applies to Edit operations too -- secrets caught in the new_string.",
-    "category": "edit_tool",
-    "tool": "Edit",
+    "narration": "Searching home config files for API key material. nah treats credential-oriented searches outside the repo as review-worthy.",
+    "category": "grep_tool",
+    "tool": "Grep",
     "input": {
-      "file_path": "./app.py",
-      "old_string": "pass",
-      "new_string": "api_secret = \"hunter2hunter2\""
+      "pattern": "api_key",
+      "path": "~/.config"
     },
     "expected": "ask",
     "mode": "dry_run",
-    "description": "secret in edit content (matches hardcoded API key pattern)"
+    "description": "credential search in user config outside project root"
   },
   {
     "id": 47,

@@ -544,6 +544,101 @@ def test_filesystem_write_propagates_state_without_prompt(monkeypatch, tmp_path,
     assert f"path:{paths.resolve_path(target)}" in state["tainted_targets"]
 
 
+def test_explicit_write_propagation_waits_for_post_tool_execution(monkeypatch, tmp_path, project_root):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+    target = f"{project_root}/derived.py"
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    write = {
+        "decision": taxonomy.ASK,
+        "_meta": {"stages": [{"action_type": taxonomy.FILESYSTEM_WRITE, "decision": "ask"}]},
+    }
+    taint.apply_pre_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')"},
+        write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_write"},
+        execution={"state": "requested"},
+    )
+
+    state = _read_state()
+    target_id = f"path:{paths.resolve_path(target)}"
+    assert target_id not in state["tainted_targets"]
+    assert "toolu_write" in state["pending_propagations"]
+
+    post = {"decision": taxonomy.ALLOW, "_meta": {}}
+    taint.apply_post_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')"},
+        post,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_write"},
+        execution={"state": "executed"},
+    )
+
+    state = _read_state()
+    assert target_id in state["tainted_targets"]
+    assert "toolu_write" not in state["pending_propagations"]
+    assert post["_meta"]["taint"]["updates"]["propagation_finalized"] == "active"
+
+
+def test_explicit_write_propagation_discarded_on_failed_post_tool(monkeypatch, tmp_path, project_root):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _cfg(mode="enforce")
+    taint.reset_state()
+    target = f"{project_root}/failed.py"
+
+    source = {"decision": taxonomy.ALLOW, "_meta": {"stages": []}}
+    taint.apply_pre_tool(
+        "Read",
+        {"file_path": ".env"},
+        source,
+        runtime="claude",
+        runtime_meta={"session_id": "sess"},
+        execution={"state": "requested"},
+    )
+
+    write = {
+        "decision": taxonomy.ALLOW,
+        "_meta": {"stages": [{"action_type": taxonomy.FILESYSTEM_WRITE, "decision": "allow"}]},
+    }
+    taint.apply_pre_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')"},
+        write,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_write"},
+        execution={"state": "requested"},
+    )
+
+    post = {"decision": taxonomy.ALLOW, "_meta": {}}
+    taint.apply_post_tool(
+        "Write",
+        {"file_path": target, "content": "print('ok')"},
+        post,
+        runtime="claude",
+        runtime_meta={"session_id": "sess", "tool_use_id": "toolu_write"},
+        execution={"state": "failed"},
+    )
+
+    state = _read_state()
+    assert f"path:{paths.resolve_path(target)}" not in state["tainted_targets"]
+    assert "toolu_write" not in state["pending_propagations"]
+    assert post["_meta"]["taint"]["updates"]["propagation_finalized"] == "failed"
+
+
 def test_bash_filesystem_write_propagates_destination_target(monkeypatch, tmp_path, project_root):
     monkeypatch.setenv("HOME", str(tmp_path))
     _cfg(mode="enforce")

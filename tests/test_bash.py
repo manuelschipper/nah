@@ -68,11 +68,12 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "ask"
         assert "outside project" in r.reason
 
-    def test_python_c_inline_clean_allow(self, project_root):
-        """Safe inline code is now allowed via content inspection (nah-koi.1)."""
+    def test_python_c_inline_asks_for_llm_review(self, project_root):
+        """Visible non-shell inline code asks before optional LLM review."""
         r = classify_command("python -c 'print(1)'")
-        assert r.final_decision == "allow"
+        assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
+        assert "inline execution requires LLM review" in r.reason
 
     def test_npm_test_allow(self, project_root):
         r = classify_command("npm test")
@@ -202,7 +203,7 @@ class TestPackageWrapperLangExec:
             r = classify_command("uv run safe.py")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -266,7 +267,7 @@ class TestPackageWrapperLangExec:
             r = classify_command("make test")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert r.stages[0].reason.startswith("script clean:")
+            assert r.stages[0].reason.startswith("script path allowed:")
         finally:
             os.chdir(old_cwd)
 
@@ -340,16 +341,16 @@ class TestMiseExecWrapper:
             r = classify_command("mise exec -- ./bin/release.sh 2.0.0")
             assert r.final_decision == "allow"
             assert r.stages[0].action_type == "lang_exec"
-            assert "script clean:" in r.stages[0].reason
+            assert "script path allowed:" in r.stages[0].reason
             assert "2.0.0" not in r.stages[0].reason
         finally:
             os.chdir(old_cwd)
 
     def test_mise_exec_inline_code_uses_inner_payload(self, project_root):
         r = classify_command("mise exec -- python -c 'print(1)'")
-        assert r.final_decision == "allow"
+        assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline clean" in r.stages[0].reason
+        assert "inline execution requires LLM review" in r.stages[0].reason
         assert "script not found" not in r.stages[0].reason
 
     def test_mise_exec_redirect_literal_runs_content_inspection(self, project_root):
@@ -397,9 +398,9 @@ class TestDockerExecTrustedContainers:
     def test_trusted_docker_exec_clean_inline_lang_exec_allows(self, project_root):
         _trust_containers("container:hermes-creatbot")
         r = classify_command("docker exec hermes-creatbot python -c 'print(1)'")
-        assert r.final_decision == "allow"
+        assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline clean" in r.reason
+        assert "inline execution requires LLM review" in r.reason
 
     @pytest.mark.parametrize(
         "command",
@@ -442,20 +443,29 @@ class TestDockerExecTrustedContainers:
         assert f"inner {action_type} requires review" in r.reason
 
     @pytest.mark.parametrize(
-        "command",
+        "command,reason_fragment",
         [
-            "docker exec hermes-creatbot env TOKEN=x cat package.json",
-            "docker exec hermes-creatbot bash -lc 'env TOKEN=x cat package.json'",
-            "docker exec hermes-creatbot python -c 'import os; print(os.getenv(\"SERVICE_API_TOKEN\"))'",
+            (
+                "docker exec hermes-creatbot env TOKEN=x cat package.json",
+                "credential-like material",
+            ),
+            (
+                "docker exec hermes-creatbot bash -lc 'env TOKEN=x cat package.json'",
+                "credential-like material",
+            ),
+            (
+                "docker exec hermes-creatbot python -c 'import os; print(os.getenv(\"SERVICE_API_TOKEN\"))'",
+                "inline execution requires LLM review",
+            ),
         ],
     )
     def test_trusted_docker_exec_credential_markers_downgrade_to_ask(
-        self, project_root, command
+        self, project_root, command, reason_fragment
     ):
         _trust_containers("container:hermes-creatbot")
         r = classify_command(command)
         assert r.final_decision == "ask"
-        assert "credential-like material" in r.reason
+        assert reason_fragment in r.reason
 
     @pytest.mark.parametrize(
         "command,action_type",
@@ -1855,12 +1865,11 @@ class TestDecomposition:
         (r"powershell -Command Remove-Item -Recurse C:\tmp", "Remove-Item -Recurse"),
         (r"cmd /c del /f C:\tmp\file.txt", "del /f"),
     ])
-    def test_windows_shell_inline_scans_multi_token_payload(self, project_root, command, pattern):
+    def test_windows_shell_inline_asks_for_llm_review(self, project_root, command, pattern):
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "content inspection" in r.reason
-        assert pattern in r.reason
+        assert "inline execution requires LLM review" in r.reason
 
 
     @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>"])
@@ -4308,7 +4317,7 @@ class TestShellLineContinuationParsing:
 
 class TestHeredocInterpreter:
     """Heredoc-fed interpreters (python3 << EOF) should be classified as lang_exec
-    with content scanning via heredoc_literal."""
+    with visible inline payload carried on heredoc_literal."""
 
     # --- Token stripping + classification ---
 
@@ -4325,7 +4334,7 @@ class TestHeredocInterpreter:
         actual = r.stages[0].tokens[:len(expected_tokens_prefix)]
         assert actual == expected_tokens_prefix
 
-    # --- Clean heredoc → lang_exec → allow ---
+    # --- Visible heredoc → lang_exec → ask for LLM review ---
 
     @pytest.mark.parametrize("command", [
         "python3 << 'EOF'\nprint('hello')\nEOF",
@@ -4339,8 +4348,8 @@ class TestHeredocInterpreter:
     def test_clean_heredoc_interpreter_allows(self, project_root, command):
         r = classify_command(command)
         assert r.stages[0].action_type == "lang_exec"
-        assert r.final_decision == "allow"
-        assert "inline clean" in r.reason
+        assert r.final_decision == "ask"
+        assert "inline execution requires LLM review" in r.reason
 
     # --- Dangerous heredoc content → lang_exec → ask ---
 
@@ -4348,13 +4357,13 @@ class TestHeredocInterpreter:
         r = classify_command("python3 << 'EOF'\nimport os; os.remove('/etc/passwd')\nEOF")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "os.remove" in r.reason
+        assert "inline execution requires LLM review" in r.reason
 
     def test_heredoc_with_private_key_asks(self, project_root):
         r = classify_command("python3 << 'EOF'\nkey = '-----BEGIN RSA PRIVATE KEY-----'\nEOF")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "content inspection" in r.reason
+        assert "inline execution requires LLM review" in r.reason
 
     # --- Semicolons in heredoc body must not split stages ---
 
@@ -4388,7 +4397,8 @@ class TestHeredocInterpreter:
     def test_python_c_still_works(self, project_root):
         r = classify_command("python3 -c 'print(1)'")
         assert r.stages[0].action_type == "lang_exec"
-        assert r.final_decision == "allow"
+        assert r.final_decision == "ask"
+        assert "inline execution requires LLM review" in r.reason
 
     def test_here_string_still_works(self, project_root):
         """bash <<< should use existing here-string path, not heredoc."""

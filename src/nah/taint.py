@@ -109,7 +109,14 @@ def apply_pre_tool(
         if source_update:
             updates["source"] = source_update
 
-    propagated = _propagate_if_needed(state, event, labels, original_decision, cfg)
+    propagated = _record_propagation_pre_tool(
+        state,
+        event,
+        labels,
+        original_decision,
+        cfg,
+        execution,
+    )
     if propagated:
         updates["propagated_targets"] = propagated
 
@@ -161,24 +168,46 @@ def apply_post_tool(
     session_id = _session_id(runtime, runtime_meta, transcript_path)
     event_id = _event_id(tool, tool_input, runtime_meta)
     state = _load_state(runtime, session_id)
-    pending = state.get("pending_sources", {}).get(event_id)
-    if not pending:
+    pending_source = state.get("pending_sources", {}).get(event_id)
+    pending_propagation = state.get("pending_propagations", {}).get(event_id)
+    if not pending_source and not pending_propagation:
         return decision
 
-    status = "ignored"
-    labels = [str(label) for label in pending.get("labels", []) if str(label)]
-    if execution.get("state") == "executed":
-        for label in labels:
-            state.setdefault("active_labels", {}).setdefault(label, []).append({
-                "source": pending.get("target_display", ""),
-                "event_id": event_id,
-                "tool": pending.get("tool", tool),
-            })
-        status = "active"
-    else:
-        status = str(execution.get("state") or "not_executed")
+    updates: dict[str, Any] = {}
+    labels: list[str] = []
+    if pending_source:
+        status = "ignored"
+        labels = [str(label) for label in pending_source.get("labels", []) if str(label)]
+        if execution.get("state") == "executed":
+            for label in labels:
+                state.setdefault("active_labels", {}).setdefault(label, []).append({
+                    "source": pending_source.get("target_display", ""),
+                    "event_id": event_id,
+                    "tool": pending_source.get("tool", tool),
+                })
+            status = "active"
+        else:
+            status = str(execution.get("state") or "not_executed")
+        updates["source_finalized"] = status
+        state.get("pending_sources", {}).pop(event_id, None)
 
-    state.get("pending_sources", {}).pop(event_id, None)
+    if pending_propagation:
+        prop_status = str(execution.get("state") or "not_executed")
+        propagated: list[dict] = []
+        if execution.get("state") == "executed":
+            entries = pending_propagation.get("entries", [])
+            if isinstance(entries, list):
+                propagated = _apply_propagation_entries(state, entries)
+            prop_status = "active" if propagated else "no_target"
+        updates["propagation_finalized"] = prop_status
+        if propagated:
+            updates["propagated_targets"] = propagated
+            for entry in propagated:
+                for label in entry.get("labels", []):
+                    if label not in labels:
+                        labels.append(label)
+        state.get("pending_propagations", {}).pop(event_id, None)
+
     _save_state(runtime, session_id, state)
 
     event = normalize_event(tool, tool_input, decision, runtime, runtime_meta)
@@ -191,7 +220,7 @@ def apply_post_tool(
         policy={},
         enforced=False,
         audit_only=False,
-        updates={"source_finalized": status},
+        updates=updates,
         chain=_chain_summary(state, labels, event),
     )
     return decision
@@ -312,6 +341,7 @@ def _load_state(runtime: str, session_id: str) -> dict:
             return _empty_state(runtime, session_id)
         data.setdefault("active_labels", {})
         data.setdefault("pending_sources", {})
+        data.setdefault("pending_propagations", {})
         data.setdefault("tainted_targets", {})
         data.setdefault("seq", 0)
         return data
@@ -346,6 +376,7 @@ def _empty_state(runtime: str, session_id: str) -> dict:
         "seq": 0,
         "active_labels": {},
         "pending_sources": {},
+        "pending_propagations": {},
         "tainted_targets": {},
         "recent_chain": [],
     }
@@ -385,17 +416,39 @@ def _requires_post_confirmation(event: dict) -> bool:
     return bool(event.get("event_id_explicit"))
 
 
-def _propagate_if_needed(
+def _record_propagation_pre_tool(
     state: dict,
     event: dict,
     labels: set[str],
     decision: str,
     cfg: dict,
+    execution: dict,
 ) -> list[dict]:
-    if not labels or decision != taxonomy.ALLOW:
+    if not labels or decision == taxonomy.BLOCK:
         return []
+    entries = _propagation_entries(state, event, labels, cfg)
+    if not entries:
+        return []
+    if _requires_post_confirmation(event):
+        state.setdefault("pending_propagations", {})[event["event_id"]] = {
+            "tool": event.get("tool", ""),
+            "entries": entries,
+        }
+        updates = [dict(entry, status="pending") for entry in entries]
+        return updates
+    if decision == taxonomy.ALLOW or execution.get("state") in ("executed", "approved_to_run"):
+        return _apply_propagation_entries(state, entries)
+    return []
+
+
+def _propagation_entries(
+    state: dict,
+    event: dict,
+    labels: set[str],
+    cfg: dict,
+) -> list[dict]:
     propagation = cfg.get("propagation", {})
-    updates: list[dict] = []
+    entries: list[dict] = []
     for action_type in event.get("action_types", []):
         if action_type not in TRACKABLE_PROPAGATION or not propagation.get(action_type, True):
             continue
@@ -403,18 +456,40 @@ def _propagate_if_needed(
         if not identity:
             continue
         target = event.get("target", {})
-        state.setdefault("tainted_targets", {})[identity] = {
-            "labels": sorted(labels),
-            "source_event_ids": _source_event_ids(state, labels),
-            "created_event_id": event.get("event_id", ""),
-            "display": target.get("display") or identity,
-            "action_type": action_type,
-        }
-        updates.append({
+        entries.append({
             "identity": identity,
             "display": target.get("display") or identity,
             "action_type": action_type,
             "labels": sorted(labels),
+            "source_event_ids": _source_event_ids(state, labels),
+            "created_event_id": event.get("event_id", ""),
+        })
+    return entries
+
+
+def _apply_propagation_entries(state: dict, entries: list[dict]) -> list[dict]:
+    updates: list[dict] = []
+    for entry in entries:
+        identity = str(entry.get("identity", ""))
+        if not identity:
+            continue
+        target_entry = {
+            "labels": [str(label) for label in entry.get("labels", []) if str(label)],
+            "source_event_ids": [
+                str(event_id)
+                for event_id in entry.get("source_event_ids", [])
+                if str(event_id)
+            ],
+            "created_event_id": str(entry.get("created_event_id", "")),
+            "display": str(entry.get("display") or identity),
+            "action_type": str(entry.get("action_type", "")),
+        }
+        state.setdefault("tainted_targets", {})[identity] = target_entry
+        updates.append({
+            "identity": identity,
+            "display": target_entry["display"],
+            "action_type": target_entry["action_type"],
+            "labels": target_entry["labels"],
         })
     return updates
 

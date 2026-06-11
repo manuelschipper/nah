@@ -91,7 +91,7 @@ class TestNoDecisionHints:
         assert result["decision"] == taxonomy.ASK
         _assert_no_hint(result)
 
-    def test_write_content_ask_has_no_content_varies_hint(self, project_root):
+    def test_write_content_allow_has_no_content_match(self, project_root):
         from nah.hook import handle_write
 
         target = os.path.join(project_root, "test.py")
@@ -99,9 +99,8 @@ class TestNoDecisionHints:
             "file_path": target,
             "content": "AKIAIOSFODNN7EXAMPLE",
         })
-        if decision["decision"] == taxonomy.ASK:
-            _assert_no_hint(decision)
-            assert "content_match" in decision.get("_meta", {})
+        assert decision["decision"] == taxonomy.ALLOW
+        assert "content_match" not in decision.get("_meta", {})
 
     def test_grep_credential_search_has_no_content_varies_hint(self):
         from nah.hook import handle_grep
