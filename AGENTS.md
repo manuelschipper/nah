@@ -216,7 +216,8 @@ independently.
   for explicit background intent.
 - Operate: `/close-mold` (manual closeout/disposition; operator intent
   "close mold"), `/explain-mold` (read-only context recovery), `/html-mold`
-  (local HTML artifacts under `.molds/artifacts/<id>/` for `molds browse`),
+  (human-friendly HTML summary under `.molds/artifacts/<id>/` for
+  `molds browse`),
   `/groom-molds` (periodic audit of open molds against the codebase for
   stale, completed, or superseded specs).
 
