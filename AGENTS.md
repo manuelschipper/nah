@@ -122,15 +122,171 @@ The self-hosted Claude plugin marketplace lives on the `claude-marketplace`
 branch and uses immutable plugin distribution tags named `claude-plugin-vX.Y.Z`.
 The public source release tag remains `vX.Y.Z`.
 
+<!-- molds:managed-section:begin -->
+
 ---
 
-## Molds
+# Molds Workflow
 
-This repo uses molds. Durable workflow state lives in `.molds/`.
-Molds requires Postgres. Use these commands for workflow state:
+Molds is the workflow source of truth for repos with a `.molds/` directory.
+Postgres is canonical. All task reads and
+writes go through the `molds` CLI (`molds show|update|note|section ...`).
+Never edit `.molds/*.md` as task state — `.molds/` holds only local config,
+runtime files, and artifacts.
 
-```bash
-molds status
+A mold is durable work state: title, profile, lifecycle stage, problem,
+plan, verification, notes, and audit events — enough for agents and humans
+to continue work without relying on chat history.
+
+## Profiles
+
+- `exploratory` preserves pre-spec uncertainty (stages `context`,
+  `research`). Sections: `TL;DR` (compact current understanding),
+  `Notes` (evidence, attempts, constraints), `Open Questions`,
+  `Next Step` (recommended action or handoff).
+- `spec` is the implementation shape (stages `design`, `build`, `qa`,
+  `land`). Sections: `TL;DR`, `Problem`, `Solution`, `Files to Modify`,
+  `Verification`, `Implementation Notes`, `Notes`.
+- Creation derives the profile from the stage (`context`/`research` start
+  `exploratory`, `design` starts `spec`); there is no `--profile` flag.
+- Moving a `context` or `research` mold to `design`
+  converts it to `profile=spec` automatically: the TL;DR carries over and
+  the rest is carried into `Implementation Notes`. Conversion
+  does not approve build; `/design-mold` rewrites the carried material into
+  a build-ready spec.
+- `blocked`, `deferred`, `closed`, and `wontdo` preserve the current
+  profile; all other stages require the matching profile above.
+
+## Lifecycle
+
+```text
+context | research | design -> build -> qa -> land -> closed
 ```
 
-Detailed workflow guidance is loaded from @.molds/MOLDS.md (written by `molds init`).
+`blocked` and `deferred` are side stages. `closed` and `wontdo` are
+terminal: `closed` means an accepted outcome (for an exploratory mold,
+possibly without producing a buildable spec); `wontdo` means deliberate
+rejection or abandonment.
+
+Legal stage transitions:
+
+| From | Legal targets |
+| --- | --- |
+| `context` | `context`, `research`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `research` | `research`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `design` | `design`, `research`, `build`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `build` | `build`, `qa`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `qa` | `qa`, `land`, `build`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `land` | `land`, `build`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
+| `blocked` | `blocked`, `context`, `research`, `design`, `build`, `qa`, `land`, `deferred`, `closed`, `wontdo` |
+| `deferred` | `deferred`, `context`, `research`, `design`, `build`, `qa`, `land`, `blocked`, `closed`, `wontdo` |
+| `closed` | `closed`, `wontdo` |
+| `wontdo` | `wontdo`, `closed` |
+
+Examples: `build -> land` is illegal, `context -> build` is illegal, and
+`qa -> build` is legal for a send-back.
+
+## Human Gates
+
+`design` is the human design and signoff queue. `molds build <id>` approves
+a design mold into `build` — a state change only, not a background queue;
+build readiness is the operator's judgment with no mechanical gate. From
+`build` onward, build/QA/land runs use dedicated worktrees under
+`.worktrees/<id>`.
+
+During `/build-mold`, implementation context belongs in the mold: keep a
+required `### Build Trace` under `Implementation Notes` with short plain
+bullets for non-obvious decisions, tradeoffs, surprises, extra verification
+details, or follow-ups. Do not create sidecar notes files. QA rejects
+missing, empty, or perfunctory traces while still reviewing the code
+independently.
+
+## Skills
+
+- Capture and explore: `/handoff-mold` (carry-forward memory in `context`),
+  `/research-mold` (stateful investigation in `research`), `/new-mold`
+  (create after checking for duplicates; operator intent "new mold"),
+  `/slice-mold` (decompose broad work into dependency-aware molds),
+  `/grill-mold` (pressure-test a mold, plan, or idea one question at a
+  time).
+- Shape and design: `/shape-mold` (pre-build convergence), `/design-mold`
+  (convert exploratory work and shape a build-ready spec).
+- Execute: `/build-mold`, `/qa-mold`, `/land-mold`; `/pour-mold` chains
+  them in the foreground as far as requested, reserving native `molds pour`
+  for explicit background intent.
+- Operate: `/close-mold` (manual closeout/disposition; operator intent
+  "close mold"), `/explain-mold` (read-only context recovery), `/html-mold`
+  (local HTML artifacts under `.molds/artifacts/<id>/` for `molds browse`).
+
+Common flow: rough idea -> `/research-mold` -> `/slice-mold`,
+`/grill-mold`, `/shape-mold`, or `/design-mold` -> approve ->
+`/build-mold` or `/pour-mold` -> `/qa-mold` -> `/land-mold` or
+`/close-mold`.
+
+## Foundry, Pour, And Shape
+
+Foundry schedules lanes `research`, `design`, `build`, `qa`, and serial
+`land`, booting with repo startup defaults (`foundry_provider`,
+`foundry_interval_seconds`). One `until` knob controls background reach:
+
+- repo default `default_until = none|design|build|qa|land|closed`; per-mold
+  `until = inherit|...` (`inherit` follows the default; `none` keeps the
+  mold manual).
+- Background work always pauses at `design` until a human approves
+  `design -> build`; foundry enters `land` only when effective
+  `until=closed`.
+- `molds pour <id> [--until qa|land|closed] [-a|--approve]` declares intent
+  and starts a coordinator if needed; `-a` approves a design mold and pours
+  in one command (plain pour refuses design molds).
+- `molds shape <id> [--until design|build] [--passes <2..5>]` (default 3)
+  declares pre-build shaping and re-arms `shape_done=false`; the
+  research/design lanes only claim molds with `shape_done=false` and never
+  approve build.
+- `molds take <id>` reclaims a mold (`until=none`; the active stage
+  finishes cleanly).
+
+## Land Requests
+
+A land request (LR) is the local review record for a landable diff — not a
+GitHub PR and not a lifecycle stage. Land entry (including `molds stamp`
+moving `qa -> land`) creates or refreshes one automatically when a
+`code_branch` diff exists. `molds lr open|show|diff|files|approve|
+request-changes|abandon <id>` manage it without moving lifecycle stages:
+use `molds lr open <id>` to explicitly refresh after new branch work, and
+`molds lr show <id>` is read-only. `molds close` refuses an unresolved
+landable LR; `molds wontdo` abandons it.
+`molds stamp <id> --verification "..."` is the foreground QA verdict: it
+records structured manual QA freshness and moves `qa -> land`.
+
+## Git Hosting
+
+Do not create or open pull requests unless the user explicitly asks for a
+PR. If a git host prints a PR creation URL after `git push`, treat it as
+informational output only.
+
+## CLI Quick Reference
+
+```bash
+molds create "<title>" [--stage context|design|research]
+molds context|research|design|build|qa|land|block|defer <id>
+molds section get|set|append <id> "<section>" --stdin|--file <path>
+molds stamp <id> --verification "..."
+molds lr show <id>
+molds pour <id> [--until qa|land|closed] [-a|--approve]
+molds take <id>
+molds shape <id> [--until design|build]
+molds update <id> --stage <stage>
+molds show <id> [--json]
+molds list [--json]
+molds browse [<id>]
+molds note <id> "message"
+molds status
+molds foundry status
+```
+
+Raw stage aliases are state changes only: no worktrees, verification,
+merging, or closing.
+
+Lines starting with `%%` inside mold files are agent instructions. Address
+each one, then remove the line.
+<!-- molds:managed-section:end -->
