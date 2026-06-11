@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM/content review boundary** — file-backed scripts and write-like tool
+  payloads no longer use deterministic body/content scans. File-backed
+  `lang_exec` now relies on path and boundary checks, visible non-shell inline
+  execution uses LLM review when available and otherwise asks, and write-like
+  payloads rely on structural checks plus optional LLM review. (nah-981)
+
 - **Codex `apply_patch` friction** — safe project-local same-path
   delete/add patches now behave like whole-file replacements instead of always
   requiring native approval, and safe edit auto-approval now uses the project
