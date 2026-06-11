@@ -127,12 +127,10 @@ The public source release tag remains `vX.Y.Z`.
 ## Molds
 
 This repo uses molds. Durable workflow state lives in `.molds/`.
-
-Use these commands instead of assuming mode from this file:
+Molds requires Postgres. Use these commands for workflow state:
 
 ```bash
-molds config get mode
 molds status
 ```
 
-Detailed workflow guidance is loaded globally from `@MOLDS.md`.
+Detailed workflow guidance is loaded from @.molds/MOLDS.md (written by `molds init`).
