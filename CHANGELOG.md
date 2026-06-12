@@ -17,8 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   event that both fires and is enforced under headless `codex exec`). Documented
   in the CLI reference.
 
-## [0.9.1] - 2026-06-07
-
 ### Changed
 
 - **LLM/content review boundary** — file-backed scripts and write-like tool
@@ -26,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `lang_exec` now relies on path and boundary checks, visible non-shell inline
   execution uses LLM review when available and otherwise asks, and write-like
   payloads rely on structural checks plus optional LLM review. (nah-981)
+
+## [0.9.1] - 2026-06-07
+
+### Changed
 
 - **Codex `apply_patch` friction** — safe project-local same-path
   delete/add patches now behave like whole-file replacements instead of always
