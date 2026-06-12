@@ -68,7 +68,7 @@ nah update claude        # update hook after package-manager upgrade
 nah test "rm -rf /"                        # test a Bash command
 nah test "git push --force"                # see action type + policy
 nah test --tool Read ~/.ssh/id_rsa         # test Read tool path check
-nah test --tool Write ./out.txt --content "BEGIN PRIVATE KEY"  # test content inspection
+nah test --tool Write ./out.txt --content "BEGIN PRIVATE KEY"  # test write payload review
 nah test --tool Grep --pattern "password"  # test credential search detection
 
 # Inspect

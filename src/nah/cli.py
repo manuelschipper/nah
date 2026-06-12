@@ -867,6 +867,9 @@ def cmd_test(args: argparse.Namespace) -> None:
             fallback = _ask_fallback_meta(decision)
             if fallback:
                 payload["ask_fallback"] = fallback
+            llm_payload = _llm_payload_from_meta(decision.get("_meta", {}))
+            if llm_payload:
+                payload["llm"] = llm_payload
             print(json.dumps(payload))
             return
         if target:
@@ -886,6 +889,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         if fallback:
             print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
+        _print_llm_meta(decision.get("_meta", {}))
     elif tool == "Grep":
         # Grep: path + credential pattern detection
         from nah.hook import handle_grep
@@ -2041,7 +2045,11 @@ def main():
     test_parser.add_argument("--target", default=None, help="Target policy to simulate")
     test_parser.add_argument("--tool", default=None, help="Tool name (default: Bash)")
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
-    test_parser.add_argument("--content", default=None, help="Content for Write/Edit LLM review")
+    test_parser.add_argument(
+        "--content",
+        default=None,
+        help="Payload for write-like tool dry runs and optional LLM review",
+    )
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
     test_parser.add_argument("--preset", default=None, help="Apply a global config preset")
     test_parser.add_argument("--json", action="store_true", help="Output a stable JSON result")
