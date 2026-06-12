@@ -259,7 +259,9 @@ use `molds lr open <id>` to explicitly refresh after new branch work, and
 `molds lr show <id>` is read-only. `molds close` refuses an unresolved
 landable LR; `molds wontdo` abandons it.
 `molds stamp <id> --verification "..."` is the foreground QA verdict: it
-records structured manual QA freshness and moves `qa -> land`.
+records structured manual QA freshness and moves `qa -> land`;
+`--fail implementation|design` records the fail verdict and routes the
+send-back instead.
 
 ## Git Hosting
 
