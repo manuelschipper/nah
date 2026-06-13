@@ -67,7 +67,7 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
 
 
 def _entry_has_llm(entry: dict) -> bool:
-    if "llm" in entry:
+    if entry.get("llm"):
         return True
     provenance = entry.get("provenance", {})
     if not isinstance(provenance, dict):
@@ -76,6 +76,52 @@ def _entry_has_llm(entry: dict) -> bool:
     if not isinstance(review, dict):
         return False
     return bool(review.get("provider") or review.get("prompt_hash"))
+
+
+def _entry_has_classify_pass(entry: dict) -> bool:
+    """Whether any LLM pass on this entry was a Layer-1 classify pass."""
+    passes = entry.get("llm")
+    if not isinstance(passes, list):
+        return False
+    return any(
+        isinstance(p, dict) and p.get("phase") == "classify" for p in passes
+    )
+
+
+def _flat_llm_pass(meta: dict) -> dict:
+    """Adapt the legacy flat llm_* meta keys into one phase-tagged pass record."""
+    rec: dict = {
+        "phase": meta.get("llm_phase", "review"),
+        "provider": meta.get("llm_provider") or "(none)",
+        "model": meta.get("llm_model", ""),
+        "ms": meta.get("llm_latency_ms", 0),
+        "decision": meta.get("llm_decision", ""),
+        "reasoning": meta.get("llm_reasoning", ""),
+        "reasoning_long": meta.get("llm_reasoning_long", ""),
+    }
+    cascade = meta.get("llm_cascade")
+    if cascade:
+        rec["cascade"] = cascade
+    review = meta.get("llm_review")
+    if review:
+        rec["review"] = review
+    prompt = meta.get("llm_prompt")
+    if prompt:
+        rec["prompt"] = prompt
+    return rec
+
+
+def _llm_passes_from_meta(meta: dict) -> list:
+    """Build the ordered LLM-pass list: explicit pass records first (Layer-1
+    classify, Layer-2 relax), then any legacy flat-key pass for paths not yet
+    migrated to append their own record (write / inline / provenance / relax)."""
+    passes: list = []
+    for rec in meta.get("llm_passes") or []:
+        if isinstance(rec, dict):
+            passes.append(rec)
+    if meta.get("llm_provider") or meta.get("llm_cascade"):
+        passes.append(_flat_llm_pass(meta))
+    return passes
 
 
 def _rotate() -> None:
@@ -140,27 +186,18 @@ def build_entry(
             classify["redirect_target"] = redir
         entry["classify"] = classify
 
-    # Detail: llm — log whenever LLM was attempted (provider set or cascade exists)
-    llm_provider = meta.get("llm_provider", "")
-    llm_cascade = meta.get("llm_cascade")
-    if llm_provider or llm_cascade:
-        llm: dict = {
-            "provider": llm_provider or "(none)",
-            "model": meta.get("llm_model", ""),
-            "ms": meta.get("llm_latency_ms", 0),
-            "decision": meta.get("llm_decision", ""),
-            "reasoning": meta.get("llm_reasoning", ""),
-            "reasoning_long": meta.get("llm_reasoning_long", ""),
-        }
-        if llm_cascade:
-            llm["cascade"] = llm_cascade
-        review = meta.get("llm_review")
-        if review:
-            llm["review"] = review
-        prompt = meta.get("llm_prompt")
-        if prompt:
-            llm["prompt"] = prompt
-        entry["llm"] = llm
+    # Detail: action_type provenance — deterministic vs LLM-classified unknown.
+    source = meta.get("action_type_source")
+    if source:
+        entry["action_type_source"] = source
+
+    # Detail: llm — an ordered list of phase-tagged pass records (classify,
+    # relax, write, ...). One decision can accrue multiple LLM passes; each
+    # appends to meta["llm_passes"]. Legacy single-pass paths still set the flat
+    # llm_* keys, which are adapted into one pass record here.
+    passes = _llm_passes_from_meta(meta)
+    if passes:
+        entry["llm"] = passes
 
     # Detail: content_match, warning
     human = meta.get("human_reason")
@@ -292,6 +329,8 @@ def read_log(filters: dict | None = None, limit: int = 50) -> list[dict]:
                 if "tool" in filters and entry.get("tool") != filters["tool"]:
                     continue
                 if filters.get("llm") and not _entry_has_llm(entry):
+                    continue
+                if filters.get("classified") and not _entry_has_classify_pass(entry):
                     continue
 
                 entries.append(entry)

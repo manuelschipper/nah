@@ -541,13 +541,13 @@ class TestBuildEntry:
         }
         entry = self._build(meta=meta)
         assert "llm" in entry
-        assert entry["llm"]["provider"] == "openrouter"
-        assert entry["llm"]["model"] == "gemini-flash"
-        assert entry["llm"]["ms"] == 500
-        assert entry["llm"]["decision"] == "uncertain"
-        assert entry["llm"]["reasoning"] == "safe"
-        assert entry["llm"]["reasoning_long"] == "safe because the command is read-only and matches the request"
-        assert entry["llm"]["cascade"][0]["status"] == "success"
+        assert entry["llm"][0]["provider"] == "openrouter"
+        assert entry["llm"][0]["model"] == "gemini-flash"
+        assert entry["llm"][0]["ms"] == 500
+        assert entry["llm"][0]["decision"] == "uncertain"
+        assert entry["llm"][0]["reasoning"] == "safe"
+        assert entry["llm"][0]["reasoning_long"] == "safe because the command is read-only and matches the request"
+        assert entry["llm"][0]["cascade"][0]["status"] == "success"
 
     def test_llm_absent_without_provider(self):
         entry = self._build(meta={})
@@ -556,7 +556,7 @@ class TestBuildEntry:
     def test_llm_prompt_included(self):
         meta = {"llm_provider": "openrouter", "llm_prompt": "full prompt text"}
         entry = self._build(meta=meta)
-        assert entry["llm"]["prompt"] == "full prompt text"
+        assert entry["llm"][0]["prompt"] == "full prompt text"
 
     def test_session_from_transcript(self):
         entry = self._build(transcript_path="/Users/me/.claude/transcript/abc123.jsonl")
@@ -595,6 +595,55 @@ class TestBuildEntry:
         }
         entry = self._build(meta=meta)
         assert entry["classify"]["redirect_target"] == "/tmp/out.txt"
+
+    # --- nah-982: LLM passes list ---
+
+    def test_explicit_llm_passes_listed_in_order(self):
+        meta = {
+            "llm_passes": [
+                {"phase": "classify", "provider": "p1", "mapped_type": "filesystem_read",
+                 "targets": [{"kind": "path", "value": "f.txt", "floor": "allow"}]},
+            ],
+            # Layer-2 relax set via the legacy flat keys -> appended after.
+            "llm_provider": "p2",
+            "llm_decision": "allow",
+            "llm_phase": "relax",
+        }
+        entry = self._build(meta=meta)
+        assert isinstance(entry["llm"], list)
+        assert len(entry["llm"]) == 2
+        assert entry["llm"][0]["phase"] == "classify"
+        assert entry["llm"][0]["mapped_type"] == "filesystem_read"
+        assert entry["llm"][1]["phase"] == "relax"
+        assert entry["llm"][1]["provider"] == "p2"
+
+    def test_single_classify_pass_is_one_element_list(self):
+        meta = {"llm_passes": [{"phase": "classify", "provider": "p1"}]}
+        entry = self._build(meta=meta)
+        assert len(entry["llm"]) == 1
+        assert entry["llm"][0]["phase"] == "classify"
+
+    def test_flat_keys_get_review_phase_by_default(self):
+        meta = {"llm_provider": "openrouter", "llm_decision": "allow"}
+        entry = self._build(meta=meta)
+        assert entry["llm"][0]["phase"] == "review"
+
+    def test_action_type_source_recorded(self):
+        meta = {"action_type_source": "llm_classify"}
+        entry = self._build(meta=meta)
+        assert entry["action_type_source"] == "llm_classify"
+
+    def test_action_type_source_absent_when_deterministic(self):
+        entry = self._build(meta={})
+        assert "action_type_source" not in entry
+
+    def test_classified_filter_matches_classify_pass(self):
+        from nah.log import _entry_has_classify_pass
+        classified = {"llm": [{"phase": "classify"}, {"phase": "relax"}]}
+        review_only = {"llm": [{"phase": "review"}]}
+        assert _entry_has_classify_pass(classified) is True
+        assert _entry_has_classify_pass(review_only) is False
+        assert _entry_has_classify_pass({}) is False
 
 
 class TestBuildEntryRoundTrip:

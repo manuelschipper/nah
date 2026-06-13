@@ -342,7 +342,7 @@ class TestWriteReviewGate:
                 "llm_review": "ask_to_allow",
             },
         )
-        assert entry["llm"]["review"] == "ask_to_allow"
+        assert entry["llm"][0]["review"] == "ask_to_allow"
 
 
 # ===================================================================

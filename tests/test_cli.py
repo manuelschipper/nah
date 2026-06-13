@@ -277,13 +277,14 @@ class TestCmdLog:
             "human_reason": human_reason,
             "input": input_summary,
             "ms": 0,
-            "llm": {
+            "llm": [{
+                "phase": "review",
                 "provider": "openrouter",
                 "model": "google/gemini-3.1-flash-lite-preview",
                 "ms": 1230,
                 "reasoning": llm_reason,
                 "reasoning_long": llm_detail,
-            },
+            }],
         }
 
         with patch("nah.log.read_log", return_value=[entry]):
@@ -302,7 +303,7 @@ class TestCmdLog:
         assert "[llm 1230ms]" in out
         assert "LLM:openrouter/google/gemini-3.1-flash-lite-preview" in out
         assert llm_reason in out
-        assert f"LLM detail: {llm_detail}" in out
+        assert f"LLM detail (review): {llm_detail}" in out
 
 
 class TestCmdConfig:

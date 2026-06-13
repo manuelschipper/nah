@@ -1695,6 +1695,21 @@ def cmd_audit_threat_model(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _primary_llm_pass(entry: dict) -> dict:
+    """Return the decision-relevant LLM pass for a one-line summary.
+
+    entry["llm"] is an ordered list of phase-tagged passes; the last pass is the
+    decisive one (relax/review after any classify). Tolerates the legacy single
+    object shape for forward/backward safety.
+    """
+    passes = entry.get("llm")
+    if isinstance(passes, list) and passes:
+        return passes[-1]
+    if isinstance(passes, dict):
+        return passes
+    return {}
+
+
 def cmd_log(args: argparse.Namespace) -> None:
     """Display recent decision log entries."""
     from nah.log import read_log
@@ -1706,6 +1721,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         filters["decision"] = "ask"
     if getattr(args, "llm", False):
         filters["llm"] = True
+    if getattr(args, "classified", False):
+        filters["classified"] = True
     tool = getattr(args, "tool", None)
     if tool:
         filters["tool"] = tool
@@ -1731,7 +1748,7 @@ def cmd_log(args: argparse.Namespace) -> None:
         reason = entry.get("human_reason") or entry.get("reason", "")
         summary = entry.get("input", "")
         total_ms = entry.get("ms", "")
-        llm = entry.get("llm", {})
+        llm = _primary_llm_pass(entry)
         llm_ms = llm.get("ms", "")
         execution_state = ""
         execution = entry.get("execution", {})
@@ -1769,7 +1786,7 @@ def cmd_log(args: argparse.Namespace) -> None:
             else {}
         )
         if llm_prov:
-            llm_model = entry.get("llm", {}).get("model", "")
+            llm_model = llm.get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
             if llm_model:
                 llm_tag += f"/{llm_model}"
@@ -1788,10 +1805,25 @@ def cmd_log(args: argparse.Namespace) -> None:
             if llm_reason:
                 line += f" — {llm_reason}"
         print(line)
-        if getattr(args, "llm", False):
-            llm_long = llm.get("reasoning_long", "")
-            if llm_long and llm_long != llm.get("reasoning", ""):
-                print(f"     LLM detail: {llm_long}")
+        if getattr(args, "llm", False) or getattr(args, "classified", False):
+            passes = entry.get("llm")
+            if isinstance(passes, list):
+                for p in passes:
+                    if not isinstance(p, dict):
+                        continue
+                    phase = p.get("phase", "review")
+                    if phase == "classify":
+                        mapped = p.get("mapped_type", "")
+                        targets = p.get("targets", [])
+                        tg = ", ".join(
+                            f"{t.get('value','')}[{t.get('kind','')}→{t.get('floor','')}]"
+                            for t in targets if isinstance(t, dict)
+                        )
+                        detail = f"     classify: {mapped}" + (f" — {tg}" if tg else "")
+                        print(detail)
+                    p_long = p.get("reasoning_long", "")
+                    if p_long and p_long != p.get("reasoning", ""):
+                        print(f"     LLM detail ({phase}): {p_long}")
             provenance_long = provenance_llm.get("reasoning_long", "")
             if provenance_long and provenance_long != provenance_llm.get("reasoning", ""):
                 print(f"     LLM detail: {provenance_long}")
@@ -2084,6 +2116,7 @@ def main():
     log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
     log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
     log_parser.add_argument("--llm", action="store_true", help="Show only entries with LLM metadata")
+    log_parser.add_argument("--classified", action="store_true", help="Show only entries with a Layer-1 classify pass")
     log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
     log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
     log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")
