@@ -272,6 +272,18 @@ def _extract_action_type(meta: dict) -> str:
     return stages[0].get("action_type", "") if stages else ""
 
 
+def redact_secret(value: str) -> str:
+    """Scrub obvious secret-bearing assignments from a free value.
+
+    Applied to Layer-1 target values (paths/hosts) before logging, the same
+    env-value discipline used for command input. Deeper secret scrubbing (URL
+    query tokens, etc.) is a follow-up.
+    """
+    if not value:
+        return value
+    return _ENV_VALUE_RE.sub(r"\1***", value)
+
+
 def redact_input(tool: str, tool_input: dict) -> str:
     """Build a redacted input summary string."""
     if tool == "Bash":

@@ -627,6 +627,102 @@ def _build_llm_meta(llm_call, cfg) -> dict:
     return llm_meta
 
 
+def _append_classify_pass(meta: dict, classify, verdict, cfg) -> None:
+    """Append the Layer-1 classify pass record to meta['llm_passes'] (for logs)."""
+    from nah.log import redact_secret
+
+    cls = classify.classification
+    rec: dict = {
+        "phase": "classify",
+        "provider": classify.provider or "(none)",
+        "model": classify.model,
+        "ms": classify.latency_ms,
+        "mapped_type": cls.action_type if cls else taxonomy.UNKNOWN,
+        "evidence": cls.evidence if cls else "",
+    }
+    if classify.cascade:
+        rec["cascade"] = [
+            {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
+             **({"error": a.error} if a.error else {})}
+            for a in classify.cascade
+        ]
+    if verdict is not None:
+        raw_targets = verdict["targets"]
+    elif cls is not None:
+        raw_targets = [
+            {"kind": t.get("kind", "unknown"), "value": t.get("value", ""),
+             "floor": "", "reason": ""}
+            for t in cls.targets
+        ]
+    else:
+        raw_targets = []
+    rec["targets"] = [
+        {**t, "value": redact_secret(t.get("value", ""))} for t in raw_targets
+    ]
+    try:
+        if cfg.log and cfg.log.get("llm_prompt", False):
+            rec["prompt"] = classify.prompt
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: log.llm_prompt: {exc}\n")
+    meta.setdefault("llm_passes", []).append(rec)
+
+
+def _apply_layer1_classify(tool_name: str, tool_input: dict, decision: dict) -> dict:
+    """Layer 1: classify a deterministically-unknown command, then re-check.
+
+    Maps the unknown to an action type + kind-tagged targets (LLM mode only),
+    runs the surfaced targets through the deterministic floor, and returns the
+    resulting decision. The mapped type re-enters the normal policy machinery;
+    only the floor can clear a target. Fail-open: any error leaves the original
+    ask untouched. The classify pass is always logged (even unknown/errored).
+    """
+    meta = decision.setdefault("_meta", {})
+    try:
+        from nah.config import get_config
+        cfg = get_config()
+        if cfg.llm_mode != "on" or not cfg.llm:
+            return decision
+        from nah import classify_recheck
+        from nah.llm import try_llm_classify_unknown
+        from nah.log import redact_input
+
+        classify = try_llm_classify_unknown(
+            redact_input(tool_name, tool_input),
+            cfg.llm,
+            custom_types=cfg.actions or None,
+        )
+        cls = classify.classification
+        verdict = None
+        if cls is not None and cls.action_type != taxonomy.UNKNOWN:
+            policy = taxonomy.get_policy(cls.action_type, cfg.actions)
+            verdict = classify_recheck.recheck(cls, policy)
+        _append_classify_pass(meta, classify, verdict, cfg)
+
+        if verdict is None:
+            return decision  # could not classify -> the deterministic ask stands
+
+        meta["action_type_source"] = "llm_classify"
+        # Propagate the mapped type into the unknown ask stages so the log's
+        # top-level action_type and the Layer-2 eligibility check both see it.
+        for sr in meta.get("stages", []):
+            if sr.get("action_type") in ("", taxonomy.UNKNOWN):
+                sr["action_type"] = cls.action_type
+
+        new_d = verdict["decision"]
+        if new_d == taxonomy.ALLOW:
+            return {"decision": taxonomy.ALLOW, "_meta": meta}
+        if new_d == taxonomy.BLOCK:
+            return {"decision": taxonomy.BLOCK, "reason": verdict["reason"], "_meta": meta}
+        decision["decision"] = taxonomy.ASK
+        decision["reason"] = verdict["reason"]
+        return decision
+    except ImportError:
+        return decision
+    except Exception as exc:
+        sys.stderr.write(f"nah: Layer 1 classify error: {exc}\n")
+        return decision
+
+
 def _try_llm_inline_lang_exec(command: str, stage) -> tuple[dict | None, dict]:
     """Attempt LLM review for visible non-shell inline lang_exec code."""
     try:
@@ -1152,6 +1248,20 @@ def main():
 
         d = decision.get("decision", taxonomy.ALLOW)
         meta = decision.setdefault("_meta", {})
+
+        # Layer 1: classify a deterministically-unknown Bash command, re-check
+        # its targets through the floor, and let the result re-enter the normal
+        # machinery (allow/ask/block) before the Layer-2 relax pass below.
+        if (
+            d == taxonomy.ASK
+            and canonical == "Bash"
+            and _extract_action_type(meta) in ("", taxonomy.UNKNOWN)
+            and not meta.get("llm_veto")
+            and not meta.get("inline_lang_exec_review")
+        ):
+            decision = _apply_layer1_classify(canonical, tool_input, decision)
+            meta = decision.setdefault("_meta", {})
+            d = decision.get("decision", taxonomy.ALLOW)
 
         if (
             d == taxonomy.ASK
