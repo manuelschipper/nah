@@ -221,7 +221,8 @@ alone.
 - Operate: `/close-mold` (manual closeout/disposition; owns the CHANGELOG
   update), `/explain-mold` (read-only context recovery), `/html-mold`
   (human-friendly HTML summary under `.molds/artifacts/<id>/` for
-  `molds browse`).
+  `molds browse`), `/explore-project` (deep audit of the codebase, active
+  molds, and recent activity).
 
 Common flow: rough idea -> `/research-mold` or `/design-mold` ->
 `/grill-mold` or `/slice-mold` as needed -> `molds pour <id> -a` ->
