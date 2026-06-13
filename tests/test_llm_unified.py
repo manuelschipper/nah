@@ -456,6 +456,7 @@ class TestHookIntegration:
             model="qwen3",
             latency_ms=12,
             reasoning="user asked for cleanup",
+            citation="please clean up the build artifacts",
             cascade=[ProviderAttempt("ollama", "success", 12, "qwen3")],
         )
 
@@ -531,6 +532,7 @@ class TestHookIntegration:
             model="qwen3",
             latency_ms=12,
             reasoning="browser debugging",
+            citation="open the browser console to debug",
             cascade=[ProviderAttempt("ollama", "success", 12, "qwen3")],
         )
         cfg = NahConfig(

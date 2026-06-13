@@ -1297,15 +1297,47 @@ def main():
                                 stages=stages,
                             )
                             meta.update(_build_llm_meta(llm_call, cfg))
+                            meta["llm_phase"] = "relax"
+                            citation = (getattr(llm_call, "citation", "") or "").strip()
+                            llm_allows = (
+                                llm_call.decision is not None
+                                and llm_call.decision.get("decision") == taxonomy.ALLOW
+                            )
                             if llm_call.decision is None:
                                 pass
-                            elif llm_call.decision.get("decision") == taxonomy.ALLOW:
+                            elif llm_allows and citation:
+                                # Relaxed: a distinct outcome, not a silent allow.
+                                # The cited user turn authorizes the ask-class
+                                # operation; surface both halves + log it.
                                 _write_auto_state(_transcript_path, 0, False)
+                                meta["llm_review"] = "relaxed"
+                                meta["llm_citation"] = citation
+                                would_ask = decision.get("reason", "")
                                 decision = {
                                     **llm_call.decision,
                                     "_meta": meta,
                                 }
+                                decision["_system_message"] = (
+                                    f"nah: allowed (relaxed) — normally asks: "
+                                    f"{would_ask}; you asked: {citation[:140]}"
+                                )
                                 d = taxonomy.ALLOW
+                            elif llm_allows:
+                                # cite-or-ask: an allow with no cited user intent
+                                # is not trusted — keep the ask.
+                                meta["llm_review"] = "uncited"
+                                if llm_call.reasoning:
+                                    decision["_llm_reason"] = llm_call.reasoning
+                                decision["_system_message"] = (
+                                    f"nah: {llm_call.reasoning or 'no cited user intent'}"
+                                )
+                                deny_count += 1
+                                if deny_limit > 0:
+                                    _write_auto_state(
+                                        _transcript_path,
+                                        deny_count,
+                                        deny_count >= deny_limit,
+                                    )
                             else:
                                 # Surface LLM reasoning in the prompt
                                 if llm_call.reasoning:

@@ -105,6 +105,9 @@ def _flat_llm_pass(meta: dict) -> dict:
     review = meta.get("llm_review")
     if review:
         rec["review"] = review
+    citation = meta.get("llm_citation")
+    if citation:
+        rec["citation"] = citation
     prompt = meta.get("llm_prompt")
     if prompt:
         rec["prompt"] = prompt
