@@ -134,28 +134,22 @@ writes go through the `molds` CLI (`molds show|update|note|section ...`).
 Never edit `.molds/*.md` as task state — `.molds/` holds only local config,
 runtime files, and artifacts.
 
-A mold is durable work state: title, profile, lifecycle stage, problem,
-plan, verification, notes, and audit events — enough for agents and humans
-to continue work without relying on chat history.
+A mold is durable work state: title, lifecycle stage, problem, plan,
+verification, notes, and audit events — enough for agents and humans to
+continue work without relying on chat history.
 
-## Profiles
+## Sections
 
-- `exploratory` preserves pre-spec uncertainty (stages `context`,
-  `research`). Sections: `TL;DR` (compact current understanding),
-  `Notes` (evidence, attempts, constraints), `Open Questions`,
-  `Next Step` (recommended action or handoff).
-- `spec` is the implementation shape (stages `design`, `build`, `qa`,
-  `land`). Sections: `TL;DR`, `Problem`, `Solution`, `Files to Modify`,
-  `Verification`, `Implementation Notes`, `Notes`.
-- Creation derives the profile from the stage (`context`/`research` start
-  `exploratory`, `design` starts `spec`); there is no `--profile` flag.
-- Moving a `context` or `research` mold to `design`
-  converts it to `profile=spec` automatically: the TL;DR carries over and
-  the rest is carried into `Implementation Notes`. Conversion
-  does not approve build; `/design-mold` rewrites the carried material into
-  a build-ready spec.
-- `blocked`, `deferred`, `closed`, and `wontdo` preserve the current
-  profile; all other stages require the matching profile above.
+One flat section vocabulary, decoupled from stages: `TL;DR`, `Problem`,
+`Solution`, `Files to Modify`, `Verification`, `Open Questions`,
+`Next Step`, `Implementation Notes`, `Notes`. Any section may appear on any
+mold and all are optional; `TL;DR` always renders as the document anchor.
+There is no profile system and no per-stage section contract — stage moves
+never rewrite or convert sections. The only mechanical section check in the
+product is the pour gate (below). Exploratory work usually leans on
+`TL;DR`/`Notes`/`Open Questions`/`Next Step`; build-ready specs lean on
+`Problem`/`Solution`/`Files to Modify`/`Verification` — by convention, not
+enforcement.
 
 ## Lifecycle
 
@@ -164,7 +158,7 @@ context | research | design -> build -> qa -> land -> closed
 ```
 
 `blocked` and `deferred` are side stages. `closed` and `wontdo` are
-terminal: `closed` means an accepted outcome (for an exploratory mold,
+terminal: `closed` means an accepted outcome (for exploratory work,
 possibly without producing a buildable spec); `wontdo` means deliberate
 rejection or abandonment.
 
@@ -189,75 +183,84 @@ Examples: `build -> land` is illegal, `context -> build` is illegal, and
 ## Human Gates
 
 `design` is the human design and signoff queue. `molds build <id>` approves
-a design mold into `build` — a state change only, not a background queue;
-build readiness is the operator's judgment with no mechanical gate. From
-`build` onward, build/QA/land runs use dedicated worktrees under
-`.worktrees/<id>`.
+a design mold into `build` — approval only, never execution; build readiness
+is the operator's judgment with no mechanical gate. From `build` onward,
+foundry build/QA runs use dedicated worktrees under `.worktrees/<id>`.
+`land` is always human: foundry is structurally unable to enter it, so
+reviewing the diff and landing is the operator's re-entry point.
 
-During `/build-mold`, implementation context belongs in the mold: keep a
-required `### Build Trace` under `Implementation Notes` with short plain
-bullets for non-obvious decisions, tradeoffs, surprises, extra verification
-details, or follow-ups. Do not create sidecar notes files. QA rejects
-missing, empty, or perfunctory traces while still reviewing the code
-independently.
+## Traces
+
+Traces are the observability contract for unattended work — a land-stage
+human must be able to reconstruct the whole episode from `molds show`
+alone.
+
+- During `/build-mold`, keep a required `### Build Trace` under
+  `Implementation Notes` with short plain bullets for non-obvious
+  decisions, tradeoffs, surprises, extra verification details, or
+  follow-ups. Do not create sidecar notes files.
+- Every QA verdict carries a `QA Trace` (what was checked, what was run,
+  what was found). Foundry QA returns it in the verdict's `qa_trace` field
+  and the runtime writes it under `Implementation Notes -> ### QA Trace`;
+  `molds stamp` records the manual equivalent automatically.
+- QA rejects a missing, empty, or perfunctory Build Trace as a
+  build-process issue (the runtime also refuses a foundry QA pass without
+  one) while still reviewing the code independently.
 
 ## Skills
 
 - Capture and explore: `/handoff-mold` (carry-forward memory in `context`),
   `/research-mold` (stateful investigation in `research`), `/new-mold`
-  (create after checking for duplicates; operator intent "new mold"),
-  `/slice-mold` (decompose broad work into dependency-aware molds),
-  `/grill-mold` (pressure-test a mold, plan, or idea one question at a
-  time).
-- Shape and design: `/shape-mold` (pre-build convergence), `/design-mold`
-  (convert exploratory work and shape a build-ready spec).
-- Execute: `/build-mold`, `/qa-mold`, `/land-mold`; `/pour-mold` chains
-  them in the foreground as far as requested, reserving native `molds pour`
-  for explicit background intent.
-- Operate: `/close-mold` (manual closeout/disposition; operator intent
-  "close mold"), `/explain-mold` (read-only context recovery), `/html-mold`
+  (create after checking for duplicates; links dependencies only to open
+  molds — closed matches become provenance notes), `/slice-mold`
+  (decompose broad work into dependency-aware molds), `/grill-mold`
+  (pressure-test a mold, plan, or idea one question at a time).
+- Design: `/design-mold` (shape a build-ready spec in your design session).
+- Execute: `/build-mold`, `/qa-mold`, `/land-mold`. Foundry is the
+  pipeline for unattended build+QA; there is no foreground pipeline skill.
+- Operate: `/close-mold` (manual closeout/disposition; owns the CHANGELOG
+  update), `/explain-mold` (read-only context recovery), `/html-mold`
   (human-friendly HTML summary under `.molds/artifacts/<id>/` for
-  `molds browse`),
-  `/groom-molds` (periodic audit of open molds against the codebase for
-  stale, completed, or superseded specs).
+  `molds browse`).
 
-Common flow: rough idea -> `/research-mold` -> `/slice-mold`,
-`/grill-mold`, `/shape-mold`, or `/design-mold` -> approve ->
-`/build-mold` or `/pour-mold` -> `/qa-mold` -> `/land-mold` or
+Common flow: rough idea -> `/research-mold` or `/design-mold` ->
+`/grill-mold` or `/slice-mold` as needed -> `molds pour <id> -a` ->
+foundry builds and QAs unattended -> review at `land` with `/land-mold` ->
 `/close-mold`.
 
-## Foundry, Pour, And Shape
+## Foundry And Pour
 
-Foundry schedules lanes `research`, `design`, `build`, `qa`, and serial
-`land`, booting with repo startup defaults (`foundry_provider`,
-`foundry_interval_seconds`). One `until` knob controls background reach:
+Foundry schedules exactly two lanes — `build` and `qa` — booting with repo
+startup defaults (`foundry_provider`, `foundry_interval_seconds`). Its
+reach is fixed by structure: a QA pass always parks the mold at `land` for
+human review; foundry never touches `context`, `research`, `design`, or
+`land`.
 
-- repo default `default_until = none|design|build|qa|land|closed`; per-mold
-  `until = inherit|...` (`inherit` follows the default; `none` keeps the
-  mold manual).
-- Background work always pauses at `design` until a human approves
-  `design -> build`; foundry enters `land` only when effective
-  `until=closed`.
-- `molds pour <id> [--until qa|land|closed] [-a|--approve]` declares intent
-  and starts a coordinator if needed; `-a` approves a design mold and pours
-  in one command (plain pour refuses design molds).
-- `molds shape <id> [--until design|build] [--passes <2..5>]` (default 3)
-  declares pre-build shaping and re-arms `shape_done=false`; the
-  research/design lanes only claim molds with `shape_done=false` and never
-  approve build.
-- `molds take <id>` reclaims a mold (`until=none`; the active stage
-  finishes cleanly).
+- One per-mold boolean, `poured`, answers the only remaining question: may
+  foundry work this mold at all. The stage picks the lane.
+- `molds pour <id> [-a|--approve]` sets the flag and starts a coordinator
+  if needed; `-a` approves a design mold and pours in one gesture (plain
+  pour refuses design molds). This is the workflow's primary verb.
+- The pour gate is the product's only section validation: pour refuses a
+  mold whose `Verification` or `Files to Modify` section is empty —
+  presence only; quality stays operator judgment.
+- `molds take <id>` clears the flag (the active stage finishes cleanly).
+- Failure routing: a QA implementation failure sends the mold back to
+  `build` once (`foundry_max_qa_sendbacks`, default 1); the next failure
+  parks it in `blocked` with `resume_stage` set and the feedback and
+  traces in the mold. Design-flavored failures park immediately — foundry
+  never reopens `design`; a human decides that from `blocked`.
 
 ## Land Requests
 
 A land request (LR) is the local review record for a landable diff — not a
 GitHub PR and not a lifecycle stage. Land entry (including `molds stamp`
 moving `qa -> land`) creates or refreshes one automatically when a
-`code_branch` diff exists. `molds lr open|show|diff|files|approve|
-request-changes|abandon <id>` manage it without moving lifecycle stages:
-use `molds lr open <id>` to explicitly refresh after new branch work, and
-`molds lr show <id>` is read-only. `molds close` refuses an unresolved
-landable LR; `molds wontdo` abandons it.
+`code_branch` diff exists. `molds lr open|show|diff|files <id>` manage it
+without moving lifecycle stages: `molds lr open <id>` explicitly refreshes
+after new branch work, and `molds lr show <id>` is read-only. Landing the
+diff is the approval; `molds update <id> --stage build` is the send-back;
+`molds wontdo` abandons. `molds close` refuses an unresolved landable LR.
 `molds stamp <id> --verification "..."` is the foreground QA verdict: it
 records structured manual QA freshness and moves `qa -> land`;
 `--fail implementation|design` records the fail verdict and routes the
@@ -277,10 +280,10 @@ molds context|research|design|build|qa|land|block|defer <id>
 molds section get|set|append <id> "<section>" --stdin|--file <path>
 molds stamp <id> --verification "..."
 molds lr show <id>
-molds pour <id> [--until qa|land|closed] [-a|--approve]
+molds pour <id> [-a|--approve]
 molds take <id>
-molds shape <id> [--until design|build]
 molds update <id> --stage <stage>
+molds update <id> --poured true|false
 molds show <id> [--json]
 molds list [--json]
 molds browse [<id>]
@@ -294,4 +297,5 @@ merging, or closing.
 
 Lines starting with `%%` inside mold files are agent instructions. Address
 each one, then remove the line.
+
 <!-- molds:managed-section:end -->
