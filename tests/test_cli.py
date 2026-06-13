@@ -976,6 +976,46 @@ class TestCmdTest:
         assert "LLM provider: fake (test-model)" in out
         assert "LLM reason:   Write is local and routine." in out
 
+    def test_layer1_classify_surfaced_in_json(self, capsys, monkeypatch):
+        from nah.cli import cmd_test
+        from nah.config import NahConfig
+        from nah.llm import (
+            LLMCallResult, LLMClassification, LLMClassifyResult, ProviderAttempt,
+        )
+
+        monkeypatch.setattr(
+            "nah.config.get_config",
+            lambda: NahConfig(
+                llm_mode="on",
+                llm={"providers": ["fake"], "fake": {"model": "m"}},
+            ),
+        )
+        monkeypatch.setattr(
+            "nah.llm.try_llm_classify_unknown",
+            lambda *a, **k: LLMClassifyResult(
+                classification=LLMClassification(
+                    "network_outbound",
+                    [{"kind": "host", "value": "evil.example"}],
+                    "frobnicate evil.example",
+                ),
+                provider="fake", model="m", latency_ms=11,
+                cascade=[ProviderAttempt("fake", "success", 11, "m")],
+            ),
+        )
+        # Neutralize the Layer-2 pass so we isolate the Layer-1 surfacing.
+        monkeypatch.setattr("nah.llm.try_llm_unified",
+                            lambda *a, **k: LLMCallResult())
+        args = argparse.Namespace(
+            tool="Bash", path=None, content=None, pattern=None,
+            config=None, defaults=False, target="", json=True,
+            args=["frobnicate evil.example"],
+        )
+        cmd_test(args)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["classify_llm"]["mapped_type"] == "network_outbound"
+        assert payload["classify_llm"]["targets"][0]["floor"] == "ask"
+        assert payload["action_type_source"] == "llm_classify"
+
     def test_write_llm_metadata_json_output(self, capsys, monkeypatch, tmp_path):
         from nah.cli import cmd_test
 

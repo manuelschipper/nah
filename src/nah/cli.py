@@ -592,7 +592,34 @@ def _llm_payload_from_meta(meta: dict) -> dict:
     }
 
 
+def _classify_pass_from_meta(meta: dict) -> dict:
+    """Return the Layer-1 classify pass record from meta, if any."""
+    if not isinstance(meta, dict):
+        return {}
+    for p in meta.get("llm_passes", []) or []:
+        if isinstance(p, dict) and p.get("phase") == "classify":
+            return p
+    return {}
+
+
+def _print_classify_meta(meta: dict) -> None:
+    cls = _classify_pass_from_meta(meta)
+    if not cls:
+        return
+    print(f"Layer1 type:  {cls.get('mapped_type', 'unknown')}")
+    provider = cls.get("provider", "")
+    if provider:
+        print(f"Layer1 model: {provider} ({cls.get('model', '')})")
+    for t in cls.get("targets", []) or []:
+        if isinstance(t, dict):
+            print(
+                f"Layer1 tgt:   {t.get('value', '')} "
+                f"[{t.get('kind', '')} → {t.get('floor', '') or '-'}]"
+            )
+
+
 def _print_llm_meta(meta: dict) -> None:
+    _print_classify_meta(meta)
     llm = _llm_payload_from_meta(meta)
     if not llm:
         return
@@ -719,6 +746,17 @@ def cmd_test(args: argparse.Namespace) -> None:
         if "stages" not in meta:
             meta.update(_bash_test_meta(result))
 
+        # Layer 1: classify a deterministically-unknown command (mirrors main()).
+        from nah.hook import _apply_layer1_classify, _extract_action_type
+        if (
+            decision.get("decision") == taxonomy.ASK
+            and _extract_action_type(meta) in ("", taxonomy.UNKNOWN)
+            and not meta.get("llm_veto")
+            and not meta.get("inline_lang_exec_review")
+        ):
+            decision = _apply_layer1_classify("Bash", {"command": command}, decision)
+            meta = decision.setdefault("_meta", {})
+
         llm_eligible = None
         llm_config_message = ""
         if (
@@ -804,6 +842,12 @@ def cmd_test(args: argparse.Namespace) -> None:
             llm_payload = _llm_payload_from_meta(decision.get("_meta", {}))
             if llm_payload:
                 payload["llm"] = llm_payload
+            classify_pass = _classify_pass_from_meta(decision.get("_meta", {}))
+            if classify_pass:
+                payload["classify_llm"] = classify_pass
+            source = decision.get("_meta", {}).get("action_type_source")
+            if source:
+                payload["action_type_source"] = source
             if llm_eligible is not None:
                 payload["llm_eligible"] = llm_eligible
             if llm_config_message:
