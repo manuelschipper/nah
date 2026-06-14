@@ -292,9 +292,7 @@ See the [full CLI reference](https://nah.build/cli/).
 
 ## License
 
-nah is [MIT licensed](LICENSE). You can use it at work, in personal projects,
-for open-source work, research, evaluation, and anything else the MIT License
-allows.
+[MIT](LICENSE)
 
 ---
 
