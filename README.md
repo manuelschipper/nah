@@ -57,8 +57,11 @@ milliseconds.
 
 nah is a permissions guard built in pure Python with zero required dependencies
 that works out of the box. The main classifier maps tools deterministically into
-an intent taxonomy in milliseconds. An optional LLM resolves qualified
-ambiguous asks.
+an intent taxonomy in milliseconds. An optional LLM (off by default) does two
+narrow jobs behind the deterministic floor: it classifies an `unknown` command
+into an action type whose surfaced targets are re-checked deterministically, and
+it relaxes an eligible `ask` to `allow` only when it can cite the user's own
+request (surfaced as a distinct `relaxed` outcome).
 
 ## How nah decides
 

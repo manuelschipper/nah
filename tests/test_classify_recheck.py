@@ -42,20 +42,38 @@ def test_unknown_host_asks():
     assert out["decision"] == taxonomy.ASK
 
 
-def test_mislabeled_sensitive_path_as_host_still_caught():
-    # Kind says "host" but value is a sensitive path: unknown/sniff path... here
-    # the value is tagged host; the sniff happens for kind="unknown". Tag it
-    # unknown to exercise the both-checkers path.
+def test_unknown_kind_sensitive_path_still_caught():
+    # An unknown/unroutable kind is sniffed as both path and host (most
+    # restrictive wins), so a sensitive path is caught regardless of label.
     out = recheck(_Cls("filesystem_read", [_t("unknown", "~/.ssh/id_rsa")]),
                   taxonomy.ALLOW)
     assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
 
 
-def test_container_target_has_no_floor():
-    out = recheck(_Cls("container_read", [_t("container", "mydb")]),
+def test_sensitive_path_tagged_host_still_caught():
+    # A sensitive path tagged `host` lands on ask via the host checker (unknown
+    # host), so it is not auto-allowed.
+    out = recheck(_Cls("filesystem_read", [_t("host", "~/.ssh/id_rsa")]),
                   taxonomy.ALLOW)
-    assert out["decision"] == taxonomy.ALLOW
-    assert out["targets"][0]["floor"] == taxonomy.ALLOW
+    assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
+
+
+def test_container_db_kind_is_an_accepted_residual():
+    # ACCEPTED RESIDUAL (nah-982 QA): container/db kinds have no floor list and
+    # are NOT re-sniffed as path/host, so a sensitive value mislabeled
+    # container/db is auto-allowed. This is intentionally tolerated: Layer 1
+    # auto-allow trusts an honest classifier (a misaligned/injected classifier
+    # could equally omit the target entirely), and the real security boundary is
+    # the deterministic floor on KNOWN commands, not Layer 1. Genuine
+    # container/db targets are the common case and stay allow.
+    genuine = recheck(_Cls("container_read", [_t("container", "mydb")]),
+                      taxonomy.ALLOW)
+    assert genuine["decision"] == taxonomy.ALLOW
+    assert genuine["targets"][0]["floor"] == taxonomy.ALLOW
+    # The residual: a sensitive path mislabeled container is not caught here.
+    mislabeled = recheck(_Cls("filesystem_read", [_t("container", "~/.ssh/id_rsa")]),
+                         taxonomy.ALLOW)
+    assert mislabeled["decision"] == taxonomy.ALLOW  # documents the known gap
 
 
 # --- policy tiers ---
