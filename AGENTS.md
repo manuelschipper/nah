@@ -138,6 +138,12 @@ A mold is durable work state: title, lifecycle stage, problem, plan,
 verification, notes, and audit events — enough for agents and humans to
 continue work without relying on chat history.
 
+The lifecycle and skills are the default discipline, not a mandate: when the
+operator asks, you may use molds as a lightweight tracker — capture a mold, do
+the work in-session, and close it — without running the design/build/qa skills.
+The structural gates hold either way: only the operator approves design ->
+build, land is always human, and foundry works only poured molds.
+
 Deep dives: run `molds docs` to list topics and `molds docs <topic>` to read
 one (e.g. `molds docs lifecycle`, `molds docs foundry`).
 
