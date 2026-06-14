@@ -138,6 +138,9 @@ A mold is durable work state: title, lifecycle stage, problem, plan,
 verification, notes, and audit events — enough for agents and humans to
 continue work without relying on chat history.
 
+Deep dives: run `molds docs` to list topics and `molds docs <topic>` to read
+one (e.g. `molds docs lifecycle`, `molds docs foundry`).
+
 ## Sections
 
 One flat section vocabulary, decoupled from stages: `TL;DR`, `Problem`,
@@ -286,6 +289,7 @@ molds take <id>
 molds update <id> --stage <stage>
 molds update <id> --poured true|false
 molds show <id> [--json]
+molds docs [<topic>|search <query>]
 molds list [--json]
 molds browse [<id>]
 molds note <id> "message"
@@ -298,5 +302,4 @@ merging, or closing.
 
 Lines starting with `%%` inside mold files are agent instructions. Address
 each one, then remove the line.
-
 <!-- molds:managed-section:end -->
