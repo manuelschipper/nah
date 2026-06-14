@@ -774,8 +774,8 @@ def cmd_test(args: argparse.Namespace) -> None:
                 elif cfg.llm_mode != "on":
                     llm_config_message = "disabled (set mode: on to activate)"
                 else:
-                    from nah.hook import _build_llm_meta
-                    from nah.llm import try_llm_unified
+                    from nah.hook import apply_layer2_relax
+                    from nah.llm import try_llm_relax
                     from nah.log import redact_input
 
                     action_type = ""
@@ -786,7 +786,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                     if not action_type and result.stages:
                         action_type = result.stages[0].action_type
 
-                    llm_call = try_llm_unified(
+                    llm_call = try_llm_relax(
                         "Bash",
                         redact_input("Bash", {"command": command}),
                         action_type or taxonomy.UNKNOWN,
@@ -803,15 +803,10 @@ def cmd_test(args: argparse.Namespace) -> None:
                             for sr in result.stages
                         ],
                     )
-                    meta.update(_build_llm_meta(llm_call, cfg))
-                    if llm_call.decision is not None:
-                        if llm_call.decision.get("decision") == taxonomy.ALLOW:
-                            decision = {
-                                **llm_call.decision,
-                                "_meta": meta,
-                            }
-                        elif llm_call.reasoning:
-                            decision["_llm_reason"] = llm_call.reasoning
+                    # Same shared Layer-2 interpreter as the live hook, so the
+                    # dry-run reflects the real cite-or-ask outcome: an uncited
+                    # allow shows as a kept ask, not a relax.
+                    decision, _outcome = apply_layer2_relax(decision, llm_call, cfg)
 
         decision = _apply_test_ask_fallback(decision, "Bash")
 

@@ -73,7 +73,7 @@ _INLINE_EXEC_FLAGS = {
 
 
 def _auto_state_path(transcript_path: str) -> str | None:
-    """Return the session state file path for unified ask refinement."""
+    """Return the session state file path for Layer-2 relax ask refinement."""
     if not transcript_path:
         return None
     session_id = os.path.basename(transcript_path)
@@ -96,7 +96,7 @@ def _read_auto_state(transcript_path: str) -> tuple[int, bool]:
 
 
 def _write_auto_state(transcript_path: str, deny_count: int, disabled: bool) -> None:
-    """Persist unified ask-refinement state across hook invocations."""
+    """Persist Layer-2 relax ask-refinement state across hook invocations."""
     path = _auto_state_path(transcript_path)
     if not path:
         return
@@ -351,7 +351,7 @@ def _is_llm_eligible_stages(
     eligible,
     composition_rule: str = "",
 ) -> bool:
-    """Check if an ask decision could benefit from unified LLM analysis."""
+    """Check if an ask decision could benefit from Layer-2 relax LLM analysis."""
     all_eligible, expanded = _expand_llm_eligible(eligible)
     if all_eligible:
         return True
@@ -721,6 +721,61 @@ def _apply_layer1_classify(tool_name: str, tool_input: dict, decision: dict) -> 
     except Exception as exc:
         sys.stderr.write(f"nah: Layer 1 classify error: {exc}\n")
         return decision
+
+
+def apply_layer2_relax(decision: dict, llm_call, cfg) -> tuple[dict, str]:
+    """Apply the Layer-2 (intent relaxer) cite-or-ask contract to an ask.
+
+    The single interpreter every Layer-2 consumer shares — the Claude hook,
+    the Codex permission path, and ``nah test`` — so the nah-984 invariant
+    lives in exactly one place: an LLM ``allow`` only relaxes the ask when it
+    cites user intent (outcome ``relaxed``); an uncited allow stays an ask
+    (``uncited``); model uncertainty or no usable decision stays an ask
+    (``uncertain`` / ``none``). Stamps the llm_* metadata, the cited intent,
+    and any ``_system_message`` / ``_llm_reason``. Returns
+    ``(decision, outcome)``; callers own any auto-state / deny-limit
+    accounting keyed off the outcome.
+    """
+    meta = decision.setdefault("_meta", {})
+    meta.update(_build_llm_meta(llm_call, cfg))
+    meta["llm_phase"] = "relax"
+    if llm_call.decision is None:
+        return decision, "none"
+
+    llm_allows = llm_call.decision.get("decision") == taxonomy.ALLOW
+    citation = (getattr(llm_call, "citation", "") or "").strip()
+
+    if llm_allows and citation:
+        # Relaxed: a distinct outcome, not a silent allow. The cited user turn
+        # authorizes the ask-class operation; surface both halves + log it.
+        meta["llm_review"] = "relaxed"
+        meta["llm_citation"] = citation
+        would_ask = decision.get("reason", "")
+        relaxed = {**llm_call.decision, "_meta": meta}
+        relaxed["_system_message"] = (
+            f"nah: allowed (relaxed) — normally asks: "
+            f"{would_ask}; you asked: {citation[:140]}"
+        )
+        return relaxed, "relaxed"
+
+    if llm_allows:
+        # cite-or-ask: an allow with no cited user intent is not trusted —
+        # keep the ask. This is the guardrail that nah-982/984 hardened and
+        # that every consumer now enforces by routing through here.
+        meta["llm_review"] = "uncited"
+        if llm_call.reasoning:
+            decision["_llm_reason"] = llm_call.reasoning
+        decision["_system_message"] = (
+            f"nah: {llm_call.reasoning or 'no cited user intent'}"
+        )
+        return decision, "uncited"
+
+    # Model uncertain — keep the ask. Surface reasoning so the summary lands in
+    # the transcript as context for future calls when the tool eventually runs.
+    if llm_call.reasoning:
+        decision["_llm_reason"] = llm_call.reasoning
+    decision["_system_message"] = f"nah: {llm_call.reasoning or 'uncertain'}"
+    return decision, "uncertain"
 
 
 def _try_llm_inline_lang_exec(command: str, stage) -> tuple[dict | None, dict]:
@@ -1271,7 +1326,7 @@ def main():
         ):
             try:
                 from nah.config import get_config
-                from nah.llm import try_llm_unified
+                from nah.llm import try_llm_relax
                 from nah.log import redact_input
 
                 cfg = get_config()
@@ -1287,7 +1342,7 @@ def main():
                             cfg.llm_eligible,
                             meta.get("composition_rule", ""),
                         ):
-                            llm_call = try_llm_unified(
+                            llm_call = try_llm_relax(
                                 canonical,
                                 redact_input(canonical, tool_input),
                                 action_type or taxonomy.UNKNOWN,
@@ -1296,41 +1351,17 @@ def main():
                                 _transcript_path,
                                 stages=stages,
                             )
-                            meta.update(_build_llm_meta(llm_call, cfg))
-                            meta["llm_phase"] = "relax"
-                            citation = (getattr(llm_call, "citation", "") or "").strip()
-                            llm_allows = (
-                                llm_call.decision is not None
-                                and llm_call.decision.get("decision") == taxonomy.ALLOW
+                            decision, outcome = apply_layer2_relax(
+                                decision, llm_call, cfg
                             )
-                            if llm_call.decision is None:
-                                pass
-                            elif llm_allows and citation:
-                                # Relaxed: a distinct outcome, not a silent allow.
-                                # The cited user turn authorizes the ask-class
-                                # operation; surface both halves + log it.
+                            if outcome == "relaxed":
+                                # Cited relax succeeded — reset the auto-deny
+                                # streak and let the allow flow through.
                                 _write_auto_state(_transcript_path, 0, False)
-                                meta["llm_review"] = "relaxed"
-                                meta["llm_citation"] = citation
-                                would_ask = decision.get("reason", "")
-                                decision = {
-                                    **llm_call.decision,
-                                    "_meta": meta,
-                                }
-                                decision["_system_message"] = (
-                                    f"nah: allowed (relaxed) — normally asks: "
-                                    f"{would_ask}; you asked: {citation[:140]}"
-                                )
                                 d = taxonomy.ALLOW
-                            elif llm_allows:
-                                # cite-or-ask: an allow with no cited user intent
-                                # is not trusted — keep the ask.
-                                meta["llm_review"] = "uncited"
-                                if llm_call.reasoning:
-                                    decision["_llm_reason"] = llm_call.reasoning
-                                decision["_system_message"] = (
-                                    f"nah: {llm_call.reasoning or 'no cited user intent'}"
-                                )
+                            elif outcome in ("uncited", "uncertain"):
+                                # Ask stands. Count toward the auto-disable
+                                # streak so a stuck loop eventually backs off.
                                 deny_count += 1
                                 if deny_limit > 0:
                                     _write_auto_state(
@@ -1338,27 +1369,12 @@ def main():
                                         deny_count,
                                         deny_count >= deny_limit,
                                     )
-                            else:
-                                # Surface LLM reasoning in the prompt
-                                if llm_call.reasoning:
-                                    decision["_llm_reason"] = llm_call.reasoning
-                                # Summary in systemMessage lands in the
-                                # transcript so future LLM calls see it as
-                                # approval evidence when the tool runs.
-                                decision["_system_message"] = (
-                                    f"nah: {llm_call.reasoning or 'uncertain'}"
-                                )
-                                deny_count += 1
-                                if deny_limit > 0:
-                                    _write_auto_state(
-                                        _transcript_path,
-                                        deny_count,
-                                        deny_count >= deny_limit,
-                                    )
+                            # outcome == "none": LLM unavailable; ask stands,
+                            # streak untouched.
             except ImportError:
                 pass
             except Exception as exc:
-                sys.stderr.write(f"nah: unified LLM error: {exc}\n")
+                sys.stderr.write(f"nah: relax LLM error: {exc}\n")
 
         _attach_pre_tool_runtime(decision, data)
         decision = _apply_taint_pre_tool(canonical, tool_input, decision, agent)

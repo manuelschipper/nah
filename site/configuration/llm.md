@@ -247,11 +247,13 @@ can show the longer explanation for debugging.
 
 ### Ask-refinement context
 
-Claude Code and Codex use the same agent ask-refinement (Layer 2) prompt. The
-static rules live in the system message (so a caching provider reuses them across
-asks); the per-ask user message is intentionally minimal — the command, the cwd
-and whether it is inside the project, and the recent user messages from the
-transcript. Nah-internal signals (the deterministic action type, reason, and
+Claude Code and Codex use the same agent ask-refinement (Layer 2) prompt **and
+the same enforcement** — both paths route the model's reply through one shared
+interpreter, so the cite-or-ask rule below applies identically whether the guard
+is fronting Claude Code or a Codex permission request. The static rules live in
+the system message (so a caching provider reuses them across asks); the per-ask
+user message is intentionally minimal — the command, the cwd and whether it is
+inside the project, and the recent user messages from the transcript. Nah-internal signals (the deterministic action type, reason, and
 stage breakdown) are not placed in the prompt: the deterministic floor already
 used them to decide this is an ask, and the model judges relaxation from the
 command, scope, and the user's own words.
@@ -330,7 +332,7 @@ visible security or safety risk in otherwise clean script execution, not to
 review code style or general implementation quality.
 
 Deterministic `lang_exec` asks and blocks do not use this veto path. Eligible
-asks route through unified ask-refinement; blocks stay blocked.
+asks route through Layer 2 ask-refinement; blocks stay blocked.
 
 ## Write-like review
 

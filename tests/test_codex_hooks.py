@@ -472,6 +472,9 @@ def test_permission_request_llm_allow_bypasses_ask_fallback_block(
             provider="fake",
             model="test",
             reasoning="safe enough",
+            # Cited relax: the Codex path enforces cite-or-ask just like the
+            # Claude hook (nah-984), so the allow must carry a citation.
+            citation="User: check the response headers on schipper.ai",
             cascade=[
                 ProviderAttempt(
                     provider="fake",
@@ -519,6 +522,8 @@ def test_permission_request_default_llm_reviews_visible_read_exec_composition(
             provider="fake",
             model="test",
             reasoning="safe local filter",
+            # Cited relax (cite-or-ask parity with the Claude hook, nah-984).
+            citation="User: print the package name from package.json",
             cascade=[ProviderAttempt(provider="fake", status="ok", latency_ms=1)],
         )
 
@@ -535,6 +540,48 @@ def test_permission_request_default_llm_reviews_visible_read_exec_composition(
 
     assert code == 0
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_permission_request_uncited_llm_allow_stays_ask(
+    project_root, tmp_path, monkeypatch,
+):
+    # nah-984 parity: on the Codex permission path, an LLM allow with no cited
+    # user intent must NOT auto-allow — cite-or-ask keeps it an ask, exactly as
+    # the Claude hook does. Guards against the enforcement living only in
+    # hook.main().
+    config._cached_config = NahConfig(
+        llm_mode="on",
+        llm_eligible="all",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+
+    def fake_llm(*_args, **_kwargs):
+        return LLMCallResult(
+            decision={"decision": "allow", "reason": "looks fine"},
+            provider="fake",
+            model="test",
+            reasoning="looks fine",
+            citation="",  # no cited user intent
+            cascade=[ProviderAttempt(provider="fake", status="ok", latency_ms=1)],
+        )
+
+    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "transcript_path": "session.jsonl",
+    })
+
+    assert code == 0
+    # Empty stdout = no auto-allow emitted; the Codex runtime keeps asking.
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] != "allow"
+    relax_passes = [p for p in entry.get("llm", []) if p.get("phase") == "relax"]
+    assert relax_passes and relax_passes[-1]["review"] == "uncited"
 
 
 def test_permission_request_default_llm_skips_file_backed_read_exec_composition(

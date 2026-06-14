@@ -1,4 +1,4 @@
-"""Unified LLM mode tests."""
+"""Layer-2 (intent relaxer) LLM mode tests."""
 
 import io
 import json
@@ -15,14 +15,13 @@ from nah.llm import (
     LLMCallResult,
     ProviderAttempt,
     PromptParts,
-    _AGENT_ASK_SYSTEM,
-    _build_codex_permission_request_prompt,
-    _build_unified_prompt,
+    _RELAX_SYSTEM,
+    _build_relax_prompt,
     _try_providers,
     llm_timeout_budget,
     _read_transcript_tail,
     try_llm_codex_permission_request,
-    try_llm_unified,
+    try_llm_relax,
 )
 from nah.llm_risks import LLM_RISK_CATEGORIES
 
@@ -127,26 +126,16 @@ def _isolate_auto_state(tmp_path, monkeypatch):
     yield
 
 
-class TestUnifiedPrompt:
+class TestRelaxPrompt:
     def test_uses_generic_prompt_without_instruction_context_or_snippets(self):
-        stages = [{
-            "action_type": "filesystem_delete",
-            "decision": "ask",
-            "policy": "context",
-            "reason": "outside project",
-        }]
-        prompt = _build_unified_prompt(
-            "Bash",
+        prompt = _build_relax_prompt(
             "rm -rf dist/",
-            "filesystem_delete",
-            "outside project",
             "User: clean the build output",
-            stages=stages,
         )
 
         assert isinstance(prompt, PromptParts)
         # Layer 2 system prompt is its own static rules block (nah-984).
-        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert prompt.system == _RELAX_SYSTEM
         # User block = command + scope + the user's own messages, nothing else.
         assert "command: rm -rf dist/" in prompt.user
         assert "cwd:" in prompt.user and "inside project:" in prompt.user
@@ -166,34 +155,19 @@ class TestUnifiedPrompt:
         assert "Cite only from the recent user messages" in prompt.system
 
     def test_missing_transcript_uses_placeholder(self):
-        prompt = _build_unified_prompt(
-            "Bash",
-            "rm -rf dist/",
-            "filesystem_delete",
-            "outside project",
-            "",
-        )
+        prompt = _build_relax_prompt("rm -rf dist/", "")
         assert "recent user messages:" in prompt.user
         assert "(none)" in prompt.user
 
     def test_codex_prompt_uses_same_generic_rules(self):
-        prompt = _build_codex_permission_request_prompt(
-            "Bash",
+        # Codex shares the one Layer-2 builder -> identical compact prompt.
+        prompt = _build_relax_prompt(
             "git push origin main",
-            "git_write",
-            "git write requires confirmation",
-            stages=[{
-                "action_type": "git_write",
-                "decision": "ask",
-                "policy": "ask",
-                "reason": "git write requires confirmation",
-            }],
-            transcript_text="User: push the current branch",
+            "User: push the current branch",
         )
 
         assert isinstance(prompt, PromptParts)
-        # Codex delegates to the same builder -> same compact prompt.
-        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert prompt.system == _RELAX_SYSTEM
         assert "command: git push origin main" in prompt.user
         assert "User: push the current branch" in prompt.user
         assert "Runtime: Codex PermissionRequest" not in prompt.user
@@ -205,28 +179,16 @@ class TestUnifiedPrompt:
     def test_unknown_prompt_has_no_special_note(self):
         # The redesign dropped the unknown-action visibility note (Layer 1 now
         # classifies unknowns first); the prompt is the same compact shape.
-        prompt = _build_unified_prompt(
-            "Bash",
+        prompt = _build_relax_prompt(
             "custom-tool frobnicate",
-            "unknown",
-            "unknown -> ask",
             "User: inspect the custom tool output",
-            stages=[{
-                "action_type": "unknown",
-                "decision": "ask",
-                "policy": "ask",
-                "reason": "unknown -> ask",
-            }],
         )
         assert "did not recognize the" not in prompt.user
         assert "command: custom-tool frobnicate" in prompt.user
 
     def test_non_unknown_prompt_omits_visibility_note(self):
-        prompt = _build_unified_prompt(
-            "Bash",
+        prompt = _build_relax_prompt(
             "git push origin main",
-            "git_remote_write",
-            "git push requires confirmation",
             "User: push the current branch",
         )
 
@@ -251,8 +213,8 @@ class TestTranscriptRoles:
         assert "[Bash: rm -rf dist/]" in result
 
 
-class TestUnifiedTryLlm:
-    def test_try_unified_uses_user_intent_without_tool_summaries(self, tmp_path):
+class TestRelaxTryLlm:
+    def test_try_relax_uses_user_intent_without_tool_summaries(self, tmp_path):
         transcript = tmp_path / "transcript.jsonl"
         transcript.write_text(_jsonl(
             _user_msg("inspect the build output"),
@@ -269,7 +231,7 @@ class TestUnifiedTryLlm:
             return LLMCallResult(decision={"decision": "uncertain"})
 
         with patch("nah.llm._try_providers", side_effect=fake_try_providers):
-            try_llm_unified(
+            try_llm_relax(
                 "Bash",
                 "printf hello",
                 "filesystem_read",
@@ -284,7 +246,7 @@ class TestUnifiedTryLlm:
         assert "Assistant:" not in user_prompt
         assert "[Bash:" not in user_prompt
 
-    def test_try_unified_passes_stages_without_project_instructions(self, tmp_path):
+    def test_try_relax_passes_stages_without_project_instructions(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text("Claude project rules")
         captured = {}
 
@@ -294,7 +256,7 @@ class TestUnifiedTryLlm:
 
         with patch("nah.paths.get_project_root", return_value=str(tmp_path)), \
              patch("nah.llm._try_providers", side_effect=fake_try_providers):
-            try_llm_unified(
+            try_llm_relax(
                 "Bash",
                 "remove build output",
                 "filesystem_delete",
@@ -354,7 +316,7 @@ class TestUnifiedTryLlm:
         }).encode()
         mock_urlopen.return_value = mock_resp
 
-        result = try_llm_unified(
+        result = try_llm_relax(
             "Bash",
             "rm -rf dist/",
             "filesystem_delete",
@@ -458,7 +420,7 @@ class TestHookIntegration:
 
         with patch("nah.config.get_config", return_value=self._cfg()), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=allow), \
+             patch("nah.llm.try_llm_relax", return_value=allow), \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -473,7 +435,7 @@ class TestHookIntegration:
 
         with patch("nah.config.get_config", return_value=self._cfg()), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=failed), \
+             patch("nah.llm.try_llm_relax", return_value=failed), \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -498,7 +460,7 @@ class TestHookIntegration:
 
         with patch("nah.config.get_config", return_value=cfg), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=uncertain) as mock_try_llm, \
+             patch("nah.llm.try_llm_relax", return_value=uncertain) as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             for _ in range(4):
                 result = _run_hook(self._payload())
@@ -515,7 +477,7 @@ class TestHookIntegration:
 
         with patch("nah.config.get_config", return_value=self._cfg()), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=timeout), \
+             patch("nah.llm.try_llm_relax", return_value=timeout), \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -543,7 +505,7 @@ class TestHookIntegration:
         }
 
         with patch("nah.config.get_config", return_value=cfg), \
-             patch("nah.llm.try_llm_unified", return_value=allow) as mock_try_llm, \
+             patch("nah.llm.try_llm_relax", return_value=allow) as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(payload)
 
@@ -564,7 +526,7 @@ class TestHookIntegration:
         }
 
         with patch("nah.config.get_config", return_value=cfg), \
-             patch("nah.llm.try_llm_unified") as mock_try_llm, \
+             patch("nah.llm.try_llm_relax") as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(payload)
 

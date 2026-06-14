@@ -52,6 +52,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution uses LLM review when available and otherwise asks, and write-like
   payloads rely on structural checks plus optional LLM review. (nah-981)
 
+### Fixed
+
+- **Layer-2 cite-or-ask now enforced on every path, not just the Claude hook.**
+  The cite-or-ask rule (an LLM `allow` only relaxes an `ask` when it quotes the
+  user message that authorized it) was previously enforced only in the Claude
+  `PreToolUse` hook. The Codex `PermissionRequest` path and the `nah test`
+  dry-run shared the same prompt but trusted the model's `allow` verbatim, so an
+  **uncited** LLM allow could auto-relax an ask on Codex and `nah test` could
+  report `allow` where the live hook would keep asking. All three paths now run
+  the model's reply through one shared interpreter, so an uncited allow stays an
+  `ask` everywhere and the cited intent is logged everywhere. The deterministic
+  floor was unaffected either way (Layer 2 can only relax an `ask`, never weaken
+  a `block`). Internal cleanup folded the three near-identical Layer-2 prompt
+  builders into one and renamed the post-split `*unified*` symbols to `*relax*`.
+
 ## [0.9.1] - 2026-06-07
 
 ### Changed

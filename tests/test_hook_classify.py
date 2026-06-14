@@ -751,7 +751,7 @@ class TestActiveAllowEmission:
         )
         called = []
         original_write = hook_mod._try_llm_write
-        original_unified = llm_mod.try_llm_unified
+        original_unified = llm_mod.try_llm_relax
         hook_mod._try_llm_write = lambda tn, ti, d: (
             {"decision": "allow", "reason": "safe"},
             {"llm_provider": "test"},
@@ -761,7 +761,7 @@ class TestActiveAllowEmission:
             called.append(True)
             return LLMCallResult(decision={"decision": "allow", "reason": "unified allow"})
 
-        llm_mod.try_llm_unified = fake_unified
+        llm_mod.try_llm_relax = fake_unified
         try:
             output = self._run_hook(
                 "Write",
@@ -769,7 +769,7 @@ class TestActiveAllowEmission:
             )
         finally:
             hook_mod._try_llm_write = original_write
-            llm_mod.try_llm_unified = original_unified
+            llm_mod.try_llm_relax = original_unified
 
         assert called == []
         result = json.loads(output)

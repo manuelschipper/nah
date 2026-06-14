@@ -14,12 +14,12 @@ import pytest
 from nah.bash import ClassifyResult, StageResult
 from nah import taxonomy
 from nah.llm import (
-    _build_unified_prompt,
+    _build_relax_prompt,
     _build_inline_lang_exec_prompt,
     _parse_response,
     _call_ollama,
     _call_openai_compat,
-    try_llm_unified,
+    try_llm_relax,
     _TIMEOUT_REMOTE,
 )
 
@@ -28,9 +28,7 @@ def _build_prompt_from_result(result):
     """Adapter: build a unified prompt from a ClassifyResult for live tests."""
     stage = result.stages[0] if result.stages else None
     action_type = stage.action_type if stage else "unknown"
-    return _build_unified_prompt(
-        "Bash", result.command[:500], action_type, result.reason,
-    )
+    return _build_relax_prompt(result.command[:500])
 
 # Thinking models (qwen3.5) need much longer than 2s
 _TEST_TIMEOUT_LOCAL = 120
@@ -153,17 +151,17 @@ class TestOllamaLive:
         assert llm_result is not None, "Ollama returned None — check raw response format"
         assert llm_result.decision in ("uncertain",)
 
-    def test_try_llm_unified_with_ollama(self):
-        """Full pipeline: try_llm_unified with Ollama provider."""
+    def test_try_llm_relax_with_ollama(self):
+        """Full pipeline: try_llm_relax with Ollama provider."""
         llm_config = {
             "providers": ["ollama"],
             "ollama": dict(_OLLAMA_TEST_CONFIG),
         }
         result = _make_safe_result()
-        call_result = try_llm_unified(
+        call_result = try_llm_relax(
             "Bash", result.command, "unknown", result.reason, llm_config,
         )
-        print(f"\ntry_llm_unified (Ollama, safe): {call_result}")
+        print(f"\ntry_llm_relax (Ollama, safe): {call_result}")
         if call_result.decision is not None:
             assert call_result.decision["decision"] in ("allow", "uncertain")
             assert call_result.provider == "ollama"
@@ -232,8 +230,8 @@ class TestOpenRouterLive:
         assert llm_result is not None, "OpenRouter returned None — check raw response format"
         assert llm_result.decision in ("uncertain",)
 
-    def test_try_llm_unified_with_openrouter(self):
-        """Full pipeline: try_llm_unified with OpenRouter provider."""
+    def test_try_llm_relax_with_openrouter(self):
+        """Full pipeline: try_llm_relax with OpenRouter provider."""
         llm_config = {
             "providers": ["openrouter"],
             "openrouter": {
@@ -243,10 +241,10 @@ class TestOpenRouterLive:
             },
         }
         result = _make_safe_result()
-        call_result = try_llm_unified(
+        call_result = try_llm_relax(
             "Bash", result.command, "unknown", result.reason, llm_config,
         )
-        print(f"\ntry_llm_unified (OpenRouter, safe): {call_result}")
+        print(f"\ntry_llm_relax (OpenRouter, safe): {call_result}")
         if call_result.decision is not None:
             assert call_result.decision["decision"] in ("allow", "uncertain")
 
@@ -270,7 +268,7 @@ class TestProviderFallthrough:
             },
         }
         result = _make_safe_result()
-        call_result = try_llm_unified(
+        call_result = try_llm_relax(
             "Bash", result.command, "unknown", result.reason, llm_config,
         )
         print(f"\nFallthrough (bad Ollama -> OpenRouter): {call_result}")

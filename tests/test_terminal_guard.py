@@ -228,7 +228,7 @@ def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
 
     monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
 
-    with patch("nah.llm.try_llm_unified") as try_unified, \
+    with patch("nah.llm.try_llm_relax") as try_unified, \
          patch("nah.log.log_decision") as log_decision:
         result = terminal_guard.decide_terminal_command(
             "some-made-up-tool --delete-cache",

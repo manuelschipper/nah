@@ -1003,7 +1003,7 @@ class TestCmdTest:
             ),
         )
         # Neutralize the Layer-2 pass so we isolate the Layer-1 surfacing.
-        monkeypatch.setattr("nah.llm.try_llm_unified",
+        monkeypatch.setattr("nah.llm.try_llm_relax",
                             lambda *a, **k: LLMCallResult())
         args = argparse.Namespace(
             tool="Bash", path=None, content=None, pattern=None,

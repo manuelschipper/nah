@@ -352,13 +352,11 @@ def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> 
                 stages=stages,
                 transcript_path=hook._transcript_path,
             )
-        meta.update(hook._build_llm_meta(llm_call, cfg))
-        if llm_call.decision is None:
-            return decision
-        if llm_call.decision.get("decision") == taxonomy.ALLOW:
-            return {**llm_call.decision, "_meta": meta}
-        if llm_call.reasoning:
-            decision["_llm_reason"] = llm_call.reasoning
+        # Route through the shared Layer-2 interpreter so the Codex permission
+        # path enforces the same cite-or-ask contract as the Claude hook: an
+        # uncited LLM allow stays an ask (nah-984), not a silent auto-allow.
+        decision, _outcome = hook.apply_layer2_relax(decision, llm_call, cfg)
+        return decision
     except ImportError:
         return decision
     except Exception as exc:

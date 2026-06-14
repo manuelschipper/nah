@@ -374,7 +374,7 @@ class TestMainUnifiedLlm:
             llm_eligible=["filesystem_delete"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=allow) as mock_try_llm, \
+             patch("nah.llm.try_llm_relax", return_value=allow) as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -399,7 +399,7 @@ class TestMainUnifiedLlm:
             llm_eligible=["filesystem_delete"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=uncited), \
+             patch("nah.llm.try_llm_relax", return_value=uncited), \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -412,7 +412,7 @@ class TestMainUnifiedLlm:
             llm_eligible=["db_write"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified") as mock_try_llm, \
+             patch("nah.llm.try_llm_relax") as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -436,7 +436,7 @@ class TestMainUnifiedLlm:
             llm_eligible="default",
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result_for_action("package_uninstall")), \
-             patch("nah.llm.try_llm_unified", return_value=allow) as mock_try_llm, \
+             patch("nah.llm.try_llm_relax", return_value=allow) as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -450,7 +450,7 @@ class TestMainUnifiedLlm:
             llm_eligible="default",
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result_for_action("service_write")), \
-             patch("nah.llm.try_llm_unified") as mock_try_llm, \
+             patch("nah.llm.try_llm_relax") as mock_try_llm, \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook(self._payload())
 
@@ -473,7 +473,7 @@ class TestMainUnifiedLlm:
             llm_eligible=["filesystem_delete"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
-             patch("nah.llm.try_llm_unified", return_value=uncertain), \
+             patch("nah.llm.try_llm_relax", return_value=uncertain), \
              patch("nah.hook._log_hook_decision") as mock_log:
             result = _run_hook(self._payload())
 
@@ -518,7 +518,7 @@ class TestMainUnifiedLlm:
             llm_eligible="all",
         )), \
              patch("nah.hook.classify_command", return_value=classified), \
-             patch("nah.llm.try_llm_unified", return_value=uncertain), \
+             patch("nah.llm.try_llm_relax", return_value=uncertain), \
              patch("nah.hook._log_hook_decision"):
             result = _run_hook({
                 "tool_name": "Bash",

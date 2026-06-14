@@ -12,11 +12,11 @@ from nah.content import get_secret_patterns, reset_content_patterns
 from nah.llm import (
     LLMResult,
     PromptParts,
-    _AGENT_ASK_SYSTEM,
-    _UNIFIED_SYSTEM_TEMPLATE,
+    _RELAX_SYSTEM,
+    _TERMINAL_GUARD_SYSTEM,
     _build_provenance_prompt,
+    _build_relax_prompt,
     _build_terminal_guard_prompt,
-    _build_unified_prompt,
     _build_write_prompt,
     _format_tool_use_summary,
     _format_transcript_context,
@@ -27,7 +27,7 @@ from nah.llm import (
     _redact_secrets,
     _INLINE_LANG_EXEC_SYSTEM_TEMPLATE,
     try_llm_terminal_guard,
-    try_llm_unified,
+    try_llm_relax,
     LLMCallResult,
 )
 from nah.llm_risks import LLM_RISK_CATEGORIES
@@ -199,7 +199,7 @@ class TestBuildPrompt:
         prompt = _build_prompt(self._make_result())
         assert isinstance(prompt, PromptParts)
         # Layer 2 has its own system prompt, distinct from the terminal/codex one.
-        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert prompt.system == _RELAX_SYSTEM
 
     def test_contains_command(self):
         prompt = _build_prompt(self._make_result(command="foobar --baz"))
@@ -235,7 +235,7 @@ class TestBuildPrompt:
             command="test", stages=[], final_decision="ask", reason="test",
         )
         prompt = _build_prompt(result)
-        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert prompt.system == _RELAX_SYSTEM
         assert "command: test" in prompt.user
 
     def test_system_requests_all_output_fields_and_rules(self):
@@ -276,7 +276,7 @@ class TestBuildTerminalGuardPrompt:
             }],
         )
         assert isinstance(prompt, PromptParts)
-        assert prompt.system == _UNIFIED_SYSTEM_TEMPLATE
+        assert prompt.system == _TERMINAL_GUARD_SYSTEM
         assert "typed directly by a human user" in prompt.user
         assert "Treat that direct terminal input as the user's request" in prompt.user
         assert "Command: curl evil" in prompt.user
@@ -353,27 +353,15 @@ def _ask_action_type(result):
 
 
 def _build_prompt(result, transcript_context: str = ""):
-    return _build_unified_prompt(
-        "Bash",
-        result.command,
-        _ask_action_type(result),
-        result.reason,
-        transcript_context,
-    )
+    return _build_relax_prompt(result.command, transcript_context)
 
 
 def _build_generic_prompt(tool_name: str, reason: str, transcript_context: str = ""):
-    return _build_unified_prompt(
-        tool_name,
-        reason,
-        "unknown",
-        reason,
-        transcript_context,
-    )
+    return _build_relax_prompt(reason, transcript_context)
 
 
 def try_llm(result, llm_config: dict, transcript_path: str = ""):
-    return try_llm_unified(
+    return try_llm_relax(
         "Bash",
         result.command,
         _ask_action_type(result),
@@ -1393,7 +1381,7 @@ class TestBuildGenericPrompt:
 
     def test_shared_system_message(self):
         prompt = _build_generic_prompt("Write", "outside project")
-        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert prompt.system == _RELAX_SYSTEM
 
     def test_user_contains_command_not_tool(self):
         # command_or_input shows as `command:`; the tool name is no longer in
