@@ -154,14 +154,16 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 
 
-def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWORK_OUTBOUND) -> tuple[str, str]:
-    """Resolve network context for outbound/write commands.
+def check_host(host: str, action_type: str = taxonomy.NETWORK_OUTBOUND) -> tuple[str, str]:
+    """Resolve a single bare host string to (decision, reason).
 
-    Returns (decision, reason).
+    The host-membership policy (localhost / network-write / known-hosts) shared
+    by `resolve_network_context` (which extracts the host from tokens first) and
+    the Layer-1 target re-check (which receives an already-surfaced host). Keeps
+    the matching deterministic: callers supply a host, this decides.
     """
     _ensure_known_hosts_merged()
-    host = extract_host(tokens)
-    if host is None:
+    if not host:
         return taxonomy.ASK, "unknown host"
 
     # Strip port if present
@@ -182,6 +184,17 @@ def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWO
         return taxonomy.ALLOW, f"known host: {host_no_port}"
 
     return taxonomy.ASK, f"unknown host: {host_no_port}"
+
+
+def resolve_network_context(tokens: list[str], action_type: str = taxonomy.NETWORK_OUTBOUND) -> tuple[str, str]:
+    """Resolve network context for outbound/write commands.
+
+    Returns (decision, reason).
+    """
+    host = extract_host(tokens)
+    if host is None:
+        return taxonomy.ASK, "unknown host"
+    return check_host(host, action_type)
 
 
 def extract_host(tokens: list[str]) -> str | None:

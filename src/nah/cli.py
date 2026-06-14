@@ -592,7 +592,34 @@ def _llm_payload_from_meta(meta: dict) -> dict:
     }
 
 
+def _classify_pass_from_meta(meta: dict) -> dict:
+    """Return the Layer-1 classify pass record from meta, if any."""
+    if not isinstance(meta, dict):
+        return {}
+    for p in meta.get("llm_passes", []) or []:
+        if isinstance(p, dict) and p.get("phase") == "classify":
+            return p
+    return {}
+
+
+def _print_classify_meta(meta: dict) -> None:
+    cls = _classify_pass_from_meta(meta)
+    if not cls:
+        return
+    print(f"Layer1 type:  {cls.get('mapped_type', 'unknown')}")
+    provider = cls.get("provider", "")
+    if provider:
+        print(f"Layer1 model: {provider} ({cls.get('model', '')})")
+    for t in cls.get("targets", []) or []:
+        if isinstance(t, dict):
+            print(
+                f"Layer1 tgt:   {t.get('value', '')} "
+                f"[{t.get('kind', '')} → {t.get('floor', '') or '-'}]"
+            )
+
+
 def _print_llm_meta(meta: dict) -> None:
+    _print_classify_meta(meta)
     llm = _llm_payload_from_meta(meta)
     if not llm:
         return
@@ -719,6 +746,17 @@ def cmd_test(args: argparse.Namespace) -> None:
         if "stages" not in meta:
             meta.update(_bash_test_meta(result))
 
+        # Layer 1: classify a deterministically-unknown command (mirrors main()).
+        from nah.hook import _apply_layer1_classify, _extract_action_type
+        if (
+            decision.get("decision") == taxonomy.ASK
+            and _extract_action_type(meta) in ("", taxonomy.UNKNOWN)
+            and not meta.get("llm_veto")
+            and not meta.get("inline_lang_exec_review")
+        ):
+            decision = _apply_layer1_classify("Bash", {"command": command}, decision)
+            meta = decision.setdefault("_meta", {})
+
         llm_eligible = None
         llm_config_message = ""
         if (
@@ -804,6 +842,12 @@ def cmd_test(args: argparse.Namespace) -> None:
             llm_payload = _llm_payload_from_meta(decision.get("_meta", {}))
             if llm_payload:
                 payload["llm"] = llm_payload
+            classify_pass = _classify_pass_from_meta(decision.get("_meta", {}))
+            if classify_pass:
+                payload["classify_llm"] = classify_pass
+            source = decision.get("_meta", {}).get("action_type_source")
+            if source:
+                payload["action_type_source"] = source
             if llm_eligible is not None:
                 payload["llm_eligible"] = llm_eligible
             if llm_config_message:
@@ -1695,6 +1739,21 @@ def cmd_audit_threat_model(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _primary_llm_pass(entry: dict) -> dict:
+    """Return the decision-relevant LLM pass for a one-line summary.
+
+    entry["llm"] is an ordered list of phase-tagged passes; the last pass is the
+    decisive one (relax/review after any classify). Tolerates the legacy single
+    object shape for forward/backward safety.
+    """
+    passes = entry.get("llm")
+    if isinstance(passes, list) and passes:
+        return passes[-1]
+    if isinstance(passes, dict):
+        return passes
+    return {}
+
+
 def cmd_log(args: argparse.Namespace) -> None:
     """Display recent decision log entries."""
     from nah.log import read_log
@@ -1706,6 +1765,8 @@ def cmd_log(args: argparse.Namespace) -> None:
         filters["decision"] = "ask"
     if getattr(args, "llm", False):
         filters["llm"] = True
+    if getattr(args, "classified", False):
+        filters["classified"] = True
     tool = getattr(args, "tool", None)
     if tool:
         filters["tool"] = tool
@@ -1731,7 +1792,7 @@ def cmd_log(args: argparse.Namespace) -> None:
         reason = entry.get("human_reason") or entry.get("reason", "")
         summary = entry.get("input", "")
         total_ms = entry.get("ms", "")
-        llm = entry.get("llm", {})
+        llm = _primary_llm_pass(entry)
         llm_ms = llm.get("ms", "")
         execution_state = ""
         execution = entry.get("execution", {})
@@ -1769,7 +1830,7 @@ def cmd_log(args: argparse.Namespace) -> None:
             else {}
         )
         if llm_prov:
-            llm_model = entry.get("llm", {}).get("model", "")
+            llm_model = llm.get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
             if llm_model:
                 llm_tag += f"/{llm_model}"
@@ -1788,10 +1849,25 @@ def cmd_log(args: argparse.Namespace) -> None:
             if llm_reason:
                 line += f" — {llm_reason}"
         print(line)
-        if getattr(args, "llm", False):
-            llm_long = llm.get("reasoning_long", "")
-            if llm_long and llm_long != llm.get("reasoning", ""):
-                print(f"     LLM detail: {llm_long}")
+        if getattr(args, "llm", False) or getattr(args, "classified", False):
+            passes = entry.get("llm")
+            if isinstance(passes, list):
+                for p in passes:
+                    if not isinstance(p, dict):
+                        continue
+                    phase = p.get("phase", "review")
+                    if phase == "classify":
+                        mapped = p.get("mapped_type", "")
+                        targets = p.get("targets", [])
+                        tg = ", ".join(
+                            f"{t.get('value','')}[{t.get('kind','')}→{t.get('floor','')}]"
+                            for t in targets if isinstance(t, dict)
+                        )
+                        detail = f"     classify: {mapped}" + (f" — {tg}" if tg else "")
+                        print(detail)
+                    p_long = p.get("reasoning_long", "")
+                    if p_long and p_long != p.get("reasoning", ""):
+                        print(f"     LLM detail ({phase}): {p_long}")
             provenance_long = provenance_llm.get("reasoning_long", "")
             if provenance_long and provenance_long != provenance_llm.get("reasoning", ""):
                 print(f"     LLM detail: {provenance_long}")
@@ -2084,6 +2160,7 @@ def main():
     log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
     log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
     log_parser.add_argument("--llm", action="store_true", help="Show only entries with LLM metadata")
+    log_parser.add_argument("--classified", action="store_true", help="Show only entries with a Layer-1 classify pass")
     log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
     log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
     log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")

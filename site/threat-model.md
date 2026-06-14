@@ -112,3 +112,16 @@ The current audit hit distribution is Bash-heavy by design:
 That means the headline audit number should be read as: strong command-safety
 coverage, plus meaningful file/path/content/search/guard coverage where the
 runtime exposes those actions.
+
+## The LLM layer and its boundary
+
+The optional LLM layer (off by default) never weakens a deterministic decision:
+it can tighten a result, or relax an eligible `ask` to `allow` only with a cited
+user request. The hard security boundary is the **deterministic floor on known
+commands** — it needs no LLM and cannot be talked out of a verdict. Layer 1's
+auto-allow for an `unknown` command re-checks the LLM's surfaced targets against
+that same floor, but it ultimately trusts the classifier to report what the
+command touches: a misaligned or prompt-injected classifier could under-report a
+target. So treat Layer 1 auto-allow as friction reduction under an
+honest-classifier assumption, not as a boundary against a hostile model; the
+deterministic layer remains the thing that catches danger.

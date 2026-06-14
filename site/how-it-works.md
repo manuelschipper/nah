@@ -35,7 +35,8 @@ content, MCP, and guard self-protection layers.
           │
           ▼
   ┌───────────────┐
-  │  LLM (opt.)   │  eligible asks, script veto, write review
+  │  LLM (opt.)   │  classify unknowns, relax eligible asks (cited intent),
+  │               │  script veto, write review
   └───────┬───────┘
           │
           ▼
@@ -108,7 +109,11 @@ Global config wins first. Phase 2 classifier functions run next. In Phase 3,
 built-in prefix tables always run. Project prefix tables run only when the
 active project config root is trusted with `nah trust-project`; untrusted
 project `classify:` entries are ignored and shown as ignored in `nah status`.
-If nothing matches → `unknown`.
+If nothing matches → `unknown`. When LLM mode is on, Layer 1 may classify an
+`unknown` command into an action type plus the targets it touches; the mapped
+type re-enters the policy machinery and each surfaced target is re-checked
+against the same deterministic floor (it can tighten to ask/block, or allow only
+when a surfaced target passes the floor).
 
 ### Built-in classifiers
 

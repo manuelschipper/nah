@@ -496,7 +496,7 @@ def test_permission_request_llm_allow_bypasses_ask_fallback_block(
     assert captured_kwargs["stages"][0]["action_type"]
     entry = _log_entries(tmp_path)[-1]
     assert entry["decision"] == "allow"
-    assert entry["llm"]["decision"] == "allow"
+    assert entry["llm"][0]["decision"] == "allow"
     assert "ask_fallback" not in entry
 
 
@@ -1830,7 +1830,7 @@ def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
     lines = (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
     entries = [json.loads(line) for line in lines]
     assert not any(entry.get("decision") == "error" for entry in entries)
-    assert entries[-1]["llm"]["cascade"][0]["provider"] == "fake"
+    assert entries[-1]["llm"][0]["cascade"][0]["provider"] == "fake"
 
 
 def test_mcp_permission_request_global_allow_emits_allow(project_root):
@@ -1964,7 +1964,7 @@ def test_missing_llm_provider_stderr_is_not_logged_as_hook_error(project_root, m
     lines = (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
     entries = [json.loads(line) for line in lines]
     assert not any(entry.get("decision") == "error" for entry in entries)
-    assert entries[-1]["llm"]["cascade"][0]["provider"] == "fake"
+    assert entries[-1]["llm"][0]["cascade"][0]["provider"] == "fake"
 
 
 # --- Probe delay knob (debug-only; see codex_probe / measure-hook-timeout) ---

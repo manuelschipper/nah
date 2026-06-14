@@ -11,6 +11,7 @@ from nah import paths
 from nah import config
 from nah.config import NahConfig
 from nah.context import (
+    check_host,
     extract_host,
     resolve_context,
     resolve_filesystem_context,
@@ -184,6 +185,51 @@ class TestResolveNetworkContext:
         decision, reason = resolve_network_context(["ssh-copy-id", "user@myserver.com"])
         assert decision == "ask"
         assert "myserver.com" in reason
+
+
+# --- check_host (bare-host entry, used by Layer-1 target re-check) ---
+
+
+class TestCheckHost:
+    def test_known_host_allows(self):
+        decision, reason = check_host("github.com")
+        assert decision == "allow"
+        assert "known host" in reason
+
+    def test_known_host_with_port(self):
+        decision, reason = check_host("github.com:443")
+        assert decision == "allow"
+
+    def test_localhost_read_allows(self):
+        decision, reason = check_host("localhost")
+        assert decision == "allow"
+        assert "localhost" in reason
+
+    def test_localhost_write_asks(self):
+        decision, reason = check_host("localhost", "network_write")
+        assert decision == "ask"
+
+    def test_unknown_host_asks(self):
+        decision, reason = check_host("evil.example")
+        assert decision == "ask"
+        assert "evil.example" in reason
+
+    def test_known_host_write_asks(self):
+        # Known hosts are only trusted for reads; a write to one still asks.
+        decision, reason = check_host("github.com", "network_write")
+        assert decision == "ask"
+
+    def test_empty_host_asks(self):
+        decision, reason = check_host("")
+        assert decision == "ask"
+        assert "unknown host" in reason
+
+    def test_parity_with_resolve_network_context(self):
+        # check_host on the extracted host must match resolve_network_context.
+        tokens = ["curl", "https://evil.com/data"]
+        net = resolve_network_context(tokens)
+        direct = check_host("evil.com")
+        assert net == direct
 
 
 # --- extract_host ---

@@ -68,7 +68,7 @@ def _assert_risk_labels_present(text: str):
 def test_llm_timeout_budget_caps_provider_timeout(monkeypatch):
     seen = []
 
-    def fake_provider(provider_config, _prompt):
+    def fake_provider(provider_config, _prompt, parse=None):
         seen.append(provider_config["timeout"])
         return None
 
@@ -88,7 +88,7 @@ def test_llm_timeout_budget_caps_provider_timeout(monkeypatch):
 def test_llm_timeout_budget_skips_provider_when_exhausted(monkeypatch):
     called = False
 
-    def fake_provider(_provider_config, _prompt):
+    def fake_provider(_provider_config, _prompt, parse=None):
         nonlocal called
         called = True
         return None
@@ -456,6 +456,7 @@ class TestHookIntegration:
             model="qwen3",
             latency_ms=12,
             reasoning="user asked for cleanup",
+            citation="please clean up the build artifacts",
             cascade=[ProviderAttempt("ollama", "success", 12, "qwen3")],
         )
 
@@ -531,6 +532,7 @@ class TestHookIntegration:
             model="qwen3",
             latency_ms=12,
             reasoning="browser debugging",
+            citation="open the browser console to debug",
             cascade=[ProviderAttempt("ollama", "success", 12, "qwen3")],
         )
         cfg = NahConfig(

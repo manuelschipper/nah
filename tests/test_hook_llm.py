@@ -364,6 +364,7 @@ class TestMainUnifiedLlm:
             model="qwen3",
             latency_ms=10,
             reasoning="user asked for cleanup",
+            citation="please clean up the build artifacts",
             cascade=[ProviderAttempt("ollama", "success", 10, "qwen3")],
         )
 
@@ -380,6 +381,29 @@ class TestMainUnifiedLlm:
         assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
         mock_try_llm.assert_called_once()
         assert mock_try_llm.call_args.kwargs["stages"][0]["action_type"] == "filesystem_delete"
+
+    def test_main_cite_or_ask_keeps_uncited_allow_as_ask(self):
+        # An LLM allow with NO citation is not trusted (cite-or-ask): stays ask.
+        uncited = LLMCallResult(
+            decision={"decision": "allow", "reason": "Bash (LLM): seems fine"},
+            provider="ollama",
+            model="qwen3",
+            latency_ms=10,
+            reasoning="seems fine",
+            citation="",
+            cascade=[ProviderAttempt("ollama", "success", 10, "qwen3")],
+        )
+        with patch("nah.config.get_config", return_value=NahConfig(
+            llm_mode="on",
+            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
+            llm_eligible=["filesystem_delete"],
+        )), \
+             patch("nah.hook.classify_command", return_value=_ask_result()), \
+             patch("nah.llm.try_llm_unified", return_value=uncited), \
+             patch("nah.hook._log_hook_decision"):
+            result = _run_hook(self._payload())
+
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
     def test_main_skips_ineligible_ask(self):
         with patch("nah.config.get_config", return_value=NahConfig(
@@ -402,6 +426,7 @@ class TestMainUnifiedLlm:
             model="qwen3",
             latency_ms=10,
             reasoning="user asked to uninstall",
+            citation="please uninstall the old package",
             cascade=[ProviderAttempt("ollama", "success", 10, "qwen3")],
         )
 
