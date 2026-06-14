@@ -309,6 +309,7 @@ nah log                          # last 50 decisions
 nah log --blocks                 # only blocked decisions
 nah log --asks                   # only ask decisions
 nah log --llm                    # only decisions with LLM metadata
+nah log --classified             # only decisions with a Layer-1 classify pass
 nah log --tool Bash -n 20        # filter by tool, limit entries
 nah log --json                   # machine-readable JSONL output
 ```
@@ -320,6 +321,7 @@ nah log --json                   # machine-readable JSONL output
 | `--blocks` | Show only blocked decisions |
 | `--asks` | Show only ask decisions |
 | `--llm` | Show only entries with LLM metadata |
+| `--classified` | Show only entries with a Layer-1 classify pass |
 | `--tool TOOL` | Filter by tool name (Bash, Read, Write, ...) |
 | `-n`, `--limit N` | Number of entries (default: 50) |
 | `--json` | Output as JSON lines |

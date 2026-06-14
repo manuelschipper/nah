@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two-layer LLM: classify unknowns, relax with cited intent** (nah-982). The
+  optional LLM layer (still off by default; `llm.mode: on`) is split into two
+  single-purpose roles behind the unchanged deterministic floor:
+  - **Layer 1 — classify-unknown.** When the deterministic classifier returns
+    `unknown` for a Bash command, an LLM maps it to an action type and the
+    kind-tagged targets it touches. The mapped type re-enters the normal policy
+    machinery and **each surfaced target is re-checked through the same
+    deterministic floor** (sensitive paths, project boundary, known hosts): the
+    LLM extracts, the floor matches. A read of `~/.ssh` is never auto-allowed;
+    an unverifiable target falls back to ask; an obfuscated unknown can tighten
+    to block. Fail-closed and process-cached.
+  - **Layer 2 — intent relaxer.** The ask-refinement pass now requires a
+    **citation**: an LLM `allow` must quote the recent user message that
+    authorizes the operation, else it stays ask (cite-or-ask). A successful
+    relax is surfaced as a distinct **`relaxed`** outcome.
+  - **Decision log.** `entry["llm"]` is now an ordered list of phase-tagged
+    passes (`classify`, `relax`, …), with a top-level `action_type_source`
+    (`deterministic`|`llm_classify`) and a new `nah log --classified` filter.
+    `nah test` shows the Layer-1 classification and per-target floor verdicts.
 - **Codex hook-timeout probe** — `nah run codex --probe[=DELAY]` arms a
   debug-only stall in nah's Codex hooks (gated behind `NAH_HOOK_PROBE`, capped
   at 60s, verdict unchanged) so you can observe the timeout Codex actually
