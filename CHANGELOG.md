@@ -22,10 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     LLM extracts, the floor matches. A read of `~/.ssh` is never auto-allowed;
     an unverifiable target falls back to ask; an obfuscated unknown can tighten
     to block. Fail-closed and process-cached.
-  - **Layer 2 — intent relaxer.** The ask-refinement pass now requires a
-    **citation**: an LLM `allow` must quote the recent user message that
-    authorizes the operation, else it stays ask (cite-or-ask). A successful
-    relax is surfaced as a distinct **`relaxed`** outcome.
+  - **Layer 2 — intent relaxer.** The ask-refinement pass is strictly
+    **cite-or-ask**: it relaxes an eligible `ask` to `allow` only when it can
+    quote the recent user message that authorizes the action (a `citation`),
+    with no "routine low-risk" auto-allow; otherwise it stays ask. A successful
+    relax is surfaced as a distinct **`relaxed`** outcome. The prompt is
+    token-tight (static rules cached in the system message; the per-ask message
+    is just the command, cwd/scope, and the user's own messages — ~700→~420
+    input tokens), `inside project` is treated as a blast-radius weight, and the
+    citation may only come from the user-message block — not the command being
+    judged (nah-984).
   - **Decision log.** `entry["llm"]` is now an ordered list of phase-tagged
     passes (`classify`, `relax`, …), with a top-level `action_type_source`
     (`deterministic`|`llm_classify`) and a new `nah log --classified` filter.

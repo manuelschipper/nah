@@ -15,6 +15,7 @@ from nah.llm import (
     LLMCallResult,
     ProviderAttempt,
     PromptParts,
+    _AGENT_ASK_SYSTEM,
     _build_codex_permission_request_prompt,
     _build_unified_prompt,
     _try_providers,
@@ -61,8 +62,9 @@ def _ask_result(command: str = "rm -rf dist/") -> ClassifyResult:
 
 
 def _assert_risk_labels_present(text: str):
+    lowered = text.lower()
     for category in LLM_RISK_CATEGORIES:
-        assert category.label in text
+        assert category.label.lower() in lowered
 
 
 def test_llm_timeout_budget_caps_provider_timeout(monkeypatch):
@@ -143,30 +145,25 @@ class TestUnifiedPrompt:
         )
 
         assert isinstance(prompt, PromptParts)
-        assert prompt.system == "You are a security classifier for a coding assistant."
-        assert "can proceed automatically or should keep human approval" in prompt.user
-        assert "## Runtime" not in prompt.user
-        assert "Bash" in prompt.user
-        assert "rm -rf dist/" in prompt.user
-        assert "filesystem_delete" in prompt.user
-        assert "outside project" in prompt.user
-        assert "## Deterministic Breakdown" in prompt.user
-        assert "## Classification Stages" not in prompt.user
-        assert '"action_type":"filesystem_delete"' in prompt.user
-        assert "## Recent User Intent" in prompt.user
-        assert "Recent Conversation Context" not in prompt.user
+        # Layer 2 system prompt is its own static rules block (nah-984).
+        assert prompt.system == _AGENT_ASK_SYSTEM
+        # User block = command + scope + the user's own messages, nothing else.
+        assert "command: rm -rf dist/" in prompt.user
+        assert "cwd:" in prompt.user and "inside project:" in prompt.user
+        assert "recent user messages:" in prompt.user
         assert "User: clean the build output" in prompt.user
+        # nah-internal scaffolding is gone from the prompt.
+        assert "## Deterministic Breakdown" not in prompt.user
+        assert '"action_type":"filesystem_delete"' not in prompt.user
+        assert "filesystem_delete" not in prompt.user
+        assert "Classification:" not in prompt.user
+        assert "## Shared Risk Categories" not in prompt.user
         assert "## Instruction Context" not in prompt.user
         assert "AGENTS.md" not in prompt.user
         assert "CLAUDE.md" not in prompt.user
-        assert "blocks stay blocked" not in prompt.user
-        assert "High-impact actions are not categorically forbidden here" not in prompt.user
-        assert "safe local read-to-filter pipelines" not in prompt.user
-        assert "For process signals" not in prompt.user
-        assert "For remote Git writes" not in prompt.user
-        assert "## Shared Risk Categories" in prompt.user
-        assert prompt.user.count("Credentials and sensitive paths") == 1
-        _assert_risk_labels_present(prompt.user)
+        # Risk checklist + cite-or-ask + scope live in the (static) system msg.
+        _assert_risk_labels_present(prompt.system)
+        assert "Cite only from the recent user messages" in prompt.system
 
     def test_missing_transcript_uses_placeholder(self):
         prompt = _build_unified_prompt(
@@ -176,8 +173,8 @@ class TestUnifiedPrompt:
             "outside project",
             "",
         )
-        assert "## Recent User Intent" in prompt.user
-        assert "(not available)" in prompt.user
+        assert "recent user messages:" in prompt.user
+        assert "(none)" in prompt.user
 
     def test_codex_prompt_uses_same_generic_rules(self):
         prompt = _build_codex_permission_request_prompt(
@@ -195,19 +192,19 @@ class TestUnifiedPrompt:
         )
 
         assert isinstance(prompt, PromptParts)
-        assert "Runtime: Codex PermissionRequest" not in prompt.user
-        assert "nah returns an allow verdict to Codex" not in prompt.user
+        # Codex delegates to the same builder -> same compact prompt.
+        assert prompt.system == _AGENT_ASK_SYSTEM
+        assert "command: git push origin main" in prompt.user
         assert "User: push the current branch" in prompt.user
+        assert "Runtime: Codex PermissionRequest" not in prompt.user
+        assert '"action_type":"git_write"' not in prompt.user
+        assert "git_write" not in prompt.user
         assert "File: AGENTS.md" not in prompt.user
-        assert '"action_type":"git_write"' in prompt.user
-        assert "deterministic classification as the safety boundary" not in prompt.user
-        assert "High-impact actions are not categorically forbidden here" not in prompt.user
-        assert "safe local read-to-filter pipelines" not in prompt.user
-        assert "For process signals" not in prompt.user
-        assert "For remote Git writes" not in prompt.user
-        _assert_risk_labels_present(prompt.user)
+        _assert_risk_labels_present(prompt.system)
 
-    def test_unknown_prompt_gets_visibility_note(self):
+    def test_unknown_prompt_has_no_special_note(self):
+        # The redesign dropped the unknown-action visibility note (Layer 1 now
+        # classifies unknowns first); the prompt is the same compact shape.
         prompt = _build_unified_prompt(
             "Bash",
             "custom-tool frobnicate",
@@ -221,9 +218,8 @@ class TestUnifiedPrompt:
                 "reason": "unknown -> ask",
             }],
         )
-
-        assert "the deterministic classifier did not recognize the" in prompt.user
-        assert "command shape" in prompt.user
+        assert "did not recognize the" not in prompt.user
+        assert "command: custom-tool frobnicate" in prompt.user
 
     def test_non_unknown_prompt_omits_visibility_note(self):
         prompt = _build_unified_prompt(
@@ -315,7 +311,7 @@ class TestUnifiedTryLlm:
         assert "Project instructions:" not in captured["prompt"].user
         assert "CLAUDE.md" not in captured["prompt"].user
         assert "Claude project rules" not in captured["prompt"].user
-        assert '"action_type":"filesystem_delete"' in captured["prompt"].user
+        assert "command: remove build output" in captured["prompt"].user
 
     def test_try_codex_reads_transcript_without_agents_md(self, tmp_path):
         transcript = tmp_path / "transcript.jsonl"
@@ -348,7 +344,7 @@ class TestUnifiedTryLlm:
         assert "Project instructions:" not in captured["prompt"].user
         assert "AGENTS.md" not in captured["prompt"].user
         assert "Codex project rules" not in captured["prompt"].user
-        assert '"action_type":"git_write"' in captured["prompt"].user
+        assert "command: git push origin main" in captured["prompt"].user
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_block_response_is_treated_as_uncertain(self, mock_urlopen):

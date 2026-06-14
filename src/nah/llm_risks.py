@@ -76,6 +76,17 @@ def render_llm_risk_categories() -> str:
     )
 
 
+def render_llm_risk_labels() -> str:
+    """Render the canonical risk categories as a compact inline checklist.
+
+    Labels only (no example sub-lists), semicolon-separated — for token-tight
+    prompts that still want every category as a checklist. Same source as the
+    verbose renderers, so the two can never drift.
+    """
+
+    return "; ".join(category.label.lower() for category in LLM_RISK_CATEGORIES)
+
+
 def render_llm_risk_section(intro: str) -> str:
     """Render an intro plus the canonical risk category bullets."""
 
