@@ -4,6 +4,7 @@ from nah.llm_risks import (
     LLM_RISK_CATEGORIES,
     llm_risk_category_ids,
     render_llm_risk_categories,
+    render_llm_risk_labels,
     render_llm_risk_section,
 )
 
@@ -48,3 +49,17 @@ def test_rendered_section_keeps_surface_specific_intro():
     assert rendered.startswith("Choose uncertain when the script visibly does:")
     assert "Credentials and sensitive paths" in rendered
     assert "Explicit user safety-scope conflict" in rendered
+
+
+def test_compact_labels_cover_every_category():
+    """The compact Layer-2 checklist must list every category (drift guard)."""
+    labels = render_llm_risk_labels()
+    # one semicolon-joined entry per category
+    assert labels.count(";") == len(LLM_RISK_CATEGORIES) - 1
+    for category in LLM_RISK_CATEGORIES:
+        assert category.label.lower() in labels
+    # labels only — no verbose example descriptions
+    for category in LLM_RISK_CATEGORIES:
+        assert category.description not in labels
+    # materially cheaper than the verbose render (the whole point)
+    assert len(labels) < len(render_llm_risk_categories()) // 2
