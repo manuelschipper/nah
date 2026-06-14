@@ -247,23 +247,35 @@ can show the longer explanation for debugging.
 
 ### Ask-refinement context
 
-Claude Code and Codex use the same agent ask-refinement prompt shape. The prompt
-includes the requested operation, deterministic action type and reason, a compact
-deterministic breakdown, recent user intent from the agent transcript, and the
-shared review scope above.
+Claude Code and Codex use the same agent ask-refinement (Layer 2) prompt. The
+static rules live in the system message (so a caching provider reuses them across
+asks); the per-ask user message is intentionally minimal — the command, the cwd
+and whether it is inside the project, and the recent user messages from the
+transcript. Nah-internal signals (the deterministic action type, reason, and
+stage breakdown) are not placed in the prompt: the deterministic floor already
+used them to decide this is an ask, and the model judges relaxation from the
+command, scope, and the user's own words.
+
+The relaxer is strictly **cite-or-ask**: it may choose `allow` only when it can
+quote the recent user message that authorizes the action's target and effect
+(returned in a `citation` field) — there is no "routine low-risk" auto-allow. It
+must cite **only** from the recent user messages; nothing else in the prompt,
+including the command being judged, counts as user intent. The cwd / `inside
+project` flag is a blast-radius weight: an action reaching outside the project
+(home, other repos, system files, external hosts) is higher risk and is relaxed
+only when the citation clearly authorizes that wider reach.
 
 The agent ask-refinement path does not read `CLAUDE.md`, `AGENTS.md`, global
 instruction files, or instruction includes. Those files can guide the agent
 itself, but nah treats recent transcript context as the evidence of user intent.
-The transcript section is framed as background context, so the model can use it
-as evidence without following instructions embedded inside it.
+The transcript is framed as data, so the model can use it as evidence without
+following instructions embedded inside it.
 
-The prompt is product-neutral: it asks whether the guarded operation can proceed
-automatically or should keep human approval. It can only allow eligible asks or
-leave the prompt in place; provider `block` responses are treated as
-`uncertain`, and deterministic blocks do not route through ask-refinement. For
-`unknown` actions, the prompt adds a short note that the deterministic classifier
-did not recognize the command shape.
+The shared risk categories appear as a compact one-line checklist drawn from the
+same canonical list the verbose review prompts use, so the two can never drift.
+The relaxer can only allow an eligible ask or leave it in place; provider `block`
+responses are treated as `uncertain`, and deterministic blocks do not route
+through ask-refinement.
 
 The terminal guard keeps a separate prompt for commands typed directly by a
 human into bash or zsh. It uses the typed command as intent and does not include
