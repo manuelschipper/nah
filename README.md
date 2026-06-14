@@ -300,5 +300,5 @@ allows.
 
 <p align="center">
   <code>bypass modes?</code><br><br>
-  <img src="https://raw.githubusercontent.com/manuelschipper/nah/main/assets/logo_hammock.png" alt="nah" width="280">
+  <img src="https://raw.githubusercontent.com/manuelschipper/nah/main/assets/logo_hammock-round.png" alt="nah" width="280">
 </p>
