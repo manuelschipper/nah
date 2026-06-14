@@ -252,6 +252,14 @@ class TestBuildPrompt:
         # No "routine low-risk" escape hatch.
         assert "routine" not in sys.lower()
 
+    def test_risk_is_a_veto_even_with_citation(self):
+        # nah-984 invariant: allow requires a citation AND no visible risk; a
+        # citation must NOT override a risk category. The allow rule is an
+        # explicit conjunction and says so outright.
+        sys = _build_prompt(self._make_result()).system
+        assert "BOTH" in sys
+        assert "never overrides a visible risk" in sys
+
 
 class TestBuildTerminalGuardPrompt:
     def test_terminal_prompt_assumes_direct_user_intent(self):
