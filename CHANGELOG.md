@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **flux global flag stripping before subcommand classification** — `flux -n <ns> get kustomizations`, `flux --namespace=<ns> list`, and other flux commands that carry kubeconfig-style global flags (`-n/--namespace`, `--context`, `--kubeconfig`, `--timeout`, `--token`, ...) now strip those flags before the global-table prefix match instead of falling through to `unknown`. Mirrors the kubectl/talosctl idiom and fails closed: unknown or malformed pre-subcommand flags stay on the `unknown` ask path, and destructive subcommands such as `flux delete`/`flux uninstall` still classify as configured. Closes [#87](https://github.com/manuelschipper/nah/issues/87); PR [#90](https://github.com/manuelschipper/nah/pull/90) by [@srgvg](https://github.com/srgvg).
 - **Codex hook-timeout probe** — `nah run codex --probe[=DELAY]` arms a
   debug-only stall in nah's Codex hooks (gated behind `NAH_HOOK_PROBE`, capped
   at 60s, verdict unchanged) so you can observe the timeout Codex actually
