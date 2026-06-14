@@ -7,7 +7,7 @@ import sys
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
 from nah.content import is_credential_search, get_secret_patterns
-from nah.messages import enrich_decision
+from nah.messages import enrich_decision, system_byline
 
 _transcript_path: str = ""  # set per-invocation by main()
 _AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
@@ -221,7 +221,7 @@ def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -
         clean = clean.strip()
         if clean:
             det_result["_llm_reason"] = clean
-            det_result["_system_message"] = f"nah: {clean}"
+            det_result["_system_message"] = system_byline(taxonomy.ASK, clean)
 
     # Write review never returns a final block. Non-allow provider decisions
     # keep or escalate to ask for human review.
@@ -752,9 +752,9 @@ def apply_layer2_relax(decision: dict, llm_call, cfg) -> tuple[dict, str]:
         meta["llm_citation"] = citation
         would_ask = decision.get("reason", "")
         relaxed = {**llm_call.decision, "_meta": meta}
-        relaxed["_system_message"] = (
-            f"nah: allowed (relaxed) — normally asks: "
-            f"{would_ask}; you asked: {citation[:140]}"
+        relaxed["_system_message"] = system_byline(
+            taxonomy.ALLOW,
+            f"normally asks: {would_ask}; you asked: {citation[:140]}",
         )
         return relaxed, "relaxed"
 
@@ -765,8 +765,8 @@ def apply_layer2_relax(decision: dict, llm_call, cfg) -> tuple[dict, str]:
         meta["llm_review"] = "uncited"
         if llm_call.reasoning:
             decision["_llm_reason"] = llm_call.reasoning
-        decision["_system_message"] = (
-            f"nah: {llm_call.reasoning or 'no cited user intent'}"
+        decision["_system_message"] = system_byline(
+            taxonomy.ASK, llm_call.reasoning or "no cited user intent"
         )
         return decision, "uncited"
 
@@ -774,7 +774,9 @@ def apply_layer2_relax(decision: dict, llm_call, cfg) -> tuple[dict, str]:
     # the transcript as context for future calls when the tool eventually runs.
     if llm_call.reasoning:
         decision["_llm_reason"] = llm_call.reasoning
-    decision["_system_message"] = f"nah: {llm_call.reasoning or 'uncertain'}"
+    decision["_system_message"] = system_byline(
+        taxonomy.ASK, llm_call.reasoning or "uncertain"
+    )
     return decision, "uncertain"
 
 

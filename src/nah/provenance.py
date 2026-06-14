@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from nah import taxonomy
+from nah.messages import system_byline
 
 VALID_MODES = {"off", "audit", "enforce"}
 VALID_POLICIES = {"allow", "context", "ask", "block"}
@@ -579,7 +580,7 @@ def _apply_policy_decision(
     if DECISION_STRICTNESS[final_decision] > DECISION_STRICTNESS.get(original_decision, 0):
         decision["decision"] = final_decision
         decision["reason"] = reason
-        decision["_system_message"] = f"nah paused: {reason}"
+        decision["_system_message"] = system_byline(final_decision, reason)
         applied["enforced"] = True
     return applied
 

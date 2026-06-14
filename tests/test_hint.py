@@ -58,7 +58,7 @@ class TestNoDecisionHints:
 
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-        assert reason.startswith("nah paused: this can rewrite Git history.")
+        assert reason.startswith("nah paused - this can rewrite Git history.")
         _assert_no_remediation_text(reason)
 
     def test_bash_unknown_ask_has_no_classify_hint(self):
@@ -122,5 +122,5 @@ class TestNoDecisionHints:
         }
         output = _to_hook_output(decision, "claude")
         reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-        assert reason.startswith("nah paused:")
+        assert reason.startswith("nah paused -")
         _assert_no_remediation_text(reason)

@@ -94,6 +94,11 @@ _BRAND_COLORS = {
     "nah paused": _ANSI_YELLOW,
     "nah blocked": _ANSI_RED,
 }
+_BYLINE_LABELS = {
+    taxonomy.ASK: "nah paused",
+    taxonomy.BLOCK: "nah blocked",
+    taxonomy.ALLOW: "nah allowed",
+}
 
 
 def human_reason(
@@ -195,11 +200,26 @@ def brand(
     """Render a branded first line while preserving any following diagnostics."""
     first, sep, rest = str(message or "").partition("\n")
     first = _finalize(first) or "this needs confirmation before it can run"
-    line = f"{prefix}: {first}{_terminal_punctuation(first)}"
+    line = f"{prefix} - {first}{_terminal_punctuation(first)}"
     color_code = _brand_color(prefix, color=color, assume_tty=assume_tty)
     if color_code:
         line = f"{color_code}{line}{_ANSI_RESET}"
     return f"{line}{sep}{rest}" if sep else line
+
+
+def system_byline(decision: str, message: str = "") -> str:
+    """Brand a secondary system-message line by decision state.
+
+    The permission dialog already carries a state label via :func:`brand`
+    (``nah paused``/``nah blocked``); this is the neutral byline Claude
+    surfaces separately as ``PreToolUse:<tool> says: ...``. It mirrors that
+    vocabulary — adding ``nah allowed`` for relaxed allows — as a
+    ``"<label> - <message>"`` line, and strips any redundant nah-prefix from
+    ``message`` so the brand never doubles up.
+    """
+    label = _BYLINE_LABELS.get(decision, "nah")
+    cleaned = _finalize(message)
+    return f"{label} - {cleaned}" if cleaned else label
 
 
 def _brand_color(prefix: str, *, color: str | bool, assume_tty: bool) -> str:
@@ -229,7 +249,7 @@ def _terminal_punctuation(text: str) -> str:
 
 def _finalize(text: str) -> str:
     text = _sanitize_text(text)
-    text = re.sub(r"^nah\s+(?:paused|blocked)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^nah\s+(?:paused|blocked|allowed)\s*[:\-]\s*", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"^(?:nah[\s:?.-]+)+", "", text, flags=re.IGNORECASE).strip()
     text = text.rstrip(" .")
     return text

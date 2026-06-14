@@ -435,7 +435,7 @@ def test_terminal_confirm_prompt_shows_command_and_llm_reason(monkeypatch, tmp_p
 
     text = stderr.getvalue()
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
-    assert "nah paused: this contacts an untrusted host: evil.example." in text
+    assert "nah paused - this contacts an untrusted host: evil.example." in text
     assert "Command: curl evil.example" in text
     assert "LLM: no matching request" in text
     assert text.count("Run anyway? [y/N]") == 1
@@ -515,7 +515,7 @@ def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
     assert result.denied is True
     text = stderr.getvalue()
-    assert text.count("nah paused:") == 1
+    assert text.count("nah paused -") == 1
     assert "this can rewrite Git history" in text
     assert "Command: git push --force" in text
     assert text.count("Run anyway? [y/N]") == 1

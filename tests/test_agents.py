@@ -61,14 +61,14 @@ class TestFormatBlock:
         result = agents.format_block("dangerous command", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny"
-        assert hso["permissionDecisionReason"] == "nah blocked: dangerous command."
+        assert hso["permissionDecisionReason"] == "nah blocked - dangerous command."
         assert hso["hookEventName"] == "PreToolUse"
 
     def test_claude_empty_reason(self):
         result = agents.format_block("", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny"
-        assert hso["permissionDecisionReason"] == "nah blocked: this was blocked before it could run."
+        assert hso["permissionDecisionReason"] == "nah blocked - this was blocked before it could run."
 
     def test_claude_color_when_enabled(self, monkeypatch):
         monkeypatch.delenv("NO_COLOR", raising=False)
@@ -77,7 +77,7 @@ class TestFormatBlock:
         result = agents.format_block("dangerous command", "claude")
 
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecisionReason"] == "\033[31mnah blocked: dangerous command.\033[0m"
+        assert hso["permissionDecisionReason"] == "\033[31mnah blocked - dangerous command.\033[0m"
 
 
 class TestFormatAsk:
@@ -85,12 +85,12 @@ class TestFormatAsk:
         result = agents.format_ask("needs confirmation", "claude")
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "ask"
-        assert hso["permissionDecisionReason"] == "nah paused: needs confirmation."
+        assert hso["permissionDecisionReason"] == "nah paused - needs confirmation."
 
     def test_empty_reason(self):
         result = agents.format_ask("", "claude")
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecisionReason"] == "nah paused: this needs confirmation before it can run."
+        assert hso["permissionDecisionReason"] == "nah paused - this needs confirmation before it can run."
 
     def test_claude_color_when_enabled(self, monkeypatch):
         monkeypatch.delenv("NO_COLOR", raising=False)
@@ -99,7 +99,7 @@ class TestFormatAsk:
         result = agents.format_ask("needs confirmation", "claude")
 
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecisionReason"] == "\033[33mnah paused: needs confirmation.\033[0m"
+        assert hso["permissionDecisionReason"] == "\033[33mnah paused - needs confirmation.\033[0m"
 
     def test_claude_color_respects_no_color(self):
         config._cached_config = NahConfig(ui_color="always")
@@ -107,7 +107,7 @@ class TestFormatAsk:
         result = agents.format_ask("needs confirmation", "claude")
 
         hso = result["hookSpecificOutput"]
-        assert hso["permissionDecisionReason"] == "nah paused: needs confirmation."
+        assert hso["permissionDecisionReason"] == "nah paused - needs confirmation."
 
 
 class TestFormatAllow:
@@ -123,7 +123,7 @@ class TestFormatError:
         hso = result["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny"
         assert "oops" in hso["permissionDecisionReason"]
-        assert "nah: internal error" in hso["permissionDecisionReason"]
+        assert "nah blocked - internal error" in hso["permissionDecisionReason"]
 
 
 # --- MCP matcher registration (FD-024) ---

@@ -12,7 +12,7 @@ from typing import TextIO
 _ASK = (
     '{"hookSpecificOutput": {"hookEventName": "PreToolUse", '
     '"permissionDecision": "ask", '
-    '"permissionDecisionReason": "nah: error, requesting confirmation"}}\n'
+    '"permissionDecisionReason": "nah paused - error, requesting confirmation"}}\n'
 )
 _POST_TOOL_EVENTS = {"PostToolUse", "PostToolUseFailure"}
 _LOG_MAX = 1_000_000

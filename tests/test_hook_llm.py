@@ -528,5 +528,5 @@ class TestMainUnifiedLlm:
 
         reason = result["hookSpecificOutput"]["permissionDecisionReason"]
         lines = reason.splitlines()
-        assert lines[0] == "nah paused: this sends sensitive local data over the network."
+        assert lines[0] == "nah paused - this sends sensitive local data over the network."
         assert "LLM: data flow needs review" in lines[1]

@@ -1564,7 +1564,7 @@ class TestTargetLifecycleCli:
 
         assert exc.value.code == 10
         err = capsys.readouterr().err
-        assert err.count("nah paused:") == 1
+        assert err.count("nah paused -") == 1
         assert err.count("Run anyway? [y/N]") == 1
 
     def test_no_public_terminal_command(self, monkeypatch, capsys):
