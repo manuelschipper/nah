@@ -275,6 +275,26 @@ following instructions embedded inside it.
 
 The shared risk categories appear as a compact one-line checklist drawn from the
 same canonical list the verbose review prompts use, so the two can never drift.
+Each category carries a **veto tier**: a **hard** category (credentials,
+exfiltration, untrusted/obfuscated execution, safety/sandbox bypass, explicit
+user-scope conflict) is never relaxable — a citation can never override it. A
+**soft** category (external/remote mutation, destructive state, privileged state,
+persistence/trust-boundary changes) is consequential but routinely authorized, so
+a citation **may** relax it — but only for the specific action types that opt in.
+The opt-in is per action: a soft category's veto is lifted from the checklist only
+when judging an action allowed to relax it, so the same category still vetoes
+every other action.
+
+Today exactly one soft relaxation is enabled: a **`git push` (`git_remote_write`)
+relaxes on cited user intent** (e.g. "push please"), with **no destination check**.
+This is an accepted, documented security-debt tradeoff: a misaligned agent that
+repoints the repo's remote could have a cited push relaxed to an attacker
+destination. The exposure is narrow — it needs both a repoint and a real cited
+push intent, and the deterministic floor still makes every push an `ask` by
+default; only the optional Layer-2 relax is affected. The durable fix (snapshot
+the trusted destination at session start and relax only if it has not moved at
+push time) is tracked separately.
+
 The relaxer can only allow an eligible ask or leave it in place; provider `block`
 responses are treated as `uncertain`, and deterministic blocks do not route
 through ask-refinement.

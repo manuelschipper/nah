@@ -194,6 +194,41 @@ class TestRelaxPrompt:
 
         assert "did not recognize the command shape" not in prompt.user
 
+    # nah-986: per-action soft-veto relaxation.
+    _EXT_MUT = "production, shared, remote, or external mutations"
+
+    def test_git_push_prompt_lifts_external_mutation_veto(self):
+        prompt = _build_relax_prompt(
+            "git push origin main",
+            "User: push the current branch",
+            "git_remote_write",
+        )
+        # external_mutation is removed from the veto checklist for git push...
+        assert self._EXT_MUT not in prompt.system.lower()
+        # ...but every HARD category still vetoes...
+        assert "exfiltration" in prompt.system.lower()
+        assert "credentials and sensitive paths" in prompt.system.lower()
+        assert "safety, sandbox, approval, or audit bypass" in prompt.system.lower()
+        # ...and soft-but-NOT-enabled categories still veto.
+        assert "destructive or hard-to-reverse" in prompt.system.lower()
+        assert "privileged runtime or system state" in prompt.system.lower()
+
+    def test_non_enabled_action_keeps_full_veto_list(self):
+        # Any action type not in _RELAX_ENABLED gets the unchanged full prompt.
+        for action_type in ("", "unknown", "lang_exec", "filesystem_delete"):
+            prompt = _build_relax_prompt("some cmd", "User: do it", action_type)
+            assert prompt.system == _RELAX_SYSTEM
+            assert self._EXT_MUT in prompt.system.lower()
+
+    def test_relax_enabled_only_lifts_soft_categories(self):
+        # Guard: nothing in _RELAX_ENABLED may lift a HARD category.
+        from nah.llm import _RELAX_ENABLED
+        from nah.llm_risks import llm_risk_tiers
+        tiers = llm_risk_tiers()
+        for action_type, lifted in _RELAX_ENABLED.items():
+            for cid in lifted:
+                assert tiers.get(cid) == "soft", (action_type, cid)
+
 
 class TestTranscriptRoles:
     def test_roles_user_filters_assistant_text_but_keeps_tool_summary(self, tmp_path):

@@ -46,6 +46,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Layer-2 risk veto is now tiered (hard vs soft), and `git push` relaxes on
+  cited intent.** Each LLM risk category carries a veto tier: **hard** categories
+  (credentials, exfiltration, untrusted execution, safety bypass, user-scope
+  conflict) can never be relaxed by a citation; **soft** categories (external
+  mutation, destructive/privileged state, persistence) may be relaxed, per
+  opt-in action type. The first opt-in: a `git push` (`git_remote_write`) now
+  auto-relaxes when a recent user message authorizes it (e.g. "push please"),
+  instead of always asking. The veto for a soft category is lifted only when
+  judging an action allowed to relax it, so every other action is unchanged. No
+  destination check is performed — an accepted, documented security-debt tradeoff
+  (a repointed remote could relax a cited push to an attacker URL; the floor still
+  asks on every push by default, and the durable destination-snapshot fix is
+  tracked separately). (nah-986)
 - **LLM/content review boundary** — file-backed scripts and write-like tool
   payloads no longer use deterministic body/content scans. File-backed
   `lang_exec` now relies on path and boundary checks, visible non-shell inline
