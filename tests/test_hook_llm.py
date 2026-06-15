@@ -527,6 +527,11 @@ class TestMainUnifiedLlm:
             })
 
         reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-        lines = reason.splitlines()
-        assert lines[0] == "nah paused - this sends sensitive local data over the network."
-        assert "LLM: data flow needs review" in lines[1]
+        # LLM reasoning renders inline after the generic message — no newline,
+        # no "LLM:" prefix, no indent.
+        assert reason == (
+            "nah paused - this sends sensitive local data over the network. "
+            "data flow needs review."
+        )
+        assert "\n" not in reason
+        assert "LLM:" not in reason

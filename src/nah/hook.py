@@ -868,11 +868,27 @@ def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
                 if llm_decision is not None:
                     meta["inline_lang_exec_review"] = "ask"
                     meta["llm_veto"] = True
-                    return {
+                    llm_reason = llm_decision.get("reason", "")
+                    # Surface the LLM verdict on the interactive prompt the same
+                    # way the write-LLM gate and Layer-2 relax do. _to_hook_output
+                    # shadows decision["reason"] with the generic human_reason and
+                    # only renders the "LLM:" line / systemMessage from these two
+                    # fields, so without them the reasoning is dropped from the
+                    # prompt (it would survive only in nah log / nah test).
+                    clean = llm_reason
+                    for prefix in ("Bash (LLM): ", "LLM: "):
+                        if clean.startswith(prefix):
+                            clean = clean[len(prefix):]
+                    clean = clean.strip()
+                    ask = {
                         "decision": taxonomy.ASK,
-                        "reason": llm_decision.get("reason", "Bash (LLM): human review needed"),
+                        "reason": llm_reason or "Bash (LLM): human review needed",
                         "_meta": meta,
                     }
+                    if clean:
+                        ask["_llm_reason"] = clean
+                        ask["_system_message"] = system_byline(taxonomy.ASK, clean)
+                    return ask
             meta["inline_lang_exec_review"] = "unavailable"
         return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
 
@@ -916,20 +932,31 @@ HANDLERS = {
 _WRITE_LIKE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 
+def _join_llm_reason(reason: str, llm_reason: str) -> str:
+    """Append the LLM reason inline as a second sentence.
+
+    The generic ``human_reason`` carries no trailing punctuation (``brand``
+    adds it), so join with a sentence break to avoid running the two
+    fragments together (``this runs code. <reason>`` not ``this runs code
+    <reason>``). ``brand`` finalizes terminal punctuation on the result.
+    """
+    if not llm_reason:
+        return reason
+    base = reason.rstrip()
+    sep = "" if base.endswith((".", "!", "?")) else "."
+    return f"{base}{sep} {llm_reason}"
+
+
 def _to_hook_output(decision: dict, agent: str) -> dict:
     """Convert internal decision to agent-appropriate output format."""
     enrich_decision(decision)
     d = decision.get("decision", taxonomy.ALLOW)
     reason = decision.get("human_reason") or decision.get("reason", "")
     if d == taxonomy.BLOCK:
-        llm_reason = decision.get("_llm_reason", "")
-        if llm_reason:
-            reason = f"{reason}\n     LLM: {llm_reason}"
+        reason = _join_llm_reason(reason, decision.get("_llm_reason", ""))
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
-        llm_reason = decision.get("_llm_reason", "")
-        if llm_reason:
-            reason = f"{reason}\n     LLM: {llm_reason}"
+        reason = _join_llm_reason(reason, decision.get("_llm_reason", ""))
         system_message = decision.get("_system_message", "")
         return agents.format_ask(reason, agent, system_message=system_message)
     return agents.format_allow(agent)
