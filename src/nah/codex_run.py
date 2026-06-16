@@ -54,6 +54,16 @@ _NETWORK_FLAG = "--network"
 _PROBE_FLAG = "--probe"
 _PROBE_ENV = "NAH_HOOK_PROBE"
 _PROBE_DELAY_ENV = "NAH_HOOK_PROBE_DELAY"
+# `--measure-hook-timeout` is a debug sibling of `--probe`: it runs a headless
+# measurement instead of launching an interactive session (relocated here from
+# the removed `nah codex measure-hook-timeout` subcommand).
+_MEASURE_FLAG = "--measure-hook-timeout"
+_MEASURE_EVENT_FLAG = "--event"
+_MEASURE_SWEEP_FLAG = "--sweep"
+_MEASURE_PROBE_HIGH_FLAG = "--probe-high"
+_MEASURE_EVENTS = ("PreToolUse", "PermissionRequest", "PostToolUse")
+_MEASURE_DEFAULT_EVENT = "PostToolUse"
+_MEASURE_DEFAULT_PROBE_HIGH = 12.0
 _HEADLESS_ENV = "NAH_CODEX_HEADLESS"
 _HEADLESS_ASK_FALLBACK_ENV = "NAH_CODEX_HEADLESS_ASK_FALLBACK"
 _HEADLESS_SANDBOX_ENV = "NAH_CODEX_SANDBOX"
@@ -396,8 +406,162 @@ def build_codex_launch(
     )
 
 
+@dataclass(frozen=True)
+class MeasureRequest:
+    """Parsed `nah run codex --measure-hook-timeout` debug request."""
+
+    event: str = _MEASURE_DEFAULT_EVENT
+    probe_high: float = _MEASURE_DEFAULT_PROBE_HIGH
+    sweep: bool = False
+
+
+def _parse_measure_request(args: list[str]) -> MeasureRequest | None:
+    """Return a MeasureRequest when `--measure-hook-timeout` leads the args.
+
+    Measure mode is recognized only in the leading nah-owned flag region
+    (before ``--`` or the first bare subcommand token), mirroring how the
+    launcher flags are extracted. When present it is exclusive: only the
+    measure companion flags are accepted; anything else is an error.
+    """
+    has_measure = False
+    for tok in args:
+        if tok == "--" or not tok.startswith("-"):
+            break
+        if tok == _MEASURE_FLAG:
+            has_measure = True
+            break
+    if not has_measure:
+        return None
+
+    event = _MEASURE_DEFAULT_EVENT
+    probe_high = _MEASURE_DEFAULT_PROBE_HIGH
+    sweep = False
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            raise CodexRunError(
+                "nah run codex --measure-hook-timeout: takes no Codex command"
+            )
+        if not tok.startswith("-"):
+            raise CodexRunError(
+                f"nah run codex --measure-hook-timeout: unexpected argument {tok!r}"
+            )
+        if tok == _MEASURE_FLAG:
+            i += 1
+            continue
+        if tok == _MEASURE_SWEEP_FLAG:
+            sweep = True
+            i += 1
+            continue
+        if tok == _MEASURE_EVENT_FLAG:
+            if i + 1 >= len(args):
+                raise CodexRunError(
+                    "nah run codex --measure-hook-timeout: --event requires a value"
+                )
+            event = _validate_measure_event(args[i + 1])
+            i += 2
+            continue
+        if tok.startswith(_MEASURE_EVENT_FLAG + "="):
+            event = _validate_measure_event(tok.split("=", 1)[1])
+            i += 1
+            continue
+        if tok == _MEASURE_PROBE_HIGH_FLAG:
+            if i + 1 >= len(args):
+                raise CodexRunError(
+                    "nah run codex --measure-hook-timeout: --probe-high requires a value"
+                )
+            probe_high = _validate_probe_high(args[i + 1])
+            i += 2
+            continue
+        if tok.startswith(_MEASURE_PROBE_HIGH_FLAG + "="):
+            probe_high = _validate_probe_high(tok.split("=", 1)[1])
+            i += 1
+            continue
+        raise CodexRunError(
+            f"nah run codex --measure-hook-timeout: unknown flag {tok!r}"
+        )
+    return MeasureRequest(event=event, probe_high=probe_high, sweep=sweep)
+
+
+def _validate_measure_event(value: str) -> str:
+    value = value.strip()
+    if value not in _MEASURE_EVENTS:
+        raise CodexRunError(
+            "nah run codex --measure-hook-timeout: --event must be one of "
+            f"{', '.join(_MEASURE_EVENTS)}, got {value!r}"
+        )
+    return value
+
+
+def _validate_probe_high(value: str) -> float:
+    value = value.strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise CodexRunError(
+            "nah run codex --measure-hook-timeout: --probe-high must be a number, "
+            f"got {value!r}"
+        ) from None
+    if seconds <= 0:
+        raise CodexRunError(
+            "nah run codex --measure-hook-timeout: --probe-high must be positive"
+        )
+    return seconds
+
+
+def _run_measure_hook_timeout(request: MeasureRequest) -> int:
+    """Run the headless hook-timeout measurement and return an exit status."""
+    from nah.codex_probe import (
+        RELIABLE_EVENT,
+        configured_timeout_seconds,
+        format_measure_result,
+        live_trial,
+        measure_hook_timeout,
+    )
+
+    event = request.event
+    print(
+        f"nah run codex --measure-hook-timeout: probing {event} via headless "
+        "`codex exec` (this makes one or more real Codex calls)…",
+        file=sys.stderr,
+    )
+    if event != RELIABLE_EVENT:
+        print(
+            f"warning: {event} does not fire under headless exec "
+            "(PreToolUse is disabled, PermissionRequest needs an interactive "
+            "approval). Results will likely be inconclusive — probe "
+            f"{RELIABLE_EVENT}, or use `nah run codex --probe` interactively.",
+            file=sys.stderr,
+        )
+
+    def runner(delay: float):
+        return live_trial(delay, event)
+
+    result = measure_hook_timeout(
+        event,
+        runner=runner,
+        probe_high=request.probe_high,
+        sweep=request.sweep,
+    )
+    print(format_measure_result(result, configured=configured_timeout_seconds(event)))
+    if result.enforced_seconds is None and result.method == "inconclusive":
+        return 1
+    return 0
+
+
 def run_codex(user_args: list[str]) -> int:
     """Exec Codex with nah-owned approval and post-tool hooks enabled."""
+    try:
+        measure = _parse_measure_request(user_args)
+    except CodexRunError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if measure is not None:
+        # Debug mode: measure the enforced hook timeout instead of launching
+        # an interactive Codex session.
+        return _run_measure_hook_timeout(measure)
+
     try:
         launch = build_codex_launch(user_args)
     except CodexRunError as exc:
@@ -682,7 +846,7 @@ def _inject_headless_exec_args(args: list[str]) -> list[str]:
     sub_idx = _first_subcommand_index(args)
     if sub_idx < 0 or args[sub_idx] not in _HEADLESS_EXEC_SUBCOMMANDS:
         return args
-    # Interactive `nah codex setup` installs exec-policy prompt rules so Codex
+    # Interactive `nah setup codex` installs exec-policy prompt rules so Codex
     # known-safe commands route through PermissionRequest. Headless exec cannot
     # ask, so the launcher ignores those rules and makes PreToolUse authoritative.
     # Hook trust is handled in preflight by recording the session-scoped nah

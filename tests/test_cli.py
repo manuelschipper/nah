@@ -1429,13 +1429,14 @@ class TestTargetLifecycleCli:
         assert "nah install bash" in err
         assert "nah install zsh" in err
 
-    @pytest.mark.parametrize("command", ["install", "update", "uninstall"])
+    @pytest.mark.parametrize("command", ["install", "update"])
     def test_codex_is_not_lifecycle_target(self, command, capsys):
+        # `uninstall codex` is supported (removes managed setup files) and is
+        # covered in TestCmdCodex; only install/update stay unsupported.
         import nah.cli as cli_mod
         func = {
             "install": cli_mod.cmd_install,
             "update": cli_mod.cmd_update,
-            "uninstall": cli_mod.cmd_uninstall,
         }[command]
 
         with pytest.raises(SystemExit) as exc:
@@ -1445,6 +1446,7 @@ class TestTargetLifecycleCli:
         err = capsys.readouterr().err
         assert f"nah {command} codex: Codex has no persistent {command} target." in err
         assert "nah run codex" in err
+        assert "nah setup codex" in err
 
     def test_install_bash_delegates_to_terminal_guard(self):
         import nah.cli as cli_mod
@@ -1510,12 +1512,13 @@ class TestTargetLifecycleCli:
 
         assert exc.value.code == 2
         err = capsys.readouterr().err
-        assert "target 'claude' does not support doctor" in err
-        assert "nah doctor bash" in err
-        assert "nah doctor zsh" in err
-        assert "nah doctor claude" not in err
+        assert (
+            "nah doctor claude: Claude Code diagnostics now live under `nah status claude`."
+            in err
+        )
+        assert "Use `nah status claude`" in err
 
-    def test_doctor_codex_points_to_codex_subcommand(self, capsys):
+    def test_doctor_codex_points_to_status(self, capsys):
         import nah.cli as cli_mod
 
         with pytest.raises(SystemExit) as exc:
@@ -1524,10 +1527,10 @@ class TestTargetLifecycleCli:
         assert exc.value.code == 2
         err = capsys.readouterr().err
         assert (
-            "nah doctor codex: Codex diagnostics live under `nah codex doctor`."
+            "nah doctor codex: Codex diagnostics now live under `nah status codex`."
             in err
         )
-        assert "Use `nah codex doctor`" in err
+        assert "Use `nah status codex`" in err
 
     def test_hidden_terminal_decision(self, capsys):
         import nah.cli as cli_mod
@@ -1864,7 +1867,7 @@ class TestCmdCodex:
 
         assert exc.value.code == 8
 
-    def test_codex_doctor_reports_clean_state(self, tmp_path, monkeypatch, capsys):
+    def test_status_codex_reports_clean_state(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import ensure_authority_rules
 
@@ -1873,11 +1876,13 @@ class TestCmdCodex:
         ensure_authority_rules(home=home)
         monkeypatch.setenv("CODEX_HOME", str(home))
 
-        cli_mod.cmd_codex(argparse.Namespace(codex_command="doctor"))
+        cli_mod.cmd_status(argparse.Namespace(target="codex"))
 
-        assert "no authority" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert out.startswith("codex:")
+        assert "no authority" in out
 
-    def test_codex_doctor_exits_nonzero_for_blocker(self, tmp_path, monkeypatch, capsys):
+    def test_status_codex_exits_nonzero_for_blocker(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import ensure_authority_rules
 
@@ -1891,27 +1896,46 @@ class TestCmdCodex:
         monkeypatch.setenv("CODEX_HOME", str(home))
 
         with pytest.raises(SystemExit) as exc:
-            cli_mod.cmd_codex(argparse.Namespace(codex_command="doctor"))
+            cli_mod.cmd_status(argparse.Namespace(target="codex"))
 
         assert exc.value.code == 1
         assert "default.rules" in capsys.readouterr().out
 
-    def test_codex_setup_installs_authority_rules(self, tmp_path, monkeypatch, capsys):
+    def test_status_codex_missing_rules_is_nonempty_and_read_only(self, tmp_path, monkeypatch, capsys):
+        # Regression: `nah status codex` used to fall through and exit 0 with no
+        # output. It must report the missing state, exit nonzero, and never
+        # create the managed authority rules file (status is read-only).
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path
 
         home = tmp_path / "codex"
         monkeypatch.setenv("CODEX_HOME", str(home))
 
-        cli_mod.cmd_codex(argparse.Namespace(codex_command="setup"))
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_status(argparse.Namespace(target="codex"))
+
+        out = capsys.readouterr().out
+        assert exc.value.code == 1
+        assert out.strip()  # not a silent no-op
+        assert "codex:" in out
+        assert not authority_rules_path(home).exists()
+
+    def test_setup_codex_installs_authority_rules(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        from nah.codex_authority import authority_rules_path
+
+        home = tmp_path / "codex"
+        monkeypatch.setenv("CODEX_HOME", str(home))
+
+        cli_mod.cmd_setup(argparse.Namespace(target="codex"))
 
         out = capsys.readouterr().out
         assert authority_rules_path(home).exists()
         assert "setup:" in out
         assert "checked: Codex approval memory and MCP approval modes" in out
-        assert "nah codex: ready" in out
+        assert "codex: ready" in out
 
-    def test_codex_setup_reports_remaining_blockers(self, tmp_path, monkeypatch, capsys):
+    def test_setup_codex_reports_remaining_blockers(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path
 
@@ -1925,17 +1949,17 @@ class TestCmdCodex:
         monkeypatch.setenv("CODEX_HOME", str(home))
 
         with pytest.raises(SystemExit) as exc:
-            cli_mod.cmd_codex(argparse.Namespace(codex_command="setup"))
+            cli_mod.cmd_setup(argparse.Namespace(target="codex"))
 
         captured = capsys.readouterr()
         assert exc.value.code == 1
         assert authority_rules_path(home).exists()
         assert "checked: Codex approval memory and MCP approval modes" in captured.out
-        assert "nah codex: still blocked:" in captured.err
+        assert "codex: still blocked:" in captured.err
         assert "default.rules" in captured.err
         assert "Remove this rule or change its decision to `prompt`." in captured.err
 
-    def test_codex_setup_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
+    def test_setup_codex_applies_supported_fixes(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path
 
@@ -1946,14 +1970,39 @@ class TestCmdCodex:
         rule.write_text('prefix_rule(pattern=["curl"], decision="allow")\n', encoding="utf-8")
         monkeypatch.setenv("CODEX_HOME", str(home))
 
-        cli_mod.cmd_codex(argparse.Namespace(codex_command="setup"))
+        cli_mod.cmd_setup(argparse.Namespace(target="codex"))
 
         out = capsys.readouterr().out
         assert "backup:" in out
         assert "updated:" in out
-        assert "nah codex: ready" in out
+        assert "codex: ready" in out
         assert rule.read_text(encoding="utf-8") == ""
         assert authority_rules_path(home).exists()
+
+    def test_setup_without_target_lists_codex_only(self, monkeypatch, capsys):
+        import nah.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "setup"])
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.main()
+
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert "nah setup codex" in err
+        assert "nah setup claude" not in err
+        assert "nah setup bash" not in err
+
+    def test_setup_claude_is_unsupported(self, capsys):
+        import nah.cli as cli_mod
+
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_setup(argparse.Namespace(target="claude"))
+
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert "setup is a Codex-only command" in err
+        assert "nah install claude" in err
 
     def test_codex_repair_is_not_a_command(self, monkeypatch, capsys):
         import nah.cli as cli_mod
@@ -1966,7 +2015,24 @@ class TestCmdCodex:
         assert exc.value.code == 2
         assert "invalid choice" in capsys.readouterr().err
 
-    def test_codex_remove_setup_removes_managed_authority_rules(self, tmp_path, monkeypatch, capsys):
+    def test_old_codex_subcommands_are_rejected(self, tmp_path, monkeypatch, capsys):
+        # Hard cut: the entire `nah codex ...` group is gone. Old forms must be
+        # rejected by argparse and must not run any Codex behavior.
+        import nah.cli as cli_mod
+        from nah.codex_authority import authority_rules_path
+
+        home = tmp_path / "codex"
+        monkeypatch.setenv("CODEX_HOME", str(home))
+        for sub in ("doctor", "setup", "remove-setup", "measure-hook-timeout", "status"):
+            monkeypatch.setattr(cli_mod.sys, "argv", ["nah", "codex", sub])
+            with pytest.raises(SystemExit) as exc:
+                cli_mod.main()
+            assert exc.value.code == 2, sub
+            assert "invalid choice" in capsys.readouterr().err
+        # No old form should have created or removed Codex setup files.
+        assert not authority_rules_path(home).exists()
+
+    def test_uninstall_codex_removes_managed_authority_rules(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path, ensure_authority_rules
 
@@ -1975,12 +2041,14 @@ class TestCmdCodex:
         path = authority_rules_path(home)
         monkeypatch.setenv("CODEX_HOME", str(home))
 
-        cli_mod.cmd_codex(argparse.Namespace(codex_command="remove-setup"))
+        cli_mod.cmd_uninstall(argparse.Namespace(target="codex"))
 
+        out = capsys.readouterr().out
         assert not path.exists()
-        assert "removed:" in capsys.readouterr().out
+        assert "removed:" in out
+        assert "does not roll back" in out
 
-    def test_codex_remove_setup_refuses_unmanaged_authority_rules(self, tmp_path, monkeypatch, capsys):
+    def test_uninstall_codex_refuses_unmanaged_authority_rules(self, tmp_path, monkeypatch, capsys):
         import nah.cli as cli_mod
         from nah.codex_authority import authority_rules_path
 
@@ -1991,7 +2059,7 @@ class TestCmdCodex:
         monkeypatch.setenv("CODEX_HOME", str(home))
 
         with pytest.raises(SystemExit) as exc:
-            cli_mod.cmd_codex(argparse.Namespace(codex_command="remove-setup"))
+            cli_mod.cmd_uninstall(argparse.Namespace(target="codex"))
 
         assert exc.value.code == 1
         assert "not managed by nah" in capsys.readouterr().err

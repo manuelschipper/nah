@@ -165,6 +165,91 @@ def test_probe_rejects_bad_delay(flag):
         _launch([flag])
 
 
+# --- measure-hook-timeout (relocated from `nah codex measure-hook-timeout`) ---
+
+
+def test_parse_measure_request_absent_returns_none():
+    from nah.codex_run import _parse_measure_request
+
+    assert _parse_measure_request(["resume", "abc"]) is None
+    # A measure flag after a bare subcommand token is a Codex arg, not measure mode.
+    assert _parse_measure_request(["resume", "--measure-hook-timeout"]) is None
+
+
+def test_parse_measure_request_parses_flags():
+    from nah.codex_run import MeasureRequest, _parse_measure_request
+
+    req = _parse_measure_request(
+        ["--measure-hook-timeout", "--event", "PreToolUse", "--probe-high", "5", "--sweep"]
+    )
+    assert req == MeasureRequest(event="PreToolUse", probe_high=5.0, sweep=True)
+    # Joined `=` forms parse identically.
+    assert _parse_measure_request(
+        ["--measure-hook-timeout", "--event=PermissionRequest", "--probe-high=3"]
+    ) == MeasureRequest(event="PermissionRequest", probe_high=3.0, sweep=False)
+
+
+def test_parse_measure_request_defaults():
+    from nah.codex_run import MeasureRequest, _parse_measure_request
+
+    assert _parse_measure_request(["--measure-hook-timeout"]) == MeasureRequest()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--measure-hook-timeout", "--event", "Bogus"],
+        ["--measure-hook-timeout", "--probe-high", "abc"],
+        ["--measure-hook-timeout", "--probe-high", "0"],
+        ["--measure-hook-timeout", "--unknown"],
+        ["--measure-hook-timeout", "resume"],
+        ["--measure-hook-timeout", "--"],
+        ["--measure-hook-timeout", "--event"],
+    ],
+)
+def test_parse_measure_request_rejects_bad_input(args):
+    from nah.codex_run import _parse_measure_request
+
+    with pytest.raises(CodexRunError):
+        _parse_measure_request(args)
+
+
+def test_run_codex_measure_mode_dispatches_without_launch(monkeypatch):
+    import nah.codex_run as codex_run
+
+    seen = {}
+
+    def fake_measure(request):
+        seen["request"] = request
+        return 0
+
+    monkeypatch.setattr(codex_run, "_run_measure_hook_timeout", fake_measure)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("must not launch Codex in measure mode")
+
+    monkeypatch.setattr(codex_run, "build_codex_launch", boom)
+
+    rc = codex_run.run_codex(["--measure-hook-timeout", "--event", "PostToolUse"])
+
+    assert rc == 0
+    assert seen["request"].event == "PostToolUse"
+
+
+def test_run_codex_measure_bad_input_returns_1(monkeypatch, capsys):
+    import nah.codex_run as codex_run
+
+    def boom(*args, **kwargs):
+        raise AssertionError("must not launch Codex on a measure parse error")
+
+    monkeypatch.setattr(codex_run, "build_codex_launch", boom)
+
+    rc = codex_run.run_codex(["--measure-hook-timeout", "--event", "bogus"])
+
+    assert rc == 1
+    assert "must be one of" in capsys.readouterr().err
+
+
 def test_provenance_run_id_is_created_and_preserves_inherited_value():
     launch = _launch([])
     assert launch.env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
@@ -491,7 +576,7 @@ def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
 
     assert "approval state can bypass nah" in str(exc.value)
     assert "default.rules" in str(exc.value)
-    assert "nah codex setup" in str(exc.value)
+    assert "nah setup codex" in str(exc.value)
     assert (rules / AUTHORITY_RULES_FILE).exists()
 
 

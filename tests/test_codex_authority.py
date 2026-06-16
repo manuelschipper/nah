@@ -69,7 +69,7 @@ def test_ensure_authority_rules_refuses_unmanaged_file(tmp_path):
     with pytest.raises(CodexAuthorityError) as exc:
         ensure_authority_rules(home=home)
 
-    assert "nah codex setup" in str(exc.value)
+    assert "nah setup codex" in str(exc.value)
 
 
 def test_remove_authority_rules_removes_only_managed_file(tmp_path):

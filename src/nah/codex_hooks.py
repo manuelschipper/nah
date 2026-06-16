@@ -30,8 +30,8 @@ _HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
 _CODEX_PERMISSION_LLM_BUDGET_SECONDS = 10
 
 # Debug-only probe knob. Lets the hook deliberately stall so the harness can
-# measure the timeout Codex *actually* enforces (see `nah codex
-# measure-hook-timeout`). Gated behind NAH_HOOK_PROBE so a normal session never
+# measure the timeout Codex *actually* enforces (see `nah run codex
+# --measure-hook-timeout`). Gated behind NAH_HOOK_PROBE so a normal session never
 # delays even if a command happens to contain the sentinel.
 _PROBE_ENV = "NAH_HOOK_PROBE"
 _PROBE_DELAY_ENV = "NAH_HOOK_PROBE_DELAY"
