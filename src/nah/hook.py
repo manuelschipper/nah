@@ -659,10 +659,17 @@ def _apply_layer1_classify(tool_name: str, tool_input: dict, decision: dict) -> 
         from nah.llm import try_llm_classify_unknown
         from nah.log import redact_input
 
+        # Layer 1 maps unknowns into BUILT-IN types only (nah-992) — it does NOT
+        # classify into user-defined custom types. Feeding the model the custom
+        # types let it collapse a whole unknown compound into a trusted custom
+        # `allow` type (e.g. `cd repo && molds update … && molds wontdo …` →
+        # `molds_safe` → allow). Keeping Layer 1 on the predictable built-in
+        # taxonomy avoids that; a custom type the model names anyway is coerced
+        # to `unknown` by the parser, so the deterministic ask stands.
         classify = try_llm_classify_unknown(
             redact_input(tool_name, tool_input),
             cfg.llm,
-            custom_types=cfg.actions or None,
+            custom_types=None,
         )
         cls = classify.classification
         verdict = None
