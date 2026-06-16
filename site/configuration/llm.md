@@ -21,7 +21,7 @@ LLM. The LLM is not a second classifier for every allowed action.
 |------|-------------------|-------------------------|
 | Layer 1 — classify-unknown | A deterministic `unknown` Bash command | maps the unknown to an action type **+ the targets it touches**; the type re-enters the policy machinery and each surfaced target is re-checked against the same deterministic floor. Can tighten to `ask`/`block`, or allow only when every surfaced target passes the floor; cannot bypass a sensitive-path/host/boundary veto |
 | Layer 2 — intent relaxer | Eligible deterministic `ask` decisions | `ask` can become `allow` **only with a cited user message** (cite-or-ask); a successful relax is surfaced as a distinct `relaxed` outcome. `uncertain`, an uncited allow, `block`, or provider failure leaves it as `ask` |
-| Write-like review | `Write`, `Edit`, `MultiEdit`, and `NotebookEdit` when LLM mode is enabled | deterministic `allow` can become `ask`; project-boundary `ask` can become `allow`; `block` stays blocked |
+| Write-like review | `Write`, `Edit`, `MultiEdit`, and `NotebookEdit` when LLM mode is enabled | runs **only on a deterministic `allow`**, which it can escalate to `ask`; every non-`allow` decision (a project-boundary or sensitive-path `ask`, or a `block`) is a hard floor returned before the review and is never relaxed. Matches Codex `apply_patch` |
 | Clean `lang_exec` script veto | Inspectable script/inline-code execution that deterministic classification allowed | `allow` can become `ask`; it cannot relax an `ask` or `block` |
 | No LLM path | Any other deterministic `allow` or `block` | final decision stands |
 

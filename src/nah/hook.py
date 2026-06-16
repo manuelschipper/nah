@@ -169,30 +169,13 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         return None, {}
 
 
-def _is_project_boundary_ask(tool_name: str, det_result: dict) -> bool:
-    """Return True for the narrow project-boundary ask class the LLM can relax."""
-    reason = det_result.get("reason", "")
-    return (
-        det_result.get("decision") == taxonomy.ASK
-        and (
-            reason.startswith(f"{tool_name} outside project:")
-            or reason.startswith(f"{tool_name} outside project (no project root):")
-        )
-    )
-
-
-def _is_write_llm_allow_eligible(tool_name: str, det_result: dict) -> bool:
-    """Return True when a write-like LLM allow may become the final decision."""
-    if det_result.get("decision") == taxonomy.ALLOW:
-        return True
-    return _is_project_boundary_ask(tool_name, det_result)
-
-
 def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
     """LLM review gate for write-like tools.
 
-    The LLM can escalate deterministic allows to asks and can relax only
-    explicit project-boundary asks to allow. Blocks remain deterministic-only.
+    The gate runs only on a structural ``allow`` (callers return every
+    non-``allow`` decision before reaching it, matching Codex ``apply_patch``),
+    so it can only escalate ``allow`` -> ``ask`` on visible content risk. It
+    never relaxes an ask and never returns a block.
     """
     if not _should_llm_inspect_write():
         return det_result
@@ -238,25 +221,19 @@ def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -
             ask["_llm_reason"] = det_result["_llm_reason"]
         return ask
 
-    if (
-        structural_d == taxonomy.ASK
-        and llm_d == taxonomy.ALLOW
-        and _is_write_llm_allow_eligible(tool_name, det_result)
-    ):
-        allow = {
-            "decision": taxonomy.ALLOW,
-            "_meta": dict(det_result.get("_meta", {})),
-        }
-        allow["_meta"]["llm_review"] = "ask_to_allow"
-        return allow
-
     return det_result
 
 
 def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared Write/Edit handler: structural check + LLM write review."""
+    """Shared Write/Edit handler: structural check + LLM write review.
+
+    Any non-``allow`` structural decision (a ``block``, or a project-boundary or
+    sensitive-path ``ask``) is a hard floor: it returns before the LLM gate and
+    cannot be relaxed, matching Codex ``apply_patch``. Only a clean ``allow``
+    reaches the gate, where the LLM may still escalate it to ``ask``.
+    """
     det_result = _check_write_target(tool_name, tool_input)
-    if det_result.get("decision") == taxonomy.BLOCK:
+    if det_result.get("decision") != taxonomy.ALLOW:
         return det_result
     return _llm_write_review_gate(tool_name, tool_input, det_result)
 
@@ -274,12 +251,10 @@ def handle_multiedit(tool_input: dict) -> dict:
     file_path = tool_input.get("file_path", "")
     path_check = paths.check_path("MultiEdit", file_path)
     if path_check:
-        if path_check.get("decision") == taxonomy.BLOCK:
-            return path_check
-        return _llm_write_review_gate("MultiEdit", tool_input, path_check)
+        return path_check
     boundary_check = paths.check_project_boundary("MultiEdit", file_path)
     if boundary_check:
-        return _llm_write_review_gate("MultiEdit", tool_input, boundary_check)
+        return boundary_check
     det_result = {"decision": taxonomy.ALLOW}
     return _llm_write_review_gate("MultiEdit", tool_input, det_result)
 
@@ -289,12 +264,10 @@ def handle_notebookedit(tool_input: dict) -> dict:
     file_path = tool_input.get("notebook_path", "")
     path_check = paths.check_path("NotebookEdit", file_path)
     if path_check:
-        if path_check.get("decision") == taxonomy.BLOCK:
-            return path_check
-        return _llm_write_review_gate("NotebookEdit", tool_input, path_check)
+        return path_check
     boundary_check = paths.check_project_boundary("NotebookEdit", file_path)
     if boundary_check:
-        return _llm_write_review_gate("NotebookEdit", tool_input, boundary_check)
+        return boundary_check
     det_result = {"decision": taxonomy.ALLOW}
     return _llm_write_review_gate("NotebookEdit", tool_input, det_result)
 

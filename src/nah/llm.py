@@ -129,9 +129,6 @@ def _provider_config_with_budget(config: dict, remaining_seconds: float | None) 
 _INLINE_LANG_EXEC_RISK_SECTION = render_llm_risk_section(
     "Choose uncertain only when the inline code visibly does one of these risk categories:"
 )
-_WRITE_REVIEW_RISK_SECTION = render_llm_risk_section(
-    "Choose uncertain only when the edit visibly introduces or meaningfully changes one of these risk categories:"
-)
 _PROVENANCE_RISK_SECTION = render_llm_risk_section(
     "Choose uncertain when the session delta or requested activation visibly contains one of these risk categories:"
 )
@@ -178,12 +175,26 @@ Respond with exactly one JSON object, no other text:
 """
 
 _WRITE_REVIEW_SYSTEM_TEMPLATE = f"""\
-You are a security reviewer for a CLI safety guard. \
-Review a write-like tool operation only for visible security or safety risk.
+You are a security reviewer for a CLI safety guard. A write-like tool places \
+bytes at a path; it does not execute anything. Judge the file's content as \
+data at rest, not as if it runs.
 
-{_WRITE_REVIEW_RISK_SECTION}
+Choose "uncertain" only when the written content itself is a risk artifact:
+- a real secret/credential/key/token literal being persisted;
+- an obfuscated or encoded payload (e.g. base64 blob, generated or downloaded code);
+- a change to a trust-boundary or persistence file (startup files, hooks, \
+CI/deploy/release automation, package lifecycle scripts, auth/session config);
+- content that disables a guard, sandbox, approval, or audit;
+- content that visibly crosses a safety boundary the user just set.
 
-If none of those categories is visible, choose allow.
+These correspond to the canonical risk categories: {render_llm_risk_labels()}.
+
+Do not choose "uncertain" for ordinary source, docs, config, or tests that \
+merely mention, implement, or describe a risky-sounding operation — e.g. a \
+cleanup script that runs rm -rf on build directories, a README that mentions \
+credentials, or a test fixture with a fake key.
+
+If none of those is visible, choose "allow".
 
 Respond with exactly one JSON object, no other text:
 {_JSON_DECISION_FORMAT}\

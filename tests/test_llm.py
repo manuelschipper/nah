@@ -1569,9 +1569,9 @@ class TestRedactSecretsInWritePrompt:
             {"decision": "allow", "reason": ""},
         )
         combined = f"{prompt.system}\n{prompt.user}"
-        assert "Review a write-like tool operation only for visible security or safety risk" in prompt.system
-        assert "Choose uncertain only when the edit visibly introduces" in prompt.system
-        assert "If none of those categories is visible, choose allow" in prompt.system
+        assert "Judge the file's content as data at rest, not as if it runs" in prompt.system
+        assert 'Choose "uncertain" only when the written content itself is a risk artifact' in prompt.system
+        assert 'If none of those is visible, choose "allow"' in prompt.system
         assert "Security Review Scope" not in prompt.user
         assert "write operation above" not in combined
         _assert_risk_labels_present(prompt.system)
