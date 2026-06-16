@@ -1,13 +1,13 @@
 # Codex
 
 Use `nah run codex` for local interactive Codex sessions that should route
-Bash, MCP, and `apply_patch` hooks through nah. `nah codex setup` also adds a
+Bash, MCP, and `apply_patch` hooks through nah. `nah setup codex` also adds a
 persistent Codex rules file, so read [Running Codex Without nah](#running-codex-without-nah)
 if you sometimes start Codex directly.
 
 ```bash
-nah codex setup
-nah codex doctor
+nah setup codex
+nah status codex
 nah run codex
 nah run codex --preset work
 nah run codex exec "run: git status"
@@ -15,7 +15,7 @@ nah run codex exec "run: git status"
 
 There is no global `nah install codex` path. Codex must be launched through
 `nah run codex` so nah can inject native hooks and session-scoped safety
-settings. The rules file created by `nah codex setup` is the one persistent
+settings. The rules file created by `nah setup codex` is the one persistent
 Codex change.
 
 ## What nah Sets
@@ -178,13 +178,13 @@ then scans Codex approval memory, exec-policy rules, and MCP approval modes.
 Inspect without changing files:
 
 ```bash
-nah codex doctor
+nah status codex
 ```
 
 Install, refresh, or fix nah's Codex integration:
 
 ```bash
-nah codex setup
+nah setup codex
 ```
 
 `setup` has three jobs:
@@ -200,29 +200,29 @@ Codex reads it in plain `codex` sessions too.
 Clean setup output is intentionally short:
 
 ```text
-$ nah codex setup
+$ nah setup codex
 setup: /home/me/.codex/rules/nah-authority.rules
 checked: Codex approval memory and MCP approval modes
-nah codex: ready
+codex: ready
 ```
 
 When setup fixes supported drift, it creates timestamped local backups before
 editing:
 
 ```text
-$ nah codex setup
+$ nah setup codex
 setup: /home/me/.codex/rules/nah-authority.rules
 backup: /home/me/.codex/rules/default.rules.nah-bak-20260515103412
 updated: /home/me/.codex/rules/default.rules
 checked: Codex approval memory and MCP approval modes
-nah codex: ready
+codex: ready
 ```
 
 If unsupported blockers remain, setup leaves them untouched and prints exact
 file, rule, or config instructions:
 
 ```text
-nah codex: still blocked:
+codex: still blocked:
 - /home/me/.codex/rules/default.rules:1
   Codex prefix_rule forbidden for `git` can deny before nah decides
   Remove this rule or change its decision to `prompt`.
@@ -231,14 +231,16 @@ nah codex: still blocked:
 Remove only nah's managed Codex authority rules:
 
 ```bash
-nah codex remove-setup
+nah uninstall codex
 ```
 
-`remove-setup` refuses to remove an unmanaged file at the same path.
+`nah uninstall codex` refuses to remove an unmanaged file at the same path, and
+does not roll back approval-memory or MCP prompt-mode changes a prior
+`nah setup codex` may have made.
 
 ## Running Codex Without nah
 
-`nah codex setup` adds a Codex rules file so commands like `bash`, `cat`,
+`nah setup codex` adds a Codex rules file so commands like `bash`, `cat`,
 `git`, `pwd`, and `true` are routed through nah.
 
 Codex reads that file even when you start Codex directly. That means raw bypass
@@ -249,16 +251,16 @@ rejected.
 To run Codex completely without nah, remove nah's Codex rules first:
 
 ```bash
-nah codex remove-setup
+nah uninstall codex
 ```
 
 You can set them up again later:
 
 ```bash
-nah codex setup
+nah setup codex
 ```
 
-If `nah codex setup` printed `backup:` and `updated:` lines, it also changed an
+If `nah setup codex` printed `backup:` and `updated:` lines, it also changed an
 existing Codex rules or config file after making a backup. Use the exact backup
 path printed by setup if you want to restore Codex's previous behavior:
 
@@ -331,7 +333,7 @@ nah rejects Codex modes that can bypass the protected approval path, including:
 overrides such as `-c sandbox_mode=...` are rejected.
 
 Raw `codex --yolo` can still be affected by the rules file created by
-`nah codex setup`. See [Running Codex Without nah](#running-codex-without-nah)
+`nah setup codex`. See [Running Codex Without nah](#running-codex-without-nah)
 for how to remove that setup first.
 
 ## Coverage

@@ -95,7 +95,7 @@ install that won't interfere with system or project Python packages.
 | Runtime | Recommended start | Full guide |
 | --- | --- | --- |
 | Claude Code | `nah run claude` for one session, or `nah install claude` for persistent direct hooks | [Claude Code guide](runtimes/claude-code.md) |
-| Codex | `nah codex setup`, then `nah run codex` | [Codex guide](runtimes/codex.md) |
+| Codex | `nah setup codex`, then `nah run codex` | [Codex guide](runtimes/codex.md) |
 | Terminal Guard | `nah install bash` or `nah install zsh` | [Terminal Guard guide](runtimes/terminal-guard.md) |
 
 ## Claude Code Plugin
