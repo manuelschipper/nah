@@ -17,11 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Layer 1 — classify-unknown.** When the deterministic classifier returns
     `unknown` for a Bash command, an LLM maps it to an action type and the
     kind-tagged targets it touches. The mapped type re-enters the normal policy
-    machinery and **each surfaced target is re-checked through the same
-    deterministic floor** (sensitive paths, project boundary, known hosts): the
-    LLM extracts, the floor matches. A read of `~/.ssh` is never auto-allowed;
-    an unverifiable target falls back to ask; an obfuscated unknown can tighten
-    to block. Fail-closed and process-cached.
+    machinery and **each surfaced `path`/`host` target is re-checked through the
+    same deterministic floor** (sensitive paths, project boundary, known hosts):
+    the LLM extracts, the floor matches. `db`/`container` targets have no
+    faithfully-mirrorable floor (the real db/container floors are
+    policy-/cwd-/exec-specific), so they stay **unverifiable** and the mapped
+    type's policy decides — allow-policy reads clear, context-policy writes ask
+    (nah-994). A read of `~/.ssh` is never auto-allowed; an unverifiable target
+    falls back to ask; an obfuscated unknown can tighten to block. Fail-closed
+    and process-cached.
   - **Layer 2 — intent relaxer.** The ask-refinement pass is strictly
     **cite-or-ask**: it relaxes an eligible `ask` to `allow` only when it can
     quote the recent user message that authorizes the action (a `citation`),
