@@ -99,6 +99,29 @@ def test_sensitive_path_mislabeled_container_asks():
     assert out["decision"] == taxonomy.ASK
 
 
+def test_context_mixed_cleared_host_and_db_target_asks():
+    # Guards the load-bearing `unverifiable > 0` clause: a context type whose
+    # host target clears but which ALSO carries an unverifiable db target cannot
+    # be confirmed safe -> ask. Without that term this would wrongly allow.
+    out = recheck(
+        _Cls("network_outbound", [_t("host", "github.com"), _t("db", "prod")]),
+        taxonomy.CONTEXT,
+    )
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_insensitive_read_still_tightens_on_sensitive_path_with_db_target():
+    # An allow-policy read is target-insensitive, but a verifiable sensitive path
+    # still tightens it even alongside an unverifiable db target — the path floor
+    # (worst) wins before the insensitive clearance. (~/.ssh is ask or block
+    # depending on config, so accept either non-allow tier, like the sibling.)
+    out = recheck(
+        _Cls("db_read", [_t("db", "prod"), _t("path", "~/.ssh/id_rsa")]),
+        taxonomy.ALLOW,
+    )
+    assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
+
+
 # --- policy tiers ---
 
 
