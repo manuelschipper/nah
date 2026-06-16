@@ -132,9 +132,6 @@ _INLINE_LANG_EXEC_RISK_SECTION = render_llm_risk_section(
 _PROVENANCE_RISK_SECTION = render_llm_risk_section(
     "Choose uncertain when the session delta or requested activation visibly contains one of these risk categories:"
 )
-_TERMINAL_RISK_SECTION = render_llm_risk_section(
-    "Use uncertain when the typed command visibly does one of these risk categories:"
-)
 _JSON_DECISION_FORMAT = (
     '{"decision": "<allow|uncertain>", '
     '"reasoning": "<max 10 words, prompt-safe user-visible summary>", '
@@ -222,8 +219,6 @@ Respond with exactly one JSON object, no other text:
 
 {_REASONING_INSTRUCTIONS}\
 """
-
-_TERMINAL_GUARD_SYSTEM = "You are a security classifier for a coding assistant."
 
 # Layer 2 (intent relaxer) system prompt. Rules only; the per-ask command/scope/
 # intent go in the user message. The risk checklist is the canonical labels
@@ -341,44 +336,6 @@ def _build_relax_prompt(
         "---",
     ])
     return PromptParts(system=_render_relax_system(action_type), user=user)
-
-
-def _build_terminal_guard_prompt(
-    command: str,
-    action_type: str,
-    reason: str,
-    *,
-    target: str = "",
-    stages: list[dict] | None = None,
-) -> PromptParts:
-    """Build an ask-refinement prompt for directly typed terminal commands."""
-    cwd, inside_project = _resolve_cwd_context()
-    user = "\n".join([
-        "A command was typed directly by a human user into an interactive terminal.",
-        "Treat that direct terminal input as the user's request and intent.",
-        "Review the command for visible security or safety risk.",
-        "",
-        "Rules:",
-        "- allow: no listed risk is visible and the command is understandable.",
-        "- uncertain: a listed risk is visible, or the command remains materially",
-        "  unclear.",
-        _TERMINAL_RISK_SECTION,
-        "",
-        "If none of those categories is visible, choose allow.",
-        "",
-        "## Terminal Command",
-        f"Target shell: {target or '(unknown)'}",
-        f"Command: {command}",
-        f"Working directory: {cwd}",
-        f"Inside project: {inside_project}",
-        "",
-        "## Decision",
-        "Respond with exactly one JSON object, no other text:",
-        _JSON_DECISION_FORMAT,
-        "",
-        _REASONING_INSTRUCTIONS,
-    ])
-    return PromptParts(system=_TERMINAL_GUARD_SYSTEM, user=user)
 
 
 def _parse_response(raw: str) -> LLMResult | None:
@@ -1527,28 +1484,6 @@ def try_llm_relax(
     transcript_text = _read_recent_user_intent(transcript_path, context_chars)
     prompt = _build_relax_prompt(command_or_input, transcript_text, action_type)
     result = _try_providers(prompt, llm_config, tool_name)
-    result.prompt = f"{prompt.system}\n\n{prompt.user}"
-    return result
-
-
-def try_llm_terminal_guard(
-    command: str,
-    action_type: str,
-    reason: str,
-    llm_config: dict,
-    *,
-    target: str = "",
-    stages: list[dict] | None = None,
-) -> LLMCallResult:
-    """Try LLM providers for interactive terminal ask refinement."""
-    prompt = _build_terminal_guard_prompt(
-        command,
-        action_type,
-        reason,
-        target=target,
-        stages=stages,
-    )
-    result = _try_providers(prompt, llm_config, "Bash")
     result.prompt = f"{prompt.system}\n\n{prompt.user}"
     return result
 

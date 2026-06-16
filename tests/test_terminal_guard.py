@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 from nah import terminal_guard
 from nah.config import reset_config
-from nah.llm import LLMCallResult, ProviderAttempt
 
 
 def test_install_uninstall_bash_managed_block(tmp_path, monkeypatch):
@@ -193,7 +192,9 @@ def test_terminal_ask_defaults_to_no_without_tty(monkeypatch, tmp_path):
     }
 
 
-def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
+def test_terminal_deterministic_ask_makes_no_provider_call(monkeypatch, tmp_path):
+    # nah-985: the terminal guard is deterministic-only. Even with the LLM fully
+    # enabled for the bash target, an `ask` verdict must never reach a provider.
     monkeypatch.setenv("HOME", str(tmp_path))
     cfg_dir = tmp_path / ".config" / "nah"
     cfg_dir.mkdir(parents=True)
@@ -217,286 +218,17 @@ def test_terminal_llm_can_relax_eligible_ask(monkeypatch, tmp_path):
     monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
     reset_config()
 
-    def fake_llm(*_args, **_kwargs):
-        return LLMCallResult(
-            decision={"decision": "allow", "reason": "safe test command"},
-            provider="fake",
-            model="fake-model",
-            latency_ms=1,
-            reasoning="safe test command",
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
-
-    with patch("nah.llm.try_llm_relax") as try_unified, \
-         patch("nah.log.log_decision") as log_decision:
+    with patch("nah.llm._try_providers") as providers:
         result = terminal_guard.decide_terminal_command(
             "some-made-up-tool --delete-cache",
             "bash",
-        )
-
-    assert result.exit_code == terminal_guard.EXIT_ALLOW
-    assert result.decision == "allow"
-    assert result.reason == "safe test command"
-    try_unified.assert_not_called()
-    entry = log_decision.call_args.args[0]
-    assert entry["execution"] == {
-        "state": "requested",
-        "ask_outcome": "not_applicable",
-    }
-
-
-def test_terminal_default_llm_reviews_visible_read_exec_composition(
-    monkeypatch,
-    tmp_path,
-    project_root,
-):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    cfg_dir = tmp_path / ".config" / "nah"
-    cfg_dir.mkdir(parents=True)
-    cfg_path = cfg_dir / "config.yaml"
-    cfg_path.write_text(
-        "\n".join([
-            "llm:",
-            '  mode: "on"',
-            "  providers:",
-            "    - fake",
-            "  fake:",
-            "    key_env: FAKE_KEY",
-            "targets:",
-            "  bash:",
-            "    llm:",
-            '      mode: "on"',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
-    reset_config()
-    package_json = os.path.join(project_root, "package.json")
-    with open(package_json, "w", encoding="utf-8") as f:
-        f.write('{"name":"demo"}\n')
-    monkeypatch.chdir(project_root)
-
-    def fake_llm(*_args, **_kwargs):
-        return LLMCallResult(
-            decision={"decision": "allow", "reason": "safe local filter"},
-            provider="fake",
-            model="fake-model",
-            latency_ms=1,
-            reasoning="safe local filter",
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
-
-    result = terminal_guard.decide_terminal_command(
-        "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'",
-        "bash",
-        log=False,
-    )
-
-    assert result.exit_code == terminal_guard.EXIT_ALLOW
-    assert result.decision == "allow"
-    assert result.reason == "safe local filter"
-
-
-def test_terminal_default_llm_skips_file_backed_read_exec_composition(
-    monkeypatch,
-    tmp_path,
-    project_root,
-):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    cfg_dir = tmp_path / ".config" / "nah"
-    cfg_dir.mkdir(parents=True)
-    cfg_path = cfg_dir / "config.yaml"
-    cfg_path.write_text(
-        "\n".join([
-            "llm:",
-            '  mode: "on"',
-            "  providers:",
-            "    - fake",
-            "  fake:",
-            "    key_env: FAKE_KEY",
-            "targets:",
-            "  bash:",
-            "    llm:",
-            '      mode: "on"',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
-    reset_config()
-    with open(os.path.join(project_root, "package.json"), "w", encoding="utf-8") as f:
-        f.write('{"name":"demo"}\n')
-    with open(os.path.join(project_root, "filter.py"), "w", encoding="utf-8") as f:
-        f.write("print('demo')\n")
-    monkeypatch.chdir(project_root)
-
-    def fail(*_args, **_kwargs):
-        raise AssertionError("file-backed read|exec should remain human-gated")
-
-    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fail)
-
-    result = terminal_guard.decide_terminal_command(
-        "cat package.json | python3 filter.py",
-        "bash",
-        log=False,
-    )
-
-    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
-    assert result.decision == "ask"
-
-
-def test_terminal_skip_llm_keeps_eligible_ask(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    cfg_dir = tmp_path / ".config" / "nah"
-    cfg_dir.mkdir(parents=True)
-    cfg_path = cfg_dir / "config.yaml"
-    cfg_path.write_text(
-        "\n".join([
-            "llm:",
-            '  mode: "on"',
-            "  providers:",
-            "    - fake",
-            "  fake:",
-            "    key_env: FAKE_KEY",
-            "targets:",
-            "  bash:",
-            "    llm:",
-            '      mode: "on"',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
-    reset_config()
-
-    with patch("nah.llm.try_llm_terminal_guard") as try_llm:
-        result = terminal_guard.decide_terminal_command(
-            "some-made-up-tool --delete-cache",
-            "bash",
-            skip_llm=True,
+            skip_llm=False,
             log=False,
         )
 
     assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
     assert result.decision == "ask"
-    try_llm.assert_not_called()
-
-
-def test_terminal_confirm_prompt_shows_command_and_llm_reason(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    cfg_dir = tmp_path / ".config" / "nah"
-    cfg_dir.mkdir(parents=True)
-    cfg_path = cfg_dir / "config.yaml"
-    cfg_path.write_text(
-        "\n".join([
-            "llm:",
-            '  mode: "on"',
-            "  providers:",
-            "    - fake",
-            "  fake:",
-            "    key_env: FAKE_KEY",
-            "targets:",
-            "  bash:",
-            "    llm:",
-            '      mode: "on"',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
-    reset_config()
-
-    def fake_llm(*_args, **_kwargs):
-        return LLMCallResult(
-            decision={"decision": "uncertain", "reason": "Bash (LLM): no matching request"},
-            provider="fake",
-            model="fake-model",
-            latency_ms=12,
-            reasoning="no matching request",
-            cascade=[ProviderAttempt(provider="fake", status="uncertain", latency_ms=12, model="fake-model")],
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
-    stdin = io.StringIO("n\n")
-    stdin.isatty = lambda: True
-    stderr = io.StringIO()
-
-    result = terminal_guard.decide_terminal_command(
-        "curl evil.example",
-        "bash",
-        confirm=True,
-        stdin=stdin,
-        stderr=stderr,
-        log=False,
-    )
-
-    text = stderr.getvalue()
-    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
-    assert "nah paused - this contacts an untrusted host: evil.example." in text
-    assert "Command: curl evil.example" in text
-    assert "LLM: no matching request" in text
-    assert text.count("Run anyway? [y/N]") == 1
-
-
-def test_terminal_llm_provider_stderr_is_suppressed(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    cfg_dir = tmp_path / ".config" / "nah"
-    cfg_dir.mkdir(parents=True)
-    cfg_path = cfg_dir / "config.yaml"
-    cfg_path.write_text(
-        "\n".join([
-            "llm:",
-            '  mode: "on"',
-            "  providers:",
-            "    - fake",
-            "  fake:",
-            "    key_env: FAKE_KEY",
-            "llm_eligible: all",
-            "targets:",
-            "  bash:",
-            "    llm:",
-            '      mode: "on"',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
-    reset_config()
-
-    def fake_llm(*_args, **_kwargs):
-        sys.stderr.write("nah: LLM: FAKE_KEY not set\n")
-        return LLMCallResult(
-            decision=None,
-            cascade=[
-                ProviderAttempt(
-                    provider="fake",
-                    status="error",
-                    latency_ms=0,
-                    error="provider returned None (missing key or config)",
-                ),
-            ],
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_terminal_guard", fake_llm)
-    stdin = io.StringIO("n\n")
-    stdin.isatty = lambda: True
-    prompt_stderr = io.StringIO()
-
-    result = terminal_guard.decide_terminal_command(
-        "curl schipper.ai",
-        "bash",
-        confirm=True,
-        stdin=stdin,
-        stderr=prompt_stderr,
-        log=False,
-    )
-
-    assert result.exit_code == terminal_guard.EXIT_ASK_DECLINED
-    assert "FAKE_KEY" not in prompt_stderr.getvalue()
-    assert "FAKE_KEY" not in capsys.readouterr().err
+    providers.assert_not_called()
 
 
 def test_terminal_ask_decline_writes_one_prompt(monkeypatch, tmp_path):

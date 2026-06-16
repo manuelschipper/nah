@@ -269,8 +269,9 @@ Shows the full classification pipeline: stages, action types, policies, composit
 
 `nah test --target <target>` applies the effective target policy. The bash/zsh
 terminal targets use the same Bash classifier by default; the target selects
-runtime-specific config. Bash and zsh default to LLM mode off unless explicitly
-enabled under `targets.bash.llm.mode` or `targets.zsh.llm.mode`.
+runtime-specific config. The terminal targets are deterministic-only and do not
+use the LLM; their `llm.mode` knob is accepted for backward compatibility but has
+no effect.
 
 **Flags:**
 
