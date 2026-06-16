@@ -614,49 +614,6 @@ def _matches_db_targets(database: str, schema: str | None, db_targets: list[dict
     return False
 
 
-def check_db_target(value: str) -> tuple[str, str]:
-    """Re-check a Layer-1 LLM-surfaced db target against configured db_targets.
-
-    Parity with resolve_database_context: the database name is uppercased before
-    matching (`_matches_db_targets` uppercases only the entry), and the Layer-1
-    target carries no schema (None). No db_targets configured or no match -> ask;
-    never block (there is no db blocklist concept — Layer 1 is a relaxer). A messy
-    value (connection URL, host:port/db) simply fails to match and falls to ask:
-    fail-safe, never a wrong allow.
-    """
-    from nah.config import get_config
-
-    if not value:
-        return taxonomy.ASK, "unknown database target"
-    cfg = get_config()
-    if not cfg.db_targets:
-        return taxonomy.ASK, "no db_targets configured"
-    if _matches_db_targets(value.upper(), None, cfg.db_targets):
-        return taxonomy.ALLOW, f"allowed db target: {value}"
-    return taxonomy.ASK, f"unrecognized db target: {value}"
-
-
-def check_container_target(value: str) -> tuple[str, str]:
-    """Re-check a Layer-1 LLM-surfaced container target against trusted_containers.
-
-    trusted_containers stores normalized identities (`container:<name>` /
-    `compose:<name>`); the LLM surfaces a bare name with no container-vs-compose
-    structure (or, rarely, an already-prefixed identity). Test all three forms
-    against the membership set. Untrusted -> ask; never block. Matching the raw
-    normalized strings directly avoids `normalize_trusted_container_identity`'s
-    config-entry stderr warnings firing on a target value.
-    """
-    from nah.config import get_config
-
-    if not value:
-        return taxonomy.ASK, "unknown container target"
-    trusted = set(get_config().trusted_containers)
-    candidates = {f"container:{value}", f"compose:{value}", value}
-    if candidates & trusted:
-        return taxonomy.ALLOW, f"trusted container: {value}"
-    return taxonomy.ASK, f"untrusted container: {value}"
-
-
 def _looks_like_local_path(arg: str) -> bool:
     """Check if an argument looks like a local file path rather than a hostname."""
     return arg.startswith(("/", "./", "../", "~"))

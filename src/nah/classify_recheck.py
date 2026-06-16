@@ -1,16 +1,20 @@
-"""Layer-1 target re-check (nah-982).
+"""Layer-1 target re-check (nah-982, nah-994).
 
-Layer 1 (the LLM) extracts a type + kind-tagged targets; this module runs those
-targets through the SAME deterministic floor a known command hits, then combines
-the result with the mapped type's policy to produce the Layer-1 verdict. The LLM
-extracts; the floor matches — matching never moves into the model.
+Layer 1 (the LLM) extracts a type + kind-tagged targets. This module derives the
+verdict deterministically (matching never moves into the model): the mapped
+type's policy is the baseline, and the surfaced targets may only *tighten* it.
 
-Dispatch is target-kind -> checker (NOT action_type -> checker), so the floor
-stays target-keyed and custom action types need no resource-kind metadata.
+Only `path`/`host` targets are checked, via the real floor primitives — those
+checks are target-keyed and context-free, so they faithfully mirror what a known
+command hits. `db`/`container` targets have no such faithful primitive (their
+real floors are policy-/cwd-/exec-specific, per nah-994), so they are treated as
+*unverifiable*: recorded for the audit trail but never used to clear or gate. The
+policy decides — allow-policy reads clear, context-policy writes ask. Layer 1
+may pass-through-policy or tighten, never loosen.
 """
 
 from nah import taxonomy
-from nah.context import check_container_target, check_db_target, check_host
+from nah.context import check_host
 from nah.paths import check_path_basic_raw, check_project_boundary
 
 # Restrictiveness ranking over final decisions only (allow < ask < block).
@@ -19,13 +23,18 @@ _RANK = {taxonomy.ALLOW: 0, taxonomy.ASK: 1, taxonomy.BLOCK: 2}
 # Label used in boundary reasons for re-checked targets.
 _RECHECK_TOOL = "command"
 
-# Allow-policy types that are safe with no surfaced target (they act on no
-# externally-sensitive resource). Every other allow/context type that surfaces
-# no target falls back to ask — we cannot verify what it touches.
+# Allow-policy types that are safe with no verifiable target (they act on no
+# externally-sensitive resource). Every other allow/context type that lacks a
+# verifiable target falls back to ask — we cannot confirm what it touches.
+# db_read/container_read are here because the deterministic floor allows reads
+# unconditionally (no read sensitivity list), so an unverifiable db/container
+# target must not force them to ask (nah-994).
 _TARGET_INSENSITIVE_ALLOW = frozenset({
     taxonomy.GIT_SAFE,
     taxonomy.NETWORK_DIAGNOSTIC,
     taxonomy.PACKAGE_RUN,
+    taxonomy.DB_READ,
+    taxonomy.CONTAINER_READ,
 })
 
 
@@ -50,7 +59,11 @@ def _check_host_target(value: str, action_type: str) -> tuple[str, str]:
 
 
 def _check_target(target: dict, action_type: str) -> tuple[str, str]:
-    """Route one kind-tagged target to the right deterministic checker."""
+    """Route one verifiable kind-tagged target to its deterministic checker.
+
+    Only path/host/unknown reach here; recheck handles db/container itself
+    (they are unverifiable and never call a checker).
+    """
     kind = target.get("kind", "unknown")
     value = target.get("value", "")
     if not value:
@@ -59,13 +72,6 @@ def _check_target(target: dict, action_type: str) -> tuple[str, str]:
         return _check_path_target(value)
     if kind == "host":
         return _check_host_target(value, action_type)
-    if kind == "db":
-        # Route through the SAME config-driven allowlist the deterministic floor
-        # uses (db_targets); no match -> ask, matching resolve_database_context.
-        return check_db_target(value)
-    if kind == "container":
-        # Route through trusted_containers, mirroring the deterministic floor.
-        return check_container_target(value)
     # unknown / unroutable kind: sniff as both path and host, worst wins, so a
     # mislabeled sensitive path or host is still caught.
     pd, pr = _check_path_target(value)
@@ -99,10 +105,25 @@ def recheck(classification, policy: str) -> dict:
     target_results: list = []
     worst = taxonomy.ALLOW
     worst_reason = ""
+    verifiable = 0
+    unverifiable = 0
     for t in classification.targets:
+        kind = t.get("kind", "unknown")
+        if kind in ("container", "db"):
+            # No faithful target-keyed floor for db/container (nah-994): record
+            # for the audit trail but never clear or tighten. Policy decides.
+            unverifiable += 1
+            target_results.append({
+                "kind": kind,
+                "value": t.get("value", ""),
+                "floor": "unverified",
+                "reason": "no floor",
+            })
+            continue
         decision, reason = _check_target(t, action_type)
+        verifiable += 1
         target_results.append({
-            "kind": t.get("kind", "unknown"),
+            "kind": kind,
             "value": t.get("value", ""),
             "floor": decision,
             "reason": reason,
@@ -118,7 +139,7 @@ def recheck(classification, policy: str) -> dict:
         return {"decision": taxonomy.ASK,
                 "reason": f"{action_type} → ask", "targets": target_results}
 
-    # allow / context: the surfaced targets decide.
+    # allow / context: verifiable (path/host) targets may only tighten.
     if worst == taxonomy.BLOCK:
         return {"decision": taxonomy.BLOCK,
                 "reason": worst_reason or f"{action_type}: target blocked",
@@ -127,7 +148,10 @@ def recheck(classification, policy: str) -> dict:
         return {"decision": taxonomy.ASK,
                 "reason": worst_reason or f"{action_type}: target needs review",
                 "targets": target_results}
-    if not classification.targets and _is_target_sensitive(action_type, policy):
+    # A sensitive/context type clears only when its target set was cleanly
+    # verifiable: no verifiable target at all, or any unverifiable (db/container)
+    # target, means we cannot confirm safety -> ask.
+    if _is_target_sensitive(action_type, policy) and (verifiable == 0 or unverifiable > 0):
         return {"decision": taxonomy.ASK,
                 "reason": f"{action_type}: no verifiable target",
                 "targets": target_results}
