@@ -65,6 +65,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a repointed remote could relax a cited push to an attacker URL; the floor still
   asks on every push by default, and the durable destination-snapshot fix is
   tracked separately). (nah-986)
+- **More cited-intent relaxations enabled (Tier 1).** Three more routine,
+  low-stakes, reversible operations now auto-relax when a recent user message
+  authorizes them, instead of always asking: restart/kill a process
+  (`process_signal`), run a command in a container (`container_exec`), and
+  uninstall a dependency (`package_uninstall`). Each lifts only the soft
+  category that otherwise over-vetoes its everyday case; hard categories and all
+  other actions are unchanged. A new guard test ensures a relax opt-in is never
+  dead config (the action must also be in the default eligible set). (nah-991)
 - **LLM/content review boundary** — file-backed scripts and write-like tool
   payloads no longer use deterministic body/content scans. File-backed
   `lang_exec` now relies on path and boundary checks, visible non-shell inline

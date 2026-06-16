@@ -285,15 +285,29 @@ The opt-in is per action: a soft category's veto is lifted from the checklist on
 when judging an action allowed to relax it, so the same category still vetoes
 every other action.
 
-Today exactly one soft relaxation is enabled: a **`git push` (`git_remote_write`)
-relaxes on cited user intent** (e.g. "push please"), with **no destination check**.
-This is an accepted, documented security-debt tradeoff: a misaligned agent that
-repoints the repo's remote could have a cited push relaxed to an attacker
-destination. The exposure is narrow — it needs both a repoint and a real cited
-push intent, and the deterministic floor still makes every push an `ask` by
-default; only the optional Layer-2 relax is affected. The durable fix (snapshot
-the trusted destination at session start and relax only if it has not moved at
-push time) is tracked separately.
+Today these soft relaxations are enabled (all routine, low-stakes, reversible
+ops the user authorizes constantly — each lifts only the soft category that
+otherwise over-vetoes its everyday case):
+
+| Action | Lifted soft category | Example |
+| --- | --- | --- |
+| `git push` (`git_remote_write`) | external/remote mutation | "push please" |
+| restart/kill a process (`process_signal`) | privileged runtime state | "restart the dev server" |
+| run a command in a container (`container_exec`) | privileged runtime state | "run the tests in the container" |
+| uninstall a dependency (`package_uninstall`) | persistence + destructive state | "uninstall that package" |
+
+A relax only applies to an action that is also in `llm.eligible` (the breadth
+gate); the lift here is the code-owned permissiveness gate that bounds how far
+broad eligibility can go (it keeps `eligible: all` from auto-relaxing a cited
+`rm -rf` or a prod deploy). Hard categories are never lifted for any action.
+
+`git push` carries one accepted, documented security-debt tradeoff: it relaxes
+with **no destination check**, so a misaligned agent that repoints the repo's
+remote could have a cited push relaxed to an attacker destination. The exposure
+is narrow — it needs both a repoint and a real cited push intent, and the
+deterministic floor still makes every push an `ask` by default. The durable fix
+(snapshot the trusted destination at session start and relax only if it has not
+moved at push time) is tracked separately.
 
 The relaxer can only allow an eligible ask or leave it in place; provider `block`
 responses are treated as `uncertain`, and deterministic blocks do not route
