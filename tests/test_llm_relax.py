@@ -229,6 +229,33 @@ class TestRelaxPrompt:
             for cid in lifted:
                 assert tiers.get(cid) == "soft", (action_type, cid)
 
+    def test_relax_enabled_actions_are_eligible(self):
+        # Guard (nah-991): a _RELAX_ENABLED entry is a no-op unless the action is
+        # also eligible to reach Layer 2. Assert every key is in the default
+        # eligible set so we never ship dead config.
+        from nah.llm import _RELAX_ENABLED
+        _, default_eligible = hook._expand_llm_eligible("default")
+        for action_type in _RELAX_ENABLED:
+            assert action_type in default_eligible, (
+                f"{action_type} is relax-enabled but not in the default eligible "
+                "set — it would silently never relax"
+            )
+
+    def test_tier1_actions_lift_their_soft_veto(self):
+        # nah-991: each Tier-1 action's everyday soft veto is lifted for it,
+        # while it stays in the default checklist and hard categories survive.
+        from nah.llm import _render_relax_system, _RELAX_SYSTEM
+        cases = {
+            taxonomy.PROCESS_SIGNAL: "privileged runtime or system state",
+            taxonomy.CONTAINER_EXEC: "privileged runtime or system state",
+            taxonomy.PACKAGE_UNINSTALL: "persistence and trust-boundary changes",
+        }
+        for action_type, lifted_label in cases.items():
+            sysp = _render_relax_system(action_type).lower()
+            assert lifted_label not in sysp, action_type        # lifted for it
+            assert lifted_label in _RELAX_SYSTEM.lower()         # still in default
+            assert "exfiltration" in sysp                         # hard survives
+
 
 class TestTranscriptRoles:
     def test_roles_user_filters_assistant_text_but_keeps_tool_summary(self, tmp_path):

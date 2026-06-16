@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM reasoning renders inline in the permission prompt.** When the optional
+  LLM layer keeps or refines an `ask`/`block`, its reason now appends to the
+  permission message as a second sentence (e.g. `nah paused - this runs code.
+  Executes git push, a remote mutation on repository state.`) instead of the
+  previous indented `LLM: …` line. Applies uniformly across the inline
+  `lang_exec` review, the write-review gate, and the Layer-2 relax paths.
 - **Layer-2 risk veto is now tiered (hard vs soft), and `git push` relaxes on
   cited intent.** Each LLM risk category carries a veto tier: **hard** categories
   (credentials, exfiltration, untrusted execution, safety bypass, user-scope
@@ -59,6 +65,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a repointed remote could relax a cited push to an attacker URL; the floor still
   asks on every push by default, and the durable destination-snapshot fix is
   tracked separately). (nah-986)
+- **More cited-intent relaxations enabled (Tier 1).** Three more routine,
+  low-stakes, reversible operations now auto-relax when a recent user message
+  authorizes them, instead of always asking: restart/kill a process
+  (`process_signal`), run a command in a container (`container_exec`), and
+  uninstall a dependency (`package_uninstall`). Each lifts only the soft
+  category that otherwise over-vetoes its everyday case; hard categories and all
+  other actions are unchanged. A new guard test ensures a relax opt-in is never
+  dead config (the action must also be in the default eligible set). (nah-991)
 - **LLM/content review boundary** — file-backed scripts and write-like tool
   payloads no longer use deterministic body/content scans. File-backed
   `lang_exec` now relies on path and boundary checks, visible non-shell inline
@@ -67,6 +81,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Inline `lang_exec` LLM reasoning no longer dropped from the prompt.** When
+  the LLM reviewed a visible inline `lang_exec` Bash command (e.g.
+  `python3 -c …`) and kept the `ask`, its reasoning was written to the
+  decision's `reason` but not to the fields the prompt renderer reads
+  (`_llm_reason` / `systemMessage`), so the interactive prompt showed only the
+  generic "this runs code" while the reasoning survived only in `nah log` /
+  `nah test`. The inline path now surfaces the LLM reason and system byline
+  like the write-review and Layer-2 relax paths already did.
 - **Layer-2 cite-or-ask now enforced on every path, not just the Claude hook.**
   The cite-or-ask rule (an LLM `allow` only relaxes an `ask` when it quotes the
   user message that authorized it) was previously enforced only in the Claude

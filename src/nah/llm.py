@@ -224,10 +224,25 @@ _TERMINAL_GUARD_SYSTEM = "You are a security classifier for a coding assistant."
 # vetoes every other action. HARD categories are never lifted. The system prompt
 # has a small number of variants (one per relax-enabled action type, plus the
 # default full-list), which a caching provider still reuses per variant.
+# Two orthogonal gates decide a Layer-2 relax, by different owners:
+#   * llm.eligible (user config) = BREADTH — which action types reach Layer 2 at
+#     all. Can be cranked to `all`.
+#   * _RELAX_ENABLED (this code)  = PERMISSIVENESS — for an eligible action, which
+#     SOFT risk categories a citation may override. This is the code-owned safety
+#     backstop that bounds how far broad eligibility can relax (e.g. it keeps
+#     `eligible: all` from auto-relaxing a cited `rm -rf` or prod deploy).
+# An entry here is a no-op unless the action is also eligible — a test asserts
+# every key is in the default eligible set so we never ship dead config (nah-991).
 _RELAX_ENABLED: dict[str, tuple[str, ...]] = {
     # git push relaxes on cited intent alone — no destination check. The
     # destination-safety backstop is deferred (nah-988; accepted security debt).
     taxonomy.GIT_REMOTE_WRITE: ("external_mutation",),
+    # Routine, low-stakes, reversible ops the user authorizes constantly
+    # (nah-991). Each lifts only the soft category that otherwise over-vetoes
+    # its everyday case; hard risks and other actions are unaffected.
+    taxonomy.PROCESS_SIGNAL: ("privileged_state",),       # restart/kill a process
+    taxonomy.CONTAINER_EXEC: ("privileged_state",),       # run a command in a container
+    taxonomy.PACKAGE_UNINSTALL: ("persistence_boundary", "destructive_state"),  # uninstall a dep
 }
 
 
