@@ -265,6 +265,46 @@ class TestWriteReviewGate:
         assert result["decision"] == taxonomy.ASK
         assert "outside project" in result["reason"]
 
+    def test_edit_project_boundary_is_hard_floor(self, project_root):
+        """Edit (not just Write) hard-floors an out-of-project target (nah-989)."""
+        _enable_llm_mode()
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            result = hook_mod.handle_edit({
+                "file_path": "/tmp/outside.txt",
+                "new_string": "x = 1\n",
+            })
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+        assert called == [], "LLM gate must not run for an out-of-project edit"
+
+    def test_no_project_root_write_is_hard_floor(self, monkeypatch):
+        """Regression for the original incident: with no project root, an
+        out-of-project write is a hard floor — ask, LLM gate not invoked, even
+        when the LLM would allow."""
+        import nah.paths as paths_mod
+        monkeypatch.setattr(paths_mod, "get_project_root", lambda: None)
+        _enable_llm_mode()
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            result = hook_mod.handle_write({
+                "file_path": os.path.expanduser("~/onedrive-excel-poller/src/x.mjs"),
+                "content": "import 'dotenv/config'\n",
+            })
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "no project root" in result["reason"]
+        assert called == [], "LLM gate must not run when there is no project root"
+
     def test_sensitive_path_ask_llm_allow_stays_ask(self):
         """Sensitive-path asks are not relaxable by write review."""
         _enable_llm_mode()
