@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Layer 1 classifies into built-in types only.** The Layer-1 classifier (which
+  maps a deterministically-`unknown` Bash command to an action type) is no longer
+  offered the user's custom action types — it maps into the built-in taxonomy
+  only. This stops the model from collapsing a whole unknown compound into a
+  trusted custom `allow` type (e.g. a `cd repo && molds … && molds wontdo …`
+  block landing on a custom `molds_safe → allow`). A custom type the model names
+  anyway is coerced to `unknown`, so the deterministic ask stands. (nah-992)
 - **LLM reasoning renders inline in the permission prompt.** When the optional
   LLM layer keeps or refines an `ask`/`block`, its reason now appends to the
   permission message as a second sentence (e.g. `nah paused - this runs code.

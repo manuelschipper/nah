@@ -92,6 +92,25 @@ def test_unknown_classification_keeps_ask(_patched):
     assert "action_type_source" not in out["_meta"]
 
 
+def test_layer1_never_classifies_into_custom_types(monkeypatch):
+    # nah-992: Layer 1 maps unknowns into BUILT-IN types only. Even with custom
+    # actions configured, it must call the classifier with custom_types=None so
+    # the model is never offered (and cannot land on) a user-defined type.
+    captured = {}
+
+    def fake_classify(command_or_input, llm_config, *, custom_types="MISSING"):
+        captured["custom_types"] = custom_types
+        return _classify_result(taxonomy.UNKNOWN, [])
+
+    cfg = _cfg(actions={"molds_safe": "allow", "molds_destructive": "ask"})
+    monkeypatch.setattr("nah.config.get_config", lambda: cfg)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fake_classify)
+
+    hook._apply_layer1_classify(
+        "Bash", {"command": "cd repo && molds update m-1"}, _decision_unknown_ask())
+    assert captured["custom_types"] is None
+
+
 def test_none_classification_keeps_ask(_patched):
     _patched(_cfg(), _classify_result(None, []))
     out = hook._apply_layer1_classify("Bash", {"command": "x"},
