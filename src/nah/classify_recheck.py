@@ -10,7 +10,7 @@ stays target-keyed and custom action types need no resource-kind metadata.
 """
 
 from nah import taxonomy
-from nah.context import check_host
+from nah.context import check_container_target, check_db_target, check_host
 from nah.paths import check_path_basic_raw, check_project_boundary
 
 # Restrictiveness ranking over final decisions only (allow < ask < block).
@@ -59,9 +59,13 @@ def _check_target(target: dict, action_type: str) -> tuple[str, str]:
         return _check_path_target(value)
     if kind == "host":
         return _check_host_target(value, action_type)
-    if kind in ("container", "db"):
-        # No sensitive-container/db floor list exists yet; nothing to match.
-        return taxonomy.ALLOW, f"{kind} target (no floor)"
+    if kind == "db":
+        # Route through the SAME config-driven allowlist the deterministic floor
+        # uses (db_targets); no match -> ask, matching resolve_database_context.
+        return check_db_target(value)
+    if kind == "container":
+        # Route through trusted_containers, mirroring the deterministic floor.
+        return check_container_target(value)
     # unknown / unroutable kind: sniff as both path and host, worst wins, so a
     # mislabeled sensitive path or host is still caught.
     pd, pr = _check_path_target(value)

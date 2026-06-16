@@ -2,8 +2,11 @@
 
 from dataclasses import dataclass, field
 
-from nah import taxonomy
+import pytest
+
+from nah import config, taxonomy
 from nah.classify_recheck import recheck
+from nah.config import NahConfig
 
 
 @dataclass
@@ -15,6 +18,13 @@ class _Cls:
 
 def _t(kind, value):
     return {"kind": kind, "value": value}
+
+
+@pytest.fixture(autouse=True)
+def _reset_config():
+    """Reset cached config after each test (nah-994 config-driven cases)."""
+    yield
+    config._cached_config = None
 
 
 # --- target-keyed floor catches sensitive targets regardless of type ---
@@ -58,22 +68,70 @@ def test_sensitive_path_tagged_host_still_caught():
     assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
 
 
-def test_container_db_kind_is_an_accepted_residual():
-    # ACCEPTED RESIDUAL (nah-982 QA): container/db kinds have no floor list and
-    # are NOT re-sniffed as path/host, so a sensitive value mislabeled
-    # container/db is auto-allowed. This is intentionally tolerated: Layer 1
-    # auto-allow trusts an honest classifier (a misaligned/injected classifier
-    # could equally omit the target entirely), and the real security boundary is
-    # the deterministic floor on KNOWN commands, not Layer 1. Genuine
-    # container/db targets are the common case and stay allow.
-    genuine = recheck(_Cls("container_read", [_t("container", "mydb")]),
-                      taxonomy.ALLOW)
-    assert genuine["decision"] == taxonomy.ALLOW
-    assert genuine["targets"][0]["floor"] == taxonomy.ALLOW
-    # The residual: a sensitive path mislabeled container is not caught here.
-    mislabeled = recheck(_Cls("filesystem_read", [_t("container", "~/.ssh/id_rsa")]),
-                         taxonomy.ALLOW)
-    assert mislabeled["decision"] == taxonomy.ALLOW  # documents the known gap
+# --- db / container kinds route through config-driven allowlists (nah-994) ---
+#
+# Pre-nah-994 these kinds had no floor and auto-allowed. Now they route through
+# the SAME resolvers the deterministic floor uses (db_targets / trusted_containers),
+# so a target with no matching allowlist entry -> ask, matching `psql -d PROD`.
+
+
+def test_db_target_no_config_asks():
+    config._cached_config = NahConfig(db_targets=[])
+    out = recheck(_Cls("db_write", [_t("db", "anything")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ASK
+    assert out["targets"][0]["floor"] == taxonomy.ASK
+
+
+def test_db_target_matches_allowlist_allows():
+    config._cached_config = NahConfig(db_targets=[{"database": "STAGING"}])
+    # case-insensitive parity with resolve_database_context (.upper()).
+    out = recheck(_Cls("db_write", [_t("db", "staging")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ALLOW
+
+
+def test_db_target_not_in_allowlist_asks():
+    config._cached_config = NahConfig(db_targets=[{"database": "STAGING"}])
+    out = recheck(_Cls("db_write", [_t("db", "PROD")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_db_target_wildcard_allows():
+    config._cached_config = NahConfig(db_targets=[{"database": "*"}])
+    out = recheck(_Cls("db_read", [_t("db", "PROD")]), taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ALLOW
+
+
+def test_container_target_no_config_asks():
+    config._cached_config = NahConfig(trusted_containers=[])
+    out = recheck(_Cls("container_read", [_t("container", "mydb")]), taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_container_trusted_container_prefix_allows():
+    config._cached_config = NahConfig(trusted_containers=["container:api"])
+    out = recheck(_Cls("container_write", [_t("container", "api")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ALLOW
+
+
+def test_container_trusted_compose_prefix_allows():
+    config._cached_config = NahConfig(trusted_containers=["compose:web"])
+    out = recheck(_Cls("container_write", [_t("container", "web")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ALLOW
+
+
+def test_container_untrusted_asks():
+    config._cached_config = NahConfig(trusted_containers=["container:api"])
+    out = recheck(_Cls("container_write", [_t("container", "db")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_sensitive_path_mislabeled_container_now_asks():
+    # Residual tightened (nah-994): a sensitive path tagged `container` now hits
+    # the trusted_containers check, is absent, and asks instead of auto-allowing.
+    config._cached_config = NahConfig(trusted_containers=[])
+    out = recheck(_Cls("filesystem_read", [_t("container", "~/.ssh/id_rsa")]),
+                  taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ASK
 
 
 # --- policy tiers ---
