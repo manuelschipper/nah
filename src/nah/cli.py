@@ -1043,6 +1043,9 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
     target = _require_lifecycle_target(args, "uninstall")
+    if target.key == targets.CODEX:
+        _codex_uninstall()
+        return
     if target.key in targets.SHELL_TARGETS:
         from nah import terminal_guard
         terminal_guard.uninstall_shell(target.key)
@@ -1539,13 +1542,17 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_target_status(target_key: str) -> None:
     """Show status for a lifecycle target."""
-    target = targets.get_target(target_key)
-    if target is None:
-        print(f"nah status: unknown target '{target_key}'", file=sys.stderr)
+    try:
+        target = targets.require_target(target_key, "status")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         raise SystemExit(2)
     if target.kind == targets.SHELL:
         from nah import terminal_guard
         terminal_guard.print_status(target.key)
+        return
+    if target.key == targets.CODEX:
+        _codex_status()
         return
     if target.key == targets.CLAUDE:
         state = _detect_install_state([agents.CLAUDE])
@@ -1572,100 +1579,78 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         return
 
 
-def cmd_codex(args: argparse.Namespace) -> None:
-    """Diagnose or set up Codex-specific nah preflight state."""
-    from nah.codex_authority import (
-        CodexAuthorityError,
-        authority_rules_path,
-        remove_authority_rules,
-    )
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Install or refresh nah's persistent runtime integration (Codex only)."""
+    target = _require_lifecycle_target(args, "setup")
+    # require_target only returns Codex for `setup`; the branch keeps dispatch
+    # explicit instead of assuming the sole supported target.
+    if target.key == targets.CODEX:
+        _codex_setup()
+        return
+
+
+def _codex_setup() -> None:
+    """Apply Codex setup fixes (mutating): authority rules + approval/MCP state."""
+    from nah.codex_authority import authority_rules_path
     from nah.codex_preflight import (
         blocking_findings,
-        format_doctor_output,
         format_setup_blockers,
-        scan_preflight,
         setup_preflight,
     )
 
-    action = args.codex_command or "doctor"
-    if action == "doctor":
-        findings = scan_preflight()
-        print(format_doctor_output(findings))
-        if blocking_findings(findings):
-            raise SystemExit(1)
-        return
+    result = setup_preflight()
+    print(f"setup: {authority_rules_path()}")
+    for backup in result.backups:
+        print(f"backup: {backup}")
+    for path in result.changed:
+        if path != str(authority_rules_path()):
+            print(f"updated: {path}")
+    print("checked: Codex approval memory and MCP approval modes")
+    output = format_setup_blockers(result.final_findings)
+    if blocking_findings(result.final_findings):
+        print(output, file=sys.stderr)
+        raise SystemExit(1)
+    print(output)
 
-    if action == "setup":
-        result = setup_preflight()
-        print(f"setup: {authority_rules_path()}")
-        if result.backups:
-            for backup in result.backups:
-                print(f"backup: {backup}")
-        if result.changed:
-            for path in result.changed:
-                if path != str(authority_rules_path()):
-                    print(f"updated: {path}")
-        print("checked: Codex approval memory and MCP approval modes")
-        output = format_setup_blockers(result.final_findings)
-        if blocking_findings(result.final_findings):
-            print(output, file=sys.stderr)
-            raise SystemExit(1)
-        print(output)
-        return
 
-    if action == "measure-hook-timeout":
-        from nah.codex_probe import (
-            configured_timeout_seconds,
-            format_measure_result,
-            live_trial,
-            measure_hook_timeout,
-        )
+def _codex_status() -> None:
+    """Read-only Codex preflight status (`nah status codex`). Never mutates."""
+    from nah.codex_authority import authority_rules_status, codex_home
+    from nah.codex_preflight import (
+        blocking_findings,
+        format_status_output,
+        scan_preflight,
+    )
 
-        from nah.codex_probe import RELIABLE_EVENT
+    findings = scan_preflight()
+    rules = authority_rules_status()
+    print("codex:")
+    print(f"  home:            {codex_home()}")
+    print(f"  authority rules: {rules.path} ({rules.state})")
+    for line in format_status_output(findings).splitlines():
+        print(f"  {line}")
+    if blocking_findings(findings):
+        raise SystemExit(1)
 
-        event = args.event
-        print(
-            f"nah codex measure-hook-timeout: probing {event} via headless "
-            "`codex exec` (this makes one or more real Codex calls)…",
-            file=sys.stderr,
-        )
-        if event != RELIABLE_EVENT:
-            print(
-                f"warning: {event} does not fire under headless exec "
-                f"(PreToolUse is disabled, PermissionRequest needs an interactive "
-                f"approval). Results will likely be inconclusive — probe "
-                f"{RELIABLE_EVENT}, or use `nah run codex --probe` interactively.",
-                file=sys.stderr,
-            )
 
-        def runner(delay: float):
-            return live_trial(delay, event)
+def _codex_uninstall() -> None:
+    """Remove nah-managed Codex setup files only (`nah uninstall codex`)."""
+    from nah.codex_authority import CodexAuthorityError, remove_authority_rules
 
-        result = measure_hook_timeout(
-            event,
-            runner=runner,
-            probe_high=args.probe_high,
-            sweep=args.sweep,
-        )
-        print(format_measure_result(result, configured=configured_timeout_seconds(event)))
-        if result.enforced_seconds is None and result.method == "inconclusive":
-            raise SystemExit(1)
-        return
-
-    if action == "remove-setup":
-        try:
-            removed = remove_authority_rules()
-        except CodexAuthorityError as exc:
-            print(f"nah codex remove-setup: {exc}", file=sys.stderr)
-            raise SystemExit(1)
-        if removed:
-            print(f"removed: {removed}")
-        else:
-            print("nah codex: no managed authority rules installed.")
-        return
-
-    print(f"nah codex: unknown command '{action}'", file=sys.stderr)
-    raise SystemExit(2)
+    try:
+        removed = remove_authority_rules()
+    except CodexAuthorityError as exc:
+        print(f"nah uninstall codex: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    if removed:
+        print(f"removed: {removed}")
+    else:
+        print("nah uninstall codex: no managed authority rules installed.")
+    print(
+        "note: removes nah-managed Codex setup files only. It does not uninstall "
+        "Codex, and it does not roll back approval-memory or MCP prompt-mode "
+        "changes a prior `nah setup codex` may have made."
+    )
 
 
 def cmd_forget(args: argparse.Namespace) -> None:
@@ -2183,41 +2168,15 @@ def main():
     untrust_project_parser = sub.add_parser("untrust-project", help="Remove project config trust")
     untrust_project_parser.add_argument("path", nargs="?", help="Project directory to untrust (default: active project or cwd)")
     status_parser = sub.add_parser("status", help="Show custom rules or target status")
-    status_parser.add_argument("target", nargs="?", help="Optional target: claude, bash, zsh")
+    status_parser.add_argument("target", nargs="?", help="Optional target: claude, codex, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a shell target")
     doctor_parser.add_argument("target", nargs="?", help="Target: bash, zsh")
+    setup_parser = sub.add_parser("setup", help="Set up nah integration for a runtime")
+    setup_parser.add_argument("target", nargs="?", help="Target: codex")
     run_parser = sub.add_parser("run", help="Launch an agent with nah active")
     run_sub = run_parser.add_subparsers(dest="run_agent")
     run_sub.add_parser("claude", help="Launch Claude Code with nah hooks active")
     run_sub.add_parser("codex", help="Launch Codex with nah hooks active")
-    codex_parser = sub.add_parser("codex", help="Set up or diagnose Codex integration")
-    codex_sub = codex_parser.add_subparsers(dest="codex_command")
-    codex_sub.add_parser("doctor", help="Show Codex preflight findings")
-    codex_sub.add_parser("setup", help="Install or fix nah-managed Codex setup")
-    codex_sub.add_parser("remove-setup", help="Remove nah-managed Codex setup files")
-    measure_parser = codex_sub.add_parser(
-        "measure-hook-timeout",
-        help="Measure the hook timeout Codex actually enforces",
-    )
-    measure_parser.add_argument(
-        "--event",
-        default="PostToolUse",
-        choices=("PreToolUse", "PermissionRequest", "PostToolUse"),
-        help="Hook event to probe (default: PostToolUse — the only event that "
-        "fires and is enforced under headless exec; use `nah run codex --probe` "
-        "to probe PermissionRequest interactively)",
-    )
-    measure_parser.add_argument(
-        "--probe-high",
-        type=float,
-        default=12.0,
-        help="Delay (s) for the fast over-long trial (default: 12)",
-    )
-    measure_parser.add_argument(
-        "--sweep",
-        action="store_true",
-        help="Binary-search the threshold instead of reading the reported number",
-    )
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
     forget_parser.add_argument("--project", action="store_true", help="Search only project config")
@@ -2282,10 +2241,10 @@ def main():
         cmd_status(args)
     elif args.command == "doctor":
         cmd_doctor(args)
+    elif args.command == "setup":
+        cmd_setup(args)
     elif args.command == "run":
         parser.error("nah run requires an agent: claude or codex")
-    elif args.command == "codex":
-        cmd_codex(args)
     elif args.command == "forget":
         cmd_forget(args)
     elif args.command == "types":

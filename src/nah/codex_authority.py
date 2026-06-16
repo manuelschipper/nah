@@ -97,7 +97,7 @@ def render_authority_rules() -> str:
         AUTHORITY_RULES_MARKER,
         f"# version: {AUTHORITY_RULES_VERSION}",
         f"{AUTHORITY_RULES_HASH_PREFIX}{digest}",
-        "# Regenerate with `nah codex setup`; do not edit manually.",
+        "# Regenerate with `nah setup codex`; do not edit manually.",
         "",
     ])
     return f"{header}{body}"
@@ -177,7 +177,7 @@ def ensure_authority_rules(home: Path | None = None) -> AuthorityRulesStatus:
     if status.state == "unmanaged":
         raise CodexAuthorityError(
             f"{status.path} exists but is not managed by nah; move it aside or "
-            "delete it before running `nah codex setup`.",
+            "delete it before running `nah setup codex`.",
         )
     if not status.repairable:
         raise CodexAuthorityError(status.message)

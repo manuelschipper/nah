@@ -45,6 +45,7 @@ nah run codex --sandbox workspace-write --network
 nah run codex --confirm-edits
 nah run codex --preset work
 nah run codex exec "run: git status"
+nah run codex --measure-hook-timeout
 ```
 
 `nah run codex` is a special launcher dispatch rather than a persistent install
@@ -79,6 +80,14 @@ can observe the timeout Codex actually enforces. A hook only times out when the
 stall exceeds that event's limit — `PostToolUse` is 10s, `PermissionRequest` is
 14s — so `--probe=12` forces a `PostToolUse` timeout while `--probe=16` forces a
 `PermissionRequest` timeout. Set `NAH_HOOK_PROBE_EVENT` to stall a single event.
+
+`--measure-hook-timeout` is a sibling debug mode: instead of launching a
+session, it drives Codex with the probe and reports the timeout Codex actually
+enforces for a hook event, versus the value nah configured. It defaults to
+`--event PostToolUse` (the only event that both fires and is enforced under
+headless `codex exec`); pass `--probe-high SECONDS` for the over-long trial or
+`--sweep` to binary-search the threshold. Use `nah run codex --probe` for the
+interactive PermissionRequest case.
 
 ### nah install
 
@@ -131,7 +140,7 @@ install. Shell targets regenerate snippets and refresh the managed rc block
 without duplicating it.
 
 Codex has no persistent `nah update codex` target. After upgrading the Python
-package, run `nah codex setup` to refresh Codex's nah-managed rules, then
+package, run `nah setup codex` to refresh Codex's nah-managed rules, then
 launch protected sessions with `nah run codex`.
 
 ### nah uninstall
@@ -140,6 +149,7 @@ Remove nah from a target.
 
 ```bash
 nah uninstall claude
+nah uninstall codex
 nah uninstall bash
 nah uninstall zsh
 ```
@@ -148,9 +158,11 @@ nah uninstall zsh
 deletes the old legacy shim file when present. Shell targets remove only
 nah-owned marked rc blocks and generated snippets.
 
-Codex has no persistent uninstall target; close the protected session or stop
-using `nah run codex`. To remove the persistent Codex rules created by setup,
-run `nah codex remove-setup`.
+`nah uninstall codex` removes only nah-managed Codex setup files (the managed
+authority rules). It refuses to touch unmanaged content at that path, and it
+does not uninstall Codex or roll back the approval-memory / MCP prompt-mode
+changes a prior `nah setup codex` may have made; use the printed backup paths to
+restore those manually.
 
 ### nah config show
 
@@ -215,33 +227,25 @@ shell or dotfiles.
 These commands require a CLI install with keyring support. The Claude Code
 plugin does not install the `nah` shell command or optional keyring support.
 
-### nah codex
+### nah setup
 
-Set up or diagnose Codex state that can bypass nah's Codex hook path.
+Set up nah's persistent Codex integration. `setup` is a Codex-only command;
+Claude Code and shells use their own `install` / `status` flows.
 
 ```bash
-nah codex doctor
-nah codex setup
-nah codex remove-setup
-nah codex measure-hook-timeout
+nah setup codex
 ```
 
-`doctor` scans Codex authority rules, approval-memory rules, and MCP approval
-modes without modifying files. `setup` installs nah-managed prompt rules,
-checks approval-memory and MCP drift, then backs up and fixes supported drift.
-`remove-setup` removes only nah-managed Codex setup files. It does not restore
-other Codex rules or config files that setup changed; use the printed backup
-paths if you want to restore those manually.
-
-`measure-hook-timeout` drives Codex with the debug probe and reports the timeout
-Codex actually enforces for a hook event, versus the value nah configured. It
-defaults to `--event PostToolUse` (the only event that both fires and is
-enforced under headless `codex exec`); pass `--probe-high SECONDS` for the
-over-long trial or `--sweep` to binary-search the threshold.
+`nah setup codex` installs nah-managed Codex prompt rules, checks
+approval-memory and MCP approval-mode drift, then backs up and fixes supported
+drift. It prints `codex: ready` when nothing blocks, or `codex: still blocked:`
+with the remaining findings. Inspect first with the read-only `nah status codex`
+(below), which never modifies files.
 
 If `nah run codex` reports that Codex authority or approval state can bypass
-nah, run `nah codex doctor` for details or `nah codex setup` to apply supported
-fixes.
+nah, run `nah status codex` for details or `nah setup codex` to apply supported
+fixes. To measure the timeout Codex actually enforces for a hook event, use the
+`nah run codex --measure-hook-timeout` debug mode.
 
 ## Test & Inspect
 
@@ -511,6 +515,7 @@ Show custom rules, or target status when a target is supplied.
 ```bash
 nah status
 nah status claude
+nah status codex
 nah status bash
 nah status zsh
 ```
@@ -522,7 +527,10 @@ annotations. Project `classify` entries in an untrusted project config are
 listed as ignored until `nah trust-project`.
 
 Target status summarizes direct Claude hook/plugin state, Claude settings and
-executable paths, shell guard installation, and loaded markers.
+executable paths, shell guard installation, and loaded markers. `nah status
+codex` is the read-only Codex preflight view (authority rules path/state plus
+approval-memory and MCP findings); it never modifies files and exits nonzero
+when Codex state can bypass nah. Repair findings with `nah setup codex`.
 
 ### nah doctor
 

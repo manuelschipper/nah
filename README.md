@@ -110,7 +110,7 @@ work everywhere. See
 | Runtime | Recommended start | Full guide |
 | --- | --- | --- |
 | Claude Code | `nah run claude` or `nah install claude` | [Claude Code](https://nah.build/runtimes/claude-code/) |
-| Codex | `nah codex setup`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
+| Codex | `nah setup codex`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
 | Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](https://nah.build/runtimes/terminal-guard/) |
 
 See the [full install docs](https://nah.build/install/) for update, uninstall,
@@ -273,7 +273,7 @@ nah log                                # inspect recent decisions
 nah types                              # list action types
 
 nah run claude                         # protect one Claude Code session
-nah codex setup                        # set up Codex rules
+nah setup codex                        # set up Codex rules
 nah run codex                          # protect one Codex session
 nah run codex exec "run: git status"   # protect one headless Codex run
 nah run codex --sandbox workspace-write # use Codex workspace sandboxing

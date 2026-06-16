@@ -375,7 +375,7 @@ def test_setup_blockers_include_exact_rule_remediation(tmp_path):
 
     output = format_setup_blockers(scan_preflight(home=home, cwd=tmp_path))
 
-    assert "nah codex: still blocked:" in output
+    assert "codex: still blocked:" in output
     assert str(rule) in output
     assert 'prefix_rule(pattern=["cat"], decision="forbidden")' in output
     assert "Remove this rule or change its decision to `prompt`." in output

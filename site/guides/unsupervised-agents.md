@@ -95,7 +95,7 @@ nah config show --preset sandboxed-build-agent
 ## Run Codex headless
 
 ```bash
-nah codex setup
+nah setup codex
 nah run codex --preset sandboxed-build-agent exec "run tests and fix failures"
 ```
 
