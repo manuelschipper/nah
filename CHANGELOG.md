@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **LLM reasoning renders inline in the permission prompt.** When the optional
+  LLM layer keeps or refines an `ask`/`block`, its reason now appends to the
+  permission message as a second sentence (e.g. `nah paused - this runs code.
+  Executes git push, a remote mutation on repository state.`) instead of the
+  previous indented `LLM: …` line. Applies uniformly across the inline
+  `lang_exec` review, the write-review gate, and the Layer-2 relax paths.
 - **Layer-2 risk veto is now tiered (hard vs soft), and `git push` relaxes on
   cited intent.** Each LLM risk category carries a veto tier: **hard** categories
   (credentials, exfiltration, untrusted execution, safety bypass, user-scope
@@ -67,6 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Inline `lang_exec` LLM reasoning no longer dropped from the prompt.** When
+  the LLM reviewed a visible inline `lang_exec` Bash command (e.g.
+  `python3 -c …`) and kept the `ask`, its reasoning was written to the
+  decision's `reason` but not to the fields the prompt renderer reads
+  (`_llm_reason` / `systemMessage`), so the interactive prompt showed only the
+  generic "this runs code" while the reasoning survived only in `nah log` /
+  `nah test`. The inline path now surfaces the LLM reason and system byline
+  like the write-review and Layer-2 relax paths already did.
 - **Layer-2 cite-or-ask now enforced on every path, not just the Claude hook.**
   The cite-or-ask rule (an LLM `allow` only relaxes an `ask` when it quotes the
   user message that authorized it) was previously enforced only in the Claude
