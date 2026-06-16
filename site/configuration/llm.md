@@ -313,10 +313,11 @@ The relaxer can only allow an eligible ask or leave it in place; provider `block
 responses are treated as `uncertain`, and deterministic blocks do not route
 through ask-refinement.
 
-The terminal guard keeps a separate prompt for commands typed directly by a
-human into bash or zsh. It uses the typed command as intent and does not include
-agent transcript or project-instruction context. Both agent and terminal review
-use the shared review scope above.
+The terminal guard is deterministic-only and does not use the LLM: a command
+typed directly into bash or zsh is already the human's own intent, so it is
+classified to allow / ask / block with no provider call, and an `ask` is
+confirmed inline at the prompt. The review scope above applies to the agent
+runtimes only.
 
 ## Target-specific LLM policy
 
@@ -336,18 +337,12 @@ targets:
   claude:
     llm:
       mode: on
-  bash:
-    llm:
-      mode: off
-  zsh:
-    llm:
-      mode: off
 ```
 
-Bash and zsh are terminal-guard targets. They default to LLM mode off even
-when global LLM mode is on. That keeps human terminal commands local by
-default. Turn it on only with an explicit target override such as
-`targets.bash.llm.mode: on`.
+The terminal-guard targets (`bash`, `zsh`) are deterministic-only and do not use
+the LLM. Their `llm.mode` knob is still accepted for backward compatibility but
+has no effect on terminal decisions; see
+[Terminal Guard](../runtimes/terminal-guard.md#deterministic-by-design).
 
 Project `.nah.yaml` files can tighten target policy by default, but target LLM
 settings and provider credentials are trusted/global config only. Use
@@ -410,8 +405,9 @@ The transcript is read from the agent JSONL conversation file when the runtime
 provides one. It includes user messages and tool-use summaries, wrapped with
 anti-injection framing.
 
-Bash and zsh keep LLM mode off unless you enable it under `targets.bash.llm.mode`
-or `targets.zsh.llm.mode`. See [Terminal Guard](../runtimes/terminal-guard.md#llm-review).
+Bash and zsh are deterministic-only and do not use the LLM; their `llm.mode`
+setting is accepted for backward compatibility but has no effect. See
+[Terminal Guard](../runtimes/terminal-guard.md#deterministic-by-design).
 
 ## How the cascade works
 

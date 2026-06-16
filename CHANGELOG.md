@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Terminal Guard is deterministic-only (LLM relaxation removed).** The
+  interactive bash/zsh terminal guard no longer has an optional LLM step. A
+  command you type directly into your shell is already your own intent, so there
+  is no agent transcript to mine and nothing for an LLM to relax — the guard
+  classifies to allow / ask / block and an `ask` is confirmed inline at the
+  prompt. The deterministic floor is unchanged; only the off-by-default
+  terminal `ask → allow` relaxer is gone. The shared `llm.mode` and
+  `targets.bash.llm.mode` / `targets.zsh.llm.mode` knobs are still accepted for
+  backward compatibility but no longer affect terminal decisions. (nah-985)
 - **Layer 1 classifies into built-in types only.** The Layer-1 classifier (which
   maps a deterministically-`unknown` Bash command to an action type) is no longer
   offered the user's custom action types — it maps into the built-in taxonomy

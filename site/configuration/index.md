@@ -198,10 +198,9 @@ for Codex, but it cannot change Codex safety knobs directly.
 Public `nah test --target` simulation currently supports `claude`, `bash`, and
 `zsh`. Do not use `codex` there unless a later release adds that CLI target.
 
-Bash and zsh are terminal-guard targets. They default to LLM mode off even
-when global LLM mode is on. Enable terminal LLM review only with an explicit
-target override such as
-`targets.bash.llm.mode: on`.
+Bash and zsh are terminal-guard targets and are deterministic-only: they do not
+use the LLM. Their `llm.mode` knob is still accepted for backward compatibility
+but has no effect on terminal decisions.
 
 Provider credentials and provider selection stay global-only. Configure LLM
 providers directly in global config and store environment-variable names such

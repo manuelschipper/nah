@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import contextlib
-import io
 import os
 import re
 import shlex
@@ -175,6 +173,8 @@ def decide_terminal_command(
     *,
     confirm: bool = False,
     assume_confirmed: bool = False,
+    # Accepted but inert since nah-985 made the terminal guard deterministic-only;
+    # retained so the `--skip-llm` CLI flag and installed rc-snippets keep working.
     skip_llm: bool = False,
     log: bool = True,
     stdin=None,
@@ -268,26 +268,6 @@ def decide_terminal_command(
         if log:
             _log_terminal_decision(result, cfg.log)
         return result
-
-    if not assume_confirmed and not skip_llm:
-        llm_result = _try_terminal_llm(command, target, reason, meta, cfg)
-        if llm_result is not None:
-            llm_decision, llm_reason, llm_meta = llm_result
-            meta.update(llm_meta)
-            if llm_decision == taxonomy.ALLOW:
-                action_type = _first_action_type(meta)
-                result = TerminalDecision(
-                    decision=taxonomy.ALLOW,
-                    reason=llm_reason or reason,
-                    exit_code=EXIT_ALLOW,
-                    command=command,
-                    target=target,
-                    action_type=action_type,
-                    meta={**meta, "terminal_event": "llm_allowed"},
-                )
-                if log:
-                    _log_terminal_decision(result, cfg.log)
-                return result
 
     if assume_confirmed:
         action_type = _first_action_type(meta)
@@ -803,52 +783,6 @@ def _first_action_type(meta: dict) -> str:
             return stage.get("action_type", "")
     stages = meta.get("stages", [])
     return stages[0].get("action_type", "") if stages else ""
-
-
-def _try_terminal_llm(command: str, target: str, reason: str, meta: dict, cfg) -> tuple[str, str, dict] | None:
-    """Run optional LLM ask refinement for terminal commands."""
-    if cfg.llm_mode != "on" or not cfg.llm:
-        return None
-    try:
-        from nah.hook import _build_llm_meta, _is_llm_eligible_stages
-        from nah.llm import try_llm_terminal_guard
-        from nah.log import redact_input
-
-        action_type = _first_action_type(meta) or taxonomy.UNKNOWN
-        if not _is_llm_eligible_stages(
-            action_type,
-            meta.get("stages", []),
-            cfg.llm_eligible,
-            meta.get("composition_rule", ""),
-        ):
-            return None
-
-        stderr_buf = io.StringIO()
-        with contextlib.redirect_stderr(stderr_buf):
-            llm_call = try_llm_terminal_guard(
-                redact_input("Bash", {"command": command}),
-                action_type,
-                reason,
-                cfg.llm,
-                target=target,
-                stages=meta.get("stages", []),
-            )
-        llm_meta = _build_llm_meta(llm_call, cfg)
-        if llm_call.decision is None:
-            return None if not llm_meta else ("", "", llm_meta)
-        llm_decision = llm_call.decision.get("decision", "")
-        llm_reason = (
-            llm_call.decision.get("reason", "")
-            or llm_call.reasoning
-            or llm_call.reasoning_long
-        )
-        return llm_decision, llm_reason, llm_meta
-    except Exception as exc:
-        try:
-            sys.stderr.write(f"nah: terminal LLM: {exc}\n")
-        except Exception:
-            pass
-        return None
 
 
 def _log_terminal_decision(result: TerminalDecision, log_config: dict | None) -> None:

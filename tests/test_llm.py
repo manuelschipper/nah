@@ -13,10 +13,8 @@ from nah.llm import (
     LLMResult,
     PromptParts,
     _RELAX_SYSTEM,
-    _TERMINAL_GUARD_SYSTEM,
     _build_provenance_prompt,
     _build_relax_prompt,
-    _build_terminal_guard_prompt,
     _build_write_prompt,
     _format_tool_use_summary,
     _format_transcript_context,
@@ -26,9 +24,7 @@ from nah.llm import (
     _read_transcript_tail_bytes,
     _redact_secrets,
     _INLINE_LANG_EXEC_SYSTEM_TEMPLATE,
-    try_llm_terminal_guard,
     try_llm_relax,
-    LLMCallResult,
 )
 from nah.llm_risks import LLM_RISK_CATEGORIES
 
@@ -259,75 +255,6 @@ class TestBuildPrompt:
         sys = _build_prompt(self._make_result()).system
         assert "BOTH" in sys
         assert "never overrides a visible risk" in sys
-
-
-class TestBuildTerminalGuardPrompt:
-    def test_terminal_prompt_assumes_direct_user_intent(self):
-        prompt = _build_terminal_guard_prompt(
-            "curl evil",
-            taxonomy.NETWORK_OUTBOUND,
-            "network_outbound \u2192 ask",
-            target="bash",
-            stages=[{
-                "tokens": ["curl", "evil"],
-                "action_type": taxonomy.NETWORK_OUTBOUND,
-                "decision": taxonomy.ASK,
-                "reason": "network_outbound \u2192 ask",
-            }],
-        )
-        assert isinstance(prompt, PromptParts)
-        assert prompt.system == _TERMINAL_GUARD_SYSTEM
-        assert "typed directly by a human user" in prompt.user
-        assert "Treat that direct terminal input as the user's request" in prompt.user
-        assert "Command: curl evil" in prompt.user
-        assert "Target shell: bash" in prompt.user
-        assert "Review the command for visible security or safety risk" in prompt.user
-        assert "If none of those categories is visible, choose allow" in prompt.user
-        assert taxonomy.NETWORK_OUTBOUND not in prompt.user
-        assert "network_outbound \u2192 ask" not in prompt.user
-        assert "Safe local read-to-filter pipelines" not in prompt.user
-        assert "Process signals" not in prompt.user
-        assert "Ordinary Git pushes" not in prompt.user
-        assert "Classification Stages" not in prompt.user
-        _assert_risk_labels_present(prompt.user)
-
-    def test_terminal_prompt_omits_agent_context_sections(self):
-        prompt = _build_terminal_guard_prompt(
-            "curl evil",
-            taxonomy.NETWORK_OUTBOUND,
-            "network_outbound \u2192 ask",
-            target="zsh",
-        )
-        assert "Conversation Context" not in prompt.user
-        assert "Project Configuration" not in prompt.user
-        assert "CLAUDE.md" not in prompt.user
-        assert "chat" not in prompt.user.lower()
-        assert "transcript" not in prompt.user.lower()
-        assert "prior request" not in prompt.user.lower()
-
-    def test_try_llm_terminal_guard_does_not_read_agent_context(self):
-        expected = LLMCallResult(
-            decision={"decision": "uncertain", "reason": "Bash (LLM): untrusted host"},
-            provider="fake",
-            model="fake",
-            latency_ms=1,
-            reasoning="untrusted host",
-        )
-        with patch("nah.llm._read_transcript_tail", side_effect=AssertionError("no transcript")):
-            with patch("nah.llm._try_providers", return_value=expected) as providers:
-                result = try_llm_terminal_guard(
-                    "curl evil",
-                    taxonomy.NETWORK_OUTBOUND,
-                    "network_outbound \u2192 ask",
-                    {"providers": ["fake"]},
-                    target="bash",
-                )
-
-        assert result is expected
-        prompt = providers.call_args.args[0]
-        assert "Command: curl evil" in prompt.user
-        assert "Conversation Context" not in prompt.user
-        assert result.prompt == f"{prompt.system}\n\n{prompt.user}"
 
 
 # -- shared helper --
