@@ -222,15 +222,28 @@ class TestWriteReviewGate:
         finally:
             hook_mod._try_llm_write = original
 
-    def test_project_boundary_ask_llm_allow_refines_to_allow(self, project_root):
-        """Project-boundary ask + LLM allow becomes allow."""
+    def test_project_boundary_ask_is_hard_floor(self, project_root):
+        """Project-boundary ask is a hard floor: stays ask; LLM gate not invoked.
+
+        nah-989 — matches Codex apply_patch. An LLM "allow" can no longer relax
+        an out-of-project write, and the gate is not even consulted.
+        """
         _enable_llm_mode()
-        result = _handle_with_mock_llm("Write", {
-            "file_path": "/tmp/outside.txt",
-            "content": "alias ads='~/bin/meta-ads'\n",
-        }, _mock_llm_return("allow", "matches user request"))
-        assert result["decision"] == taxonomy.ALLOW
-        assert result["_meta"]["llm_review"] == "ask_to_allow"
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            result = hook_mod.handle_write({
+                "file_path": "/tmp/outside.txt",
+                "content": "alias ads='~/bin/meta-ads'\n",
+            })
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+        assert called == [], "LLM gate must not run for an out-of-project write"
+        assert result.get("_meta", {}).get("llm_review") != "ask_to_allow"
 
     def test_project_boundary_ask_llm_uncertain_stays_ask(self, project_root):
         """Project-boundary ask + LLM uncertain remains ask."""
@@ -251,6 +264,46 @@ class TestWriteReviewGate:
         }, (None, {"llm_provider": "test"}))
         assert result["decision"] == taxonomy.ASK
         assert "outside project" in result["reason"]
+
+    def test_edit_project_boundary_is_hard_floor(self, project_root):
+        """Edit (not just Write) hard-floors an out-of-project target (nah-989)."""
+        _enable_llm_mode()
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            result = hook_mod.handle_edit({
+                "file_path": "/tmp/outside.txt",
+                "new_string": "x = 1\n",
+            })
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+        assert called == [], "LLM gate must not run for an out-of-project edit"
+
+    def test_no_project_root_write_is_hard_floor(self, monkeypatch):
+        """Regression for the original incident: with no project root, an
+        out-of-project write is a hard floor — ask, LLM gate not invoked, even
+        when the LLM would allow."""
+        import nah.paths as paths_mod
+        monkeypatch.setattr(paths_mod, "get_project_root", lambda: None)
+        _enable_llm_mode()
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            result = hook_mod.handle_write({
+                "file_path": os.path.expanduser("~/onedrive-excel-poller/src/x.mjs"),
+                "content": "import 'dotenv/config'\n",
+            })
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "no project root" in result["reason"]
+        assert called == [], "LLM gate must not run when there is no project root"
 
     def test_sensitive_path_ask_llm_allow_stays_ask(self):
         """Sensitive-path asks are not relaxable by write review."""
@@ -293,37 +346,21 @@ class TestWriteReviewGate:
             "new_source": "print('hello')",
         }),
     ])
-    def test_project_boundary_refinement_for_write_like_tools(self, project_root, tool_name, tool_input):
-        """MultiEdit and NotebookEdit use the same project-boundary refinement."""
+    def test_project_boundary_hard_floor_for_write_like_tools(self, project_root, tool_name, tool_input):
+        """MultiEdit and NotebookEdit also hard-floor out-of-project writes (nah-989)."""
         _enable_llm_mode()
-        result = _handle_with_mock_llm(tool_name, tool_input, _mock_llm_return("allow", "safe"))
-        assert result["decision"] == taxonomy.ALLOW
-        assert result["_meta"]["llm_review"] == "ask_to_allow"
-
-    def test_write_llm_allow_eligibility_helper(self):
-        from nah.hook import _is_write_llm_allow_eligible
-
-        assert _is_write_llm_allow_eligible("Write", {"decision": taxonomy.ALLOW})
-        assert _is_write_llm_allow_eligible("Write", {
-            "decision": taxonomy.ASK,
-            "reason": "Write outside project: /tmp/outside.txt",
-        })
-        assert _is_write_llm_allow_eligible("Write", {
-            "decision": taxonomy.ASK,
-            "reason": "Write outside project (no project root): /tmp/outside.txt",
-        })
-        assert not _is_write_llm_allow_eligible("Write", {
-            "decision": taxonomy.ASK,
-            "reason": "Write targets sensitive path: ~/.aws",
-        })
-        assert not _is_write_llm_allow_eligible("Write", {
-            "decision": taxonomy.ASK,
-            "reason": "Write targets nah config: ~/.config/nah/ (guard self-protection)",
-        })
-        assert not _is_write_llm_allow_eligible("Write", {
-            "decision": taxonomy.ASK,
-            "reason": "Write content inspection [secret]: private key",
-        })
+        called = []
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = lambda *a: called.append(True) or _mock_llm_return("allow")
+        try:
+            handler = hook_mod.handle_multiedit if tool_name == "MultiEdit" else hook_mod.handle_notebookedit
+            result = handler(tool_input)
+        finally:
+            hook_mod._try_llm_write = original
+        assert result["decision"] == taxonomy.ASK
+        assert "outside project" in result["reason"]
+        assert called == [], "LLM gate must not run for an out-of-project write"
 
     def test_log_entry_preserves_ask_to_allow_review_metadata(self):
         from nah.log import build_entry
@@ -383,16 +420,15 @@ class TestPromptContent:
         combined = f"{prompt.system}\n{prompt.user}"
         assert "Security Review Scope" not in prompt.user
         assert "write operation above" not in prompt.user
-        assert "Credentials and sensitive paths" in prompt.system
-        assert "Exfiltration or unauthorized access" in prompt.system
-        assert "Untrusted or obfuscated execution" in prompt.system
-        assert "Persistence and trust-boundary changes" in prompt.system
-        assert "Privileged runtime or system state" in prompt.system
-        assert "Destructive or hard-to-reverse state changes" in prompt.system
-        assert "Production, shared, remote, or external mutations" in prompt.system
-        assert "Safety, sandbox, approval, or audit bypass" in prompt.system
-        assert "Explicit user safety-scope conflict" in prompt.system
-        assert "If none of those categories is visible, choose allow" in prompt.system
+        # nah-989: write-as-data framing + non-trigger guidance
+        assert "data at rest" in prompt.system
+        assert "does not execute anything" in prompt.system
+        assert "rm -rf on build directories" in prompt.system
+        # compact canonical risk labels (shared source with Layer-2, no drift)
+        assert "credentials and sensitive paths" in prompt.system
+        assert "persistence and trust-boundary changes" in prompt.system
+        assert "safety, sandbox, approval, or audit bypass" in prompt.system
+        assert 'choose "allow"' in prompt.system
         assert "malformed" not in combined
         assert "syntactically" not in combined
 
@@ -458,7 +494,7 @@ class TestPromptContent:
         }, {"decision": "allow"})
         assert "security reviewer" in prompt.system
         assert "passed deterministic checks" not in prompt.system
-        assert "Review a write-like tool operation only for visible security or safety risk" in prompt.system
+        assert "Judge the file's content as data at rest, not as if it runs" in prompt.system
 
 
 # ===================================================================

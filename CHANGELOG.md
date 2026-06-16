@@ -52,6 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Executes git push, a remote mutation on repository state.`) instead of the
   previous indented `LLM: …` line. Applies uniformly across the inline
   `lang_exec` review, the write-review gate, and the Layer-2 relax paths.
+- **Out-of-project writes are a hard floor; the write-review LLM judges content
+  as data at rest** (nah-989). The Claude write-review gate
+  (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) now runs **only on a deterministic
+  `allow`**, matching Codex `apply_patch`: any non-`allow` structural decision
+  (a project-boundary or sensitive-path `ask`, or a `block`) returns before the
+  LLM and can no longer be relaxed — closing a hole where an LLM "allow" could
+  silently approve a write outside the project. With the relax path gone, the
+  gate is escalate-only, and its prompt was rewritten to judge file content **as
+  data at rest, not as if it runs** (using the compact canonical risk labels
+  shared with Layer 2), so benign files that merely mention risky operations
+  (`rm -rf` on build dirs, a README naming credentials, a fixture with a fake
+  key) no longer trigger spurious asks.
 - **Layer-2 risk veto is now tiered (hard vs soft), and `git push` relaxes on
   cited intent.** Each LLM risk category carries a veto tier: **hard** categories
   (credentials, exfiltration, untrusted execution, safety bypass, user-scope

@@ -710,8 +710,12 @@ class TestActiveAllowEmission:
         finally:
             hook_mod._try_llm_write = original
 
-    def test_llm_refined_write_allow_emits_when_active_allowed(self, project_root):
-        """LLM-refined Write allow emits JSON when Write is in active_allow."""
+    def test_write_allow_emits_when_active_allowed(self, project_root):
+        """An in-project, LLM-reviewed Write allow emits JSON when Write is in active_allow.
+
+        nah-989: out-of-project writes are a hard floor (never reach the gate), so the
+        active-allow emission path is exercised with an in-project structural allow.
+        """
         config._cached_config = NahConfig(
             active_allow=["Write"],
             llm_mode="on",
@@ -719,14 +723,14 @@ class TestActiveAllowEmission:
         )
         output = self._run_hook_with_write_llm_allow(
             "Write",
-            {"file_path": "/tmp/outside.txt", "content": "alias ads='ads-tool'\n"},
+            {"file_path": os.path.join(project_root, "in_project.txt"), "content": "x = 1\n"},
         )
-        assert output.strip(), "Expected refined Write allow to emit for active Write"
+        assert output.strip(), "Expected in-project Write allow to emit for active Write"
         result = json.loads(output)
         assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
 
-    def test_llm_refined_write_allow_falls_through_when_not_active_allowed(self, project_root):
-        """LLM-refined Write allow emits nothing when Write is not in active_allow."""
+    def test_write_allow_falls_through_when_not_active_allowed(self, project_root):
+        """An in-project Write allow emits nothing when Write is not in active_allow."""
         config._cached_config = NahConfig(
             active_allow=["Bash"],
             llm_mode="on",
@@ -734,9 +738,9 @@ class TestActiveAllowEmission:
         )
         output = self._run_hook_with_write_llm_allow(
             "Write",
-            {"file_path": "/tmp/outside.txt", "content": "alias ads='ads-tool'\n"},
+            {"file_path": os.path.join(project_root, "in_project.txt"), "content": "x = 1\n"},
         )
-        assert not output.strip(), "Expected refined Write allow to fall through"
+        assert not output.strip(), "Expected in-project Write allow to fall through"
 
     def test_write_review_ask_does_not_fall_through_to_unified_llm(self):
         """Write asks left by write review cannot be relaxed by unified LLM."""
