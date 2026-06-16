@@ -39,12 +39,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex hook-timeout probe** — `nah run codex --probe[=DELAY]` arms a
   debug-only stall in nah's Codex hooks (gated behind `NAH_HOOK_PROBE`, capped
   at 60s, verdict unchanged) so you can observe the timeout Codex actually
-  enforces. `nah codex measure-hook-timeout` drives Codex with the probe and
-  reports enforced-vs-configured timeouts, defaulting to `PostToolUse` (the only
-  event that both fires and is enforced under headless `codex exec`). Documented
-  in the CLI reference.
+  enforces. `nah run codex --measure-hook-timeout` drives Codex with the probe
+  and reports enforced-vs-configured timeouts, defaulting to `PostToolUse` (the
+  only event that both fires and is enforced under headless `codex exec`).
+  Documented in the CLI reference.
 
 ### Changed
+
+- **Codex lifecycle commands normalized to `nah <command> codex`** (nah-960).
+  `nah status codex` (read-only preflight), a new top-level `nah setup codex`,
+  and `nah uninstall codex` now match the `install`/`status` shape used by every
+  other runtime; `nah run codex` is unchanged. **Breaking:** the old
+  `nah codex doctor` / `nah codex setup` / `nah codex remove-setup` subcommands
+  are removed (no aliases) and exit nonzero — use `nah status codex` /
+  `nah setup codex` / `nah uninstall codex` instead. `nah status codex` also
+  fixes a silent no-op (it used to parse and exit `0` with no output) and is
+  strictly read-only: it reports missing or stale rules and exits nonzero
+  without creating them. `nah doctor codex` and `nah doctor claude` now point to
+  `nah status …`. The hook-timeout probe moved from `nah codex
+  measure-hook-timeout` to the `nah run codex --measure-hook-timeout` debug mode.
 
 - **Terminal Guard is deterministic-only (LLM relaxation removed).** The
   interactive bash/zsh terminal guard no longer has an optional LLM step. A
