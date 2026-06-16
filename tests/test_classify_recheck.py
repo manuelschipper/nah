@@ -1,4 +1,4 @@
-"""Layer-1 target re-check (nah-982): floor matches LLM-surfaced targets."""
+"""Layer-1 target re-check (nah-982, nah-994): policy baseline + path/host tighten."""
 
 from dataclasses import dataclass, field
 
@@ -58,22 +58,68 @@ def test_sensitive_path_tagged_host_still_caught():
     assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
 
 
-def test_container_db_kind_is_an_accepted_residual():
-    # ACCEPTED RESIDUAL (nah-982 QA): container/db kinds have no floor list and
-    # are NOT re-sniffed as path/host, so a sensitive value mislabeled
-    # container/db is auto-allowed. This is intentionally tolerated: Layer 1
-    # auto-allow trusts an honest classifier (a misaligned/injected classifier
-    # could equally omit the target entirely), and the real security boundary is
-    # the deterministic floor on KNOWN commands, not Layer 1. Genuine
-    # container/db targets are the common case and stay allow.
-    genuine = recheck(_Cls("container_read", [_t("container", "mydb")]),
-                      taxonomy.ALLOW)
-    assert genuine["decision"] == taxonomy.ALLOW
-    assert genuine["targets"][0]["floor"] == taxonomy.ALLOW
-    # The residual: a sensitive path mislabeled container is not caught here.
-    mislabeled = recheck(_Cls("filesystem_read", [_t("container", "~/.ssh/id_rsa")]),
-                         taxonomy.ALLOW)
-    assert mislabeled["decision"] == taxonomy.ALLOW  # documents the known gap
+# --- db / container kinds are unverifiable; the policy decides (nah-994) ---
+#
+# Config-independent: db/container targets never consult db_targets /
+# trusted_containers. allow-policy reads clear; context-policy writes ask.
+
+
+def test_db_read_target_allows():
+    # Parity guard: deterministic db_read is unconditional allow, so Layer 1
+    # must not be stricter — an unverifiable db target does not force ask.
+    out = recheck(_Cls("db_read", [_t("db", "prod")]), taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ALLOW
+    assert out["targets"][0]["floor"] == "unverified"
+
+
+def test_container_read_target_allows():
+    # Parity guard: deterministic container_read is unconditional allow.
+    out = recheck(_Cls("container_read", [_t("container", "api")]), taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ALLOW
+
+
+def test_db_write_target_asks():
+    # context type + unverifiable db target -> cannot confirm -> ask.
+    out = recheck(_Cls("db_write", [_t("db", "prod")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ASK
+    assert out["targets"][0]["floor"] == "unverified"
+
+
+def test_container_write_target_asks():
+    out = recheck(_Cls("container_write", [_t("container", "api")]), taxonomy.CONTEXT)
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_sensitive_path_mislabeled_container_asks():
+    # Residual tightened (nah-994): a sensitive path tagged `container` is
+    # unverifiable, so a target-sensitive allow type falls back to ask instead
+    # of the old blanket auto-allow.
+    out = recheck(_Cls("filesystem_read", [_t("container", "~/.ssh/id_rsa")]),
+                  taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_context_mixed_cleared_host_and_db_target_asks():
+    # Guards the load-bearing `unverifiable > 0` clause: a context type whose
+    # host target clears but which ALSO carries an unverifiable db target cannot
+    # be confirmed safe -> ask. Without that term this would wrongly allow.
+    out = recheck(
+        _Cls("network_outbound", [_t("host", "github.com"), _t("db", "prod")]),
+        taxonomy.CONTEXT,
+    )
+    assert out["decision"] == taxonomy.ASK
+
+
+def test_insensitive_read_still_tightens_on_sensitive_path_with_db_target():
+    # An allow-policy read is target-insensitive, but a verifiable sensitive path
+    # still tightens it even alongside an unverifiable db target — the path floor
+    # (worst) wins before the insensitive clearance. (~/.ssh is ask or block
+    # depending on config, so accept either non-allow tier, like the sibling.)
+    out = recheck(
+        _Cls("db_read", [_t("db", "prod"), _t("path", "~/.ssh/id_rsa")]),
+        taxonomy.ALLOW,
+    )
+    assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
 
 
 # --- policy tiers ---
