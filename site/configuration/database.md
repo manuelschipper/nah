@@ -1,6 +1,13 @@
 # Database Targets
 
-nah can auto-allow `db_write` operations to specific databases when the target matches a configured allowlist. `db_write` uses the `context` policy by default, so `db_targets` is the main opt-in.
+nah can auto-allow SQL-capable `db_exec` operations to specific databases when
+the target matches a configured allowlist. `db_exec` uses the `context` policy
+by default, so `db_targets` is the main opt-in.
+
+nah gates the database tool surface, not SQL intent. Any tool that can run
+caller-supplied SQL is `db_exec`, including commands that look read-only such as
+`psql -c "SELECT 1"` or `sqlite3 db "SELECT 1"`. Database roles, grants, and
+read-only replicas are the authority for SELECT-vs-INSERT behavior.
 
 !!! note "Supported databases"
     Currently **PostgreSQL** (`psql`) and **Snowflake** (`snowsql`, `snow sql`, MCP). Target configs are shared across both — there's no way to scope a `db_targets` entry to a single database engine.
@@ -17,7 +24,7 @@ db_targets:
   - database: STAGING
 ```
 
-If you override `db_write` to `ask` or `block`, that stricter policy applies before target matching and `db_targets` won't auto-allow writes.
+If you override `db_exec` to `ask` or `block`, that stricter policy applies before target matching and `db_targets` won't auto-allow the command.
 
 ## Target matching
 
@@ -77,7 +84,7 @@ For MCP tools (`mcp__*`), nah extracts `database` and `schema` from the tool's `
 
 ## Decision flow
 
-1. Command classified as `db_write`
+1. Command classified as `db_exec`
 2. Policy is `context` → context resolver runs
 3. Target extracted from CLI flags or tool input
 4. Target checked against `db_targets` allowlist

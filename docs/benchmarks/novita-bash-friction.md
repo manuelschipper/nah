@@ -212,8 +212,8 @@ Interpretation:
   replay artifacts, not normal user friction.
 - `unknown_cli` is the main real residual. After excluding `reminder`, it is
   mostly generic compound workflow shapes rather than one custom app CLI.
-- `unknown_db_target` is a reasonable ambiguity bucket until database read/write
-  target semantics are stronger.
+- `unknown_db_target` is a reasonable ambiguity bucket until SQL-capable
+  database target semantics are stronger.
 
 ## Top Remaining Unknown CLI Shapes
 
@@ -243,7 +243,7 @@ whose safety depends on local project semantics.
 The benchmark suggests several classifier improvements that would be general
 enough to consider:
 
-- SQLite read-only query classification, including `.schema` and `SELECT`.
+- SQLite tool-level classification for SQL-capable invocations.
 - More precise `npm run build/test` handling when the script can be resolved
   locally and does not start a long-running service.
 - Healthcheck compounds such as `npm run dev & sleep N && curl localhost...`,

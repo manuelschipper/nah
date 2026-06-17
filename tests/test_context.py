@@ -543,24 +543,24 @@ class TestResolveContext:
     def teardown_method(self):
         config._cached_config = None
 
-    def test_db_write_with_tool_input(self):
+    def test_db_exec_with_tool_input(self):
         config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
         decision, reason = resolve_context(
-            "db_write", tool_input={"database": "SANDBOX", "query": "INSERT ..."}
+            "db_exec", tool_input={"database": "SANDBOX", "query": "INSERT ..."}
         )
         assert decision == "allow"
         assert "allowed target" in reason
 
-    def test_db_write_with_tokens(self):
+    def test_db_exec_with_tokens(self):
         config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
         decision, reason = resolve_context(
-            "db_write", tokens=["psql", "-d", "sandbox"]
+            "db_exec", tokens=["psql", "-d", "sandbox"]
         )
         assert decision == "allow"
 
-    def test_db_write_no_input_ask(self):
+    def test_db_exec_no_input_ask(self):
         config._cached_config = NahConfig(db_targets=[{"database": "SANDBOX"}])
-        decision, reason = resolve_context("db_write")
+        decision, reason = resolve_context("db_exec")
         assert decision == "ask"
         assert "unknown database target" in reason
 

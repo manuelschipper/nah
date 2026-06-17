@@ -409,7 +409,7 @@ class TestMainUnifiedLlm:
         with patch("nah.config.get_config", return_value=NahConfig(
             llm_mode="on",
             llm={"providers": ["ollama"], "ollama": {"model": "test"}},
-            llm_eligible=["db_write"],
+            llm_eligible=["db_exec"],
         )), \
              patch("nah.hook.classify_command", return_value=_ask_result()), \
              patch("nah.llm.try_llm_relax") as mock_try_llm, \

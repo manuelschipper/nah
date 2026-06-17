@@ -16,7 +16,7 @@ classify:
     - "kubectl delete"
   filesystem_delete:
     - "terraform destroy"
-  db_write:
+  db_exec:
     - "psql -c DROP"
     - "mysql -e DROP"
 ```
@@ -83,14 +83,14 @@ For the full lookup order, see
 ```yaml
 # .nah.yaml (in project root)
 classify:
-  db_write:
+  db_exec:
     - "psql -c ALTER"
     - "psql -c DROP"
   filesystem_delete:
     - "make clean"
 
 actions:
-  db_write: block    # tighten: block all DB writes in this project
+  db_exec: block    # tighten: block SQL-capable database commands in this project
 ```
 
 Project config can tighten `actions` (for example, escalate `ask` to `block`)
@@ -99,7 +99,7 @@ that exact project root:
 
 ```bash
 nah trust-project
-nah classify "migrate-prod" db_write --project
+nah classify "migrate-prod" db_exec --project
 ```
 
 See [Configuration overview](index.md#trusting-project-config) for Git,

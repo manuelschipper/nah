@@ -46,7 +46,7 @@ _DEFAULT_SAFE_COMPOSITION_FORBIDDEN_ACTIONS = {
     taxonomy.CONTAINER_DESTRUCTIVE,
     taxonomy.SERVICE_WRITE,
     taxonomy.SERVICE_DESTRUCTIVE,
-    taxonomy.DB_WRITE,
+    taxonomy.DB_EXEC,
     taxonomy.AGENT_WRITE,
     taxonomy.AGENT_EXEC_WRITE,
     taxonomy.AGENT_EXEC_REMOTE,

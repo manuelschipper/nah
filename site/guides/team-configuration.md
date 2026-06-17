@@ -37,7 +37,7 @@ Commit a `.nah.yaml` file at the repo root:
 actions:
   git_history_rewrite: block
   git_remote_write: ask
-  db_write: block
+  db_exec: block
   network_write: ask
   package_install: ask
 
@@ -77,7 +77,7 @@ For example:
 ```yaml
 # .nah.yaml
 classify:
-  db_write:
+  db_exec:
     - "pnpm db:migrate"
   package_run:
     - "pnpm test"
@@ -195,7 +195,7 @@ presets:
     actions:
       git_history_rewrite: block
       git_remote_write: block
-      db_write: block
+      db_exec: block
       unknown: block
 ```
 
@@ -244,7 +244,7 @@ Start with a small `.nah.yaml`:
 ```yaml
 actions:
   git_history_rewrite: block
-  db_write: ask
+  db_exec: ask
   network_write: ask
 
 sensitive_paths:

@@ -64,10 +64,10 @@ def test_sensitive_path_tagged_host_still_caught():
 # trusted_containers. allow-policy reads clear; context-policy writes ask.
 
 
-def test_db_read_target_allows():
-    # Parity guard: deterministic db_read is unconditional allow, so Layer 1
+def test_db_safe_target_allows():
+    # Parity guard: deterministic db_safe is unconditional allow, so Layer 1
     # must not be stricter — an unverifiable db target does not force ask.
-    out = recheck(_Cls("db_read", [_t("db", "prod")]), taxonomy.ALLOW)
+    out = recheck(_Cls("db_safe", [_t("db", "prod")]), taxonomy.ALLOW)
     assert out["decision"] == taxonomy.ALLOW
     assert out["targets"][0]["floor"] == "unverified"
 
@@ -78,9 +78,9 @@ def test_container_read_target_allows():
     assert out["decision"] == taxonomy.ALLOW
 
 
-def test_db_write_target_asks():
+def test_db_exec_target_asks():
     # context type + unverifiable db target -> cannot confirm -> ask.
-    out = recheck(_Cls("db_write", [_t("db", "prod")]), taxonomy.CONTEXT)
+    out = recheck(_Cls("db_exec", [_t("db", "prod")]), taxonomy.CONTEXT)
     assert out["decision"] == taxonomy.ASK
     assert out["targets"][0]["floor"] == "unverified"
 
@@ -116,7 +116,7 @@ def test_insensitive_read_still_tightens_on_sensitive_path_with_db_target():
     # (worst) wins before the insensitive clearance. (~/.ssh is ask or block
     # depending on config, so accept either non-allow tier, like the sibling.)
     out = recheck(
-        _Cls("db_read", [_t("db", "prod"), _t("path", "~/.ssh/id_rsa")]),
+        _Cls("db_safe", [_t("db", "prod"), _t("path", "~/.ssh/id_rsa")]),
         taxonomy.ALLOW,
     )
     assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)

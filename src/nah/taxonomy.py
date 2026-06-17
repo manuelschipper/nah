@@ -6,7 +6,6 @@ Classification data and policies are loaded from JSON files in data/.
 import json
 import os
 import re
-import shlex
 import sys
 from pathlib import Path
 
@@ -44,8 +43,8 @@ BROWSER_STATE = "browser_state"
 BROWSER_NAVIGATE = "browser_navigate"
 BROWSER_EXEC = "browser_exec"
 BROWSER_FILE = "browser_file"
-DB_READ = "db_read"
-DB_WRITE = "db_write"
+DB_SAFE = "db_safe"
+DB_EXEC = "db_exec"
 AGENT_READ = "agent_read"
 AGENT_WRITE = "agent_write"
 AGENT_EXEC_READ = "agent_exec_read"
@@ -64,6 +63,23 @@ CONTEXT = "context"
 
 # Strictness ordering — higher = more restrictive. Used for tighten-only merges.
 STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
+
+_DEPRECATED_TYPE_ALIASES = {
+    "db_read": DB_SAFE,
+    "db_write": DB_EXEC,
+}
+_deprecated_type_warnings: set[str] = set()
+
+
+def canonicalize_action_type(name: str) -> str:
+    """Map released legacy action type names to their current names."""
+    canonical = _DEPRECATED_TYPE_ALIASES.get(name, name)
+    if canonical != name and name not in _deprecated_type_warnings:
+        sys.stderr.write(
+            f"nah: action type '{name}' is deprecated; use '{canonical}'\n"
+        )
+        _deprecated_type_warnings.add(name)
+    return canonical
 
 
 def _effective_profile(profile: str) -> str:
@@ -168,7 +184,8 @@ def build_user_table(user_classify: dict[str, list[str]]) -> list[tuple[tuple[st
     """
     entries: list[tuple[tuple[tuple[str, ...], str], int, bool]] = []
     counter = 0
-    for action_type, prefixes in user_classify.items():
+    for raw_action_type, prefixes in user_classify.items():
+        action_type = canonicalize_action_type(str(raw_action_type))
         if not isinstance(prefixes, list):
             continue
         for prefix_str in prefixes:
@@ -196,7 +213,6 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "tar", "git", "curl", "wget",
                           "http", "https", "xh", "xhs",
                           "gh", "glab", "mise",
-                          "sqlite3", "psql",
                           "bazel", "bazelisk",
                           "codex",
                           "npm", "npx", "uv", "uvx", "pnpm", "bun", "pip",
@@ -571,12 +587,6 @@ def classify_tokens(
         tokens,
         global_table=global_table,
     )
-    if action is not None:
-        return action
-    action = _classify_sqlite3(tokens)
-    if action is not None:
-        return action
-    action = _classify_psql_readonly(tokens, env_assignments=env_assignments)
     if action is not None:
         return action
     action = _classify_graphql_operation(tokens)
@@ -1191,631 +1201,6 @@ def _classify_tar(tokens: list[str]) -> str | None:
     if found_read:
         return FILESYSTEM_READ
     return FILESYSTEM_WRITE  # Conservative default
-
-
-_SQLITE3_READONLY_FLAGS = {"-readonly", "--readonly"}
-_SQLITE3_SAFE_BOOL_FLAGS = {
-    "-safe", "--safe",
-    "-batch", "--batch",
-    "-bail", "--bail",
-    "-header", "--header",
-    "-noheader", "--noheader",
-    "-column", "--column",
-    "-csv", "--csv",
-    "-json", "--json",
-    "-line", "--line",
-    "-list", "--list",
-    "-tabs", "--tabs",
-    "-table", "--table",
-    "-box", "--box",
-    "-markdown", "--markdown",
-    "-html", "--html",
-    "-quote", "--quote",
-}
-_SQLITE3_SAFE_VALUE_FLAGS = {
-    "-separator", "--separator",
-    "-newline", "--newline",
-    "-nullvalue", "--nullvalue",
-}
-_SQLITE3_UNSAFE_FLAGS = {
-    "-cmd", "--cmd",
-    "-init", "--init",
-    "-nonce", "--nonce",
-    "-unsafe-testing", "--unsafe-testing",
-    "-append", "--append",
-    "-deserialize", "--deserialize",
-    "-zip", "--zip",
-    "-A",
-}
-_SQLITE3_SAFE_DOT_COMMANDS = {
-    ".schema",
-    ".tables",
-    ".indexes",
-    ".databases",
-    ".dbinfo",
-    ".fullschema",
-    ".show",
-    ".help",
-    ".version",
-}
-_SQLITE3_SAFE_PRAGMAS = {
-    "table_info",
-    "table_xinfo",
-    "foreign_key_list",
-    "index_list",
-    "index_info",
-    "index_xinfo",
-    "database_list",
-    "schema_version",
-    "user_version",
-    "application_id",
-    "page_count",
-    "freelist_count",
-    "page_size",
-    "encoding",
-    "collation_list",
-    "compile_options",
-    "function_list",
-    "integrity_check",
-    "module_list",
-    "pragma_list",
-    "quick_check",
-    "table_list",
-}
-_SQLITE3_SAFE_ARG_PRAGMAS = {
-    "table_info",
-    "table_xinfo",
-    "foreign_key_list",
-    "index_list",
-    "index_info",
-    "index_xinfo",
-    "integrity_check",
-    "quick_check",
-}
-_SQLITE3_UNSAFE_SQL_FUNCTION_RE = re.compile(
-    r"\b(?:writefile|readfile|load_extension|edit|fts3_tokenizer)\s*\(",
-    re.IGNORECASE,
-)
-
-
-def _classify_sqlite3(tokens: list[str]) -> str | None:
-    """Classify sqlite3 read-only invocations when the read-only shape is explicit."""
-    if not tokens or tokens[0] != "sqlite3":
-        return None
-
-    parsed = _sqlite3_parse_read_shape(tokens)
-    if parsed is None:
-        return DB_WRITE
-    db_name, sql_or_dot_command, readonly = parsed
-
-    if db_name != ":memory:" and not readonly:
-        return DB_WRITE
-    if _sqlite3_is_safe_dot_command(sql_or_dot_command):
-        return DB_READ
-    if _sqlite3_is_readonly_sql(sql_or_dot_command):
-        return DB_READ
-    return DB_WRITE
-
-
-def _sqlite3_parse_read_shape(tokens: list[str]) -> tuple[str, str, bool] | None:
-    args = tokens[1:]
-    readonly = False
-    i = 0
-
-    while i < len(args):
-        tok = args[i]
-        if _sqlite3_is_input_redirect(tok):
-            return None
-        if tok == "--":
-            i += 1
-            break
-        if tok.startswith("-") and tok != "-":
-            flag = tok.lower()
-            if flag in _SQLITE3_UNSAFE_FLAGS:
-                return None
-            if flag in _SQLITE3_READONLY_FLAGS:
-                readonly = True
-                i += 1
-                continue
-            if flag in _SQLITE3_SAFE_BOOL_FLAGS:
-                i += 1
-                continue
-            if flag in _SQLITE3_SAFE_VALUE_FLAGS:
-                if i + 1 >= len(args):
-                    return None
-                i += 2
-                continue
-            return None
-        break
-
-    if i >= len(args):
-        return None
-
-    db_name = args[i]
-    if db_name != ":memory:" and db_name.startswith("-"):
-        return None
-    if _sqlite3_is_input_redirect(db_name):
-        return None
-    i += 1
-
-    command_args = args[i:]
-    if len(command_args) != 1:
-        return None
-    if any(_sqlite3_is_input_redirect(arg) for arg in command_args):
-        return None
-    return db_name, command_args[0], readonly
-
-
-def _sqlite3_is_input_redirect(token: str) -> bool:
-    return (
-        token in {"<", "0<", "<<<"}
-        or token.startswith("<")
-        or token.startswith("0<")
-        or token.startswith("<<<")
-    )
-
-
-def _sqlite3_is_safe_dot_command(command: str) -> bool:
-    stripped = command.strip()
-    if not stripped.startswith("."):
-        return False
-    if "|" in stripped or ";" in stripped:
-        return False
-    parts = stripped.split()
-    if not parts:
-        return False
-    return parts[0].lower() in _SQLITE3_SAFE_DOT_COMMANDS
-
-
-def _sqlite3_is_readonly_sql(sql: str) -> bool:
-    statement = _sqlite3_single_statement(sql)
-    if statement is None:
-        return False
-    if _SQLITE3_UNSAFE_SQL_FUNCTION_RE.search(statement):
-        return False
-
-    if re.match(r"\s*select\b", statement, re.IGNORECASE):
-        return True
-
-    explain = re.match(
-        r"\s*explain\s+(?:query\s+plan\s+)?(.+)\Z",
-        statement,
-        re.IGNORECASE | re.DOTALL,
-    )
-    if explain:
-        inner = explain.group(1).strip()
-        return (
-            bool(re.match(r"select\b", inner, re.IGNORECASE))
-            and _sqlite3_is_readonly_sql(inner)
-        )
-
-    return _sqlite3_is_safe_pragma(statement)
-
-
-def _sqlite3_single_statement(sql: str) -> str | None:
-    stripped = sql.strip()
-    if not stripped:
-        return None
-    if "--" in stripped or "/*" in stripped or "*/" in stripped:
-        return None
-
-    in_single = False
-    in_double = False
-    i = 0
-    while i < len(stripped):
-        ch = stripped[i]
-        if in_single:
-            if ch == "'":
-                if i + 1 < len(stripped) and stripped[i + 1] == "'":
-                    i += 2
-                    continue
-                in_single = False
-        elif in_double:
-            if ch == '"':
-                if i + 1 < len(stripped) and stripped[i + 1] == '"':
-                    i += 2
-                    continue
-                in_double = False
-        elif ch == "'":
-            in_single = True
-        elif ch == '"':
-            in_double = True
-        elif ch == ";":
-            if stripped[i + 1:].strip():
-                return None
-            stripped = stripped[:i].strip()
-            break
-        i += 1
-
-    return stripped if stripped else None
-
-
-def _sqlite3_is_safe_pragma(statement: str) -> bool:
-    match = re.match(r"\s*pragma\s+(.+)\Z", statement, re.IGNORECASE | re.DOTALL)
-    if not match:
-        return False
-    body = match.group(1).strip()
-    if not body or "=" in body:
-        return False
-    pragma = re.match(
-        r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)(.*)\Z",
-        body,
-        re.DOTALL,
-    )
-    if not pragma:
-        return False
-    name = pragma.group(1).lower()
-    remainder = pragma.group(2).strip()
-    if name not in _SQLITE3_SAFE_PRAGMAS:
-        return False
-    if not remainder:
-        return True
-    return (
-        name in _SQLITE3_SAFE_ARG_PRAGMAS
-        and remainder.startswith("(")
-        and remainder.endswith(")")
-    )
-
-
-_PGOPTIONS_READONLY_TRUTHY = {"on", "true", "1", "yes"}
-_PSQL_NOARG_FLAGS = {
-    "-X",
-    "--no-psqlrc",
-    "-1",
-    "--single-transaction",
-    "-A",
-    "-t",
-    "-q",
-    "--csv",
-    "--tuples-only",
-}
-_PSQL_NOARG_CLUSTER = frozenset("X1Atq")
-_PSQL_VALUE_FLAGS = {
-    "-h",
-    "--host",
-    "-p",
-    "--port",
-    "-U",
-    "--username",
-    "-v",
-    "--set",
-    "--variable",
-    "-P",
-    "--pset",
-    "-F",
-    "--field-separator",
-    "-R",
-    "--record-separator",
-}
-_PSQL_VALUE_PREFIXES = (
-    "--host=",
-    "--port=",
-    "--username=",
-    "--set=",
-    "--variable=",
-    "--pset=",
-    "--field-separator=",
-    "--record-separator=",
-)
-_PSQL_SHORT_VALUE_FLAGS = {"-h", "-p", "-U", "-v", "-P", "-F", "-R"}
-_PSQL_DBNAME_FLAGS = {"-d", "--dbname"}
-_PSQL_DBNAME_PREFIXES = ("--dbname=",)
-_PSQL_REJECT_FLAGS = {
-    "-f",
-    "--file",
-    "-o",
-    "--output",
-    "-L",
-    "--log-file",
-    "-a",
-    "--echo-all",
-    "-e",
-    "--echo-queries",
-    "-E",
-    "--echo-hidden",
-}
-_PSQL_REJECT_PREFIXES = (
-    "--file=",
-    "--output=",
-    "--log-file=",
-)
-_PSQL_SAFE_EXPLAIN_OPTIONS = {
-    "FORMAT",
-    "COSTS",
-    "VERBOSE",
-    "SETTINGS",
-    "SUMMARY",
-    "MEMORY",
-    "GENERIC_PLAN",
-}
-_PSQL_UNSAFE_EXPLAIN_OPTIONS = {"ANALYZE", "BUFFERS", "WAL", "TIMING", "SERIALIZE"}
-_PSQL_SELECT_SAFE_CALL_KEYWORDS = {
-    "in",
-    "exists",
-    "select",
-}
-
-
-def _classify_psql_readonly(
-    tokens: list[str],
-    *,
-    env_assignments: dict[str, str] | None = None,
-) -> str | None:
-    """Classify explicit read-only psql one-shot invocations."""
-    if not tokens or tokens[0] != "psql":
-        return None
-    if not _pgoptions_enables_readonly((env_assignments or {}).get("PGOPTIONS", "")):
-        return None
-
-    sql = _psql_extract_single_command(tokens)
-    if sql is None:
-        return None
-    if _psql_is_readonly_sql(sql):
-        return DB_READ
-    return None
-
-
-def _pgoptions_enables_readonly(value: str) -> bool:
-    if not value:
-        return False
-    try:
-        parts = shlex.split(value)
-    except ValueError:
-        return False
-    if not parts:
-        return False
-
-    seen = 0
-    enabled = False
-    i = 0
-    while i < len(parts):
-        tok = parts[i]
-        setting = ""
-        if tok == "-c":
-            if i + 1 >= len(parts):
-                return False
-            setting = parts[i + 1]
-            i += 2
-        elif tok.startswith("-c") and len(tok) > 2:
-            setting = tok[2:]
-            if setting[:1].isspace():
-                return False
-            i += 1
-        else:
-            return False
-
-        name, sep, raw_value = setting.partition("=")
-        if sep != "=" or name.lower() != "default_transaction_read_only":
-            return False
-        seen += 1
-        enabled = raw_value.strip().lower() in _PGOPTIONS_READONLY_TRUTHY
-        if not enabled:
-            return False
-
-    return seen == 1 and enabled
-
-
-def _psql_extract_single_command(tokens: list[str]) -> str | None:
-    sql: str | None = None
-    no_psqlrc = False
-    positional_seen = False
-    i = 1
-
-    while i < len(tokens):
-        tok = tokens[i]
-
-        if _psql_is_input_redirect(tok):
-            return None
-        if tok == "--":
-            i += 1
-            while i < len(tokens):
-                positional = tokens[i]
-                if (
-                    _psql_is_input_redirect(positional)
-                    or positional.startswith("-")
-                    or positional_seen
-                    or _psql_conninfo_is_unsafe(positional)
-                ):
-                    return None
-                positional_seen = True
-                i += 1
-            break
-        if tok in {"-X", "--no-psqlrc"}:
-            no_psqlrc = True
-            i += 1
-            continue
-        if tok in _PSQL_NOARG_FLAGS:
-            i += 1
-            continue
-        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
-            if tok.startswith("-c"):
-                if sql is not None:
-                    return None
-                sql = tok[2:]
-                i += 1
-                continue
-            if tok.startswith("-d"):
-                if _psql_conninfo_is_unsafe(tok[2:]):
-                    return None
-                i += 1
-                continue
-            if tok[:2] in _PSQL_SHORT_VALUE_FLAGS:
-                i += 1
-                continue
-            if set(tok[1:]) <= _PSQL_NOARG_CLUSTER:
-                no_psqlrc = no_psqlrc or "X" in tok[1:]
-                i += 1
-                continue
-            return None
-        if tok == "-c":
-            if sql is not None or i + 1 >= len(tokens):
-                return None
-            sql = tokens[i + 1]
-            i += 2
-            continue
-        if tok == "--command":
-            if sql is not None or i + 1 >= len(tokens):
-                return None
-            sql = tokens[i + 1]
-            i += 2
-            continue
-        if tok.startswith("--command="):
-            if sql is not None:
-                return None
-            sql = tok.split("=", 1)[1]
-            i += 1
-            continue
-        if tok in _PSQL_REJECT_FLAGS or any(tok.startswith(prefix) for prefix in _PSQL_REJECT_PREFIXES):
-            return None
-        if tok in _PSQL_DBNAME_FLAGS:
-            if i + 1 >= len(tokens) or _psql_conninfo_is_unsafe(tokens[i + 1]):
-                return None
-            i += 2
-            continue
-        if any(tok.startswith(prefix) for prefix in _PSQL_DBNAME_PREFIXES):
-            if _psql_conninfo_is_unsafe(tok.split("=", 1)[1]):
-                return None
-            i += 1
-            continue
-        if tok in _PSQL_VALUE_FLAGS:
-            if i + 1 >= len(tokens):
-                return None
-            i += 2
-            continue
-        if any(tok.startswith(prefix) for prefix in _PSQL_VALUE_PREFIXES):
-            i += 1
-            continue
-        if tok.startswith("-"):
-            return None
-
-        if positional_seen or _psql_conninfo_is_unsafe(tok):
-            return None
-        positional_seen = True
-        i += 1
-
-    if not no_psqlrc or sql is None:
-        return None
-    return sql
-
-
-def _psql_is_input_redirect(token: str) -> bool:
-    return (
-        token in {"<", "0<", "<<<"}
-        or token.startswith("<")
-        or token.startswith("0<")
-        or token.startswith("<<<")
-    )
-
-
-def _psql_conninfo_is_unsafe(value: str) -> bool:
-    if not value:
-        return True
-    lowered = value.lower()
-    return (
-        "postgres://" in lowered
-        or "postgresql://" in lowered
-        or "options=" in lowered
-        or "=" in value
-        or bool(re.search(r"\s", value))
-    )
-
-
-def _psql_is_readonly_sql(sql: str) -> bool:
-    statement = _sqlite3_single_statement(sql)
-    if statement is None or statement.startswith("\\"):
-        return False
-
-    if re.match(r"\s*show\b", statement, re.IGNORECASE):
-        return True
-    if _psql_is_simple_select(statement):
-        return True
-    return _psql_is_safe_explain(statement)
-
-
-def _psql_is_safe_explain(statement: str) -> bool:
-    explain = re.match(r"\s*explain\s+(.+)\Z", statement, re.IGNORECASE | re.DOTALL)
-    if not explain:
-        return False
-
-    body = explain.group(1).strip()
-    options = re.match(r"\(([^()]*)\)\s+(.+)\Z", body, re.IGNORECASE | re.DOTALL)
-    if options:
-        if not _psql_explain_options_are_safe(options.group(1)):
-            return False
-        body = options.group(2).strip()
-
-    return _psql_is_simple_select(body)
-
-
-def _psql_explain_options_are_safe(options: str) -> bool:
-    for raw_option in options.split(","):
-        option = raw_option.strip()
-        if not option:
-            return False
-        name = option.split(None, 1)[0].upper()
-        if name in _PSQL_UNSAFE_EXPLAIN_OPTIONS:
-            return False
-        if name not in _PSQL_SAFE_EXPLAIN_OPTIONS:
-            return False
-    return True
-
-
-def _psql_is_simple_select(statement: str) -> bool:
-    if not re.match(r"\s*select\b", statement, re.IGNORECASE):
-        return False
-    if re.search(r"\binto\b", statement, re.IGNORECASE):
-        return False
-    if re.search(
-        r"\bfor\s+(?:update|share|no\s+key\s+update|key\s+share)\b",
-        statement,
-        re.IGNORECASE,
-    ):
-        return False
-    if _psql_has_unsafe_function_call_syntax(statement):
-        return False
-    return True
-
-
-def _psql_has_unsafe_function_call_syntax(statement: str) -> bool:
-    scrubbed = _sql_scrub_string_literals(statement)
-    for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_$]*)\s*\(", scrubbed):
-        if match.group(1).lower() not in _PSQL_SELECT_SAFE_CALL_KEYWORDS:
-            return True
-    return False
-
-
-def _sql_scrub_string_literals(sql: str) -> str:
-    out: list[str] = []
-    in_single = False
-    in_double = False
-    i = 0
-    while i < len(sql):
-        ch = sql[i]
-        if in_single:
-            if ch == "'":
-                if i + 1 < len(sql) and sql[i + 1] == "'":
-                    i += 2
-                    continue
-                in_single = False
-            out.append(" ")
-        elif in_double:
-            if ch == '"':
-                if i + 1 < len(sql) and sql[i + 1] == '"':
-                    i += 2
-                    continue
-                in_double = False
-            out.append(" ")
-        elif ch == "'":
-            in_single = True
-            out.append(" ")
-        elif ch == '"':
-            in_double = True
-            out.append(" ")
-        else:
-            out.append(ch)
-        i += 1
-    return "".join(out)
-
 
 _REST_READ_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}
 _REST_WRITE_METHODS = {"POST", "PUT", "PATCH"}
@@ -3710,6 +3095,7 @@ def load_type_descriptions() -> dict[str, str]:
 def validate_action_type(name: str) -> tuple[bool, list[str]]:
     """Check if name is a valid action type. Returns (valid, close_matches)."""
     import difflib
+    name = canonicalize_action_type(name)
     all_types = list(load_type_descriptions().keys())
     if name in all_types:
         return True, []

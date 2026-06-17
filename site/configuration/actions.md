@@ -46,8 +46,8 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `browser_navigate` | context | Navigate a browser page to a new URL |
 | `browser_exec` | ask | Execute arbitrary code in the browser page context |
 | `browser_file` | context | Browser actions that read from or write to the host filesystem |
-| `db_read` | allow | Read-only database operations (SELECT, introspection) |
-| `db_write` | context | Write operations on databases (INSERT, UPDATE, DELETE, DROP, ALTER) |
+| `db_safe` | allow | Database tools that structurally cannot run caller-supplied SQL |
+| `db_exec` | context | Database tools that can run caller-supplied SQL |
 | `agent_read` | allow | Read-only agent CLI metadata, status, help, or generated output |
 | `agent_write` | ask | Agent CLI state mutations without launching a coding run |
 | `agent_exec_read` | ask | Launch a local agent run intended for inspection or review |
@@ -91,9 +91,9 @@ Types with `context` as their default policy delegate to a **context resolver**:
 
 - **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
-- **Container writes** (`container_write`) -- use the same context resolver pattern as filesystem/database writes, so in-project trusted workflows can proceed while higher-risk cases still prompt.
+- **Container writes** (`container_write`) -- use the same context resolver pattern as filesystem writes, so in-project trusted workflows can proceed while higher-risk cases still prompt.
 - **Language execution** (`lang_exec`) -- inspect script paths, inline code, heredoc-fed interpreters, sourced files, and script content before allowing project-local execution.
-- **Database writes** (`db_write`) -- check extracted database/schema targets against `db_targets`; unknown write targets still ask.
+- **Database execution** (`db_exec`) -- check extracted database/schema targets against `db_targets`; unknown SQL-capable targets still ask. nah does not parse SQL intent.
 - **Browser context types** (`browser_navigate`, `browser_file`) -- use URL/path-aware reasons when the tool input exposes enough context; otherwise fail closed to `ask` with an extraction-pending reason.
 
 ## CLI

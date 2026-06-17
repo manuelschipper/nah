@@ -160,6 +160,7 @@ def _project_config_trusted_for_write() -> bool:
 def _validate_action_scope(action_type: str, policy: str, project: bool) -> None:
     """Check that a project config doesn't loosen policy relative to global + defaults.
     """
+    action_type = taxonomy.canonicalize_action_type(action_type)
     if not project:
         return
     if _project_config_trusted_for_write():
@@ -168,6 +169,11 @@ def _validate_action_scope(action_type: str, policy: str, project: bool) -> None
     global_path = get_global_config_path()
     global_data = _read_config(global_path)
     global_actions = global_data.get("actions", {})
+    if isinstance(global_actions, dict):
+        global_actions = {
+            taxonomy.canonicalize_action_type(str(k)): v
+            for k, v in global_actions.items()
+        }
     if isinstance(global_actions, dict) and action_type in global_actions:
         effective = global_actions[action_type]
     else:
@@ -184,6 +190,7 @@ def write_action(action_type: str, policy: str, project: bool = False,
                   allow_custom: bool = False) -> str:
     """Write an action policy to config. Returns confirmation message."""
     _ensure_yaml()
+    action_type = taxonomy.canonicalize_action_type(action_type)
     if not allow_custom:
         valid, close = taxonomy.validate_action_type(action_type)
         if not valid:
@@ -228,6 +235,7 @@ def write_classify(command: str, action_type: str, project: bool = False,
                     allow_custom: bool = False) -> str:
     """Write a classify entry. Returns confirmation message."""
     _ensure_yaml()
+    action_type = taxonomy.canonicalize_action_type(action_type)
     if project and not _project_config_trusted_for_write():
         raise ValueError(
             "Project classify requires a trusted project config. "
@@ -360,6 +368,12 @@ def write_untrust_project(raw_path: str | None = None) -> str:
 def forget_rule(arg: str, project: bool | None = None, global_only: bool | None = None) -> str:
     """Find and remove a rule matching arg. Returns confirmation message."""
     _ensure_yaml()
+    canonical_arg = taxonomy.canonicalize_action_type(arg)
+    action_type_args = {canonical_arg}
+    action_type_args.update(
+        old for old, new in taxonomy._DEPRECATED_TYPE_ALIASES.items()
+        if new == canonical_arg
+    )
     matches: list[tuple[str, str, str]] = []  # (config_path, section, key_or_value)
 
     paths_to_check: list[tuple[str, str]] = []  # (path, label)
@@ -380,8 +394,10 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
         data = _read_config(cfg_path)
         # Check actions
         actions = data.get("actions", {})
-        if isinstance(actions, dict) and arg in actions:
-            matches.append((cfg_path, "actions", arg))
+        if isinstance(actions, dict):
+            for action_type in actions:
+                if action_type in action_type_args:
+                    matches.append((cfg_path, "actions", action_type))
         # Check allow_paths
         allow_paths = data.get("allow_paths", {})
         if isinstance(allow_paths, dict):

@@ -184,12 +184,12 @@ class TestClassifyUnknownTool:
 
     def test_global_classify_ask(self):
         config._cached_config = NahConfig(
-            classify_global={"db_write": ["DbTool"]},
+            classify_global={"db_exec": ["DbTool"]},
         )
         d = _classify_unknown_tool("DbTool")
         assert d["decision"] == "ask"
         assert d["_meta"]["stages"] == [{
-            "action_type": "db_write",
+            "action_type": "db_exec",
             "decision": "ask",
             "policy": "context",
             "reason": "unknown database target",
@@ -318,8 +318,8 @@ class TestClassifyUnknownToolContext:
 
     def setup_method(self):
         config._cached_config = NahConfig(
-            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
-            actions={"db_write": "context"},
+            classify_global={"db_exec": ["mcp__snowflake__execute_sql"]},
+            actions={"db_exec": "context"},
             db_targets=[
                 {"database": "SANDBOX"},
                 {"database": "SALES", "schema": "DEV"},
@@ -329,7 +329,7 @@ class TestClassifyUnknownToolContext:
     def teardown_method(self):
         config._cached_config = None
 
-    def test_mcp_db_write_matching_target_allow(self):
+    def test_mcp_db_exec_matching_target_allow(self):
         """MCP tool_input with matching database → allow."""
         d = _classify_unknown_tool(
             "mcp__snowflake__execute_sql",
@@ -338,7 +338,7 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "allow"
         assert "allowed target" in d["reason"]
 
-    def test_mcp_db_write_matching_db_schema_allow(self):
+    def test_mcp_db_exec_matching_db_schema_allow(self):
         """MCP tool_input with matching database+schema → allow."""
         d = _classify_unknown_tool(
             "mcp__snowflake__execute_sql",
@@ -347,7 +347,7 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "allow"
         assert "SALES.DEV" in d["reason"]
 
-    def test_mcp_db_write_non_matching_target_ask(self):
+    def test_mcp_db_exec_non_matching_target_ask(self):
         """MCP tool_input with non-matching database → ask."""
         d = _classify_unknown_tool(
             "mcp__snowflake__execute_sql",
@@ -356,7 +356,7 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "ask"
         assert "unrecognized target" in d["reason"]
 
-    def test_mcp_db_write_no_database_key_ask(self):
+    def test_mcp_db_exec_no_database_key_ask(self):
         """MCP tool_input without database key → ask."""
         d = _classify_unknown_tool(
             "mcp__snowflake__execute_sql",
@@ -365,16 +365,16 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "ask"
         assert "unknown database target" in d["reason"]
 
-    def test_mcp_db_write_no_tool_input_ask(self):
+    def test_mcp_db_exec_no_tool_input_ask(self):
         """MCP with no tool_input → ask."""
         d = _classify_unknown_tool("mcp__snowflake__execute_sql")
         assert d["decision"] == "ask"
 
-    def test_mcp_db_write_no_db_targets_ask(self):
+    def test_mcp_db_exec_no_db_targets_ask(self):
         """No db_targets configured → ask even with matching input."""
         config._cached_config = NahConfig(
-            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
-            actions={"db_write": "context"},
+            classify_global={"db_exec": ["mcp__snowflake__execute_sql"]},
+            actions={"db_exec": "context"},
             db_targets=[],
         )
         d = _classify_unknown_tool(
@@ -384,13 +384,13 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "ask"
         assert "no db_targets configured" in d["reason"]
 
-    def test_mcp_db_write_empty_tool_input_ask(self):
+    def test_mcp_db_exec_empty_tool_input_ask(self):
         """Empty dict {} (what main() actually passes) → ask."""
         d = _classify_unknown_tool("mcp__snowflake__execute_sql", {})
         assert d["decision"] == "ask"
         assert "unknown database target" in d["reason"]
 
-    def test_mcp_db_write_case_insensitive(self):
+    def test_mcp_db_exec_case_insensitive(self):
         """Database name matching is case-insensitive."""
         d = _classify_unknown_tool(
             "mcp__snowflake__execute_sql",
@@ -412,10 +412,10 @@ class TestClassifyUnknownToolContext:
         assert d["decision"] == "ask"
         assert "unknown host" in d["reason"]
 
-    def test_mcp_db_write_default_policy_context_with_targets(self):
-        """db_write with default policy (context) + matching db_targets → allow."""
+    def test_mcp_db_exec_default_policy_context_with_targets(self):
+        """db_exec with default policy (context) + matching db_targets → allow."""
         config._cached_config = NahConfig(
-            classify_global={"db_write": ["mcp__snowflake__execute_sql"]},
+            classify_global={"db_exec": ["mcp__snowflake__execute_sql"]},
             db_targets=[{"database": "SANDBOX"}],
         )
         d = _classify_unknown_tool(

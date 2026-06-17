@@ -300,7 +300,7 @@ def test_enforce_service_read_after_source_is_boundary(monkeypatch, tmp_path):
     [
         taxonomy.NETWORK_DIAGNOSTIC,
         taxonomy.GIT_HISTORY_REWRITE,
-        taxonomy.DB_READ,
+        taxonomy.DB_SAFE,
         taxonomy.CONTAINER_READ,
         taxonomy.CONTAINER_WRITE,
         taxonomy.CONTAINER_EXEC,
