@@ -22,7 +22,7 @@ _ACTION_ID_RE = re.compile(
     r"network_(?:outbound|write|diagnostic)|package_(?:install|run|uninstall)|"
     r"lang_exec|process_signal|container_(?:read|write|exec|destructive)|"
     r"service_(?:read|write|destructive)|browser_(?:read|interact|state|navigate|exec|file)|"
-    r"db_(?:read|write)|agent_(?:read|write|exec_read|exec_write|exec_remote|server|exec_bypass)|"
+    r"db_(?:safe|exec)|agent_(?:read|write|exec_read|exec_write|exec_remote|server|exec_bypass)|"
     r"obfuscated|unknown"
     r")\b"
 )
@@ -64,8 +64,8 @@ _ACTION_MESSAGES = {
     taxonomy.BROWSER_STATE: "this changes browser state",
     taxonomy.BROWSER_NAVIGATE: "this navigates the browser",
     taxonomy.BROWSER_FILE: "this accesses browser-managed files",
-    taxonomy.DB_READ: "this reads from a database",
-    taxonomy.DB_WRITE: "this writes to a database",
+    taxonomy.DB_SAFE: "this runs a read-only database command",
+    taxonomy.DB_EXEC: "this runs a database command",
     taxonomy.AGENT_READ: "this reads agent state",
     taxonomy.AGENT_WRITE: "this changes agent state",
     taxonomy.AGENT_EXEC_READ: "this runs an agent command that can read data",

@@ -474,7 +474,7 @@ class TestDockerExecTrustedContainers:
             ("docker exec hermes-creatbot git add file.txt", "git_write"),
             ("docker exec hermes-creatbot touch /tmp/x", "filesystem_write"),
             ("docker exec hermes-creatbot docker ps", "container_read"),
-            ("docker exec hermes-creatbot sqlite3 db.sqlite 'select 1'", "db_write"),
+            ("docker exec hermes-creatbot sqlite3 db.sqlite 'select 1'", "db_exec"),
             ("docker exec hermes-creatbot curl https://example.invalid", "service_read"),
             ("docker exec hermes-creatbot ping example.invalid", "network_diagnostic"),
             ("docker exec hermes-creatbot unknown-tool --help", "unknown"),
@@ -2110,7 +2110,7 @@ class TestCommandUnwrap:
 
     def test_unwrap_psql(self, project_root):
         r = classify_command("command psql -c 'DROP TABLE users'")
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
         assert r.final_decision == "ask"
 
     def test_unwrap_curl(self, project_root):
@@ -2133,7 +2133,7 @@ class TestCommandUnwrap:
 
     def test_p_unwrap(self, project_root):
         r = classify_command("command -p psql -c 'SELECT 1'")
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
         assert r.final_decision == "ask"
 
     def test_bare_command(self, project_root):
@@ -2148,7 +2148,7 @@ class TestCommandUnwrap:
 
     def test_nested_command(self, project_root):
         r = classify_command("command command psql -c 'DROP TABLE'")
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
         assert r.final_decision == "ask"
 
     def test_chained_wrapper(self, project_root):
@@ -2713,7 +2713,7 @@ class TestEdgeCases:
 
 class TestNewActionTypes:
     """E2E tests for git_discard, process_signal, container_destructive,
-    package_uninstall, db_write action types."""
+    package_uninstall, db_exec action types."""
 
     def test_git_checkout_dot_ask(self, project_root):
         r = classify_command("git checkout .")
@@ -2773,38 +2773,31 @@ class TestNewActionTypes:
     def test_snow_sql_ask(self, project_root):
         r = classify_command("snow sql -q 'SELECT 1'")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_psql_c_ask(self, project_root):
         r = classify_command("psql -c 'SELECT 1'")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_psql_bare_ask(self, project_root):
         r = classify_command("psql")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
-    @pytest.mark.parametrize("command", [
-        'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users LIMIT 10"',
-        'env PGOPTIONS="-c default_transaction_read_only=true" psql --no-psqlrc --command "SHOW search_path"',
-        'PGOPTIONS="-c default_transaction_read_only=on" command -p psql -X -c "SELECT id FROM users"',
-        'PGOPTIONS="-c default_transaction_read_only=on" timeout 5 psql -X -c "SELECT id FROM users"',
-        'env -u PGOPTIONS PGOPTIONS="-c default_transaction_read_only=yes" psql -X -c "SELECT id FROM users"',
-    ])
-    def test_psql_explicit_readonly_allow(self, project_root, command):
+    def test_psql_readonly_incantation_still_asks(self, project_root):
+        command = (
+            'PGOPTIONS="-c default_transaction_read_only=on" '
+            'psql -X -c "SELECT id FROM users LIMIT 10"'
+        )
         r = classify_command(command)
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "db_read"
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_exec"
 
     @pytest.mark.parametrize("command", [
         'PGOPTIONS="-c default_transaction_read_only=on" psql -c "SELECT id FROM users"',
         'psql -X -c "SELECT id FROM users"',
         'PGOPTIONS="-c default_transaction_read_only=off" psql -X -c "SELECT id FROM users"',
-        'PGOPTIONS="-c default_transaction_read_only=on" env -i psql -X -c "SELECT id FROM users"',
-        'PGOPTIONS="-c default_transaction_read_only=on" env -u PGOPTIONS psql -X -c "SELECT id FROM users"',
-        'PGOPTIONS="-c default_transaction_read_only=on" sudo psql -X -c "SELECT id FROM users"',
-        'PGOPTIONS="-c default_transaction_read_only=on" sh -c "psql -X -c \\"SELECT id FROM users\\""',
         'PGOPTIONS="-c default_transaction_read_only=on" psql -X -d "postgresql://host/db?options=-cdefault_transaction_read_only=off" -c "SELECT 1"',
         'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "DROP TABLE users"',
         'PGOPTIONS="-c default_transaction_read_only=on" psql -X -f script.sql',
@@ -2818,40 +2811,40 @@ class TestNewActionTypes:
     def test_psql_unsafe_or_ambiguous_asks(self, project_root, command):
         r = classify_command(command)
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type != "db_read"
+        assert r.stages[0].action_type == "db_exec"
 
-    def test_legacy_profile_none_still_classifies_psql_readonly(self, project_root):
+    def test_legacy_profile_none_keeps_psql_tool_level_boundary(self, project_root):
         config._cached_config = NahConfig(profile="none")
         r = classify_command(
             'PGOPTIONS="-c default_transaction_read_only=on" psql -X -c "SELECT id FROM users"'
         )
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "db_read"
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_exec"
 
-    def test_sqlite3_readonly_select_allow(self, project_root):
+    def test_sqlite3_readonly_select_asks(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite 'SELECT 1'")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "db_read"
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_exec"
 
-    def test_sqlite3_readonly_schema_allow(self, project_root):
+    def test_sqlite3_readonly_schema_asks(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite '.schema'")
-        assert r.final_decision == "allow"
-        assert r.stages[0].action_type == "db_read"
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_sqlite3_bare_select_asks(self, project_root):
         r = classify_command("sqlite3 db.sqlite 'SELECT 1'")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_sqlite3_readonly_writefile_asks(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite \"SELECT writefile('/tmp/x', 'x')\"")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_sqlite3_readonly_insert_asks(self, project_root):
         r = classify_command("sqlite3 -readonly db.sqlite 'INSERT INTO t VALUES (1)'")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     @pytest.mark.parametrize("command", [
         "sqlite3 -readonly db.sqlite < schema.sql",
@@ -2860,17 +2853,17 @@ class TestNewActionTypes:
     def test_sqlite3_input_redirection_asks(self, project_root, command):
         r = classify_command(command)
         assert r.final_decision == "ask"
-        assert any(stage.action_type == "db_write" for stage in r.stages)
+        assert any(stage.action_type == "db_exec" for stage in r.stages)
 
     def test_mysql_bare_ask(self, project_root):
         r = classify_command("mysql")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_pg_restore_ask(self, project_root):
         r = classify_command("pg_restore dump.sql")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "db_write"
+        assert r.stages[0].action_type == "db_exec"
 
     def test_pg_dump_filesystem_write(self, project_root):
         target = os.path.join(project_root, "dump.sql")
@@ -3148,8 +3141,8 @@ class TestFD018Regressions:
 class TestContextResolverFallback:
     """FD-046: Non-filesystem/network types with context policy must ASK."""
 
-    def test_db_write_context_policy_asks(self, project_root):
-        """db_write with default context policy and no targets gets ASK."""
+    def test_db_exec_context_policy_asks(self, project_root):
+        """db_exec with default context policy and no targets gets ASK."""
         r = classify_command("psql -c 'SELECT 1'")
         assert r.final_decision == "ask"
 
@@ -3220,13 +3213,13 @@ class TestContextResolverFallback:
 
 
 class TestDatabaseContextE2E:
-    """E2E tests: db_write + context policy + db_targets → allow/ask."""
+    """E2E tests: db_exec + context policy + db_targets → allow/ask."""
 
     def test_psql_matching_target_allow(self, project_root, monkeypatch):
         from nah import config, taxonomy
 
         config._cached_config = config.NahConfig(
-            actions={"db_write": "context"},
+            actions={"db_exec": "context"},
             db_targets=[{"database": "SANDBOX"}],
         )
 
@@ -3238,7 +3231,7 @@ class TestDatabaseContextE2E:
         from nah import config
 
         config._cached_config = config.NahConfig(
-            actions={"db_write": "context"},
+            actions={"db_exec": "context"},
             db_targets=[{"database": "SANDBOX"}],
         )
 
@@ -3250,7 +3243,7 @@ class TestDatabaseContextE2E:
         from nah import config
 
         config._cached_config = config.NahConfig(
-            actions={"db_write": "context"},
+            actions={"db_exec": "context"},
             db_targets=[{"database": "SANDBOX"}],
         )
 

@@ -5,6 +5,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 
+from nah import taxonomy
 from nah.messages import normalize_color_mode
 from nah.platform_paths import nah_config_dir
 from nah.taxonomy import POLICIES as _POLICIES, STRICTNESS as _STRICTNESS
@@ -187,9 +188,9 @@ def apply_override(override_data: dict) -> None:
     cfg = get_config()  # ensure base is loaded
 
     if "classify" in override_data:
-        cfg.classify_global.update(_validate_dict(override_data["classify"]))
+        cfg.classify_global.update(_canonicalize_classify(override_data["classify"]))
     if "actions" in override_data:
-        cfg.actions.update(_validate_dict(override_data["actions"]))
+        cfg.actions.update(_canonicalize_actions(override_data["actions"]))
     if "sensitive_paths" in override_data:
         cfg.sensitive_paths.update(_validate_dict(override_data["sensitive_paths"]))
     if "trusted_paths" in override_data:
@@ -211,7 +212,7 @@ def apply_override(override_data: dict) -> None:
             )
             if cfg.project_config_trusted and cfg.project_config_path:
                 project_cfg = _load_yaml_file(cfg.project_config_path)
-                cfg.classify_project = _validate_dict(project_cfg.get("classify", {}))
+                cfg.classify_project = _canonicalize_classify(project_cfg.get("classify", {}))
     if "known_registries" in override_data:
         cfg.known_registries = override_data["known_registries"]
     if "exec_sinks" in override_data:
@@ -321,6 +322,24 @@ def _load_yaml_file(path: str) -> dict:
 def _validate_dict(val) -> dict:
     """Return val if dict, else empty dict."""
     return val if isinstance(val, dict) else {}
+
+
+def _canonicalize_actions(raw: dict) -> dict:
+    """Canonicalize action-type keys in config data."""
+    result: dict = {}
+    for action_type, policy in _validate_dict(raw).items():
+        result[taxonomy.canonicalize_action_type(str(action_type))] = policy
+    return result
+
+
+def _canonicalize_classify(raw: dict) -> dict:
+    """Canonicalize classify action-type keys in config data."""
+    result: dict = {}
+    for action_type, prefixes in _validate_dict(raw).items():
+        canonical = taxonomy.canonicalize_action_type(str(action_type))
+        if isinstance(prefixes, list):
+            result.setdefault(canonical, []).extend(prefixes)
+    return result
 
 
 def _deep_overlay(base, overlay):
@@ -986,17 +1005,17 @@ def _merge_configs(
     _merge = _merge_dict_override if config.project_config_trusted else _merge_dict_tighten
 
     # classify: keep global and trusted project SEPARATE for three-table lookup
-    config.classify_global = _validate_dict(global_cfg.get("classify", {}))
+    config.classify_global = _canonicalize_classify(global_cfg.get("classify", {}))
     config.classify_project = (
-        _validate_dict(project_cfg.get("classify", {}))
+        _canonicalize_classify(project_cfg.get("classify", {}))
         if config.project_config_trusted
         else {}
     )
 
     # actions: tighten only (or override if project config root is trusted)
     config.actions = _merge(
-        _validate_dict(global_cfg.get("actions", {})),
-        _validate_dict(project_cfg.get("actions", {})),
+        _canonicalize_actions(global_cfg.get("actions", {})),
+        _canonicalize_actions(project_cfg.get("actions", {})),
         defaults=_POLICIES,
     )
 
@@ -1204,7 +1223,7 @@ def _apply_target_data(
         return
     merge = _merge_dict_override if trusted else _merge_dict_tighten
 
-    actions = _validate_dict(data.get("actions", {}))
+    actions = _canonicalize_actions(data.get("actions", {}))
     if actions:
         config.actions = merge(config.actions, actions, defaults=_POLICIES)
 

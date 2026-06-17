@@ -25,6 +25,7 @@
   "dolt pull",
   "dolt table",
   "mcp__supabase__execute_sql",
+  "mcp__supabase__apply_migration",
   "mcp__supabase__confirm_cost",
   "mcp__supabase__create_branch",
   "mcp__supabase__restore_project",

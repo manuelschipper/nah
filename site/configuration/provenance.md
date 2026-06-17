@@ -89,8 +89,8 @@ Built-in boundary action types:
 - `network_diagnostic`
 - `git_remote_write`
 - `git_history_rewrite`
-- `db_read`
-- `db_write`
+- `db_safe`
+- `db_exec`
 - `service_read`
 - `service_write`
 - `service_destructive`
@@ -144,7 +144,7 @@ provenance:
     git_history_rewrite: block
     network_write: block
     service_write: block
-    db_write: block
+    db_exec: block
 ```
 
 Valid provenance policies are:

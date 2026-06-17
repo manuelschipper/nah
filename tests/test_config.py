@@ -20,7 +20,7 @@ from nah.config import (
     _load_yaml_file,
     _is_project_config_trusted,
 )
-from nah import paths
+from nah import paths, taxonomy
 from nah.platform_paths import nah_config_dir
 
 
@@ -109,6 +109,7 @@ class TestDefaults:
         assert capsys.readouterr().err == ""
 
     def test_apply_override_trusted_project_configs_enables_project_classify(self, tmp_path):
+        taxonomy._deprecated_type_warnings.clear()
         paths.set_project_root(str(tmp_path))
         (tmp_path / ".nah.yaml").write_text(
             "classify:\n  db_read:\n    - inspect-db\n",
@@ -119,7 +120,19 @@ class TestDefaults:
             apply_override({"trusted_project_configs": [str(tmp_path)]})
             cfg = get_config()
         assert cfg.project_config_trusted is True
-        assert cfg.classify_project == {"db_read": ["inspect-db"]}
+        assert cfg.classify_project == {"db_safe": ["inspect-db"]}
+
+    def test_legacy_action_alias_canonicalizes_once(self, tmp_path, capsys):
+        taxonomy._deprecated_type_warnings.clear()
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
+            apply_override({"actions": {"db_write": "ask"}})
+            apply_override({"actions": {"db_write": "block"}})
+        cfg = get_config()
+        assert cfg.actions["db_exec"] == "block"
+        assert "db_write" not in cfg.actions
+        assert capsys.readouterr().err.count("db_write") == 1
 
     def test_use_defaults_ignores_cached_custom_config(self, tmp_path):
         """use_defaults replaces any active config with merged packaged defaults."""
@@ -359,7 +372,7 @@ class TestPresets:
         )
 
         assert cfg.project_config_trusted is True
-        assert cfg.classify_project == {"db_read": ["inspect-db"]}
+        assert cfg.classify_project == {"db_safe": ["inspect-db"]}
 
 
 class TestLoadYaml:

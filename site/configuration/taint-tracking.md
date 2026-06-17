@@ -159,8 +159,8 @@ current controlled environment:
 - `network_diagnostic`
 - `git_remote_write`
 - `git_history_rewrite`
-- `db_read`
-- `db_write`
+- `db_safe`
+- `db_exec`
 - `service_read`
 - `service_write`
 - `service_destructive`

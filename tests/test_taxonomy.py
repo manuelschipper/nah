@@ -1024,9 +1024,11 @@ class TestClassifyTokens:
     def test_package_uninstall(self, tokens):
         assert _ct(tokens) == "package_uninstall"
 
-    # db_write
+    # db_exec
     @pytest.mark.parametrize("tokens", [
         ["psql"],
+        ["psql", "-l"],
+        ["psql", "-d", "foo"],
         ["psql", "-c", "SELECT 1"],
         ["psql", "-f", "script.sql"],
         ["psql", "--command", "SELECT 1"],
@@ -1034,6 +1036,9 @@ class TestClassifyTokens:
         ["mysql"],
         ["mysql", "-e", "SHOW TABLES"],
         ["mysql", "--execute", "SHOW TABLES"],
+        ["sqlite3"],
+        ["sqlite3", "db.sqlite", "SELECT 1"],
+        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1"],
         ["snow", "sql", "-q", "SELECT 1"],
         ["snow", "sql", "-f", "file.sql"],
         ["snow", "sql", "--query", "SELECT 1"],
@@ -1043,74 +1048,30 @@ class TestClassifyTokens:
         ["snowsql", "--query", "SELECT 1"],
         ["pg_restore", "dump.sql"],
     ])
-    def test_db_write(self, tokens):
-        assert _ct(tokens) == "db_write"
+    def test_db_exec(self, tokens):
+        assert _ct(tokens) == "db_exec"
 
     def test_bare_dolt_stays_db(self):
-        assert _ct(["dolt", "sql"]) == "db_write"
-        assert _ct(["dolt", "status"]) == "db_read"
+        assert _ct(["dolt", "sql"]) == "db_exec"
+        assert _ct(["dolt", "status"]) == "db_safe"
 
     @pytest.mark.parametrize("tokens", [
         ["sqlite3", "-readonly", "db.sqlite", "SELECT 1"],
-        ["sqlite3", "--readonly", "db.sqlite", "select * from users;"],
-        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN SELECT * FROM users"],
-        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN QUERY PLAN SELECT * FROM users"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA table_info(users)"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA main.table_info(users)"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA integrity_check"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA quick_check"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA freelist_count"],
         ["sqlite3", "-readonly", "db.sqlite", ".schema"],
-        ["sqlite3", "-readonly", "-safe", "-json", "db.sqlite", "SELECT 1"],
         ["sqlite3", ":memory:", "SELECT 1"],
-    ])
-    def test_sqlite3_readonly_shapes_are_db_read(self, tokens):
-        assert _ct(tokens) == "db_read"
-
-    @pytest.mark.parametrize("tokens", [
         ["sqlite3", "db.sqlite", "SELECT 1"],
-        ["sqlite3", "db.sqlite", ".schema"],
-        ["sqlite3", "db.sqlite"],
         ["sqlite3", "-readonly", "db.sqlite", "INSERT INTO t VALUES (1)"],
-        ["sqlite3", "-readonly", "db.sqlite", "CREATE TABLE t(id INTEGER)"],
-        ["sqlite3", "-readonly", "db.sqlite", "EXPLAIN DELETE FROM t"],
-        ["sqlite3", "-readonly", "db.sqlite", "WITH rows AS (SELECT 1) SELECT * FROM rows"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT writefile('/tmp/x', 'x')"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT readfile('/tmp/x')"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT load_extension('x')"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT fts3_tokenizer('simple')"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1 -- comment"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT /* comment */ 1"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA journal_mode=WAL"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA wal_checkpoint"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA user_version(1)"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA application_id(123)"],
-        ["sqlite3", "-readonly", "db.sqlite", "PRAGMA page_size(4096)"],
         ["sqlite3", "-readonly", "db.sqlite", ".read script.sql"],
-        ["sqlite3", "-readonly", "db.sqlite", ".shell pwd"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1", "SELECT 2"],
-        ["sqlite3", "-readonly", "db.sqlite", "SELECT 1; SELECT 2"],
         ["sqlite3", "-readonly", "db.sqlite", "<", "schema.sql"],
-        ["sqlite3", "-readonly", "db.sqlite", "<schema.sql"],
-        ["sqlite3", "-unsafe-testing", "-readonly", "db.sqlite", "SELECT 1"],
-        ["sqlite3", "-nonce", "abc", "-readonly", "db.sqlite", "SELECT 1"],
-        ["sqlite3", "-cmd", ".schema", "-readonly", "db.sqlite", "SELECT 1"],
     ])
-    def test_sqlite3_unsafe_or_ambiguous_shapes_are_db_write(self, tokens):
-        assert _ct(tokens) == "db_write"
+    def test_sqlite3_tool_level_boundary_is_db_exec(self, tokens):
+        assert _ct(tokens) == "db_exec"
 
-    @pytest.mark.parametrize("pgoptions", [
-        "-c default_transaction_read_only=on",
-        "-c default_transaction_read_only=true",
-        "-c default_transaction_read_only=1",
-        "-c default_transaction_read_only=yes",
-        "-cdefault_transaction_read_only=on",
-    ])
-    def test_psql_explicit_readonly_shapes_are_db_read(self, pgoptions):
+    def test_psql_readonly_incantation_is_still_db_exec(self):
         assert _ct_env(
             ["psql", "-X", "-c", "SELECT id FROM users LIMIT 10"],
-            {"PGOPTIONS": pgoptions},
-        ) == "db_read"
+            {"PGOPTIONS": "-c default_transaction_read_only=on"},
+        ) == "db_exec"
 
     @pytest.mark.parametrize("tokens", [
         ["psql", "--no-psqlrc", "--command", "SHOW search_path"],
@@ -1120,38 +1081,11 @@ class TestClassifyTokens:
         ["psql", "-XAt", "-h", "localhost", "-U", "app", "-c", "SELECT id FROM users"],
         ["psql", "-X", "-1", "-c", "EXPLAIN SELECT id FROM users"],
         ["psql", "-X", "-c", "EXPLAIN (FORMAT JSON, COSTS false) SELECT id FROM users"],
-    ])
-    def test_psql_safe_variants_are_db_read(self, tokens):
-        assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_read"
-
-    @pytest.mark.parametrize("tokens", [
-        ["psql", "-c", "SELECT id FROM users"],
-        ["psql", "-X", "-c", "DROP TABLE users"],
         ["psql", "-X", "-f", "script.sql"],
-        ["psql", "-X", "--file", "script.sql"],
-        ["psql", "-X", "-c", "SELECT 1", "-c", "SELECT 2"],
-        ["psql", "-X", "-c", "SELECT 1; SELECT 2"],
-        ["psql", "-X", "-c", "SELECT * INTO tmp FROM users"],
-        ["psql", "-X", "-c", "SELECT id FROM users FOR UPDATE"],
-        ["psql", "-X", "-c", "SELECT now()"],
-        ["psql", "-X", "-c", "SELECT count(*) FROM users"],
-        ["psql", "-X", "-c", "WITH rows AS (SELECT 1) SELECT * FROM rows"],
-        ["psql", "-X", "-c", "COPY users TO '/tmp/users.csv'"],
-        ["psql", "-X", "-c", "\\copy users TO /tmp/users.csv"],
-        ["psql", "-X", "-c", "EXPLAIN ANALYZE SELECT id FROM users"],
-        ["psql", "-X", "-c", "EXPLAIN (ANALYZE false) SELECT id FROM users"],
-        ["psql", "-X", "-c", "SELECT 1 -- comment"],
-        ["psql", "-X", "-c", "SELECT /* comment */ 1"],
-        ["psql", "-X", "-d", "postgresql://host/db", "-c", "SELECT 1"],
-        ["psql", "-X", "-d", "host=localhost dbname=app", "-c", "SELECT 1"],
-        ["psql", "-X", "-d", "app?options=-cdefault_transaction_read_only=off", "-c", "SELECT 1"],
-        ["psql", "-X", "-o", "out.txt", "-c", "SELECT 1"],
-        ["psql", "-X", "-L", "log.txt", "-c", "SELECT 1"],
-        ["psql", "-X", "-c", "SELECT 1", "<", "schema.sql"],
-        ["psql", "-X", "--", "--command=SELECT 1"],
+        ["psql", "-X", "-c", "DROP TABLE users"],
     ])
-    def test_psql_unsafe_or_ambiguous_shapes_fall_back_to_db_write(self, tokens):
-        assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_write"
+    def test_psql_tool_level_boundary_is_db_exec(self, tokens):
+        assert _ct_env(tokens, {"PGOPTIONS": "-c default_transaction_read_only=on"}) == "db_exec"
 
     @pytest.mark.parametrize("pgoptions", [
         "",
@@ -1162,11 +1096,11 @@ class TestClassifyTokens:
         "'-c default_transaction_read_only=on'",
         "'",
     ])
-    def test_psql_missing_or_unsafe_pgoptions_fall_back_to_db_write(self, pgoptions):
+    def test_pgoptions_does_not_affect_psql_classification(self, pgoptions):
         assert _ct_env(
             ["psql", "-X", "-c", "SELECT id FROM users"],
             {"PGOPTIONS": pgoptions},
-        ) == "db_write"
+        ) == "db_exec"
 
     def test_psql_global_user_override_still_wins(self):
         table = build_user_table({"service_read": ["psql"]})
@@ -1176,14 +1110,6 @@ class TestClassifyTokens:
             builtin_table=_FULL,
             env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
         ) == "service_read"
-
-    def test_psql_legacy_profile_none_uses_builtin_readonly_classifier(self):
-        assert classify_tokens(
-            ["psql", "-X", "-c", "SELECT id FROM users"],
-            builtin_table=get_builtin_table("none"),
-            profile="none",
-            env_assignments={"PGOPTIONS": "-c default_transaction_read_only=on"},
-        ) == "db_read"
 
     # db companion tools → filesystem_write
     @pytest.mark.parametrize("tokens", [
@@ -1272,6 +1198,15 @@ class TestClassifyTokens:
         assert _ct(["git", "--config-env", "push=ENV", "status"]) == "unknown"
         assert _ct(["git", "--config-env=http.extraHeader", "push", "--force"]) == "unknown"
         assert _ct(["git", "--config-env=push=ENV", "push", "--force"]) == "unknown"
+
+    def test_legacy_db_type_aliases_canonicalize(self, capsys):
+        taxonomy._deprecated_type_warnings.clear()
+        table = build_user_table({"db_read": ["inspect-db"]})
+        assert table == [(("inspect-db",), "db_safe")]
+        assert taxonomy.validate_action_type("db_write") == (True, [])
+        err = capsys.readouterr().err
+        assert err.count("db_read") == 1
+        assert err.count("db_write") == 1
 
     def test_git_c_invalid_values_fail_closed(self):
         assert _ct(["git", "-c", "push", "status"]) == "unknown"
@@ -1598,8 +1533,8 @@ class TestGetPolicy:
         ("browser_navigate", "context"),
         ("browser_exec", "ask"),
         ("browser_file", "context"),
-        ("db_read", "allow"),
-        ("db_write", "context"),
+        ("db_safe", "allow"),
+        ("db_exec", "context"),
         ("agent_read", "allow"),
         ("agent_write", "ask"),
         ("agent_exec_read", "ask"),
@@ -2720,7 +2655,8 @@ class TestProfiles:
         assert "browser_file" in action_types
         assert "lang_exec" in action_types
         assert "package_install" in action_types
-        assert "db_write" in action_types
+        assert "db_safe" in action_types
+        assert "db_exec" in action_types
 
     def test_profile_minimal_aliases_full_table(self):
         """Deprecated minimal table lookup keeps old callers on full behavior."""
@@ -4248,10 +4184,11 @@ class TestSupabaseMcp:
         "mcp__supabase__search_docs",
     ])
     def test_supabase_read(self, tool):
-        assert _ct([tool]) == "db_read"
+        assert _ct([tool]) == "db_safe"
 
     @pytest.mark.parametrize("tool", [
         "mcp__supabase__execute_sql",
+        "mcp__supabase__apply_migration",
         "mcp__supabase__confirm_cost",
         "mcp__supabase__create_branch",
         "mcp__supabase__restore_project",
@@ -4259,12 +4196,11 @@ class TestSupabaseMcp:
         "mcp__supabase__rebase_branch",
     ])
     def test_supabase_write(self, tool):
-        assert _ct([tool]) == "db_write"
+        assert _ct([tool]) == "db_exec"
 
     @pytest.mark.parametrize("tool", [
         "mcp__supabase__create_project",
         "mcp__supabase__pause_project",
-        "mcp__supabase__apply_migration",
         "mcp__supabase__deploy_edge_function",
         "mcp__supabase__delete_branch",
         "mcp__supabase__merge_branch",

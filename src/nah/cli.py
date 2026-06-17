@@ -1312,14 +1312,16 @@ def _warn_comments(project: bool) -> None:
 def cmd_allow(args: argparse.Namespace) -> None:
     """Allow an action type."""
     from nah.remember import write_action, CustomTypeError
+    from nah.taxonomy import canonicalize_action_type
     _warn_comments(args.project)
+    action_type = canonicalize_action_type(args.action_type)
     try:
-        msg = write_action(args.action_type, "allow", project=args.project)
+        msg = write_action(action_type, "allow", project=args.project)
         print(msg)
     except CustomTypeError:
-        if not _confirm(f"\u26a0 '{args.action_type}' is not a built-in type. Create it?"):
+        if not _confirm(f"\u26a0 '{action_type}' is not a built-in type. Create it?"):
             sys.exit(1)
-        msg = write_action(args.action_type, "allow", project=args.project, allow_custom=True)
+        msg = write_action(action_type, "allow", project=args.project, allow_custom=True)
         print(msg)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
@@ -1329,14 +1331,16 @@ def cmd_allow(args: argparse.Namespace) -> None:
 def cmd_deny(args: argparse.Namespace) -> None:
     """Deny an action type."""
     from nah.remember import write_action, CustomTypeError
+    from nah.taxonomy import canonicalize_action_type
     _warn_comments(args.project)
+    action_type = canonicalize_action_type(args.action_type)
     try:
-        msg = write_action(args.action_type, "block", project=args.project)
+        msg = write_action(action_type, "block", project=args.project)
         print(msg)
     except CustomTypeError:
-        if not _confirm(f"\u26a0 '{args.action_type}' is not a built-in type. Create it?"):
+        if not _confirm(f"\u26a0 '{action_type}' is not a built-in type. Create it?"):
             sys.exit(1)
-        msg = write_action(args.action_type, "block", project=args.project, allow_custom=True)
+        msg = write_action(action_type, "block", project=args.project, allow_custom=True)
         print(msg)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
@@ -1358,14 +1362,16 @@ def cmd_allow_path(args: argparse.Namespace) -> None:
 def cmd_classify(args: argparse.Namespace) -> None:
     """Classify a command prefix as an action type."""
     from nah.remember import write_classify, CustomTypeError
+    from nah.taxonomy import canonicalize_action_type
     _warn_comments(args.project)
+    action_type = canonicalize_action_type(args.type)
     try:
-        msg = write_classify(args.command_prefix, args.type, project=args.project)
+        msg = write_classify(args.command_prefix, action_type, project=args.project)
         print(msg)
     except CustomTypeError:
-        if not _confirm(f"\u26a0 '{args.type}' is not a built-in type. Create it?"):
+        if not _confirm(f"\u26a0 '{action_type}' is not a built-in type. Create it?"):
             sys.exit(1)
-        msg = write_classify(args.command_prefix, args.type, project=args.project, allow_custom=True)
+        msg = write_classify(args.command_prefix, action_type, project=args.project, allow_custom=True)
         print(msg)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
@@ -1656,8 +1662,10 @@ def _codex_uninstall() -> None:
 def cmd_forget(args: argparse.Namespace) -> None:
     """Remove a rule."""
     from nah.remember import forget_rule
+    from nah.taxonomy import canonicalize_action_type
+    arg = canonicalize_action_type(args.arg)
     try:
-        msg = forget_rule(args.arg, project=args.project, global_only=args.global_flag)
+        msg = forget_rule(arg, project=args.project, global_only=args.global_flag)
         print(msg)
     except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)

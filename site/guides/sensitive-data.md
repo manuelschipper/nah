@@ -23,7 +23,7 @@ sensitive_paths:
 
 actions:
   git_history_rewrite: block
-  db_write: ask
+  db_exec: ask
   network_write: ask
 ```
 
@@ -134,7 +134,7 @@ provenance:
     git_remote_write: context
     git_history_rewrite: block
     network_write: block
-    db_write: block
+    db_exec: block
 ```
 
 With that policy, a guarded run can write files normally in audit mode. When it
@@ -158,7 +158,7 @@ scripts, and local agent execution.
 
 Use boundary policy for actions where data, code, state, or effects leave the
 current controlled environment. Common examples are network writes, git remote
-writes, database writes, service changes, containers, browser state, and remote
+writes, SQL-capable database commands, service changes, containers, browser state, and remote
 agent execution.
 
 Good starting defaults:
@@ -190,7 +190,7 @@ taint:
 provenance:
   policies:
     network_write: block
-    db_write: block
+    db_exec: block
 ```
 
 ## Keep trust in the right file
@@ -204,7 +204,7 @@ sensitive_paths:
 
 actions:
   git_history_rewrite: block
-  db_write: ask
+  db_exec: ask
 ```
 
 Use global config for machine-specific trust and richer data-flow policy:
@@ -276,7 +276,7 @@ provenance:
     activation: context
     boundary: ask
     network_write: block
-    db_write: block
+    db_exec: block
 ```
 
 For unattended agents, set an ask fallback so unresolved reviews fail closed:

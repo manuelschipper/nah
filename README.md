@@ -233,7 +233,7 @@ sensitive_paths:
 classify:
   filesystem_delete:
     - cleanup-staging
-  db_write:
+  db_exec:
     - migrate-prod
 
 # Make selected Docker exec wrappers transparent for narrow read-like payloads

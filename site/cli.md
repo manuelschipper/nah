@@ -453,7 +453,7 @@ Classify a command prefix as an action type.
 
 ```bash
 nah classify "docker rm" container_destructive
-nah classify "psql -c DROP" db_write --project
+nah classify "psql -c DROP" db_exec --project
 ```
 
 **Flags:**

@@ -179,7 +179,7 @@ nah blocked: this runs unknown code</code></pre>
       <p>
         nah maps commands and tool calls into 40 action types, from
         <code>filesystem_read</code>, <code>network_outbound</code>, and
-        <code>package_install</code> to <code>db_write</code>,
+        <code>package_install</code> to <code>db_exec</code>,
         <code>container_destructive</code>, and <code>agent_exec_bypass</code>.
         Then it adds flags, paths, trusted locations, sensitive files, runtimes,
         hosts, and database targets before returning <code>allow</code>,
@@ -240,12 +240,12 @@ nah blocked: this runs unknown code</code></pre>
         <div class="nah-card-label">.nah.yaml</div>
         <pre><code># project policy: tighten only by default
 actions:
-  db_write: block
+  db_exec: block
   network_outbound: ask
   git_remote_write: ask
 
 classify:
-  db_write:
+  db_exec:
     - "just migrate-prod"
   network_outbound:
     - "bin/sync-crm"
@@ -255,8 +255,8 @@ classify:
       <article class="nah-config-card">
         <div class="nah-card-label">CLI</div>
         <pre><code>nah config show
-nah deny db_write --project
-nah classify "just migrate-prod" db_write --project
+nah deny db_exec --project
+nah classify "just migrate-prod" db_exec --project
 nah classify "bin/sync-crm" network_outbound --project
 nah trust api.example.com
 nah test "just migrate-prod"</code></pre>

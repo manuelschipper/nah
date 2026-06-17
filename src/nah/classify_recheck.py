@@ -26,14 +26,14 @@ _RECHECK_TOOL = "command"
 # Allow-policy types that are safe with no verifiable target (they act on no
 # externally-sensitive resource). Every other allow/context type that lacks a
 # verifiable target falls back to ask — we cannot confirm what it touches.
-# db_read/container_read are here because the deterministic floor allows reads
+# db_safe/container_read are here because the deterministic floor allows reads
 # unconditionally (no read sensitivity list), so an unverifiable db/container
 # target must not force them to ask (nah-994).
 _TARGET_INSENSITIVE_ALLOW = frozenset({
     taxonomy.GIT_SAFE,
     taxonomy.NETWORK_DIAGNOSTIC,
     taxonomy.PACKAGE_RUN,
-    taxonomy.DB_READ,
+    taxonomy.DB_SAFE,
     taxonomy.CONTAINER_READ,
 })
 

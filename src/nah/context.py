@@ -70,7 +70,7 @@ def resolve_context(
             return resolve_network_context(tokens, action_type)
         return taxonomy.ASK, "unknown host"
 
-    if action_type == taxonomy.DB_WRITE:
+    if action_type == taxonomy.DB_EXEC:
         return resolve_database_context(tokens, tool_input)
 
     if action_type == taxonomy.SERVICE_READ:
@@ -462,7 +462,7 @@ def _wget_short_token_consumes_value(arg: str) -> bool:
 
 
 def resolve_database_context(tokens: list[str], tool_input: dict | None) -> tuple[str, str]:
-    """Resolve database context for db_write commands.
+    """Resolve database context for db_exec commands.
 
     Extracts database target from CLI flags, checks against configured db_targets.
     Returns (decision, reason).

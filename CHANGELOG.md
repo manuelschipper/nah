@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the LLM extracts, the floor matches. `db`/`container` targets have no
     faithfully-mirrorable floor (the real db/container floors are
     policy-/cwd-/exec-specific), so they stay **unverifiable** and the mapped
-    type's policy decides — allow-policy reads clear, context-policy writes ask
+    type's policy decides — allow-policy safe reads clear, context-policy execs ask
     (nah-994). A read of `~/.ssh` is never auto-allowed; an unverifiable target
     falls back to ask; an obfuscated unknown can tighten to block. Fail-closed
     and process-cached.
@@ -50,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Database taxonomy gates SQL-exec capability, not SQL intent** (nah-995).
+  Replaces `db_read`/`db_write` with `db_safe`/`db_exec`: structurally-safe
+  database surfaces such as `dolt log/status/diff/branch` and Supabase list/get
+  tools are `db_safe` (`allow`), while tools that can run caller-supplied SQL
+  are `db_exec` (`context`) and continue to use `db_targets` for target-scoped
+  allow. The old `db_read`/`db_write` config names are accepted as deprecated
+  aliases and canonicalized with a one-time warning. The previous
+  `sqlite3 -readonly` and `PGOPTIONS`/`psql -X` read-only special cases are
+  removed; those invocations now classify as `db_exec` and ask unless
+  `db_targets` allows the target.
 - **Codex lifecycle commands normalized to `nah <command> codex`** (nah-960).
   `nah status codex` (read-only preflight), a new top-level `nah setup codex`,
   and `nah uninstall codex` now match the `install`/`status` shape used by every

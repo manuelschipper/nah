@@ -78,6 +78,15 @@ class TestWriteAction:
         msg = write_action("git_history_rewrite", "allow")
         assert "already" in msg.lower()
 
+    def test_legacy_db_action_alias_writes_canonical_key(self, patched_paths, global_cfg, capsys):
+        from nah.remember import write_action, _read_config
+        taxonomy._deprecated_type_warnings.clear()
+        msg = write_action("db_write", "block")
+        assert "db_exec" in msg
+        data = _read_config(global_cfg)
+        assert data["actions"] == {"db_exec": "block"}
+        assert "db_write" in capsys.readouterr().err
+
 
 class TestWriteAllowPath:
     def test_writes_to_global(self, patched_paths, global_cfg, tmp_path):
@@ -123,6 +132,15 @@ class TestWriteClassify:
         write_classify("just", "package_run")
         msg = write_classify("just", "package_run")
         assert "Already" in msg
+
+    def test_legacy_db_classify_alias_writes_canonical_key(self, patched_paths, global_cfg, capsys):
+        from nah.remember import write_classify, _read_config
+        taxonomy._deprecated_type_warnings.clear()
+        msg = write_classify("inspect-db", "db_read")
+        assert "db_safe" in msg
+        data = _read_config(global_cfg)
+        assert data["classify"] == {"db_safe": ["inspect-db"]}
+        assert "db_read" in capsys.readouterr().err
 
     def test_project_classify_requires_trusted_project(self, patched_paths):
         from nah.remember import write_classify
@@ -228,6 +246,16 @@ class TestForgetRule:
         assert "Removed" in msg
         data = _read_config(global_cfg)
         assert "actions" not in data or "git_history_rewrite" not in data.get("actions", {})
+
+    def test_legacy_db_forget_removes_canonical_action(self, patched_paths, global_cfg, capsys):
+        from nah.remember import write_action, forget_rule, _read_config
+        taxonomy._deprecated_type_warnings.clear()
+        write_action("db_exec", "block")
+        msg = forget_rule("db_write")
+        assert "Removed" in msg
+        data = _read_config(global_cfg)
+        assert "actions" not in data or "db_exec" not in data.get("actions", {})
+        assert "db_write" in capsys.readouterr().err
 
     def test_removes_classify(self, patched_paths, global_cfg):
         from nah.remember import write_classify, forget_rule, _read_config
