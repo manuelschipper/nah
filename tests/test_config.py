@@ -134,6 +134,31 @@ class TestDefaults:
         assert "db_write" not in cfg.actions
         assert capsys.readouterr().err.count("db_write") == 1
 
+    def test_split_action_alias_fans_out_for_actions(self, tmp_path, capsys):
+        taxonomy._deprecated_type_warnings.clear()
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
+            apply_override({"actions": {"container_write": "block"}})
+            apply_override({"actions": {"container_write": "ask"}})
+        cfg = get_config()
+        assert cfg.actions["container_lifecycle"] == "ask"
+        assert cfg.actions["container_build"] == "ask"
+        assert "container_write" not in cfg.actions
+        err = capsys.readouterr().err
+        assert err.count("container_write") == 1
+        assert "container_lifecycle" in err
+        assert "container_build" in err
+
+    def test_split_action_alias_classify_maps_to_lifecycle(self, tmp_path):
+        taxonomy._deprecated_type_warnings.clear()
+        paths.set_project_root(str(tmp_path))
+        reset_config()
+        with patch("nah.config._GLOBAL_CONFIG", str(tmp_path / "nonexistent.yaml")):
+            apply_override({"classify": {"container_write": ["docker stop"]}})
+        cfg = get_config()
+        assert cfg.classify_global == {"container_lifecycle": ["docker stop"]}
+
     def test_use_defaults_ignores_cached_custom_config(self, tmp_path):
         """use_defaults replaces any active config with merged packaged defaults."""
         paths.set_project_root(str(tmp_path))
@@ -241,6 +266,23 @@ class TestPresets:
         assert cfg.actions["unknown"] == "ask"
         assert cfg.actions["network_outbound"] == "ask"
         assert cfg.known_registries == ["registry.company.test"]
+
+    def test_selected_preset_split_action_alias_fans_out(self):
+        taxonomy._deprecated_type_warnings.clear()
+        cfg = _merge_configs(
+            {
+                "presets": {
+                    "unsupervised": {
+                        "actions": {"container_write": "block"},
+                    },
+                },
+            },
+            {},
+            selected_preset="unsupervised",
+        )
+
+        assert cfg.actions["container_lifecycle"] == "block"
+        assert cfg.actions["container_build"] == "block"
 
     def test_selected_preset_targets_flow_through_target_merge(self):
         cfg = _merge_configs(

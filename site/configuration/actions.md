@@ -1,6 +1,6 @@
 # Action Types
 
-Every command nah classifies maps to one of 40 **action types**. Each type has a default **policy** that determines the decision.
+Every command nah classifies maps to one of 41 **action types**. Each type has a default **policy** that determines the decision.
 
 ## Policy levels
 
@@ -34,7 +34,8 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `lang_exec` | context | Execute code via language runtimes or shell-sourced scripts (python, node, source) |
 | `process_signal` | ask | Send signals to processes (kill, pkill) |
 | `container_read` | allow | Read-only container and image inspection (logs, inspect, stats, ps) |
-| `container_write` | context | Container state mutations (start, stop, build, tag, create) |
+| `container_lifecycle` | context | Named container lifecycle changes gated by trusted_containers |
+| `container_build` | allow | Container image builds and infrastructure setup (build, tag, create, compose build) |
 | `container_exec` | ask | Execute or copy data in containers (exec, run, attach, cp) |
 | `container_destructive` | ask | Destructive container operations (docker rm, docker system prune) |
 | `service_read` | allow | Read-only service inspection (systemctl status, cat, journalctl) |
@@ -68,6 +69,7 @@ actions:
   filesystem_delete: ask         # always confirm deletes
   git_history_rewrite: block     # never allow force push
   lang_exec: allow               # trust inline scripts
+  container_build: block         # useful for unattended agents
 ```
 
 Project `.nah.yaml` can only **tighten** policies by default. For example, a
@@ -91,10 +93,38 @@ Types with `context` as their default policy delegate to a **context resolver**:
 
 - **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
-- **Container writes** (`container_write`) -- use the same context resolver pattern as filesystem writes, so in-project trusted workflows can proceed while higher-risk cases still prompt.
+- **Container lifecycle** (`container_lifecycle`) -- check flag-free named container operands against `trusted_containers`; every extracted container must be trusted. Flags, dynamic identities, compose lifecycle commands, missing tokens, and untrusted names fail closed to `ask`.
 - **Language execution** (`lang_exec`) -- inspect script paths, inline code, heredoc-fed interpreters, sourced files, and script content before allowing project-local execution.
 - **Database execution** (`db_exec`) -- check extracted database/schema targets against `db_targets`; unknown SQL-capable targets still ask. nah does not parse SQL intent.
 - **Browser context types** (`browser_navigate`, `browser_file`) -- use URL/path-aware reasons when the tool input exposes enough context; otherwise fail closed to `ask` with an extraction-pending reason.
+
+`container_build` is intentionally not cwd-gated: image, build, tag, create,
+network, volume, and compose build/config commands default to `allow`.
+Unattended presets should tighten it explicitly when Dockerfile `RUN` steps or
+container infrastructure changes should not proceed without a human.
+
+### Legacy `container_write`
+
+`container_write` was split into `container_lifecycle` and `container_build`.
+For migration, `actions:` entries fan out to both new types:
+
+```yaml
+actions:
+  container_write: block
+```
+
+is treated as:
+
+```yaml
+actions:
+  container_lifecycle: block
+  container_build: block
+```
+
+`classify:` entries using `container_write` map to the conservative
+`container_lifecycle` successor. Interactive CLI writes such as
+`nah deny container_write` and `nah classify "x" container_write` ask you to
+choose one of the new action types instead of guessing.
 
 ## CLI
 

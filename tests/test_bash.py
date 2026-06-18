@@ -2959,6 +2959,79 @@ class TestContainerDestructiveCoverage:
         )
 
 
+class TestContainerLifecycleAndBuild:
+    def test_trusted_container_lifecycle_allows(self, project_root):
+        _trust_containers("container:my-trusted-api")
+        r = classify_command("docker stop my-trusted-api")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "allow"
+
+    def test_untrusted_container_lifecycle_asks(self, project_root):
+        _trust_containers("container:my-trusted-api")
+        r = classify_command("docker stop some-prod-box")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_multi_container_lifecycle_requires_all_trusted(self, project_root):
+        _trust_containers("container:a")
+        r = classify_command("docker stop a b")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_flagged_lifecycle_asks_even_for_trusted_container(self, project_root):
+        _trust_containers("container:my-trusted-api")
+        r = classify_command("docker stop -t 5 my-trusted-api")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_lifecycle_flag_value_is_not_misparsed_as_identity(self, project_root):
+        _trust_containers("container:my-trusted-api")
+        r = classify_command("docker stop --time my-trusted-api real-untrusted")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_dynamic_lifecycle_identity_asks(self, project_root):
+        _trust_containers("container:my-trusted-api")
+        r = classify_command("docker stop $CONTAINER")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_empty_trusted_container_list_asks(self, project_root):
+        _trust_containers()
+        r = classify_command("docker stop my-trusted-api")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    def test_compose_lifecycle_asks(self, project_root):
+        _trust_containers("compose:api")
+        r = classify_command("docker compose up")
+        assert r.stages[0].action_type == "container_lifecycle"
+        assert r.final_decision == "ask"
+
+    @pytest.mark.parametrize("command", [
+        "docker build .",
+        "docker compose build",
+        "docker network create n",
+    ])
+    def test_container_build_allows_without_cwd_gate(self, tmp_path, monkeypatch, command):
+        paths.set_project_root(None)
+        monkeypatch.chdir(tmp_path)
+        r = classify_command(command)
+        assert r.stages[0].action_type == "container_build"
+        assert r.final_decision == "allow"
+
+    @pytest.mark.parametrize(("command", "action_type", "decision"), [
+        ("docker rm x", "container_destructive", "ask"),
+        ("docker logs x", "container_read", "allow"),
+        ("docker exec x sh", "container_exec", "ask"),
+        ("docker compose run api sh", "container_exec", "ask"),
+    ])
+    def test_adjacent_container_types_unchanged(self, project_root, command, action_type, decision):
+        r = classify_command(command)
+        assert r.stages[0].action_type == action_type
+        assert r.final_decision == decision
+
+
 class TestFD017Regressions:
     """FD-017: Integration tests for flag-dependent git classification bug fixes."""
 

@@ -223,6 +223,7 @@ actions:
   filesystem_delete: ask         # always confirm deletes
   git_history_rewrite: block     # never allow force push
   lang_exec: ask                 # always confirm script/runtime execution
+  container_build: block         # useful for unattended/unsupervised agents
 
 # Guard sensitive directories
 sensitive_paths:
@@ -244,6 +245,16 @@ trusted_containers:
 
 nah classifies by **action type**, not just command name. Policies are `allow`,
 `context`, `ask`, or `block`.
+
+Container lifecycle commands that act on a named container
+(`docker stop api`, `podman restart worker`) use `container_lifecycle` and are
+allowed only when every flag-free container identity is listed in
+`trusted_containers`; flags, dynamic names, and compose lifecycle commands ask.
+Container image/build/infra commands (`docker build`, `docker compose build`,
+`docker network create`) use `container_build` and default to allow. Legacy
+`container_write` config is migration-only: `actions:` fans out to both new
+types, `classify:` maps to `container_lifecycle`, and interactive CLI writes ask
+you to choose one of the new types.
 
 Project config loads from the Git root, or from `./.nah.yaml` in the current
 directory outside Git. It is tighten-only unless you trust that exact project

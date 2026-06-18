@@ -297,7 +297,7 @@ command. `nah test --target bash|zsh` is the dry-run surface for
 
 ### nah types
 
-List all 40 action types with their descriptions and default policies.
+List all 41 action types with their descriptions and default policies.
 
 ```bash
 nah types

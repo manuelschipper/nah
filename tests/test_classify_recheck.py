@@ -61,7 +61,7 @@ def test_sensitive_path_tagged_host_still_caught():
 # --- db / container kinds are unverifiable; the policy decides (nah-994) ---
 #
 # Config-independent: db/container targets never consult db_targets /
-# trusted_containers. allow-policy reads clear; context-policy writes ask.
+# trusted_containers. allow-policy reads clear; context-policy lifecycle asks.
 
 
 def test_db_safe_target_allows():
@@ -85,8 +85,8 @@ def test_db_exec_target_asks():
     assert out["targets"][0]["floor"] == "unverified"
 
 
-def test_container_write_target_asks():
-    out = recheck(_Cls("container_write", [_t("container", "api")]), taxonomy.CONTEXT)
+def test_container_lifecycle_target_asks():
+    out = recheck(_Cls("container_lifecycle", [_t("container", "api")]), taxonomy.CONTEXT)
     assert out["decision"] == taxonomy.ASK
 
 

@@ -177,12 +177,12 @@ nah blocked: this runs unknown code</code></pre>
       <p class="nah-eyebrow">The idea</p>
       <h2>Classify actions, not command names.</h2>
       <p>
-        nah maps commands and tool calls into 40 action types, from
+        nah maps commands and tool calls into 41 action types, from
         <code>filesystem_read</code>, <code>network_outbound</code>, and
         <code>package_install</code> to <code>db_exec</code>,
         <code>container_destructive</code>, and <code>agent_exec_bypass</code>.
         Then it adds flags, paths, trusted locations, sensitive files, runtimes,
-        hosts, and database targets before returning <code>allow</code>,
+        hosts, container identities, and database targets before returning <code>allow</code>,
         <code>ask</code>, or <code>block</code>.
       </p>
     </div>

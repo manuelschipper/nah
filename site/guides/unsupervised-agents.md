@@ -37,6 +37,7 @@ presets:
       service_write: block
       service_destructive: block
 
+      container_build: block
       container_exec: block
       container_destructive: block
 
@@ -74,8 +75,10 @@ This preset lets routine project work continue while making unattended runs fail
 closed.
 
 High-risk actions are blocked directly where they should never happen in this
-mode. `ask_fallback: block` catches remaining default-`ask` and unresolved
-review cases that would otherwise need a human.
+mode. This includes `container_build`, because Docker builds can execute
+Dockerfile `RUN` steps and mutate image or container infrastructure even though
+the default policy is `allow`. `ask_fallback: block` catches remaining
+default-`ask` and unresolved review cases that would otherwise need a human.
 
 `context` is used where the answer depends on what nah can inspect, such as the
 path, command, content, tool target, [taint state](../configuration/taint-tracking.md),

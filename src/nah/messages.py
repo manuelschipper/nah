@@ -20,7 +20,7 @@ _ACTION_ID_RE = re.compile(
     r"\b(?:"
     r"filesystem_(?:read|write|delete)|git_(?:safe|write|remote_write|discard|history_rewrite)|"
     r"network_(?:outbound|write|diagnostic)|package_(?:install|run|uninstall)|"
-    r"lang_exec|process_signal|container_(?:read|write|exec|destructive)|"
+    r"lang_exec|process_signal|container_(?:read|lifecycle|build|exec|destructive)|"
     r"service_(?:read|write|destructive)|browser_(?:read|interact|state|navigate|exec|file)|"
     r"db_(?:safe|exec)|agent_(?:read|write|exec_read|exec_write|exec_remote|server|exec_bypass)|"
     r"obfuscated|unknown"
@@ -52,8 +52,9 @@ _ACTION_MESSAGES = {
     taxonomy.PACKAGE_UNINSTALL: "this uninstalls packages",
     taxonomy.PROCESS_SIGNAL: "this can stop or signal running processes",
     taxonomy.CONTAINER_READ: "this reads container state",
+    taxonomy.CONTAINER_LIFECYCLE: "this changes a named container's lifecycle",
+    taxonomy.CONTAINER_BUILD: "this builds or changes container images and infrastructure",
     taxonomy.CONTAINER_EXEC: "this runs a command inside a container",
-    taxonomy.CONTAINER_WRITE: "this changes container state",
     taxonomy.CONTAINER_DESTRUCTIVE: "this can remove or reset containers",
     taxonomy.SERVICE_READ: "this reads service or remote API state",
     taxonomy.SERVICE_WRITE: "this changes service or remote API state",

@@ -328,7 +328,14 @@ def _canonicalize_actions(raw: dict) -> dict:
     """Canonicalize action-type keys in config data."""
     result: dict = {}
     for action_type, policy in _validate_dict(raw).items():
-        result[taxonomy.canonicalize_action_type(str(action_type))] = policy
+        raw_action_type = str(action_type)
+        successors = taxonomy.split_type_successors(raw_action_type)
+        if successors:
+            taxonomy.warn_split_type_alias(raw_action_type, fanout=True)
+            for successor in successors:
+                result[successor] = policy
+            continue
+        result[taxonomy.canonicalize_action_type(raw_action_type)] = policy
     return result
 
 
