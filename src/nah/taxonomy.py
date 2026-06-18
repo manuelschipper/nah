@@ -31,7 +31,8 @@ PACKAGE_UNINSTALL = "package_uninstall"
 LANG_EXEC = "lang_exec"
 PROCESS_SIGNAL = "process_signal"
 CONTAINER_READ = "container_read"
-CONTAINER_WRITE = "container_write"
+CONTAINER_LIFECYCLE = "container_lifecycle"
+CONTAINER_BUILD = "container_build"
 CONTAINER_EXEC = "container_exec"
 CONTAINER_DESTRUCTIVE = "container_destructive"
 SERVICE_READ = "service_read"
@@ -68,11 +69,57 @@ _DEPRECATED_TYPE_ALIASES = {
     "db_read": DB_SAFE,
     "db_write": DB_EXEC,
 }
+_SPLIT_TYPE_ALIASES = {
+    "container_write": (CONTAINER_LIFECYCLE, CONTAINER_BUILD),
+}
 _deprecated_type_warnings: set[str] = set()
+
+
+def split_type_successors(name: str) -> tuple[str, ...]:
+    """Return successors for a released type that was split, if any."""
+    return _SPLIT_TYPE_ALIASES.get(name, ())
+
+
+def is_split_type_alias(name: str) -> bool:
+    """Return True when name is a released split action type."""
+    return name in _SPLIT_TYPE_ALIASES
+
+
+def warn_split_type_alias(name: str, *, fanout: bool = False) -> None:
+    """Emit a one-time split warning for legacy config names."""
+    successors = _SPLIT_TYPE_ALIASES.get(name)
+    if not successors or name in _deprecated_type_warnings:
+        return
+    joined = ", ".join(successors)
+    if fanout:
+        sys.stderr.write(
+            f"nah: action type '{name}' was split into {joined}; "
+            "applying this policy to both\n"
+        )
+    else:
+        sys.stderr.write(
+            f"nah: action type '{name}' was split into {joined}; "
+            f"using '{successors[0]}' as the conservative default\n"
+        )
+    _deprecated_type_warnings.add(name)
+
+
+def split_type_guidance(name: str) -> str:
+    """Return human guidance for an interactive split-type error."""
+    successors = _SPLIT_TYPE_ALIASES.get(name, ())
+    if not successors:
+        return ""
+    return (
+        f"{name} was split into {successors[0]} (named-container ops) "
+        f"and {successors[1]} (images/infra); choose one"
+    )
 
 
 def canonicalize_action_type(name: str) -> str:
     """Map released legacy action type names to their current names."""
+    if name in _SPLIT_TYPE_ALIASES:
+        warn_split_type_alias(name)
+        return _SPLIT_TYPE_ALIASES[name][0]
     canonical = _DEPRECATED_TYPE_ALIASES.get(name, name)
     if canonical != name and name not in _deprecated_type_warnings:
         sys.stderr.write(

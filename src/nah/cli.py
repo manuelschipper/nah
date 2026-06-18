@@ -1309,10 +1309,21 @@ def _warn_comments(project: bool) -> None:
             sys.exit(1)
 
 
+def _reject_split_type_alias(action_type: str) -> None:
+    """Exit with guidance when an interactive command uses a split type."""
+    from nah import taxonomy
+
+    if not taxonomy.is_split_type_alias(action_type):
+        return
+    print(taxonomy.split_type_guidance(action_type), file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_allow(args: argparse.Namespace) -> None:
     """Allow an action type."""
     from nah.remember import write_action, CustomTypeError
     from nah.taxonomy import canonicalize_action_type
+    _reject_split_type_alias(args.action_type)
     _warn_comments(args.project)
     action_type = canonicalize_action_type(args.action_type)
     try:
@@ -1332,6 +1343,7 @@ def cmd_deny(args: argparse.Namespace) -> None:
     """Deny an action type."""
     from nah.remember import write_action, CustomTypeError
     from nah.taxonomy import canonicalize_action_type
+    _reject_split_type_alias(args.action_type)
     _warn_comments(args.project)
     action_type = canonicalize_action_type(args.action_type)
     try:
@@ -1363,6 +1375,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
     """Classify a command prefix as an action type."""
     from nah.remember import write_classify, CustomTypeError
     from nah.taxonomy import canonicalize_action_type
+    _reject_split_type_alias(args.type)
     _warn_comments(args.project)
     action_type = canonicalize_action_type(args.type)
     try:
@@ -1663,6 +1676,7 @@ def cmd_forget(args: argparse.Namespace) -> None:
     """Remove a rule."""
     from nah.remember import forget_rule
     from nah.taxonomy import canonicalize_action_type
+    _reject_split_type_alias(args.arg)
     arg = canonicalize_action_type(args.arg)
     try:
         msg = forget_rule(arg, project=args.project, global_only=args.global_flag)

@@ -14,6 +14,7 @@ from nah.context import (
     check_host,
     extract_host,
     resolve_context,
+    resolve_container_lifecycle_context,
     resolve_filesystem_context,
     resolve_lang_exec_context,
     resolve_network_context,
@@ -599,28 +600,83 @@ class TestResolveContext:
         decision, reason = resolve_context("filesystem_read")
         assert decision == "allow"
 
-    def test_container_write_uses_workspace_context(self, project_root):
-        config._cached_config = NahConfig(profile="full")
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(project_root)
-            decision, reason = resolve_context("container_write")
-        finally:
-            os.chdir(old_cwd)
+    def test_container_lifecycle_trusted_container_allows(self):
+        config._cached_config = NahConfig(trusted_containers=["container:my-trusted-api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "my-trusted-api"],
+        )
         assert decision == "allow"
-        assert "inside project" in reason
+        assert "trusted_containers" in reason
 
-    def test_container_write_without_git_root_asks(self, tmp_path):
-        config._cached_config = NahConfig(profile="full")
-        paths.set_project_root(None)
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            decision, reason = resolve_context("container_write")
-        finally:
-            os.chdir(old_cwd)
+    def test_container_lifecycle_untrusted_container_asks(self):
+        config._cached_config = NahConfig(trusted_containers=["container:my-trusted-api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "some-prod-box"],
+        )
         assert decision == "ask"
-        assert "outside project" in reason
+        assert "untrusted" in reason
+
+    def test_container_lifecycle_multi_container_requires_all_trusted(self):
+        config._cached_config = NahConfig(trusted_containers=["container:a"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "a", "b"],
+        )
+        assert decision == "ask"
+        assert "untrusted" in reason
+
+    def test_container_lifecycle_flag_safety_asks(self):
+        config._cached_config = NahConfig(trusted_containers=["container:my-trusted-api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "-t", "5", "my-trusted-api"],
+        )
+        assert decision == "ask"
+        assert "options" in reason
+
+    def test_container_lifecycle_flag_value_misparse_guard(self):
+        config._cached_config = NahConfig(trusted_containers=["container:my-trusted-api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "--time", "my-trusted-api", "real-untrusted"],
+        )
+        assert decision == "ask"
+        assert "options" in reason
+
+    def test_container_lifecycle_dynamic_identity_asks(self):
+        config._cached_config = NahConfig(trusted_containers=["container:my-trusted-api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "$CONTAINER"],
+        )
+        assert decision == "ask"
+        assert "dynamic" in reason
+
+    def test_container_lifecycle_empty_trusted_list_asks(self):
+        config._cached_config = NahConfig(trusted_containers=[])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "stop", "my-trusted-api"],
+        )
+        assert decision == "ask"
+        assert "untrusted" in reason
+
+    def test_container_lifecycle_compose_asks(self):
+        config._cached_config = NahConfig(trusted_containers=["compose:api"])
+        decision, reason = resolve_context(
+            "container_lifecycle",
+            tokens=["docker", "compose", "up"],
+        )
+        assert decision == "ask"
+        assert "compose" in reason
+
+    def test_container_lifecycle_none_tokens_asks(self):
+        config._cached_config = NahConfig(trusted_containers=["container:api"])
+        decision, reason = resolve_container_lifecycle_context(None)
+        assert decision == "ask"
+        assert "no tokens" in reason
 
     def test_browser_navigate_stub_reason(self):
         decision, reason = resolve_context(

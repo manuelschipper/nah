@@ -554,19 +554,32 @@ class TestClassifyTokens:
     def test_container_read(self, tokens):
         assert _ct(tokens) == "container_read"
 
-    # container_write
+    # container_lifecycle
     @pytest.mark.parametrize("tokens", [
         ["docker", "restart", "api"],
         ["docker", "compose", "up", "-d"],
+        ["docker", "container", "stop", "api"],
+        ["docker", "network", "connect", "edge", "api"],
+        ["podman", "restart", "api"],
+        ["podman", "compose", "up", "-d"],
+        ["podman", "container", "stop", "api"],
+    ])
+    def test_container_lifecycle(self, tokens):
+        assert _ct(tokens) == "container_lifecycle"
+
+    # container_build
+    @pytest.mark.parametrize("tokens", [
         ["docker", "build", "-t", "foo", "."],
         ["docker", "tag", "foo:latest", "foo:v1"],
         ["docker", "network", "create", "edge"],
-        ["podman", "restart", "api"],
-        ["podman", "compose", "up", "-d"],
+        ["docker", "compose", "build"],
+        ["docker", "compose", "config"],
         ["podman", "build", "-t", "foo", "."],
+        ["podman", "compose", "build"],
+        ["podman", "compose", "config"],
     ])
-    def test_container_write(self, tokens):
-        assert _ct(tokens) == "container_write"
+    def test_container_build(self, tokens):
+        assert _ct(tokens) == "container_build"
 
     # container_exec
     @pytest.mark.parametrize("tokens", [
@@ -987,7 +1000,7 @@ class TestClassifyTokens:
     @pytest.mark.parametrize("tokens, expected", [
         (["docker", "exec", "-it", "foo", "bash"], "container_exec"),
         (["docker", "run", "-it", "alpine", "sh"], "container_exec"),
-        (["docker", "compose", "up", "-d"], "container_write"),
+        (["docker", "compose", "up", "-d"], "container_lifecycle"),
         (["systemctl", "restart", "nginx"], "service_write"),
         (["systemctl", "reboot"], "service_destructive"),
         (["systemctl", "mask", "foo.service"], "service_write"),
@@ -1521,7 +1534,8 @@ class TestGetPolicy:
         ("lang_exec", "context"),
         ("process_signal", "ask"),
         ("container_read", "allow"),
-        ("container_write", "context"),
+        ("container_lifecycle", "context"),
+        ("container_build", "allow"),
         ("container_exec", "ask"),
         ("container_destructive", "ask"),
         ("service_read", "context"),
@@ -2641,7 +2655,8 @@ class TestProfiles:
         table = get_builtin_table("full")
         action_types = {at for _, at in table}
         assert "container_read" in action_types
-        assert "container_write" in action_types
+        assert "container_lifecycle" in action_types
+        assert "container_build" in action_types
         assert "container_exec" in action_types
         assert "container_destructive" in action_types
         assert "service_read" in action_types

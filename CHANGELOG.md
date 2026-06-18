@@ -50,6 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Container write taxonomy split by verifiable risk axis** (nah-996).
+  `container_write` is replaced by `container_lifecycle` and
+  `container_build`. Lifecycle operations that act on named containers
+  (`docker stop api`, `podman restart worker`) are `context` policy and use
+  `trusted_containers`: every flag-free identity must be trusted, while flags,
+  dynamic names, and compose lifecycle commands ask. Build/image/infra commands
+  (`docker build`, `docker compose build`, `docker network create`) are
+  `container_build` with default `allow` and no cwd gate; autonomous presets can
+  tighten it with `actions: {container_build: block}`. Legacy
+  `container_write` in `actions:` fans out to both new types, `classify:` maps
+  to conservative `container_lifecycle`, and interactive `allow`/`deny`/
+  `classify`/`forget` commands now ask users to choose one of the new types.
 - **Database taxonomy gates SQL-exec capability, not SQL intent** (nah-995).
   Replaces `db_read`/`db_write` with `db_safe`/`db_exec`: structurally-safe
   database surfaces such as `dolt log/status/diff/branch` and Supabase list/get

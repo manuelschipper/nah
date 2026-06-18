@@ -125,6 +125,52 @@ class TestCmdClassifyCustomType:
                 cmd_classify(args)
 
 
+class TestSplitTypeAliasCommands:
+    def test_allow_container_write_errors(self, capsys):
+        from nah.cli import cmd_allow
+
+        args = argparse.Namespace(action_type="container_write", project=False)
+        with pytest.raises(SystemExit) as exc:
+            cmd_allow(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "container_write was split into container_lifecycle" in err
+        assert "container_build" in err
+
+    def test_deny_container_write_errors(self, capsys):
+        from nah.cli import cmd_deny
+
+        args = argparse.Namespace(action_type="container_write", project=False)
+        with pytest.raises(SystemExit) as exc:
+            cmd_deny(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "container_lifecycle" in err
+        assert "container_build" in err
+
+    def test_classify_container_write_errors(self, capsys):
+        from nah.cli import cmd_classify
+
+        args = argparse.Namespace(command_prefix="docker stop", type="container_write", project=False)
+        with pytest.raises(SystemExit) as exc:
+            cmd_classify(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "container_lifecycle" in err
+        assert "container_build" in err
+
+    def test_forget_container_write_errors(self, capsys):
+        from nah.cli import cmd_forget
+
+        args = argparse.Namespace(arg="container_write", project=False, global_flag=False)
+        with pytest.raises(SystemExit) as exc:
+            cmd_forget(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "container_lifecycle" in err
+        assert "container_build" in err
+
+
 class TestCommentWarning:
     def test_warns_when_comments_present(self, patched_paths, global_cfg):
         """Config with comments triggers confirmation prompt."""

@@ -84,11 +84,8 @@ def resolve_context(
             return taxonomy.ASK, f"{action_type}: no target path extracted"
         return taxonomy.ALLOW, f"{action_type}: no target path"
 
-    if action_type == taxonomy.CONTAINER_WRITE:
-        # Container mutations are scoped by the active workspace rather than a
-        # concrete target path, so reuse the project/trusted-path boundary on cwd.
-        scope_path = target_path or os.getcwd()
-        return resolve_filesystem_context(scope_path)
+    if action_type == taxonomy.CONTAINER_LIFECYCLE:
+        return resolve_container_lifecycle_context(tokens)
 
     if action_type == taxonomy.BROWSER_NAVIGATE:
         # Playwright MCP passes the URL in structured tool_input. Keep the gap
@@ -121,6 +118,81 @@ def resolve_service_read_context(tokens: list[str] | None) -> tuple[str, str]:
     if op.client in {api_intent.CLIENT_GH_API, api_intent.CLIENT_GLAB_API}:
         return taxonomy.ALLOW, "service_read: implicit API host"
     return taxonomy.ASK, "unknown host"
+
+
+_CONTAINER_LIFECYCLE_MULTI_VERBS = frozenset({
+    "start",
+    "stop",
+    "restart",
+    "pause",
+    "unpause",
+    "kill",
+    "update",
+})
+_CONTAINER_LIFECYCLE_FIRST_TARGET_VERBS = frozenset({"rename", "commit"})
+
+
+def _container_lifecycle_positionals(tokens: list[str]) -> tuple[list[str] | None, str]:
+    """Extract container operands from the v1 flag-free lifecycle shape."""
+    if not tokens:
+        return None, "container_lifecycle: no command tokens"
+
+    client = taxonomy._normalize_command_name(tokens[0])
+    if client not in {"docker", "podman"}:
+        return None, "container_lifecycle: unsupported client"
+
+    args = tokens[1:]
+    if not args:
+        return None, "container_lifecycle: missing operation"
+    if any(tok.startswith("-") for tok in args):
+        return None, "container_lifecycle: options require review"
+
+    if args[0] == "compose":
+        return None, "container_lifecycle: compose operation has no single container identity"
+
+    if args[0] == "container":
+        if len(args) < 2:
+            return None, "container_lifecycle: missing container operation"
+        verb = args[1]
+        positionals = args[2:]
+    else:
+        verb = args[0]
+        positionals = args[1:]
+
+    if verb in _CONTAINER_LIFECYCLE_MULTI_VERBS:
+        return positionals, ""
+    if verb in _CONTAINER_LIFECYCLE_FIRST_TARGET_VERBS:
+        return positionals[:1], ""
+    return None, "container_lifecycle: unsupported lifecycle operation"
+
+
+def resolve_container_lifecycle_context(tokens: list[str] | None) -> tuple[str, str]:
+    """Allow flag-free named-container lifecycle ops only for trusted identities."""
+    if tokens is None:
+        return taxonomy.ASK, "container_lifecycle: no tokens"
+
+    from nah.config import get_config, normalize_trusted_container_identity
+
+    positionals, error = _container_lifecycle_positionals(tokens)
+    if error:
+        return taxonomy.ASK, error
+    if not positionals:
+        return taxonomy.ASK, "container_lifecycle: no container identity"
+
+    identities: list[str] = []
+    for positional in positionals:
+        if any(ch in positional for ch in "$`"):
+            return taxonomy.ASK, "container_lifecycle: dynamic container identity"
+        identity = normalize_trusted_container_identity(positional)
+        if identity is None:
+            return taxonomy.ASK, "container_lifecycle: invalid container identity"
+        identities.append(identity)
+
+    trusted = set(get_config().trusted_containers)
+    if identities and all(identity in trusted for identity in identities):
+        joined = ", ".join(identities)
+        return taxonomy.ALLOW, f"container_lifecycle: trusted_containers: {joined}"
+    return taxonomy.ASK, "container_lifecycle: untrusted container identity"
 
 
 def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
