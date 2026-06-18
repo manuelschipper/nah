@@ -95,7 +95,8 @@ Built-in boundary action types:
 - `service_write`
 - `service_destructive`
 - `container_read`
-- `container_write`
+- `container_lifecycle`
+- `container_build`
 - `container_exec`
 - `container_destructive`
 - `browser_interact`
