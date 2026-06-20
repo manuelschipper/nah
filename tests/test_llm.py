@@ -208,16 +208,17 @@ class TestBuildPrompt:
         assert long_cmd[:500] in prompt.user
         assert long_cmd not in prompt.user
 
-    def test_user_block_has_cwd_scope_and_intent(self):
+    def test_user_block_has_command_and_intent(self):
         prompt = _build_prompt(self._make_result(), transcript_context="do the thing")
-        assert "cwd:" in prompt.user
-        assert "inside project:" in prompt.user
+        # Layer 2 is intent-only: no cwd/project scope in the prompt (nah-999).
+        assert "cwd:" not in prompt.user
+        assert "inside project:" not in prompt.user
         assert "recent user messages:" in prompt.user
         assert "do the thing" in prompt.user
 
     def test_user_block_drops_nah_internal_scaffolding(self):
         # The redesign (nah-984) removed the action_type/reason/stages
-        # scaffolding from the prompt; the model judges from command+scope+intent.
+        # scaffolding from the prompt; the model judges from command+intent.
         prompt = _build_prompt(
             self._make_result(action_type="lang_exec", reason="some internal reason"),
         )
@@ -241,9 +242,10 @@ class TestBuildPrompt:
         assert '"reasoning"' in sys
         assert '"reasoning_long"' in sys
         assert '"citation"' in sys
-        # Strict cite-or-ask + scope rules + the compact risk checklist.
+        # Strict cite-or-ask + the compact risk checklist (no scope rule; project
+        # boundary is owned deterministically by the floor + Layer 1, nah-999).
         assert "Cite only from the recent user messages" in sys
-        assert "inside project: yes" in sys  # scope rule defines it
+        assert "inside project" not in sys
         _assert_risk_labels_present(sys)
         # No "routine low-risk" escape hatch.
         assert "routine" not in sys.lower()
