@@ -136,9 +136,10 @@ class TestRelaxPrompt:
         assert isinstance(prompt, PromptParts)
         # Layer 2 system prompt is its own static rules block (nah-984).
         assert prompt.system == _RELAX_SYSTEM
-        # User block = command + scope + the user's own messages, nothing else.
+        # User block = command + the user's own messages, nothing else. No
+        # cwd/project scope: Layer 2 is intent-only (nah-999).
         assert "command: rm -rf dist/" in prompt.user
-        assert "cwd:" in prompt.user and "inside project:" in prompt.user
+        assert "cwd:" not in prompt.user and "inside project:" not in prompt.user
         assert "recent user messages:" in prompt.user
         assert "User: clean the build output" in prompt.user
         # nah-internal scaffolding is gone from the prompt.
@@ -150,7 +151,7 @@ class TestRelaxPrompt:
         assert "## Instruction Context" not in prompt.user
         assert "AGENTS.md" not in prompt.user
         assert "CLAUDE.md" not in prompt.user
-        # Risk checklist + cite-or-ask + scope live in the (static) system msg.
+        # Risk checklist + cite-or-ask live in the (static) system msg.
         _assert_risk_labels_present(prompt.system)
         assert "Cite only from the recent user messages" in prompt.system
 

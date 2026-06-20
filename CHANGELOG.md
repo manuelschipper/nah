@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Layer-2 intent relaxer is intent-only** (nah-999). The Layer-2 relax prompt
+  no longer injects `cwd`/`inside project` context. Project scope is already
+  decided deterministically by the floor and Layer 1 before the relaxer runs, so
+  feeding it to Layer 2 was redundant and blurred the separation (deterministic
+  owns scope/boundary; Layer 2 owns intent). The relaxer now judges purely from
+  the command and cited user intent; the deterministic project-boundary floor is
+  unchanged.
 - **Container write taxonomy split by verifiable risk axis** (nah-996).
   `container_write` is replaced by `container_lifecycle` and
   `container_build`. Lifecycle operations that act on named containers
