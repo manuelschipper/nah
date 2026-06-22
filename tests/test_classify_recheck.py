@@ -50,6 +50,31 @@ def test_unknown_kind_sensitive_path_still_caught():
     assert out["decision"] in (taxonomy.ASK, taxonomy.BLOCK)
 
 
+def test_unknown_kind_bareword_is_not_a_host():
+    # Regression: an unknown-kind bareword (e.g. a `for id in mold-7 ...` loop
+    # value / mold id) is not host-shaped, so it must not be routed through the
+    # host floor and mislabeled "unknown host". git_write is allow-policy with a
+    # clean path target, so the command should clear, not ask as an untrusted host.
+    out = recheck(
+        _Cls("git_write", [_t("path", "."), _t("unknown", "mold-7"),
+                           _t("unknown", "molds-7")]),
+        taxonomy.ALLOW,
+    )
+    assert out["decision"] == taxonomy.ALLOW
+    assert "unknown host" not in out["reason"]
+    bareword = next(t for t in out["targets"] if t["value"] == "mold-7")
+    assert bareword["floor"] == taxonomy.ALLOW
+    assert "host" not in bareword["reason"]
+
+
+def test_unknown_kind_dotted_value_still_host_checked():
+    # A host-shaped unknown-kind value (dotted) is still sniffed as a host, so a
+    # mislabeled untrusted host remains caught.
+    out = recheck(_Cls("git_write", [_t("unknown", "evil.example")]),
+                  taxonomy.ALLOW)
+    assert out["decision"] == taxonomy.ASK
+
+
 def test_sensitive_path_tagged_host_still_caught():
     # A sensitive path tagged `host` lands on ask via the host checker (unknown
     # host), so it is not auto-allowed.

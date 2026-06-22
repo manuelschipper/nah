@@ -58,6 +58,21 @@ def _check_host_target(value: str, action_type: str) -> tuple[str, str]:
     return check_host(value, action_type)
 
 
+def _looks_like_host(value: str) -> bool:
+    """Whether a bare value is plausibly a network host.
+
+    Mirrors the deterministic network extractor: only scheme (``://``),
+    dotted-domain/IP (``.``), or ``host:port`` (``:``) shapes are real hosts.
+    ``check_host`` returns "unknown host: X" for *any* non-known string, so an
+    unknown-kind target that is a plain bareword (a mold id, branch name, loop
+    variable) would otherwise be mislabeled as an untrusted host and surface a
+    misleading "this contacts an untrusted host" pause. A host sniff that the
+    deterministic classifier would never make is not a safety net — it is a
+    false positive, so gate it on host shape.
+    """
+    return "://" in value or value.startswith("//") or "." in value or ":" in value
+
+
 def _check_target(target: dict, action_type: str) -> tuple[str, str]:
     """Route one verifiable kind-tagged target to its deterministic checker.
 
@@ -73,9 +88,15 @@ def _check_target(target: dict, action_type: str) -> tuple[str, str]:
     if kind == "host":
         return _check_host_target(value, action_type)
     # unknown / unroutable kind: sniff as both path and host, worst wins, so a
-    # mislabeled sensitive path or host is still caught.
+    # mislabeled sensitive path or host is still caught. The host sniff only
+    # fires for host-shaped values; a plain bareword is never a host, so routing
+    # it through the host floor would only manufacture a bogus "unknown host".
     pd, pr = _check_path_target(value)
-    hd, hr = _check_host_target(value, action_type)
+    hd, hr = (
+        _check_host_target(value, action_type)
+        if _looks_like_host(value)
+        else (taxonomy.ALLOW, "")
+    )
     worst = _worst(pd, hd)
     if worst == pd and pd != taxonomy.ALLOW:
         return pd, pr
