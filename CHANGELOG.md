@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`service_inspect` and `env_read` action types; `service_read` narrowed to remote** (nah-1004).
+  `service_read` was overloaded: its static table was 100% local daemon inspection
+  (`systemctl status`, `journalctl`) while every remote API read (curl GET, gRPC,
+  GraphQL) was classified dynamically, so its single `context` policy fit only the
+  remote half and the audit label ("remote API state") was wrong for the local half.
+  - **`service_inspect`** (policy `allow`) is the honest home for local service/daemon
+    inspection — the systemd entries move here, joined by `caddy version`/`list-modules`,
+    `launchctl list/print`, `sc query/queryex/qc`, `rc-status`/`rc-service -l`, and
+    `service --status-all`. It is deliberately kept out of the taint/provenance
+    data-egress boundary (local inspection is not network egress).
+  - **`env_read`** (policy `ask`) is the honest home for commands whose purpose is
+    exposing environment or secret values — `printenv`, `caddy environ`,
+    `systemctl show-environment`, `export -p`/`declare -p`/`typeset -p`, and secret-store
+    reads (`vault read`/`kv get`, `aws secretsmanager get-secret-value`,
+    `aws ssm get-parameter`, `gcloud secrets versions access`, `az keyvault secret show`,
+    `kubectl get`/`describe secret`, `pass show`, `op read`/`item get`, `bw get`,
+    `heroku config`, `doppler secrets`, `infisical secrets`, `chamber read`/`export`,
+    `sops -d`). These were previously `unknown → ask`, which lied in the audit log and
+    fired a wasted LLM classify on every invocation. `systemctl show-environment` moves
+    from a silent `service_read → allow` to an honest `env_read → ask`. Name-only listers
+    (`gh secret list`, etc.) are intentionally excluded; secret-injecting exec wrappers
+    (`op run`, `doppler run`, `aws-vault exec`) stay on the exec path. Flag-dependent
+    forms (bare `env`/`set`/`export`, `ps` env-flags, `caddy fmt --overwrite`) are
+    deferred to a follow-up (nah-1005). Also classifies `crontab -l` and `caddy validate`
+    as `filesystem_read`.
 - **talosctl global flag stripping before subcommand classification** — `talosctl -n <ip> get routes`, `talosctl --nodes=<ip> dmesg`, and other talosctl commands that carry connection global flags (`-n/--nodes`, `-e/--endpoints`, `-c/--cluster`, `--context`, `--talosconfig`) now strip those flags before the global-table prefix match instead of falling through to `unknown`. Mirrors the kubectl/flux idiom and fails closed: unknown or malformed pre-subcommand flags stay on the `unknown` ask path, and dangerous subcommands such as `talosctl reboot`/`talosctl reset` still classify as configured. Closes [#86](https://github.com/manuelschipper/nah/issues/86); PR [#89](https://github.com/manuelschipper/nah/pull/89) by [@srgvg](https://github.com/srgvg).
 - **flux global flag stripping before subcommand classification** — `flux -n <ns> get kustomizations`, `flux --namespace=<ns> list`, and other flux commands that carry kubeconfig-style global flags (`-n/--namespace`, `--context`, `--kubeconfig`, `--timeout`, `--token`, ...) now strip those flags before the global-table prefix match instead of falling through to `unknown`. Mirrors the kubectl/talosctl idiom and fails closed: unknown or malformed pre-subcommand flags stay on the `unknown` ask path, and destructive subcommands such as `flux delete`/`flux uninstall` still classify as configured. Closes [#87](https://github.com/manuelschipper/nah/issues/87); PR [#90](https://github.com/manuelschipper/nah/pull/90) by [@srgvg](https://github.com/srgvg).
 - **Two-layer LLM: classify unknowns, relax with cited intent** (nah-982). The
