@@ -263,6 +263,15 @@ def test_enforce_boundary_escalates_allow_to_ask(monkeypatch, tmp_path):
     assert boundary["_meta"]["taint"]["enforced"] is True
 
 
+def test_service_inspect_and_env_read_not_in_boundary():
+    # Local service inspection and env/secret exposure are not data-egress
+    # boundaries — they gate at the source, not the wire (nah-1004).
+    assert taxonomy.SERVICE_INSPECT not in taint.DEFAULT_BOUNDARY
+    assert taxonomy.ENV_READ not in taint.DEFAULT_BOUNDARY
+    # Remote service_read stays a boundary.
+    assert taxonomy.SERVICE_READ in taint.DEFAULT_BOUNDARY
+
+
 def test_enforce_service_read_after_source_is_boundary(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     _cfg(mode="enforce")
