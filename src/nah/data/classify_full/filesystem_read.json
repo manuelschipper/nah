@@ -382,5 +382,7 @@
   "tasklist",
   "where",
   "wmic",
-  "systeminfo"
+  "systeminfo",
+  "crontab -l",
+  "caddy validate"
 ]
