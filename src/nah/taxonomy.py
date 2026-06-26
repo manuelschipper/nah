@@ -1299,8 +1299,19 @@ _PS_VALUE_FLAGS = {
     "--user",
 }
 _PS_VALUE_FLAG_PREFIXES = tuple(f"{flag}=" for flag in _PS_VALUE_FLAGS if flag.startswith("--"))
+_PS_SHORT_VALUE_FLAG_CHARS = {"p", "u", "U", "g", "G", "t", "o", "C", "s", "N"}
 _PS_BSD_VALUE_FLAGS = {"p", "t", "U", "G", "k", "o"}
 _PS_BSD_CLUSTER_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def _ps_short_option_consumes_next(tok: str) -> bool:
+    if not tok.startswith("-") or tok.startswith("--") or len(tok) <= 2:
+        return False
+    cluster = tok[1:]
+    for index, char in enumerate(cluster):
+        if char in _PS_SHORT_VALUE_FLAG_CHARS:
+            return index == len(cluster) - 1
+    return False
 
 
 def _classify_ps(tokens: list[str]) -> str | None:
@@ -1318,6 +1329,9 @@ def _classify_ps(tokens: list[str]) -> str | None:
             skip_next = True
             continue
         if tok.startswith(_PS_VALUE_FLAG_PREFIXES):
+            continue
+        if _ps_short_option_consumes_next(tok):
+            skip_next = True
             continue
         if tok.startswith("-"):
             continue

@@ -748,6 +748,8 @@ class TestClassifyTokens:
         ["ps", "-u", "alice"],
         ["ps", "U", "alice"],
         ["ps", "-o", "pid,etime"],
+        ["ps", "-eo", "etime"],
+        ["ps", "-eo", "user"],
         ["ps", "-C", "node"],
     ])
     def test_ps_non_env_forms_are_filesystem_read(self, tokens):

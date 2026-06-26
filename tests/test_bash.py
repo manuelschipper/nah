@@ -2746,6 +2746,8 @@ class TestEdgeCases:
             "ps -u alice",
             "ps U alice",
             "ps -o pid,etime",
+            "ps -eo etime",
+            "ps -eo user",
             "ps -C node",
         ],
     )
