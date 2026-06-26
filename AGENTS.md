@@ -70,7 +70,7 @@ nah test --tool Write ./out.txt --content "BEGIN PRIVATE KEY"  # test write payl
 nah test --tool Grep --pattern "password"  # test credential search detection
 
 # Inspect
-nah types                # list all 41 action types with default policies
+nah types                # list all 43 action types with default policies
 nah log                  # show recent hook decisions
 nah log --blocks         # show only blocked decisions
 nah log --asks           # show only ask decisions
