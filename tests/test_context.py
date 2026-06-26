@@ -446,11 +446,25 @@ class TestNetworkWriteContext:
 
 
 class TestServiceReadContext:
-    def test_local_service_read_still_allows(self):
+    def test_service_read_without_remote_op_allows(self):
+        # Defensive branch: local daemon inspection now classifies as
+        # service_inspect (nah-1004), so service_read should only ever see
+        # remote ops. If a token stream with no visible remote op still reaches
+        # here, fall through to allow.
         decision, reason = resolve_context("service_read", tokens=["systemctl", "status", "nginx"])
 
         assert decision == "allow"
         assert "service_read" in reason
+
+    def test_local_inspection_is_service_inspect_allow(self):
+        # The real path for local daemon inspection: service_inspect is an
+        # allow-policy type, resolved by policy lookup (not a context resolver).
+        from nah import taxonomy
+
+        assert taxonomy.classify_tokens(
+            ["systemctl", "status", "nginx"], None, taxonomy.get_builtin_table(), None
+        ) == "service_inspect"
+        assert taxonomy.get_policy("service_inspect") == "allow"
 
     def test_remote_service_read_known_host_allows(self):
         decision, reason = resolve_context("service_read", tokens=["curl", "https://github.com/repos/openai/codex"])

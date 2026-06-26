@@ -109,7 +109,13 @@ def resolve_context(
 
 
 def resolve_service_read_context(tokens: list[str] | None) -> tuple[str, str]:
-    """Preserve local service reads while applying host checks to remote reads."""
+    """Apply host checks to remote service reads.
+
+    ``service_read`` is remote-only since local daemon inspection moved to
+    ``service_inspect`` (nah-1004). The ``op is None`` branch is defensive — the
+    dynamic classifiers only emit ``service_read`` once a remote operation is
+    visible, so it should not normally fire.
+    """
     op = api_intent.extract_remote_operation(tokens or [])
     if op is None:
         return taxonomy.ALLOW, "service_read → allow"

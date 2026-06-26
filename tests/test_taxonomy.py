@@ -318,9 +318,6 @@ class TestClassifyTokens:
         assert _ct(tokens) == "container_read"
 
     @pytest.mark.parametrize("tokens", [
-        ["kubectl", "get", "secrets"],
-        ["kubectl", "get", "secret/api-key"],
-        ["kubectl", "get", "pods,secrets"],
         ["kubectl", "get", "configmaps"],
         ["kubectl", "get", "cm/app"],
         ["kubectl", "get", "serviceaccounts"],
@@ -330,11 +327,20 @@ class TestClassifyTokens:
         ["kubectl", "get", "pods", "--template", "{{.items}}"],
         ["kubectl", "get", "widgets.example.com"],
         ["kubectl", "describe", "pod", "pod-0"],
-        ["kubectl", "describe", "secret", "api-key"],
         ["kubectl", "config", "view"],
     ])
     def test_kubectl_sensitive_or_detailed_reads_stay_unknown(self, tokens):
         assert _ct(tokens) == "unknown"
+
+    # Secret reads route to env_read (honest ask), not unknown (nah-1004).
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "get", "secrets"],
+        ["kubectl", "get", "secret/api-key"],
+        ["kubectl", "get", "pods,secrets"],
+        ["kubectl", "describe", "secret", "api-key"],
+    ])
+    def test_kubectl_secret_reads_are_env_read(self, tokens):
+        assert _ct(tokens) == "env_read"
 
     @pytest.mark.parametrize("tokens", [
         ["kubectl", "apply", "-f", "deploy.yaml"],
@@ -642,17 +648,77 @@ class TestClassifyTokens:
     def test_container_destructive(self, tokens):
         assert _ct(tokens) == "container_destructive"
 
-    # service_read
+    # service_inspect — local service/daemon inspection (was service_read; nah-1004)
     @pytest.mark.parametrize("tokens", [
         ["systemctl", "status", "nginx"],
         ["systemctl", "cat", "agentboard.service"],
         ["systemctl", "list-units", "--all"],
         ["systemctl", "--failed"],
         ["systemctl", "is-enabled", "nginx"],
+        ["systemctl", "show", "nginx.service"],
         ["journalctl", "-u", "nginx", "--since", "1h"],
+        ["caddy", "version"],
+        ["caddy", "list-modules"],
+        ["launchctl", "list"],
+        ["launchctl", "print"],
+        ["sc", "query"],
+        ["sc", "queryex"],
+        ["sc", "qc"],
+        ["rc-status"],
+        ["rc-service", "-l"],
+        ["service", "--status-all"],
     ])
-    def test_service_read(self, tokens):
-        assert _ct(tokens) == "service_read"
+    def test_service_inspect(self, tokens):
+        assert _ct(tokens) == "service_inspect"
+
+    # env_read — environment / secret-value exposure (nah-1004)
+    @pytest.mark.parametrize("tokens", [
+        ["printenv"],
+        ["caddy", "environ"],
+        ["systemctl", "show-environment"],
+        ["systemctl", "--user", "show-environment"],
+        ["export", "-p"],
+        ["declare", "-p"],
+        ["typeset", "-p"],
+        ["vault", "read", "secret/foo"],
+        ["vault", "kv", "get", "secret/foo"],
+        ["aws", "secretsmanager", "get-secret-value", "--secret-id", "x"],
+        ["aws", "ssm", "get-parameter", "--name", "x", "--with-decryption"],
+        ["gcloud", "secrets", "versions", "access", "latest", "--secret=x"],
+        ["az", "keyvault", "secret", "show", "--name", "x"],
+        ["kubectl", "get", "secret", "mysecret", "-o", "yaml"],
+        ["kubectl", "describe", "secret", "mysecret"],
+        ["pass", "show", "github/token"],
+        ["op", "read", "op://v/i/f"],
+        ["op", "item", "get", "x"],
+        ["bw", "get", "password", "x"],
+        ["heroku", "config", "-a", "app"],
+        ["doppler", "secrets"],
+        ["sops", "-d", "secrets.enc.yaml"],
+    ])
+    def test_env_read(self, tokens):
+        assert _ct(tokens) == "env_read"
+
+    # env_read scope guards — name-listers expose names not values, so they
+    # must NOT be env_read (and gh secret list must not regress allow→ask).
+    def test_gh_secret_list_is_not_env_read(self):
+        assert _ct(["gh", "secret", "list"]) == "git_safe"
+
+    @pytest.mark.parametrize("tokens", [
+        ["kubectl", "get", "configmap", "c"],
+        ["kubectl", "get", "sa"],
+        ["kubectl", "get", "pods"],
+    ])
+    def test_kubectl_non_secret_reads_unchanged(self, tokens):
+        assert _ct(tokens) != "env_read"
+
+    # mold-25 leftovers owned by nah-1004
+    @pytest.mark.parametrize("tokens", [
+        ["crontab", "-l"],
+        ["caddy", "validate"],
+    ])
+    def test_local_file_reads(self, tokens):
+        assert _ct(tokens) == "filesystem_read"
 
     @pytest.mark.parametrize("tokens", [
         ["curl", "https://api.example.com/v1/items"],
@@ -2659,7 +2725,10 @@ class TestProfiles:
         assert "container_build" in action_types
         assert "container_exec" in action_types
         assert "container_destructive" in action_types
-        assert "service_read" in action_types
+        # service_read is dynamic-only (no static table file since nah-1004);
+        # local inspection + secret exposure are the static service-ish types.
+        assert "service_inspect" in action_types
+        assert "env_read" in action_types
         assert "service_write" in action_types
         assert "service_destructive" in action_types
         assert "browser_read" in action_types
@@ -2690,9 +2759,9 @@ class TestProfiles:
         table = get_builtin_table("minimal")
         assert classify_tokens(["docker", "logs", "api"], builtin_table=table) == "container_read"
 
-    def test_profile_minimal_service_read_classified(self):
+    def test_profile_minimal_service_inspect_classified(self):
         table = get_builtin_table("minimal")
-        assert classify_tokens(["systemctl", "status", "nginx"], builtin_table=table) == "service_read"
+        assert classify_tokens(["systemctl", "status", "nginx"], builtin_table=table) == "service_inspect"
 
     def test_profile_minimal_rm_still_classified(self):
         """Deprecated minimal aliases full, so core commands stay classified."""

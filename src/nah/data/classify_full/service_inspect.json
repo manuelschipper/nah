@@ -21,6 +21,16 @@
   "systemctl list-machines",
   "systemctl list-automounts",
   "systemctl list-paths",
-  "systemctl show-environment",
-  "journalctl"
+  "journalctl",
+  "caddy version",
+  "caddy list-modules",
+  "launchctl list",
+  "launchctl print",
+  "sc query",
+  "sc queryex",
+  "sc qc",
+  "rc-status",
+  "rc-service -l",
+  "rc-service --list",
+  "service --status-all"
 ]

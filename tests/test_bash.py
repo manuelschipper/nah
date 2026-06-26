@@ -320,10 +320,11 @@ class TestMiseExecWrapper:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "container_read"
 
-    def test_kubectl_sensitive_resource_still_asks(self, project_root):
+    def test_kubectl_secret_read_is_env_read(self, project_root):
+        # Secret reads now route to env_read (honest ask) instead of unknown (nah-1004).
         r = classify_command("kubectl get secrets -o yaml")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "unknown"
+        assert r.stages[0].action_type == "env_read"
 
     def test_mise_exec_network_context_uses_inner_host(self, project_root):
         r = classify_command("mise exec -- curl https://example.invalid")
@@ -2664,11 +2665,19 @@ class TestEdgeCases:
         assert r.stages[0].action_type == "filesystem_read"
         assert r.stages[0].reason == "export assignment"
 
-    @pytest.mark.parametrize("command", ["export", "export -p", "export NAME", "export -n NAME"])
+    @pytest.mark.parametrize("command", ["export", "export NAME", "export -n NAME"])
     def test_export_non_assignment_forms_remain_unknown(self, project_root, command):
+        # Bare `export` (full var dump) is the flag-aware §C work deferred to
+        # nah-1005; for now it stays unknown. `export -p` is the unambiguous
+        # static env_read entry (see test below).
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
+
+    def test_export_p_is_env_read(self, project_root):
+        r = classify_command("export -p")
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "env_read"
 
     def test_env_var_flag_with_equals_not_stripped(self, project_root):
         """--flag=value should not be treated as env var."""
