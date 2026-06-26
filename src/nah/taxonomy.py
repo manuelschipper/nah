@@ -35,9 +35,11 @@ CONTAINER_LIFECYCLE = "container_lifecycle"
 CONTAINER_BUILD = "container_build"
 CONTAINER_EXEC = "container_exec"
 CONTAINER_DESTRUCTIVE = "container_destructive"
+SERVICE_INSPECT = "service_inspect"
 SERVICE_READ = "service_read"
 SERVICE_WRITE = "service_write"
 SERVICE_DESTRUCTIVE = "service_destructive"
+ENV_READ = "env_read"
 BROWSER_READ = "browser_read"
 BROWSER_INTERACT = "browser_interact"
 BROWSER_STATE = "browser_state"
@@ -875,6 +877,11 @@ _KUBECTL_SENSITIVE_RESOURCES = {
     "serviceaccounts",
 }
 
+# Sensitive resources whose read exposes secret values → env_read (honest ask),
+# rather than the generic unknown→ask. configmaps/service-accounts stay in the
+# broader sensitive set (unknown→ask) since they are not secret-value reads.
+_KUBECTL_SECRET_RESOURCES = {"secret", "secrets"}
+
 _KUBECTL_SAFE_OUTPUTS = {"name", "wide"}
 
 
@@ -1129,10 +1136,18 @@ def _classify_kubectl(tokens: list[str], *, global_table: list | None = None) ->
         kinds = _kubectl_resource_kinds(tokens[2])
         return CONTAINER_READ if kinds and set(kinds) <= {"node", "nodes", "pod", "pods"} else UNKNOWN
 
+    if subcommand == "describe" and len(tokens) >= 3 and not tokens[2].startswith("-"):
+        kinds = _kubectl_resource_kinds(tokens[2])
+        if kinds and any(kind in _KUBECTL_SECRET_RESOURCES for kind in kinds):
+            return ENV_READ
+        return UNKNOWN
+
     if subcommand == "get" and len(tokens) >= 3 and not tokens[2].startswith("-"):
         kinds = _kubectl_resource_kinds(tokens[2])
         if not kinds:
             return UNKNOWN
+        if any(kind in _KUBECTL_SECRET_RESOURCES for kind in kinds):
+            return ENV_READ
         if any(kind in _KUBECTL_SENSITIVE_RESOURCES for kind in kinds):
             return UNKNOWN
         if not set(kinds) <= _KUBECTL_SAFE_GET_RESOURCES:
