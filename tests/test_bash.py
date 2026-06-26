@@ -2665,11 +2665,8 @@ class TestEdgeCases:
         assert r.stages[0].action_type == "filesystem_read"
         assert r.stages[0].reason == "export assignment"
 
-    @pytest.mark.parametrize("command", ["export", "export NAME", "export -n NAME"])
+    @pytest.mark.parametrize("command", ["export NAME", "export -n NAME"])
     def test_export_non_assignment_forms_remain_unknown(self, project_root, command):
-        # Bare `export` (full var dump) is the flag-aware §C work deferred to
-        # nah-1005; for now it stays unknown. `export -p` is the unambiguous
-        # static env_read entry (see test below).
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
@@ -2678,6 +2675,84 @@ class TestEdgeCases:
         r = classify_command("export -p")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "env_read"
+
+    @pytest.mark.parametrize("command", ["env", "env -u FOO", "env -i"])
+    def test_bare_env_wrapper_forms_are_env_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "env_read"
+
+    def test_env_wrapper_with_inner_command_stays_inner_classification(self, project_root):
+        r = classify_command("env FOO=bar rm -rf /tmp/x")
+        assert r.stages[0].action_type == "filesystem_delete"
+
+    @pytest.mark.parametrize("command", ["set", "export", "declare", "typeset"])
+    def test_bare_shell_var_builtins_are_env_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "env_read"
+
+    @pytest.mark.parametrize("command", ["export -p", "declare -p", "typeset -p"])
+    def test_shell_var_print_forms_are_env_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "env_read"
+
+    @pytest.mark.parametrize("command", ["set -x", "set -euo pipefail", "set -o", "set -- a b"])
+    def test_set_option_forms_remain_unknown(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
+    @pytest.mark.parametrize("command", ["declare -f", "declare -F"])
+    def test_declare_function_listing_forms_remain_unknown(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "unknown"
+
+    def test_declare_typed_assignment_is_not_env_read(self, project_root):
+        r = classify_command("declare -i x=5")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    @pytest.mark.parametrize("command", ["caddy fmt", "caddy fmt --diff"])
+    def test_caddy_fmt_stdout_is_filesystem_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_caddy_fmt_overwrite_is_filesystem_write(self, project_root):
+        r = classify_command("caddy fmt --overwrite")
+        assert r.stages[0].action_type == "filesystem_write"
+
+    def test_caddy_other_subcommands_still_use_static_entries(self, project_root):
+        r = classify_command("caddy version")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "service_inspect"
+
+    @pytest.mark.parametrize("command", ["ps e", "ps eww", "ps auxe"])
+    def test_ps_bsd_env_modifier_is_env_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "ask"
+        assert r.stages[0].action_type == "env_read"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ps",
+            "ps aux",
+            "ps -e",
+            "ps -ef",
+            "ps -u alice",
+            "ps U alice",
+            "ps -o pid,etime",
+            "ps -C node",
+        ],
+    )
+    def test_ps_non_env_forms_are_filesystem_read(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
 
     def test_env_var_flag_with_equals_not_stripped(self, project_root):
         """--flag=value should not be treated as env var."""
@@ -3211,10 +3286,10 @@ class TestFD018Regressions:
         r = classify_command("tar -txf archive.tar")
         assert r.stages[0].action_type == "filesystem_write"
 
-    def test_env_still_unknown(self, project_root):
-        """env must remain unknown (exfiltration risk)."""
+    def test_env_is_env_read(self, project_root):
+        """env dumps environment values and is classified as env_read."""
         r = classify_command("env")
-        assert r.stages[0].action_type == "unknown"
+        assert r.stages[0].action_type == "env_read"
 
 
 # --- FD-046: Context resolver fallback ---

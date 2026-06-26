@@ -1816,30 +1816,103 @@ def _env_var_has_exec(value: str) -> bool:
     return bool(_env_var_risk_reason(value))
 
 
-def _classify_export_assignment(
+_SHELL_VAR_BUILTINS = {"set", "export", "declare", "typeset"}
+_SHELL_VAR_ASSIGNMENT_BUILTINS = {"export", "declare", "typeset"}
+_SHELL_VAR_PRINT_BUILTINS = {"export", "declare", "typeset"}
+_SHELL_VAR_NON_ASSIGNMENT_ATTRS = {"f", "F", "p"}
+
+
+def _shell_var_assignment_tokens(tokens: list[str]) -> list[str] | None:
+    """Return NAME=value operands for shell variable builtin assignment forms."""
+    if not tokens:
+        return None
+    command = taxonomy._normalize_command_name(tokens[0])
+    if command not in _SHELL_VAR_ASSIGNMENT_BUILTINS:
+        return None
+
+    args = tokens[1:]
+    if not args:
+        return None
+
+    if command == "export":
+        return list(args) if all(_is_env_assignment(tok) for tok in args) else None
+
+    assignments: list[str] = []
+    for tok in args:
+        if tok == "--":
+            continue
+        if tok.startswith(("-", "+")):
+            attr_letters = tok[1:]
+            if (
+                not attr_letters
+                or any(ch in _SHELL_VAR_NON_ASSIGNMENT_ATTRS for ch in attr_letters)
+            ):
+                return None
+            continue
+        if _is_env_assignment(tok):
+            assignments.append(tok)
+            continue
+        return None
+
+    return assignments or None
+
+
+def _is_shell_var_print_form(command: str, args: list[str]) -> bool:
+    """Return True for explicit shell variable listing forms such as export -p."""
+    if command not in _SHELL_VAR_PRINT_BUILTINS:
+        return False
+
+    saw_print_flag = False
+    for tok in args:
+        if tok == "--":
+            continue
+        if tok == "-p":
+            saw_print_flag = True
+            continue
+        if tok.startswith(("-", "+")) or not saw_print_flag:
+            return False
+        if _is_env_assignment(tok) or not _is_shell_identifier(tok):
+            return False
+
+    return saw_print_flag
+
+
+def _classify_shell_var_builtin(
     stage: Stage,
     user_actions: dict[str, str] | None,
 ) -> StageResult | None:
-    """Classify benign ``export NAME=value`` shell-builtin stages."""
+    """Classify shell variable builtins whose safe and dump forms share a command."""
     tokens = stage.tokens
-    if not tokens or taxonomy._normalize_command_name(tokens[0]) != "export" or len(tokens) == 1:
+    if not tokens:
         return None
 
-    for tok in tokens[1:]:
-        if tok.startswith("-") or not _is_env_assignment(tok):
-            return None
+    command = taxonomy._normalize_command_name(tokens[0])
+    if command not in _SHELL_VAR_BUILTINS:
+        return None
+
+    args = tokens[1:]
+    if not args or _is_shell_var_print_form(command, args):
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.ENV_READ
+        sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+        _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
+        return _apply_redirect_guard(stage, sr, user_actions=user_actions)
+
+    assignment_tokens = _shell_var_assignment_tokens(tokens)
+    if assignment_tokens is None:
+        return None
 
     action_type = taxonomy.FILESYSTEM_READ
-    reason = "export assignment"
-    for tok in tokens[1:]:
+    reason = f"{command} assignment"
+    for tok in assignment_tokens:
         _, value = tok.split("=", 1)
         risk_reason = _env_var_risk_reason(value)
         if risk_reason:
             action_type = taxonomy.LANG_EXEC
             reason = (
-                "export assignment exec sink"
+                f"{command} assignment exec sink"
                 if risk_reason.startswith("env var exec sink")
-                else f"export assignment {risk_reason}"
+                else f"{command} assignment {risk_reason}"
             )
             break
 
@@ -2253,9 +2326,10 @@ def _expand_intra_chain_vars(stages: list[Stage]) -> list[Stage]:
 
     * Form A: bare ``NAME=value`` stages tagged by ``_make_stage`` as
       ``FILESYSTEM_READ`` with reason ``"env-only assignment"``.
-    * Form B: ``export NAME=value [NAME2=value2 ...]`` stages. These
-      are not pre-tagged — ``_classify_export_assignment`` runs later
-      inside ``_classify_stage`` — so we detect them structurally.
+    * Form B: shell variable builtin assignment stages such as
+      ``export NAME=value`` and ``declare -i NAME=value``. These are
+      not pre-tagged — ``_classify_shell_var_builtin`` runs later inside
+      ``_classify_stage`` — so we detect them structurally.
 
     The var map clears on pipe ``|`` (subshell semantics) and is
     preserved across ``&&``, ``||``, and ``;`` to match real bash.
@@ -2274,12 +2348,8 @@ def _expand_intra_chain_vars(stages: list[Stage]) -> list[Stage]:
             and stage.action_reason == "env-only assignment"
         ):
             assignment_tokens = list(stage.tokens)
-        elif (
-            len(stage.tokens) >= 2
-            and taxonomy._normalize_command_name(stage.tokens[0]) == "export"
-            and all(_is_env_assignment(t) for t in stage.tokens[1:])
-        ):
-            assignment_tokens = list(stage.tokens[1:])
+        else:
+            assignment_tokens = _shell_var_assignment_tokens(stage.tokens)
 
         if assignment_tokens is not None:
             for tok in assignment_tokens:
@@ -2334,9 +2404,9 @@ def _classify_stage(
         sr.reason = stage.action_reason or f"env var exec sink: {sr.action_type} → {sr.decision}"
         return _apply_redirect_guard(stage, sr, user_actions=user_actions)
 
-    export_assignment = _classify_export_assignment(stage, user_actions)
-    if export_assignment is not None:
-        return export_assignment
+    shell_var_builtin = _classify_shell_var_builtin(stage, user_actions)
+    if shell_var_builtin is not None:
+        return shell_var_builtin
 
     # Shell unwrapping
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
@@ -2888,14 +2958,19 @@ _ENV_ARG_FLAGS = {"-u", "--unset", "-C", "--chdir", "--argv0"}
 _ENV_ARG_FLAG_PREFIXES = ("--unset=", "--chdir=", "--argv0=")
 
 
+def _is_shell_identifier(name: str) -> bool:
+    """Return True for shell variable identifiers."""
+    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
+        ch.isalnum() or ch == "_" for ch in name
+    )
+
+
 def _is_env_assignment(tok: str) -> bool:
     """Return True for env-style NAME=value assignments."""
     if "=" not in tok or tok.startswith("="):
         return False
     name, _ = tok.split("=", 1)
-    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
-        ch.isalnum() or ch == "_" for ch in name
-    )
+    return _is_shell_identifier(name)
 
 
 def _parse_env_wrapper(
@@ -4025,7 +4100,11 @@ def _unwrap_shell(
             )
             return sr
         if parsed_env.inner is None:
-            return None
+            sr = StageResult(tokens=tokens)
+            sr.action_type = taxonomy.ENV_READ
+            sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+            _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
+            return sr
         inner_stage = _make_stage(parsed_env.inner, stage.operator) or Stage(
             tokens=parsed_env.inner, operator=stage.operator
         )
