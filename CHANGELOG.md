@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Flag-aware `env_read` classification for shell builtins, `ps`, and `caddy fmt`** (nah-1005).
+  Follow-up to nah-1004 covering the cases a static prefix table can't express because the
+  safe and unsafe forms are the same command split by flags:
+  - bare `env` (no inner command) and bare/`-p` `set`/`export`/`declare`/`typeset` →
+    `env_read` (ask), while their assignment, option (`set -x`), and exec-wrapper
+    (`env FOO=bar cmd`) forms keep their existing classification.
+  - `ps` with the BSD environment modifier (`ps e`, `ps eww`, `ps auxe`) → `env_read`, while
+    SysV `ps -e`/`-ef` (all processes) and value-flag forms (`ps -u <user>`, `ps -o
+    pid,etime`) correctly stay `filesystem_read` — the classifier is value-flag-aware to
+    avoid false positives.
+  - `caddy fmt --overwrite` → `filesystem_write`; bare `caddy fmt` → `filesystem_read`.
+  - Removes the now-redundant static `export -p`/`declare -p`/`typeset -p` entries from the
+    `env_read` table (the builtin classifier owns them).
 - **`service_inspect` and `env_read` action types; `service_read` narrowed to remote** (nah-1004).
   `service_read` was overloaded: its static table was 100% local daemon inspection
   (`systemctl status`, `journalctl`) while every remote API read (curl GET, gRPC,
