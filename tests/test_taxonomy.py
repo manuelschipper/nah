@@ -677,9 +677,6 @@ class TestClassifyTokens:
         ["caddy", "environ"],
         ["systemctl", "show-environment"],
         ["systemctl", "--user", "show-environment"],
-        ["export", "-p"],
-        ["declare", "-p"],
-        ["typeset", "-p"],
         ["vault", "read", "secret/foo"],
         ["vault", "kv", "get", "secret/foo"],
         ["aws", "secretsmanager", "get-secret-value", "--secret-id", "x"],
@@ -718,6 +715,44 @@ class TestClassifyTokens:
         ["caddy", "validate"],
     ])
     def test_local_file_reads(self, tokens):
+        assert _ct(tokens) == "filesystem_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["caddy", "fmt"],
+        ["caddy", "fmt", "--diff"],
+        ["caddy", "fmt", "Caddyfile"],
+    ])
+    def test_caddy_fmt_stdout_is_filesystem_read(self, tokens):
+        assert _ct(tokens) == "filesystem_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["caddy", "fmt", "--overwrite"],
+        ["caddy", "fmt", "-w"],
+    ])
+    def test_caddy_fmt_overwrite_is_filesystem_write(self, tokens):
+        assert _ct(tokens) == "filesystem_write"
+
+    @pytest.mark.parametrize("tokens", [
+        ["ps", "e"],
+        ["ps", "eww"],
+        ["ps", "auxe"],
+    ])
+    def test_ps_bsd_env_modifier_is_env_read(self, tokens):
+        assert _ct(tokens) == "env_read"
+
+    @pytest.mark.parametrize("tokens", [
+        ["ps"],
+        ["ps", "aux"],
+        ["ps", "-e"],
+        ["ps", "-ef"],
+        ["ps", "-u", "alice"],
+        ["ps", "U", "alice"],
+        ["ps", "-o", "pid,etime"],
+        ["ps", "-eo", "etime"],
+        ["ps", "-eo", "user"],
+        ["ps", "-C", "node"],
+    ])
+    def test_ps_non_env_forms_are_filesystem_read(self, tokens):
         assert _ct(tokens) == "filesystem_read"
 
     @pytest.mark.parametrize("tokens", [

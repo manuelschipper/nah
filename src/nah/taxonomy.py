@@ -628,6 +628,12 @@ def classify_tokens(
     action = _classify_tar(tokens)
     if action is not None:
         return action
+    action = _classify_caddy(tokens)
+    if action is not None:
+        return action
+    action = _classify_ps(tokens)
+    if action is not None:
+        return action
     if tokens[0] == "git":
         action = _classify_git(tokens)
         if action is not None:
@@ -1263,6 +1269,80 @@ def _classify_tar(tokens: list[str]) -> str | None:
     if found_read:
         return FILESYSTEM_READ
     return FILESYSTEM_WRITE  # Conservative default
+
+
+def _classify_caddy(tokens: list[str]) -> str | None:
+    """Flag-dependent: caddy fmt --overwrite writes; other fmt forms read."""
+    if len(tokens) < 2 or tokens[0] != "caddy" or tokens[1] != "fmt":
+        return None
+    for tok in tokens[2:]:
+        if tok == "--overwrite" or tok == "-w" or tok.startswith("--overwrite="):
+            return FILESYSTEM_WRITE
+    return FILESYSTEM_READ
+
+
+_PS_VALUE_FLAGS = {
+    "-p",
+    "-u",
+    "-U",
+    "-g",
+    "-G",
+    "-t",
+    "-o",
+    "-C",
+    "-s",
+    "-N",
+    "--sort",
+    "--ppid",
+    "--format",
+    "--pid",
+    "--user",
+}
+_PS_VALUE_FLAG_PREFIXES = tuple(f"{flag}=" for flag in _PS_VALUE_FLAGS if flag.startswith("--"))
+_PS_SHORT_VALUE_FLAG_CHARS = {"p", "u", "U", "g", "G", "t", "o", "C", "s", "N"}
+_PS_BSD_VALUE_FLAGS = {"p", "t", "U", "G", "k", "o"}
+_PS_BSD_CLUSTER_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def _ps_short_option_consumes_next(tok: str) -> bool:
+    if not tok.startswith("-") or tok.startswith("--") or len(tok) <= 2:
+        return False
+    cluster = tok[1:]
+    for index, char in enumerate(cluster):
+        if char in _PS_SHORT_VALUE_FLAG_CHARS:
+            return index == len(cluster) - 1
+    return False
+
+
+def _classify_ps(tokens: list[str]) -> str | None:
+    """Flag-dependent: BSD ps option cluster with e exposes process environments."""
+    if not tokens or tokens[0] != "ps":
+        return None
+
+    skip_next = False
+    for tok in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+
+        if tok in _PS_VALUE_FLAGS:
+            skip_next = True
+            continue
+        if tok.startswith(_PS_VALUE_FLAG_PREFIXES):
+            continue
+        if _ps_short_option_consumes_next(tok):
+            skip_next = True
+            continue
+        if tok.startswith("-"):
+            continue
+
+        if tok in _PS_BSD_VALUE_FLAGS:
+            skip_next = True
+            continue
+        if _PS_BSD_CLUSTER_RE.fullmatch(tok) and "e" in tok:
+            return ENV_READ
+
+    return None
 
 _REST_READ_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}
 _REST_WRITE_METHODS = {"POST", "PUT", "PATCH"}
