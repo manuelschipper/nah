@@ -6,7 +6,7 @@ import sys
 
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
-from nah.content import is_credential_search, get_secret_patterns
+from nah.content import is_credential_search
 from nah.messages import enrich_decision, system_byline
 
 _transcript_path: str = ""  # set per-invocation by main()
@@ -291,6 +291,11 @@ def handle_grep(tool_input: dict) -> dict:
     # Credential search detection
     pattern = tool_input.get("pattern", "")
     if is_credential_search(pattern):
+        if not raw_path:
+            return {
+                "decision": taxonomy.ASK,
+                "reason": "Grep: credential search pattern",
+            }
         # Check if searching outside project root
         project_root = paths.get_project_root()
         if project_root:
@@ -1021,24 +1026,15 @@ def _post_tool_execution(data: dict, hook_event_name: str) -> dict:
     if hook_event_name == "PostToolUseFailure":
         error = data.get("error", "")
         if error:
-            execution["error"] = _redact_error_summary(str(error))
+            execution["error"] = _format_error_summary(str(error))
         if "is_interrupt" in data:
             execution["is_interrupt"] = bool(data.get("is_interrupt"))
     return execution
 
 
-def _redact_error_summary(error: str) -> str:
-    """Return an error summary without known inline secret tokens."""
-    summary = error.replace("\r", "\\r").replace("\n", "\\n")
-    try:
-        for pattern, _label in get_secret_patterns():
-            summary = pattern.sub("***", summary)
-    except Exception:
-        # Error summaries are diagnostic-only. If custom content patterns are
-        # malformed or unavailable, the raw string is still preferable to
-        # dropping the whole post-tool failure row.
-        pass
-    return summary
+def _format_error_summary(error: str) -> str:
+    """Return an error summary with control newlines escaped for log storage."""
+    return error.replace("\r", "\\r").replace("\n", "\\n")
 
 
 def _log_post_tool_event(

@@ -107,9 +107,6 @@ def test_reason_pattern_messages():
 
 
 def test_content_categories_translate_to_plain_copy():
-    assert messages.human_reason("Write content inspection [secret]: private key", decision=taxonomy.ASK) == (
-        "this includes content that looks like a secret"
-    )
     assert messages.human_reason("Write content inspection [obfuscation]: base64", decision=taxonomy.ASK) == (
         "this includes hidden or encoded code"
     )

@@ -8,7 +8,6 @@ import pytest
 
 from nah.bash import ClassifyResult, StageResult
 from nah import taxonomy
-from nah.content import get_secret_patterns, reset_content_patterns
 from nah.llm import (
     LLMResult,
     PromptParts,
@@ -22,7 +21,6 @@ from nah.llm import (
     _read_recent_user_intent,
     _read_transcript_tail,
     _read_transcript_tail_bytes,
-    _redact_secrets,
     _INLINE_LANG_EXEC_SYSTEM_TEMPLATE,
     try_llm_relax,
 )
@@ -1390,78 +1388,25 @@ class TestOllamaChat:
         assert "messages" not in captured[0]
 
 
-# -- _redact_secrets tests (FD-068) --
-
-
-class TestRedactSecrets:
-    def test_private_key_redacted(self):
-        text = "here is the key:\n-----BEGIN RSA PRIVATE KEY-----\nnext line"
-        result = _redact_secrets(text)
-        assert "[redacted: private key]" in result
-        assert "-----BEGIN RSA PRIVATE KEY-----" not in result
-        assert "next line" in result
-
-    def test_aws_key_redacted(self):
-        result = _redact_secrets("key is AKIAIOSFODNN7EXAMPLE here")
-        assert result == "[redacted: AWS access key]"
-
-    def test_github_token_redacted(self):
-        token = "ghp_" + "a" * 36
-        result = _redact_secrets(f"token: {token}")
-        assert result == "[redacted: GitHub personal access token]"
-
-    def test_sk_token_redacted(self):
-        result = _redact_secrets("sk-abc123def456ghi789jklmnop")
-        assert result == "[redacted: secret key token (sk-)]"
-
-    def test_api_key_redacted(self):
-        result = _redact_secrets('api_key = "supersecretvalue123"')
-        assert result == "[redacted: hardcoded API key]"
-
-    def test_no_secrets_unchanged(self):
-        text = "User: clean the build dir\nAssistant: Sure, running rm -rf dist/"
-        assert _redact_secrets(text) == text
-
-    def test_empty_string(self):
-        assert _redact_secrets("") == ""
-
-    def test_multiline_only_matching_line_redacted(self):
-        text = "line one\nAKIAIOSFODNN7EXAMPLE\nline three"
-        result = _redact_secrets(text)
-        lines = result.splitlines()
-        assert lines[0] == "line one"
-        assert lines[1] == "[redacted: AWS access key]"
-        assert lines[2] == "line three"
-
-    def test_multiple_secrets_each_line_redacted(self):
-        text = "AKIAIOSFODNN7EXAMPLE\n-----BEGIN PRIVATE KEY-----"
-        result = _redact_secrets(text)
-        lines = result.splitlines()
-        assert lines[0] == "[redacted: AWS access key]"
-        assert lines[1] == "[redacted: private key]"
-
-
-class TestRedactSecretsInTranscript:
-    def test_transcript_with_secret_redacted(self, tmp_path):
+class TestSecretContentInTranscript:
+    def test_transcript_with_secret_preserved(self, tmp_path):
         f = tmp_path / "t.jsonl"
         f.write_text(_jsonl(
             _user_msg("here is my key: AKIAIOSFODNN7EXAMPLE"),
             _assistant_msg("I see your key"),
         ))
         result = _read_transcript_tail(str(f), 5000)
-        assert "[redacted: AWS access key]" in result
-        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "AKIAIOSFODNN7EXAMPLE" in result
         assert "I see your key" in result
 
-    def test_transcript_private_key_redacted(self, tmp_path):
+    def test_transcript_private_key_preserved(self, tmp_path):
         f = tmp_path / "t.jsonl"
         f.write_text(_jsonl(
             _user_msg("-----BEGIN RSA PRIVATE KEY----- MIIEpAI..."),
             _assistant_msg("ok"),
         ))
         result = _read_transcript_tail(str(f), 5000)
-        assert "[redacted: private key]" in result
-        assert "BEGIN RSA PRIVATE KEY" not in result
+        assert "BEGIN RSA PRIVATE KEY" in result
 
     def test_transcript_no_secrets_unchanged(self, tmp_path):
         f = tmp_path / "t.jsonl"
@@ -1474,7 +1419,7 @@ class TestRedactSecretsInTranscript:
         assert "rm -rf dist/" in result
 
 
-class TestRedactSecretsInWritePrompt:
+class TestSecretContentInWritePrompt:
     def _prompt_user(self, tool_name, tool_input):
         return _build_write_prompt(
             tool_name, tool_input, {"decision": "ask", "reason": "test"},
@@ -1509,26 +1454,24 @@ class TestRedactSecretsInWritePrompt:
         assert "alias/config change" not in combined
         assert "User intent is absent" not in combined
 
-    def test_write_content_secret_redacted(self):
+    def test_write_content_secret_preserved(self):
         prompt = self._prompt_user("Write", {
             "file_path": "/tmp/test.py",
             "content": 'api_key = "supersecretvalue123"\nprint("hello")',
         })
-        assert "[redacted: hardcoded API key]" in prompt
-        assert "supersecretvalue123" not in prompt
+        assert "supersecretvalue123" in prompt
         assert 'print("hello")' in prompt
 
-    def test_edit_old_new_secrets_redacted(self):
+    def test_edit_old_new_secrets_preserved(self):
         prompt = self._prompt_user("Edit", {
             "file_path": "/tmp/test.py",
             "old_string": "AKIAIOSFODNN7EXAMPLE",
             "new_string": "sk-abc123def456ghi789jklmnop",
         })
-        assert "[redacted: AWS access key]" in prompt
-        assert "[redacted: secret key token (sk-)]" in prompt
-        assert "AKIAIOSFODNN7EXAMPLE" not in prompt
+        assert "AKIAIOSFODNN7EXAMPLE" in prompt
+        assert "sk-abc123def456ghi789jklmnop" in prompt
 
-    def test_multiedit_secret_redacted(self):
+    def test_multiedit_secret_preserved(self):
         prompt = self._prompt_user("MultiEdit", {
             "file_path": "/tmp/test.py",
             "edits": [
@@ -1536,40 +1479,14 @@ class TestRedactSecretsInWritePrompt:
                 {"old_string": "AKIAIOSFODNN7EXAMPLE", "new_string": "new value"},
             ],
         })
-        assert "[redacted: AWS access key]" in prompt
-        assert "AKIAIOSFODNN7EXAMPLE" not in prompt
+        assert "AKIAIOSFODNN7EXAMPLE" in prompt
         assert "safe content" in prompt
 
-    def test_notebookedit_secret_redacted(self):
+    def test_notebookedit_secret_preserved(self):
         prompt = self._prompt_user("NotebookEdit", {
             "notebook_path": "/tmp/test.ipynb",
             "cell_index": 0,
             "action": "replace",
             "new_source": '-----BEGIN PRIVATE KEY-----\nMIIEvgIB...',
         })
-        assert "[redacted: private key]" in prompt
-        assert "BEGIN PRIVATE KEY" not in prompt
-
-
-class TestGetSecretPatterns:
-    def test_returns_list_of_tuples(self):
-        reset_content_patterns()
-        patterns = get_secret_patterns()
-        assert isinstance(patterns, list)
-        assert len(patterns) > 0
-        for regex, desc in patterns:
-            assert hasattr(regex, "search")
-            assert isinstance(desc, str)
-
-    def test_empty_secret_patterns_returns_empty(self):
-        from nah.content import _CONTENT_PATTERNS
-        reset_content_patterns()
-        # Simulate an explicit empty pattern set.
-        original = list(_CONTENT_PATTERNS.get("secret", []))
-        _CONTENT_PATTERNS["secret"] = []
-        try:
-            patterns = get_secret_patterns()
-            assert patterns == []
-        finally:
-            _CONTENT_PATTERNS["secret"] = original
-            reset_content_patterns()
+        assert "BEGIN PRIVATE KEY" in prompt

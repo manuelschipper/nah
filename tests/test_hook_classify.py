@@ -545,6 +545,14 @@ class TestGrepCredentialBoundary:
 
         assert d["decision"] == "allow"
 
+    def test_no_path_credential_search_asks(self, project_root):
+        d = handle_grep({
+            "pattern": "password",
+        })
+
+        assert d["decision"] == "ask"
+        assert "credential search pattern" in d["reason"]
+
     def test_unrelated_path_still_asks_from_worktree(self, tmp_path, monkeypatch):
         _repo, worktree = _make_git_worktree(tmp_path)
         outside = tmp_path / "outside"
@@ -943,5 +951,5 @@ class TestClaudeRuntimeOutcomeLogging:
         assert entry["execution"]["is_interrupt"] is True
         assert entry["execution"]["duration_ms"] == 7
         assert ("x" * 400) in entry["execution"]["error"]
-        assert "sk-1234567890abcdefghijkl" not in json.dumps(entry)
-        assert "***" in entry["execution"]["error"]
+        assert "sk-1234567890abcdefghijkl" in entry["execution"]["error"]
+        assert "***" not in entry["execution"]["error"]

@@ -412,29 +412,6 @@ def _format_tool_use_summary(block: dict) -> str:
     return f"[{name}]"
 
 
-def _redact_secrets(text: str) -> str:
-    """Redact credential patterns from text before sending to LLM.
-
-    Reuses content.py's 'secret' category patterns (private keys,
-    AWS keys, GitHub tokens, sk- keys, hardcoded API keys).
-    Returns text unchanged if no redaction patterns are configured.
-    """
-    from nah.content import get_secret_patterns
-
-    secret_patterns = get_secret_patterns()
-    if not secret_patterns:
-        return text
-    lines = text.splitlines()
-    redacted = []
-    for line in lines:
-        for regex, desc in secret_patterns:
-            if regex.search(line):
-                line = f"[redacted: {desc}]"
-                break
-        redacted.append(line)
-    return "\n".join(redacted)
-
-
 def _normalize_transcript_content(content: object) -> list[dict] | None:
     """Normalize transcript message content into Claude-style blocks."""
     if isinstance(content, str):
@@ -650,13 +627,6 @@ def _format_transcript_tail_text(
         return ""
 
     result = "\n".join(messages)
-    try:
-        result = _redact_secrets(result)
-    except Exception as exc:
-        # Secret redaction is best-effort defense. If it fails, the LLM
-        # path continues — secrets may leak but the safety classification
-        # still runs. Log so the user knows redaction failed.
-        sys.stderr.write(f"nah: llm: secret redaction failed: {exc}\n")
     if len(result) > max_chars:
         result = result[len(result) - max_chars:]
         nl = result.find("\n")
@@ -719,12 +689,6 @@ def _format_recent_user_intent_text(
     if not messages:
         return ""
     result = "\n".join(messages[-max_messages:])
-    try:
-        result = _redact_secrets(result)
-    except Exception as exc:
-        # Secret redaction is best-effort defense. If it fails, the LLM
-        # path continues with the extracted intent and logs the failure.
-        sys.stderr.write(f"nah: llm: user intent redaction failed: {exc}\n")
     if len(result) > max_chars:
         result = result[len(result) - max_chars:]
         nl = result.find("\n")
@@ -811,7 +775,7 @@ def _build_inline_lang_exec_prompt(
 ) -> PromptParts:
     """Build the content-focused prompt for visible inline lang_exec code."""
     cwd, inside_project = _resolve_cwd_context()
-    truncated = _redact_secrets(inline_code[:_MAX_INLINE_LANG_EXEC_CHARS])
+    truncated = inline_code[:_MAX_INLINE_LANG_EXEC_CHARS]
     parts = [
         "Tool: Bash",
         f"Command: {command[:500]}",
@@ -1564,8 +1528,8 @@ def _build_write_prompt(
     ])
 
     if tool_name == "Edit":
-        old = _redact_secrets(tool_input.get("old_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2])
-        new = _redact_secrets(tool_input.get("new_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2])
+        old = tool_input.get("old_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2]
+        new = tool_input.get("new_string", "")[:_MAX_WRITE_CONTENT_CHARS // 2]
         parts.append("Replacing:")
         parts.append("---")
         parts.append(old)
@@ -1581,8 +1545,8 @@ def _build_write_prompt(
         for i, edit in enumerate(edits):
             if not isinstance(edit, dict):
                 continue
-            old = _redact_secrets(str(edit.get("old_string") or "")[:per_edit])
-            new = _redact_secrets(str(edit.get("new_string") or "")[:per_edit])
+            old = str(edit.get("old_string") or "")[:per_edit]
+            new = str(edit.get("new_string") or "")[:per_edit]
             parts.append(f"--- Edit {i + 1} ---")
             parts.append(f"Replacing: {old}")
             parts.append(f"With: {new}")
@@ -1592,14 +1556,14 @@ def _build_write_prompt(
         parts.append(f"Action: {action} (cell {cell_idx})")
         if action != "delete":
             source = str(tool_input.get("new_source") or "")
-            truncated = _redact_secrets(source[:_MAX_WRITE_CONTENT_CHARS])
+            truncated = source[:_MAX_WRITE_CONTENT_CHARS]
             parts.append("Cell source:")
             parts.append("---")
             parts.append(truncated)
             parts.append("---")
     elif tool_name == "apply_patch":
         content = tool_input.get("content", "")
-        truncated = _redact_secrets(content[:_MAX_WRITE_CONTENT_CHARS])
+        truncated = content[:_MAX_WRITE_CONTENT_CHARS]
         parts.append("Added patch content:")
         parts.append("---")
         parts.append(truncated)
@@ -1611,7 +1575,7 @@ def _build_write_prompt(
             )
     else:
         content = tool_input.get("content", "")
-        truncated = _redact_secrets(content[:_MAX_WRITE_CONTENT_CHARS])
+        truncated = content[:_MAX_WRITE_CONTENT_CHARS]
         parts.append("Content about to be written:")
         parts.append("---")
         parts.append(truncated)

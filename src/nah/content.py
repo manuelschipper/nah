@@ -48,22 +48,10 @@ _CONTENT_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
         (re.compile(rf"\bchild_process\b[\s\S]{{0,200}}\.(?:exec|execFile|spawn|fork)\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "child_process dangerous command"),
         (re.compile(rf"(?<![\w.])(?:system|exec)\s*\({_SUBPROCESS_DANGEROUS_PAYLOAD}\)", re.DOTALL), "system/exec dangerous command"),
     ],
-    "credential_access": [
-        (re.compile(r"~/\.ssh/"), "~/.ssh/ access"),
-        (re.compile(r"~/\.aws/"), "~/.aws/ access"),
-        (re.compile(r"~/\.gnupg/"), "~/.gnupg/ access"),
-    ],
     "obfuscation": [
         (re.compile(r"\bbase64\s+.*-d\s*\|\s*bash\b"), "base64 -d | bash"),
         (re.compile(r"\beval\s*\(\s*base64\.b64decode\b"), "eval(base64.b64decode"),
         (re.compile(r"\bexec\s*\(\s*compile\b"), "exec(compile"),
-    ],
-    "secret": [
-        (re.compile(r"-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----"), "private key"),
-        (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS access key"),
-        (re.compile(r"\bghp_[0-9a-zA-Z]{36}\b"), "GitHub personal access token"),
-        (re.compile(r"\bsk-[0-9a-zA-Z]{20,}\b"), "secret key token (sk-)"),
-        (re.compile(r"""(?:api_key|apikey|api_secret)\s*[=:]\s*['"][^'"]{8,}['"]"""), "hardcoded API key"),
     ],
 }
 
@@ -241,9 +229,3 @@ def is_credential_search(pattern: str) -> bool:
     if not pattern:
         return False
     return any(regex.search(pattern) for regex in _CREDENTIAL_SEARCH_PATTERNS)
-
-
-def get_secret_patterns() -> list[tuple[re.Pattern, str]]:
-    """Return compiled secret-category patterns for external use (e.g., LLM redaction)."""
-    _ensure_content_patterns_merged()
-    return list(_CONTENT_PATTERNS.get("secret", []))
