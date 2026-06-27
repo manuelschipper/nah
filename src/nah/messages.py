@@ -81,11 +81,9 @@ _ACTION_MESSAGES = {
 }
 
 _CONTENT_MESSAGES = {
-    "secret": "this includes content that looks like a secret",
     "obfuscation": "this includes hidden or encoded code",
     "destructive": "this includes code that can delete or overwrite data",
     "exfiltration": "this includes code that can send local data over the network",
-    "credential_access": "this includes code that can access credentials",
     "subprocess_execution": "this includes code that can run other commands",
 }
 
@@ -340,7 +338,7 @@ def _reason_pattern_message(reason: str, tool: str) -> str:
     content = re.search(r"content inspection \[([^\]]+)\]", text, flags=re.IGNORECASE)
     if content:
         categories = [part.strip() for part in content.group(1).split(",")]
-        for category in ("secret", "obfuscation", "destructive", "exfiltration"):
+        for category in ("obfuscation", "destructive", "exfiltration"):
             if category in categories:
                 return _CONTENT_MESSAGES[category]
         for category in categories:

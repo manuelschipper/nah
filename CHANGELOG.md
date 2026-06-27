@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed deterministic secret-looking and credential-path content scanning, along with
+  secret redaction on LLM prompt/transcript context and local post-tool error summaries.
+  Secret protection now relies on structural controls such as sensitive paths,
+  taint/provenance, credential-search detection, and explicit secret-store/env reads
+  rather than guessing token-shaped text in write payloads (nah-1006).
+
 ### Added
 
 - **Flag-aware `env_read` classification for shell builtins, `ps`, and `caddy fmt`** (nah-1005).

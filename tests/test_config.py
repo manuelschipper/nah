@@ -226,10 +226,10 @@ class TestDefaults:
         try:
             config._cached_config = NahConfig()
             reset_content_patterns()
-            assert scan_content("api_secret = 'hunter2hunter2'")
+            assert scan_content("rm -rf /tmp/stuff")
 
             use_defaults()
-            assert scan_content("api_secret = 'hunter2hunter2'")
+            assert scan_content("rm -rf /tmp/stuff")
         finally:
             reset_content_patterns()
             reset_config()

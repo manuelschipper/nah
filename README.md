@@ -181,7 +181,7 @@ across **13 tested danger classes**.
 | Git history damage | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
 | Shell redirection abuse | 187 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
 | Package escalation | 149 | package installs, global installs, external-source package actions |
-| Secret leaks | 92 | private keys, tokens, secret-looking writes, script/content leaks |
+| Credential exposure | 92 | sensitive-path flows, credential searches, secret-store and environment reads |
 | Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | Secret exfiltration | 88 | sensitive reads flowing into network commands or credential searches |
 | MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |

