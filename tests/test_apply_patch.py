@@ -234,3 +234,31 @@ def test_classify_safe_patch_asks_even_with_deleted_edit_envs(project_root, monk
     assert decision["decision"] == "ask"
     assert decision["reason"] == "apply_patch: safe project edit handled by nah"
     assert "app.py" in log_input["_nah_patch_paths"][0]
+
+
+def test_classify_safe_patch_does_not_call_llm(project_root, monkeypatch):
+    from nah import config
+    from nah.config import NahConfig
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("apply_patch should not call an LLM provider")
+
+    monkeypatch.setattr(
+        config,
+        "_cached_config",
+        NahConfig(
+            llm_mode="on",
+            llm={"providers": ["fake"], "fake": {"model": "test"}},
+        ),
+    )
+    monkeypatch.setattr("nah.llm._try_providers", fail)
+
+    decision, log_input = apply_patch.classify_codex_apply_patch(
+        {"input": _patch("app.py")},
+        {"cwd": project_root, "transcript_path": ""},
+    )
+
+    assert decision["decision"] == "ask"
+    assert decision["reason"] == "apply_patch: safe project edit handled by nah"
+    assert "llm_cascade" not in decision.get("_meta", {})
+    assert "app.py" in log_input["_nah_patch_paths"][0]

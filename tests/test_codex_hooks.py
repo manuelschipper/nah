@@ -892,15 +892,15 @@ def test_pre_tool_use_bash_file_script_does_not_call_inline_review(
     assert out == ""
 
 
-def test_pre_tool_use_apply_patch_reads_command_and_skips_write_review(
+def test_pre_tool_use_apply_patch_reads_command_and_skips_llm(
     project_root,
     tmp_path,
     monkeypatch,
 ):
     def fail(*_args, **_kwargs):
-        raise AssertionError("PreToolUse should not call apply_patch LLM review")
+        raise AssertionError("PreToolUse apply_patch should not call an LLM provider")
 
-    monkeypatch.setattr("nah.hook._llm_write_review_gate", fail)
+    monkeypatch.setattr("nah.llm._try_providers", fail)
     code, out = _run({
         "hookEventName": "PreToolUse",
         "session_id": "sess_patch",
@@ -1588,15 +1588,19 @@ def test_apply_patch_safe_project_patch_defaults_to_allow(project_root, tmp_path
     assert "app.py" in entries[-1]["input"]
 
 
-def test_apply_patch_write_review_receives_patch_metadata(project_root, monkeypatch):
-    captured = {}
+def test_apply_patch_safe_project_patch_does_not_call_llm(project_root, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise AssertionError("apply_patch should not call an LLM provider")
 
-    def fake_write_review(tool_name, tool_input, decision):
-        captured["tool_name"] = tool_name
-        captured["tool_input"] = dict(tool_input)
-        return decision
-
-    monkeypatch.setattr("nah.hook._llm_write_review_gate", fake_write_review)
+    monkeypatch.setattr(
+        config,
+        "_cached_config",
+        NahConfig(
+            llm_mode="on",
+            llm={"providers": ["fake"], "fake": {"model": "test"}},
+        ),
+    )
+    monkeypatch.setattr("nah.llm._try_providers", fail)
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"input": _patch("app.py", "print('ok')")},
@@ -1606,10 +1610,6 @@ def test_apply_patch_write_review_receives_patch_metadata(project_root, monkeypa
 
     assert code == 0
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
-    assert captured["tool_name"] == "apply_patch"
-    assert captured["tool_input"]["_nah_patch_paths"] == [str(Path(project_root) / "app.py")]
-    assert "update=1" in captured["tool_input"]["_nah_patch_summary"]
-    assert "print('ok')" in captured["tool_input"]["content"]
 
 
 def test_apply_patch_safe_project_patch_from_subdir_defaults_to_allow(project_root):
@@ -1847,24 +1847,23 @@ def test_apply_patch_uses_unmatched_transcript_fallback(project_root, monkeypatc
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
 
 
-def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
+def test_apply_patch_with_llm_config_has_no_llm_log_entry(
     project_root,
     monkeypatch,
     tmp_path,
 ):
-    import sys
+    def fail(*_args, **_kwargs):
+        raise AssertionError("apply_patch should not call an LLM provider")
 
-    def fake_write_review(_tool_name, _tool_input, decision):
-        sys.stderr.write("nah: LLM: FAKE_KEY not set\n")
-        decision.setdefault("_meta", {})["llm_cascade"] = [{
-            "provider": "fake",
-            "status": "error",
-            "latency_ms": 0,
-            "error": "provider returned None (missing key or config)",
-        }]
-        return decision
-
-    monkeypatch.setattr("nah.hook._llm_write_review_gate", fake_write_review)
+    monkeypatch.setattr(
+        config,
+        "_cached_config",
+        NahConfig(
+            llm_mode="on",
+            llm={"providers": ["fake"], "fake": {"model": "test"}},
+        ),
+    )
+    monkeypatch.setattr("nah.llm._try_providers", fail)
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"input": _patch("app.py")},
@@ -1877,7 +1876,7 @@ def test_apply_patch_llm_provider_stderr_is_not_logged_as_hook_error(
     lines = (tmp_path / "nah.log").read_text(encoding="utf-8").splitlines()
     entries = [json.loads(line) for line in lines]
     assert not any(entry.get("decision") == "error" for entry in entries)
-    assert entries[-1]["llm"][0]["cascade"][0]["provider"] == "fake"
+    assert not entries[-1].get("llm")
 
 
 def test_mcp_permission_request_global_allow_emits_allow(project_root):

@@ -11,7 +11,7 @@ def _sample_node_ids() -> list[str]:
     return [
         "tests/test_bash.py::TestComposition::test_curl_pipe_bash_block",
         "tests/test_content.py::TestIsCredentialSearch::test_detects_secret_scan",
-        "tests/test_fd080_write_llm.py::TestVetoGate::test_private_key_escalates",
+        "tests/test_content.py::TestScanContent::test_private_key",
         "tests/test_bash.py::TestFD017Regressions::test_git_push_force_short_flag_ask",
         "tests/test_bash.py::TestDecomposition::test_redirect_write_detection",
         "tests/test_bash.py::TestProcessSubstitutionInspection::test_process_substitution_blocks_exec",

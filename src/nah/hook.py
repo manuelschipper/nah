@@ -125,130 +125,16 @@ def handle_read(tool_input: dict) -> dict:
     return paths.check_path("Read", tool_input.get("file_path", "")) or {"decision": taxonomy.ALLOW}
 
 
-def _should_llm_inspect_write() -> bool:
-    """Check if LLM should review this write-like operation."""
-    try:
-        from nah.config import get_config
-        cfg = get_config()
-        if cfg.llm_mode != "on" or not cfg.llm:
-            return False
-    except Exception:
-        return False
-    # LLM inspects all writes when enabled — the value is catching
-    # what deterministic misses, so we can't filter by decision.
-    return True
-
-
-def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[dict | None, dict]:
-    """LLM review gate for Write/Edit. Returns (decision, llm_meta).
-
-    Fail-open: any exception → (None, {}) → structural decision stands.
-    Uncertain → keep/escalate to ask (human should decide).
-    """
-    try:
-        from nah.config import get_config
-        cfg = get_config()
-        if cfg.llm_mode != "on" or not cfg.llm:
-            return None, {}
-        from nah.llm import try_llm_write
-        llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
-        if llm_call.decision is not None:
-            return llm_call.decision, _build_llm_meta(llm_call, cfg)
-        # All providers errored or none configured — fail-open to deterministic
-        if llm_call.cascade:
-            attempts = "; ".join(
-                f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
-                for a in llm_call.cascade
-            )
-            sys.stderr.write(f"nah: LLM write: all providers failed [{attempts}]\n")
-            return None, _build_llm_meta(llm_call, cfg)
-        return None, {}
-    except ImportError:
-        return None, {}
-    except Exception as exc:
-        sys.stderr.write(f"nah: LLM write error: {exc}\n")
-        return None, {}
-
-
-def _llm_write_review_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
-    """LLM review gate for write-like tools.
-
-    The gate runs only on a structural ``allow`` (callers return every
-    non-``allow`` decision before reaching it, matching Codex ``apply_patch``),
-    so it can only escalate ``allow`` -> ``ask`` on visible content risk. It
-    never relaxes an ask and never returns a block.
-    """
-    if not _should_llm_inspect_write():
-        return det_result
-    llm_decision, llm_meta = _try_llm_write(tool_name, tool_input, det_result)
-
-    # Always attach LLM metadata when LLM was called (even if it agrees)
-    if llm_meta:
-        det_result.setdefault("_meta", {}).update(llm_meta)
-
-    if llm_decision is None:
-        return det_result
-    structural_d = det_result.get("decision", taxonomy.ALLOW)
-    llm_d = llm_decision.get("decision")
-
-    # Surface LLM warning to user via systemMessage (always, not just escalation)
-    llm_reason = llm_decision.get("reason", "")
-    if llm_reason and llm_d != taxonomy.ALLOW:
-        # Strip wrapper prefixes to get clean LLM reasoning
-        clean = llm_reason
-        for prefix in (
-            f"{tool_name} (LLM): ",
-            "LLM: ",
-        ):
-            if clean.startswith(prefix):
-                clean = clean[len(prefix):]
-        clean = clean.strip()
-        if clean:
-            det_result["_llm_reason"] = clean
-            det_result["_system_message"] = system_byline(taxonomy.ASK, clean)
-
-    # Write review never returns a final block. Non-allow provider decisions
-    # keep or escalate to ask for human review.
-    if structural_d == taxonomy.ALLOW and llm_d != taxonomy.ALLOW:
-        ask = {
-            "decision": taxonomy.ASK,
-            "reason": llm_reason or f"{tool_name} (LLM): human review needed",
-            "_meta": dict(det_result.get("_meta", {})),
-        }
-        ask["_meta"]["llm_veto"] = True
-        if det_result.get("_system_message"):
-            ask["_system_message"] = det_result["_system_message"]
-        if det_result.get("_llm_reason"):
-            ask["_llm_reason"] = det_result["_llm_reason"]
-        return ask
-
-    return det_result
-
-
-def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared Write/Edit handler: structural check + LLM write review.
-
-    Any non-``allow`` structural decision (a ``block``, or a project-boundary or
-    sensitive-path ``ask``) is a hard floor: it returns before the LLM gate and
-    cannot be relaxed, matching Codex ``apply_patch``. Only a clean ``allow``
-    reaches the gate, where the LLM may still escalate it to ``ask``.
-    """
-    det_result = _check_write_target(tool_name, tool_input)
-    if det_result.get("decision") != taxonomy.ALLOW:
-        return det_result
-    return _llm_write_review_gate(tool_name, tool_input, det_result)
-
-
 def handle_write(tool_input: dict) -> dict:
-    return _handle_write_with_llm("Write", tool_input, "content")
+    return _check_write_target("Write", tool_input)
 
 
 def handle_edit(tool_input: dict) -> dict:
-    return _handle_write_with_llm("Edit", tool_input, "new_string")
+    return _check_write_target("Edit", tool_input)
 
 
 def handle_multiedit(tool_input: dict) -> dict:
-    """Guard MultiEdit: path + boundary checks + LLM review."""
+    """Guard MultiEdit: path + boundary checks."""
     file_path = tool_input.get("file_path", "")
     path_check = paths.check_path("MultiEdit", file_path)
     if path_check:
@@ -256,12 +142,11 @@ def handle_multiedit(tool_input: dict) -> dict:
     boundary_check = paths.check_project_boundary("MultiEdit", file_path)
     if boundary_check:
         return boundary_check
-    det_result = {"decision": taxonomy.ALLOW}
-    return _llm_write_review_gate("MultiEdit", tool_input, det_result)
+    return {"decision": taxonomy.ALLOW}
 
 
 def handle_notebookedit(tool_input: dict) -> dict:
-    """Guard NotebookEdit: path + boundary checks + LLM review."""
+    """Guard NotebookEdit: path + boundary checks."""
     file_path = tool_input.get("notebook_path", "")
     path_check = paths.check_path("NotebookEdit", file_path)
     if path_check:
@@ -269,8 +154,7 @@ def handle_notebookedit(tool_input: dict) -> dict:
     boundary_check = paths.check_project_boundary("NotebookEdit", file_path)
     if boundary_check:
         return boundary_check
-    det_result = {"decision": taxonomy.ALLOW}
-    return _llm_write_review_gate("NotebookEdit", tool_input, det_result)
+    return {"decision": taxonomy.ALLOW}
 
 
 def handle_glob(tool_input: dict) -> dict:

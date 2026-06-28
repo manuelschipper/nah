@@ -985,43 +985,6 @@ class TestCmdTest:
         assert "Target:   claude" in out
         assert "Decision:" in out
 
-    def test_write_llm_metadata_text_output(self, capsys, monkeypatch, tmp_path):
-        from nah.cli import cmd_test
-
-        monkeypatch.setattr("nah.hook._should_llm_inspect_write", lambda: True)
-
-        def fake_llm_write(_tool, _tool_input, _decision):
-            return {"decision": "allow"}, {
-                "llm_provider": "fake",
-                "llm_model": "test-model",
-                "llm_latency_ms": 7,
-                "llm_decision": "allow",
-                "llm_reasoning": "Write is local and routine.",
-                "llm_reasoning_long": "The write is project-local test content.",
-                "llm_cascade": [{"provider": "fake", "status": "success", "latency_ms": 7}],
-            }
-
-        monkeypatch.setattr("nah.hook._try_llm_write", fake_llm_write)
-        args = argparse.Namespace(
-            tool="Write",
-            path=str(tmp_path / "out.txt"),
-            content="hello",
-            pattern=None,
-            config=None,
-            defaults=False,
-            target="",
-            json=False,
-            args=[],
-        )
-
-        cmd_test(args)
-
-        out = capsys.readouterr().out
-        assert "Decision: ALLOW" in out
-        assert "LLM decision: ALLOW" in out
-        assert "LLM provider: fake (test-model)" in out
-        assert "LLM reason:   Write is local and routine." in out
-
     def test_layer1_classify_surfaced_in_json(self, capsys, monkeypatch):
         from nah.cli import cmd_test
         from nah.config import NahConfig
@@ -1061,43 +1024,6 @@ class TestCmdTest:
         assert payload["classify_llm"]["mapped_type"] == "network_outbound"
         assert payload["classify_llm"]["targets"][0]["floor"] == "ask"
         assert payload["action_type_source"] == "llm_classify"
-
-    def test_write_llm_metadata_json_output(self, capsys, monkeypatch, tmp_path):
-        from nah.cli import cmd_test
-
-        monkeypatch.setattr("nah.hook._should_llm_inspect_write", lambda: True)
-
-        def fake_llm_write(_tool, _tool_input, _decision):
-            return {"decision": "uncertain", "reason": "Write (LLM): human review needed"}, {
-                "llm_provider": "fake",
-                "llm_model": "test-model",
-                "llm_latency_ms": 9,
-                "llm_decision": "uncertain",
-                "llm_reasoning": "Write changes credentials.",
-                "llm_reasoning_long": "The write appears to modify credential material.",
-                "llm_cascade": [{"provider": "fake", "status": "uncertain", "latency_ms": 9}],
-            }
-
-        monkeypatch.setattr("nah.hook._try_llm_write", fake_llm_write)
-        args = argparse.Namespace(
-            tool="Write",
-            path=str(tmp_path / "out.txt"),
-            content="secret = 'value'",
-            pattern=None,
-            config=None,
-            defaults=False,
-            target="",
-            json=True,
-            args=[],
-        )
-
-        cmd_test(args)
-
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["decision"] == "ask"
-        assert payload["llm"]["decision"] == "uncertain"
-        assert payload["llm"]["provider"] == "fake"
-        assert payload["llm"]["reasoning"] == "Write changes credentials."
 
     def test_write_secret_content(self, tmp_path, capsys):
         from nah.cli import cmd_test
