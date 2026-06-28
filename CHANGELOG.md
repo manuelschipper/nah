@@ -28,21 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Devin CLI support — `nah install devin`** (nah-950). First-class protection for
-  [Devin CLI](https://docs.devin.ai/cli/) sessions via a new `devin_hooks.py` adapter that
-  reuses nah's deterministic classifier. Devin's hook output is only `approve`/`block` (no
-  native `ask`), so the adapter splits the two events by job:
-  - **`PreToolUse`** is the unconditional, deterministic-only block floor (no LLM): a
-    deterministic block emits `{"decision":"block","reason":…}`, everything else continues.
-  - **`PermissionRequest`** is the relaxation point (full pipeline, LLM relax eligible):
-    `allow → {"decision":"approve"}`, `ask →` abstain (no output, so Devin's native prompt
-    fires), `block → {"decision":"block",…}`. An internal error / malformed payload fails
-    **safe** (block) on decision events; `PostToolUse` fails open and logs only.
-  - `nah install/update/uninstall/status devin` merge nah-owned hooks into the user-level
-    `~/.config/devin/config.json` (under `"hooks"`), preserving other config and the user's
-    own hooks and writing a `.json.bak` backup. Mirrors Claude's lifecycle surface;
-    user-level only (no `--project`). Tool names map `exec→Bash`, `edit→Edit`, `read→Read`,
-    `grep→Grep`, `glob→Glob`. Ephemeral `nah run devin` is a planned fast-follow.
 - **Flag-aware `env_read` classification for shell builtins, `ps`, and `caddy fmt`** (nah-1005).
   Follow-up to nah-1004 covering the cases a static prefix table can't express because the
   safe and unsafe forms are the same command split by flags:

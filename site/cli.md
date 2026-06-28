@@ -98,7 +98,6 @@ package install and runtime chooser.
 ```bash
 nah install claude         # direct Claude Code hooks
 nah install claude --force # direct hooks even when the Claude plugin is enabled
-nah install devin          # native Devin CLI hooks
 nah install bash           # interactive bash guard
 nah install zsh            # interactive zsh guard
 ```
@@ -108,14 +107,6 @@ Code. `nah install claude` registers direct hook entries in Claude Code's
 `settings.json`; those hooks call the installed `nah` executable, so package
 manager wrappers such as Nix, pipx, and venv installs stay on the import path
 they set up.
-
-`nah install devin` merges nah hook entries (`PreToolUse`, `PermissionRequest`,
-`PostToolUse`) into the user-level `~/.config/devin/config.json` under the
-`"hooks"` key, preserving any other config and the user's own hooks and writing
-a `.json.bak` backup. It is user-level only (no `--project`); Devin's tool names
-map onto nah's classifier (`exec`→Bash, `edit`→Edit, `read`→Read, `grep`→Grep,
-`glob`→Glob). See [Devin CLI](runtimes/devin.md) for how the two decision events
-behave.
 
 `nah install bash` and `nah install zsh` write generated shell snippets under
 `~/.config/nah/terminal/` and add a small managed source block to the matching
@@ -139,7 +130,6 @@ upgrade. This rewrites persistent Claude direct hooks to the current installed
 
 ```bash
 nah update claude
-nah update devin
 nah update bash
 nah update zsh
 ```
@@ -149,10 +139,6 @@ current installed `nah` executable and repairs newly added hook matchers. It
 also cleans up the old legacy shim file when migrating an old direct-hook
 install. Shell targets regenerate snippets and refresh the managed rc block
 without duplicating it.
-
-`nah update devin` re-resolves the hook command in `~/.config/devin/config.json`
-to the current installed `nah` executable, adding any missing hook events; it
-reports nothing to do if nah is not installed for Devin.
 
 Codex has no persistent `nah update codex` target. After upgrading the Python
 package, run `nah setup codex` to refresh Codex's nah-managed rules, then
@@ -165,7 +151,6 @@ Remove nah from a target.
 ```bash
 nah uninstall claude
 nah uninstall codex
-nah uninstall devin
 nah uninstall bash
 nah uninstall zsh
 ```
@@ -173,9 +158,6 @@ nah uninstall zsh
 `nah uninstall claude` removes direct hook entries from Claude Code settings and
 deletes the old legacy shim file when present. Shell targets remove only
 nah-owned marked rc blocks and generated snippets.
-
-`nah uninstall devin` removes only nah-owned hook entries from
-`~/.config/devin/config.json`, leaving the user's other config and hooks intact.
 
 `nah uninstall codex` removes only nah-managed Codex setup files (the managed
 authority rules). It refuses to touch unmanaged content at that path, and it
@@ -507,7 +489,6 @@ Show custom rules, or target status when a target is supplied.
 nah status
 nah status claude
 nah status codex
-nah status devin
 nah status bash
 nah status zsh
 ```
@@ -522,10 +503,7 @@ Target status summarizes direct Claude hook/plugin state, Claude settings and
 executable paths, shell guard installation, and loaded markers. `nah status
 codex` is the read-only Codex preflight view (authority rules path/state plus
 approval-memory and MCP findings); it never modifies files and exits nonzero
-when Codex state can bypass nah. Repair findings with `nah setup codex`. `nah
-status devin` reports whether nah hooks are installed in
-`~/.config/devin/config.json`, which hook events are present, and the resolved
-`devin` executable path.
+when Codex state can bypass nah. Repair findings with `nah setup codex`.
 
 ### nah doctor
 

@@ -403,19 +403,6 @@ llm:
         </div>
         <span>Local interactive Bash, MCP, and apply_patch permission requests.</span>
       </a>
-      <a class="nah-runtime-card" href="runtimes/devin/">
-        <div class="nah-runtime-title">
-          <svg class="nah-runtime-icon nah-runtime-icon-terminal" aria-hidden="true" viewBox="0 0 24 24">
-            <rect x="4" y="8" width="16" height="11" rx="2.5" ry="2.5"/>
-            <path d="M12 4v4"/>
-            <circle cx="12" cy="3" r="1.1"/>
-            <path d="M9 13v1.6"/>
-            <path d="M15 13v1.6"/>
-          </svg>
-          <strong>Devin CLI</strong>
-        </div>
-        <span>exec, file, search, and MCP tool calls via native PreToolUse and PermissionRequest hooks.</span>
-      </a>
       <a class="nah-runtime-card" href="runtimes/terminal-guard/">
         <div class="nah-runtime-title">
           <svg class="nah-runtime-icon nah-runtime-icon-terminal" aria-hidden="true" viewBox="0 0 24 24">

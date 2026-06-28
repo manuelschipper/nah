@@ -114,7 +114,6 @@ work everywhere. See
 | --- | --- | --- |
 | Claude Code | `nah run claude` or `nah install claude` | [Claude Code](https://nah.build/runtimes/claude-code/) |
 | Codex | `nah setup codex`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
-| Devin CLI | `nah install devin` | [full install docs](https://nah.build/install/) |
 | Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](https://nah.build/runtimes/terminal-guard/) |
 
 See the [full install docs](https://nah.build/install/) for update, uninstall,
@@ -183,7 +182,6 @@ nah guards the approval points each runtime exposes:
 | --- | --- |
 | Claude Code | Bash, file, search, notebook, and MCP tool calls before execution |
 | Codex | Local interactive Bash, MCP, and `apply_patch` permission requests |
-| Devin CLI | `exec`, file, search, and MCP tool calls — blocked at `PreToolUse`, relaxed at `PermissionRequest` |
 | Your shell | Commands you type yourself in guarded bash/zsh sessions |
 
 Run the audit yourself:
@@ -279,9 +277,6 @@ nah run codex exec "run: git status"   # protect one headless Codex run
 nah run codex --sandbox workspace-write # use Codex workspace sandboxing
 nah run codex --confirm-edits           # also confirm safe project edits
 nah install claude                     # protect normal Claude Code sessions
-nah install devin                      # protect Devin CLI sessions
-nah status devin                       # check Devin hook install state
-nah uninstall devin                    # remove nah's Devin hooks
 nah install bash                       # guard commands you type in bash
 nah install zsh                        # guard commands you type in zsh
 
