@@ -2502,6 +2502,23 @@ def _classify_nah_cli(
         return None
 
     subcommand = tokens[1]
+
+    # `nah test` is a pure dry-run classifier: it parses a command/tool call and
+    # prints what nah *would* decide, with no filesystem or execution side
+    # effects. Allow it without scanning its argument tokens for sensitive paths,
+    # which would otherwise flag e.g. `nah test --tool Read ~/.ssh/id_rsa` as a
+    # real sensitive access. Redirections are still caught by
+    # _apply_redirect_guard at the call site, and any command/process
+    # substitutions in the arguments are extracted and classified independently
+    # upstream, so this allow only ever covers the literal `nah test …` stage.
+    if subcommand == "test":
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.AGENT_READ
+        sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
+        sr.decision = taxonomy.ALLOW
+        sr.reason = "nah test is a dry-run classifier; no side effects"
+        return sr
+
     if subcommand not in {"install", "update", "uninstall"}:
         return None
 
