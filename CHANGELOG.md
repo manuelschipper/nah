@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Secret protection now relies on structural controls such as sensitive paths,
   taint/provenance, credential-search detection, and explicit secret-store/env reads
   rather than guessing token-shaped text in write payloads (nah-1006).
+- Removed the LLM write content-review gate that inspected Write/Edit/MultiEdit/NotebookEdit
+  and Codex `apply_patch` payloads as data-at-rest and could escalate a clean `allow` to
+  `ask` (nah-997). Write-like tools are now guarded by the deterministic floor only —
+  sensitive-path block, project-boundary, and destructive-patch checks — which is cheap,
+  clear, and unchanged. The Bash LLM path (Layer 1/2 relax + inline `lang_exec` review) is
+  untouched.
 
 ### Added
 
