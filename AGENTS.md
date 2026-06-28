@@ -1,6 +1,6 @@
 # nah
 
-Context aware safety guard for coding agents. Guards Claude Code tools and local interactive Codex sessions.
+Context aware safety guard for coding agents. Guards Claude Code tools, Devin CLI hooks, and local interactive Codex sessions.
 
 ## GitHub Communication
 
@@ -58,9 +58,12 @@ except Exception:
 nah run claude           # launch claude with nah active (this session only)
 nah run codex            # launch codex with nah active (this session only)
 nah install claude       # install direct Claude Code hooks (permanent)
+nah install devin        # install native Devin CLI hooks (~/.config/devin/config.json)
 nah install bash         # install interactive bash guard
 nah uninstall claude     # clean direct Claude Code removal
+nah uninstall devin      # remove nah's Devin hook entries (preserves other config)
 nah update claude        # update hook after package-manager upgrade
+nah update devin         # re-resolve Devin hook command after package-manager upgrade
 
 # Dry-run classification (no side effects)
 nah test "rm -rf /"                        # test a Bash command
@@ -76,6 +79,7 @@ nah log --blocks         # show only blocked decisions
 nah log --asks           # show only ask decisions
 nah log --llm            # show only decisions with LLM metadata
 nah status codex         # inspect Codex approval-memory/MCP preflight state
+nah status devin         # inspect Devin hook install state (~/.config/devin/config.json)
 nah setup codex          # install or fix supported Codex setup state
 nah config show          # show effective merged config
 nah config path          # show config file locations

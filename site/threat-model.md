@@ -5,8 +5,9 @@ secrets, rewrite history, escape the project, hide behavior behind shell tricks,
 escalate through package/container tooling, or tamper with the guard itself.
 
 Runtime coverage depends on the approval surface each runtime exposes. Claude
-Code exposes the broadest tool surface today. Codex and Terminal Guard share the
-same Bash classifier for command-level risk.
+Code exposes the broadest tool surface today. Codex, Devin CLI, and Terminal
+Guard share the same Bash classifier for command-level risk; Devin also routes
+its `read`/`edit`/`grep`/`glob` and MCP tool calls through nah.
 
 ## Current audit
 
@@ -65,22 +66,22 @@ renders summary, Markdown, or JSON output.
 
 | Layer | What is covered | Runtime notes |
 | --- | --- | --- |
-| Shell command safety | Unknown code execution, <code>curl &#124; bash</code>, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
-| File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; partial Codex coverage through `apply_patch` |
-| Content inspection | Destructive, exfiltration, and obfuscation code patterns; credential-search patterns | Bash redirect-to-file literals and Claude Code Grep; write-like payloads use structural checks plus optional LLM review |
-| Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code and Codex MCP permission surfaces |
+| Shell command safety | Unknown code execution, <code>curl &#124; bash</code>, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, Devin `exec`, and Terminal Guard |
+| File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; Devin `read`/`edit`; partial Codex coverage through `apply_patch` |
+| Content inspection | Destructive, exfiltration, and obfuscation code patterns; credential-search patterns | Bash redirect-to-file literals and Claude Code/Devin Grep; write-like payloads use structural checks plus optional LLM review |
+| Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code, Codex, and Devin MCP permission surfaces |
 | Guard self-protection | Attempts to edit nah hooks, config, runtime settings, and robustness paths | Runtime-specific install and preflight checks |
 
 ## Runtime matrix
 
-| Protection | Claude Code | Codex | Terminal Guard |
-| --- | --- | --- | --- |
-| Bash classifier | Yes | Yes | Yes |
-| File/path tools | Yes: Read, Write, Edit, MultiEdit, NotebookEdit, Glob | Partial: `apply_patch` | No |
-| Content inspection | Yes: Write/Edit/MultiEdit/NotebookEdit/Grep | Partial: `apply_patch` path and added content | No |
-| Search/Grep guard | Yes | No current equivalent | No |
-| MCP classification | Yes | Yes | No |
-| Guard self-protection | Yes | Partial: preflight and guarded patch paths | Shell install paths only |
+| Protection | Claude Code | Codex | Devin CLI | Terminal Guard |
+| --- | --- | --- | --- | --- |
+| Bash classifier | Yes | Yes | Yes: `exec` | Yes |
+| File/path tools | Yes: Read, Write, Edit, MultiEdit, NotebookEdit, Glob | Partial: `apply_patch` | Yes: `read`, `edit`, `glob` | No |
+| Content inspection | Yes: Write/Edit/MultiEdit/NotebookEdit/Grep | Partial: `apply_patch` path and added content | Yes: `edit`, `grep` | No |
+| Search/Grep guard | Yes | No current equivalent | Yes: `grep` | No |
+| MCP classification | Yes | Yes | Yes | No |
+| Guard self-protection | Yes | Partial: preflight and guarded patch paths | Yes: classifier + path checks | Shell install paths only |
 
 MCP permission behavior is counted explicitly through Claude Code matcher tests,
 Codex hook tests, Codex setup checks, and taxonomy tests
