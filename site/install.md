@@ -3,7 +3,7 @@
 ## Requirements
 
 - Python 3.10+ (via pipx, uv, or pip) or Nix
-- The runtime you want to protect: Claude Code, Codex, Devin CLI, bash, or zsh
+- The runtime you want to protect: Claude Code, Codex, bash, or zsh
 
 ## Recommended: nah CLI
 
@@ -96,7 +96,6 @@ install that won't interfere with system or project Python packages.
 | --- | --- | --- |
 | Claude Code | `nah run claude` for one session, or `nah install claude` for persistent direct hooks | [Claude Code guide](runtimes/claude-code.md) |
 | Codex | `nah setup codex`, then `nah run codex` | [Codex guide](runtimes/codex.md) |
-| Devin CLI | `nah install devin` for persistent native hooks | [Devin CLI guide](runtimes/devin.md) |
 | Terminal Guard | `nah install bash` or `nah install zsh` | [Terminal Guard guide](runtimes/terminal-guard.md) |
 
 ## Claude Code Plugin

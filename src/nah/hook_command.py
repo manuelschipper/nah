@@ -97,12 +97,3 @@ def claude_hook_command() -> str:
 def codex_hook_command(hidden_command: str) -> str:
     """Return the command Codex should run for a nah hidden hook entrypoint."""
     return quote_shell_argv([resolve_nah_executable(), hidden_command])
-
-
-def devin_hook_command() -> str:
-    """Return the command Devin CLI should run for nah hooks.
-
-    Stored in Devin's JSON config like Claude's settings.json, so it uses the
-    same double-quote / forward-slash quoting.
-    """
-    return quote_claude_argv([resolve_nah_executable(), "_devin-hook"])

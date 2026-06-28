@@ -53,7 +53,6 @@ nav:
   - Runtimes:
     - Claude Code: runtimes/claude-code.md
     - Codex: runtimes/codex.md
-    - Devin CLI: runtimes/devin.md
     - Terminal Guard: runtimes/terminal-guard.md
   - Guides:
     - How it works: how-it-works.md
