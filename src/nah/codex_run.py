@@ -329,10 +329,6 @@ def build_codex_launch(
     if headless:
         codex_args = _inject_headless_exec_args(codex_args)
     env = dict(base_env if base_env is not None else os.environ)
-    if "NAH_PROVENANCE_RUN_ID" not in env:
-        from nah.provenance import new_run_id
-
-        env["NAH_PROVENANCE_RUN_ID"] = new_run_id()
     if selected_preset:
         env[_PRESET_ENV] = selected_preset
     selected_effective_preset = selected_preset or env.get(_PRESET_ENV, "").strip()
