@@ -128,9 +128,9 @@ The public source release tag remains `vX.Y.Z`.
 
 Molds is the workflow source of truth for repos with a `.molds/` directory.
 Postgres is canonical. All task reads and
-writes go through the `molds` CLI (`molds show|update|note|section ...`).
-Never edit `.molds/*.md` as task state — `.molds/` holds only local config,
-runtime files, and artifacts.
+writes go through the `molds` CLI (`molds show|history|restore|update|note|section ...`).
+`.molds/` holds only local config, runtime files, and artifacts — never task
+state.
 
 A mold is durable work state: title, lifecycle stage, problem, plan,
 verification, notes, and audit events — enough for agents and humans to
@@ -140,10 +140,10 @@ The lifecycle and skills are the default discipline, not a mandate: when the
 operator asks, you may use molds as a lightweight tracker — capture a mold, do
 the work in-session, and close it — without running the design/build/qa skills.
 The structural gates hold either way: only the operator approves design ->
-build, land is always human, and foundry works only poured molds.
+build, land is always human, and oven works only poured molds.
 
 Deep dives: run `molds docs` to list topics and `molds docs <topic>` to read
-one (e.g. `molds docs lifecycle`, `molds docs foundry`).
+one (e.g. `molds docs lifecycle`, `molds docs oven`).
 
 ## Sections
 
@@ -164,23 +164,24 @@ enforcement.
 context | research | design -> build -> qa -> land -> closed
 ```
 
-`blocked` and `deferred` are side stages. `closed` and `wontdo` are
-terminal: `closed` means an accepted outcome (for exploratory work,
-possibly without producing a buildable spec); `wontdo` means deliberate
-rejection or abandonment.
+`blocked` is a side stage for work that cannot proceed yet. `closed` and
+`wontdo` are terminal by default: `closed` means an accepted outcome (for
+exploratory work, possibly without producing a buildable spec); `wontdo`
+means deliberate rejection or abandonment. Use the audited escape hatch
+`molds reopen <id> --stage <active> --reason "..."` to recover a terminal
+mold; normal `molds update` moves still cannot leave `closed`/`wontdo`.
 
 Legal stage transitions:
 
 | From | Legal targets |
 | --- | --- |
-| `context` | `context`, `research`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `research` | `research`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `design` | `design`, `research`, `build`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `build` | `build`, `qa`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `qa` | `qa`, `land`, `build`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `land` | `land`, `build`, `design`, `blocked`, `deferred`, `closed`, `wontdo` |
-| `blocked` | `blocked`, `context`, `research`, `design`, `build`, `qa`, `land`, `deferred`, `closed`, `wontdo` |
-| `deferred` | `deferred`, `context`, `research`, `design`, `build`, `qa`, `land`, `blocked`, `closed`, `wontdo` |
+| `context` | `context`, `research`, `design`, `blocked`, `closed`, `wontdo` |
+| `research` | `research`, `design`, `blocked`, `closed`, `wontdo` |
+| `design` | `design`, `research`, `build`, `blocked`, `closed`, `wontdo` |
+| `build` | `build`, `qa`, `design`, `blocked`, `closed`, `wontdo` |
+| `qa` | `qa`, `land`, `build`, `design`, `blocked`, `closed`, `wontdo` |
+| `land` | `land`, `build`, `design`, `blocked`, `closed`, `wontdo` |
+| `blocked` | `blocked`, `context`, `research`, `design`, `build`, `qa`, `land`, `closed`, `wontdo` |
 | `closed` | `closed`, `wontdo` |
 | `wontdo` | `wontdo`, `closed` |
 
@@ -192,8 +193,8 @@ Examples: `build -> land` is illegal, `context -> build` is illegal, and
 `design` is the human design and signoff queue. `molds build <id>` approves
 a design mold into `build` — approval only, never execution; build readiness
 is the operator's judgment with no mechanical gate. From `build` onward,
-foundry build/QA runs use dedicated worktrees under `.worktrees/<id>`.
-`land` is always human: foundry is structurally unable to enter it, so
+oven build/QA runs use dedicated worktrees under `.worktrees/<id>`.
+`land` is always human: oven is structurally unable to enter it, so
 reviewing the diff and landing is the operator's re-entry point.
 
 ## Traces
@@ -207,45 +208,78 @@ alone.
   decisions, tradeoffs, surprises, extra verification details, or
   follow-ups. Do not create sidecar notes files.
 - Every QA verdict carries a `QA Trace` (what was checked, what was run,
-  what was found). Foundry QA returns it in the verdict's `qa_trace` field
-  and the runtime writes it under `Implementation Notes -> ### QA Trace`;
-  `molds stamp` records the manual equivalent automatically.
+  what was found). Foreground `/qa-mold` writes it under
+  `Implementation Notes -> ### QA Trace` as it reviews and `molds stamp`
+  refuses a verdict without one; oven QA returns it in the verdict's
+  `qa_trace` field and the runtime writes the section.
 - QA rejects a missing, empty, or perfunctory Build Trace as a
-  build-process issue (the runtime also refuses a foundry QA pass without
+  build-process issue (the runtime also refuses a oven QA pass without
   one) while still reviewing the code independently.
 
 ## Skills
 
 - Capture and explore: `/handoff-mold` (carry-forward memory in `context`),
-  `/research-mold` (stateful investigation in `research`), `/new-mold`
-  (create after checking for duplicates; links dependencies only to open
-  molds — closed matches become provenance notes), `/slice-mold`
+  `/research-mold` (stateful investigation in `research`), `/slice-mold`
   (decompose broad work into dependency-aware molds), `/grill-mold`
-  (pressure-test a mold, plan, or idea one question at a time).
+  (pressure-test an existing mold, plan, or idea one question at a time).
 - Design: `/design-mold` (shape a build-ready spec in your design session).
-- Execute: `/build-mold`, `/qa-mold`, `/land-mold`. Foundry is the
+- Execute: `/build-mold`, `/qa-mold`, `/land-mold`. Oven is the
   pipeline for unattended build+QA; there is no foreground pipeline skill.
-- Operate: `/close-mold` (manual closeout/disposition; owns the CHANGELOG
-  update), `/explain-mold` (read-only context recovery), `/html-mold`
+- Operate: `/explain-mold` (plain-language, read-only walkthrough to regain context), `/html-mold`
   (human-friendly HTML summary under `.molds/artifacts/<id>/` for
   `molds browse`), `/explore-project` (deep audit of the codebase, active
   molds, and recent activity).
 
 Common flow: rough idea -> `/research-mold` or `/design-mold` ->
 `/grill-mold` or `/slice-mold` as needed -> `molds pour <id> -a` ->
-foundry builds and QAs unattended -> review at `land` with `/land-mold` ->
-`/close-mold`.
+oven builds and QAs unattended -> review at `land` with `/land-mold` ->
+`molds close`.
 
-## Foundry And Pour
+Close or reject a mold with the native verbs directly: `molds close <id>` or
+`molds wontdo <id> --reason "..."`. If a mold is closed or rejected by
+mistake, use `molds reopen <id> --stage <context|research|design|build|qa|land>
+--reason "..."`; reopen clears terminal bookkeeping and records an audit note
+without changing landed git commits or land requests. If the repo keeps a
+`CHANGELOG.md`, add a brief `[Unreleased]` note for changes worth recording
+when you land or close; otherwise skip it — molds never requires one.
 
-Foundry schedules exactly two lanes — `build` and `qa` — booting with repo
-startup defaults (`foundry_provider`, `foundry_interval_seconds`). Its
+Creating a mold: search existing molds first (`molds list`, `molds show`,
+`molds tree`) for duplicates and parent/dependency candidates. If it duplicates
+open work, report that mold instead of creating a new one. Link `--parent` or
+`dep add` only to **open** molds — record a strong closed match as
+builds-on/supersedes provenance in `Notes`, not a link (scanning still includes
+closed molds; only linking is restricted). Start exploratory work in
+`research`, a concrete implementation unit in `design`.
+
+Automation that may retry mold creation should pass a stable `molds create
+--idempotency-key` (workflow/thread identity); it complements, not replaces,
+search-before-create.
+
+## Version History
+
+Every document write inserts a full snapshot in `mold_documents`; snapshots are
+not pruned. Use `molds history <id>` to list revisions with timestamp, actor,
+body hash, current marker, and restore annotations. Use
+`molds show <id> --revision N` to print an old stored snapshot verbatim without
+re-parsing, re-rendering, or changing QA freshness.
+
+`molds restore <id> --revision N --reason "..."` is forward-only: it copies the
+old title and sections into a new current revision through the normal audited
+write path, appends your reason as a note, records a `restored` event, and leaves
+every prior revision intact.
+Restore applies only to active stages; recover `closed` or `wontdo` work with
+`molds reopen` first.
+
+## Oven And Pour
+
+Oven schedules exactly two lanes — `build` and `qa` — booting with repo
+startup defaults (`oven_provider`, `oven_interval_seconds`). Its
 reach is fixed by structure: a QA pass always parks the mold at `land` for
-human review; foundry never touches `context`, `research`, `design`, or
+human review; oven never touches `context`, `research`, `design`, or
 `land`.
 
 - One per-mold boolean, `poured`, answers the only remaining question: may
-  foundry work this mold at all. The stage picks the lane.
+  oven work this mold at all. The stage picks the lane.
 - `molds pour <id> [-a|--approve]` sets the flag and starts a coordinator
   if needed; `-a` approves a design mold and pours in one gesture (plain
   pour refuses design molds). This is the workflow's primary verb.
@@ -254,56 +288,86 @@ human review; foundry never touches `context`, `research`, `design`, or
   presence only; quality stays operator judgment.
 - `molds take <id>` clears the flag (the active stage finishes cleanly).
 - Failure routing: a QA implementation failure sends the mold back to
-  `build` once (`foundry_max_qa_sendbacks`, default 1); the next failure
+  `build` once (`oven_max_qa_sendbacks`, default 1); the next failure
   parks it in `blocked` with `resume_stage` set and the feedback and
-  traces in the mold. Design-flavored failures park immediately — foundry
+  traces in the mold. Design-flavored failures park immediately — oven
   never reopens `design`; a human decides that from `blocked`.
+
+## Monitoring Oven Runs
+
+Oven runs in a background coordinator. A scoped `--follow` names a target and
+exits when it finishes; a bare `--watch` is repo-wide and runs forever.
+
+- `molds oven events <id> --follow` — the agent path: background it; it
+  streams the build→qa→land episode and exits at `land`/`blocked`, so the agent
+  is re-invoked when the run is done.
+- `molds oven log <id> --follow` — raw adapter transcript for one run; exits
+  when that run finishes.
+- `molds oven status` / `molds show <id>` — snapshots: lane health, and
+  `build`/`qa` = working vs `land`/`blocked` = done (trust the heartbeat, not
+  `updated_at`).
+- `molds oven events --watch` / `status --watch` — live dashboards (never
+  exit). See `molds docs oven`.
 
 ## Land Requests
 
 A land request (LR) is the local review record for a landable diff — not a
 GitHub PR and not a lifecycle stage. Land entry (including `molds stamp`
 moving `qa -> land`) creates or refreshes one automatically when a
-`code_branch` diff exists. `molds lr open|show|diff|files <id>` manage it
+`code_branch` diff exists. `molds lr open|show|diff|files|resolve <id>` manage it
 without moving lifecycle stages: `molds lr open <id>` explicitly refreshes
-after new branch work, and `molds lr show <id>` is read-only. Landing the
-diff is the approval; `molds update <id> --stage build` is the send-back;
-`molds wontdo` abandons. `molds close` refuses an unresolved landable LR.
-`molds stamp <id> --verification "..."` is the foreground QA verdict: it
-records structured manual QA freshness and moves `qa -> land`;
+after new branch work, and `molds lr show <id>` is read-only. `molds lr
+resolve <id> --landed-as <sha>` is the audited escape hatch for SHA-rewriting
+lands that content detection cannot prove. Landing the diff is the approval;
+`molds update <id> --stage build` is the send-back; `molds wontdo` abandons.
+`molds close` refuses an unresolved landable LR.
+`molds stamp <id>` is the foreground QA verdict: it requires a non-empty
+`### QA Trace`, records structured manual QA freshness, and moves `qa -> land`;
 `--fail implementation|design` records the fail verdict and routes the
 send-back instead.
 
+## Subagents
+
+Do not spawn subagents unless a skill orchestrates them or the user asks.
+
 ## Git Hosting
 
-Do not create or open pull requests unless the user explicitly asks for a
-PR. If a git host prints a PR creation URL after `git push`, treat it as
-informational output only.
+Default landing is a direct local merge. Do not create or open pull requests
+unless the user explicitly asks for a PR, or unless the repo's own instructions
+outside this molds-managed block declare PR-based landing. In PR-based repos,
+`/land-mold` pushes the branch, drafts the PR in-session, presents it for human
+confirmation, and only then opens a ready-for-review PR. If a git host prints a
+PR creation URL after `git push`, treat it as informational output only.
 
 ## CLI Quick Reference
 
 ```bash
-molds create "<title>" [--stage context|design|research]
-molds context|research|design|build|qa|land|block|defer <id>
+molds create "<title>" [--stage context|design|research] [--idempotency-key <key>] [--json]
+molds context|research|design|build|qa|land|block <id>
 molds section get|set|append <id> "<section>" --stdin|--file <path>
-molds stamp <id> --verification "..."
+molds stamp <id> [--refresh | --fail implementation|design] [--summary "..."] [--feedback "..."]
+molds lr open <id> [--pr <url>]
 molds lr show <id>
+molds lr resolve <id> --landed-as <sha>
 molds pour <id> [-a|--approve]
 molds take <id>
 molds update <id> --stage <stage>
 molds update <id> --poured true|false
-molds show <id> [--json]
+molds reopen <id> --stage <context|research|design|build|qa|land> --reason "..."
+molds history <id> [--json]
+molds show <id> [--revision N] [--json]
+molds restore <id> --revision N --reason "..."
 molds docs [<topic>|search <query>]
+molds sync [--inject-into claude|agents|all|none]
 molds list [--json]
 molds browse [<id>]
 molds note <id> "message"
 molds status
-molds foundry status
+molds oven status [--watch]
+molds oven events [<id> --follow | --watch] [--verbose|--json]
+molds oven log <id|run-id> [--follow]
 ```
 
 Raw stage aliases are state changes only: no worktrees, verification,
 merging, or closing.
-
-Lines starting with `%%` inside mold files are agent instructions. Address
-each one, then remove the line.
 <!-- molds:managed-section:end -->
