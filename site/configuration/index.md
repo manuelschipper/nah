@@ -180,7 +180,7 @@ targets:
 ```
 
 Global target overrides can set `actions`, `sensitive_paths_default`,
-`sensitive_paths`, `content_patterns.policies`, `llm.mode`, `llm.eligible`, UI
+`sensitive_paths`, `content_patterns.policies`, `llm.mode`, UI
 settings, and shell `terminal` settings. Untrusted project target overrides can
 tighten action, sensitive-path, and content policies only. Trusted project
 config can loosen policy and change non-policy target settings for that exact
