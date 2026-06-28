@@ -37,6 +37,8 @@ presets:
       service_write: block
       service_destructive: block
 
+      env_read: block
+
       container_build: block
       container_exec: block
       container_destructive: block
@@ -77,8 +79,17 @@ closed.
 High-risk actions are blocked directly where they should never happen in this
 mode. This includes `container_build`, because Docker builds can execute
 Dockerfile `RUN` steps and mutate image or container infrastructure even though
-the default policy is `allow`. `ask_fallback: block` catches remaining
-default-`ask` and unresolved review cases that would otherwise need a human.
+the default policy is `allow`. `env_read: block` stops commands whose purpose is
+exposing environment or secret values (`printenv`, `vault kv get`,
+`kubectl get secret`, …) so credentials are never dumped during an unattended
+run. `ask_fallback: block` catches remaining default-`ask` and unresolved review
+cases that would otherwise need a human.
+
+The service taxonomy is split: `service_inspect` (local daemon inspection such as
+`systemctl status` or `journalctl`) is read-only and stays at its `allow` default,
+while `service_read` now covers only *remote* API reads (`curl` GET, gRPC, GraphQL)
+and is host-checked via `context`. Tighten either explicitly if even read-only
+service inspection should pause in your environment.
 
 `context` is used where the answer depends on what nah can inspect, such as the
 path, command, content, tool target, [taint state](../configuration/taint-tracking.md),
