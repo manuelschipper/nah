@@ -91,9 +91,8 @@ whole shell session.
 
 Terminal Guard is deterministic-only: every command resolves to allow, ask, or
 block with no LLM step. A command you type directly into your shell is already
-your own intent, so there is nothing for an LLM to relax — an `ask` is confirmed
-inline by you at the prompt, and the deterministic floor still blocks the
-dangerous shapes outright.
+your own intent, so an `ask` is confirmed inline by you at the prompt, and the
+deterministic floor still blocks the dangerous shapes outright.
 
 Global LLM mode and the `targets.bash.llm.mode` / `targets.zsh.llm.mode` knobs
 are still accepted for backward compatibility but no longer affect terminal

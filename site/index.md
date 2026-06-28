@@ -342,22 +342,22 @@ nah test "just migrate-prod"</code></pre>
 
   <section class="nah-section nah-llm">
     <div class="nah-section-heading nah-llm-heading">
-      <p class="nah-eyebrow">Optional LLM review</p>
-      <h2>For remaining ambiguity, bring your own model.</h2>
+      <p class="nah-eyebrow">Optional LLM classify</p>
+      <h2>For unknown commands, bring your own model.</h2>
       <p>
         nah resolves routine and clearly dangerous actions deterministically.
-        For qualified ambiguous asks, it can optionally consult your local or
-        remote provider while deterministic policy still owns the boundary.
+        For commands it cannot identify, it can optionally consult your local or
+        remote provider while deterministic policy still owns target checks.
       </p>
     </div>
     <div class="nah-llm-grid">
       <article class="nah-llm-card">
-        <strong>Intent-aware</strong>
-        <span>Uses recent transcript context to check whether the action matches what you asked for.</span>
+        <strong>Closed-set classify</strong>
+        <span>Maps an unknown Bash command to a built-in action type and touched targets.</span>
       </article>
       <article class="nah-llm-card">
-        <strong>Veto, not override</strong>
-        <span>Risky inline code execution can escalate to <code>ask</code>. Deterministic blocks stay blocked.</span>
+        <strong>Floor-owned checks</strong>
+        <span>Surfaced paths, hosts, containers, and databases are re-checked deterministically.</span>
       </article>
       <article class="nah-llm-card">
         <strong>Your provider</strong>

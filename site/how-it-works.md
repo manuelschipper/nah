@@ -31,12 +31,11 @@ content, MCP, and guard self-protection layers.
   └───────┬───────┘
           │
           ▼
-     allow / ask / block
+  allow / ask / block
           │
           ▼
   ┌───────────────┐
-  │  LLM (opt.)   │  classify unknowns, relax eligible asks (cited intent),
-  │               │  script veto
+  │  LLM (opt.)   │  classify unknown Bash commands only
   └───────┬───────┘
           │
           ▼

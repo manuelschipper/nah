@@ -9,13 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the Layer-2 LLM ask clearer, visible inline `lang_exec` LLM review,
+  transcript-reading LLM prompt context, `llm.eligible` / `llm.deny_limit`
+  handling, and the `llm_risks.py` risk-category module. The optional LLM layer
+  now has one job everywhere: classify a deterministically unknown Bash command
+  into a built-in type whose surfaced targets are re-checked by the deterministic
+  floor. Codex now uses that same classify-unknown path in interactive
+  `PermissionRequest` when LLM mode is on (nah-1010).
 - Removed the session **taint tracking** and **provenance** features entirely
   (`src/nah/taint.py`, `src/nah/provenance.py`) along with all runtime wiring
   (Claude `hook.py`, Codex `codex_hooks.py`/`codex_run.py`, terminal guard), the
   `taint`/`provenance` config surface, the LLM provenance-review path, and the
   log/message rendering and docs (nah-1009). Both were opt-in and off by default,
   so removal is behavior-neutral for current users; the deterministic classifier,
-  LLM relax/classify, and the 43 action types are unchanged. The non-headless
+  LLM classify-unknown path, and the 43 action types are unchanged. The non-headless
   Codex `PreToolUse` hook is now fully observation-inert (its only job was taint
   state); enforcement still happens at `PermissionRequest`.
 - Removed deterministic secret-looking and credential-path content scanning, along with
@@ -27,8 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Codex `apply_patch` payloads as data-at-rest and could escalate a clean `allow` to
   `ask` (nah-997). Write-like tools are now guarded by the deterministic floor only —
   sensitive-path block, project-boundary, and destructive-patch checks — which is cheap,
-  clear, and unchanged. The Bash LLM path (Layer 1/2 relax + inline `lang_exec` review) is
-  untouched.
+  clear, and unchanged.
 - Removed the `/nah-demo` Claude Code showcase and its curated cases
   (`src/nah/demo_cases.py`, `src/nah/data/nah_demo.json`, the `.claude/commands/nah-demo.md`
   slash command, and `tests/test_nah_demo.py`). It was a product demo, not part of the

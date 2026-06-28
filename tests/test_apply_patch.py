@@ -251,7 +251,7 @@ def test_classify_safe_patch_does_not_call_llm(project_root, monkeypatch):
             llm={"providers": ["fake"], "fake": {"model": "test"}},
         ),
     )
-    monkeypatch.setattr("nah.llm._try_providers", fail)
+    monkeypatch.setattr("nah.llm._try_providers_classify", fail)
 
     decision, log_input = apply_patch.classify_codex_apply_patch(
         {"input": _patch("app.py")},

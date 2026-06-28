@@ -477,7 +477,7 @@ class TestWriteEditBoundary:
         )
         monkeypatch.setattr(
             llm_mod,
-            "_try_providers",
+            "_try_providers_classify",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 AssertionError(f"{tool} should not call an LLM provider")
             ),

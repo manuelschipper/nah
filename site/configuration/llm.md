@@ -1,75 +1,46 @@
 # LLM Layer
 
-nah can optionally consult an LLM for decisions that need judgment after deterministic classification.
+nah can optionally consult an LLM after deterministic classification, but the
+LLM now has exactly one job: classify a deterministically `unknown` Bash command
+into one built-in action type and list the targets it touches.
 
 ```
-Guarded action → nah (deterministic) → LLM (optional) → agent/terminal approval flow → execute
+Guarded Bash command -> nah deterministic floor -> optional classify-unknown -> deterministic target re-check
 ```
 
-The deterministic layer always runs first. The LLM layer is split into two
-single-purpose roles: **Layer 1** classifies a deterministically-`unknown`
-command into an action type plus the targets it touches, and **Layer 2** (the
-intent relaxer) refines eligible `ask` decisions. Script inspection can call the
-LLM as a veto path. Write-like tool calls
-(Write/Edit/MultiEdit/NotebookEdit and Codex `apply_patch`) are never sent to the
-LLM — they are guarded by a deterministic path/boundary floor only. The LLM
-cannot relax deterministic blocks. If no LLM is configured or available, the
-deterministic decision stands.
+The deterministic layer always runs first. The LLM does not see recent
+conversation context, file contents, scripts, write payloads, or a general
+review prompt. It receives the command and the closed set of built-in action
+types, then returns:
 
-Outside the paths below, a deterministic `allow` is final and does not call the
-LLM. The LLM is not a second classifier for every allowed action.
+- one action type, or `unknown`
+- touched targets such as paths, hosts, containers, or databases
+- short evidence from the command tokens
 
-| Path | When the LLM runs | What the LLM can change |
-|------|-------------------|-------------------------|
-| Layer 1 — classify-unknown | A deterministic `unknown` Bash command | maps the unknown to an action type **+ the targets it touches**; the type re-enters the policy machinery and each surfaced target is re-checked against the same deterministic floor. Can tighten to `ask`/`block`, or allow only when every surfaced target passes the floor; cannot bypass a sensitive-path/host/boundary veto |
-| Layer 2 — intent relaxer | Eligible deterministic `ask` decisions | `ask` can become `allow` **only with a cited user message** (cite-or-ask); a successful relax is surfaced as a distinct `relaxed` outcome. `uncertain`, an uncited allow, `block`, or provider failure leaves it as `ask` |
-| Write-like tools | Never — not an LLM path | `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and Codex `apply_patch` are guarded by a deterministic path/boundary floor only and are never sent to the LLM |
-| Clean `lang_exec` script veto | Inspectable script/inline-code execution that deterministic classification allowed | `allow` can become `ask`; it cannot relax an `ask` or `block` |
-| No LLM path | Any other deterministic `allow` or `block` | final decision stands |
+The surfaced type and targets re-enter deterministic policy. Sensitive paths,
+project boundaries, known hosts, trusted containers, database targets, and action
+policies are still checked by local code. The LLM can reduce friction only when
+it names the command accurately and every surfaced target passes the floor. It
+cannot clear a known `ask`, cannot inspect inline code, cannot approve writes,
+and cannot weaken a deterministic block.
 
-Layer 1 **extracts**; the deterministic floor **matches**. The model proposes a
-type and the resources the command touches, but the sensitive-path,
-project-boundary, and trusted-host checks stay in deterministic code — the model
-is never the thing that clears a dangerous target. The risk taxonomy below
-applies to Layer 2 and the clean-script veto, not to Layer 1 (which emits action
-types, not risk categories).
+| Path | LLM behavior |
+|------|--------------|
+| Unknown Bash command | Optionally maps to a built-in action type plus targets; floor re-check decides allow / ask / block |
+| Known Bash `ask` | No LLM call; human prompt stays |
+| Inline `lang_exec` payload | No LLM call; deterministic ask stays |
+| Write-like tools | No LLM call; path, boundary, and patch checks decide |
+| Deterministic block | No LLM call; block stays blocked |
+| Terminal Guard | No LLM call; direct shell commands are deterministic-only |
 
-## What LLM review looks for
-
-All LLM review paths use the same security scope, adapted to the surface being
-reviewed. nah asks the model to stay uncertain when the reviewed operation
-visibly includes one of these risks:
-
-- Credentials and sensitive paths: credentials, tokens, private keys,
-  passwords, sensitive paths, or broader secret access.
-- Exfiltration or unauthorized access: local data, environment values,
-  repository content, credentials, or user data sent to unauthorized remote
-  destinations.
-- Untrusted or obfuscated execution: downloaded, generated, obfuscated, hidden,
-  or injection-prone execution.
-- Persistence and trust-boundary changes: startup files, hooks, package
-  lifecycle scripts, CI/deploy/release automation, auth/session config, or
-  other trust-boundary changes.
-- Privileged runtime or system state: process, service, container, database,
-  system, or privileged runtime state changes.
-- Destructive or hard-to-reverse state changes: broad deletion, overwrite,
-  migration, reset, purge, force/history rewrite, or hard-to-reverse state
-  mutation.
-- Production, shared, remote, or external mutations: production, shared,
-  remote, or externally visible mutation.
-- Safety, sandbox, approval, or audit bypass: sandbox, approval, audit, policy,
-  hook, or guard bypass.
-- Explicit user safety-scope conflict: recent user instructions constrain
-  credentials, production, deploys, auth, persistence, external writes, safety
-  controls, or similar boundaries, and the operation visibly crosses that
-  constraint.
-
-The code owns this taxonomy. The docs describe it in human-readable terms; the
-internal category IDs are implementation details for tests and maintenance.
+Claude Code and Codex use the same classify-unknown path. For Codex,
+interactive `PermissionRequest` uses it when LLM mode is on; headless
+`PreToolUse` remains deterministic-only.
 
 ## Providers
 
-nah supports 6 LLM providers. Configure one or more in cascade order -- first success wins.
+nah supports 6 LLM providers. Configure one or more in cascade order -- first
+usable classification wins.
 
 | Provider | API | Default model | Key slot / env var |
 |----------|-----|---------------|--------------------|
@@ -80,7 +51,7 @@ nah supports 6 LLM providers. Configure one or more in cascade order -- first su
 | `anthropic` | Messages API (`/v1/messages`) | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
 | `cortex` | Snowflake Cortex REST | `claude-haiku-4-5` | `SNOWFLAKE_PAT` |
 
-All providers use `urllib.request` (stdlib) -- no external HTTP dependencies.
+All providers use `urllib.request` from the Python standard library.
 
 ## Configuration
 
@@ -88,7 +59,7 @@ All providers use `urllib.request` (stdlib) -- no external HTTP dependencies.
 # ~/.config/nah/config.yaml
 llm:
   mode: on
-  providers: [ollama, openrouter]   # cascade order
+  providers: [ollama, openrouter]
   ollama:
     url: http://localhost:11434/api/chat
     model: qwen3.5:9b
@@ -100,21 +71,23 @@ llm:
     timeout: 10
 ```
 
-`llm.enabled: true` is still accepted for backward compatibility, but `llm.mode: on` is the current form.
+`llm.enabled: true` is still accepted for backward compatibility, but
+`llm.mode: on` is the current form. Old `llm.eligible` and `llm.deny_limit`
+settings are ignored.
 
 LLM provider setup lives in global config. Store environment-variable names such
 as `key_env: OPENROUTER_API_KEY`, not raw API keys. Runtime setup lives in the
 guides for [Claude Code](../runtimes/claude-code.md),
 [Codex](../runtimes/codex.md), and
 [Terminal Guard](../runtimes/terminal-guard.md).
+
 Install `nah[config]` or inject PyYAML into pipx when you want nah to read YAML
 config files.
 
 For remote providers, the secret value can live either in the process
 environment or in an OS keychain/keyring when your CLI install includes
 keyring support, such as `pip install "nah[keys]"`, `pipx inject nah keyring`,
-or the default Nix package on systems with a usable keyring backend. This keeps
-the YAML config stable while moving the secret out of shell exports:
+or the default Nix package on systems with a usable keyring backend:
 
 ```bash
 pip install "nah[config,keys]"
@@ -130,7 +103,7 @@ The Claude Code plugin does not install the `nah` CLI, so `nah key ...`
 requires a CLI install. For custom `key_env` values, you can manually store a
 matching slot in your keyring under the service name `nah.llm`.
 
-### Provider examples
+## Provider examples
 
 === "Ollama (local)"
 
@@ -204,128 +177,16 @@ matching slot in your keyring under the service name `nah.llm`.
       mode: on
       providers: [cortex]
       cortex:
-        account: myorg-myaccount   # or set SNOWFLAKE_ACCOUNT env var
+        account: myorg-myaccount
         key_env: SNOWFLAKE_PAT
         model: claude-haiku-4-5
     ```
 
-## LLM options
+## Target-Specific Policy
 
-### eligible
-
-Control which `ask` categories route to the LLM:
-
-```yaml
-llm:
-  eligible: default    # strict | default | all
-```
-
-Or use an explicit list:
-
-```yaml
-llm:
-  eligible:
-    - strict
-    - git_discard
-    - composition      # opt in to composition asks
-    - sensitive        # opt in to sensitive context asks
-```
-
-`strict` routes `unknown`, `lang_exec`, and non-sensitive `context` asks to the LLM.
-
-`default` adds `package_uninstall`, `container_exec`, `browser_exec`, `agent_exec_read`, `process_signal`, and `git_remote_write`. It can also review safe local read-to-filter pipelines such as a local file read piped into inline, visible Python or shell code. The deterministic decision remains an `ask`; the LLM can only return `allow` or leave the human prompt in place.
-
-Broad composition review is still opt-in. File-backed scripts such as `python3 script.py`, sensitive reads, network/download stages, decode stages, destructive actions, bypass actions, and remote/shared-state writes stay human-gated under `default`. Service writes, destructive container/service actions, git discard/history rewrites, agent write/remote/server/bypass actions, and `sensitive` prompts also stay human-gated by default. Plain Git pushes can be LLM-reviewed when recent intent is clear; force pushes, branch/tag deletion, mirror/all pushes, and release-looking pushes should remain human prompts.
-
-Explicit lists can combine presets and action types. `composition` and `sensitive` are gates: add them explicitly, or use top-level `eligible: all`, if you want those asks routed to the LLM.
-
-Provider responses of `block` are treated as `uncertain`, so the LLM can allow an eligible ask or leave it as an ask; it cannot block through ask-refinement.
-
-LLM responses include a prompt-safe `reasoning` summary of at most 10 words and
-a longer `reasoning_long` explanation for observability. Prompt-safe means the
-summary must not include secrets, sensitive values, or hidden reasoning.
-Claude-visible prompts use the short summary; structured logs and `nah test`
-can show the longer explanation for debugging.
-
-### Ask-refinement context
-
-Claude Code and Codex use the same agent ask-refinement (Layer 2) prompt **and
-the same enforcement** — both paths route the model's reply through one shared
-interpreter, so the cite-or-ask rule below applies identically whether the guard
-is fronting Claude Code or a Codex permission request. The static rules live in
-the system message (so a caching provider reuses them across asks); the per-ask
-user message is intentionally minimal — the command, the cwd and whether it is
-inside the project, and the recent user messages from the transcript. Nah-internal signals (the deterministic action type, reason, and
-stage breakdown) are not placed in the prompt: the deterministic floor already
-used them to decide this is an ask, and the model judges relaxation from the
-command, scope, and the user's own words.
-
-The relaxer is strictly **cite-or-ask**: it may choose `allow` only when it can
-quote the recent user message that authorizes the action's target and effect
-(returned in a `citation` field) — there is no "routine low-risk" auto-allow. It
-must cite **only** from the recent user messages; nothing else in the prompt,
-including the command being judged, counts as user intent. The cwd / `inside
-project` flag is a blast-radius weight: an action reaching outside the project
-(home, other repos, system files, external hosts) is higher risk and is relaxed
-only when the citation clearly authorizes that wider reach.
-
-The agent ask-refinement path does not read `CLAUDE.md`, `AGENTS.md`, global
-instruction files, or instruction includes. Those files can guide the agent
-itself, but nah treats recent transcript context as the evidence of user intent.
-The transcript is framed as data, so the model can use it as evidence without
-following instructions embedded inside it.
-
-The shared risk categories appear as a compact one-line checklist drawn from the
-same canonical list the verbose review prompts use, so the two can never drift.
-Each category carries a **veto tier**: a **hard** category (credentials,
-exfiltration, untrusted/obfuscated execution, safety/sandbox bypass, explicit
-user-scope conflict) is never relaxable — a citation can never override it. A
-**soft** category (external/remote mutation, destructive state, privileged state,
-persistence/trust-boundary changes) is consequential but routinely authorized, so
-a citation **may** relax it — but only for the specific action types that opt in.
-The opt-in is per action: a soft category's veto is lifted from the checklist only
-when judging an action allowed to relax it, so the same category still vetoes
-every other action.
-
-Today these soft relaxations are enabled (all routine, low-stakes, reversible
-ops the user authorizes constantly — each lifts only the soft category that
-otherwise over-vetoes its everyday case):
-
-| Action | Lifted soft category | Example |
-| --- | --- | --- |
-| `git push` (`git_remote_write`) | external/remote mutation | "push please" |
-| restart/kill a process (`process_signal`) | privileged runtime state | "restart the dev server" |
-| run a command in a container (`container_exec`) | privileged runtime state | "run the tests in the container" |
-| uninstall a dependency (`package_uninstall`) | persistence + destructive state | "uninstall that package" |
-
-A relax only applies to an action that is also in `llm.eligible` (the breadth
-gate); the lift here is the code-owned permissiveness gate that bounds how far
-broad eligibility can go (it keeps `eligible: all` from auto-relaxing a cited
-`rm -rf` or a prod deploy). Hard categories are never lifted for any action.
-
-`git push` carries one accepted, documented security-debt tradeoff: it relaxes
-with **no destination check**, so a misaligned agent that repoints the repo's
-remote could have a cited push relaxed to an attacker destination. The exposure
-is narrow — it needs both a repoint and a real cited push intent, and the
-deterministic floor still makes every push an `ask` by default. The durable fix
-(snapshot the trusted destination at session start and relax only if it has not
-moved at push time) is tracked separately.
-
-The relaxer can only allow an eligible ask or leave it in place; provider `block`
-responses are treated as `uncertain`, and deterministic blocks do not route
-through ask-refinement.
-
-The terminal guard is deterministic-only and does not use the LLM: a command
-typed directly into bash or zsh is already the human's own intent, so it is
-classified to allow / ask / block with no provider call, and an `ask` is
-confirmed inline at the prompt. The review scope above applies to the agent
-runtimes only.
-
-## Target-specific LLM policy
-
-The global provider cascade and credentials are shared across targets. Per-target
-overrides can change whether a runtime uses the LLM and which decisions are
-eligible:
+The global provider cascade and credentials are shared across targets.
+Per-target overrides can change whether a runtime uses the classify-unknown
+LLM path:
 
 ```yaml
 llm:
@@ -339,85 +200,39 @@ targets:
   claude:
     llm:
       mode: on
+  codex:
+    llm:
+      mode: on
 ```
 
 The terminal-guard targets (`bash`, `zsh`) are deterministic-only and do not use
 the LLM. Their `llm.mode` knob is still accepted for backward compatibility but
-has no effect on terminal decisions; see
-[Terminal Guard](../runtimes/terminal-guard.md#deterministic-by-design).
+has no effect on terminal decisions.
 
 Project `.nah.yaml` files can tighten target policy by default, but target LLM
 settings and provider credentials are trusted/global config only. Use
 `nah trust-project` when you want that exact project root to control non-policy
 target settings.
 
-## Clean script veto
-
-When Bash classification resolves an inspectable `lang_exec` script or inline
-code to deterministic `allow`, nah can still ask the LLM to inspect the script
-content. This is a veto-only path: an LLM `allow` preserves the deterministic
-allow, while `uncertain` or `block` escalates to `ask` for human review.
-
-The clean script veto uses the shared review scope above. It is meant to catch
-visible security or safety risk in otherwise clean script execution, not to
-review code style or general implementation quality.
-
-Deterministic `lang_exec` asks and blocks do not use this veto path. Eligible
-asks route through Layer 2 ask-refinement; blocks stay blocked.
-
-## Write-like tools are not LLM-reviewed
-
-Write, Edit, MultiEdit, NotebookEdit, and Codex `apply_patch` are guarded by a
-deterministic floor only: sensitive paths block or ask, `~/.claude/hooks/`
-blocks, `~/.config/nah/` asks, writes outside the project root ask, destructive
-`apply_patch` operations (delete/move) ask, and everything else allows. Their
-content is never sent to an LLM and is never scanned for secret-shaped text. Use
-[sensitive paths](sensitive-paths.md) for write-side protection.
-
-## context_chars
-
-How much conversation transcript context to include in the LLM prompt:
-
-```yaml
-llm:
-  context_chars: 12000  # default: 12000 characters of recent transcript
-```
-
-Set to `0` to disable transcript context entirely.
-
-The transcript is read from the agent JSONL conversation file when the runtime
-provides one. It includes user messages and tool-use summaries, wrapped with
-anti-injection framing.
-
-Bash and zsh are deterministic-only and do not use the LLM; their `llm.mode`
-setting is accepted for backward compatibility but has no effect. See
-[Terminal Guard](../runtimes/terminal-guard.md#deterministic-by-design).
-
-## How the cascade works
+## How the Cascade Works
 
 1. nah tries each provider in the order listed in `providers:`
-2. If a provider returns `allow`, that decision is used
-3. If a provider returns `uncertain`, the cascade **stops** (doesn't try the next provider)
-4. If a provider errors (timeout, auth failure), nah tries the next provider
-5. If all providers fail, the deterministic decision stands; for ask-refinement, that means the decision stays `ask`
+2. A valid classification is terminal, including an explicit `unknown`
+3. If a provider response cannot be parsed or the provider errors, nah tries the next provider
+4. If all providers fail, the deterministic `unknown -> ask` decision stands
 
-Provider `uncertain` responses stop the cascade. In ask-refinement they leave the decision as `ask`; in the clean-script veto they leave the script as an `ask`.
+Provider results are cached in-process by command string after a classification
+is produced. All-provider-error results are not cached.
 
 ## Testing
 
 ```bash
 nah config show
-nah test "python3 -c 'import os; os.system(\"rm -rf /\")'"
-nah test "kill -9 1234"
-nah test "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'"
-nah test "cat package.json | python3 script.py"
-nah test --target bash -- "python3 -c 'print(1)'"
-nah log --asks
+nah test "some-unknown-wrapper github.com"
+nah test "curl -I https://example.com"
+nah test "python3 -c 'print(1)'"
 nah log --llm
-# Shows: LLM eligible: yes/no, LLM decision (if configured)
 ```
 
-The `nah test` command shows LLM eligibility and, if enabled, makes a live LLM
-call so you can verify the full pipeline. The inline read-to-filter example can
-be LLM-eligible under `default`; the file-backed script example should remain a
-human prompt unless you explicitly opt into broader composition review.
+`nah test` shows the classify pass in JSON output as `classify_llm` when an
+unknown command is mapped by the LLM. Known asks and inline code remain asks.

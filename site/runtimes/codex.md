@@ -63,6 +63,11 @@ observation-only. `PostToolUse` lets nah log execution outcomes without
 changing Codex's native approval UI. The interactive enforcement decision
 happens in `PermissionRequest`.
 
+When global `llm.mode: on` is configured, interactive Codex uses the same single
+LLM job as Claude Code: classify a deterministically unknown Bash command into a
+built-in action type and re-check surfaced targets through the deterministic
+floor. Known asks, inline code, writes, and blocks do not call the LLM.
+
 For `codex exec`, Codex does not have the same interactive approval loop. In
 that headless mode, nah makes `PreToolUse` authoritative and never emits an
 unsupported ask decision. A deterministic allow continues with empty hook

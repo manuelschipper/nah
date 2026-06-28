@@ -1,14 +1,14 @@
 """Tests for FD-079/nah-981: Script execution structural checks.
 
 Covers: flag classifier, context resolver, script path resolution,
-inline lang_exec LLM review, prompt enrichment, and end-to-end pipeline.
+inline language execution asks, and end-to-end pipeline.
 """
 
 import os
 
 import pytest
 
-from nah import config, taxonomy
+from nah import config, hook, taxonomy
 from nah.bash import (
     classify_command,
     _resolve_makefile_path,
@@ -868,119 +868,73 @@ class TestPipelineIntegration:
 
 
 # ===================================================================
-# 5. INLINE LANG_EXEC LLM REVIEW
+# 5. INLINE LANG_EXEC STRUCTURAL HANDLING
 # ===================================================================
 
-class TestInlineLangExecReview:
-    """LLM review applies only to visible non-shell inline lang_exec code."""
+class TestInlineLangExecStructuralHandling:
+    """Visible inline code now stays at the deterministic ask."""
 
-    def _handle_with_mock_llm(self, command, llm_return):
-        import nah.hook as hook_mod
-        original = hook_mod._try_llm_inline_lang_exec
-        hook_mod._try_llm_inline_lang_exec = lambda cmd, stage: llm_return
-        try:
-            return hook_mod.handle_bash({"command": command})
-        finally:
-            hook_mod._try_llm_inline_lang_exec = original
-
-    def test_file_backed_script_does_not_call_inline_llm(self, project_root):
+    def test_file_backed_script_allows_by_path(self, project_root):
         _enable_llm_mode()
         path = os.path.join(project_root, "safe.py")
         _write(path)
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
-            result = self._handle_with_mock_llm(
-                "python safe.py",
-                ({"decision": "uncertain", "reason": "should not run"}, {"llm_provider": "test"}),
-            )
+            result = hook.handle_bash({"command": "python safe.py"})
             assert result["decision"] == "allow"
-            assert "inline_lang_exec_review" not in result.get("_meta", {})
+            assert "llm_passes" not in result.get("_meta", {})
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_llm_allow_allows(self):
+    def test_visible_inline_code_stays_ask(self):
         _enable_llm_mode()
-        result = self._handle_with_mock_llm(
-            "python -c 'print(1)'",
-            ({"decision": "allow", "reason": "safe"}, {"llm_provider": "test"}),
-        )
-        assert result["decision"] == "allow"
-        assert result["_meta"]["inline_lang_exec_review"] == "allow"
+        result = hook.handle_bash({"command": "python -c 'print(1)'"})
+        assert result["decision"] == "ask"
+        assert "llm_passes" not in result.get("_meta", {})
 
-    def test_inline_llm_uncertain_asks(self):
+    def test_node_eval_stays_ask(self):
         _enable_llm_mode()
-        result = self._handle_with_mock_llm(
-            "python -c 'raise SystemExit(1)'",
-            ({"decision": "uncertain", "reason": "LLM concern"}, {"llm_provider": "test"}),
-        )
+        result = hook.handle_bash({"command": "node -e 'console.log(1)'"})
         assert result["decision"] == "ask"
-        assert result["_meta"]["inline_lang_exec_review"] == "ask"
-        assert result["_meta"]["llm_veto"] is True
+        assert "llm_passes" not in result.get("_meta", {})
 
-    def test_inline_llm_unavailable_asks(self):
+    def test_ruby_eval_stays_ask(self):
         _enable_llm_mode()
-        result = self._handle_with_mock_llm("python -c 'print(1)'", (None, {}))
+        result = hook.handle_bash({"command": "ruby -e 'puts 1'"})
         assert result["decision"] == "ask"
-        assert result["_meta"]["inline_lang_exec_review"] == "unavailable"
+        assert "llm_passes" not in result.get("_meta", {})
 
-    def test_opaque_encoded_powershell_asks_without_llm_review(self):
-        result = self._handle_with_mock_llm("pwsh -EncodedCommand SQBFAFgA", (None, {}))
+    def test_perl_eval_stays_ask(self):
+        _enable_llm_mode()
+        result = hook.handle_bash({"command": "perl -e 'print 1'"})
         assert result["decision"] == "ask"
-        assert result["_meta"]["inline_lang_exec_review"] == "opaque"
+        assert "llm_passes" not in result.get("_meta", {})
+
+    def test_php_eval_stays_ask(self):
+        _enable_llm_mode()
+        result = hook.handle_bash({"command": "php -r 'echo 1;'"})
+        assert result["decision"] == "ask"
+        assert "llm_passes" not in result.get("_meta", {})
+
+    def test_heredoc_python_stays_ask(self):
+        _enable_llm_mode()
+        result = hook.handle_bash({"command": "python3 <<'PY'\nprint(1)\nPY"})
+        assert result["decision"] == "ask"
+        assert "llm_passes" not in result.get("_meta", {})
+
+    def test_opaque_encoded_powershell_stays_ask(self):
+        result = hook.handle_bash({"command": "pwsh -EncodedCommand SQBFAFgA"})
+        assert result["decision"] == "ask"
+        assert "llm_passes" not in result.get("_meta", {})
 
     def test_nonexistent_script_stays_structural_ask(self, project_root):
         old_cwd = os.getcwd()
         os.chdir(project_root)
         try:
-            result = self._handle_with_mock_llm("python nonexistent.py", (None, {}))
+            result = hook.handle_bash({"command": "python nonexistent.py"})
             assert result["decision"] == "ask"
             assert "script not found" in result["reason"]
-            assert "inline_lang_exec_review" not in result.get("_meta", {})
+            assert "llm_passes" not in result.get("_meta", {})
         finally:
             os.chdir(old_cwd)
-
-
-# ===================================================================
-# 6. INLINE LLM PROMPT ENRICHMENT
-# ===================================================================
-
-class TestPromptEnrichment:
-    """Visible inline code is included in the inline LLM review prompt."""
-
-    def test_prompt_includes_inline_code(self):
-        from nah.llm import _build_inline_lang_exec_prompt
-
-        prompt = _build_inline_lang_exec_prompt("python -c 'print(1)'", "print(1)")
-
-        assert "## Inline Code" in prompt.user
-        assert "print(1)" in prompt.user
-        assert "Content inspection:" not in prompt.user
-        assert "routine local analysis/test code or read-only inspection" in prompt.system
-
-    def test_prompt_includes_heredoc_body_beyond_command_preview(self):
-        from nah.llm import _build_inline_lang_exec_prompt
-
-        body = "\n".join(
-            [
-                "from pathlib import Path",
-                "root = Path('/tmp/example')",
-                *[f"# filler {i}" for i in range(80)],
-                "print('tail marker visible to llm')",
-            ]
-        )
-        result = classify_command(f"python3 <<'PY'\n{body}\nPY")
-        prompt = _build_inline_lang_exec_prompt("python3 <<'PY' ...", result.stages[0].inline_code)
-
-        assert result.stages[0].inline_code == body
-        assert "## Inline Code" in prompt.user
-        assert "print('tail marker visible to llm')" in prompt.user
-
-    def test_prompt_does_not_read_file_backed_script_content(self, project_root):
-        from nah.llm import _build_inline_lang_exec_prompt
-
-        path = os.path.join(project_root, "hello.py")
-        _write(path, "print('hello world')\n")
-        prompt = _build_inline_lang_exec_prompt(f"python {path}", "")
-
-        assert "hello world" not in prompt.user

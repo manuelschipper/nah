@@ -57,11 +57,9 @@ milliseconds.
 
 nah is a permissions guard built in pure Python with zero required dependencies
 that works out of the box. The main classifier maps tools deterministically into
-an intent taxonomy in milliseconds. An optional LLM (off by default) does two
-narrow jobs behind the deterministic floor: it classifies an `unknown` command
-into an action type whose surfaced targets are re-checked deterministically, and
-it relaxes an eligible `ask` to `allow` only when it can cite the user's own
-request (surfaced as a distinct `relaxed` outcome).
+an intent taxonomy in milliseconds. An optional LLM (off by default) does one
+narrow job behind the deterministic floor: it classifies an `unknown` command
+into an action type whose surfaced targets are re-checked deterministically.
 
 ## How nah decides
 
@@ -74,12 +72,11 @@ Before a guarded action runs, nah turns it into a policy decision:
    composition, target runtime, network hosts, and database targets.
 4. Apply your config and custom classifiers.
 5. Return `allow`, `ask`, or `block`.
-6. For eligible ambiguous cases, optionally ask an LLM. When enabled, the LLM can
-   classify an `unknown` command (its surfaced targets are re-checked
-   deterministically) and relax an eligible `ask` to `allow` when it cites your
-   request; visible non-shell inline `lang_exec` payloads can be escalated to
-   `ask`. Write-like operations are never sent to the LLM; deterministic blocks
-   stay blocked.
+6. For deterministically `unknown` Bash commands, optionally ask an LLM to map
+   the command to a built-in action type and list touched targets. The
+   deterministic floor then re-checks those targets. Known `ask` decisions,
+   inline `lang_exec` payloads, write-like operations, and deterministic blocks
+   stay human-gated or blocked without LLM override.
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).

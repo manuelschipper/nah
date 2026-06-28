@@ -1,112 +1,18 @@
 """PreToolUse hook entry point — reads JSON from stdin, returns decision on stdout."""
 
 import json
-import os
 import sys
 
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
 from nah.content import is_credential_search
-from nah.messages import enrich_decision, system_byline
+from nah.messages import enrich_decision
 
 _transcript_path: str = ""  # set per-invocation by main()
-_AUTO_STATE_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah", "auto-state")
 _POST_TOOL_EVENTS = {
     "PostToolUse": ("post_tool", "executed"),
     "PostToolUseFailure": ("post_tool_failure", "failed"),
 }
-
-_LLM_ELIGIBLE_PRESETS = {
-    "strict": (taxonomy.UNKNOWN, taxonomy.LANG_EXEC, taxonomy.CONTEXT),
-    "default": (
-        "strict",
-        taxonomy.PACKAGE_UNINSTALL,
-        taxonomy.CONTAINER_EXEC,
-        taxonomy.BROWSER_EXEC,
-        taxonomy.AGENT_EXEC_READ,
-        taxonomy.PROCESS_SIGNAL,
-        taxonomy.GIT_REMOTE_WRITE,
-    ),
-}
-_DEFAULT_SAFE_COMPOSITION_RULE = "read | exec"
-_DEFAULT_SAFE_COMPOSITION_ALLOWED_ACTIONS = {
-    taxonomy.FILESYSTEM_READ,
-    taxonomy.LANG_EXEC,
-}
-_DEFAULT_SAFE_COMPOSITION_FORBIDDEN_ACTIONS = {
-    taxonomy.FILESYSTEM_DELETE,
-    taxonomy.FILESYSTEM_WRITE,
-    taxonomy.GIT_REMOTE_WRITE,
-    taxonomy.GIT_DISCARD,
-    taxonomy.GIT_HISTORY_REWRITE,
-    taxonomy.NETWORK_OUTBOUND,
-    taxonomy.NETWORK_WRITE,
-    taxonomy.PACKAGE_INSTALL,
-    taxonomy.CONTAINER_LIFECYCLE,
-    taxonomy.CONTAINER_BUILD,
-    taxonomy.CONTAINER_DESTRUCTIVE,
-    taxonomy.SERVICE_WRITE,
-    taxonomy.SERVICE_DESTRUCTIVE,
-    taxonomy.DB_EXEC,
-    taxonomy.AGENT_WRITE,
-    taxonomy.AGENT_EXEC_WRITE,
-    taxonomy.AGENT_EXEC_REMOTE,
-    taxonomy.AGENT_SERVER,
-    taxonomy.AGENT_EXEC_BYPASS,
-    taxonomy.OBFUSCATED,
-    taxonomy.UNKNOWN,
-}
-_INLINE_EXEC_FLAGS = {
-    "python": {"-c"},
-    "python3": {"-c"},
-    "node": {"-e", "--eval", "-p", "--print"},
-    "ruby": {"-e"},
-    "perl": {"-e"},
-    "php": {"-r"},
-    "bash": {"-c"},
-    "sh": {"-c"},
-    "dash": {"-c"},
-    "zsh": {"-c"},
-    "fish": {"-c"},
-    "pwsh": {"-c", "-command", "-encodedcommand"},
-    "powershell": {"-c", "-command", "-encodedcommand"},
-}
-
-
-def _auto_state_path(transcript_path: str) -> str | None:
-    """Return the session state file path for Layer-2 relax ask refinement."""
-    if not transcript_path:
-        return None
-    session_id = os.path.basename(transcript_path)
-    if not session_id:
-        return None
-    return os.path.join(_AUTO_STATE_DIR, session_id)
-
-
-def _read_auto_state(transcript_path: str) -> tuple[int, bool]:
-    """Read (deny_count, disabled) from session state, defaulting safely."""
-    path = _auto_state_path(transcript_path)
-    if not path:
-        return 0, False
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return int(data.get("deny_count", 0)), bool(data.get("disabled", False))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return 0, False
-
-
-def _write_auto_state(transcript_path: str, deny_count: int, disabled: bool) -> None:
-    """Persist Layer-2 relax ask-refinement state across hook invocations."""
-    path = _auto_state_path(transcript_path)
-    if not path:
-        return
-    try:
-        os.makedirs(_AUTO_STATE_DIR, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"deny_count": deny_count, "disabled": disabled}, f)
-    except OSError as exc:
-        sys.stderr.write(f"nah: auto-state write: {exc}\n")
 
 
 def _check_write_target(tool_name: str, tool_input: dict) -> dict:
@@ -206,288 +112,6 @@ def _format_bash_reason(result) -> str:
     if result.composition_rule:
         reason = f"[{result.composition_rule}] {reason}"
     return f"Bash: {reason}"
-
-
-def _is_llm_eligible_stages(
-    action_type: str,
-    stages: list[dict],
-    eligible,
-    composition_rule: str = "",
-) -> bool:
-    """Check if an ask decision could benefit from Layer-2 relax LLM analysis."""
-    all_eligible, expanded = _expand_llm_eligible(eligible)
-    if all_eligible:
-        return True
-
-    if composition_rule and "composition" not in expanded:
-        if (
-            _eligible_uses_default_preset(eligible)
-            and _is_default_safe_read_exec_composition(stages, composition_rule)
-        ):
-            return True
-        return False
-
-    for sr in stages:
-        if sr.get("decision") != taxonomy.ASK:
-            continue
-        stage_action_type = sr.get("action_type", "")
-        reason = sr.get("reason", "")
-
-        if sr.get("policy") == taxonomy.CONTEXT and "sensitive" in reason.lower():
-            if "sensitive" not in expanded:
-                continue
-
-        if stage_action_type in expanded or action_type in expanded:
-            return True
-        if taxonomy.CONTEXT in expanded and sr.get("policy") == taxonomy.CONTEXT:
-            return True
-    return False
-
-
-def _eligible_uses_default_preset(eligible) -> bool:
-    """Return whether the raw eligible config explicitly includes default."""
-    raw_items = eligible if isinstance(eligible, list) else [eligible]
-    return any(str(item) == "default" for item in raw_items)
-
-
-def _is_default_safe_read_exec_composition(
-    stages: list[dict],
-    composition_rule: str,
-) -> bool:
-    """Return True for default-only, visible local read-to-filter pipelines."""
-    if composition_rule != _DEFAULT_SAFE_COMPOSITION_RULE or len(stages) < 2:
-        return False
-
-    for stage in stages:
-        if not _stage_allowed_for_default_read_exec(stage):
-            return False
-        if _stage_has_forbidden_default_composition_signal(stage):
-            return False
-
-    for left, right in zip(stages, stages[1:]):
-        if not _stage_is_filesystem_read(left):
-            continue
-        if _stage_has_visible_inline_exec(right):
-            return True
-    return False
-
-
-def _stage_allowed_for_default_read_exec(stage: dict) -> bool:
-    if stage.get("decision") == taxonomy.ALLOW:
-        return True
-    if stage.get("decision") != taxonomy.ASK:
-        return False
-    return _stage_inline_exec_review_state(stage) == "visible"
-
-
-def _stage_has_forbidden_default_composition_signal(stage: dict) -> bool:
-    action_type = str(stage.get("action_type", ""))
-    if action_type not in _DEFAULT_SAFE_COMPOSITION_ALLOWED_ACTIONS:
-        return True
-    if action_type in _DEFAULT_SAFE_COMPOSITION_FORBIDDEN_ACTIONS:
-        return True
-    reason = str(stage.get("reason", "")).lower()
-    return any(
-        needle in reason
-        for needle in (
-            "sensitive",
-            "credential",
-            "secret",
-            "network",
-            "remote",
-            "decode",
-            "obfuscat",
-            "bypass",
-            "destructive",
-            "delete",
-            "write",
-        )
-    )
-
-
-def _stage_value(stage, key: str, default=None):
-    """Read a StageResult/dataclass or serialized stage dict consistently."""
-    if isinstance(stage, dict):
-        return stage.get(key, default)
-    return getattr(stage, key, default)
-
-
-def _stage_tokens(stage) -> list:
-    tokens = _stage_value(stage, "tokens", [])
-    if not isinstance(tokens, list) or len(tokens) < 2:
-        return []
-    return tokens
-
-
-def _stage_action_type(stage) -> str:
-    return str(_stage_value(stage, "action_type", "") or "")
-
-
-def _stage_decision(stage) -> str:
-    return str(_stage_value(stage, "decision", "") or "")
-
-
-def _stage_reason(stage) -> str:
-    return str(_stage_value(stage, "reason", "") or "")
-
-
-def _stage_inline_code(stage) -> str:
-    return str(_stage_value(stage, "inline_code", "") or "")
-
-
-def _stage_is_filesystem_read(stage) -> bool:
-    return _stage_action_type(stage) == taxonomy.FILESYSTEM_READ
-
-
-def _stage_has_visible_inline_exec(stage) -> bool:
-    return (
-        _stage_inline_exec_review_state(stage) == "visible"
-        or _stage_token_inline_exec_visibility(stage) == "visible"
-    )
-
-
-def _stage_inline_exec_review_state(stage) -> str:
-    """Return visible/opaque when a non-shell inline execution needs review."""
-    marker = _stage_value(stage, "inline_exec", None)
-    if isinstance(marker, dict) and marker.get("review") == "required":
-        return "visible" if marker.get("visible") else "opaque"
-
-    if _stage_action_type(stage) != taxonomy.LANG_EXEC:
-        return ""
-    if _stage_decision(stage) != taxonomy.ASK:
-        return ""
-    if _is_shell_inline_stage(stage):
-        return ""
-    if _stage_inline_code(stage):
-        return "visible"
-
-    visibility = _stage_token_inline_exec_visibility(stage)
-    if visibility:
-        return visibility
-
-    if _stage_reason(stage).startswith("lang_exec: inline execution"):
-        return "opaque"
-    return ""
-
-
-def _stage_token_inline_exec_visibility(stage) -> str:
-    """Infer whether inline exec payload is visible from stage tokens."""
-    tokens = _stage_tokens(stage)
-    if len(tokens) < 2:
-        return ""
-    cmd = _stage_command_name(stage)
-
-    if cmd in {"pwsh", "powershell"}:
-        for i, token in enumerate(tokens[1:], 1):
-            flag = str(token).lower()
-            if flag == "-encodedcommand":
-                return "opaque"
-            if flag in {"-c", "-command"}:
-                return "visible" if i + 1 < len(tokens) else "opaque"
-        return ""
-
-    if cmd == "cmd":
-        flag = str(tokens[1]).lower()
-        if flag in {"/c", "/k"}:
-            return "visible" if len(tokens) > 2 else "opaque"
-        return ""
-
-    inline_flags = _INLINE_EXEC_FLAGS.get(cmd)
-    if not inline_flags:
-        return ""
-    for i, token in enumerate(tokens[1:], 1):
-        if str(token).lower() in inline_flags:
-            return "visible" if i + 1 < len(tokens) else "opaque"
-    return ""
-
-
-def _expand_llm_eligible(eligible) -> tuple[bool, set[str]]:
-    """Expand llm.eligible presets and keywords into a membership set."""
-    if eligible == "all":
-        return True, set()
-
-    raw_items = eligible if isinstance(eligible, list) else [eligible]
-    expanded: set[str] = set()
-    seen: set[str] = set()
-
-    def add_item(item) -> bool:
-        name = str(item)
-        if name == "all":
-            return True
-        if name in _LLM_ELIGIBLE_PRESETS:
-            if name in seen:
-                return False
-            seen.add(name)
-            for preset_item in _LLM_ELIGIBLE_PRESETS[name]:
-                if add_item(preset_item):
-                    return True
-            return False
-        expanded.add(name)
-        return False
-
-    for item in raw_items:
-        if add_item(item):
-            return True, set()
-    return False, expanded
-
-
-def _is_llm_eligible(result) -> bool:
-    """Check if a bash ask decision could benefit from LLM analysis."""
-    try:
-        from nah.config import get_config
-        eligible = get_config().llm_eligible
-    except Exception as exc:
-        sys.stderr.write(f"nah: config: llm_eligible: {exc}\n")
-        eligible = "default"
-
-    stages = [
-        {
-            "tokens": sr.tokens,
-            "action_type": sr.action_type,
-            "decision": sr.decision,
-            "policy": sr.default_policy,
-            "reason": sr.reason,
-        }
-        for sr in result.stages
-    ]
-    action_type = ""
-    for stage in stages:
-        if stage["decision"] == taxonomy.ASK:
-            action_type = stage["action_type"]
-            break
-    if not action_type and stages:
-        action_type = stages[0]["action_type"]
-    return _is_llm_eligible_stages(
-        action_type, stages, eligible, result.composition_rule,
-    )
-
-
-def _build_llm_meta(llm_call, cfg) -> dict:
-    """Build LLM metadata dict from an LLMCallResult."""
-    llm_meta: dict = {}
-    if llm_call.cascade:
-        llm_meta = {
-            "llm_provider": llm_call.provider,
-            "llm_model": llm_call.model,
-            "llm_latency_ms": llm_call.latency_ms,
-            "llm_decision": (
-                llm_call.decision.get("decision", "")
-                if llm_call.decision is not None else ""
-            ),
-            "llm_reasoning": llm_call.reasoning,
-            "llm_reasoning_long": getattr(llm_call, "reasoning_long", ""),
-            "llm_cascade": [
-                {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
-                 **({"error": a.error} if a.error else {})}
-                for a in llm_call.cascade
-            ],
-        }
-    try:
-        if cfg.log and cfg.log.get("llm_prompt", False):
-            llm_meta["llm_prompt"] = llm_call.prompt
-    except Exception as exc:
-        sys.stderr.write(f"nah: config: log.llm_prompt: {exc}\n")
-    return llm_meta
 
 
 def _append_classify_pass(meta: dict, classify, verdict, cfg) -> None:
@@ -593,94 +217,14 @@ def _apply_layer1_classify(tool_name: str, tool_input: dict, decision: dict) -> 
         return decision
 
 
-def apply_layer2_relax(decision: dict, llm_call, cfg) -> tuple[dict, str]:
-    """Apply the Layer-2 (intent relaxer) cite-or-ask contract to an ask.
-
-    The single interpreter every Layer-2 consumer shares — the Claude hook,
-    the Codex permission path, and ``nah test`` — so the nah-984 invariant
-    lives in exactly one place: an LLM ``allow`` only relaxes the ask when it
-    cites user intent (outcome ``relaxed``); an uncited allow stays an ask
-    (``uncited``); model uncertainty or no usable decision stays an ask
-    (``uncertain`` / ``none``). Stamps the llm_* metadata, the cited intent,
-    and any ``_system_message`` / ``_llm_reason``. Returns
-    ``(decision, outcome)``; callers own any auto-state / deny-limit
-    accounting keyed off the outcome.
-    """
+def maybe_apply_layer1_classify(canonical: str, tool_input: dict, decision: dict) -> dict:
+    """Apply the sole LLM job to unknown Bash asks when LLM mode is enabled."""
+    if decision.get("decision") != taxonomy.ASK or canonical != "Bash":
+        return decision
     meta = decision.setdefault("_meta", {})
-    meta.update(_build_llm_meta(llm_call, cfg))
-    meta["llm_phase"] = "relax"
-    if llm_call.decision is None:
-        return decision, "none"
-
-    llm_allows = llm_call.decision.get("decision") == taxonomy.ALLOW
-    citation = (getattr(llm_call, "citation", "") or "").strip()
-
-    if llm_allows and citation:
-        # Relaxed: a distinct outcome, not a silent allow. The cited user turn
-        # authorizes the ask-class operation; surface both halves + log it.
-        meta["llm_review"] = "relaxed"
-        meta["llm_citation"] = citation
-        would_ask = decision.get("reason", "")
-        relaxed = {**llm_call.decision, "_meta": meta}
-        relaxed["_system_message"] = system_byline(
-            taxonomy.ALLOW,
-            f"normally asks: {would_ask}; you asked: {citation[:140]}",
-        )
-        return relaxed, "relaxed"
-
-    if llm_allows:
-        # cite-or-ask: an allow with no cited user intent is not trusted —
-        # keep the ask. This is the guardrail that nah-982/984 hardened and
-        # that every consumer now enforces by routing through here.
-        meta["llm_review"] = "uncited"
-        if llm_call.reasoning:
-            decision["_llm_reason"] = llm_call.reasoning
-        decision["_system_message"] = system_byline(
-            taxonomy.ASK, llm_call.reasoning or "no cited user intent"
-        )
-        return decision, "uncited"
-
-    # Model uncertain — keep the ask. Surface reasoning so the summary lands in
-    # the transcript as context for future calls when the tool eventually runs.
-    if llm_call.reasoning:
-        decision["_llm_reason"] = llm_call.reasoning
-    decision["_system_message"] = system_byline(
-        taxonomy.ASK, llm_call.reasoning or "uncertain"
-    )
-    return decision, "uncertain"
-
-
-def _try_llm_inline_lang_exec(command: str, stage) -> tuple[dict | None, dict]:
-    """Attempt LLM review for visible non-shell inline lang_exec code."""
-    try:
-        from nah.config import get_config
-        cfg = get_config()
-        if cfg.llm_mode != "on" or not cfg.llm:
-            return None, {}
-        inline_code = str(getattr(stage, "inline_code", "") or "")
-        if not inline_code:
-            return None, {}
-        from nah.llm import try_llm_inline_lang_exec
-
-        llm_call = try_llm_inline_lang_exec(
-            command,
-            inline_code,
-            cfg.llm,
-            _transcript_path,
-            stages=[{
-                "tokens": stage.tokens,
-                "action_type": stage.action_type,
-                "decision": stage.decision,
-                "policy": stage.default_policy,
-                "reason": stage.reason,
-            }],
-        )
-        return llm_call.decision, _build_llm_meta(llm_call, cfg)
-    except ImportError:
-        return None, {}
-    except Exception as exc:
-        sys.stderr.write(f"nah: LLM inline lang_exec error: {exc}\n")
-        return None, {}
+    if _extract_action_type(meta) not in ("", taxonomy.UNKNOWN):
+        return decision
+    return _apply_layer1_classify(canonical, tool_input, decision)
 
 
 def _classify_meta(result) -> dict:
@@ -698,12 +242,6 @@ def _classify_meta(result) -> dict:
         }
         if sr.redirect_target:
             stage["redirect_target"] = sr.redirect_target
-        inline_state = _stage_inline_exec_review_state(sr)
-        if inline_state:
-            stage["inline_exec"] = {
-                "review": "required",
-                "visible": inline_state == "visible",
-            }
         meta["stages"].append(stage)
     if result.composition_rule:
         meta["composition_rule"] = result.composition_rule
@@ -711,7 +249,8 @@ def _classify_meta(result) -> dict:
 
 
 def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
-    """Full Bash handler: structural classification + inline LLM review."""
+    """Full Bash handler: structural classification."""
+    _ = llm_review
     command = tool_input.get("command", "")
     if not command:
         return {"decision": taxonomy.ALLOW}
@@ -723,69 +262,9 @@ def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
         return {"decision": taxonomy.BLOCK, "reason": _format_bash_reason(result), "_meta": meta}
 
     if result.final_decision == taxonomy.ASK:
-        inline_stage = _inline_lang_exec_review_stage(result)
-        if inline_stage is not None:
-            meta["inline_lang_exec_review"] = "required"
-            if _stage_inline_exec_review_state(inline_stage) != "visible":
-                meta["inline_lang_exec_review"] = "opaque"
-                return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
-            if llm_review:
-                llm_decision, llm_meta = _try_llm_inline_lang_exec(command, inline_stage)
-                meta.update(llm_meta)
-                if llm_decision is not None and llm_decision.get("decision") == taxonomy.ALLOW:
-                    meta["inline_lang_exec_review"] = "allow"
-                    return {"decision": taxonomy.ALLOW, "_meta": meta}
-                if llm_decision is not None:
-                    meta["inline_lang_exec_review"] = "ask"
-                    meta["llm_veto"] = True
-                    llm_reason = llm_decision.get("reason", "")
-                    # Surface the LLM verdict on the interactive prompt the same
-                    # way Layer-2 relax does. _to_hook_output
-                    # shadows decision["reason"] with the generic human_reason and
-                    # only renders the "LLM:" line / systemMessage from these two
-                    # fields, so without them the reasoning is dropped from the
-                    # prompt (it would survive only in nah log / nah test).
-                    clean = llm_reason
-                    for prefix in ("Bash (LLM): ", "LLM: "):
-                        if clean.startswith(prefix):
-                            clean = clean[len(prefix):]
-                    clean = clean.strip()
-                    ask = {
-                        "decision": taxonomy.ASK,
-                        "reason": llm_reason or "Bash (LLM): human review needed",
-                        "_meta": meta,
-                    }
-                    if clean:
-                        ask["_llm_reason"] = clean
-                        ask["_system_message"] = system_byline(taxonomy.ASK, clean)
-                    return ask
-            meta["inline_lang_exec_review"] = "unavailable"
         return {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
 
     return {"decision": taxonomy.ALLOW, "_meta": meta}
-
-
-def _inline_lang_exec_review_stage(result):
-    """Return the ASK lang_exec stage that needs inline-code handling."""
-    for sr in result.stages:
-        if _stage_inline_exec_review_state(sr):
-            return sr
-    return None
-
-
-def _stage_command_name(stage) -> str:
-    tokens = _stage_value(stage, "tokens", []) or []
-    if not tokens:
-        return ""
-    try:
-        return taxonomy._normalize_command_name(str(tokens[0]))
-    except AttributeError:
-        name = os.path.basename(str(tokens[0])).lower()
-        return name[:-4] if name.endswith(".exe") else name
-
-
-def _is_shell_inline_stage(stage) -> bool:
-    return _stage_command_name(stage) in {"bash", "sh", "dash", "zsh"}
 
 
 HANDLERS = {
@@ -798,9 +277,6 @@ HANDLERS = {
     "Glob": handle_glob,
     "Grep": handle_grep,
 }
-
-_WRITE_LIKE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
-
 
 def _join_llm_reason(reason: str, llm_reason: str) -> str:
     """Append the LLM reason inline as a second sentence.
@@ -1112,77 +588,7 @@ def main():
         d = decision.get("decision", taxonomy.ALLOW)
         meta = decision.setdefault("_meta", {})
 
-        # Layer 1: classify a deterministically-unknown Bash command, re-check
-        # its targets through the floor, and let the result re-enter the normal
-        # machinery (allow/ask/block) before the Layer-2 relax pass below.
-        if (
-            d == taxonomy.ASK
-            and canonical == "Bash"
-            and _extract_action_type(meta) in ("", taxonomy.UNKNOWN)
-            and not meta.get("llm_veto")
-            and not meta.get("inline_lang_exec_review")
-        ):
-            decision = _apply_layer1_classify(canonical, tool_input, decision)
-            meta = decision.setdefault("_meta", {})
-            d = decision.get("decision", taxonomy.ALLOW)
-
-        if (
-            d == taxonomy.ASK
-            and canonical not in _WRITE_LIKE_TOOLS
-            and not meta.get("llm_veto")
-            and not meta.get("inline_lang_exec_review")
-        ):
-            try:
-                from nah.config import get_config
-                from nah.llm import try_llm_relax
-                from nah.log import redact_input
-
-                cfg = get_config()
-                if cfg.llm_mode == "on" and cfg.llm:
-                    deny_count, disabled = _read_auto_state(_transcript_path)
-                    deny_limit = int(cfg.llm.get("deny_limit", 0))
-                    if not disabled or deny_limit <= 0:
-                        stages = meta.get("stages", [])
-                        action_type = _extract_action_type(meta)
-                        if _is_llm_eligible_stages(
-                            action_type,
-                            stages,
-                            cfg.llm_eligible,
-                            meta.get("composition_rule", ""),
-                        ):
-                            llm_call = try_llm_relax(
-                                canonical,
-                                redact_input(canonical, tool_input),
-                                action_type or taxonomy.UNKNOWN,
-                                decision.get("reason", ""),
-                                cfg.llm,
-                                _transcript_path,
-                                stages=stages,
-                            )
-                            decision, outcome = apply_layer2_relax(
-                                decision, llm_call, cfg
-                            )
-                            if outcome == "relaxed":
-                                # Cited relax succeeded — reset the auto-deny
-                                # streak and let the allow flow through.
-                                _write_auto_state(_transcript_path, 0, False)
-                                d = taxonomy.ALLOW
-                            elif outcome in ("uncited", "uncertain"):
-                                # Ask stands. Count toward the auto-disable
-                                # streak so a stuck loop eventually backs off.
-                                deny_count += 1
-                                if deny_limit > 0:
-                                    _write_auto_state(
-                                        _transcript_path,
-                                        deny_count,
-                                        deny_count >= deny_limit,
-                                    )
-                            # outcome == "none": LLM unavailable; ask stands,
-                            # streak untouched.
-            except ImportError:
-                pass
-            except Exception as exc:
-                sys.stderr.write(f"nah: relax LLM error: {exc}\n")
+        decision = maybe_apply_layer1_classify(canonical, tool_input, decision)
 
         _attach_pre_tool_runtime(decision, data)
         decision = _apply_ask_fallback(decision)

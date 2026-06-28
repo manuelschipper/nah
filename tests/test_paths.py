@@ -678,7 +678,7 @@ class TestSensitivePathConfigOverride:
         return NahConfig(sensitive_paths=sensitive_paths)
 
     def test_override_ssh_block_to_ask(self):
-        """Global config can relax ~/.ssh from block to ask."""
+        """Global config can change ~/.ssh from block to ask."""
         with patch("nah.config.get_config", return_value=self._mock_config({"~/.ssh": "ask"})):
             paths.reset_sensitive_paths()
             result = paths.check_path("Read", "~/.ssh/id_rsa")

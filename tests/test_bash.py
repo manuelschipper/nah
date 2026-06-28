@@ -436,7 +436,7 @@ class TestDockerExecTrustedContainers:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "git_safe"
 
-    def test_trusted_docker_exec_clean_inline_lang_exec_allows(self, project_root):
+    def test_trusted_docker_exec_clean_inline_python_asks(self, project_root):
         _trust_containers("container:hermes-creatbot")
         r = classify_command("docker exec hermes-creatbot python -c 'print(1)'")
         assert r.final_decision == "ask"
