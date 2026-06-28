@@ -1243,12 +1243,15 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
             print(f"  {agent_name}: settings not found (nothing to clean)")
 
     # 2. Remove the old shim file only if no other agents still have direct hooks.
+    # The legacy shim is Claude-specific; only Claude-style direct-hook agents
+    # can keep it alive, and `_is_nah_hook` matches only Claude/legacy markers,
+    # so an agent like Devin (its own `_devin-hook` entries) never counts here.
     any_remaining = False
     for key in agents.INSTALLABLE_AGENTS:
         if key in agent_keys:
             continue
-        sf = agents.AGENT_SETTINGS[key]
-        if sf.exists():
+        sf = agents.AGENT_SETTINGS.get(key)
+        if sf is not None and sf.exists():
             try:
                 data = _read_settings(sf)
                 hooks = data.get("hooks", {})

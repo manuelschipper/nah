@@ -1449,9 +1449,12 @@ class TestTargetLifecycleCli:
             cli_mod.main()
         assert exc.value.code == 0
         out = capsys.readouterr().out
-        assert f"usage: nah {command} <target>" in out
-        assert "Required target: claude, bash, or zsh" in out
-        assert "Codex uses nah run codex" in out
+        # Collapse whitespace: argparse wraps the help line across terminals, so
+        # assert on the logical text rather than an exact unwrapped phrase.
+        normalized = " ".join(out.split())
+        assert f"usage: nah {command} <target>" in normalized
+        assert "Required target: claude, devin, bash, or zsh" in normalized
+        assert "Codex uses nah run codex" in normalized
 
     def test_install_without_target_errors(self, capsys):
         import nah.cli as cli_mod
