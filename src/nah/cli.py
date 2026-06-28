@@ -873,7 +873,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 print(f"LLM config:   {llm_config_message}")
         _print_llm_meta(decision.get("_meta", {}))
     elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
-        # Write-like tools: structural path checks plus optional LLM review.
+        # Write-like tools: structural path and project-boundary checks only.
         from nah.hook import handle_write, handle_edit, handle_multiedit, handle_notebookedit
         file_path = getattr(args, "path", None) or " ".join(input_args)
         content = getattr(args, "content", None) or ""
@@ -2096,7 +2096,7 @@ def main():
     test_parser.add_argument(
         "--content",
         default=None,
-        help="Payload for write-like tool dry runs and optional LLM review",
+        help="Payload for write-like tool dry runs (recorded/displayed only)",
     )
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
     test_parser.add_argument("--preset", default=None, help="Apply a global config preset")
