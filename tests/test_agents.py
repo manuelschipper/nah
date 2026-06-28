@@ -132,3 +132,39 @@ class TestFormatError:
 class TestMcpMatchers:
     def test_mcp_matcher_registered(self):
         assert "mcp__.*" in agents.AGENT_TOOL_MATCHERS[agents.CLAUDE]
+
+
+# --- Devin CLI agent wiring (nah-950) ---
+
+
+class TestDevinAgent:
+    def test_devin_constant(self):
+        assert agents.DEVIN == "devin"
+
+    def test_devin_tool_name_mapping(self):
+        assert agents.normalize_tool("exec") == "Bash"
+        assert agents.normalize_tool("edit") == "Edit"
+        assert agents.normalize_tool("read") == "Read"
+        assert agents.normalize_tool("grep") == "Grep"
+        assert agents.normalize_tool("glob") == "Glob"
+
+    def test_devin_names_do_not_shadow_claude_identity(self):
+        # Claude/Codex send capitalized names; the lowercase Devin keys must
+        # not disturb the identity mapping for the canonical Claude tools.
+        for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
+            assert agents.normalize_tool(tool) == tool
+
+    def test_devin_installable_and_named(self):
+        assert agents.DEVIN in agents.INSTALLABLE_AGENTS
+        assert agents.AGENT_NAMES[agents.DEVIN] == "Devin CLI"
+
+    def test_devin_matchers(self):
+        matchers = agents.AGENT_TOOL_MATCHERS[agents.DEVIN]
+        assert "exec" in matchers
+        assert "mcp__.*" in matchers
+
+    def test_devin_settings_user_level(self):
+        path = agents.AGENT_SETTINGS[agents.DEVIN]
+        # User-level Devin config (mirrors Claude's user-level settings.json).
+        assert path.name == "config.json"
+        assert "devin" in str(path)
