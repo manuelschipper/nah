@@ -4,7 +4,6 @@ Supports Claude Code hooks and Codex permission-hook logging. The hook runtime
 detects the calling agent from payload fields and formats output accordingly.
 """
 
-import os
 from pathlib import Path
 import sys
 
@@ -24,13 +23,6 @@ TOOL_MAP: dict[str, str] = {
     "NotebookEdit": "NotebookEdit",
     "Glob": "Glob",
     "Grep": "Grep",
-    # Devin CLI core tool names → canonical handlers. Lowercase, so they never
-    # collide with Claude/Codex (both send capitalized names like "Bash").
-    "exec": "Bash",
-    "edit": "Edit",
-    "read": "Read",
-    "grep": "Grep",
-    "glob": "Glob",
 }
 
 
@@ -46,7 +38,6 @@ def normalize_tool(tool_name: str) -> str:
 # Agent type constants
 CLAUDE = "claude"
 CODEX = "codex"
-DEVIN = "devin"
 
 
 def detect_agent(data) -> str:
@@ -125,38 +116,20 @@ def _agent_color_mode(agent: str) -> str:
 # Agent install configs
 # ---------------------------------------------------------------------------
 
-def _devin_user_config_path() -> Path:
-    """Return Devin's user-level config path (%APPDATA% on Windows)."""
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return Path(appdata) / "devin" / "config.json"
-    return Path.home() / ".config" / "devin" / "config.json"
-
-
 # Per-agent tool matchers for hook registration.
 AGENT_TOOL_MATCHERS: dict[str, list[str]] = {
     CLAUDE: ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "mcp__.*"],
-    # Devin's documented public core tool names. Devin matchers are regexes, so
-    # ``mcp__.*`` matches all MCP tools as-is. Used for status display only; the
-    # installed config uses an empty matcher and routes inside the adapter.
-    DEVIN: ["exec", "edit", "read", "grep", "glob", "mcp__.*"],
 }
 
 # Settings/hooks file paths per agent.
 AGENT_SETTINGS: dict[str, Path] = {
     CLAUDE: Path.home() / ".claude" / "settings.json",
-    # Devin's user-level config. Hooks nest under a "hooks" key here (unlike
-    # .devin/hooks.v1.json where the hooks object is the whole file). Honor
-    # %APPDATA% on Windows the way Devin documents.
-    DEVIN: _devin_user_config_path(),
 }
 
 # Agents whose config format we can auto-install into.
-INSTALLABLE_AGENTS = {CLAUDE, DEVIN}
+INSTALLABLE_AGENTS = {CLAUDE}
 
 AGENT_NAMES: dict[str, str] = {
     CLAUDE: "Claude Code",
     CODEX: "OpenAI Codex",
-    DEVIN: "Devin CLI",
 }
