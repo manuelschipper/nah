@@ -20,7 +20,6 @@ docs/features/
 docs/PLAN.md
 .claude/*
 !.claude/commands/
-site/
 .github/*
 !.github/workflows/
 
