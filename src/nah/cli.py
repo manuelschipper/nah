@@ -469,8 +469,6 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  credential_patterns_add: {cfg.credential_patterns_add or '[]'}")
         print(f"  credential_patterns_suppress: {cfg.credential_patterns_suppress or '[]'}")
         print(f"  db_targets:            {cfg.db_targets or '[]'}")
-        print(f"  taint:                 {cfg.taint or '{}'}")
-        print(f"  provenance:            {cfg.provenance or '{}'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_mode:              {cfg.llm_mode}")
         print(f"  llm_eligible:          {cfg.llm_eligible}")
@@ -1814,25 +1812,12 @@ def cmd_log(args: argparse.Namespace) -> None:
         line = f"{ts}  {marker}{decision:<5}{state:<17}  {tool_name:<5}  {summary}"
         if reason:
             line += f"  ({reason})"
-        provenance = entry.get("provenance", {})
-        if isinstance(provenance, dict) and provenance.get("category"):
-            line += f"  PROV:{provenance.get('category')}"
         if total_ms != "":
             if total_ms == 0 and llm_ms:
                 line += f"  [llm {llm_ms}ms]"
             else:
                 line += f"  [{total_ms}ms]"
         llm_prov = llm.get("provider", "")
-        provenance_review = (
-            provenance.get("review", {})
-            if isinstance(provenance, dict) else {}
-        )
-        provenance_llm = (
-            provenance_review
-            if isinstance(provenance_review, dict)
-            and (provenance_review.get("provider") or provenance_review.get("prompt_hash"))
-            else {}
-        )
         if llm_prov:
             llm_model = llm.get("model", "")
             llm_tag = f"  LLM:{llm_prov}"
@@ -1840,16 +1825,6 @@ def cmd_log(args: argparse.Namespace) -> None:
                 llm_tag += f"/{llm_model}"
             line += llm_tag
             llm_reason = llm.get("reasoning", "")
-            if llm_reason:
-                line += f" — {llm_reason}"
-        elif provenance_llm:
-            llm_prov = provenance_llm.get("provider", "(provenance)")
-            llm_model = provenance_llm.get("model", "")
-            llm_tag = f"  LLM:{llm_prov}"
-            if llm_model:
-                llm_tag += f"/{llm_model}"
-            line += llm_tag
-            llm_reason = provenance_llm.get("reasoning", "")
             if llm_reason:
                 line += f" — {llm_reason}"
         print(line)
@@ -1872,9 +1847,6 @@ def cmd_log(args: argparse.Namespace) -> None:
                     p_long = p.get("reasoning_long", "")
                     if p_long and p_long != p.get("reasoning", ""):
                         print(f"     LLM detail ({phase}): {p_long}")
-            provenance_long = provenance_llm.get("reasoning_long", "")
-            if provenance_long and provenance_long != provenance_llm.get("reasoning", ""):
-                print(f"     LLM detail: {provenance_long}")
 
 
 def cmd_claude(user_args: list[str]) -> None:
@@ -1883,10 +1855,6 @@ def cmd_claude(user_args: list[str]) -> None:
 
     user_args, selected_preset = _extract_run_preset(user_args, "nah run claude")
     env = dict(os.environ)
-    if "NAH_PROVENANCE_RUN_ID" not in env:
-        from nah.provenance import new_run_id
-
-        env["NAH_PROVENANCE_RUN_ID"] = new_run_id()
     if selected_preset:
         env["NAH_PRESET"] = selected_preset
     try:
