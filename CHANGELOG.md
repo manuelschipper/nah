@@ -222,6 +222,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`nah test` dry-runs no longer self-flag on sensitive paths in their arguments**
+  (nah-qb3). A `nah test` invocation whose arguments named a sensitive path as a
+  bareword or flag value (e.g. `nah test --tool Read ~/.ssh/id_rsa`, the form
+  `/nah-demo` uses for its sensitive cases) was flagged by nah's own hook as a real
+  sensitive access and paused for approval, even though `nah test` is a pure dry-run
+  classifier with no filesystem or execution side effects. The `_classify_nah_cli`
+  classifier now recognizes `nah test` and allows it without scanning its argument
+  tokens for sensitive paths. Output redirections (caught by the redirect guard) and
+  command/process substitutions (classified independently upstream) stay guarded, and
+  the exemption is exact-match and stage-local, so adjacent stages like
+  `nah test foo && rm -rf ~/.ssh` are unaffected.
 - **Inline `lang_exec` LLM reasoning no longer dropped from the prompt.** When
   the LLM reviewed a visible inline `lang_exec` Bash command (e.g.
   `python3 -c …`) and kept the `ask`, its reasoning was written to the
