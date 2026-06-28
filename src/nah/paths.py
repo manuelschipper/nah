@@ -248,20 +248,6 @@ def check_path_basic(resolved: str) -> tuple[str, str] | None:
     return None
 
 
-def inherited_sensitive_taint_source(raw_path: str) -> tuple[bool, str, str, str]:
-    """Return effective sensitive-path match data for taint inheritance.
-
-    This helper observes the same merged sensitive path/basename tables as
-    normal path checks, so entries desensitized with ``allow`` are not exposed
-    as inherited taint sources.
-    """
-    resolved = resolve_path(raw_path)
-    matched, pattern, policy = is_sensitive(resolved)
-    if not matched:
-        return False, "", "", resolved
-    return True, pattern, policy, resolved
-
-
 def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: str) -> None:
     """Merge user sensitive_paths with hardcoded lists. Modifies _SENSITIVE_DIRS in place.
 

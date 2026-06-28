@@ -67,15 +67,7 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
 
 
 def _entry_has_llm(entry: dict) -> bool:
-    if entry.get("llm"):
-        return True
-    provenance = entry.get("provenance", {})
-    if not isinstance(provenance, dict):
-        return False
-    review = provenance.get("review", {})
-    if not isinstance(review, dict):
-        return False
-    return bool(review.get("provider") or review.get("prompt_hash"))
+    return bool(entry.get("llm"))
 
 
 def _entry_has_classify_pass(entry: dict) -> bool:
@@ -117,7 +109,7 @@ def _flat_llm_pass(meta: dict) -> dict:
 def _llm_passes_from_meta(meta: dict) -> list:
     """Build the ordered LLM-pass list: explicit pass records first (Layer-1
     classify, Layer-2 relax), then any legacy flat-key pass for paths not yet
-    migrated to append their own record (write / inline / provenance / relax)."""
+    migrated to append their own record (write / inline / relax)."""
     passes: list = []
     for rec in meta.get("llm_passes") or []:
         if isinstance(rec, dict):
@@ -225,14 +217,6 @@ def build_entry(
     ask_fallback = _copy_log_object(meta.get("ask_fallback"))
     if ask_fallback:
         entry["ask_fallback"] = ask_fallback
-
-    taint = _copy_log_object(meta.get("taint"))
-    if taint:
-        entry["taint"] = taint
-
-    provenance = _copy_log_object(meta.get("provenance"))
-    if provenance:
-        entry["provenance"] = provenance
 
     for key in (
         "target",
