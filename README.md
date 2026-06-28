@@ -172,9 +172,9 @@ across **13 tested danger classes**.
 | Secret exfiltration | 90 | sensitive reads flowing into network commands or credential searches |
 | Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
+| Project boundary escapes | 38 | reads/writes outside the project root or trusted paths |
 | Guard tampering | 37 | edits to nah hooks, config, runtime settings, robustness paths |
 | Credential exposure | 32 | sensitive-path flows, credential searches, secret-store and environment reads |
-| Project boundary escapes | 38 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
 
 nah guards the approval points each runtime exposes:

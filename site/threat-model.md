@@ -25,9 +25,9 @@ across **13 tested danger classes**.
 | Secret exfiltration | `credential_exfil` | 90 | sensitive reads flowing into network commands or credential searches |
 | Destructive container actions | `container_destructive` | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | MCP and agent tool permissions | `mcp_permissions` | 83 | third-party MCP tools, global-only classification, wildcard safety, browser/database MCP actions |
+| Project boundary escapes | `project_boundary` | 38 | reads/writes outside the project root or trusted paths |
 | Guard tampering | `self_protection` | 37 | edits to nah hooks, config, runtime settings, robustness paths |
 | Credential exposure | `secret_leak` | 32 | sensitive-path flows, credential searches, secret-store and environment reads |
-| Project boundary escapes | `project_boundary` | 38 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | `shell_obfuscation` | 30 | process substitution, command substitution, hidden shell behavior |
 
 Run it locally:

@@ -371,7 +371,7 @@ asks route through Layer 2 ask-refinement; blocks stay blocked.
 Write, Edit, MultiEdit, NotebookEdit, and Codex `apply_patch` are guarded by a
 deterministic floor only: sensitive paths block or ask, `~/.claude/hooks/`
 blocks, `~/.config/nah/` asks, writes outside the project root ask, destructive
-`apply_patch` operations (delete/rename) ask, and everything else allows. Their
+`apply_patch` operations (delete/move) ask, and everything else allows. Their
 content is never sent to an LLM and is never scanned for secret-shaped text. Use
 [sensitive paths](sensitive-paths.md), [taint tracking](taint-tracking.md), and
 [provenance](provenance.md) for write-side protection.

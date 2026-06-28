@@ -304,7 +304,7 @@ nah test "just migrate-prod"</code></pre>
     </div>
     <div class="nah-threat-proof">
       <div>
-        <strong>1,807</strong>
+        <strong>1,673</strong>
         <span>audit hits</span>
       </div>
       <div>
