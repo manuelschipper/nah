@@ -5,9 +5,9 @@
     Bash command redirects into a file (`echo '...' > file`, heredocs) and Claude
     Code `Grep` patterns (credential-search detection), plus the dry-run
     equivalents under `nah test`. Claude Code `Write`/`Edit`/`MultiEdit`/
-    `NotebookEdit` are guarded by path and project-boundary checks plus optional
-    LLM review — they do **not** use the deterministic content scanner. Codex and
-    Terminal Guard do not use this scanner today.
+    `NotebookEdit` are guarded by path and project-boundary checks only — they do
+    **not** use the deterministic content scanner and are never sent to an LLM.
+    Codex and Terminal Guard do not use this scanner today.
 
 nah scans the literal content a Bash command writes to disk for dangerous
 patterns, and Grep queries for credential searches. This catches threats that
@@ -32,6 +32,10 @@ Patterns are organized by category. Each match triggers the category's policy (d
 | `shutil.rmtree` | Python recursive delete |
 | `os.remove` | Python file delete |
 | `os.unlink` | Python file unlink |
+| `Remove-Item -Recurse` | PowerShell recursive delete |
+| `rd /s` | Windows recursive directory delete |
+| `rmdir /s` | Windows recursive directory delete |
+| `del /f` | Windows force delete |
 
 ### exfiltration
 

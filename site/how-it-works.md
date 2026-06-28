@@ -36,7 +36,7 @@ content, MCP, and guard self-protection layers.
           ▼
   ┌───────────────┐
   │  LLM (opt.)   │  classify unknowns, relax eligible asks (cited intent),
-  │               │  script veto, write review
+  │               │  script veto, provenance review
   └───────┬───────┘
           │
           ▼
@@ -57,14 +57,14 @@ Coverage depends on the runtime surface:
 |------|----------------|
 | **Bash** | Full structural classification pipeline (see below) |
 | **Read** | Sensitive path detection (`~/.ssh`, `~/.aws`, `.env`, ...) |
-| **Write** | Path check + project boundary + content inspection |
-| **Edit** | Path check + project boundary + content inspection on replacement |
-| **MultiEdit** | Path check + project boundary + content inspection across replacements |
-| **NotebookEdit** | Path check + project boundary + content inspection on notebook cell source |
+| **Write** | Path check + project boundary |
+| **Edit** | Path check + project boundary |
+| **MultiEdit** | Path check + project boundary |
+| **NotebookEdit** | Path check + project boundary |
 | **Glob** | Sensitive path detection on target directory |
 | **Grep** | Credential search pattern detection |
 | **MCP** | Generic classification for third-party tool servers (`mcp__*`) |
-| **apply_patch** | Codex patch path checks plus added-content inspection where Codex exposes the patch text |
+| **apply_patch** | Codex patch path + project-boundary checks; destructive operations (delete/rename) require approval |
 
 ## Bash classification pipeline
 

@@ -357,7 +357,7 @@ nah test "just migrate-prod"</code></pre>
       </article>
       <article class="nah-llm-card">
         <strong>Veto, not override</strong>
-        <span>Risky generated content can escalate to <code>ask</code>. Deterministic blocks stay blocked.</span>
+        <span>Risky inline code execution can escalate to <code>ask</code>. Deterministic blocks stay blocked.</span>
       </article>
       <article class="nah-llm-card">
         <strong>Your provider</strong>

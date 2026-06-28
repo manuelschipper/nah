@@ -740,7 +740,7 @@ def handle_bash(tool_input: dict, *, llm_review: bool = True) -> dict:
                     meta["llm_veto"] = True
                     llm_reason = llm_decision.get("reason", "")
                     # Surface the LLM verdict on the interactive prompt the same
-                    # way the write-LLM gate and Layer-2 relax do. _to_hook_output
+                    # way Layer-2 relax does. _to_hook_output
                     # shadows decision["reason"] with the generic human_reason and
                     # only renders the "LLM:" line / systemMessage from these two
                     # fields, so without them the reasoning is dropped from the

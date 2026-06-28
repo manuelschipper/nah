@@ -21,8 +21,9 @@ yourself. This page describes what nah itself collects, stores, and sends.
 - Optional LLM review only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
 - nah does not redact secret-looking content before LLM prompt enrichment.
-  Transcript and write/edit content are sent to the configured provider as-is, so
-  treat any remote LLM provider as receiving security-sensitive context.
+  Bash command text and recent transcript context are sent to the configured
+  provider as-is, so treat any remote LLM provider as receiving security-sensitive
+  context. Write/edit content is never sent to an LLM.
 
 ## Local Processing
 
@@ -31,7 +32,7 @@ operation. Depending on how you use nah, this can include:
 
 - Bash commands and shell structure
 - file paths for reads, writes, edits, searches, and notebook edits
-- write/edit content snippets for content inspection
+- literal text written by shell output redirections (e.g. `echo ... > file`, heredocs)
 - MCP tool names and arguments exposed to Claude Code hooks
 - Codex Bash, MCP, and `apply_patch` hook payloads when you use `nah run codex`
 - Codex approval-memory rule files and MCP approval settings during Codex
@@ -79,10 +80,10 @@ as:
   update workflows outside the deterministic classifier
 
 For optional LLM review, nah sends prompt context to the provider and model you
-configure. The prompt can include the flagged operation, structural reason,
-working directory, relevant write/edit content, and recent transcript context.
-This content is sent without secret-pattern redaction, so any secrets present in
-the write/edit content or transcript reach the configured provider. Treat the LLM
+configure. The prompt can include the flagged Bash command, its structural reason,
+the working directory, and recent transcript context. This content is sent without
+secret-pattern redaction, so any secrets present in the command or transcript reach
+the configured provider. Write/edit content is never sent to an LLM. Treat the LLM
 provider as receiving security-sensitive context, and rely on structural controls
 (sensitive paths, taint/provenance) rather than content redaction.
 

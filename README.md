@@ -74,9 +74,12 @@ Before a guarded action runs, nah turns it into a policy decision:
    composition, target runtime, network hosts, and database targets.
 4. Apply your config and custom classifiers.
 5. Return `allow`, `ask`, or `block`.
-6. For eligible ambiguous cases, optionally ask an LLM. When enabled, write-like
-   operations and visible non-shell inline `lang_exec` payloads can also be
-   reviewed by the LLM; deterministic blocks stay blocked.
+6. For eligible ambiguous cases, optionally ask an LLM. When enabled, the LLM can
+   classify an `unknown` command (its surfaced targets are re-checked
+   deterministically) and relax an eligible `ask` to `allow` when it cites your
+   request; visible non-shell inline `lang_exec` payloads can be escalated to
+   `ask`. Write-like operations are never sent to the LLM; deterministic blocks
+   stay blocked.
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).
@@ -171,12 +174,12 @@ See the [benchmark methodology](docs/benchmarks/novita-bash-friction.md).
 
 ## Threat Model
 
-nah's pytest threat-model audit currently tracks **1,749 category coverage hits**
+nah's pytest threat-model audit currently tracks **1,673 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Hits | What it means |
 | --- | ---: | --- |
-| Sensitive file access | 263 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | 261 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
 | Unknown code execution | 222 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
@@ -185,8 +188,8 @@ across **13 tested danger classes**.
 | Secret exfiltration | 90 | sensitive reads flowing into network commands or credential searches |
 | Destructive container actions | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
 | MCP and agent tool permissions | 83 | third-party MCP tools, global-only classification, browser/database MCP actions |
-| Guard tampering | 74 | edits to nah hooks, config, runtime settings, robustness paths |
-| Credential exposure | 69 | sensitive-path flows, credential searches, secret-store and environment reads |
+| Guard tampering | 37 | edits to nah hooks, config, runtime settings, robustness paths |
+| Credential exposure | 32 | sensitive-path flows, credential searches, secret-store and environment reads |
 | Project boundary escapes | 38 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | 30 | process substitution, command substitution, hidden shell behavior |
 

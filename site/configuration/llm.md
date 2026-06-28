@@ -10,9 +10,12 @@ The deterministic layer always runs first. The LLM layer is split into two
 single-purpose roles: **Layer 1** classifies a deterministically-`unknown`
 command into an action type plus the targets it touches, and **Layer 2** (the
 intent relaxer) refines eligible `ask` decisions. Script inspection can call the
-LLM as a veto path, and write-like tools can call the LLM for safety + intent
-review. The LLM cannot relax deterministic blocks. If no LLM is configured or
-available, the deterministic decision stands.
+LLM as a veto path, and an optional session-provenance review can weigh the
+later effects of same-session writes. Write-like tool calls
+(Write/Edit/MultiEdit/NotebookEdit and Codex `apply_patch`) are never sent to the
+LLM — they are guarded by a deterministic path/boundary floor only. The LLM
+cannot relax deterministic blocks. If no LLM is configured or available, the
+deterministic decision stands.
 
 Outside the paths below, a deterministic `allow` is final and does not call the
 LLM. The LLM is not a second classifier for every allowed action.
@@ -21,7 +24,7 @@ LLM. The LLM is not a second classifier for every allowed action.
 |------|-------------------|-------------------------|
 | Layer 1 — classify-unknown | A deterministic `unknown` Bash command | maps the unknown to an action type **+ the targets it touches**; the type re-enters the policy machinery and each surfaced target is re-checked against the same deterministic floor. Can tighten to `ask`/`block`, or allow only when every surfaced target passes the floor; cannot bypass a sensitive-path/host/boundary veto |
 | Layer 2 — intent relaxer | Eligible deterministic `ask` decisions | `ask` can become `allow` **only with a cited user message** (cite-or-ask); a successful relax is surfaced as a distinct `relaxed` outcome. `uncertain`, an uncited allow, `block`, or provider failure leaves it as `ask` |
-| Write-like review | `Write`, `Edit`, `MultiEdit`, and `NotebookEdit` when LLM mode is enabled | runs **only on a deterministic `allow`**, which it can escalate to `ask`; every non-`allow` decision (a project-boundary or sensitive-path `ask`, or a `block`) is a hard floor returned before the review and is never relaxed. Matches Codex `apply_patch` |
+| Write-like tools | Never — not an LLM path | `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and Codex `apply_patch` are guarded by a deterministic path/boundary floor only and are never sent to the LLM |
 | Clean `lang_exec` script veto | Inspectable script/inline-code execution that deterministic classification allowed | `allow` can become `ask`; it cannot relax an `ask` or `block` |
 | No LLM path | Any other deterministic `allow` or `block` | final decision stands |
 
@@ -29,8 +32,8 @@ Layer 1 **extracts**; the deterministic floor **matches**. The model proposes a
 type and the resources the command touches, but the sensitive-path,
 project-boundary, and trusted-host checks stay in deterministic code — the model
 is never the thing that clears a dangerous target. The risk taxonomy below
-applies to Layer 2 and the write/script review paths, not to Layer 1 (which
-emits action types, not risk categories).
+applies to Layer 2, the clean-script veto, and the session-provenance review, not
+to Layer 1 (which emits action types, not risk categories).
 
 ## What LLM review looks for
 
@@ -363,33 +366,17 @@ review code style or general implementation quality.
 Deterministic `lang_exec` asks and blocks do not use this veto path. Eligible
 asks route through Layer 2 ask-refinement; blocks stay blocked.
 
-## Write-like review
+## Write-like tools are not LLM-reviewed
 
-When LLM mode is enabled, Write/Edit/MultiEdit/NotebookEdit operations are reviewed after deterministic checks. Deterministic `block` results skip the LLM and stay blocked.
+Write, Edit, MultiEdit, NotebookEdit, and Codex `apply_patch` are guarded by a
+deterministic floor only: sensitive paths block or ask, `~/.claude/hooks/`
+blocks, `~/.config/nah/` asks, writes outside the project root ask, destructive
+`apply_patch` operations (delete/rename) ask, and everything else allows. Their
+content is never sent to an LLM and is never scanned for secret-shaped text. Use
+[sensitive paths](sensitive-paths.md), [taint tracking](taint-tracking.md), and
+[provenance](provenance.md) for write-side protection.
 
-For deterministic `allow` results, the LLM can still escalate to `ask` when the content looks risky. This catches suspicious write content that deterministic patterns miss. Provider `block` responses are treated as non-allow, so write review never produces a final block.
-
-For deterministic `ask` results, the only relaxable class is a project-boundary ask:
-
-- `<Tool> outside project: ...`
-- `<Tool> outside project (no project root): ...`
-
-If the LLM returns `allow` for one of those asks, nah records an `allow` decision. Whether nah emits an automatic allow to Claude Code is still controlled by `active_allow`; if Write/Edit is not active-allowed, Claude Code's normal permission prompt handles the tool.
-
-These ask classes stay human-gated even if the LLM returns `allow`:
-
-- hook self-protection
-- nah config self-protection
-- sensitive paths
-- malformed or unparseable write-like payloads
-
-The write-review prompt includes the tool, target path, working directory,
-inside-project status, deterministic decision and reason, the write/edit
-content, and recent transcript context. It uses the
-shared review scope above and asks only about visible security or safety risk in
-the write operation.
-
-### context_chars
+## context_chars
 
 How much conversation transcript context to include in the LLM prompt:
 
@@ -416,7 +403,7 @@ setting is accepted for backward compatibility but has no effect. See
 4. If a provider errors (timeout, auth failure), nah tries the next provider
 5. If all providers fail, the deterministic decision stands; for ask-refinement, that means the decision stays `ask`
 
-Provider `uncertain` responses stop the cascade. In ask-refinement they leave the decision as `ask`; in write-like review they are treated as non-allow, so risky content stays human-gated.
+Provider `uncertain` responses stop the cascade. In ask-refinement they leave the decision as `ask`; in the clean-script veto they leave the script as an `ask`.
 
 ## Testing
 

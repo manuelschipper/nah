@@ -71,8 +71,9 @@ output. A deterministic block returns a Codex PreToolUse deny. An unresolved
 ask blocks by default.
 
 Safe project-local `apply_patch` add/update edits are allowed by nah after it
-checks patch paths and added content. If you want Codex to ask before those
-safe edits too, launch with:
+checks the patch's target paths and project boundary (delete/move and other
+destructive patches still ask). If you want Codex to ask before those safe edits
+too, launch with:
 
 ```bash
 nah run codex --confirm-edits
@@ -285,9 +286,9 @@ Inside Codex, run `/hooks` first and make sure the nah hooks are active. If
 Codex reports hooks needing review, accept the nah hooks before testing.
 
 Inside Codex, ask it to edit a project file such as `README.md`. A normal
-project-local edit should be allowed by nah after path and content checks. Use
-`nah run codex --confirm-edits` when you want even safe project-local edits to
-ask through Codex's native approval UI.
+project-local edit should be allowed by nah after path and project-boundary
+checks. Use `nah run codex --confirm-edits` when you want even safe project-local
+edits to ask through Codex's native approval UI.
 
 If you want to verify Codex workspace sandboxing specifically, launch with:
 

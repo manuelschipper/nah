@@ -9,8 +9,8 @@ runtime decisions.
 
 ## Start with immediate protection
 
-nah already checks sensitive paths, written content, and dangerous command
-composition before a tool call runs.
+nah already checks sensitive paths, write/edit target paths and project
+boundaries, and dangerous command composition before a tool call runs.
 
 For most teams, the first shared project rule is small:
 
@@ -37,7 +37,7 @@ nah test --tool Read --path .env.production
 
 Use [Sensitive paths](../configuration/sensitive-paths.md) for the full path
 configuration reference, and [Content inspection](../configuration/content.md)
-for write-content patterns.
+for shell-redirect content patterns.
 
 ## Enable audit mode
 
