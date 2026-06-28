@@ -381,7 +381,6 @@ These ask classes stay human-gated even if the LLM returns `allow`:
 - hook self-protection
 - nah config self-protection
 - sensitive paths
-- deterministic content-pattern asks
 - malformed or unparseable write-like payloads
 
 The write-review prompt includes the tool, target path, working directory,
