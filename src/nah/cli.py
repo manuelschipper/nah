@@ -24,6 +24,10 @@ _CLAUDE_BLOCKED_FLAGS = {
 }
 _CLAUDE_BLOCKED_PERMISSION_MODES = {"auto", "bypassPermissions"}
 _CLAUDE_TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
+# Devin fires PreToolUse (block floor), PermissionRequest (relaxation point),
+# and PostToolUse (observation). All three call the same `_devin-hook` entry,
+# which routes on the payload's hook_event_name.
+_DEVIN_HOOK_EVENTS = ("PreToolUse", "PermissionRequest", "PostToolUse")
 
 
 def _trust_target_is_path(target: str) -> bool:
@@ -273,8 +277,153 @@ def _install_for_agent(agent_key: str, command: str) -> None:
         print(f"    Backup:    {backup}")
 
 
+def _require_devin_hook_command(command_name: str) -> str:
+    """Build the `_devin-hook` command string or exit with a product message."""
+    try:
+        return hook_command.devin_hook_command()
+    except hook_command.HookCommandError as exc:
+        print(f"nah {command_name}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def _is_nah_devin_hook(entry: dict) -> bool:
+    """Return True when a Devin hook entry belongs to nah's install."""
+    if not isinstance(entry, dict):
+        return False
+    for hook in entry.get("hooks", []):
+        if not isinstance(hook, dict):
+            continue
+        command = hook.get("command", "")
+        if isinstance(command, str) and "_devin-hook" in command:
+            return True
+    return False
+
+
+def _ensure_devin_hooks(hooks: dict, command: str) -> tuple[int, int]:
+    """Merge nah's `_devin-hook` entries into a Devin hooks object.
+
+    Refreshes the command on existing nah entries and adds any missing events,
+    leaving every non-nah entry untouched. Returns (updated, added).
+    """
+    updated = 0
+    added = 0
+    for event_name in _DEVIN_HOOK_EVENTS:
+        entries = hooks.setdefault(event_name, [])
+        nah_entries = [entry for entry in entries if _is_nah_devin_hook(entry)]
+        if nah_entries:
+            for entry in nah_entries:
+                entry["matcher"] = ""
+                entry["hooks"] = [{"type": "command", "command": command}]
+                updated += 1
+        else:
+            entries.append({
+                "matcher": "",
+                "hooks": [{"type": "command", "command": command}],
+            })
+            added += 1
+    return updated, added
+
+
+def _devin_has_nah_hooks(settings_file: Path) -> bool:
+    """Return whether the Devin config already holds nah hook entries."""
+    if not settings_file.exists():
+        return False
+    hooks = _read_settings(settings_file).get("hooks", {}) or {}
+    return any(
+        _is_nah_devin_hook(entry)
+        for event_name in _DEVIN_HOOK_EVENTS
+        for entry in hooks.get(event_name, [])
+    )
+
+
+def _devin_install() -> None:
+    """Install nah hooks into Devin's user-level config (merge, don't clobber)."""
+    command = _require_devin_hook_command("install devin")
+    settings_file = agents.AGENT_SETTINGS[agents.DEVIN]
+    settings = _read_settings(settings_file)
+    hooks = settings.setdefault("hooks", {})
+    _ensure_devin_hooks(hooks, command)
+    _write_settings(settings_file, settings)
+    backup = settings_file.with_suffix(".json.bak")
+
+    print(f"nah {__version__} installed:")
+    print(f"  Hook command: {command}")
+    print(f"  {agents.AGENT_NAMES[agents.DEVIN]}:")
+    print(f"    Config:    {settings_file} ({len(_DEVIN_HOOK_EVENTS)} hook events)")
+    if backup.exists():
+        print(f"    Backup:    {backup}")
+    print()
+    print("Ready. Safe commands go through silently, dangerous ones are")
+    print("blocked, ambiguous ones defer to Devin's permission prompt.")
+
+
+def _devin_update() -> None:
+    """Re-resolve nah's `_devin-hook` command in Devin's config."""
+    settings_file = agents.AGENT_SETTINGS[agents.DEVIN]
+    if not _devin_has_nah_hooks(settings_file):
+        print("No Devin hooks found. Run `nah install devin` first.")
+        return
+    command = _require_devin_hook_command("update devin")
+    settings = _read_settings(settings_file)
+    hooks = settings.setdefault("hooks", {})
+    updated, added = _ensure_devin_hooks(hooks, command)
+    _write_settings(settings_file, settings)
+    msg = f"{updated} hooks updated"
+    if added:
+        msg += f", {added} new hook events added"
+    print(f"nah {__version__} updated:")
+    print(f"  Hook command: {command}")
+    print(f"  {agents.AGENT_NAMES[agents.DEVIN]}: {settings_file} ({msg})")
+
+
+def _devin_uninstall() -> None:
+    """Remove only nah-owned hook entries from Devin's config."""
+    settings_file = agents.AGENT_SETTINGS[agents.DEVIN]
+    if not settings_file.exists():
+        print(f"  {agents.AGENT_NAMES[agents.DEVIN]}: config not found (nothing to clean)")
+        print("nah uninstalled.")
+        return
+    settings = _read_settings(settings_file)
+    hooks = settings.get("hooks", {})
+    removed = 0
+    for event_name in _DEVIN_HOOK_EVENTS:
+        entries = hooks.get(event_name, [])
+        filtered = [entry for entry in entries if not _is_nah_devin_hook(entry)]
+        removed += len(entries) - len(filtered)
+        if filtered:
+            hooks[event_name] = filtered
+        else:
+            hooks.pop(event_name, None)
+    if not hooks:
+        settings.pop("hooks", None)
+    _write_settings(settings_file, settings)
+    print(f"  {agents.AGENT_NAMES[agents.DEVIN]}: {settings_file} ({removed} nah hooks removed)")
+    print("nah uninstalled.")
+
+
+def _devin_status() -> None:
+    """Read-only status for `nah status devin`. Never mutates."""
+    settings_file = agents.AGENT_SETTINGS[agents.DEVIN]
+    events_present: list[str] = []
+    if settings_file.exists():
+        hooks = _read_settings(settings_file).get("hooks", {}) or {}
+        for event_name in _DEVIN_HOOK_EVENTS:
+            if any(_is_nah_devin_hook(entry) for entry in hooks.get(event_name, [])):
+                events_present.append(event_name)
+    print("devin:")
+    print(f"  hooks:        {'installed' if events_present else 'not installed'}")
+    if events_present:
+        print(f"  events:       {', '.join(events_present)}")
+    print(f"  config:       {settings_file}")
+    print(f"  config dir:   {'exists' if settings_file.parent.exists() else 'missing'}")
+    print(f"  devin path:   {shutil.which('devin') or '(not on PATH)'}")
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     target = _require_lifecycle_target(args, "install")
+    if target.key == targets.DEVIN:
+        _devin_install()
+        return
     if target.key in targets.SHELL_TARGETS:
         from nah import terminal_guard
         terminal_guard.install_shell(target.key)
@@ -340,6 +489,9 @@ def _print_shell_reload_hint(shell: str) -> None:
 def cmd_update(args: argparse.Namespace) -> None:
     """Update direct hook commands and matchers for targeted agents."""
     target = _require_lifecycle_target(args, "update")
+    if target.key == targets.DEVIN:
+        _devin_update()
+        return
     if target.key in targets.SHELL_TARGETS:
         from nah import terminal_guard
         terminal_guard.update_shell(target.key)
@@ -1043,6 +1195,9 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
     target = _require_lifecycle_target(args, "uninstall")
+    if target.key == targets.DEVIN:
+        _devin_uninstall()
+        return
     if target.key == targets.CODEX:
         _codex_uninstall()
         return
@@ -1088,12 +1243,15 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
             print(f"  {agent_name}: settings not found (nothing to clean)")
 
     # 2. Remove the old shim file only if no other agents still have direct hooks.
+    # The legacy shim is Claude-specific; only Claude-style direct-hook agents
+    # can keep it alive, and `_is_nah_hook` matches only Claude/legacy markers,
+    # so an agent like Devin (its own `_devin-hook` entries) never counts here.
     any_remaining = False
     for key in agents.INSTALLABLE_AGENTS:
         if key in agent_keys:
             continue
-        sf = agents.AGENT_SETTINGS[key]
-        if sf.exists():
+        sf = agents.AGENT_SETTINGS.get(key)
+        if sf is not None and sf.exists():
             try:
                 data = _read_settings(sf)
                 hooks = data.get("hooks", {})
@@ -1572,6 +1730,9 @@ def cmd_target_status(target_key: str) -> None:
         return
     if target.key == targets.CODEX:
         _codex_status()
+        return
+    if target.key == targets.DEVIN:
+        _devin_status()
         return
     if target.key == targets.CLAUDE:
         state = _detect_install_state([agents.CLAUDE])
@@ -2071,6 +2232,10 @@ def main():
         from nah.codex_hooks import main as codex_hooks_main
 
         raise SystemExit(codex_hooks_main(default_hook_event="PostToolUse"))
+    if len(sys.argv) >= 2 and sys.argv[1] == "_devin-hook":
+        from nah.devin_hooks import main as devin_hooks_main
+
+        raise SystemExit(devin_hooks_main())
 
     parser = argparse.ArgumentParser(
         prog="nah",
@@ -2090,7 +2255,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+        help="Required target: claude, devin, bash, or zsh. Codex uses nah run codex",
     )
     install_parser.add_argument(
         "--force",
@@ -2106,7 +2271,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+        help="Required target: claude, devin, bash, or zsh. Codex uses nah run codex",
     )
     uninstall_parser = sub.add_parser(
         "uninstall",
@@ -2117,7 +2282,7 @@ def main():
         "target",
         nargs="?",
         metavar="target",
-        help="Required target: claude, bash, or zsh. Codex uses nah run codex",
+        help="Required target: claude, devin, bash, or zsh. Codex uses nah run codex",
     )
     test_parser = sub.add_parser("test", help="Dry-run classification for a command")
     test_parser.add_argument("--target", default=None, help="Target policy to simulate")
@@ -2190,7 +2355,7 @@ def main():
     untrust_project_parser = sub.add_parser("untrust-project", help="Remove project config trust")
     untrust_project_parser.add_argument("path", nargs="?", help="Project directory to untrust (default: active project or cwd)")
     status_parser = sub.add_parser("status", help="Show custom rules or target status")
-    status_parser.add_argument("target", nargs="?", help="Optional target: claude, codex, bash, zsh")
+    status_parser.add_argument("target", nargs="?", help="Optional target: claude, codex, devin, bash, zsh")
     doctor_parser = sub.add_parser("doctor", help="Diagnose a shell target")
     doctor_parser.add_argument("target", nargs="?", help="Target: bash, zsh")
     setup_parser = sub.add_parser("setup", help="Set up nah integration for a runtime")

@@ -1449,9 +1449,12 @@ class TestTargetLifecycleCli:
             cli_mod.main()
         assert exc.value.code == 0
         out = capsys.readouterr().out
-        assert f"usage: nah {command} <target>" in out
-        assert "Required target: claude, bash, or zsh" in out
-        assert "Codex uses nah run codex" in out
+        # Collapse whitespace: argparse wraps the help line across terminals, so
+        # assert on the logical text rather than an exact unwrapped phrase.
+        normalized = " ".join(out.split())
+        assert f"usage: nah {command} <target>" in normalized
+        assert "Required target: claude, devin, bash, or zsh" in normalized
+        assert "Codex uses nah run codex" in normalized
 
     def test_install_without_target_errors(self, capsys):
         import nah.cli as cli_mod
@@ -2280,3 +2283,131 @@ class TestHookCommand:
         assert len(parts) == 2
         assert parts[0] == "/opt/my nah/bin/nah"
         assert parts[1] == "_claude-hook"
+
+
+class TestCmdDevin:
+    """`nah install/update/uninstall/status devin` — merge-safe user config."""
+
+    def _settings(self, tmp_path, monkeypatch):
+        from nah import agents
+        settings_file = tmp_path / "devin" / "config.json"
+        monkeypatch.setattr(
+            agents, "AGENT_SETTINGS", {**agents.AGENT_SETTINGS, agents.DEVIN: settings_file}
+        )
+        return settings_file
+
+    def test_install_writes_three_events(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        settings_file = self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+
+        data = json.loads(settings_file.read_text())
+        hooks = data["hooks"]
+        assert set(hooks) == {"PreToolUse", "PermissionRequest", "PostToolUse"}
+        for event in hooks:
+            entry = hooks[event][0]
+            assert entry["matcher"] == ""
+            assert "_devin-hook" in entry["hooks"][0]["command"]
+
+    def test_install_merges_and_preserves_user_config(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        settings_file = self._settings(tmp_path, monkeypatch)
+        settings_file.parent.mkdir(parents=True)
+        settings_file.write_text(json.dumps({
+            "read_config_from": {"claude": True},
+            "model": "gpt-5",
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "exec", "hooks": [{"type": "command", "command": "./mine.sh"}]}
+                ],
+                "SessionStart": [
+                    {"matcher": "", "hooks": [{"type": "command", "command": "./setup.sh"}]}
+                ],
+            },
+        }))
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+
+        data = json.loads(settings_file.read_text())
+        # Non-hook keys preserved.
+        assert data["read_config_from"] == {"claude": True}
+        assert data["model"] == "gpt-5"
+        # User's own hooks preserved alongside nah's.
+        pre = data["hooks"]["PreToolUse"]
+        assert any(e["hooks"][0]["command"] == "./mine.sh" for e in pre)
+        assert any("_devin-hook" in e["hooks"][0]["command"] for e in pre)
+        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == "./setup.sh"
+        # Backup written.
+        assert settings_file.with_suffix(".json.bak").exists()
+
+    def test_install_is_idempotent(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        settings_file = self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+
+        hooks = json.loads(settings_file.read_text())["hooks"]
+        for event in ("PreToolUse", "PermissionRequest", "PostToolUse"):
+            nah_entries = [e for e in hooks[event] if "_devin-hook" in e["hooks"][0]["command"]]
+            assert len(nah_entries) == 1
+
+    def test_uninstall_removes_only_nah_entries(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        settings_file = self._settings(tmp_path, monkeypatch)
+        settings_file.parent.mkdir(parents=True)
+        settings_file.write_text(json.dumps({
+            "model": "gpt-5",
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "exec", "hooks": [{"type": "command", "command": "./mine.sh"}]}
+                ],
+            },
+        }))
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+        cli_mod.cmd_uninstall(argparse.Namespace(target="devin"))
+
+        data = json.loads(settings_file.read_text())
+        assert data["model"] == "gpt-5"
+        pre = data["hooks"]["PreToolUse"]
+        assert len(pre) == 1
+        assert pre[0]["hooks"][0]["command"] == "./mine.sh"
+        # nah-only events removed entirely.
+        assert "PermissionRequest" not in data["hooks"]
+        assert "PostToolUse" not in data["hooks"]
+
+    def test_update_refreshes_command(self, tmp_path, monkeypatch):
+        import nah.cli as cli_mod
+        from nah import hook_command
+        settings_file = self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+        monkeypatch.setattr(
+            hook_command, "resolve_nah_executable", lambda: "/new/path/nah"
+        )
+        cli_mod.cmd_update(argparse.Namespace(target="devin"))
+
+        hooks = json.loads(settings_file.read_text())["hooks"]
+        cmd = hooks["PreToolUse"][0]["hooks"][0]["command"]
+        assert "/new/path/nah" in cmd
+        assert "_devin-hook" in cmd
+
+    def test_update_without_install_reports(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_update(argparse.Namespace(target="devin"))
+        out = capsys.readouterr().out
+        assert "install devin" in out
+
+    def test_status_reports_installed(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_install(argparse.Namespace(target="devin", force=False))
+        cli_mod.cmd_target_status("devin")
+        out = capsys.readouterr().out
+        assert "devin:" in out
+        assert "installed" in out
+
+    def test_status_reports_not_installed(self, tmp_path, monkeypatch, capsys):
+        import nah.cli as cli_mod
+        self._settings(tmp_path, monkeypatch)
+        cli_mod.cmd_target_status("devin")
+        out = capsys.readouterr().out
+        assert "not installed" in out
