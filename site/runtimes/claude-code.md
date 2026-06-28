@@ -232,20 +232,6 @@ nah test --tool Read ~/.aws/credentials
 nah test --tool Write --path ~/.aws/credentials
 ```
 
-For a live demo inside Claude Code, clone the
-[nah repo](https://github.com/manuelschipper/nah) and run the slash command:
-
-```bash
-# after cloning
-cd nah
-# inside Claude Code:
-/nah-demo
-```
-
-The demo runs 25 curated Claude Code tool-call cases across remote code
-execution, data exfiltration, obfuscated commands, destructive operations, and
-other categories. It is a short product demo; pytest is the regression suite.
-
 ## Coverage
 
 Claude Code direct hooks and the plugin guard:

@@ -163,7 +163,6 @@ class TestAcceptanceCriteria:
         assert "sensitive path" not in r.reason
 
     def test_nah_test_sensitive_read_path_allows(self, tmp_path, monkeypatch):
-        # The form /nah-demo runs for its sensitive cases.
         monkeypatch.chdir(tmp_path)
         r = classify_command("nah test --defaults --tool Read ~/.ssh/id_rsa")
         assert r.final_decision == "allow"

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sensitive-path block, project-boundary, and destructive-patch checks — which is cheap,
   clear, and unchanged. The Bash LLM path (Layer 1/2 relax + inline `lang_exec` review) is
   untouched.
+- Removed the `/nah-demo` Claude Code showcase and its curated cases
+  (`src/nah/demo_cases.py`, `src/nah/data/nah_demo.json`, the `.claude/commands/nah-demo.md`
+  slash command, and `tests/test_nah_demo.py`). It was a product demo, not part of the
+  guard or the regression suite; `pytest` remains the coverage source and
+  `nah audit-threat-model` the coverage report.
 
 ### Added
 

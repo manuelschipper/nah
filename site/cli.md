@@ -387,35 +387,7 @@ In bash, ask prompts use the hidden nah decision helper, so `y` / `n` answers
 are read immediately without exposing helper commands in the shell prompt or
 history.
 
-## Security Demo
-
-### Claude Code demo
-
-Claude Code-only security demo. Clone the
-[nah repo](https://github.com/manuelschipper/nah) and run the demo slash
-command from within Claude Code. The slash command is defined in
-`.claude/commands/`.
-
-```
-/nah-demo                        # 25 curated cases across 8 threat categories
-```
-
-The demo is intentionally small. Use pytest for regression coverage.
-
-**Stories:**
-
-| Story | What it covers |
-|-------|---------------|
-| `safe` | Operations that should pass through |
-| `rce` | Remote code execution (curl \| bash, wget \| sh) |
-| `exfil` | Data exfiltration (piping secrets to network) |
-| `obfuscated` | Obfuscated execution (base64, eval, nested shells) |
-| `path` | Path & boundary protection (sensitive dirs, project scope) |
-| `destructive` | Destructive operations (rm, force push, DROP TABLE) |
-| `secrets` | Credential-search detection (Grep credential hunts) |
-| `network` | Network context (trusted vs unknown hosts) |
-
-### nah audit-threat-model
+## nah audit-threat-model
 
 Audit threat-model coverage across the pytest suite.
 

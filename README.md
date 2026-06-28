@@ -140,22 +140,6 @@ run `claude` in default mode. `nah run claude` rejects flags that bypass or
 auto-approve Claude Code permissions because those modes can run tool calls
 outside the guarded path.
 
-## Claude Code Demo
-
-Clone the [nah repo](https://github.com/manuelschipper/nah) and run the Claude
-Code security demo:
-
-```bash
-# after cloning
-cd nah
-# inside Claude Code:
-/nah-demo
-```
-
-25 curated Claude Code tool-call cases across 8 threat categories: remote code
-execution, data exfiltration, obfuscated commands, and others. Takes ~5
-minutes. The demo is intentionally small; pytest is the regression suite.
-
 ## Benchmark
 
 On `101,194` extracted Bash tool calls from the public Novita Claude Code trace,
