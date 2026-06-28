@@ -928,7 +928,7 @@
 .nah-runtime-grid {
   display: grid;
   gap: 0.9rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
 }
 
 .nah-runtime-card {
