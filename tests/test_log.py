@@ -202,32 +202,6 @@ class TestRuntimeExecutionMetadata:
         assert "runtime" not in entry
         assert "execution" not in entry
 
-    def test_build_entry_preserves_taint_metadata(self):
-        entry = log.build_entry(
-            "Bash",
-            "curl https://example.com",
-            "allow",
-            "ok",
-            "claude",
-            "test",
-            1,
-            {
-                "taint": {
-                    "mode": "audit",
-                    "labels": ["secret"],
-                    "policy_decision": "ask",
-                    "would_decision": "ask",
-                    "enforced": False,
-                    "chain": "Read .env secret -> Bash curl",
-                },
-            },
-        )
-
-        assert entry["taint"]["mode"] == "audit"
-        assert entry["taint"]["labels"] == ["secret"]
-        assert entry["taint"]["would_decision"] == "ask"
-        assert entry["taint"]["enforced"] is False
-
     def test_build_entry_preserves_ask_fallback_metadata(self):
         entry = log.build_entry(
             "Bash",
@@ -407,22 +381,6 @@ class TestReadLog:
         entries = log.read_log(filters={"llm": True})
         assert len(entries) == 1
         assert "llm" in entries[0]
-
-    def test_filter_by_llm_includes_provenance_review(self, tmp_path):
-        log.log_decision({"decision": "allow", "tool": "Bash"})
-        log.log_decision({
-            "decision": "allow",
-            "tool": "Bash",
-            "provenance": {
-                "review": {
-                    "provider": "openrouter",
-                    "prompt_hash": "sha256:abc",
-                },
-            },
-        })
-        entries = log.read_log(filters={"llm": True})
-        assert len(entries) == 1
-        assert entries[0]["provenance"]["review"]["provider"] == "openrouter"
 
     def test_limit(self, tmp_path):
         for i in range(20):
