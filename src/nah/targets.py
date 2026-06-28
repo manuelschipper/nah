@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 CLAUDE = "claude"
 CODEX = "codex"
+DEVIN = "devin"
 BASH = "bash"
 ZSH = "zsh"
 
@@ -50,6 +51,15 @@ TARGETS: dict[str, Target] = {
         # surface is read-only status, mutating setup, and managed-file removal.
         commands=frozenset({STATUS, SETUP, UNINSTALL}),
     ),
+    DEVIN: Target(
+        key=DEVIN,
+        kind=AGENT,
+        label="Devin CLI",
+        description="protect Devin CLI with native hooks",
+        # Devin has a persistent native hook install (user-level config), so it
+        # mirrors Claude's lifecycle surface.
+        commands=frozenset({INSTALL, UPDATE, UNINSTALL, STATUS}),
+    ),
     BASH: Target(
         key=BASH,
         kind=SHELL,
@@ -67,10 +77,10 @@ TARGETS: dict[str, Target] = {
 }
 
 SHELL_TARGETS = {BASH, ZSH}
-AGENT_TARGETS = {CLAUDE, CODEX}
+AGENT_TARGETS = {CLAUDE, CODEX, DEVIN}
 
 # Display order for guided target lists.
-_HELP_ORDER = (CLAUDE, CODEX, BASH, ZSH)
+_HELP_ORDER = (CLAUDE, CODEX, DEVIN, BASH, ZSH)
 
 
 def get_target(key: str | None) -> Target | None:
