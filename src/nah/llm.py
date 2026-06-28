@@ -129,9 +129,6 @@ def _provider_config_with_budget(config: dict, remaining_seconds: float | None) 
 _INLINE_LANG_EXEC_RISK_SECTION = render_llm_risk_section(
     "Choose uncertain only when the inline code visibly does one of these risk categories:"
 )
-_PROVENANCE_RISK_SECTION = render_llm_risk_section(
-    "Choose uncertain when the session delta or requested activation visibly contains one of these risk categories:"
-)
 _JSON_DECISION_FORMAT = (
     '{"decision": "<allow|uncertain>", '
     '"reasoning": "<max 10 words, prompt-safe user-visible summary>", '
@@ -164,27 +161,6 @@ Rules:
 {_INLINE_LANG_EXEC_RISK_SECTION}
 
 If none of those categories is visible, choose allow.
-
-Respond with exactly one JSON object, no other text:
-{_JSON_DECISION_FORMAT}\
-
-{_REASONING_INSTRUCTIONS}\
-"""
-
-_PROVENANCE_REVIEW_SYSTEM_TEMPLATE = f"""\
-You are a security classifier for a CLI tool safety guard. \
-A guarded runtime wrote files or repo state earlier in this session. It now \
-wants to run or externalize code/data that may depend on those session-written \
-changes. Decide whether this exact action can proceed based only on the \
-provided session delta and action metadata.
-
-Rules:
-- allow: the session-written files are clearly routine, local, and do not add
-  any listed risk.
-- uncertain: the delta is incomplete, ambiguous, or could externalize or run
-  behavior that is not clearly safe.
-
-{_PROVENANCE_RISK_SECTION}
 
 Respond with exactly one JSON object, no other text:
 {_JSON_DECISION_FORMAT}\
@@ -1456,51 +1432,5 @@ def try_llm_inline_lang_exec(
         stages=stages,
     )
     result = _try_providers(prompt, llm_config, "Bash")
-    result.prompt = f"{prompt.system}\n\n{prompt.user}"
-    return result
-
-
-def _build_provenance_prompt(packet: dict) -> PromptParts:
-    """Build LLM prompt for session provenance activation/boundary review."""
-    action = packet.get("action", {}) if isinstance(packet, dict) else {}
-    parts = [
-        "## Action",
-        json.dumps(action, sort_keys=True, ensure_ascii=False),
-        "",
-        "## Review Limits",
-        json.dumps(packet.get("limits", {}), sort_keys=True, ensure_ascii=False),
-        "",
-        f"Packet complete: {bool(packet.get('complete'))}",
-    ]
-    omitted = packet.get("omitted", [])
-    if omitted:
-        parts.extend([
-            "",
-            "## Omitted Or Incomplete Material",
-            json.dumps(omitted, sort_keys=True, ensure_ascii=False),
-        ])
-    for idx, file_entry in enumerate(packet.get("files", []), 1):
-        header = {
-            "index": idx,
-            "path": file_entry.get("display") or file_entry.get("path", ""),
-            "action_type": file_entry.get("action_type", ""),
-            "stamp": file_entry.get("stamp", ""),
-            "size": file_entry.get("size", 0),
-        }
-        parts.extend([
-            "",
-            "## Session-Written File",
-            json.dumps(header, sort_keys=True, ensure_ascii=False),
-            "```",
-            str(file_entry.get("content", "")),
-            "```",
-        ])
-    return PromptParts(system=_PROVENANCE_REVIEW_SYSTEM_TEMPLATE, user="\n".join(parts))
-
-
-def try_llm_provenance_review(packet: dict, llm_config: dict) -> LLMCallResult:
-    """Try LLM providers for session-delta provenance review."""
-    prompt = _build_provenance_prompt(packet)
-    result = _try_providers(prompt, llm_config, "provenance")
     result.prompt = f"{prompt.system}\n\n{prompt.user}"
     return result

@@ -51,26 +51,6 @@ presets:
         ask_fallback: block
       claude:
         ask_fallback: block
-
-    taint:
-      mode: enforce
-      inherit_sensitive_paths: true
-      policies:
-        default:
-          activation: block
-          boundary: block
-          unknown: block
-        secret:
-          activation: block
-          boundary: block
-          unknown: block
-
-    provenance:
-      mode: enforce
-      policies:
-        activation: context
-        boundary: block
-        git_remote_write: block
 ```
 
 This preset lets routine project work continue while making unattended runs fail
@@ -92,9 +72,7 @@ and is host-checked via `context`. Tighten either explicitly if even read-only
 service inspection should pause in your environment.
 
 `context` is used where the answer depends on what nah can inspect, such as the
-path, command, content, tool target, [taint state](../configuration/taint-tracking.md),
-or [session provenance](../configuration/provenance.md). See
-[Sensitive data](sensitive-data.md) for how those layers work together.
+path, command, content, or tool target.
 
 The result is intentionally conservative: safe build/test/edit work can proceed,
 while secrets, remote writes, destructive operations, bypasses, and unresolved
@@ -170,17 +148,12 @@ nah log --asks
 ## Customize or make variants
 
 Create a second preset when one job needs a narrower or broader policy. For
-example, a branch-pushing agent can allow remote Git while still asking
-provenance to review that boundary:
+example, a branch-pushing agent can allow the remote Git the base preset blocks:
 
 ```yaml
 # In the copied sandboxed-pr-agent preset:
 actions:
   git_remote_write: allow
-
-provenance:
-  policies:
-    git_remote_write: context
 ```
 
 Use narrowly scoped Git credentials for this preset. Do not pair it with broad

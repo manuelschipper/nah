@@ -48,8 +48,8 @@ def main(
 ) -> int:
     """Handle a Codex hook invocation.
 
-    PreToolUse records observation-only taint state, PermissionRequest emits
-    allow/deny JSON or no verdict, and PostToolUse records execution outcome.
+    PreToolUse is observation-only, PermissionRequest emits allow/deny JSON or
+    no verdict, and PostToolUse records execution outcome.
     """
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
@@ -82,11 +82,13 @@ def main(
         event_name = _hook_event_name(payload, default_hook_event)
         _maybe_probe_delay(payload, event_name)
         if event_name == "PreToolUse":
-            total_ms = int((time.monotonic() - t0) * 1000)
+            # PreToolUse is observation-only for Codex; the enforced decision is
+            # made at PermissionRequest. Headless runs still pre-evaluate, but
+            # interactive runs have nothing to record here.
             if _headless_enabled():
+                total_ms = int((time.monotonic() - t0) * 1000)
                 _handle_headless_pre_tool_use(payload, total_ms, stdout)
                 return 0
-            _log_pre_tool_use(payload, total_ms)
             stdout.flush()
             return 0
         if event_name == "PostToolUse":
@@ -98,8 +100,6 @@ def main(
         with _codex_permission_llm_budget():
             decision, canonical, tool_input = _decide(payload)
             _attach_permission_runtime(decision, payload)
-            decision = _apply_taint_permission(canonical, tool_input, decision, payload)
-            decision = _apply_provenance_permission(canonical, tool_input, decision, payload)
             decision = hook._apply_ask_fallback(decision)
             decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
             _emit_decision(stdout, decision, canonical)
@@ -166,21 +166,6 @@ def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]
         return decision, canonical, log_input
 
     return _unsupported_decision(canonical, tool_input), canonical, tool_input
-
-
-def _observation_decision(classifier_decision: dict) -> dict:
-    """Convert a policy decision into an observation that actually continues.
-
-    Codex PreToolUse can only block or continue. This mold's PreToolUse path is
-    observation-only, so the top-level decision must reflect the runtime action
-    nah actually took: continue. Classifier ask/block decisions stay in stages.
-    """
-    meta = copy.deepcopy(classifier_decision.get("_meta", {}) or {})
-    return {
-        "decision": taxonomy.ALLOW,
-        "reason": "tool call observed",
-        "_meta": meta,
-    }
 
 
 def _unsupported_decision(canonical: str, _tool_input: dict) -> dict:
@@ -385,10 +370,6 @@ def _permission_execution(decision: dict) -> dict:
     return {"state": "requested", "ask_outcome": "not_applicable"}
 
 
-def _pre_tool_execution() -> dict:
-    return {"state": "requested", "ask_outcome": "not_applicable"}
-
-
 def _headless_pre_tool_execution(decision: dict) -> dict:
     d = decision.get("decision", taxonomy.ALLOW)
     if d == taxonomy.BLOCK:
@@ -407,88 +388,6 @@ def _attach_permission_runtime(decision: dict, payload: dict) -> None:
     meta["execution"] = _permission_execution(decision)
 
 
-def _apply_taint_permission(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-    *,
-    strict: bool = False,
-) -> dict:
-    try:
-        from nah import taint
-
-        meta = decision.setdefault("_meta", {})
-        return taint.apply_pre_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"taint permission failed: {exc}")
-        if strict:
-            return _policy_error_block(decision, f"taint permission failed: {exc}")
-        return decision
-
-
-def _apply_taint_pre_tool_observation(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-) -> dict:
-    try:
-        from nah import taint
-
-        meta = decision.setdefault("_meta", {})
-        return taint.apply_pre_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-            terminal_audit_only=True,
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"taint pre-tool failed: {exc}", event_name="PreToolUse")
-        return decision
-
-
-def _apply_provenance_permission(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-    *,
-    strict: bool = False,
-) -> dict:
-    try:
-        from nah import provenance
-
-        meta = decision.setdefault("_meta", {})
-        return provenance.apply_pre_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-            context_review=True,
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"provenance permission failed: {exc}")
-        if strict:
-            return _policy_error_block(decision, f"provenance permission failed: {exc}")
-        return decision
-
-
 def _policy_error_block(decision: dict, reason: str) -> dict:
     blocked = copy.deepcopy(decision)
     blocked["decision"] = taxonomy.BLOCK
@@ -501,31 +400,6 @@ def _policy_error_block(decision: dict, reason: str) -> dict:
         "reason": reason,
     }
     return blocked
-
-
-def _apply_provenance_pre_tool_observation(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-) -> dict:
-    try:
-        from nah import provenance
-
-        meta = decision.setdefault("_meta", {})
-        return provenance.apply_pre_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-            terminal_audit_only=True,
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"provenance pre-tool failed: {exc}", event_name="PreToolUse")
-        return decision
 
 
 def _emit_decision(stdout, decision: dict, canonical: str) -> None:
@@ -621,8 +495,6 @@ def _handle_headless_pre_tool_use(payload: dict, total_ms: int, stdout) -> None:
             _emit_pre_tool_deny(stdout, reason)
             return
 
-        decision = _apply_taint_permission(canonical, tool_input, decision, payload, strict=True)
-        decision = _apply_provenance_permission(canonical, tool_input, decision, payload, strict=True)
         decision = _apply_headless_ask_fallback(decision, mode)
         decision.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(decision)
 
@@ -667,30 +539,6 @@ def _emit_pre_tool_deny(stdout, reason: str) -> None:
     stdout.flush()
 
 
-def _log_pre_tool_use(payload: dict, total_ms: int) -> None:
-    from nah.config import set_active_target
-
-    set_active_target(agents.CODEX, reset_cache=False)
-    old_transcript = hook._transcript_path
-    hook._transcript_path = str(payload.get("transcript_path", "") or "")
-    try:
-        classifier_decision, canonical, tool_input = _decide(payload, llm_review=False)
-        decision = _observation_decision(classifier_decision)
-        meta = decision.setdefault("_meta", {})
-        meta["runtime"] = _runtime_meta(
-            payload,
-            phase="pre_tool",
-            hook_event_name="PreToolUse",
-        )
-        meta["execution"] = _pre_tool_execution()
-        _apply_taint_pre_tool_observation(canonical, tool_input, decision, payload)
-        _apply_provenance_pre_tool_observation(canonical, tool_input, decision, payload)
-        if meta.get("taint") or meta.get("provenance"):
-            hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
-    finally:
-        hook._transcript_path = old_transcript
-
-
 def _log_post_tool_use(payload: dict, total_ms: int) -> None:
     from nah.config import set_active_target
 
@@ -723,59 +571,9 @@ def _log_post_tool_use(payload: dict, total_ms: int) -> None:
                 },
             },
         }
-        _apply_taint_post_tool(canonical, tool_input, decision, payload)
-        _apply_provenance_post_tool(canonical, tool_input, decision, payload)
         hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
     finally:
         hook._transcript_path = old_transcript
-
-
-def _apply_taint_post_tool(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-) -> dict:
-    try:
-        from nah import taint
-
-        meta = decision.setdefault("_meta", {})
-        return taint.apply_post_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"taint post-tool failed: {exc}")
-        return decision
-
-
-def _apply_provenance_post_tool(
-    canonical: str,
-    tool_input: dict,
-    decision: dict,
-    payload: dict,
-) -> dict:
-    try:
-        from nah import provenance
-
-        meta = decision.setdefault("_meta", {})
-        return provenance.apply_post_tool(
-            canonical,
-            tool_input,
-            decision,
-            runtime=agents.CODEX,
-            runtime_meta=meta.get("runtime", {}),
-            execution=meta.get("execution", {}),
-            transcript_path=str(payload.get("transcript_path", "") or ""),
-        )
-    except Exception as exc:
-        _log_codex_hook_error(f"provenance post-tool failed: {exc}")
-        return decision
 
 
 @contextlib.contextmanager

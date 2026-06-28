@@ -100,12 +100,6 @@ are still accepted for backward compatibility but no longer affect terminal
 decisions. The LLM layer remains available for the agent runtimes (Claude Code,
 Codex); see [LLM layer](../configuration/llm.md).
 
-## Taint Tracking
-
-Terminal Guard can participate in [taint tracking](../configuration/taint-tracking.md)
-for audit logs, but taint policy is audit-only in v1 for bash and zsh. Normal
-Terminal Guard allow / ask / block classification still applies.
-
 ## Logs
 
 Allowed terminal commands are not logged by default. Blocks, denied asks,

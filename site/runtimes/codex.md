@@ -59,10 +59,9 @@ keeps Codex's filesystem sandbox, which can be useful when you want an
 additional sandbox boundary but can also restrict host-level resources.
 
 For interactive Codex, the `PreToolUse` and `PostToolUse` hooks are
-observation-only. They let nah track configured
-[taint state](../configuration/taint-tracking.md) and execution outcomes
-without changing Codex's native approval UI. The interactive enforcement
-decision happens in `PermissionRequest`.
+observation-only. `PostToolUse` lets nah log execution outcomes without
+changing Codex's native approval UI. The interactive enforcement decision
+happens in `PermissionRequest`.
 
 For `codex exec`, Codex does not have the same interactive approval loop. In
 that headless mode, nah makes `PreToolUse` authoritative and never emits an
@@ -104,13 +103,8 @@ A blocked PreToolUse decision blocks that tool call, not the whole `codex exec`
 run. Codex sees the denial and can continue with another safe tool call or
 fallback path when the task allows it.
 
-When [session provenance](../configuration/provenance.md) is enabled with a
-`context` policy, headless PreToolUse can also run nah's configured LLM
-reviewer before activating session-written files or repo state. A complete LLM
-`allow` lets the action continue. Missing providers, provider errors, timeouts,
-uncertain answers, malformed output, or incomplete review packets remain
-unresolved asks and are handled by `targets.codex.ask_fallback`. With the
-default fallback, unresolved provenance asks fail closed as blocks.
+Unresolved asks are handled by `targets.codex.ask_fallback`. With the default
+fallback, unresolved asks fail closed as blocks.
 
 Trusted global config or a trusted preset can opt into unattended fallback
 allow:

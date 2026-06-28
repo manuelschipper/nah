@@ -14,7 +14,6 @@ yourself. This page describes what nah itself collects, stores, and sends.
 - `nah run codex` uses local Codex hooks and local preflight checks; it does
   not create a nah account.
 - Decision logs and configuration are stored locally.
-- Optional taint tracking stores local session state when enabled.
 - Optional LLM credentials can be stored locally in your OS keychain or
   keyring when you use `nah key ...` from a CLI install with usable keyring
   support.
@@ -37,8 +36,6 @@ operation. Depending on how you use nah, this can include:
 - Codex Bash, MCP, and `apply_patch` hook payloads when you use `nah run codex`
 - Codex approval-memory rule files and MCP approval settings during Codex
   preflight scans
-- taint source, target, label, and chain metadata when optional taint tracking
-  is enabled
 - recent Claude Code transcript context when optional LLM review is enabled
 
 The deterministic classifier processes this information locally.
@@ -51,7 +48,6 @@ locations include:
 - `~/.config/nah/config.yaml`
 - `~/.config/nah/nah.log`
 - `~/.config/nah/hook-errors.log`
-- `~/.config/nah/taint/sessions/` when optional taint tracking is enabled
 - target-specific files under `~/.config/nah/`
 - Codex rule/config backups created by `nah setup codex` when it fixes
   supported Codex drift
@@ -85,7 +81,7 @@ the working directory, and recent transcript context. This content is sent witho
 secret-pattern redaction, so any secrets present in the command or transcript reach
 the configured provider. Write/edit content is never sent to an LLM. Treat the LLM
 provider as receiving security-sensitive context, and rely on structural controls
-(sensitive paths, taint/provenance) rather than content redaction.
+(sensitive paths) rather than content redaction.
 
 ## Claude Code Plugin
 
@@ -110,8 +106,6 @@ to make safety decisions.
 You can:
 
 - disable optional LLM review by leaving `llm.mode` off or setting it to `off`
-- disable optional taint tracking by leaving `taint.mode` off or setting it to
-  `off`
 - use a local LLM provider such as Ollama instead of a remote provider
 - reduce or disable transcript context with `llm.context_chars`
 - remove stored provider keys with `nah key rm <provider>` from a CLI install

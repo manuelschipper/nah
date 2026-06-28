@@ -10,8 +10,7 @@ The deterministic layer always runs first. The LLM layer is split into two
 single-purpose roles: **Layer 1** classifies a deterministically-`unknown`
 command into an action type plus the targets it touches, and **Layer 2** (the
 intent relaxer) refines eligible `ask` decisions. Script inspection can call the
-LLM as a veto path, and an optional session-provenance review can weigh the
-later effects of same-session writes. Write-like tool calls
+LLM as a veto path. Write-like tool calls
 (Write/Edit/MultiEdit/NotebookEdit and Codex `apply_patch`) are never sent to the
 LLM — they are guarded by a deterministic path/boundary floor only. The LLM
 cannot relax deterministic blocks. If no LLM is configured or available, the
@@ -32,8 +31,8 @@ Layer 1 **extracts**; the deterministic floor **matches**. The model proposes a
 type and the resources the command touches, but the sensitive-path,
 project-boundary, and trusted-host checks stay in deterministic code — the model
 is never the thing that clears a dangerous target. The risk taxonomy below
-applies to Layer 2, the clean-script veto, and the session-provenance review, not
-to Layer 1 (which emits action types, not risk categories).
+applies to Layer 2 and the clean-script veto, not to Layer 1 (which emits action
+types, not risk categories).
 
 ## What LLM review looks for
 
@@ -373,8 +372,7 @@ deterministic floor only: sensitive paths block or ask, `~/.claude/hooks/`
 blocks, `~/.config/nah/` asks, writes outside the project root ask, destructive
 `apply_patch` operations (delete/move) ask, and everything else allows. Their
 content is never sent to an LLM and is never scanned for secret-shaped text. Use
-[sensitive paths](sensitive-paths.md), [taint tracking](taint-tracking.md), and
-[provenance](provenance.md) for write-side protection.
+[sensitive paths](sensitive-paths.md) for write-side protection.
 
 ## context_chars
 

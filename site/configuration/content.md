@@ -68,8 +68,8 @@ Patterns are organized by category. Each match triggers the category's policy (d
     nah no longer scans write/edit content for secret-looking literals (AWS
     keys, tokens, private keys) or credential paths. Deterministic secret
     pattern-matching was removed because it only catches known formats and gives
-    false confidence. Secret protection is now structural: sensitive-path checks,
-    taint/provenance, and Grep credential-search detection (below).
+    false confidence. Secret protection is now structural: sensitive-path checks
+    and Grep credential-search detection (below).
 
 ## Credential search patterns (Grep)
 

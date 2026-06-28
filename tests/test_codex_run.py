@@ -249,15 +249,6 @@ def test_run_codex_measure_bad_input_returns_1(monkeypatch, capsys):
     assert rc == 1
     assert "must be one of" in capsys.readouterr().err
 
-
-def test_provenance_run_id_is_created_and_preserves_inherited_value():
-    launch = _launch([])
-    assert launch.env["NAH_PROVENANCE_RUN_ID"].startswith("run-")
-
-    inherited = _launch([], base_env={"NAH_PROVENANCE_RUN_ID": "parent-run"})
-    assert inherited.env["NAH_PROVENANCE_RUN_ID"] == "parent-run"
-
-
 def test_confirm_edits_rejects_value_form():
     with pytest.raises(CodexRunError) as exc:
         _launch(["--confirm-edits=true"])

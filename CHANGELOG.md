@@ -9,10 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the session **taint tracking** and **provenance** features entirely
+  (`src/nah/taint.py`, `src/nah/provenance.py`) along with all runtime wiring
+  (Claude `hook.py`, Codex `codex_hooks.py`/`codex_run.py`, terminal guard), the
+  `taint`/`provenance` config surface, the LLM provenance-review path, and the
+  log/message rendering and docs (nah-1009). Both were opt-in and off by default,
+  so removal is behavior-neutral for current users; the deterministic classifier,
+  LLM relax/classify, and the 43 action types are unchanged. The non-headless
+  Codex `PreToolUse` hook is now fully observation-inert (its only job was taint
+  state); enforcement still happens at `PermissionRequest`.
 - Removed deterministic secret-looking and credential-path content scanning, along with
   secret redaction on LLM prompt/transcript context and local post-tool error summaries.
   Secret protection now relies on structural controls such as sensitive paths,
-  taint/provenance, credential-search detection, and explicit secret-store/env reads
+  credential-search detection, and explicit secret-store/env reads
   rather than guessing token-shaped text in write payloads (nah-1006).
 - Removed the LLM write content-review gate that inspected Write/Edit/MultiEdit/NotebookEdit
   and Codex `apply_patch` payloads as data-at-rest and could escalate a clean `allow` to
@@ -49,8 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`service_inspect`** (policy `allow`) is the honest home for local service/daemon
     inspection — the systemd entries move here, joined by `caddy version`/`list-modules`,
     `launchctl list/print`, `sc query/queryex/qc`, `rc-status`/`rc-service -l`, and
-    `service --status-all`. It is deliberately kept out of the taint/provenance
-    data-egress boundary (local inspection is not network egress).
+    `service --status-all`. It is deliberately kept out of the data-egress
+    boundary (local inspection is not network egress).
   - **`env_read`** (policy `ask`) is the honest home for commands whose purpose is
     exposing environment or secret values — `printenv`, `caddy environ`,
     `systemctl show-environment`, `export -p`/`declare -p`/`typeset -p`, and secret-store

@@ -243,11 +243,3 @@ Claude Code direct hooks and the plugin guard:
 
 WebFetch and WebSearch are not guarded by nah. Claude Code handles those with
 its own permission prompts.
-
-nah can also track safety state across Claude Code sessions:
-
-- [Taint tracking](../configuration/taint-tracking.md) remembers successful
-  sensitive reads and can apply later activation or boundary policies.
-- [Session provenance](../configuration/provenance.md) remembers files and repo
-  state written during the guarded run and can review later actions that
-  execute, publish, or otherwise move those writes across a boundary.
