@@ -73,8 +73,6 @@ class PatchParseError(ValueError):
 def classify_codex_apply_patch(
     tool_input: dict,
     payload: dict,
-    *,
-    llm_review: bool = True,
 ) -> tuple[dict, dict]:
     """Classify a Codex apply_patch request and return (decision, log input)."""
     patch_text = acquire_patch_text(tool_input, str(payload.get("transcript_path", "") or ""))
@@ -98,33 +96,13 @@ def classify_codex_apply_patch(
         if boundary_decision:
             return _with_stage(boundary_decision, taxonomy.FILESYSTEM_WRITE), log_input
 
-    content_decision = {"decision": taxonomy.ALLOW}
-
     destructive_reason = _destructive_patch_reason(parsed, cwd)
     if destructive_reason:
         return _ask(destructive_reason), log_input
 
-    if llm_review:
-        from nah import hook
-
-        review_input = {
-            "file_path": ", ".join(resolved_paths),
-            "content": parsed.added_content,
-            "_nah_patch_paths": resolved_paths,
-            "_nah_patch_summary": parsed.summary(),
-        }
-        content_decision = hook._llm_write_review_gate(
-            "apply_patch",
-            review_input,
-            content_decision,
-        )
-
-    if content_decision.get("decision") != taxonomy.ALLOW:
-        return _with_stage(content_decision, taxonomy.FILESYSTEM_WRITE), log_input
-
     return _ask(
         "apply_patch: safe project edit handled by nah",
-        content_decision.get("_meta", {}),
+        {},
     ), log_input
 
 

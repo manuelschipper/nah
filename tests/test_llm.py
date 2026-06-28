@@ -14,7 +14,6 @@ from nah.llm import (
     _RELAX_SYSTEM,
     _build_provenance_prompt,
     _build_relax_prompt,
-    _build_write_prompt,
     _format_tool_use_summary,
     _format_transcript_context,
     _parse_response,
@@ -1417,76 +1416,3 @@ class TestSecretContentInTranscript:
         result = _read_transcript_tail(str(f), 5000)
         assert "clean the build" in result
         assert "rm -rf dist/" in result
-
-
-class TestSecretContentInWritePrompt:
-    def _prompt_user(self, tool_name, tool_input):
-        return _build_write_prompt(
-            tool_name, tool_input, {"decision": "ask", "reason": "test"},
-        ).user
-
-    def test_write_prompt_requests_short_and_long_reasoning(self):
-        prompt = _build_write_prompt(
-            "Write",
-            {"file_path": "/tmp/test.py", "content": "print('ok')"},
-            {"decision": "ask", "reason": "test"},
-        )
-        assert '"reasoning"' in prompt.system
-        assert '"reasoning_long"' in prompt.system
-        assert "max 10 words" in prompt.system
-        assert "Prompt-safe means no secrets" in prompt.system
-
-    def test_write_prompt_reviews_security_scope(self):
-        prompt = _build_write_prompt(
-            "Write",
-            {"file_path": "/tmp/test.py", "content": "print('ok')"},
-            {"decision": "allow", "reason": ""},
-        )
-        combined = f"{prompt.system}\n{prompt.user}"
-        assert "Judge the file's content as data at rest, not as if it runs" in prompt.system
-        assert 'Choose "uncertain" only when the written content itself is a risk artifact' in prompt.system
-        assert 'If none of those is visible, choose "allow"' in prompt.system
-        assert "Security Review Scope" not in prompt.user
-        assert "write operation above" not in combined
-        _assert_risk_labels_present(prompt.system)
-        assert "malformed" not in combined
-        assert "syntactically" not in combined
-        assert "alias/config change" not in combined
-        assert "User intent is absent" not in combined
-
-    def test_write_content_secret_preserved(self):
-        prompt = self._prompt_user("Write", {
-            "file_path": "/tmp/test.py",
-            "content": 'api_key = "supersecretvalue123"\nprint("hello")',
-        })
-        assert "supersecretvalue123" in prompt
-        assert 'print("hello")' in prompt
-
-    def test_edit_old_new_secrets_preserved(self):
-        prompt = self._prompt_user("Edit", {
-            "file_path": "/tmp/test.py",
-            "old_string": "AKIAIOSFODNN7EXAMPLE",
-            "new_string": "sk-abc123def456ghi789jklmnop",
-        })
-        assert "AKIAIOSFODNN7EXAMPLE" in prompt
-        assert "sk-abc123def456ghi789jklmnop" in prompt
-
-    def test_multiedit_secret_preserved(self):
-        prompt = self._prompt_user("MultiEdit", {
-            "file_path": "/tmp/test.py",
-            "edits": [
-                {"old_string": "safe content", "new_string": "also safe"},
-                {"old_string": "AKIAIOSFODNN7EXAMPLE", "new_string": "new value"},
-            ],
-        })
-        assert "AKIAIOSFODNN7EXAMPLE" in prompt
-        assert "safe content" in prompt
-
-    def test_notebookedit_secret_preserved(self):
-        prompt = self._prompt_user("NotebookEdit", {
-            "notebook_path": "/tmp/test.ipynb",
-            "cell_index": 0,
-            "action": "replace",
-            "new_source": '-----BEGIN PRIVATE KEY-----\nMIIEvgIB...',
-        })
-        assert "BEGIN PRIVATE KEY" in prompt

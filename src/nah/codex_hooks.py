@@ -158,11 +158,7 @@ def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]
         if isinstance(raw_tool_input, str):
             tool_input = {"input": raw_tool_input}
         with _capture_stderr(log=False):
-            decision, log_input = classify_codex_apply_patch(
-                tool_input,
-                payload,
-                llm_review=llm_review,
-            )
+            decision, log_input = classify_codex_apply_patch(tool_input, payload)
         decision = _apply_codex_edit_confirmation_policy(
             decision,
             log_input,
@@ -711,7 +707,6 @@ def _log_post_tool_use(payload: dict, total_ms: int) -> None:
                 _decision, tool_input = classify_codex_apply_patch(
                     tool_input if isinstance(raw_tool_input, dict) else {"input": raw_tool_input},
                     payload,
-                    llm_review=False,
                 )
         decision = {
             "decision": taxonomy.ALLOW,

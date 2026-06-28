@@ -6,7 +6,15 @@ import subprocess
 
 import pytest
 
-from nah.hook import _classify_unknown_tool, handle_write, handle_edit, handle_read, handle_grep
+from nah.hook import (
+    _classify_unknown_tool,
+    handle_edit,
+    handle_grep,
+    handle_multiedit,
+    handle_notebookedit,
+    handle_read,
+    handle_write,
+)
 from nah import config, paths
 from nah.config import NahConfig
 
@@ -518,9 +526,70 @@ class TestWriteEditBoundary:
         assert d["decision"] == "ask"
         assert "outside project" in d["reason"]
 
+    def test_multiedit_outside_project(self, project_root):
+        d = handle_multiedit({
+            "file_path": "/tmp/outside.txt",
+            "edits": [{"old_string": "a", "new_string": "b"}],
+        })
+        assert d["decision"] == "ask"
+        assert "outside project" in d["reason"]
+
+    def test_notebookedit_outside_project(self, project_root):
+        d = handle_notebookedit({
+            "notebook_path": "/tmp/outside.ipynb",
+            "action": "replace",
+            "new_source": "print('x')",
+        })
+        assert d["decision"] == "ask"
+        assert "outside project" in d["reason"]
+
     def test_write_to_trusted_path(self, project_root):
         config._cached_config = NahConfig(trusted_paths=["/tmp"])
         d = handle_write({"file_path": "/tmp/trusted.txt", "content": "hello"})
+        assert d["decision"] == "allow"
+
+    @pytest.mark.parametrize(
+        ("tool", "handler", "tool_input"),
+        [
+            ("Write", handle_write, {"file_path": "file.txt", "content": "token = 'fake'"}),
+            ("Edit", handle_edit, {"file_path": "file.txt", "old_string": "a", "new_string": "b"}),
+            (
+                "MultiEdit",
+                handle_multiedit,
+                {"file_path": "file.txt", "edits": [{"old_string": "a", "new_string": "b"}]},
+            ),
+            (
+                "NotebookEdit",
+                handle_notebookedit,
+                {"notebook_path": "notebook.ipynb", "action": "replace", "new_source": "token"},
+            ),
+        ],
+    )
+    def test_in_project_write_like_tools_do_not_call_llm(
+        self, project_root, monkeypatch, tool, handler, tool_input,
+    ):
+        """Write-like handlers stop at deterministic path and boundary checks."""
+        import nah.llm as llm_mod
+
+        config._cached_config = NahConfig(
+            llm_mode="on",
+            llm={"providers": ["fake"], "fake": {"model": "test"}},
+        )
+        monkeypatch.setattr(
+            llm_mod,
+            "_try_providers",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError(f"{tool} should not call an LLM provider")
+            ),
+        )
+        tool_input = dict(tool_input)
+        if "file_path" in tool_input:
+            tool_input["file_path"] = os.path.join(project_root, tool_input["file_path"])
+        if "notebook_path" in tool_input:
+            tool_input["notebook_path"] = os.path.join(project_root, tool_input["notebook_path"])
+
+        d = handler(tool_input)
+
         assert d["decision"] == "allow"
 
 
@@ -704,32 +773,10 @@ class TestActiveAllowEmission:
         result = json.loads(output)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-    def _run_hook_with_write_llm_allow(self, tool_name: str, tool_input: dict) -> str:
-        """Run hook.main() with write LLM mocked to allow."""
-        import nah.hook as hook_mod
-
-        original = hook_mod._try_llm_write
-        hook_mod._try_llm_write = lambda tn, ti, d: (
-            {"decision": "allow", "reason": "safe"},
-            {"llm_provider": "test"},
-        )
-        try:
-            return self._run_hook(tool_name, tool_input)
-        finally:
-            hook_mod._try_llm_write = original
-
     def test_write_allow_emits_when_active_allowed(self, project_root):
-        """An in-project, LLM-reviewed Write allow emits JSON when Write is in active_allow.
-
-        nah-989: out-of-project writes are a hard floor (never reach the gate), so the
-        active-allow emission path is exercised with an in-project structural allow.
-        """
-        config._cached_config = NahConfig(
-            active_allow=["Write"],
-            llm_mode="on",
-            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
-        )
-        output = self._run_hook_with_write_llm_allow(
+        """An in-project Write allow emits JSON when Write is in active_allow."""
+        config._cached_config = NahConfig(active_allow=["Write"])
+        output = self._run_hook(
             "Write",
             {"file_path": os.path.join(project_root, "in_project.txt"), "content": "x = 1\n"},
         )
@@ -739,53 +786,12 @@ class TestActiveAllowEmission:
 
     def test_write_allow_falls_through_when_not_active_allowed(self, project_root):
         """An in-project Write allow emits nothing when Write is not in active_allow."""
-        config._cached_config = NahConfig(
-            active_allow=["Bash"],
-            llm_mode="on",
-            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
-        )
-        output = self._run_hook_with_write_llm_allow(
+        config._cached_config = NahConfig(active_allow=["Bash"])
+        output = self._run_hook(
             "Write",
             {"file_path": os.path.join(project_root, "in_project.txt"), "content": "x = 1\n"},
         )
         assert not output.strip(), "Expected in-project Write allow to fall through"
-
-    def test_write_review_ask_does_not_fall_through_to_unified_llm(self):
-        """Write asks left by write review cannot be relaxed by unified LLM."""
-        import nah.hook as hook_mod
-        import nah.llm as llm_mod
-        from nah.llm import LLMCallResult
-
-        config._cached_config = NahConfig(
-            llm_mode="on",
-            llm_eligible="all",
-            llm={"providers": ["ollama"], "ollama": {"model": "test"}},
-        )
-        called = []
-        original_write = hook_mod._try_llm_write
-        original_unified = llm_mod.try_llm_relax
-        hook_mod._try_llm_write = lambda tn, ti, d: (
-            {"decision": "allow", "reason": "safe"},
-            {"llm_provider": "test"},
-        )
-
-        def fake_unified(*args, **kwargs):
-            called.append(True)
-            return LLMCallResult(decision={"decision": "allow", "reason": "unified allow"})
-
-        llm_mod.try_llm_relax = fake_unified
-        try:
-            output = self._run_hook(
-                "Write",
-                {"file_path": "~/.aws/credentials", "content": "region = us-east-1\n"},
-            )
-        finally:
-            hook_mod._try_llm_write = original_write
-            llm_mod.try_llm_relax = original_unified
-
-        assert called == []
-        result = json.loads(output)
-        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
 class TestClaudeRuntimeOutcomeLogging:

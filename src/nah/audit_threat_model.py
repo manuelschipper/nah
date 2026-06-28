@@ -70,12 +70,11 @@ RULES = (
     ),
     Rule(
         category="secret_leak",
-        rationale="Secret-pattern inspection for writes, script execution, and write-LLM veto paths.",
+        rationale="Secret-pattern inspection for content and script execution paths.",
         match_any=(
             "tests/test_content.py::TestScanContent::",
             "tests/test_fd079_script_exec.py::TestVetoGate::",
             "tests/test_fd079_script_exec.py::TestReadScriptForLlm::",
-            "tests/test_fd080_write_llm.py::",
         ),
     ),
     Rule(
@@ -199,7 +198,6 @@ RULES = (
             "tests/test_paths.py::TestConfigSelfProtection::",
             "tests/test_paths.py::TestSettingsJsonProtection::",
             "tests/test_cli.py::TestWriteHookScriptOptimization::",
-            "tests/test_fd080_write_llm.py::",
             "tests/test_hook_robustness.py::",
         ),
     ),
