@@ -59,14 +59,13 @@ def main(
             f"invalid {default_hook_event} JSON: {exc}",
             event_name=default_hook_event,
         )
-        # Fail open on every event: a malformed payload must not wedge Devin.
-        return 0
+        return _fail_safe(stdout, default_hook_event, f"invalid hook JSON: {exc}")
     if not isinstance(payload, dict):
         _log_devin_hook_error(
             f"{default_hook_event} payload was not an object",
             event_name=default_hook_event,
         )
-        return 0
+        return _fail_safe(stdout, default_hook_event, "hook payload was not an object")
 
     try:
         event_name = _hook_event_name(payload, default_hook_event)
@@ -82,10 +81,22 @@ def main(
         return 0
     except Exception as exc:
         _log_devin_hook_error(f"unexpected {event_name} error: {exc}", event_name=event_name)
-        # Fail open — a hook crash should never block a Devin session. The
-        # deterministic block floor is best-effort; surfacing the error in the
-        # log is more useful than denying every subsequent tool call.
+        return _fail_safe(stdout, event_name, f"internal error: {exc}")
+
+
+def _fail_safe(stdout, event_name: str, reason: str) -> int:
+    """Emit a fail-safe block on a decision event; fail open on PostToolUse.
+
+    nah is a safety guard: when the hook crashes or the payload is unusable on a
+    decision event (PreToolUse / PermissionRequest), it must deny rather than let
+    the tool run unguarded — matching the Claude hook's `agents.format_error`
+    deny. PostToolUse fires after the tool already ran, so a block there is
+    meaningless; that path stays fail-open.
+    """
+    if event_name == "PostToolUse":
         return 0
+    _emit_internal_error(stdout, reason)
+    return 0
 
 
 def _hook_event_name(payload: dict, default: str = "PermissionRequest") -> str:
@@ -351,6 +362,22 @@ def _emit_block(stdout, decision: dict, canonical: str) -> None:
     json.dump(out, stdout)
     stdout.write("\n")
     stdout.flush()
+
+
+def _emit_internal_error(stdout, error: str) -> None:
+    """Emit a fail-safe block when nah's own hook errors (mirrors Claude)."""
+    out = {
+        "decision": "block",
+        "reason": f"nah blocked - internal error, failing safe: {error}",
+    }
+    try:
+        json.dump(out, stdout)
+        stdout.write("\n")
+        stdout.flush()
+    except BrokenPipeError:
+        # If stdout is gone we cannot signal the block; the error is already
+        # logged. Nothing more to do — re-raising would mask the original error.
+        pass
 
 
 # ---------------------------------------------------------------------------

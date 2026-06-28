@@ -2,6 +2,7 @@
 
 import io
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -160,16 +161,68 @@ def test_post_tool_use_logs_without_output(project_root):
     assert out == ""
 
 
-def test_invalid_json_fails_open(project_root):
+def test_invalid_json_fails_safe_block(project_root):
+    # A malformed payload on a decision event must fail SAFE (block), not open —
+    # a crashing guard that lets the tool run would silently disable nah.
     stdout = io.StringIO()
     code = devin_hooks.main(io.StringIO("{not json"), stdout, default_hook_event="PreToolUse")
     assert code == 0
-    assert stdout.getvalue() == ""
+    payload = json.loads(stdout.getvalue())
+    assert payload["decision"] == "block"
+    assert "internal error" in payload["reason"]
 
 
-def test_non_object_payload_fails_open(project_root):
+def test_non_object_payload_fails_safe_block(project_root):
     stdout = io.StringIO()
-    code = devin_hooks.main(io.StringIO("[1, 2, 3]"), stdout)
+    code = devin_hooks.main(io.StringIO("[1, 2, 3]"), stdout, default_hook_event="PermissionRequest")
+    assert code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["decision"] == "block"
+    assert "internal error" in payload["reason"]
+
+
+def test_internal_exception_emits_block(project_root):
+    # An exception in the decision path must fail safe (block) on both decision
+    # events, mirroring the Claude hook's format_error deny.
+    def boom(*args, **kwargs):
+        raise RuntimeError("synthetic classifier crash")
+
+    for event in ("PreToolUse", "PermissionRequest"):
+        stdout = io.StringIO()
+        with patch.object(devin_hooks, "_classify_deterministic", boom), \
+             patch.object(devin_hooks, "_decide_full", boom):
+            code = devin_hooks.main(
+                io.StringIO(json.dumps({
+                    "hook_event_name": event,
+                    "tool_name": "exec",
+                    "tool_input": {"command": "ls"},
+                })),
+                stdout,
+                default_hook_event=event,
+            )
+        assert code == 0
+        payload = json.loads(stdout.getvalue())
+        assert payload["decision"] == "block"
+        assert "internal error" in payload["reason"]
+
+
+def test_post_tool_use_error_fails_open(project_root):
+    # PostToolUse fires after the tool already ran, so a block is meaningless:
+    # errors there fail open (no output) rather than emit a useless deny.
+    def boom(*args, **kwargs):
+        raise RuntimeError("synthetic post-tool crash")
+
+    stdout = io.StringIO()
+    with patch.object(devin_hooks, "_log_post_tool_use", boom):
+        code = devin_hooks.main(
+            io.StringIO(json.dumps({
+                "hook_event_name": "PostToolUse",
+                "tool_name": "exec",
+                "tool_input": {"command": "ls"},
+            })),
+            stdout,
+            default_hook_event="PostToolUse",
+        )
     assert code == 0
     assert stdout.getvalue() == ""
 
