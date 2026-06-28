@@ -877,56 +877,29 @@ class TestCmdTest:
         assert payload["human_reason"].startswith("this runs a script outside the current project:")
         assert "this writes outside" not in payload["human_reason"]
 
-    def test_bash_inline_review_allow_is_shown(self, capsys, monkeypatch):
+    def test_read_sensitive_path_json(self, capsys):
         from nah.cli import cmd_test
-
-        def fake_inline_review(_command, stage):
-            assert stage.reason == "lang_exec: inline execution requires LLM review"
-            return {"decision": "allow"}, {
-                "llm_provider": "fake",
-                "llm_model": "test-model",
-                "llm_latency_ms": 12,
-                "llm_decision": "allow",
-                "llm_reasoning": "The inline script is a print-only operation.",
-                "llm_reasoning_long": "The script only prints a literal value.",
-                "llm_cascade": [{"provider": "fake", "status": "success", "latency_ms": 12}],
-            }
-
-        monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fake_inline_review)
         args = argparse.Namespace(
-            tool=None,
-            path=None,
+            tool="Read",
+            path="~/.ssh/id_rsa",
             content=None,
             pattern=None,
             config=None,
             defaults=False,
             target="",
-            json=False,
-            args=["python3 -c 'print(1)'"],
+            json=True,
+            args=[],
         )
 
         cmd_test(args)
 
-        out = capsys.readouterr().out
-        assert "Decision:    ALLOW" in out
-        assert "LLM decision: ALLOW" in out
-        assert "LLM reason:   The inline script is a print-only operation." in out
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["decision"] == "block"
+        assert "sensitive path" in payload["reason"]
 
-    def test_bash_inline_review_json_can_raise_ask(self, capsys, monkeypatch):
+    def test_bash_inline_code_stays_ask(self, capsys):
         from nah.cli import cmd_test
 
-        def fake_inline_review(_command, _stage):
-            return {"decision": "uncertain", "reason": "Bash (LLM): human review needed"}, {
-                "llm_provider": "fake",
-                "llm_model": "test-model",
-                "llm_latency_ms": 12,
-                "llm_decision": "uncertain",
-                "llm_reasoning": "The inline script writes files.",
-                "llm_reasoning_long": "The script contains a write operation.",
-                "llm_cascade": [{"provider": "fake", "status": "uncertain", "latency_ms": 12}],
-            }
-
-        monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fake_inline_review)
         args = argparse.Namespace(
             tool=None,
             path=None,
@@ -943,9 +916,7 @@ class TestCmdTest:
 
         payload = json.loads(capsys.readouterr().out)
         assert payload["decision"] == "ask"
-        assert payload["reason"] == "Bash (LLM): human review needed"
-        assert payload["llm"]["decision"] == "uncertain"
-        assert payload["llm"]["reasoning"] == "The inline script writes files."
+        assert "llm" not in payload
 
     def test_target_bash_bypass_prefix(self, capsys, monkeypatch):
         from nah.cli import cmd_test
@@ -989,7 +960,7 @@ class TestCmdTest:
         from nah.cli import cmd_test
         from nah.config import NahConfig
         from nah.llm import (
-            LLMCallResult, LLMClassification, LLMClassifyResult, ProviderAttempt,
+            LLMClassification, LLMClassifyResult, ProviderAttempt,
         )
 
         monkeypatch.setattr(
@@ -1011,9 +982,6 @@ class TestCmdTest:
                 cascade=[ProviderAttempt("fake", "success", 11, "m")],
             ),
         )
-        # Neutralize the Layer-2 pass so we isolate the Layer-1 surfacing.
-        monkeypatch.setattr("nah.llm.try_llm_relax",
-                            lambda *a, **k: LLMCallResult())
         args = argparse.Namespace(
             tool="Bash", path=None, content=None, pattern=None,
             config=None, defaults=False, target="", json=True,

@@ -44,7 +44,6 @@ class NahConfig:
     credential_patterns_suppress: list = field(default_factory=list)
     llm: dict = field(default_factory=dict)
     llm_mode: str = "off"
-    llm_eligible: str | list = "default"
     trusted_paths: list[str] = field(default_factory=list)
     trusted_containers: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
@@ -251,9 +250,6 @@ def apply_override(override_data: dict) -> None:
         mode = _normalize_llm_mode(override_data["llm_mode"])
         if mode:
             cfg.llm_mode = mode
-    if "llm_eligible" in override_data:
-        cfg.llm_eligible = override_data["llm_eligible"]
-
     if "active_allow" in override_data:
         raw_aa = override_data["active_allow"]
         if isinstance(raw_aa, bool):
@@ -677,15 +673,6 @@ def _merge_configs(
             " — LLM decisions are now capped to ask\n"
         )
 
-    # llm.eligible: which ask categories are LLM-eligible (global only)
-    raw_eligible = config.llm.get("eligible", "default")
-    if raw_eligible in ("strict", "default", "all"):
-        config.llm_eligible = raw_eligible
-    elif isinstance(raw_eligible, list):
-        config.llm_eligible = [str(v) for v in raw_eligible]
-    else:
-        config.llm_eligible = "default"
-
     # trusted_paths: global config ONLY (project .nah.yaml cannot set).
     # /tmp and /private/tmp are default scratch space; prompting on every temp
     # file write is pure friction.
@@ -825,13 +812,6 @@ def _apply_target_data(
         mode = _normalize_llm_mode(llm.get("mode"))
         if mode:
             config.llm_mode = mode
-        if "eligible" in llm:
-            raw_eligible = llm.get("eligible")
-            if raw_eligible in ("strict", "default", "all"):
-                config.llm_eligible = raw_eligible
-            elif isinstance(raw_eligible, list):
-                config.llm_eligible = [str(v) for v in raw_eligible]
-
     if trusted and "ask_fallback" in data:
         config.ask_fallback = _normalize_ask_fallback(
             data.get("ask_fallback"),

@@ -97,9 +97,6 @@ def _flat_llm_pass(meta: dict) -> dict:
     review = meta.get("llm_review")
     if review:
         rec["review"] = review
-    citation = meta.get("llm_citation")
-    if citation:
-        rec["citation"] = citation
     prompt = meta.get("llm_prompt")
     if prompt:
         rec["prompt"] = prompt
@@ -107,9 +104,7 @@ def _flat_llm_pass(meta: dict) -> dict:
 
 
 def _llm_passes_from_meta(meta: dict) -> list:
-    """Build the ordered LLM-pass list: explicit pass records first (Layer-1
-    classify, Layer-2 relax), then any legacy flat-key pass for paths not yet
-    migrated to append their own record (write / inline / relax)."""
+    """Build the ordered LLM-pass list from explicit and legacy metadata."""
     passes: list = []
     for rec in meta.get("llm_passes") or []:
         if isinstance(rec, dict):
@@ -186,10 +181,7 @@ def build_entry(
     if source:
         entry["action_type_source"] = source
 
-    # Detail: llm — an ordered list of phase-tagged pass records (classify,
-    # relax, write, ...). One decision can accrue multiple LLM passes; each
-    # appends to meta["llm_passes"]. Legacy single-pass paths still set the flat
-    # llm_* keys, which are adapted into one pass record here.
+    # Detail: llm — an ordered list of phase-tagged pass records.
     passes = _llm_passes_from_meta(meta)
     if passes:
         entry["llm"] = passes

@@ -165,7 +165,7 @@ def test_classify_does_not_cache_all_errored(monkeypatch):
     assert state["n"] == 2  # errored verdict not cached -> retried
 
 
-def test_classify_accepts_custom_type(monkeypatch):
+def test_classify_rejects_custom_type(monkeypatch):
     fake, calls = _fake_provider_returning(json.dumps({
         "action_type": "my_custom_type",
         "targets": [{"kind": "host", "value": "api.internal"}],
@@ -175,4 +175,4 @@ def test_classify_accepts_custom_type(monkeypatch):
     res = try_llm_classify_unknown(
         "mytool", _CFG, custom_types={"my_custom_type": "ask"},
     )
-    assert res.classification.action_type == "my_custom_type"
+    assert res.classification.action_type == "unknown"

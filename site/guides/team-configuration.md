@@ -148,6 +148,8 @@ llm:
 
 These settings depend on your machine, credentials, network, or organization.
 They should not be inherited just because someone cloned a repo.
+LLM mode only classifies unknown Bash commands; known asks and write-like tools
+stay on deterministic policy.
 
 ## Tune different runtimes
 

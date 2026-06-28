@@ -562,17 +562,16 @@ class TestBuildEntry:
                 {"phase": "classify", "provider": "p1", "mapped_type": "filesystem_read",
                  "targets": [{"kind": "path", "value": "f.txt", "floor": "allow"}]},
             ],
-            # Layer-2 relax set via the legacy flat keys -> appended after.
             "llm_provider": "p2",
             "llm_decision": "allow",
-            "llm_phase": "relax",
+            "llm_phase": "provider",
         }
         entry = self._build(meta=meta)
         assert isinstance(entry["llm"], list)
         assert len(entry["llm"]) == 2
         assert entry["llm"][0]["phase"] == "classify"
         assert entry["llm"][0]["mapped_type"] == "filesystem_read"
-        assert entry["llm"][1]["phase"] == "relax"
+        assert entry["llm"][1]["phase"] == "provider"
         assert entry["llm"][1]["provider"] == "p2"
 
     def test_single_classify_pass_is_one_element_list(self):
@@ -597,7 +596,7 @@ class TestBuildEntry:
 
     def test_classified_filter_matches_classify_pass(self):
         from nah.log import _entry_has_classify_pass
-        classified = {"llm": [{"phase": "classify"}, {"phase": "relax"}]}
+        classified = {"llm": [{"phase": "classify"}, {"phase": "provider"}]}
         review_only = {"llm": [{"phase": "review"}]}
         assert _entry_has_classify_pass(classified) is True
         assert _entry_has_classify_pass(review_only) is False

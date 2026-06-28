@@ -204,8 +204,8 @@ def system_byline(decision: str, message: str = "") -> str:
     The permission dialog already carries a state label via :func:`brand`
     (``nah paused``/``nah blocked``); this is the neutral byline Claude
     surfaces separately as ``PreToolUse:<tool> says: ...``. It mirrors that
-    vocabulary — adding ``nah allowed`` for relaxed allows — as a
-    ``"<label> - <message>"`` line, and strips any redundant nah-prefix from
+    vocabulary as a ``"<label> - <message>"`` line, and strips any redundant
+    nah-prefix from
     ``message`` so the brand never doubles up.
     """
     label = _BYLINE_LABELS.get(decision, "nah")

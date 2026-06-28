@@ -471,7 +471,6 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  db_targets:            {cfg.db_targets or '[]'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_mode:              {cfg.llm_mode}")
-        print(f"  llm_eligible:          {cfg.llm_eligible}")
         print(f"  log:                   {cfg.log or '{}'}")
         print(f"  active_allow:          {cfg.active_allow}")
         print(f"  ui:                    {cfg.ui or '{}'}")
@@ -744,67 +743,9 @@ def cmd_test(args: argparse.Namespace) -> None:
         if "stages" not in meta:
             meta.update(_bash_test_meta(result))
 
-        # Layer 1: classify a deterministically-unknown command (mirrors main()).
-        from nah.hook import _apply_layer1_classify, _extract_action_type
-        if (
-            decision.get("decision") == taxonomy.ASK
-            and _extract_action_type(meta) in ("", taxonomy.UNKNOWN)
-            and not meta.get("llm_veto")
-            and not meta.get("inline_lang_exec_review")
-        ):
-            decision = _apply_layer1_classify("Bash", {"command": command}, decision)
-            meta = decision.setdefault("_meta", {})
-
-        llm_eligible = None
-        llm_config_message = ""
-        if (
-            decision.get("decision") == taxonomy.ASK
-            and not meta.get("llm_veto")
-            and not meta.get("inline_lang_exec_review")
-        ):
-            from nah.hook import _is_llm_eligible
-            llm_eligible = _is_llm_eligible(result)
-            if llm_eligible:
-                from nah.config import get_config
-                cfg = get_config()
-                if not cfg.llm:
-                    llm_config_message = "not configured"
-                elif cfg.llm_mode != "on":
-                    llm_config_message = "disabled (set mode: on to activate)"
-                else:
-                    from nah.hook import apply_layer2_relax
-                    from nah.llm import try_llm_relax
-                    from nah.log import redact_input
-
-                    action_type = ""
-                    for stage in result.stages:
-                        if stage.decision == taxonomy.ASK:
-                            action_type = stage.action_type
-                            break
-                    if not action_type and result.stages:
-                        action_type = result.stages[0].action_type
-
-                    llm_call = try_llm_relax(
-                        "Bash",
-                        redact_input("Bash", {"command": command}),
-                        action_type or taxonomy.UNKNOWN,
-                        result.reason,
-                        cfg.llm,
-                        stages=[
-                            {
-                                "tokens": sr.tokens,
-                                "action_type": sr.action_type,
-                                "decision": sr.decision,
-                                "policy": sr.default_policy,
-                                "reason": sr.reason,
-                            }
-                            for sr in result.stages
-                        ],
-                    )
-                    # Same shared Layer-2 interpreter as the live hook, so the
-                    # dry-run reflects the real cite-or-ask outcome: an uncited
-                    # allow shows as a kept ask, not a relax.
-                    decision, _outcome = apply_layer2_relax(decision, llm_call, cfg)
+        from nah.hook import maybe_apply_layer1_classify
+        decision = maybe_apply_layer1_classify("Bash", {"command": command}, decision)
+        meta = decision.setdefault("_meta", {})
 
         decision = _apply_test_ask_fallback(decision, "Bash")
 
@@ -841,10 +782,6 @@ def cmd_test(args: argparse.Namespace) -> None:
             source = decision.get("_meta", {}).get("action_type_source")
             if source:
                 payload["action_type_source"] = source
-            if llm_eligible is not None:
-                payload["llm_eligible"] = llm_eligible
-            if llm_config_message:
-                payload["llm_config"] = llm_config_message
             print(json.dumps(payload))
             return
 
@@ -867,10 +804,6 @@ def cmd_test(args: argparse.Namespace) -> None:
         if fallback:
             print(f"Ask fallback: {fallback.get('from')} → {fallback.get('to')}")
         _print_user_message(decision)
-        if llm_eligible is not None:
-            print(f"LLM eligible: {'yes' if llm_eligible else 'no'}")
-            if llm_config_message:
-                print(f"LLM config:   {llm_config_message}")
         _print_llm_meta(decision.get("_meta", {}))
     elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         # Write-like tools: structural path and project-boundary checks only.
@@ -1745,7 +1678,7 @@ def _primary_llm_pass(entry: dict) -> dict:
     """Return the decision-relevant LLM pass for a one-line summary.
 
     entry["llm"] is an ordered list of phase-tagged passes; the last pass is the
-    decisive one (relax/review after any classify). Tolerates the legacy single
+    decisive one. Tolerates the legacy single
     object shape for forward/backward safety.
     """
     passes = entry.get("llm")

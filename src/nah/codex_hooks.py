@@ -148,7 +148,7 @@ def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]
         with _capture_stderr(log=False):
             decision = hook.handle_bash(tool_input, llm_review=llm_review)
         if llm_review:
-            decision = _try_codex_llm_for_ask(canonical, tool_input, decision)
+            decision = hook.maybe_apply_layer1_classify(canonical, tool_input, decision)
         return decision, canonical, tool_input
 
     if canonical.startswith("mcp__"):
@@ -297,52 +297,6 @@ def _patch_paths_inside_project(log_input: dict) -> bool:
     except (OSError, RuntimeError, ValueError):
         return False
     return True
-
-
-def _try_codex_llm_for_ask(canonical: str, tool_input: dict, decision: dict) -> dict:
-    if decision.get("decision") != taxonomy.ASK:
-        return decision
-    meta = decision.setdefault("_meta", {})
-    if meta.get("llm_veto"):
-        return decision
-
-    try:
-        from nah.config import get_config
-        from nah.llm import try_llm_codex_permission_request
-        from nah.log import redact_input
-
-        cfg = get_config()
-        if cfg.llm_mode != "on" or not cfg.llm:
-            return decision
-        stages = meta.get("stages", [])
-        action_type = hook._extract_action_type(meta)
-        if not hook._is_llm_eligible_stages(
-            action_type,
-            stages,
-            cfg.llm_eligible,
-            meta.get("composition_rule", ""),
-        ):
-            return decision
-        with _capture_stderr(log=False):
-            llm_call = try_llm_codex_permission_request(
-                canonical,
-                redact_input(canonical, tool_input),
-                action_type or taxonomy.UNKNOWN,
-                decision.get("reason", ""),
-                cfg.llm,
-                stages=stages,
-                transcript_path=hook._transcript_path,
-            )
-        # Route through the shared Layer-2 interpreter so the Codex permission
-        # path enforces the same cite-or-ask contract as the Claude hook: an
-        # uncited LLM allow stays an ask (nah-984), not a silent auto-allow.
-        decision, _outcome = hook.apply_layer2_relax(decision, llm_call, cfg)
-        return decision
-    except ImportError:
-        return decision
-    except Exception as exc:
-        _log_codex_hook_error(f"codex LLM review failed: {exc}")
-    return decision
 
 
 def _hook_event_name(payload: dict, default: str = "PermissionRequest") -> str:

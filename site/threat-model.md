@@ -114,13 +114,13 @@ runtime exposes those actions.
 
 ## The LLM layer and its boundary
 
-The optional LLM layer (off by default) never weakens a deterministic decision:
-it can tighten a result, or relax an eligible `ask` to `allow` only with a cited
-user request. The hard security boundary is the **deterministic floor on known
-commands** — it needs no LLM and cannot be talked out of a verdict. Layer 1's
-auto-allow for an `unknown` command re-checks the LLM's surfaced targets against
-that same floor, but it ultimately trusts the classifier to report what the
-command touches: a misaligned or prompt-injected classifier could under-report a
-target. So treat Layer 1 auto-allow as friction reduction under an
-honest-classifier assumption, not as a boundary against a hostile model; the
-deterministic layer remains the thing that catches danger.
+The optional LLM layer (off by default) never clears a known deterministic ask
+or block. Its only job is classify-unknown: name a built-in action type for a
+deterministically `unknown` Bash command and list touched targets. Those targets
+are re-checked by the same deterministic floor before anything can run.
+
+This is friction reduction under an honest-classifier assumption, not a boundary
+against a hostile model. A misaligned or prompt-injected classifier could
+under-report a target; the deterministic layer remains the thing that catches
+danger when the command is already understood or when surfaced targets cross a
+known boundary.

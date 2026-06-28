@@ -171,7 +171,7 @@ def test_terminal_deterministic_ask_makes_no_provider_call(monkeypatch, tmp_path
     monkeypatch.setattr("nah.config._GLOBAL_CONFIG", str(cfg_path))
     reset_config()
 
-    with patch("nah.llm._try_providers") as providers:
+    with patch("nah.llm._try_providers_classify") as providers:
         result = terminal_guard.decide_terminal_command(
             "some-made-up-tool --delete-cache",
             "bash",

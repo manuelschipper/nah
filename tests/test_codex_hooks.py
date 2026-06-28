@@ -9,7 +9,7 @@ import pytest
 from nah import codex_hooks
 from nah import config
 from nah.config import NahConfig
-from nah.llm import LLMCallResult, ProviderAttempt
+from nah.llm import LLMClassification, LLMClassifyResult, ProviderAttempt
 
 
 @pytest.fixture(autouse=True)
@@ -290,15 +290,14 @@ def test_headless_pre_tool_does_not_call_llm_review(project_root, monkeypatch):
     monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "allow")
     config._cached_config = NahConfig(
         llm_mode="on",
-        llm_eligible="all",
         llm={"providers": ["fake"], "fake": {}},
     )
     config._cached_target = None
 
     def fail(*_args, **_kwargs):
-        raise AssertionError("headless PreToolUse must not call LLM review")
+        raise AssertionError("headless PreToolUse must not call the LLM")
 
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fail)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fail)
     code, out = _run({
         "hookEventName": "PreToolUse",
         "tool_name": "Bash",
@@ -453,165 +452,95 @@ def test_permission_request_ask_fallback_allow_does_not_weaken_block(project_roo
     assert "ask_fallback" not in entry
 
 
-def test_permission_request_llm_allow_bypasses_ask_fallback_block(
+def test_permission_request_classifies_unknown_bash_with_llm(
     project_root, tmp_path, monkeypatch,
 ):
     config._cached_config = NahConfig(
-        ask_fallback="block",
         llm_mode="on",
-        llm_eligible="all",
         llm={"providers": ["fake"], "fake": {}},
     )
     config._cached_target = None
-    captured_kwargs = {}
 
-    def fake_llm(*_args, **_kwargs):
-        captured_kwargs.update(_kwargs)
-        return LLMCallResult(
-            decision={"decision": "allow", "reason": "safe enough"},
+    def fake_classify(*_args, **_kwargs):
+        return LLMClassifyResult(
+            classification=LLMClassification(
+                "network_outbound",
+                [{"kind": "host", "value": "github.com"}],
+                "mystery github.com",
+            ),
             provider="fake",
             model="test",
-            reasoning="safe enough",
-            # Cited relax: the Codex path enforces cite-or-ask just like the
-            # Claude hook (nah-984), so the allow must carry a citation.
-            citation="User: check the response headers on schipper.ai",
-            cascade=[
-                ProviderAttempt(
-                    provider="fake",
-                    status="ok",
-                    latency_ms=1,
-                ),
-            ],
+            latency_ms=1,
+            cascade=[ProviderAttempt(provider="fake", status="success", latency_ms=1)],
         )
 
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fake_classify)
 
     code, out = _run({
         "hookEventName": "PermissionRequest",
         "tool_name": "Bash",
-        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "tool_input": {"command": "mystery github.com"},
         "transcript_path": "session.jsonl",
     })
 
     assert code == 0
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
-    assert captured_kwargs["transcript_path"] == "session.jsonl"
-    assert captured_kwargs["stages"][0]["action_type"]
     entry = _log_entries(tmp_path)[-1]
     assert entry["decision"] == "allow"
-    assert entry["llm"][0]["decision"] == "allow"
-    assert "ask_fallback" not in entry
+    assert entry["action_type_source"] == "llm_classify"
+    assert entry["llm"][0]["phase"] == "classify"
 
 
-def test_permission_request_default_llm_reviews_visible_read_exec_composition(
-    project_root,
-    monkeypatch,
-):
-    (Path(project_root) / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
-    monkeypatch.chdir(project_root)
+def test_permission_request_known_ask_stays_human_gated(project_root, tmp_path, monkeypatch):
     config._cached_config = NahConfig(
         llm_mode="on",
-        llm_eligible="default",
-        llm={"providers": ["fake"], "fake": {}},
-    )
-    config._cached_target = None
-
-    def fake_llm(*_args, **_kwargs):
-        return LLMCallResult(
-            decision={"decision": "allow", "reason": "safe local filter"},
-            provider="fake",
-            model="test",
-            reasoning="safe local filter",
-            # Cited relax (cite-or-ask parity with the Claude hook, nah-984).
-            citation="User: print the package name from package.json",
-            cascade=[ProviderAttempt(provider="fake", status="ok", latency_ms=1)],
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
-
-    code, out = _run({
-        "hookEventName": "PermissionRequest",
-        "tool_name": "Bash",
-        "tool_input": {
-            "command": "cat package.json | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"name\"))'",
-        },
-        "transcript_path": "",
-    })
-
-    assert code == 0
-    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
-
-
-def test_permission_request_uncited_llm_allow_stays_ask(
-    project_root, tmp_path, monkeypatch,
-):
-    # nah-984 parity: on the Codex permission path, an LLM allow with no cited
-    # user intent must NOT auto-allow — cite-or-ask keeps it an ask, exactly as
-    # the Claude hook does. Guards against the enforcement living only in
-    # hook.main().
-    config._cached_config = NahConfig(
-        llm_mode="on",
-        llm_eligible="all",
-        llm={"providers": ["fake"], "fake": {}},
-    )
-    config._cached_target = None
-
-    def fake_llm(*_args, **_kwargs):
-        return LLMCallResult(
-            decision={"decision": "allow", "reason": "looks fine"},
-            provider="fake",
-            model="test",
-            reasoning="looks fine",
-            citation="",  # no cited user intent
-            cascade=[ProviderAttempt(provider="fake", status="ok", latency_ms=1)],
-        )
-
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
-
-    code, out = _run({
-        "hookEventName": "PermissionRequest",
-        "tool_name": "Bash",
-        "tool_input": {"command": "curl -I https://schipper.ai"},
-        "transcript_path": "session.jsonl",
-    })
-
-    assert code == 0
-    # Empty stdout = no auto-allow emitted; the Codex runtime keeps asking.
-    assert out == ""
-    entry = _log_entries(tmp_path)[-1]
-    assert entry["decision"] != "allow"
-    relax_passes = [p for p in entry.get("llm", []) if p.get("phase") == "relax"]
-    assert relax_passes and relax_passes[-1]["review"] == "uncited"
-
-
-def test_permission_request_default_llm_skips_file_backed_read_exec_composition(
-    project_root,
-    monkeypatch,
-):
-    (Path(project_root) / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
-    (Path(project_root) / "filter.py").write_text("print('demo')\n", encoding="utf-8")
-    monkeypatch.chdir(project_root)
-    config._cached_config = NahConfig(
-        llm_mode="on",
-        llm_eligible="default",
         llm={"providers": ["fake"], "fake": {}},
     )
     config._cached_target = None
 
     def fail(*_args, **_kwargs):
-        raise AssertionError("file-backed read|exec should remain human-gated")
+        raise AssertionError("known ask should not call the LLM")
 
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fail)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fail)
 
     code, out = _run({
         "hookEventName": "PermissionRequest",
         "tool_name": "Bash",
-        "tool_input": {"command": "cat package.json | python3 filter.py"},
+        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "transcript_path": "session.jsonl",
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "ask"
+    assert "llm" not in entry
+
+
+def test_permission_request_inline_payload_stays_human_gated(project_root, tmp_path, monkeypatch):
+    config._cached_config = NahConfig(
+        llm_mode="on",
+        llm={"providers": ["fake"], "fake": {}},
+    )
+    config._cached_target = None
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("known inline execution should not call the LLM")
+
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fail)
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 -c 'print(1)'"},
         "transcript_path": "",
     })
 
     assert code == 0
     assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "ask"
+    assert "llm" not in entry
 
 
 def test_post_tool_use_logs_executed_runtime_metadata_without_output(project_root, tmp_path):
@@ -673,9 +602,9 @@ def test_pre_tool_use_bash_file_script_does_not_call_inline_review(
     script.write_text('print("ok")\n', encoding="utf-8")
 
     def fail(*_args, **_kwargs):
-        raise AssertionError("PreToolUse should not call inline LLM review")
+        raise AssertionError("PreToolUse should not call the LLM")
 
-    monkeypatch.setattr("nah.hook._try_llm_inline_lang_exec", fail)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fail)
     code, out = _run({
         "hookEventName": "PreToolUse",
         "session_id": "sess_no_llm",
@@ -697,7 +626,7 @@ def test_pre_tool_use_apply_patch_reads_command_and_skips_llm(
     def fail(*_args, **_kwargs):
         raise AssertionError("PreToolUse apply_patch should not call an LLM provider")
 
-    monkeypatch.setattr("nah.llm._try_providers", fail)
+    monkeypatch.setattr("nah.llm._try_providers_classify", fail)
     code, out = _run({
         "hookEventName": "PreToolUse",
         "session_id": "sess_patch",
@@ -753,7 +682,7 @@ def test_apply_patch_safe_project_patch_does_not_call_llm(project_root, monkeypa
             llm={"providers": ["fake"], "fake": {"model": "test"}},
         ),
     )
-    monkeypatch.setattr("nah.llm._try_providers", fail)
+    monkeypatch.setattr("nah.llm._try_providers_classify", fail)
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"input": _patch("app.py", "print('ok')")},
@@ -1016,7 +945,7 @@ def test_apply_patch_with_llm_config_has_no_llm_log_entry(
             llm={"providers": ["fake"], "fake": {"model": "test"}},
         ),
     )
-    monkeypatch.setattr("nah.llm._try_providers", fail)
+    monkeypatch.setattr("nah.llm._try_providers_classify", fail)
     code, out = _run({
         "tool_name": "apply_patch",
         "tool_input": {"input": _patch("app.py")},
@@ -1134,13 +1063,12 @@ def test_missing_llm_provider_stderr_is_not_logged_as_hook_error(project_root, m
     use_defaults()
     apply_override({
         "llm": {"mode": "on", "providers": ["fake"], "fake": {}},
-        "llm_eligible": "all",
     })
 
     def fake_llm(*_args, **_kwargs):
         sys.stderr.write("nah: LLM: FAKE_KEY not set\n")
-        return LLMCallResult(
-            decision=None,
+        return LLMClassifyResult(
+            classification=None,
             cascade=[
                 ProviderAttempt(
                     provider="fake",
@@ -1151,10 +1079,10 @@ def test_missing_llm_provider_stderr_is_not_logged_as_hook_error(project_root, m
             ],
         )
 
-    monkeypatch.setattr("nah.llm.try_llm_codex_permission_request", fake_llm)
+    monkeypatch.setattr("nah.llm.try_llm_classify_unknown", fake_llm)
     code, out = _run({
         "tool_name": "Bash",
-        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "tool_input": {"command": "mystery-command --flag"},
         "transcript_path": "",
     })
 
@@ -1172,6 +1100,8 @@ def test_missing_llm_provider_stderr_is_not_logged_as_hook_error(project_root, m
 @pytest.fixture
 def _record_sleep(monkeypatch):
     calls = []
+    config._cached_config = NahConfig()
+    config._cached_target = None
     monkeypatch.setattr(codex_hooks.time, "sleep", lambda s: calls.append(s))
     return calls
 

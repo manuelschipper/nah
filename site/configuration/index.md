@@ -181,7 +181,7 @@ targets:
 ```
 
 Global target overrides can set `actions`, `sensitive_paths_default`,
-`sensitive_paths`, `content_patterns.policies`, `llm.mode`, `llm.eligible`,
+`sensitive_paths`, `content_patterns.policies`, `llm.mode`,
 `ask_fallback` (the headless ask resolver, `allow` or `block`), UI settings,
 and shell `terminal` settings. Untrusted project target overrides can
 tighten action, sensitive-path, and content policies only. Trusted project
