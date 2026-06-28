@@ -36,7 +36,7 @@ content, MCP, and guard self-protection layers.
           ▼
   ┌───────────────┐
   │  LLM (opt.)   │  classify unknowns, relax eligible asks (cited intent),
-  │               │  script veto, provenance review
+  │               │  script veto
   └───────┬───────┘
           │
           ▼

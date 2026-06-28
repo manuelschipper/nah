@@ -58,7 +58,6 @@ nav:
     - How it works: how-it-works.md
     - Using nah as a team: guides/team-configuration.md
     - Running unsupervised agents: guides/unsupervised-agents.md
-    - Working with sensitive data: guides/sensitive-data.md
     - Threat model: threat-model.md
   - Configuration:
     - Overview: configuration/index.md
@@ -67,8 +66,6 @@ nav:
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
     - Presets: configuration/profiles.md
-    - Taint tracking: configuration/taint-tracking.md
-    - Session provenance: configuration/provenance.md
     - Content inspection (Claude Code): configuration/content.md
     - LLM layer: configuration/llm.md
     - Database targets: configuration/database.md
