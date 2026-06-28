@@ -1,6 +1,6 @@
 # Action Types
 
-Every command nah classifies maps to one of 41 **action types**. Each type has a default **policy** that determines the decision.
+Every command nah classifies maps to one of 43 **action types**. Each type has a default **policy** that determines the decision.
 
 ## Policy levels
 
@@ -38,9 +38,11 @@ Policies are ordered by strictness. When merging configs, nah always keeps the s
 | `container_build` | allow | Container image builds and infrastructure setup (build, tag, create, compose build) |
 | `container_exec` | ask | Execute or copy data in containers (exec, run, attach, cp) |
 | `container_destructive` | ask | Destructive container operations (docker rm, docker system prune) |
-| `service_read` | allow | Read-only service inspection (systemctl status, cat, journalctl) |
-| `service_write` | ask | Service and systemd mutations (restart, enable, daemon-reload) |
-| `service_destructive` | ask | Machine-level service actions (reboot, poweroff, isolate) |
+| `service_inspect` | allow | Read-only inspection of local service/daemon state (systemctl status, journalctl, launchctl list) |
+| `service_read` | context | Read state from a remote service or API (curl GET, gRPC read, GraphQL query) |
+| `service_write` | ask | Change local service or remote API state (restart, enable, daemon-reload) |
+| `service_destructive` | ask | Remove, reset, or disrupt local service or remote API state (reboot, poweroff, isolate) |
+| `env_read` | ask | Expose environment variables or secret/credential values (printenv, vault kv get, kubectl get secret) |
 | `browser_read` | allow | Read-only browser inspection (snapshots, screenshots, console, network, assertions) |
 | `browser_interact` | allow | In-page browser interactions (click, type, resize, mouse, navigation controls) |
 | `browser_state` | allow | Browser state mutations (cookies, storage, routes, console/network state) |
@@ -93,6 +95,7 @@ Types with `context` as their default policy delegate to a **context resolver**:
 
 - **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
+- **Remote service reads** (`service_read`) -- apply host checks to the remote API target: a known host (or implicit `gh api`/`glab api` host) allows, an unknown host asks. Local daemon inspection is a separate `allow`-policy type (`service_inspect`) and is not host-checked.
 - **Container lifecycle** (`container_lifecycle`) -- check flag-free named container operands against `trusted_containers`; every extracted container must be trusted. Flags, dynamic identities, compose lifecycle commands, missing tokens, and untrusted names fail closed to `ask`.
 - **Language execution** (`lang_exec`) -- inspect script paths, inline code, heredoc-fed interpreters, sourced files, and script content before allowing project-local execution.
 - **Database execution** (`db_exec`) -- check extracted database/schema targets against `db_targets`; unknown SQL-capable targets still ask. nah does not parse SQL intent.

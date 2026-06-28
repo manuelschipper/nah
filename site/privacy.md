@@ -20,9 +20,9 @@ yourself. This page describes what nah itself collects, stores, and sends.
   support.
 - Optional LLM review only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
-- nah applies best-effort redaction for known secret patterns in transcript and
-  write/edit content before LLM prompt enrichment, but external LLM providers
-  should still be treated as receiving security-sensitive context.
+- nah does not redact secret-looking content before LLM prompt enrichment.
+  Transcript and write/edit content are sent to the configured provider as-is, so
+  treat any remote LLM provider as receiving security-sensitive context.
 
 ## Local Processing
 
@@ -81,9 +81,10 @@ as:
 For optional LLM review, nah sends prompt context to the provider and model you
 configure. The prompt can include the flagged operation, structural reason,
 working directory, relevant write/edit content, and recent transcript context.
-nah applies best-effort redaction for known secret patterns in transcript and
-write/edit content before prompt enrichment, but this is not a guarantee that
-every possible secret is removed.
+This content is sent without secret-pattern redaction, so any secrets present in
+the write/edit content or transcript reach the configured provider. Treat the LLM
+provider as receiving security-sensitive context, and rely on structural controls
+(sensitive paths, taint/provenance) rather than content redaction.
 
 ## Claude Code Plugin
 

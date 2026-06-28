@@ -386,7 +386,7 @@ These ask classes stay human-gated even if the LLM returns `allow`:
 
 The write-review prompt includes the tool, target path, working directory,
 inside-project status, deterministic decision and reason, the write/edit
-content with secret redaction, and recent transcript context. It uses the
+content, and recent transcript context. It uses the
 shared review scope above and asks only about visible security or safety risk in
 the write operation.
 

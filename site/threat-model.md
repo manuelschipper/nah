@@ -10,23 +10,23 @@ same Bash classifier for command-level risk.
 
 ## Current audit
 
-The pytest threat-model audit currently tracks **1,755 category coverage hits**
+The pytest threat-model audit currently tracks **1,749 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Internal category | Hits | What it means |
 | --- | --- | ---: | --- |
-| Sensitive file access | `sensitive_path` | 258 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | `sensitive_path` | 263 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | `wrapper_evasion` | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
-| Unknown code execution | `rce` | 236 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
+| Unknown code execution | `rce` | 222 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | `git_history` | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
-| Shell redirection abuse | `shell_redirect` | 187 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
+| Shell redirection abuse | `shell_redirect` | 190 | `>`, `>>`, `tee`, here-strings, redirected writes and secret flows |
 | Package escalation | `package_escalation` | 149 | package installs, global installs, external-source package actions |
-| Secret leaks | `secret_leak` | 92 | private keys, tokens, secret-looking writes, script/content leaks |
+| Secret exfiltration | `credential_exfil` | 90 | sensitive reads flowing into network commands or credential searches |
 | Destructive container actions | `container_destructive` | 89 | `docker rm`, `docker system prune`, destructive container cleanup |
-| Secret exfiltration | `credential_exfil` | 88 | sensitive reads flowing into network commands or credential searches |
 | MCP and agent tool permissions | `mcp_permissions` | 83 | third-party MCP tools, global-only classification, wildcard safety, browser/database MCP actions |
-| Guard tampering | `self_protection` | 67 | edits to nah hooks, config, runtime settings, robustness paths |
-| Project boundary escapes | `project_boundary` | 24 | reads/writes outside the project root or trusted paths |
+| Guard tampering | `self_protection` | 74 | edits to nah hooks, config, runtime settings, robustness paths |
+| Credential exposure | `secret_leak` | 69 | sensitive-path flows, credential searches, secret-store and environment reads |
+| Project boundary escapes | `project_boundary` | 38 | reads/writes outside the project root or trusted paths |
 | Shell obfuscation | `shell_obfuscation` | 30 | process substitution, command substitution, hidden shell behavior |
 
 Run it locally:
@@ -38,19 +38,19 @@ nah audit-threat-model --format summary
 Current output:
 
 ```text
-rce: 236
-credential_exfil: 88
-secret_leak: 92
+rce: 222
+credential_exfil: 90
+secret_leak: 69
 git_history: 216
-shell_redirect: 187
+shell_redirect: 190
 shell_obfuscation: 30
 wrapper_evasion: 236
-sensitive_path: 258
-project_boundary: 24
+sensitive_path: 263
+project_boundary: 38
 package_escalation: 149
 container_destructive: 89
 mcp_permissions: 83
-self_protection: 67
+self_protection: 74
 ```
 
 These are pytest coverage hits. Some tests intentionally count toward more than
@@ -67,7 +67,7 @@ renders summary, Markdown, or JSON output.
 | --- | --- | --- |
 | Shell command safety | Unknown code execution, <code>curl &#124; bash</code>, nested shells, command substitution, redirects, wrappers, `xargs`, Git rewrites, package installs, destructive container commands | Same Bash classifier for Claude Code Bash, Codex Bash permission requests, and Terminal Guard |
 | File and path safety | Sensitive files, SSH keys, `.env`, cloud credentials, symlinks, writes outside the project | Full Claude Code file-tool coverage; partial Codex coverage through `apply_patch` |
-| Content inspection | Private keys, tokens, destructive code patterns, credential-search patterns | Claude Code Write/Edit/MultiEdit/NotebookEdit/Grep; focused Codex `apply_patch` checks |
+| Content inspection | Destructive, exfiltration, and obfuscation code patterns; credential-search patterns | Bash redirect-to-file literals and Claude Code Grep; write-like payloads use structural checks plus optional LLM review |
 | Agent and MCP permissions | Third-party MCP tools, browser/database action types, unknown agent tools | Claude Code and Codex MCP permission surfaces |
 | Guard self-protection | Attempts to edit nah hooks, config, runtime settings, and robustness paths | Runtime-specific install and preflight checks |
 
@@ -94,16 +94,16 @@ The current audit hit distribution is Bash-heavy by design:
 
 | Test area | Category hits | What it represents |
 | --- | ---: | --- |
-| `tests/test_bash.py` | 585 | Shell parsing, composition, redirects, wrappers, Git, packages, containers |
-| `tests/test_taxonomy.py` | 531 | Action taxonomy, built-in classifiers, MCP/action-type mappings |
-| `tests/test_fd079_script_exec.py` | 186 | Script execution, language runtimes, inspectable local code execution |
-| `tests/test_paths.py` | 183 | Sensitive paths, symlinks, project boundaries, guard config paths |
-| `tests/test_content.py` | 99 | Secret patterns, destructive content, credential-search detection |
-| `tests/test_fd080_write_llm.py` | 70 | Write/Edit/MultiEdit/NotebookEdit review flow |
+| `tests/test_bash.py` | 613 | Shell parsing, composition, redirects, wrappers, Git, packages, containers |
+| `tests/test_taxonomy.py` | 544 | Action taxonomy, built-in classifiers, MCP/action-type mappings |
+| `tests/test_paths.py` | 192 | Sensitive paths, symlinks, project boundaries, guard config paths |
+| `tests/test_fd079_script_exec.py` | 154 | Script execution, language runtimes, inspectable local code execution |
+| `tests/test_content.py` | 85 | Destructive/exfiltration/obfuscation content, credential-search detection |
+| `tests/test_fd080_write_llm.py` | 74 | Write/Edit/MultiEdit/NotebookEdit review flow |
 | `tests/test_hook_classify.py` | 29 | MCP global-only config, wildcard safety, DB context, and Playwright MCP mapping |
-| `tests/test_cli.py` | 22 | `nah test --tool ...`, CLI path/content/MCP probes |
+| `tests/test_cli.py` | 28 | `nah test --tool ...`, CLI path/content/MCP probes |
 | `tests/test_codex_preflight.py` | 10 | Codex approval-memory and MCP setup checks |
-| `tests/test_hook_robustness.py` | 6 | Guard robustness and failure handling |
+| `tests/test_hook_robustness.py` | 9 | Guard robustness and failure handling |
 | `tests/test_codex_hooks.py` | 4 | Codex hook decisions for Bash/MCP surfaces |
 | `tests/test_hook_integration.py` | 4 | Claude hook integration coverage for MCP edge cases |
 | `tests/test_remember.py` | 2 | Config writer validation for unsafe MCP wildcard rules |

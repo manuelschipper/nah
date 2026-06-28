@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Flag-aware `env_read` classification for shell builtins, `ps`, and `caddy fmt`** (nah-1005).
   Follow-up to nah-1004 covering the cases a static prefix table can't express because the
   safe and unsafe forms are the same command split by flags:
-  - bare `env` (no inner command) and bare/`-p` `set`/`export`/`declare`/`typeset` →
+  - bare `env` (no inner command), bare `set`, and bare/`-p` `export`/`declare`/`typeset` →
     `env_read` (ask), while their assignment, option (`set -x`), and exec-wrapper
     (`env FOO=bar cmd`) forms keep their existing classification.
   - `ps` with the BSD environment modifier (`ps e`, `ps eww`, `ps auxe`) → `env_read`, while
