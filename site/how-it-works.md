@@ -43,6 +43,11 @@ content, MCP, and guard self-protection layers.
      hook JSON / prompt / terminal decision
 ```
 
+The optional LLM stage applies only to Bash and the agent runtimes (Claude
+Code, Codex). Write-like tools (Write/Edit/MultiEdit/NotebookEdit and Codex
+`apply_patch`) are guarded by the deterministic path/boundary floor and are
+never sent to the LLM, and Terminal Guard is deterministic-only.
+
 ## Tool handlers
 
 Coverage depends on the runtime surface:

@@ -51,9 +51,9 @@ known_registries:
 
 Executables that trigger pipe composition rules. When a network or decode command pipes into an exec sink, nah blocks it.
 
-**Built-in defaults (22):**
+**Built-in defaults (24):**
 
-`bash`, `sh`, `dash`, `zsh`, `eval`, `python`, `python3`, `node`, `ruby`, `perl`, `php`, `bun`, `deno`, `fish`, `pwsh`, `env`, `lua`, `R`, `Rscript`, `make`, `julia`, `swift`
+`bash`, `sh`, `dash`, `zsh`, `eval`, `python`, `python3`, `node`, `ruby`, `perl`, `php`, `bun`, `deno`, `fish`, `pwsh`, `powershell`, `cmd`, `env`, `lua`, `R`, `Rscript`, `make`, `julia`, `swift`
 
 **Config:**
 

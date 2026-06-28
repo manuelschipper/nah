@@ -282,7 +282,7 @@ no effect.
 
 | Flag | Description |
 |------|-------------|
-| `--target TARGET` | Target policy to simulate: `claude`, `bash`, `zsh` |
+| `--target TARGET` | Target policy to simulate: `claude`, `codex`, `bash`, `zsh` |
 | `--tool TOOL` | Tool name: `Bash` (default), `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`, `Glob`, `mcp__*` |
 | `--path PATH` | Path for Read/Write/Edit/MultiEdit/NotebookEdit/Glob tool input |
 | `--content TEXT` | Content for Write/Edit/MultiEdit/NotebookEdit (recorded/displayed only; not inspected — write decisions depend on the target path and project boundary) |

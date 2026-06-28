@@ -163,7 +163,7 @@ By default, nah uses `active_allow: true`.
 That means nah auto-approves safe Claude Code tool calls, asks on ambiguous
 calls, and blocks dangerous calls.
 
-Claude setup registers hooks for `Bash`, `Read`, `Write`, `Edit`,
+Claude setup registers hooks for `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`,
 `NotebookEdit`, `Glob`, `Grep`, and `mcp__.*`. Safe classified calls for those
 tools can proceed without another Claude Code prompt.
 
@@ -196,7 +196,7 @@ docs.
 | list of tool names | nah actively allows safe calls only for the listed tools |
 
 For the list form, built-in tool names are `Bash`, `Read`, `Write`, `Edit`,
-`NotebookEdit`, `Glob`, and `Grep`.
+`MultiEdit`, `NotebookEdit`, `Glob`, and `Grep`.
 
 With the default `active_allow: true`, safe classified MCP calls can be
 auto-approved too. In list mode, add exact MCP tool names you want
@@ -237,7 +237,7 @@ nah test --tool Write --path ~/.aws/credentials
 Claude Code direct hooks and the plugin guard:
 
 - Bash
-- Read, Write, Edit, NotebookEdit
+- Read, Write, Edit, MultiEdit, NotebookEdit
 - Glob and Grep
 - matching MCP tools exposed as `mcp__...`
 

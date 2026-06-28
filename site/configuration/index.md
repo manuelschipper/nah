@@ -122,6 +122,7 @@ When both configs exist, nah merges them with these rules:
 | `sensitive_paths` | dict of path → policy | both | [Sensitive paths](sensitive-paths.md) |
 | `allow_paths` | dict of path → project list | global | [Sensitive paths](sensitive-paths.md) |
 | `trusted_paths` | list of paths | global | [Sensitive paths](sensitive-paths.md) |
+| `trusted_containers` | list of container/compose identities | global; trusted project roots | [Action types](actions.md) |
 | `known_registries` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `exec_sinks` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `sensitive_basenames` | dict of name → policy | global | [Safety lists](safety-lists.md) |
@@ -180,8 +181,9 @@ targets:
 ```
 
 Global target overrides can set `actions`, `sensitive_paths_default`,
-`sensitive_paths`, `content_patterns.policies`, `llm.mode`, `llm.eligible`, UI
-settings, and shell `terminal` settings. Untrusted project target overrides can
+`sensitive_paths`, `content_patterns.policies`, `llm.mode`, `llm.eligible`,
+`ask_fallback` (the headless ask resolver, `allow` or `block`), UI settings,
+and shell `terminal` settings. Untrusted project target overrides can
 tighten action, sensitive-path, and content policies only. Trusted project
 config can loosen policy and change non-policy target settings for that exact
 project root.
