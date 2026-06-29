@@ -1188,6 +1188,10 @@
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s;
   }
 
+  body:has(.nah-landing) .md-header--lifted ~ .md-container .md-sidebar--primary {
+    top: 0;
+  }
+
   [dir="rtl"] body:has(.nah-landing) .md-sidebar--primary {
     left: auto;
     right: -12.1rem;
