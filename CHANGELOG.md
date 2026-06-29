@@ -5,17 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-06-28
 
 ### Removed
 
-- Removed the Layer-2 LLM ask clearer, visible inline `lang_exec` LLM review,
-  transcript-reading LLM prompt context, `llm.eligible` / `llm.deny_limit`
-  handling, and the `llm_risks.py` risk-category module. The optional LLM layer
-  now has one job everywhere: classify a deterministically unknown Bash command
-  into a built-in type whose surfaced targets are re-checked by the deterministic
-  floor. Codex now uses that same classify-unknown path in interactive
-  `PermissionRequest` when LLM mode is on (nah-1010).
+- **The optional LLM layer is reduced to a single classify-unknown job** (nah-1010).
+  Removed the LLM ask-refinement / Layer-2 intent relaxer (the cite-or-ask
+  `ask → allow` path, its tiered risk veto, and every per-action relax opt-in),
+  the visible inline `lang_exec` LLM review, the transcript-reading prompt context,
+  and the `llm.eligible` / `llm.deny_limit` / `llm_risks.py` machinery. The optional
+  LLM (still off by default; `llm.mode: on`) can no longer relax a known `ask`,
+  review inline code, or read your conversation — it only classifies unknowns
+  (see Added). Claude and Codex share this one path.
+- **Removed the LLM write content-review gate** (nah-997) that inspected
+  Write/Edit/MultiEdit/NotebookEdit and Codex `apply_patch` payloads as data-at-rest
+  and could escalate a clean `allow` to `ask`. Write-like tools are now guarded by
+  the deterministic floor only — sensitive-path block, project-boundary, and
+  destructive-patch checks — which is cheap, clear, and unchanged.
 - Removed the session **taint tracking** and **provenance** features entirely
   (`src/nah/taint.py`, `src/nah/provenance.py`) along with all runtime wiring
   (Claude `hook.py`, Codex `codex_hooks.py`/`codex_run.py`, terminal guard), the
@@ -30,11 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Secret protection now relies on structural controls such as sensitive paths,
   credential-search detection, and explicit secret-store/env reads
   rather than guessing token-shaped text in write payloads (nah-1006).
-- Removed the LLM write content-review gate that inspected Write/Edit/MultiEdit/NotebookEdit
-  and Codex `apply_patch` payloads as data-at-rest and could escalate a clean `allow` to
-  `ask` (nah-997). Write-like tools are now guarded by the deterministic floor only —
-  sensitive-path block, project-boundary, and destructive-patch checks — which is cheap,
-  clear, and unchanged.
 - Removed the `/nah-demo` Claude Code showcase and its curated cases
   (`src/nah/demo_cases.py`, `src/nah/data/nah_demo.json`, the `.claude/commands/nah-demo.md`
   slash command, and `tests/test_nah_demo.py`). It was a product demo, not part of the
@@ -43,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional LLM classify-unknown** (nah-982, nah-994). When the deterministic
+  classifier returns `unknown` for a Bash command, the optional LLM (still off by
+  default; `llm.mode: on`) maps it to a built-in action type and the kind-tagged
+  targets it touches. The mapped type re-enters the normal policy machinery and
+  **each surfaced `path`/`host` target is re-checked through the same deterministic
+  floor** (sensitive paths, project boundary, known hosts): the LLM extracts, the
+  floor matches. `db`/`container` targets have no faithfully-mirrorable floor (the
+  real db/container floors are policy-/cwd-/exec-specific), so they stay
+  **unverifiable** and the mapped type's policy decides — allow-policy safe reads
+  clear, context-policy execs ask (nah-994). A read of `~/.ssh` is never
+  auto-allowed; an unverifiable target falls back to ask; an obfuscated unknown can
+  tighten to block. Fail-closed, process-cached, and command-only (no transcript).
+  `entry["llm"]` records the classify pass with a top-level `action_type_source`
+  (`deterministic`|`llm_classify`) and a new `nah log --classified` filter;
+  `nah test` shows the classification and per-target floor verdicts.
 - **Flag-aware `env_read` classification for shell builtins, `ps`, and `caddy fmt`** (nah-1005).
   Follow-up to nah-1004 covering the cases a static prefix table can't express because the
   safe and unsafe forms are the same command split by flags:
@@ -83,35 +99,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     as `filesystem_read`.
 - **talosctl global flag stripping before subcommand classification** — `talosctl -n <ip> get routes`, `talosctl --nodes=<ip> dmesg`, and other talosctl commands that carry connection global flags (`-n/--nodes`, `-e/--endpoints`, `-c/--cluster`, `--context`, `--talosconfig`) now strip those flags before the global-table prefix match instead of falling through to `unknown`. Mirrors the kubectl/flux idiom and fails closed: unknown or malformed pre-subcommand flags stay on the `unknown` ask path, and dangerous subcommands such as `talosctl reboot`/`talosctl reset` still classify as configured. Closes [#86](https://github.com/manuelschipper/nah/issues/86); PR [#89](https://github.com/manuelschipper/nah/pull/89) by [@srgvg](https://github.com/srgvg).
 - **flux global flag stripping before subcommand classification** — `flux -n <ns> get kustomizations`, `flux --namespace=<ns> list`, and other flux commands that carry kubeconfig-style global flags (`-n/--namespace`, `--context`, `--kubeconfig`, `--timeout`, `--token`, ...) now strip those flags before the global-table prefix match instead of falling through to `unknown`. Mirrors the kubectl/talosctl idiom and fails closed: unknown or malformed pre-subcommand flags stay on the `unknown` ask path, and destructive subcommands such as `flux delete`/`flux uninstall` still classify as configured. Closes [#87](https://github.com/manuelschipper/nah/issues/87); PR [#90](https://github.com/manuelschipper/nah/pull/90) by [@srgvg](https://github.com/srgvg).
-- **Two-layer LLM: classify unknowns, relax with cited intent** (nah-982). The
-  optional LLM layer (still off by default; `llm.mode: on`) is split into two
-  single-purpose roles behind the unchanged deterministic floor:
-  - **Layer 1 — classify-unknown.** When the deterministic classifier returns
-    `unknown` for a Bash command, an LLM maps it to an action type and the
-    kind-tagged targets it touches. The mapped type re-enters the normal policy
-    machinery and **each surfaced `path`/`host` target is re-checked through the
-    same deterministic floor** (sensitive paths, project boundary, known hosts):
-    the LLM extracts, the floor matches. `db`/`container` targets have no
-    faithfully-mirrorable floor (the real db/container floors are
-    policy-/cwd-/exec-specific), so they stay **unverifiable** and the mapped
-    type's policy decides — allow-policy safe reads clear, context-policy execs ask
-    (nah-994). A read of `~/.ssh` is never auto-allowed; an unverifiable target
-    falls back to ask; an obfuscated unknown can tighten to block. Fail-closed
-    and process-cached.
-  - **Layer 2 — intent relaxer.** The ask-refinement pass is strictly
-    **cite-or-ask**: it relaxes an eligible `ask` to `allow` only when it can
-    quote the recent user message that authorizes the action (a `citation`),
-    with no "routine low-risk" auto-allow; otherwise it stays ask. A successful
-    relax is surfaced as a distinct **`relaxed`** outcome. The prompt is
-    token-tight (static rules cached in the system message; the per-ask message
-    is just the command, cwd/scope, and the user's own messages — ~700→~420
-    input tokens), `inside project` is treated as a blast-radius weight, and the
-    citation may only come from the user-message block — not the command being
-    judged (nah-984).
-  - **Decision log.** `entry["llm"]` is now an ordered list of phase-tagged
-    passes (`classify`, `relax`, …), with a top-level `action_type_source`
-    (`deterministic`|`llm_classify`) and a new `nah log --classified` filter.
-    `nah test` shows the Layer-1 classification and per-target floor verdicts.
 - **Codex hook-timeout probe** — `nah run codex --probe[=DELAY]` arms a
   debug-only stall in nah's Codex hooks (gated behind `NAH_HOOK_PROBE`, capped
   at 60s, verdict unchanged) so you can observe the timeout Codex actually
@@ -122,13 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Layer-2 intent relaxer is intent-only** (nah-999). The Layer-2 relax prompt
-  no longer injects `cwd`/`inside project` context. Project scope is already
-  decided deterministically by the floor and Layer 1 before the relaxer runs, so
-  feeding it to Layer 2 was redundant and blurred the separation (deterministic
-  owns scope/boundary; Layer 2 owns intent). The relaxer now judges purely from
-  the command and cited user intent; the deterministic project-boundary floor is
-  unchanged.
+- **Terminal Guard is deterministic-only** (nah-985). The interactive bash/zsh
+  terminal guard has no LLM step. A command you type directly into your shell is
+  already your own intent, so there is no agent transcript to mine — the guard
+  classifies to allow / ask / block and an `ask` is confirmed inline at the
+  prompt. The shared `llm.mode` and `targets.bash.llm.mode` / `targets.zsh.llm.mode`
+  knobs are still accepted for backward compatibility but no longer affect terminal
+  decisions.
 - **Container write taxonomy split by verifiable risk axis** (nah-996).
   `container_write` is replaced by `container_lifecycle` and
   `container_build`. Lifecycle operations that act on named containers
@@ -151,6 +138,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sqlite3 -readonly` and `PGOPTIONS`/`psql -X` read-only special cases are
   removed; those invocations now classify as `db_exec` and ask unless
   `db_targets` allows the target.
+- **Layer 1 classifies into built-in types only** (nah-992). The classify-unknown
+  pass is not offered the user's custom action types — it maps into the built-in
+  taxonomy only. This stops the model from collapsing a whole unknown compound into
+  a trusted custom `allow` type (e.g. a `cd repo && molds … && molds wontdo …`
+  block landing on a custom `molds_safe → allow`). A custom type the model names
+  anyway is coerced to `unknown`, so the deterministic ask stands.
 - **Codex lifecycle commands normalized to `nah <command> codex`** (nah-960).
   `nah status codex` (read-only preflight), a new top-level `nah setup codex`,
   and `nah uninstall codex` now match the `install`/`status` shape used by every
@@ -164,100 +157,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nah status …`. The hook-timeout probe moved from `nah codex
   measure-hook-timeout` to the `nah run codex --measure-hook-timeout` debug mode.
 
-- **Terminal Guard is deterministic-only (LLM relaxation removed).** The
-  interactive bash/zsh terminal guard no longer has an optional LLM step. A
-  command you type directly into your shell is already your own intent, so there
-  is no agent transcript to mine and nothing for an LLM to relax — the guard
-  classifies to allow / ask / block and an `ask` is confirmed inline at the
-  prompt. The deterministic floor is unchanged; only the off-by-default
-  terminal `ask → allow` relaxer is gone. The shared `llm.mode` and
-  `targets.bash.llm.mode` / `targets.zsh.llm.mode` knobs are still accepted for
-  backward compatibility but no longer affect terminal decisions. (nah-985)
-- **Layer 1 classifies into built-in types only.** The Layer-1 classifier (which
-  maps a deterministically-`unknown` Bash command to an action type) is no longer
-  offered the user's custom action types — it maps into the built-in taxonomy
-  only. This stops the model from collapsing a whole unknown compound into a
-  trusted custom `allow` type (e.g. a `cd repo && molds … && molds wontdo …`
-  block landing on a custom `molds_safe → allow`). A custom type the model names
-  anyway is coerced to `unknown`, so the deterministic ask stands. (nah-992)
-- **LLM reasoning renders inline in the permission prompt.** When the optional
-  LLM layer keeps or refines an `ask`/`block`, its reason now appends to the
-  permission message as a second sentence (e.g. `nah paused - this runs code.
-  Executes git push, a remote mutation on repository state.`) instead of the
-  previous indented `LLM: …` line. Applies uniformly across the inline
-  `lang_exec` review, the write-review gate, and the Layer-2 relax paths.
-- **Out-of-project writes are a hard floor; the write-review LLM judges content
-  as data at rest** (nah-989). The Claude write-review gate
-  (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) now runs **only on a deterministic
-  `allow`**, matching Codex `apply_patch`: any non-`allow` structural decision
-  (a project-boundary or sensitive-path `ask`, or a `block`) returns before the
-  LLM and can no longer be relaxed — closing a hole where an LLM "allow" could
-  silently approve a write outside the project. With the relax path gone, the
-  gate is escalate-only, and its prompt was rewritten to judge file content **as
-  data at rest, not as if it runs** (using the compact canonical risk labels
-  shared with Layer 2), so benign files that merely mention risky operations
-  (`rm -rf` on build dirs, a README naming credentials, a fixture with a fake
-  key) no longer trigger spurious asks.
-- **Layer-2 risk veto is now tiered (hard vs soft), and `git push` relaxes on
-  cited intent.** Each LLM risk category carries a veto tier: **hard** categories
-  (credentials, exfiltration, untrusted execution, safety bypass, user-scope
-  conflict) can never be relaxed by a citation; **soft** categories (external
-  mutation, destructive/privileged state, persistence) may be relaxed, per
-  opt-in action type. The first opt-in: a `git push` (`git_remote_write`) now
-  auto-relaxes when a recent user message authorizes it (e.g. "push please"),
-  instead of always asking. The veto for a soft category is lifted only when
-  judging an action allowed to relax it, so every other action is unchanged. No
-  destination check is performed — an accepted, documented security-debt tradeoff
-  (a repointed remote could relax a cited push to an attacker URL; the floor still
-  asks on every push by default, and the durable destination-snapshot fix is
-  tracked separately). (nah-986)
-- **More cited-intent relaxations enabled (Tier 1).** Three more routine,
-  low-stakes, reversible operations now auto-relax when a recent user message
-  authorizes them, instead of always asking: restart/kill a process
-  (`process_signal`), run a command in a container (`container_exec`), and
-  uninstall a dependency (`package_uninstall`). Each lifts only the soft
-  category that otherwise over-vetoes its everyday case; hard categories and all
-  other actions are unchanged. A new guard test ensures a relax opt-in is never
-  dead config (the action must also be in the default eligible set). (nah-991)
-- **LLM/content review boundary** — file-backed scripts and write-like tool
-  payloads no longer use deterministic body/content scans. File-backed
-  `lang_exec` now relies on path and boundary checks, visible non-shell inline
-  execution uses LLM review when available and otherwise asks, and write-like
-  payloads rely on structural checks plus optional LLM review. (nah-981)
-
 ### Fixed
 
 - **`nah test` dry-runs no longer self-flag on sensitive paths in their arguments**
   (nah-qb3). A `nah test` invocation whose arguments named a sensitive path as a
-  bareword or flag value (e.g. `nah test --tool Read ~/.ssh/id_rsa`, the form
-  `/nah-demo` uses for its sensitive cases) was flagged by nah's own hook as a real
-  sensitive access and paused for approval, even though `nah test` is a pure dry-run
-  classifier with no filesystem or execution side effects. The `_classify_nah_cli`
-  classifier now recognizes `nah test` and allows it without scanning its argument
-  tokens for sensitive paths. Output redirections (caught by the redirect guard) and
-  command/process substitutions (classified independently upstream) stay guarded, and
-  the exemption is exact-match and stage-local, so adjacent stages like
-  `nah test foo && rm -rf ~/.ssh` are unaffected.
-- **Inline `lang_exec` LLM reasoning no longer dropped from the prompt.** When
-  the LLM reviewed a visible inline `lang_exec` Bash command (e.g.
-  `python3 -c …`) and kept the `ask`, its reasoning was written to the
-  decision's `reason` but not to the fields the prompt renderer reads
-  (`_llm_reason` / `systemMessage`), so the interactive prompt showed only the
-  generic "this runs code" while the reasoning survived only in `nah log` /
-  `nah test`. The inline path now surfaces the LLM reason and system byline
-  like the write-review and Layer-2 relax paths already did.
-- **Layer-2 cite-or-ask now enforced on every path, not just the Claude hook.**
-  The cite-or-ask rule (an LLM `allow` only relaxes an `ask` when it quotes the
-  user message that authorized it) was previously enforced only in the Claude
-  `PreToolUse` hook. The Codex `PermissionRequest` path and the `nah test`
-  dry-run shared the same prompt but trusted the model's `allow` verbatim, so an
-  **uncited** LLM allow could auto-relax an ask on Codex and `nah test` could
-  report `allow` where the live hook would keep asking. All three paths now run
-  the model's reply through one shared interpreter, so an uncited allow stays an
-  `ask` everywhere and the cited intent is logged everywhere. The deterministic
-  floor was unaffected either way (Layer 2 can only relax an `ask`, never weaken
-  a `block`). Internal cleanup folded the three near-identical Layer-2 prompt
-  builders into one and renamed the post-split `*unified*` symbols to `*relax*`.
+  bareword or flag value (e.g. `nah test --tool Read ~/.ssh/id_rsa`) was flagged by
+  nah's own hook as a real sensitive access and paused for approval, even though
+  `nah test` is a pure dry-run classifier with no filesystem or execution side
+  effects. The `_classify_nah_cli` classifier now recognizes `nah test` and allows
+  it without scanning its argument tokens for sensitive paths. Output redirections
+  (caught by the redirect guard) and command/process substitutions (classified
+  independently upstream) stay guarded, and the exemption is exact-match and
+  stage-local, so adjacent stages like `nah test foo && rm -rf ~/.ssh` are unaffected.
 
 ## [0.9.1] - 2026-06-07
 
