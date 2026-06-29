@@ -61,12 +61,14 @@ hide:
         <p>Deterministic policy. Low friction. No LLM. Milliseconds.</p>
       </div>
     </div>
+
+    <p class="nah-problem-bridge">The first two look fixable. Here's why they aren't.</p>
   </section>
 
   <section class="nah-section nah-problem">
     <div class="nah-section-heading">
-      <p class="nah-eyebrow">Command names are the wrong abstraction</p>
-      <h2>Same tool, different action.</h2>
+      <p class="nah-eyebrow">Why manual permissions fail</p>
+      <h2>Command names are the wrong abstraction.</h2>
     </div>
 
     <div class="nah-compare-grid">
@@ -170,20 +172,21 @@ nah blocked: this runs unknown code</code></pre>
 
   <section class="nah-section nah-enforcement">
     <div class="nah-enforcement-copy">
-      <p class="nah-eyebrow">Why nah</p>
-      <h2>Auto modes still ask a model. Deterministic permissions enforce the boundary.</h2>
+      <p class="nah-eyebrow">Why auto modes fall short</p>
+      <h2>Advice, not enforcement.</h2>
       <p>
-        Claude Code Auto Mode and Codex auto-review style workflows can reduce
-        prompting, but they still lean on model judgment and prompt instructions.
-        nah runs before the action executes, classifying actions deterministically
-        without spending tokens.
+        Claude Code Auto Mode and Codex auto-review are a real improvement on
+        skipping permissions, but they still lean on model judgment, and no
+        classifier is perfect. nah runs before the action executes, classifying
+        actions deterministically without spending tokens.
       </p>
+      <a class="nah-inline-link" href="https://www.anthropic.com/engineering/claude-code-auto-mode">Anthropic on Auto Mode's limits</a>
     </div>
     <div class="nah-versus" aria-label="nah versus auto modes">
       <div class="nah-versus-column is-them">
         <div class="nah-versus-label">Auto modes</div>
         <h3>System prompts are advisory.</h3>
-        <p>AI reviews can guide behavior, but a non-deterministic next-token predictor is still deciding what to do next.</p>
+        <p>AI reviews can guide behavior, but a non-deterministic predictor is still deciding. By Anthropic's own measure, about 1 in 6 real overeager actions still get through.</p>
         <div class="nah-versus-rule"></div>
         <h4>More tokens, more cost.</h4>
         <p>Repeated model-review loops spend tokens and latency on routine permission decisions that should be resolved by policy.</p>

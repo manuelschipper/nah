@@ -10,6 +10,15 @@ Codex uses native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks,
 and bash/zsh use the opt-in terminal guard. The core classifier is
 deterministic — no LLM needed, runs in milliseconds.
 
+Model-based auto modes (Claude Code Auto Mode, Codex auto-review) take the other
+path, and they are a real improvement on skipping permissions. But no classifier
+is perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode)
+of Auto Mode is candid that the deployed pipeline still misses about 1 in 6 real
+overeager actions (a 17% false-negative rate), because judging whether a user
+authorized an action's blast radius is a probabilistic call. nah keeps that
+decision deterministic wherever policy can express it: the same command yields
+the same action type and the same answer every run.
+
 Runtime setup lives in the dedicated guides for [Claude Code](runtimes/claude-code.md),
 [Codex](runtimes/codex.md), and [Terminal Guard](runtimes/terminal-guard.md).
 This page focuses on the classifier and guarded surfaces. See

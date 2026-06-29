@@ -23,15 +23,15 @@
 
 You shouldn't run a coding agent outside a sandbox. Sometimes you do it anyway,
 on your laptop or on a server with injected secrets. That leaves three ways to
-keep it in check, and each trades away something you need:
+keep it in check, and each trades away something you need.
+
+### Three options, each a bad trade
 
 - **Manual permissions:** approve every action and you drown in prompts; pre-approve and you over-grant.
 - **Auto modes:** Claude Code Auto Mode, Codex auto-review. Less prompting, but an LLM is still deciding. Advice, not enforcement.
 - **YOLO** (`--dangerously-skip-permissions`): speed, zero guardrails.
 
-**nah doesn't make you trade.** It reads what an action *does*, applies your
-policy in milliseconds, and gives the same answer every time. Low friction and
-no LLM required.
+The first two look fixable. They aren't, and it's worth seeing why.
 
 ### Command names are the wrong abstraction
 
@@ -55,15 +55,21 @@ shells, wrappers, scripts, and MCP tools. Allow/deny lists are a fool's errand.
 You either approve too much, block useful work, or train yourself to click
 through prompts.
 
-### Auto modes are just advice, not enforcement
+### Auto modes are advice, not enforcement
 
-Auto modes like Claude Code's Auto Mode and Codex auto review can reduce
-interruptions, but they still lean on model judgement and prompt instructions.
-System prompts are advisory: a
-non-deterministic next-token predictor is still deciding what to do next. That
-is not reproducible, auditable policy enforcement. It is another judgement loop
-spending tokens and time on decisions a local classifier can make in
-milliseconds.
+Auto modes like Claude Code's Auto Mode and Codex auto review are a real
+improvement on skipping permissions, but they still lean on model judgement, and
+no classifier is perfect. Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode)
+of Auto Mode is candid that the deployed pipeline still misses about 1 in 6 real
+overeager actions. nah thinks there's a more predictable path: classify the
+decisions you can express as policy deterministically, and get the same answer
+every time, in milliseconds with no tokens.
+
+### What nah does instead
+
+**nah doesn't make you trade.** It reads what an action *does*, applies your
+policy in milliseconds, and gives the same answer every time. Low friction and
+no LLM required.
 
 ## The Idea
 

@@ -530,6 +530,13 @@
   margin: 0;
 }
 
+.nah-landing .nah-problem-bridge {
+  color: var(--nah-muted);
+  font-size: 0.95rem;
+  margin-top: 1.6rem;
+  max-width: 43rem;
+}
+
 @media screen and (max-width: 760px) {
   .nah-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
