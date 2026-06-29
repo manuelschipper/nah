@@ -19,10 +19,10 @@ yourself. This page describes what nah itself collects, stores, and sends.
   support.
 - Optional LLM review only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
-- nah does not redact secret-looking content before LLM prompt enrichment.
-  Bash command text and recent transcript context are sent to the configured
-  provider as-is, so treat any remote LLM provider as receiving security-sensitive
-  context. Write/edit content is never sent to an LLM.
+- nah does not redact secret-looking content before the LLM classify call.
+  Only the Bash command text (plus nah's fixed action-type list) is sent to the
+  configured provider as-is, so treat any remote LLM provider as receiving any
+  secrets present in that command. Write/edit content is never sent to an LLM.
 
 ## Local Processing
 
@@ -36,7 +36,6 @@ operation. Depending on how you use nah, this can include:
 - Codex Bash, MCP, and `apply_patch` hook payloads when you use `nah run codex`
 - Codex approval-memory rule files and MCP approval settings during Codex
   preflight scans
-- recent Claude Code transcript context when optional LLM review is enabled
 
 The deterministic classifier processes this information locally.
 
@@ -75,13 +74,14 @@ as:
 - CLI commands that you run yourself, such as package installation, release, or
   update workflows outside the deterministic classifier
 
-For optional LLM review, nah sends prompt context to the provider and model you
-configure. The prompt can include the flagged Bash command, its structural reason,
-the working directory, and recent transcript context. This content is sent without
-secret-pattern redaction, so any secrets present in the command or transcript reach
-the configured provider. Write/edit content is never sent to an LLM. Treat the LLM
-provider as receiving security-sensitive context, and rely on structural controls
-(sensitive paths) rather than content redaction.
+For the optional LLM classify call, nah sends prompt context to the provider and
+model you configure. The prompt contains only the flagged Bash command plus nah's
+fixed action-type list — no working directory, structural reason, transcript, or
+conversation context. The command is sent without secret-pattern redaction, so any
+secrets present in the command itself reach the configured provider. Write/edit
+content is never sent to an LLM. Treat the LLM provider as receiving
+security-sensitive context, and rely on structural controls (sensitive paths)
+rather than content redaction.
 
 ## Claude Code Plugin
 
@@ -107,7 +107,6 @@ You can:
 
 - disable optional LLM review by leaving `llm.mode` off or setting it to `off`
 - use a local LLM provider such as Ollama instead of a remote provider
-- reduce or disable transcript context with `llm.context_chars`
 - remove stored provider keys with `nah key rm <provider>` from a CLI install
   with usable keyring support
 - uninstall the Claude Code plugin with `claude plugin uninstall nah@nah`

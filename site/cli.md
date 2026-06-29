@@ -270,7 +270,7 @@ nah test --tool NotebookEdit --path ./analysis.ipynb
 nah test --tool Grep --pattern "BEGIN.*PRIVATE"
 ```
 
-Shows the full classification pipeline: stages, action types, policies, composition rules, and final decision. For Bash `ask` decisions, it also shows LLM eligibility and (if configured) makes a live LLM call. Write-like and path-only tools resolve purely on the deterministic floor.
+Shows the full classification pipeline: stages, action types, policies, composition rules, and final decision. For Bash commands the deterministic floor classifies as `unknown` (which default to `ask`), it makes a live classify-unknown LLM call when LLM mode is configured. Write-like and path-only tools resolve purely on the deterministic floor.
 
 `nah test --target <target>` applies the effective target policy. The bash/zsh
 terminal targets use the same Bash classifier by default; the target selects
