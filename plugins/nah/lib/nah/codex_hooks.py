@@ -1,0 +1,563 @@
+"""Codex PreToolUse, PermissionRequest, and PostToolUse hook adapter."""
+
+from __future__ import annotations
+
+import contextlib
+import copy
+import io
+import json
+import os
+import re
+import sys
+import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from nah import agents, hook, paths as nah_paths, taxonomy
+from nah.apply_patch import classify_codex_apply_patch
+from nah.messages import enrich_decision
+
+_WRITE_ALIASES = {"apply_patch"}
+_CONFIRM_EDITS_ENV = "NAH_CODEX_CONFIRM_EDITS"
+_PRESET_ENV = "NAH_PRESET"
+_HEADLESS_ENV = "NAH_CODEX_HEADLESS"
+_HEADLESS_ASK_FALLBACK_ENV = "NAH_CODEX_HEADLESS_ASK_FALLBACK"
+_HEADLESS_SANDBOX_ENV = "NAH_CODEX_SANDBOX"
+_HEADLESS_NETWORK_ENV = "NAH_CODEX_NETWORK"
+_SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
+_CODEX_PERMISSION_LLM_BUDGET_SECONDS = 10
+
+# Debug-only probe knob. Lets the hook deliberately stall so the harness can
+# measure the timeout Codex *actually* enforces (see `nah run codex
+# --measure-hook-timeout`). Gated behind NAH_HOOK_PROBE so a normal session never
+# delays even if a command happens to contain the sentinel.
+_PROBE_ENV = "NAH_HOOK_PROBE"
+_PROBE_DELAY_ENV = "NAH_HOOK_PROBE_DELAY"
+_PROBE_EVENT_ENV = "NAH_HOOK_PROBE_EVENT"
+_PROBE_SENTINEL_RE = re.compile(r"nah-probe-delay:(\d+(?:\.\d+)?)")
+_PROBE_DELAY_CAP_SECONDS = 60.0
+
+
+def main(
+    stdin=None,
+    stdout=None,
+    *,
+    default_hook_event: str = "PermissionRequest",
+) -> int:
+    """Handle a Codex hook invocation.
+
+    PreToolUse is observation-only, PermissionRequest emits allow/deny JSON or
+    no verdict, and PostToolUse records execution outcome.
+    """
+    stdin = stdin or sys.stdin
+    stdout = stdout or sys.stdout
+    t0 = time.monotonic()
+    event_name = default_hook_event
+
+    try:
+        payload = json.loads(stdin.read() or "{}")
+    except json.JSONDecodeError as exc:
+        _log_codex_hook_error(
+            f"invalid {default_hook_event} JSON: {exc}",
+            event_name=default_hook_event,
+        )
+        if default_hook_event == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"invalid PreToolUse JSON: {exc}")
+            return 0
+        return 0 if _event_fails_open(default_hook_event) else 1
+
+    if not isinstance(payload, dict):
+        _log_codex_hook_error(
+            f"{default_hook_event} payload was not an object",
+            event_name=default_hook_event,
+        )
+        if default_hook_event == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"{default_hook_event} payload was not an object")
+            return 0
+        return 0 if _event_fails_open(default_hook_event) else 1
+
+    try:
+        event_name = _hook_event_name(payload, default_hook_event)
+        _maybe_probe_delay(payload, event_name)
+        if event_name == "PreToolUse":
+            # PreToolUse is observation-only for Codex; the enforced decision is
+            # made at PermissionRequest. Headless runs still pre-evaluate, but
+            # interactive runs have nothing to record here.
+            if _headless_enabled():
+                total_ms = int((time.monotonic() - t0) * 1000)
+                _handle_headless_pre_tool_use(payload, total_ms, stdout)
+                return 0
+            stdout.flush()
+            return 0
+        if event_name == "PostToolUse":
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_post_tool_use(payload, total_ms)
+            stdout.flush()
+            return 0
+
+        with _codex_permission_llm_budget():
+            decision, canonical, tool_input = _decide(payload)
+            _attach_permission_runtime(decision, payload)
+            decision = hook._apply_ask_fallback(decision)
+            decision.setdefault("_meta", {})["execution"] = _permission_execution(decision)
+            _emit_decision(stdout, decision, canonical)
+            total_ms = int((time.monotonic() - t0) * 1000)
+            _log_decision(canonical, tool_input, decision, total_ms, payload)
+        return 0
+    except Exception as exc:
+        _log_codex_hook_error(f"unexpected {event_name} error: {exc}", event_name=event_name)
+        if event_name == "PreToolUse" and _headless_enabled():
+            _emit_headless_error(stdout, f"unexpected PreToolUse error: {exc}")
+            return 0
+        return 0 if _event_fails_open(event_name) else 1
+
+
+def _event_fails_open(event_name: str) -> bool:
+    """Return whether hook failures should allow Codex to continue."""
+    return event_name in {"PreToolUse", "PostToolUse"}
+
+
+@contextlib.contextmanager
+def _codex_permission_llm_budget():
+    try:
+        from nah.llm import llm_timeout_budget
+    except ImportError:
+        yield
+        return
+    with llm_timeout_budget(_CODEX_PERMISSION_LLM_BUDGET_SECONDS):
+        yield
+
+
+def _decide(payload: dict, *, llm_review: bool = True) -> tuple[dict, str, dict]:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+
+    tool_name = str(payload.get("tool_name", "") or "")
+    raw_tool_input = payload.get("tool_input", {})
+    if isinstance(raw_tool_input, dict):
+        tool_input = raw_tool_input
+    else:
+        tool_input = {}
+    canonical = agents.normalize_tool(tool_name)
+
+    if canonical == "Bash":
+        with _capture_stderr(log=False):
+            decision = hook.handle_bash(tool_input, llm_review=llm_review)
+        if llm_review:
+            decision = hook.maybe_apply_layer1_classify(canonical, tool_input, decision)
+        return decision, canonical, tool_input
+
+    if canonical.startswith("mcp__"):
+        return hook._classify_unknown_tool(canonical, tool_input), canonical, tool_input
+
+    if canonical in _WRITE_ALIASES:
+        if isinstance(raw_tool_input, str):
+            tool_input = {"input": raw_tool_input}
+        with _capture_stderr(log=False):
+            decision, log_input = classify_codex_apply_patch(tool_input, payload)
+        decision = _apply_codex_edit_confirmation_policy(
+            decision,
+            log_input,
+        )
+        return decision, canonical, log_input
+
+    return _unsupported_decision(canonical, tool_input), canonical, tool_input
+
+
+def _unsupported_decision(canonical: str, _tool_input: dict) -> dict:
+    return {
+        "decision": taxonomy.ASK,
+        "reason": f"Codex tool requires native approval: {canonical or 'unknown'}",
+        "_meta": {
+            "stages": [{
+                "action_type": taxonomy.UNKNOWN,
+                "decision": taxonomy.ASK,
+                "policy": taxonomy.ASK,
+                "reason": f"unsupported Codex PermissionRequest tool: {canonical or 'unknown'}",
+            }],
+        },
+    }
+
+
+def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict) -> dict:
+    """Allow known-safe project edits unless the launcher asked to confirm them."""
+    if decision.get("decision") != taxonomy.ASK:
+        return decision
+    if decision.get("reason") != _SAFE_APPLY_PATCH_REASON:
+        return decision
+    if _confirm_edits_enabled():
+        return decision
+    if not _patch_paths_inside_project(log_input):
+        return decision
+
+    allowed = copy.deepcopy(decision)
+    allowed["decision"] = taxonomy.ALLOW
+    allowed["reason"] = "apply_patch: safe project edit allowed by nah"
+    meta = allowed.setdefault("_meta", {})
+    meta["codex_edit_policy"] = {
+        "safe_project_edit": True,
+        "confirm_edits": False,
+    }
+    stages = meta.get("stages")
+    if isinstance(stages, list):
+        for stage in stages:
+            if not isinstance(stage, dict):
+                continue
+            if stage.get("reason") == _SAFE_APPLY_PATCH_REASON:
+                stage["decision"] = taxonomy.ALLOW
+                stage["policy"] = taxonomy.ALLOW
+                stage["reason"] = allowed["reason"]
+    return allowed
+
+
+def _confirm_edits_enabled() -> bool:
+    value = os.environ.get(_CONFIRM_EDITS_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _headless_enabled() -> bool:
+    value = os.environ.get(_HEADLESS_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _maybe_probe_delay(payload: dict, event_name: str) -> None:
+    """Deliberately stall the hook when the probe harness is armed.
+
+    Debug-only. Gated behind NAH_HOOK_PROBE so a real session never delays. The
+    sleep happens *before* nah computes its decision, so the verdict is
+    unchanged — only the process wall-time grows, which is exactly what Codex's
+    hook timeout measures. Used to discover Codex's actually-enforced timeout.
+    """
+    if os.environ.get(_PROBE_ENV, "").strip().lower() not in _TRUTHY_ENV_VALUES:
+        return
+    target_event = os.environ.get(_PROBE_EVENT_ENV, "").strip()
+    if target_event and target_event != event_name:
+        return
+    secs = _probe_delay_seconds(payload)
+    if secs <= 0:
+        return
+    secs = min(secs, _PROBE_DELAY_CAP_SECONDS)
+    sys.stderr.write(
+        f"nah: PROBE armed — delaying {event_name} hook {secs:.3f}s before decision\n"
+    )
+    time.sleep(secs)
+
+
+def _probe_delay_seconds(payload: dict) -> float:
+    """Resolve the probe delay: payload sentinel wins, else the env fallback."""
+    # A `nah-probe-delay:<n>` marker in the tool payload lets you trigger a
+    # stall mid-session straight from the REPL (e.g. `echo nah-probe-delay:8`).
+    blob = json.dumps(payload.get("tool_input", "") or "")
+    match = _PROBE_SENTINEL_RE.search(blob)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return 0.0
+    # Fallback: a fixed delay set by the measure harness, which drives codex
+    # with an innocuous command and controls the stall from the environment.
+    raw = os.environ.get(_PROBE_DELAY_ENV, "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
+
+
+def _headless_ask_fallback_mode() -> str:
+    value = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+    if value in _HEADLESS_ASK_FALLBACKS:
+        return value
+    return taxonomy.BLOCK
+
+
+def _headless_ask_fallback_error() -> str:
+    value = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+    if value in _HEADLESS_ASK_FALLBACKS:
+        return ""
+    if value:
+        return f"invalid headless ask fallback: {value}"
+    return "missing headless ask fallback"
+
+
+def _patch_paths_inside_project(log_input: dict) -> bool:
+    patch_paths = log_input.get("_nah_patch_paths", [])
+    if not isinstance(patch_paths, list) or not patch_paths:
+        return False
+    try:
+        for raw_path in patch_paths:
+            path = os.path.abspath(os.path.expanduser(str(raw_path)))
+            if not nah_paths.is_inside_project_boundary(path):
+                return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _hook_event_name(payload: dict, default: str = "PermissionRequest") -> str:
+    return str(payload.get("hook_event_name") or payload.get("hookEventName") or default)
+
+
+def _runtime_meta(payload: dict, *, phase: str, hook_event_name: str) -> dict:
+    runtime = {
+        "phase": phase,
+        "hook_event_name": hook_event_name,
+    }
+    for key in ("session_id", "turn_id", "tool_use_id"):
+        value = payload.get(key)
+        if value:
+            runtime[key] = str(value)
+    return runtime
+
+
+def _permission_execution(decision: dict) -> dict:
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.BLOCK:
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    if d == taxonomy.ASK:
+        return {"state": "requested", "ask_outcome": "requested"}
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
+def _headless_pre_tool_execution(decision: dict) -> dict:
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.BLOCK:
+        return {"state": "not_run", "ask_outcome": "not_applicable"}
+    return {"state": "requested", "ask_outcome": "not_applicable"}
+
+
+def _attach_permission_runtime(decision: dict, payload: dict) -> None:
+    """Attach runtime metadata before policy layers can inspect the decision."""
+    meta = decision.setdefault("_meta", {})
+    meta["runtime"] = _runtime_meta(
+        payload,
+        phase="permission_request",
+        hook_event_name="PermissionRequest",
+    )
+    meta["execution"] = _permission_execution(decision)
+
+
+def _policy_error_block(decision: dict, reason: str) -> dict:
+    blocked = copy.deepcopy(decision)
+    blocked["decision"] = taxonomy.BLOCK
+    blocked["reason"] = f"headless policy error: {reason}"
+    blocked["human_reason"] = blocked["reason"]
+    meta = blocked.setdefault("_meta", {})
+    meta["policy_error"] = {
+        "runtime": agents.CODEX,
+        "phase": "headless_pre_tool",
+        "reason": reason,
+    }
+    return blocked
+
+
+def _emit_decision(stdout, decision: dict, canonical: str) -> None:
+    d = decision.get("decision", taxonomy.ALLOW)
+    if d == taxonomy.ASK:
+        stdout.flush()
+        return
+    enrich_decision(decision, tool=canonical)
+    reason = decision.get("human_reason") or decision.get("reason", "")
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {},
+        },
+    }
+    if d == taxonomy.BLOCK:
+        payload["hookSpecificOutput"]["decision"]["behavior"] = "deny"
+        if reason:
+            payload["hookSpecificOutput"]["decision"]["message"] = reason
+    else:
+        payload["hookSpecificOutput"]["decision"]["behavior"] = "allow"
+    json.dump(payload, stdout)
+    stdout.write("\n")
+    stdout.flush()
+
+
+def _log_decision(
+    canonical: str,
+    tool_input: dict,
+    decision: dict,
+    total_ms: int,
+    payload: dict,
+) -> None:
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        logged = copy.deepcopy(decision)
+        meta = logged.setdefault("_meta", {})
+        meta.setdefault(
+            "runtime",
+            _runtime_meta(
+                payload,
+                phase="permission_request",
+                hook_event_name="PermissionRequest",
+            ),
+        )
+        meta.setdefault("execution", _permission_execution(logged))
+        hook._log_hook_decision(
+            canonical,
+            tool_input,
+            logged,
+            agents.CODEX,
+            total_ms,
+        )
+    finally:
+        hook._transcript_path = old_transcript
+
+
+def _handle_headless_pre_tool_use(payload: dict, total_ms: int, stdout) -> None:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        decision, canonical, tool_input = _decide(payload, llm_review=False)
+        mode = _headless_ask_fallback_mode()
+        meta = decision.setdefault("_meta", {})
+        runtime = _runtime_meta(
+            payload,
+            phase="headless_pre_tool",
+            hook_event_name="PreToolUse",
+        )
+        runtime["headless"] = True
+        runtime["ask_fallback_mode"] = mode
+        runtime["sandbox_mode"] = os.environ.get(_HEADLESS_SANDBOX_ENV, "")
+        runtime["network"] = _headless_network_enabled()
+        selected_preset = os.environ.get(_PRESET_ENV, "").strip()
+        if selected_preset:
+            runtime["preset"] = selected_preset
+        configured_mode = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
+        if configured_mode and configured_mode not in _HEADLESS_ASK_FALLBACKS:
+            runtime["ask_fallback_invalid"] = configured_mode
+        meta["runtime"] = runtime
+        meta["execution"] = _headless_pre_tool_execution(decision)
+        fallback_error = _headless_ask_fallback_error()
+        if fallback_error:
+            decision = _policy_error_block(decision, fallback_error)
+            decision.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(decision)
+            _log_decision(canonical, tool_input, decision, total_ms, payload)
+            enrich_decision(decision, tool=canonical)
+            reason = decision.get("human_reason") or decision.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
+
+        decision = _apply_headless_ask_fallback(decision, mode)
+        decision.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(decision)
+
+        _log_decision(canonical, tool_input, decision, total_ms, payload)
+        if decision.get("decision") == taxonomy.BLOCK:
+            enrich_decision(decision, tool=canonical)
+            reason = decision.get("human_reason") or decision.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
+        if decision.get("decision") == taxonomy.ASK:
+            blocked = _apply_headless_ask_fallback(decision, taxonomy.BLOCK)
+            blocked.setdefault("_meta", {})["execution"] = _headless_pre_tool_execution(blocked)
+            _log_decision(canonical, tool_input, blocked, total_ms, payload)
+            enrich_decision(blocked, tool=canonical)
+            reason = blocked.get("human_reason") or blocked.get("reason", "")
+            _emit_pre_tool_deny(stdout, reason)
+            return
+        stdout.flush()
+    finally:
+        hook._transcript_path = old_transcript
+
+
+def _apply_headless_ask_fallback(decision: dict, mode: str) -> dict:
+    if mode not in _HEADLESS_ASK_FALLBACKS:
+        mode = taxonomy.BLOCK
+    return hook._apply_ask_fallback(decision, SimpleNamespace(ask_fallback=mode))
+
+
+def _headless_network_enabled() -> bool:
+    value = os.environ.get(_HEADLESS_NETWORK_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _emit_headless_error(stdout, reason: str) -> None:
+    _emit_pre_tool_deny(stdout, f"nah headless hook error: {reason}")
+
+
+def _emit_pre_tool_deny(stdout, reason: str) -> None:
+    payload = agents.format_block(reason, agents.CODEX)
+    json.dump(payload, stdout)
+    stdout.write("\n")
+    stdout.flush()
+
+
+def _log_post_tool_use(payload: dict, total_ms: int) -> None:
+    from nah.config import set_active_target
+
+    set_active_target(agents.CODEX, reset_cache=False)
+    old_transcript = hook._transcript_path
+    hook._transcript_path = str(payload.get("transcript_path", "") or "")
+    try:
+        tool_name = str(payload.get("tool_name", "") or "")
+        raw_tool_input = payload.get("tool_input", {})
+        tool_input = raw_tool_input if isinstance(raw_tool_input, dict) else {}
+        canonical = agents.normalize_tool(tool_name)
+        if canonical in _WRITE_ALIASES:
+            with _capture_stderr(log=False):
+                _decision, tool_input = classify_codex_apply_patch(
+                    tool_input if isinstance(raw_tool_input, dict) else {"input": raw_tool_input},
+                    payload,
+                )
+        decision = {
+            "decision": taxonomy.ALLOW,
+            "reason": "tool execution observed",
+            "_meta": {
+                "runtime": _runtime_meta(
+                    payload,
+                    phase="post_tool",
+                    hook_event_name="PostToolUse",
+                ),
+                "execution": {
+                    "state": "executed",
+                    "ask_outcome": "approved_executed",
+                },
+            },
+        }
+        hook._log_hook_decision(canonical, tool_input, decision, agents.CODEX, total_ms)
+    finally:
+        hook._transcript_path = old_transcript
+
+
+@contextlib.contextmanager
+def _capture_stderr(*, log: bool):
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        yield
+    captured = buf.getvalue().strip()
+    if captured and log:
+        _log_codex_hook_error(captured)
+
+
+def _log_codex_hook_error(message: str, *, event_name: str = "PermissionRequest") -> None:
+    try:
+        from nah.log import LOG_PATH
+
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "agent": agents.CODEX,
+            "tool": event_name,
+            "decision": "error",
+            "reason": message,
+        }
+        import os
+
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+    except Exception as exc:
+        try:
+            sys.stderr.write(f"nah: codex hook log: {exc}\n")
+        except Exception:
+            pass
