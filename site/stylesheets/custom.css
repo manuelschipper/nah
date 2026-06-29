@@ -1139,3 +1139,39 @@
   }
 
 }
+
+/* The homepage hides the left nav (`hide: navigation`) for the full-bleed
+   landing, but mkdocs-material also hides the drawer hamburger at >=76.25em,
+   which left the wide-screen homepage with no way to reach navigation at all.
+   On any page whose primary sidebar is hidden, keep the hamburger and turn that
+   sidebar back into an off-canvas drawer at desktop widths. Scoped via the
+   [hidden] attribute so normal doc pages keep their static sidebar untouched. */
+@media screen and (min-width: 76.25em) {
+  body:has(.md-sidebar--primary[hidden]) label.md-header__button[for="__drawer"] {
+    display: inline-block;
+  }
+
+  .md-sidebar--primary[hidden] {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: -12.1rem;
+    width: 12.1rem;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    z-index: 5;
+    background-color: var(--md-default-bg-color);
+    transform: translateX(0);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  [data-md-toggle="drawer"]:checked ~ .md-container .md-sidebar--primary[hidden] {
+    transform: translateX(12.1rem);
+  }
+
+  .md-sidebar--primary[hidden] .md-sidebar__scrollwrap {
+    height: 100%;
+    overflow-y: auto;
+  }
+}
