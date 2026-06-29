@@ -218,7 +218,6 @@ actions:
   filesystem_delete: ask         # always confirm deletes
   git_history_rewrite: block     # never allow force push
   lang_exec: ask                 # always confirm script/runtime execution
-  container_build: block         # useful for unattended/unsupervised agents
 
 # Guard sensitive directories
 sensitive_paths:
