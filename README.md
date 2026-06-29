@@ -4,8 +4,9 @@
 
 <p align="center">
   <strong>You should sandbox your agents. This is for when you don't.</strong><br>
-  Action-aware, deterministic permissions for coding agents — the guardrail for the
-  laptop, the shared box, the environment where the secrets are just sitting there.
+  
+  Action-aware, deterministic permissions for coding agents. 
+  The guardrail for the laptop, the shared box, the environment where the secrets are just sitting there.
 </p>
 
 <p align="center">
