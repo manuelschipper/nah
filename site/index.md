@@ -34,11 +34,32 @@ hide:
       <h2>Outside a sandbox, your options are permissions, auto modes, or yolo.</h2>
       <p>
         Sometimes a coding agent has to run where it isn't sandboxed: your laptop,
-        or a server with injected secrets. Manual permissions drown you in prompts or
-        over-grant; auto modes still rely on an LLM; yolo skips the guardrails. nah is
-        a deterministic fourth option that classifies what an action <em>does</em>,
-        not the command name, and applies your policy in milliseconds.
+        or a server with injected secrets. Every way of keeping it in check trades
+        away something you need.
       </p>
+    </div>
+
+    <div class="nah-options">
+      <div class="nah-option is-them">
+        <span class="nah-option-mark">&#10007;</span>
+        <h3>Manual permissions</h3>
+        <p>Endless prompts, or you over-grant.</p>
+      </div>
+      <div class="nah-option is-them">
+        <span class="nah-option-mark">&#10007;</span>
+        <h3>Auto modes</h3>
+        <p>An LLM is still deciding.</p>
+      </div>
+      <div class="nah-option is-them">
+        <span class="nah-option-mark">&#10007;</span>
+        <h3>YOLO</h3>
+        <p>No guardrails at all.</p>
+      </div>
+      <div class="nah-option is-us">
+        <span class="nah-option-mark">&#10003;</span>
+        <h3>nah</h3>
+        <p>Deterministic policy. Same answer every time, in milliseconds.</p>
+      </div>
     </div>
   </section>
 
