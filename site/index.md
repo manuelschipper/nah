@@ -33,12 +33,19 @@ hide:
       <p class="nah-eyebrow">The problem</p>
       <h2>Outside a sandbox, your options are permissions, auto modes, or yolo.</h2>
       <p>
-        Sometimes a coding agent has to run where it isn't sandboxed — your laptop,
+        Sometimes a coding agent has to run where it isn't sandboxed: your laptop,
         or a server with injected secrets. Manual permissions drown you in prompts or
         over-grant; auto modes still rely on an LLM; yolo skips the guardrails. nah is
-        a deterministic fourth option — it classifies what an action <em>does</em>,
+        a deterministic fourth option that classifies what an action <em>does</em>,
         not the command name, and applies your policy in milliseconds.
       </p>
+    </div>
+  </section>
+
+  <section class="nah-section nah-problem">
+    <div class="nah-section-heading">
+      <p class="nah-eyebrow">Command names are the wrong abstraction</p>
+      <h2>Same tool, different action.</h2>
     </div>
 
     <div class="nah-compare-grid">
@@ -233,7 +240,7 @@ nah blocked: this runs unknown code</code></pre>
       <h2>Rules you can read, not a prompt you hope works.</h2>
       <p>
         nah works with zero config. When you want more control, you write the
-        rules yourself — plain YAML or a CLI command you can read, diff, and check
+        rules yourself, in plain YAML or a CLI command you can read, diff, and check
         into git. Global defaults for your machine; a project <code>.nah.yaml</code>
         that can only tighten.
       </p>
