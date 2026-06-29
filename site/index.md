@@ -58,7 +58,7 @@ hide:
       <div class="nah-option is-us">
         <span class="nah-option-mark">&#10003;</span>
         <h3>nah</h3>
-        <p>Deterministic policy. Same answer every time, in milliseconds.</p>
+        <p>Deterministic policy. Low friction. No LLM. Milliseconds.</p>
       </div>
     </div>
   </section>
