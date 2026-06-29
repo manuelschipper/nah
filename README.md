@@ -3,8 +3,9 @@
 </p>
 
 <p align="center">
-  <strong>Action-aware permissions for coding agents.</strong><br>
-  A deterministic safety guard that keeps you in the flow.
+  <strong>You should sandbox your agents. This is for when you don't.</strong><br>
+  Action-aware, deterministic permissions for coding agents — the guardrail for the
+  laptop, the shared box, the environment where the secrets are just sitting there.
 </p>
 
 <p align="center">

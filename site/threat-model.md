@@ -1,6 +1,8 @@
 # Threat model
 
-nah's threat model starts with what an action can do: run unknown code, expose
+nah guards agents you can't fully isolate — running on your laptop, or where
+credentials are available in plaintext. Its threat model starts with what an
+action can do: run unknown code, expose
 secrets, rewrite history, escape the project, hide behavior behind shell tricks,
 escalate through package/container tooling, or tamper with the guard itself.
 

@@ -1,5 +1,9 @@
 # How it works
 
+The right move is to sandbox your agents and scope their tokens. nah is for when
+you can't — when the agent runs on your laptop, or somewhere credentials sit in
+plaintext.
+
 nah is a local classifier that sits in front of guarded agent and terminal
 actions. Claude Code uses [PreToolUse hooks](https://docs.anthropic.com/en/docs/claude-code/hooks),
 Codex uses native `PreToolUse`, `PermissionRequest`, and `PostToolUse` hooks,

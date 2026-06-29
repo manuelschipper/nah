@@ -9,9 +9,10 @@ hide:
     <div class="nah-hero-logo">
       <img src="assets/logo.png" alt="nah" class="invertible">
     </div>
-    <h1>Action-aware permissions for coding agents.</h1>
+    <h1>You should sandbox your agents. This is for when you don't.</h1>
     <p class="nah-hero-copy">
-      A deterministic safety guard that keeps you in the flow.
+      Action-aware, deterministic permissions for coding agents — the guardrail for
+      the laptop, the shared box, the environment where the secrets are just sitting there.
     </p>
     <p class="nah-hero-detail">
       nah sits between coding agents and your shell, files, and tools, allowing
