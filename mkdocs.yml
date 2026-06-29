@@ -34,7 +34,7 @@ theme:
   custom_dir: site/overrides
 
 extra_css:
-  - stylesheets/custom.css
+  - stylesheets/custom.css?v=2
   - stylesheets/benchmark-proof.css
 
 markdown_extensions:
