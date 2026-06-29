@@ -1141,37 +1141,316 @@
 }
 
 /* The homepage hides the left nav (`hide: navigation`) for the full-bleed
-   landing, but mkdocs-material also hides the drawer hamburger at >=76.25em,
-   which left the wide-screen homepage with no way to reach navigation at all.
-   On any page whose primary sidebar is hidden, keep the hamburger and turn that
-   sidebar back into an off-canvas drawer at desktop widths. Scoped via the
-   [hidden] attribute so normal doc pages keep their static sidebar untouched. */
+   landing. For those pages, keep the mobile drawer behavior at desktop widths
+   too: hamburger in the header, off-canvas sidebar, overlay, and mobile-style
+   nested navigation. Scoped via the [hidden] attribute so normal doc pages keep
+   their static desktop sidebar untouched. */
 @media screen and (min-width: 76.25em) {
   body:has(.md-sidebar--primary[hidden]) label.md-header__button[for="__drawer"] {
     display: inline-block;
   }
 
-  .md-sidebar--primary[hidden] {
-    display: block;
+  body:has(.md-sidebar--primary[hidden]) .md-overlay {
+    background-color: #0000008a;
+    height: 0;
+    opacity: 0;
     position: fixed;
     top: 0;
-    left: -12.1rem;
-    width: 12.1rem;
+    transition: width 0ms 0.25s, height 0ms 0.25s, opacity 0.25s;
+    width: 0;
+    z-index: 5;
+  }
+
+  body:has(.md-sidebar--primary[hidden]) [data-md-toggle="drawer"]:checked ~ .md-overlay {
     height: 100%;
+    opacity: 1;
+    transition: width 0ms, height 0ms, opacity 0.25s;
+    width: 100%;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] {
+    left: -12.1rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] {
+    right: -12.1rem;
+  }
+
+  .md-sidebar--primary[hidden] {
+    background-color: var(--md-default-bg-color);
+    display: block;
+    height: 100%;
+    position: fixed;
+    top: 0;
+    width: 12.1rem;
     margin: 0;
     padding: 0;
     z-index: 5;
-    background-color: var(--md-default-bg-color);
     transform: translateX(0);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s;
   }
 
   [data-md-toggle="drawer"]:checked ~ .md-container .md-sidebar--primary[hidden] {
+    box-shadow: var(--md-shadow-z3);
     transform: translateX(12.1rem);
   }
 
-  .md-sidebar--primary[hidden] .md-sidebar__scrollwrap {
-    height: 100%;
-    overflow-y: auto;
+  [dir="rtl"] [data-md-toggle="drawer"]:checked ~ .md-container .md-sidebar--primary[hidden] {
+    transform: translateX(-12.1rem);
   }
+
+  .md-sidebar--primary[hidden] .md-sidebar__scrollwrap {
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    overflow: hidden;
+    position: absolute;
+    right: 0;
+    scroll-snap-type: none;
+    top: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary,
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav {
+    background-color: var(--md-default-bg-color);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    z-index: 1;
+    margin-bottom: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__item,
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title {
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title {
+    background-color: var(--md-default-fg-color--lightest);
+    box-shadow: none;
+    color: var(--md-default-fg-color--light);
+    cursor: pointer;
+    height: 5.6rem;
+    line-height: 2.4rem;
+    padding: 3rem 0.8rem 0.2rem;
+    position: relative;
+    top: auto;
+    white-space: nowrap;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title .md-nav__icon {
+    left: 0.4rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title .md-nav__icon {
+    right: 0.4rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title .md-nav__icon {
+    display: block;
+    height: 1.2rem;
+    margin: 0.2rem;
+    position: absolute;
+    top: 0.4rem;
+    width: 1.2rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title .md-nav__icon::after {
+    background-color: currentcolor;
+    content: "";
+    display: block;
+    height: 100%;
+    -webkit-mask-image: var(--md-nav-icon--prev);
+    mask-image: var(--md-nav-icon--prev);
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    width: 100%;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title~.md-nav__list {
+    background-color: var(--md-default-bg-color);
+    box-shadow: 0 0.05rem 0 var(--md-default-fg-color--lightest) inset;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    touch-action: pan-y;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title~.md-nav__list > :first-child {
+    border-top: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title[for="__drawer"] {
+    background-color: var(--md-primary-fg-color);
+    color: var(--md-primary-bg-color);
+    font-weight: 700;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__title .md-logo {
+    display: block;
+    left: 0.2rem;
+    margin: 0.2rem;
+    padding: 0.4rem;
+    position: absolute;
+    right: 0.2rem;
+    top: 0.2rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary > .md-nav__title {
+    font-size: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary > .md-nav__title .md-logo {
+    font-size: 0.8rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__list {
+    flex: 1;
+    padding-bottom: 0;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__list {
+    padding-left: 0;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__list {
+    padding-right: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__item {
+    border-top: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link {
+    margin-top: 0;
+    padding: 0.6rem 0.8rem;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__item > .md-nav__link {
+    margin-right: 0;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__item > .md-nav__link {
+    margin-left: 0;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link svg {
+    margin-top: 0.1em;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link > .md-nav__link {
+    padding: 0;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link .md-nav__icon {
+    margin-right: -0.2rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link .md-nav__icon {
+    margin-left: -0.2rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link .md-nav__icon {
+    font-size: 1.2rem;
+    height: 1.2rem;
+    width: 1.2rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav__link .md-nav__icon::after {
+    background-color: currentcolor;
+    content: "";
+    display: block;
+    height: 100%;
+    -webkit-mask-image: var(--md-nav-icon--next);
+    mask-image: var(--md-nav-icon--next);
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    width: 100%;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav__icon::after {
+    transform: scale(-1);
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav {
+    background-color: initial;
+    position: static;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav--secondary {
+    background-color: initial;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav__link {
+    padding-left: 1.4rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav__link {
+    padding-right: 1.4rem;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav__link {
+    padding-left: 2rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav__link {
+    padding-right: 2rem;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav .md-nav__link {
+    padding-left: 2.6rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav .md-nav__link {
+    padding-right: 2.6rem;
+  }
+
+  [dir="ltr"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav .md-nav .md-nav__link {
+    padding-left: 3.2rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav--primary .md-nav--secondary .md-nav .md-nav .md-nav .md-nav .md-nav__link {
+    padding-right: 3.2rem;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav__toggle~.md-nav {
+    display: flex;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.8, 0, 0.6, 1), opacity 125ms 50ms;
+    visibility: visible;
+  }
+
+  [dir="rtl"] .md-sidebar--primary[hidden] .md-nav__toggle~.md-nav {
+    transform: translateX(-100%);
+  }
+
+  .md-sidebar--primary[hidden] .md-nav__toggle:checked~.md-nav {
+    opacity: 1;
+    transform: translateX(0);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 125ms 125ms;
+  }
+
+  .md-sidebar--primary[hidden] .md-nav__toggle:checked~.md-nav > .md-nav__list {
+    backface-visibility: hidden;
+  }
+}
+
+/* On the homepage the hamburger sits in the header and the full nah logo is in
+   the hero, so the redundant header logo is hidden there. Scoped via the hidden
+   sidebar so doc pages keep their header logo. */
+body:has(.md-sidebar--primary[hidden]) .md-header__button.md-logo {
+  display: none;
 }

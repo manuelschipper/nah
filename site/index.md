@@ -62,7 +62,6 @@ hide:
       </div>
     </div>
 
-    <p class="nah-problem-bridge">The first two look fixable. Here's why they aren't.</p>
   </section>
 
   <section class="nah-section nah-problem">
