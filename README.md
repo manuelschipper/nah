@@ -29,8 +29,9 @@ keep it in check, and each trades away something you need:
 - **Auto modes:** Claude Code Auto Mode, Codex auto-review. Less prompting, but an LLM is still deciding. Advice, not enforcement.
 - **YOLO** (`--dangerously-skip-permissions`): speed, zero guardrails.
 
-nah is the fourth option: it reads what an action *does*, applies your policy in
-milliseconds, and gives the same answer every time. No LLM in the loop, no tokens.
+**nah doesn't make you trade.** It reads what an action *does*, applies your
+policy in milliseconds, and gives the same answer every time. Low friction and
+no LLM required.
 
 ### Command names are the wrong abstraction
 
