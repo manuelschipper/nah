@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>You should sandbox your agents. This is for when you don't.</strong><br>
-  Action-aware, deterministic permissions for coding agents.
+  <strong>Action-aware, deterministic permissions for coding agents</strong><br>
+  You should sandbox your agents. This is for when you don't.
 </p>
 
 <p align="center">
@@ -20,6 +20,17 @@
 ---
 
 ## The Problem
+
+You shouldn't run a coding agent outside a sandbox. Sometimes you do it anyway —
+on your laptop or on a server with injected secrets. That
+leaves three ways to keep it in check, and each trades away something you need:
+
+- **Manual permissions** — approve every action and you drown in prompts; pre-approve and you over-grant.
+- **Auto modes** — Claude Code Auto Mode, Codex auto-review. Less prompting, but an LLM is still deciding. Advice, not enforcement.
+- **YOLO** (`--dangerously-skip-permissions`) — speed, zero guardrails.
+
+nah is the fourth option: it reads what an action *does*, applies your policy in
+milliseconds, and gives the same answer every time — no LLM in the loop, no tokens.
 
 ### Command names are the wrong abstraction
 
