@@ -33,7 +33,7 @@ keep it in check, and each trades away something you need.
 
 The first two look fixable. They aren't, and it's worth seeing why.
 
-### Command names are the wrong abstraction
+### A permission list of command names is the wrong abstraction
 
 `git` can check status, or it can rewrite history.
 
