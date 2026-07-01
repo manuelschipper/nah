@@ -353,7 +353,7 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
 
         cfg = get_config()
     mode = getattr(cfg, "ask_fallback", "")
-    if mode not in (taxonomy.ALLOW, taxonomy.BLOCK):
+    if mode not in (taxonomy.ALLOW, taxonomy.BLOCK, "defer"):
         return decision
 
     original_reason = str(decision.get("reason", "") or "")
@@ -364,6 +364,14 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
         "to": mode,
         "reason": original_reason,
     }
+
+    # Defer: let the agent's own permission layer decide
+    # The decision is logged but not emitted (pass-through)
+    if mode == "defer":
+        decision["decision"] = taxonomy.ASK
+        decision["reason"] = f"ask fallback deferred to agent: {original_reason or 'review required'}"
+        return decision
+
     decision["decision"] = mode
     verb = "blocked" if mode == taxonomy.BLOCK else "allowed"
     review = original_reason or "review required"
