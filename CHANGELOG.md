@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`nah log` now surfaces the calling agent.** Each entry already recorded which
+  agent produced the action (`claude`, `codex`, or `terminal` for the interactive
+  bash guard); the human-readable output now shows it as a column and a new
+  `--agent <name>` flag filters by it (composes with `--blocks`/`--asks`/`--tool`).
+  `--json` output is unchanged.
+
 ### Fixed
 
 - Catastrophic filesystem deletes that select `/`, the current home directory,

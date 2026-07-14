@@ -1704,6 +1704,9 @@ def cmd_log(args: argparse.Namespace) -> None:
     tool = getattr(args, "tool", None)
     if tool:
         filters["tool"] = tool
+    agent = getattr(args, "agent", None)
+    if agent:
+        filters["agent"] = agent.lower()
 
     limit = getattr(args, "limit", 50)
     json_output = getattr(args, "json", False)
@@ -1741,7 +1744,8 @@ def cmd_log(args: argparse.Namespace) -> None:
             marker = "  "
 
         state = f" {execution_state}" if execution_state else ""
-        line = f"{ts}  {marker}{decision:<5}{state:<17}  {tool_name:<5}  {summary}"
+        agent_name = entry.get("agent", "")
+        line = f"{ts}  {marker}{decision:<5}{state:<17}  {agent_name:<6}  {tool_name:<5}  {summary}"
         if reason:
             line += f"  ({reason})"
         if total_ms != "":
@@ -2064,6 +2068,7 @@ def main():
     log_parser.add_argument("--llm", action="store_true", help="Show only entries with LLM metadata")
     log_parser.add_argument("--classified", action="store_true", help="Show only entries with a Layer-1 classify pass")
     log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")
+    log_parser.add_argument("--agent", default=None, help="Filter by agent (claude, codex, terminal)")
     log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
     log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")
 
