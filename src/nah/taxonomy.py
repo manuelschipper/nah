@@ -674,6 +674,9 @@ def classify_tokens(
     action = _classify_glab_api(tokens, profile=profile)
     if action is not None:
         return action
+    action = _classify_mise_activate(tokens)
+    if action is not None:
+        return action
     action = _classify_mise_exec_wrapper(
         tokens,
         global_table=global_table,
@@ -2963,6 +2966,17 @@ def _extract_mise_exec_inner(tokens: list[str]) -> list[str] | None:
     if not payload or payload[0].startswith("-"):
         return None
     return payload
+
+
+def _classify_mise_activate(tokens: list[str]) -> str | None:
+    """``mise activate [args]`` only prints shell-activation code to stdout — a
+    read-only operation. (Executing that output via ``eval`` is gated
+    separately in ``bash._is_mise_activate_eval``.)"""
+    if len(tokens) < 2:
+        return None
+    if os.path.basename(tokens[0]) != "mise" or tokens[1] != "activate":
+        return None
+    return FILESYSTEM_READ
 
 
 def _classify_mise_exec_wrapper(
