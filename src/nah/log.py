@@ -319,6 +319,8 @@ def read_log(filters: dict | None = None, limit: int = 50) -> list[dict]:
                     continue
                 if "tool" in filters and entry.get("tool") != filters["tool"]:
                     continue
+                if "agent" in filters and entry.get("agent") != filters["agent"]:
+                    continue
                 if filters.get("llm") and not _entry_has_llm(entry):
                     continue
                 if filters.get("classified") and not _entry_has_classify_pass(entry):

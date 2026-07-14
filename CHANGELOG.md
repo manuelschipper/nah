@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`nah log` now surfaces the calling agent.** Each entry already recorded which
+  agent produced the action (`claude`, `codex`, or `terminal` for the interactive
+  bash guard); the human-readable output now shows it as a column and a new
+  `--agent <name>` flag filters by it (composes with `--blocks`/`--asks`/`--tool`).
+  `--json` output is unchanged.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added
