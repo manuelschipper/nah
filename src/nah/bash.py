@@ -239,7 +239,7 @@ def classify_command(command: str) -> ClassifyResult:
             )
             stages[idx] = stage
 
-        sr = _classify_stage(stage, **_kw)
+        sr = _classify_stage(stage, sub_commands=active_subs, **_kw)
         sub_results = _classify_substitution_results_for_stage(
             stage,
             active_subs,
@@ -2387,8 +2387,14 @@ def _classify_stage(
     project_table: list | None = None,
     user_actions: dict[str, str] | None = None,
     trust_project: bool = False,
+    sub_commands: list[tuple[str, int, int, str]] | None = None,
 ) -> StageResult:
-    """Classify a single pipeline stage."""
+    """Classify a single pipeline stage.
+
+    *sub_commands* is the ``(body, start, end, kind)`` substitution list from
+    the enclosing scope, threaded through so the eval-obfuscation check can
+    resolve a ``__nah_psub_N__`` placeholder back to its command body.
+    """
     tokens = stage.tokens
     sr = StageResult(tokens=tokens)
 
@@ -2412,7 +2418,8 @@ def _classify_stage(
     unwrapped = _unwrap_shell(stage, depth, global_table=global_table,
                               builtin_table=builtin_table, project_table=project_table,
                               user_actions=user_actions,
-                              trust_project=trust_project)
+                              trust_project=trust_project,
+                              sub_commands=sub_commands)
     if unwrapped is not None:
         return _apply_redirect_guard(stage, unwrapped, user_actions=user_actions)
 
@@ -2695,6 +2702,58 @@ def _obfuscated_result(tokens: list[str], reason: str, user_actions: dict[str, s
     sr.decision = sr.default_policy
     sr.reason = reason
     return sr
+
+
+# `mise activate` shells and env-setup-only flags recognized by the eval
+# carve-out. Anything outside these sets disqualifies the carve-out.
+_MISE_ACTIVATE_SHELLS = frozenset({"bash", "zsh", "fish"})
+_MISE_ACTIVATE_SAFE_FLAGS = frozenset(
+    {"--shims", "--status", "--quiet", "-q", "--no-hook-env"}
+)
+# Characters that could smuggle a second command into an eval body; any of
+# them disqualifies the carve-out (fail closed) — this is the load-bearing
+# defense against `eval "$(mise activate bash; rm -rf /)"` and friends.
+_MISE_ACTIVATE_UNSAFE_CHARS = frozenset("$`;|&<>()\n")
+
+
+def _is_mise_activate_eval(
+    inner: str, sub_commands: list[tuple[str, int, int, str]] | None
+) -> bool:
+    """Return True iff *inner* is exactly one command substitution whose body is
+    a bare ``mise activate <shell>`` invocation (the standard env-setup idiom).
+
+    Deliberately narrow: only ``eval "$(mise activate bash|zsh|fish [safe flags])"``
+    is recognized. Extra text, a second substitution, operators, shell
+    metacharacters, or a non-``activate`` mise subcommand all return False so the
+    caller falls through to the existing obfuscated classification (fail closed).
+    """
+    if not sub_commands:
+        return False
+    # inner must be *exactly* one placeholder — no prefix, no second
+    # substitution, no trailing tokens.
+    idx = _placeholder_sub_index(inner.strip())
+    if idx is None or idx < 0 or idx >= len(sub_commands):
+        return False
+    body, _start, _end, kind = sub_commands[idx]
+    if kind not in ("command", "backtick"):
+        return False
+    if any(ch in _MISE_ACTIVATE_UNSAFE_CHARS for ch in body):
+        return False
+    # Body must be a single operator-free command (belt-and-suspenders with the
+    # metacharacter reject above).
+    if len(_split_on_operators(body)) != 1:
+        return False
+    try:
+        parts = shlex.split(body)
+    except ValueError:
+        return False
+    if len(parts) < 3 or os.path.basename(parts[0]) != "mise" or parts[1] != "activate":
+        return False
+    positionals = [t for t in parts[2:] if not t.startswith("-")]
+    flags = [t for t in parts[2:] if t.startswith("-")]
+    if len(positionals) != 1 or positionals[0] not in _MISE_ACTIVATE_SHELLS:
+        return False
+    return all(f in _MISE_ACTIVATE_SAFE_FLAGS for f in flags)
 
 
 def _strip_command_builtin(tokens: list[str]) -> list[str] | None:
@@ -4040,6 +4099,7 @@ def _unwrap_shell(
     project_table: list | None,
     user_actions: dict[str, str] | None,
     trust_project: bool = False,
+    sub_commands: list[tuple[str, int, int, str]] | None = None,
 ) -> StageResult | None:
     """Try shell unwrapping. Returns StageResult if handled, None if not a wrapper."""
     tokens = stage.tokens
@@ -4230,6 +4290,18 @@ def _unwrap_shell(
     # Also check for placeholders: top-level extraction already replaced
     # $(…) with __nah_psub_N__ before _unwrap_shell runs.
     if tokens[0] == "eval" and ("$(" in inner or "`" in inner or _PSUB_PREFIX in inner):
+        # Carve-out: `eval "$(mise activate <shell>)"` is the standard
+        # env-setup idiom agents wrap every command in. It only sets PATH/env,
+        # so treat it like a bare `mise activate` (filesystem_read → allow)
+        # instead of tainting the whole command as obfuscated. Narrowly matched
+        # — anything else still falls through to obfuscated (fail closed).
+        if _is_mise_activate_eval(inner, sub_commands):
+            sr = StageResult(tokens=tokens)
+            sr.action_type = taxonomy.FILESYSTEM_READ
+            sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_READ, user_actions)
+            sr.decision = sr.default_policy
+            sr.reason = "mise activate env setup"
+            return sr
         return _obfuscated_result(tokens, "eval with command substitution", user_actions)
 
     # --- FD-103: extract all substitutions from inner before splitting ---
@@ -4290,7 +4362,7 @@ def _classify_inner(
         # Simple case — single command, no operators
         s = inner_stages[0] if inner_stages else Stage(tokens=[])
         s = replace(s, shell_cwd=shell_cwd, shell_cwd_unknown=shell_cwd_unknown)
-        sr = _classify_stage(s, depth, **kw)
+        sr = _classify_stage(s, depth, sub_commands=sub_commands, **kw)
         if sub_results:
             _tighten_from_inner(s, sr, sub_results)
         if sub_commands:
@@ -4320,7 +4392,7 @@ def _classify_inner(
             )
             inner_stages[idx] = s
 
-        sr = _classify_stage(s, depth, **kw)
+        sr = _classify_stage(s, depth, sub_commands=sub_commands, **kw)
         if sub_commands:
             stage_sub_results = _classify_substitution_results_for_stage(
                 s, sub_commands, depth + 1, **kw)
