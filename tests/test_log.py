@@ -375,6 +375,19 @@ class TestReadLog:
         assert len(entries) == 1
         assert entries[0]["tool"] == "Bash"
 
+    def test_filter_by_agent(self, tmp_path):
+        log.log_decision({"decision": "allow", "agent": "claude"})
+        log.log_decision({"decision": "allow", "agent": "codex"})
+        entries = log.read_log(filters={"agent": "codex"})
+        assert len(entries) == 1
+        assert entries[0]["agent"] == "codex"
+
+    def test_filter_by_agent_unknown_returns_empty(self, tmp_path):
+        log.log_decision({"decision": "allow", "agent": "claude"})
+        log.log_decision({"decision": "allow", "agent": "codex"})
+        entries = log.read_log(filters={"agent": "gemini"})
+        assert entries == []
+
     def test_filter_by_llm(self, tmp_path):
         log.log_decision({"decision": "allow", "tool": "Bash"})
         log.log_decision({"decision": "ask", "tool": "Bash", "llm": {"provider": "openrouter"}})

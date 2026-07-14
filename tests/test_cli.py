@@ -351,6 +351,40 @@ class TestCmdLog:
         assert llm_reason in out
         assert f"LLM detail (review): {llm_detail}" in out
 
+    def test_human_output_shows_agent_column(self, capsys):
+        from nah.cli import cmd_log
+
+        entry = {
+            "ts": "2026-04-29T13:27:48.000+00:00",
+            "agent": "codex",
+            "tool": "Bash",
+            "decision": "allow",
+            "reason": "",
+            "input": "git status",
+            "ms": 1,
+        }
+
+        with patch("nah.log.read_log", return_value=[entry]):
+            cmd_log(argparse.Namespace(
+                blocks=False, asks=False, llm=False,
+                tool=None, agent=None, limit=5, json=False,
+            ))
+
+        out = capsys.readouterr().out
+        assert "codex" in out
+
+    def test_agent_filter_passed_to_read_log_lowercased(self):
+        from nah.cli import cmd_log
+
+        with patch("nah.log.read_log", return_value=[]) as mock_read:
+            cmd_log(argparse.Namespace(
+                blocks=False, asks=False, llm=False,
+                tool=None, agent="Codex", limit=5, json=False,
+            ))
+
+        _, kwargs = mock_read.call_args
+        assert kwargs["filters"]["agent"] == "codex"
+
 
 class TestCmdConfig:
     def test_config_presets_lists_names(self, tmp_path, capsys):

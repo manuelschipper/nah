@@ -74,6 +74,7 @@ nah types                # list all 43 action types with default policies
 nah log                  # show recent hook decisions
 nah log --blocks         # show only blocked decisions
 nah log --asks           # show only ask decisions
+nah log --agent codex    # show only one agent's decisions (claude, codex)
 nah log --llm            # show only decisions with LLM metadata
 nah status codex         # inspect Codex approval-memory/MCP preflight state
 nah setup codex          # install or fix supported Codex setup state
