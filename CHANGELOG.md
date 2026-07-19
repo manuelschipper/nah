@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Control-flow body substitution guards now resolve instead of always
+  asking** (#85). `$(…)` inside a for/while/until/if body used to be an
+  unconditional ask ("<kw> body uses command substitution") even when the
+  substitution was plainly safe (`echo "$(wc -l < README.md)"`,
+  `x=$(cat t)`). The guard now classifies each substitution's inner command —
+  substituting literal for-loop values where known, one variant per value —
+  and downgrades to allow only when every variant classifies allow. Residual
+  variable references (`$other`, `${f:-x}`), dynamic item lists, more than
+  128 variants, or any non-allow inner keep the existing ask. This matches
+  nah's top-level posture, where substitution inners already drive the
+  decision.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added

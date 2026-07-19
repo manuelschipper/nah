@@ -54,6 +54,13 @@ class Stage:
     env_assignments: dict[str, str] = field(default_factory=dict)
     shell_cwd: str = ""
     shell_cwd_unknown: bool = False
+    # Control-flow body substitution guard: set on the ask-stage emitted for
+    # $(…) inside for/while/until/if bodies so classification can later try
+    # to resolve it against the actual inner commands (with loop values
+    # substituted when known).
+    substitution_guard: bool = False
+    loop_var: str = ""
+    loop_values: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -248,6 +255,8 @@ def classify_command(command: str) -> ClassifyResult:
         )
         if sub_results:
             _tighten_from_inner(stage, sr, sub_results)
+        if stage.substitution_guard and sr.decision == taxonomy.ASK:
+            sr = _resolve_substitution_guard(stage, sr, active_subs, 1, **_kw)
         result.stages.append(sr)
 
         if stage.operator != "|":
@@ -1336,14 +1345,26 @@ def _control_flow_substitution_stages(raw_parts: list[str]) -> list[Stage]:
     ]
 
 
-def _control_flow_body_substitution_guard(keyword: str, raw_parts: list[str]) -> list[Stage]:
+def _control_flow_body_substitution_guard(
+    keyword: str,
+    raw_parts: list[str],
+    *,
+    loop_var: str = "",
+    loop_values: list[str] | None = None,
+) -> list[Stage]:
     if not _placeholder_tokens_from_raw(raw_parts):
         return []
+    guard = _control_flow_guard_stage(
+        keyword,
+        f"{keyword} body uses command substitution",
+        raw_parts,
+    )
     return [
-        _control_flow_guard_stage(
-            keyword,
-            f"{keyword} body uses command substitution",
-            raw_parts,
+        replace(
+            guard,
+            substitution_guard=True,
+            loop_var=loop_var,
+            loop_values=list(loop_values or []),
         )
     ]
 
@@ -1515,10 +1536,6 @@ def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[li
 
     guard_stages = _control_flow_substitution_stages([header])
     body_parts = [part for part, _op in body_raw]
-    # Body substitutions were extracted before loop variables can be expanded.
-    # Add an ask-stage so placeholder paths never silently classify as
-    # project-local, while still classifying the visible body for direct risks.
-    body_substitution_guard = _control_flow_body_substitution_guard("for", body_parts)
 
     raw_body_references_loop_var = _raw_parts_reference_var(body_parts, name)
     references_loop_var = _stages_reference_var(body_stages, name)
@@ -1547,14 +1564,37 @@ def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[li
                     [header],
                 )
             ], next_i
+        # Body substitutions were extracted before loop variables can be
+        # expanded. Add an ask-stage (carrying the resolved loop values so
+        # classification can try to resolve it) so placeholder paths never
+        # silently classify as project-local, while still classifying the
+        # visible body for direct risks.
         return (
             guard_stages
-            + body_substitution_guard
+            + _control_flow_body_substitution_guard(
+                "for", body_parts, loop_var=name, loop_values=values
+            )
             + _expand_loop_body_for_values(body_stages, name, values, outer_op)
         ), next_i
 
     _apply_outer_operator(body_stages, outer_op)
-    return guard_stages + body_substitution_guard + body_stages, next_i
+    # A loop-var reference may live only inside an extracted substitution
+    # (e.g. `for f in a b; do echo "$(wc -l < "$f")"; done`), in which case
+    # the visible body does not reference the var and we land here. Carry the
+    # loop values on the guard when they are safe literals so resolution can
+    # still expand the inner command per value; otherwise the guard's
+    # residual-variable check keeps the ask.
+    guard_loop_var = name if _safe_literal_loop_values(values) else ""
+    return (
+        guard_stages
+        + _control_flow_body_substitution_guard(
+            "for",
+            body_parts,
+            loop_var=guard_loop_var,
+            loop_values=values if guard_loop_var else [],
+        )
+        + body_stages
+    ), next_i
 
 
 def _consume_while_until(
@@ -2112,6 +2152,100 @@ def _classify_substitution_inner(
         user_actions=user_actions,
         trust_project=trust_project,
     )
+
+
+_GUARD_VAR_REF_RE = re.compile(r"\$\{|\$[A-Za-z_]")
+
+
+def _expand_var_in_text(text: str, name: str, value: str) -> str:
+    """Replace ``$name`` / ``${name}`` in *text* with *value*.
+
+    Only the two plain forms are substituted; parameter-expansion operators
+    (``${name:-x}``, ``${name%…}`` …) are left intact so the residual
+    variable-reference check keeps the guard on its ask path.
+    """
+    pattern = re.compile(
+        rf"\$(?:\{{{re.escape(name)}\}}|{re.escape(name)}(?![A-Za-z0-9_]))"
+    )
+    return pattern.sub(lambda _m: value, text)
+
+
+def _substitution_guard_variants(
+    inner: str,
+    loop_var: str,
+    loop_values: list[str],
+) -> list[str] | None:
+    """Concrete inner-command variants for a body-substitution guard.
+
+    When the inner command references the loop variable and the loop values
+    are known, one variant per value is produced. ``None`` means the inner
+    command cannot be made concrete (residual variable references) and the
+    caller must keep the ask.
+    """
+    if loop_var and loop_values and _raw_parts_reference_var([inner], loop_var):
+        variants = [
+            _expand_var_in_text(inner, loop_var, value) for value in loop_values
+        ]
+        if any(_GUARD_VAR_REF_RE.search(variant) for variant in variants):
+            return None
+        return variants
+    if _GUARD_VAR_REF_RE.search(inner):
+        return None
+    return [inner]
+
+
+def _resolve_substitution_guard(
+    stage: Stage,
+    sr: StageResult,
+    substitutions: list[tuple[str, int, int, str]],
+    depth: int,
+    *,
+    global_table: list | None,
+    builtin_table: list | None,
+    project_table: list | None,
+    user_actions: dict[str, str] | None,
+    trust_project: bool = False,
+) -> StageResult:
+    """Resolve a control-flow body-substitution guard at classification time.
+
+    The parse-time guard asks whenever a for/while/until/if body contains
+    command substitution. When every substitution's inner command — with loop
+    values substituted where known — classifies allow, the guard downgrades
+    to the filesystem_read action policy (matching nah's posture for
+    substitution output at top level, where ``rm $(cat list)`` already
+    resolves through the inner classification). Anything short of a full
+    all-allow proof returns *sr* unchanged, keeping the existing ask/block.
+    """
+    kw = dict(global_table=global_table, builtin_table=builtin_table,
+              project_table=project_table, user_actions=user_actions,
+              trust_project=trust_project)
+    indices = _substitution_indices(stage.tokens)
+    if not indices:
+        return sr
+    total_variants = 0
+    for idx in indices:
+        if idx < 0 or idx >= len(substitutions):
+            return sr
+        inner = substitutions[idx][0].strip()
+        if not inner:
+            continue
+        variants = _substitution_guard_variants(inner, stage.loop_var, stage.loop_values)
+        if variants is None:
+            return sr
+        total_variants += len(variants)
+        if total_variants > _MAX_CONTROL_FLOW_EXPANSIONS:
+            return sr
+        for variant in variants:
+            inner_result = _classify_substitution_inner(variant, stage, depth, **kw)
+            if inner_result.decision != taxonomy.ALLOW:
+                return sr
+    resolved = StageResult(tokens=stage.tokens)
+    resolved.action_type = taxonomy.FILESYSTEM_READ
+    resolved.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_READ, user_actions)
+    _apply_policy(resolved, shell_cwd=stage.shell_cwd,
+                  shell_cwd_unknown=stage.shell_cwd_unknown)
+    resolved.reason = f"{stage.tokens[0]} body substitutions classify allow"
+    return resolved
 
 
 def _env_assignment_parts(tok: str) -> tuple[str, str] | None:
@@ -4298,6 +4432,8 @@ def _classify_inner(
                 s, sub_commands, depth + 1, **kw)
             if stage_sub_results:
                 _tighten_from_inner(s, sr, stage_sub_results)
+        if s.substitution_guard and sr.decision == taxonomy.ASK and sub_commands:
+            sr = _resolve_substitution_guard(s, sr, sub_commands, depth + 1, **kw)
         return sr
 
     # Multiple stages — classify each, check composition, aggregate.
@@ -4326,6 +4462,8 @@ def _classify_inner(
                 s, sub_commands, depth + 1, **kw)
             if stage_sub_results:
                 _tighten_from_inner(s, sr, stage_sub_results)
+        if s.substitution_guard and sr.decision == taxonomy.ASK and sub_commands:
+            sr = _resolve_substitution_guard(s, sr, sub_commands, depth + 1, **kw)
         inner_results.append(sr)
 
         if s.operator != "|":

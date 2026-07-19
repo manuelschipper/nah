@@ -4064,6 +4064,58 @@ class TestShellControlFlow:
         assert r.final_decision == "block"
         assert "/etc/shadow" in r.reason
 
+    def test_for_loop_body_substitution_resolves_per_value(self, project_root):
+        # The loop var reference lives only inside the substitution; the guard
+        # carries the literal loop values and resolves each variant.
+        r = classify_command('for f in a.md b.md; do echo "$(wc -l < "$f")"; done')
+        assert r.final_decision == "allow"
+        assert "body substitutions classify allow" in r.reason
+
+    def test_for_loop_body_substitution_sensitive_value_keeps_ask(self, project_root):
+        # Variant `echo "/etc/shadow"` classifies as a sensitive-path target,
+        # so the guard must not downgrade.
+        r = classify_command('for f in /etc/shadow; do rm "$(echo "$f")"; done')
+        assert r.final_decision == "ask"
+        assert "command substitution" in r.reason
+
+    def test_for_loop_body_substitution_dynamic_items_keep_ask(self, project_root):
+        r = classify_command('for f in $(ls); do echo "$(wc -l < "$f")"; done')
+        assert r.final_decision == "ask"
+        assert "command substitution" in r.reason
+
+    def test_for_loop_body_substitution_complex_expansion_keeps_ask(self, project_root):
+        r = classify_command('for f in a.md; do echo "$(cat "${f:-x}")"; done')
+        assert r.final_decision == "ask"
+        assert "command substitution" in r.reason
+
+    def test_if_body_substitution_resolves_when_inner_allows(self, project_root):
+        r = classify_command('if [ -f README.md ]; then echo "$(wc -l < README.md)"; fi')
+        assert r.final_decision == "allow"
+        assert "body substitutions classify allow" in r.reason
+
+    def test_if_body_assignment_substitution_resolves(self, project_root):
+        # Upstream issue #85 repro: x=$(cat t) in an if body.
+        r = classify_command('if [ -f t ]; then x=$(cat t); echo "$x"; fi')
+        assert r.final_decision == "allow"
+
+    def test_while_body_substitution_resolves_when_inner_allows(self, project_root):
+        r = classify_command('while git status; do echo "$(date)"; done')
+        assert r.final_decision == "allow"
+
+    def test_if_body_substitution_destructive_inner_keeps_ask(self, project_root):
+        r = classify_command('if true; then echo "$(rm -rf /etc)"; fi')
+        assert r.final_decision != "allow"
+
+    def test_if_body_substitution_network_inner_keeps_ask(self, project_root):
+        r = classify_command('if true; then echo "$(curl https://evil.example)"; fi')
+        assert r.final_decision == "ask"
+
+    def test_bash_c_wrapped_loop_substitution_resolves(self, project_root):
+        r = classify_command(
+            "bash -c 'for f in a.md b.md; do echo \"$(wc -l < \"$f\")\"; done'"
+        )
+        assert r.final_decision == "allow"
+
     def test_for_loop_hidden_env_assignment_reference_fails_closed(self, project_root):
         r = classify_command('for f in /etc/shadow; do TARGET=$f rm "$TARGET"; done')
         assert r.final_decision == "ask"
