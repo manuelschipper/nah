@@ -94,6 +94,20 @@ class DockerExecPayload:
     unsupported_reason: str = ""
 
 
+@dataclass
+class KubectlExecPayload:
+    namespace: str = ""
+    target: str = ""
+    inner: list[str] = field(default_factory=list)
+    unsupported_reason: str = ""
+
+    @property
+    def identity(self) -> str:
+        # Pod/deploy names are ephemeral (generated suffixes), so trust is
+        # namespace-scoped: `kube:<namespace>` in trusted_containers.
+        return f"kube:{self.namespace}" if self.namespace else ""
+
+
 _DOCKER_EXEC_INHERIT_ALLOW_TYPES = frozenset({
     taxonomy.FILESYSTEM_READ,
     taxonomy.GIT_SAFE,
@@ -127,6 +141,25 @@ _DOCKER_EXEC_UNSUPPORTED_FLAGS = frozenset({
     "--dry-run",
     "--detach-keys",
 })
+
+_KUBECTL_EXEC_BOOL_FLAGS = frozenset({
+    "-i",
+    "-t",
+    "-it",
+    "-ti",
+    "--stdin",
+    "--tty",
+    "-q",
+    "--quiet",
+})
+_KUBECTL_EXEC_VALUE_FLAGS = frozenset({
+    "-c",
+    "--container",
+    "--pod-running-timeout",
+})
+# Namespace-carrying flags may appear before or after the exec subcommand.
+_KUBECTL_NAMESPACE_FLAGS = frozenset({"-n", "--namespace"})
+_KUBE_NAMESPACE_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 
 
 def classify_command(command: str) -> ClassifyResult:
@@ -4031,6 +4064,216 @@ def _apply_docker_exec_inherited_gate(
     return _prefix_docker_reason(sr, payload.identity)
 
 
+def _extract_kubectl_exec_inner(tokens: list[str]) -> KubectlExecPayload | None:
+    """Return kubectl exec payload details for supported static wrapper forms.
+
+    Handles ``kubectl [global flags] exec [exec flags] <target> [flags] -- <cmd>``.
+    Returns ``None`` when the command is not a ``kubectl … exec`` form nah can
+    even attempt (unknown pre-subcommand flags fail closed onto the existing
+    classification paths); returns a payload with ``unsupported_reason`` for
+    exec forms that need review (no explicit ``--``, unknown exec flags, …).
+    """
+    if len(tokens) < 2 or os.path.basename(tokens[0]) != "kubectl":
+        return None
+
+    namespace = ""
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _KUBECTL_NAMESPACE_FLAGS:
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                return None
+            namespace = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--namespace=") or tok.startswith("-n="):
+            namespace = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok in taxonomy._KUBECTL_VALUE_FLAGS:
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                return None
+            i += 2
+            continue
+        if any(tok.startswith(prefix) for prefix in taxonomy._KUBECTL_VALUE_FLAG_PREFIXES):
+            i += 1
+            continue
+        if tok in taxonomy._KUBECTL_BOOLEAN_FLAGS:
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return None
+        break
+
+    if i >= len(tokens) or tokens[i] != "exec":
+        return None
+    i += 1
+
+    if namespace and not _KUBE_NAMESPACE_RE.fullmatch(namespace):
+        namespace = ""
+
+    target = ""
+    saw_separator = False
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            saw_separator = True
+            i += 1
+            break
+        if tok in _KUBECTL_NAMESPACE_FLAGS:
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                return KubectlExecPayload(
+                    unsupported_reason="kubectl exec: missing namespace value",
+                )
+            namespace = tokens[i + 1]
+            if not _KUBE_NAMESPACE_RE.fullmatch(namespace):
+                namespace = ""
+            i += 2
+            continue
+        if tok.startswith("--namespace="):
+            namespace = tok.split("=", 1)[1]
+            if not _KUBE_NAMESPACE_RE.fullmatch(namespace):
+                namespace = ""
+            i += 1
+            continue
+        if tok in _KUBECTL_EXEC_BOOL_FLAGS:
+            i += 1
+            continue
+        if tok in _KUBECTL_EXEC_VALUE_FLAGS:
+            if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                return KubectlExecPayload(
+                    namespace=namespace,
+                    target=target,
+                    unsupported_reason=f"unsupported kubectl exec option {tok}: missing value",
+                )
+            i += 2
+            continue
+        if any(
+            tok.startswith(flag + "=")
+            for flag in _KUBECTL_EXEC_VALUE_FLAGS
+            if flag.startswith("--")
+        ):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            return KubectlExecPayload(
+                namespace=namespace,
+                target=target,
+                unsupported_reason=f"unsupported kubectl exec option {tok}",
+            )
+        if target:
+            # A second operand before `--` means kubectl would treat it as
+            # the start of the remote command; require the explicit separator.
+            return KubectlExecPayload(
+                namespace=namespace,
+                target=target,
+                unsupported_reason="kubectl exec without explicit -- separator",
+            )
+        target = tok
+        i += 1
+
+    if not target:
+        return KubectlExecPayload(
+            namespace=namespace,
+            unsupported_reason="missing kubectl exec target",
+        )
+    if not saw_separator:
+        return KubectlExecPayload(
+            namespace=namespace,
+            target=target,
+            unsupported_reason="kubectl exec without explicit -- separator",
+        )
+
+    inner = tokens[i:]
+    if not inner:
+        return KubectlExecPayload(
+            namespace=namespace,
+            target=target,
+            unsupported_reason="missing kubectl exec payload",
+        )
+    if inner[0].startswith("-"):
+        return KubectlExecPayload(
+            namespace=namespace,
+            target=target,
+            inner=inner,
+            unsupported_reason="invalid kubectl exec payload",
+        )
+    return KubectlExecPayload(namespace=namespace, target=target, inner=inner)
+
+
+def _kubectl_exec_review_result(
+    tokens: list[str],
+    reason: str,
+    user_actions: dict[str, str] | None,
+) -> StageResult:
+    sr = StageResult(tokens=tokens)
+    sr.action_type = taxonomy.CONTAINER_EXEC
+    sr.default_policy = taxonomy.get_policy(taxonomy.CONTAINER_EXEC, user_actions)
+    _apply_policy(sr)
+    if sr.decision == taxonomy.ALLOW:
+        sr.decision = taxonomy.ASK
+    sr.reason = reason
+    return sr
+
+
+def _prefix_kubectl_reason(sr: StageResult, identity: str) -> StageResult:
+    prefix = f"kubectl exec {identity}: "
+    if sr.reason and not sr.reason.startswith(prefix):
+        sr.reason = prefix + sr.reason
+    elif not sr.reason:
+        sr.reason = prefix.rstrip()
+    return sr
+
+
+def _apply_kubectl_exec_inherited_gate(
+    sr: StageResult,
+    visible_results: list[StageResult] | None,
+    payload: KubectlExecPayload,
+) -> StageResult:
+    """Keep kubectl exec transparent only for narrow trusted read-like payloads.
+
+    Mirrors the docker exec inherited gate: the remote command's classification
+    drives the decision, but an allow survives only when every visible inner
+    stage allows with a read-like action type (shared
+    ``_DOCKER_EXEC_INHERIT_ALLOW_TYPES``) and the payload carries no
+    credential-like markers. Paths in the payload refer to the pod's
+    filesystem; host sensitive-path blocks still fire on them, which is
+    conservative and intended.
+    """
+    if sr.decision != taxonomy.ALLOW:
+        return _prefix_kubectl_reason(sr, payload.identity)
+
+    if visible_results is None:
+        sr.decision = taxonomy.ASK
+        sr.reason = (
+            f"kubectl exec {payload.identity}: inner shell payload requires review"
+        )
+        return sr
+
+    for inner in visible_results:
+        if inner.decision != taxonomy.ALLOW:
+            copied = _copy_stage_result(inner)
+            return _prefix_kubectl_reason(copied, payload.identity)
+        if inner.action_type not in _DOCKER_EXEC_INHERIT_ALLOW_TYPES:
+            copied = _copy_stage_result(inner)
+            copied.decision = taxonomy.ASK
+            copied.reason = (
+                f"kubectl exec {payload.identity}: "
+                f"inner {inner.action_type} requires review"
+            )
+            return copied
+
+    if _docker_payload_has_credential_marker(payload.inner):
+        sr.decision = taxonomy.ASK
+        sr.reason = (
+            f"kubectl exec {payload.identity}: "
+            "payload references credential-like material"
+        )
+        return sr
+
+    return _prefix_kubectl_reason(sr, payload.identity)
+
+
 def _unwrap_shell(
     stage: Stage,
     depth: int,
@@ -4173,6 +4416,47 @@ def _unwrap_shell(
             trust_project=trust_project,
         )
         return _apply_docker_exec_inherited_gate(sr, visible_results, docker_payload)
+
+    kubectl_payload = _extract_kubectl_exec_inner(tokens)
+    if kubectl_payload is not None:
+        if kubectl_payload.unsupported_reason:
+            return _kubectl_exec_review_result(
+                tokens,
+                kubectl_payload.unsupported_reason,
+                user_actions,
+            )
+        if not _docker_exec_identity_trusted(kubectl_payload.identity):
+            reason = (
+                f"untrusted kubectl exec namespace {kubectl_payload.namespace}"
+                if kubectl_payload.namespace
+                else "kubectl exec without a resolvable namespace"
+            )
+            return _kubectl_exec_review_result(tokens, reason, user_actions)
+
+        inner_stage = _make_stage(kubectl_payload.inner, stage.operator) or Stage(
+            tokens=kubectl_payload.inner,
+            operator=stage.operator,
+        )
+        inner_stage = _copy_python_metadata(inner_stage, stage)
+        sr = _classify_stage(
+            inner_stage,
+            depth + 1,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            trust_project=trust_project,
+        )
+        visible_results = _docker_visible_stage_results(
+            inner_stage,
+            depth + 1,
+            global_table=global_table,
+            builtin_table=builtin_table,
+            project_table=project_table,
+            user_actions=user_actions,
+            trust_project=trust_project,
+        )
+        return _apply_kubectl_exec_inherited_gate(sr, visible_results, kubectl_payload)
 
     mise_inner = taxonomy._extract_mise_exec_inner(tokens)
     if mise_inner is not None:

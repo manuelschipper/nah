@@ -412,7 +412,7 @@ def _normalize_ask_fallback(raw, *, context: str) -> str:
     )
 
 
-_TRUSTED_CONTAINER_PREFIXES = frozenset({"container", "compose"})
+_TRUSTED_CONTAINER_PREFIXES = frozenset({"container", "compose", "kube"})
 _TRUSTED_CONTAINER_WILDCARDS = frozenset("*?[]{}")
 
 
