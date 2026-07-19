@@ -55,6 +55,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nah's top-level posture, where substitution inners already drive the
   decision.
 
+- **`kubectl exec … -- <cmd>` is now classified as a wrapper**, mirroring the
+  docker exec model. The remote command after the explicit `--` separator
+  drives the decision: it is fully classified (user classify tables included)
+  and an allow survives only when the target namespace is trusted
+  (`trusted_containers` gains the `kube:<namespace>` identity form — trust is
+  namespace-scoped because pod names are ephemeral), every visible inner stage
+  allows with a read-like action type, and the payload carries no
+  credential-like markers. Everything else asks with an honest reason
+  (untrusted namespace, no `--` separator, unknown exec flag, risky inner
+  type). This replaces the previous blanket unknown/lang_exec ask — which,
+  combined with a user `kubectl exec` classify entry, could surface nonsense
+  reasons like `script not found: <project>/<namespace>` from the lang_exec
+  script resolver treating kubectl operands as local script paths.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added
