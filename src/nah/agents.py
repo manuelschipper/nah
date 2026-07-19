@@ -91,7 +91,7 @@ def format_error(error: str, agent: str) -> dict:
     """Format an error response (deny with error message)."""
     msg = (
         f"nah blocked - internal error, failing safe: {error}\n"
-        "      To bypass: nah uninstall | To debug: nah log --tail"
+        "      To bypass direct Claude hooks: nah uninstall claude | To debug: nah log -n 50"
     )
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",

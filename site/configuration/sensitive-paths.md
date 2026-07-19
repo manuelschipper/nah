@@ -78,17 +78,23 @@ sensitive_paths:
   ~/.aws: ask               # already default, but explicit
 ```
 
-Valid policies: `ask`, `block`. Project config can only tighten by default
-(for example, escalate `ask` to `block`) unless that exact project root is
-trusted with `nah trust-project`.
+Valid policies: `allow`, `ask`, `block`. `allow` removes that entry from the
+sensitive-path list. Because that loosens policy, use it in global config or in
+a project trusted with `nah trust-project`; untrusted project config can only
+tighten entries, for example from `ask` to `block`.
 
 ### sensitive_paths_default
 
-Set the default policy for all sensitive paths:
+Escalate every built-in `ask` path and sensitive basename to `block` in one
+setting:
 
 ```yaml
 sensitive_paths_default: block   # default is "ask"
 ```
+
+The normal `ask` default preserves the built-in hard blocks listed above.
+Explicit `sensitive_paths` and `sensitive_basenames` entries take precedence
+over this blanket default.
 
 ### allow_paths
 
@@ -113,11 +119,13 @@ Directories outside the project root where Write/Edit/MultiEdit/NotebookEdit are
 # ~/.config/nah/config.yaml (global only)
 trusted_paths:
   - ~/builds
-  - /tmp/staging
 ```
 
-Without this, Write/Edit/MultiEdit/NotebookEdit to paths outside the project
-root triggers an `ask` decision (project boundary check).
+`/tmp` and `/private/tmp` are always built-in trusted scratch directories, so
+they do not need to be listed and cannot be removed through `trusted_paths`.
+This only bypasses the project-boundary prompt; sensitive-path and
+self-protection checks still apply. Other Write/Edit/MultiEdit/NotebookEdit
+targets outside the project root trigger an `ask` unless configured here.
 
 **CLI:** `nah trust ~/builds`
 

@@ -97,9 +97,9 @@ Types with `context` as their default policy delegate to a **context resolver**:
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
 - **Remote service reads** (`service_read`) -- apply host checks to the remote API target: a known host (or implicit `gh api`/`glab api` host) allows, an unknown host asks. Local daemon inspection is a separate `allow`-policy type (`service_inspect`) and is not host-checked.
 - **Container lifecycle** (`container_lifecycle`) -- check flag-free named container operands against `trusted_containers`; every extracted container must be trusted. Flags, dynamic identities, compose lifecycle commands, missing tokens, and untrusted names fail closed to `ask`.
-- **Language execution** (`lang_exec`) -- inspect script paths, inline code, heredoc-fed interpreters, sourced files, and script content before allowing project-local execution.
+- **Language execution** (`lang_exec`) -- allow existing file-backed scripts inside the project or trusted paths based on location. Inline code and heredoc-fed interpreters ask for approval; script bodies are not inspected.
 - **Database execution** (`db_exec`) -- check extracted database/schema targets against `db_targets`; unknown SQL-capable targets still ask. nah does not parse SQL intent.
-- **Browser context types** (`browser_navigate`, `browser_file`) -- use URL/path-aware reasons when the tool input exposes enough context; otherwise fail closed to `ask` with an extraction-pending reason.
+- **Browser context types** (`browser_navigate`, `browser_file`) -- currently fail closed to `ask` with an extraction-pending reason because URL/path extraction from structured browser-tool input is not implemented yet.
 
 `container_build` is intentionally not cwd-gated: image, build, tag, create,
 network, volume, and compose build/config commands default to `allow`.

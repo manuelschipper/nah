@@ -783,12 +783,12 @@ def resolve_lang_exec_context(
     """Resolve lang_exec context with path/boundary checks only.
 
     File-backed scripts are trusted by location, not by body inspection.
-    Visible non-shell inline code asks here so the hook can optionally pass
-    the bounded payload to the LLM; opaque inline execution asks directly.
+    Inline code asks directly; the optional LLM only classifies unknown Bash
+    commands and does not review known lang_exec actions.
     """
     if not target_path:
         if inline_code:
-            return taxonomy.ASK, "lang_exec: inline execution requires LLM review"
+            return taxonomy.ASK, "lang_exec: inline execution requires approval"
         return taxonomy.ASK, "lang_exec: inline execution"
 
     resolved = paths.resolve_path(target_path)

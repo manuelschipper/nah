@@ -17,12 +17,12 @@ yourself. This page describes what nah itself collects, stores, and sends.
 - Optional LLM credentials can be stored locally in your OS keychain or
   keyring when you use `nah key ...` from a CLI install with usable keyring
   support.
-- Optional LLM review only runs when you configure it. If you use a remote LLM
+- Optional LLM classification only runs when you configure it. If you use a remote LLM
   provider, prompt context is sent to that provider.
-- nah does not redact secret-looking content before the LLM classify call.
-  Only the Bash command text (plus nah's fixed action-type list) is sent to the
-  configured provider as-is, so treat any remote LLM provider as receiving any
-  secrets present in that command. Write/edit content is never sent to an LLM.
+- Before an LLM classify call, nah replaces values in simple
+  `export NAME=value` assignments with `***`. It does not perform general
+  secret-pattern redaction, so treat a remote provider as receiving any other
+  secrets present in the Bash command. Write/edit content is never sent to an LLM.
 
 ## Local Processing
 
@@ -70,18 +70,19 @@ service.
 Network calls can happen when you explicitly configure optional features, such
 as:
 
-- a remote LLM provider for ambiguous decision review
+- a remote LLM provider for unknown-command classification
 - CLI commands that you run yourself, such as package installation, release, or
   update workflows outside the deterministic classifier
 
 For the optional LLM classify call, nah sends prompt context to the provider and
 model you configure. The prompt contains only the flagged Bash command plus nah's
 fixed action-type list — no working directory, structural reason, transcript, or
-conversation context. The command is sent without secret-pattern redaction, so any
-secrets present in the command itself reach the configured provider. Write/edit
-content is never sent to an LLM. Treat the LLM provider as receiving
-security-sensitive context, and rely on structural controls (sensitive paths)
-rather than content redaction.
+conversation context. Simple `export NAME=value` assignment values are replaced
+with `***`; nah does not otherwise perform general secret-pattern redaction, so
+other secrets in the command reach the configured provider. Write/edit content
+is never sent to an LLM. Treat the LLM provider as receiving security-sensitive
+context, and rely on structural controls such as sensitive paths rather than
+content redaction.
 
 ## Claude Code Plugin
 
@@ -105,7 +106,7 @@ to make safety decisions.
 
 You can:
 
-- disable optional LLM review by leaving `llm.mode` off or setting it to `off`
+- disable optional LLM classification by leaving `llm.mode` off or setting it to `off`
 - use a local LLM provider such as Ollama instead of a remote provider
 - remove stored provider keys with `nah key rm <provider>` from a CLI install
   with usable keyring support

@@ -133,12 +133,12 @@ See the [benchmark methodology](docs/benchmarks/novita-bash-friction.md).
 
 ## Threat Model
 
-nah's pytest threat-model audit currently tracks **1,673 category coverage hits**
+nah's pytest threat-model audit currently tracks **1,676 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Hits | What it means |
 | --- | ---: | --- |
-| Sensitive file access | 261 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | 264 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
 | Unknown code execution | 222 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |

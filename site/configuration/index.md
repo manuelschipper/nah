@@ -200,8 +200,8 @@ Codex `danger-full-access` plus `untrusted` approvals; use
 Codex's own sandbox too. Target config can tune nah policies and LLM behavior
 for Codex, but it cannot change Codex safety knobs directly.
 
-Public `nah test --target` simulation currently supports `claude`, `bash`, and
-`zsh`. Do not use `codex` there unless a later release adds that CLI target.
+`nah test --target` accepts `claude`, `codex`, `bash`, and `zsh`, applying the
+selected target's effective configuration during simulation.
 
 Bash and zsh are terminal-guard targets and are deterministic-only: they do not
 use the LLM. Their `llm.mode` knob is still accepted for backward compatibility

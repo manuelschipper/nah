@@ -85,8 +85,8 @@ install that won't interfere with system or project Python packages.
 
     Plain `nah` is stdlib-only (core hook + classifier). The **`config`** extra
     adds PyYAML so `~/.config/nah/config.yaml` and per-project `.nah.yaml` rules
-    are honored — **without it, config files are silently ignored and nah runs
-    pure defaults.** The **`keys`** extra adds Python keyring for `nah key ...`;
+    are honored — **without it, nah warns that config files were ignored and
+    runs pure defaults.** The **`keys`** extra adds Python keyring for `nah key ...`;
     actual OS keychain availability depends on the host backend, and environment
     variables work everywhere. See [LLM keys](#llm-keys) for setup.
 
@@ -139,7 +139,7 @@ the current nah plugin build.
 
 ## LLM Keys
 
-LLM review is configured separately from runtime installation. Store provider
+LLM classification is configured separately from runtime installation. Store provider
 keys with `nah key ...` when your CLI install has a usable OS keychain/keyring
 backend:
 

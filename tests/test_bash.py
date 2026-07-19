@@ -68,12 +68,12 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "ask"
         assert "outside project" in r.reason
 
-    def test_python_c_inline_asks_for_llm_review(self, project_root):
-        """Visible non-shell inline code asks before optional LLM review."""
+    def test_python_c_inline_asks_for_approval(self, project_root):
+        """Visible non-shell inline code asks for approval."""
         r = classify_command("python -c 'print(1)'")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     def test_npm_test_allow(self, project_root):
         r = classify_command("npm test")
@@ -391,7 +391,7 @@ class TestMiseExecWrapper:
         r = classify_command("mise exec -- python -c 'print(1)'")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline execution requires LLM review" in r.stages[0].reason
+        assert "inline execution requires approval" in r.stages[0].reason
         assert "script not found" not in r.stages[0].reason
 
     def test_mise_exec_redirect_literal_runs_content_inspection(self, project_root):
@@ -441,7 +441,7 @@ class TestDockerExecTrustedContainers:
         r = classify_command("docker exec hermes-creatbot python -c 'print(1)'")
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     @pytest.mark.parametrize(
         "command",
@@ -496,7 +496,7 @@ class TestDockerExecTrustedContainers:
             ),
             (
                 "docker exec hermes-creatbot python -c 'import os; print(os.getenv(\"SERVICE_API_TOKEN\"))'",
-                "inline execution requires LLM review",
+                "inline execution requires approval",
             ),
         ],
     )
@@ -1917,7 +1917,7 @@ class TestDecomposition:
         r = classify_command(command)
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "lang_exec"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
 
     @pytest.mark.parametrize("redirect", [">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>"])
@@ -4533,7 +4533,7 @@ class TestHeredocInterpreter:
         actual = r.stages[0].tokens[:len(expected_tokens_prefix)]
         assert actual == expected_tokens_prefix
 
-    # --- Visible heredoc → lang_exec → ask for LLM review ---
+    # --- Visible heredoc → lang_exec → ask for approval ---
 
     @pytest.mark.parametrize("command", [
         "python3 << 'EOF'\nprint('hello')\nEOF",
@@ -4548,7 +4548,7 @@ class TestHeredocInterpreter:
         r = classify_command(command)
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     # --- Dangerous heredoc content → lang_exec → ask ---
 
@@ -4556,13 +4556,13 @@ class TestHeredocInterpreter:
         r = classify_command("python3 << 'EOF'\nimport os; os.remove('/etc/passwd')\nEOF")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     def test_heredoc_with_inline_literal_asks(self, project_root):
         r = classify_command("python3 << 'EOF'\nkey = 'rm -rf /tmp/stuff'\nEOF")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     # --- Semicolons in heredoc body must not split stages ---
 
@@ -4597,7 +4597,7 @@ class TestHeredocInterpreter:
         r = classify_command("python3 -c 'print(1)'")
         assert r.stages[0].action_type == "lang_exec"
         assert r.final_decision == "ask"
-        assert "inline execution requires LLM review" in r.reason
+        assert "inline execution requires approval" in r.reason
 
     def test_here_string_still_works(self, project_root):
         """bash <<< should use existing here-string path, not heredoc."""

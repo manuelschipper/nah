@@ -12,12 +12,12 @@ same Bash classifier for command-level risk.
 
 ## Current audit
 
-The pytest threat-model audit currently tracks **1,673 category coverage hits**
+The pytest threat-model audit currently tracks **1,676 category coverage hits**
 across **13 tested danger classes**.
 
 | Danger class | Internal category | Hits | What it means |
 | --- | --- | ---: | --- |
-| Sensitive file access | `sensitive_path` | 261 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
+| Sensitive file access | `sensitive_path` | 264 | SSH keys, `.env`, cloud credentials, symlinks, protected paths |
 | Wrapper evasion | `wrapper_evasion` | 236 | `env`, `command`, `xargs`, nested shells, passthrough wrappers |
 | Unknown code execution | `rce` | 222 | <code>curl &#124; bash</code>, downloaded scripts, command substitution, heredocs |
 | Git history damage | `git_history` | 216 | force pushes, resets, branch/tag rewrites, destructive Git flows |
@@ -47,7 +47,7 @@ git_history: 216
 shell_redirect: 190
 shell_obfuscation: 30
 wrapper_evasion: 236
-sensitive_path: 261
+sensitive_path: 264
 project_boundary: 38
 package_escalation: 149
 container_destructive: 89
@@ -98,7 +98,7 @@ The current audit hit distribution is Bash-heavy by design:
 | --- | ---: | --- |
 | `tests/test_bash.py` | 613 | Shell parsing, composition, redirects, wrappers, Git, packages, containers |
 | `tests/test_taxonomy.py` | 544 | Action taxonomy, built-in classifiers, MCP/action-type mappings |
-| `tests/test_paths.py` | 192 | Sensitive paths, symlinks, project boundaries, guard config paths |
+| `tests/test_paths.py` | 195 | Sensitive paths, symlinks, project boundaries, guard config paths |
 | `tests/test_fd079_script_exec.py` | 154 | Script execution, language runtimes, inspectable local code execution |
 | `tests/test_content.py` | 85 | Destructive/exfiltration/obfuscation content, credential-search detection |
 | `tests/test_hook_classify.py` | 29 | MCP global-only config, wildcard safety, DB context, and Playwright MCP mapping |

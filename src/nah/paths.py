@@ -251,8 +251,19 @@ def check_path_basic(resolved: str) -> tuple[str, str] | None:
 def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: str) -> None:
     """Merge user sensitive_paths with hardcoded lists. Modifies _SENSITIVE_DIRS in place.
 
-    Global config can override hardcoded policies (e.g., ~/.ssh block -> ask).
+    A block default raises built-in ask entries before explicit path overrides.
+    The normal ask default preserves built-in hard blocks such as ~/.ssh.
     """
+    if config_default == "block":
+        _SENSITIVE_DIRS[:] = [
+            (dir_path, display, "block")
+            for dir_path, display, _policy in _SENSITIVE_DIRS
+        ]
+        _SENSITIVE_BASENAMES[:] = [
+            (name, display, "block")
+            for name, display, _policy in _SENSITIVE_BASENAMES
+        ]
+
     existing_resolved = {entry[0] for entry in _SENSITIVE_DIRS}
     for path_str, policy in config_paths.items():
         expanded = os.path.expanduser(path_str)
@@ -308,8 +319,7 @@ def _ensure_sensitive_paths_merged() -> None:
     _sensitive_paths_merged = True
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
-    if cfg.sensitive_paths:
-        build_merged_sensitive_paths(cfg.sensitive_paths, cfg.sensitive_paths_default)
+    build_merged_sensitive_paths(cfg.sensitive_paths, cfg.sensitive_paths_default)
     if cfg.sensitive_basenames:
         _merge_sensitive_basenames(cfg.sensitive_basenames)
 

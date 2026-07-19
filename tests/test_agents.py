@@ -124,6 +124,8 @@ class TestFormatError:
         assert hso["permissionDecision"] == "deny"
         assert "oops" in hso["permissionDecisionReason"]
         assert "nah blocked - internal error" in hso["permissionDecisionReason"]
+        assert "nah uninstall claude" in hso["permissionDecisionReason"]
+        assert "nah log -n 50" in hso["permissionDecisionReason"]
 
 
 # --- MCP matcher registration (FD-024) ---

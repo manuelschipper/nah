@@ -674,8 +674,38 @@ class TestTrustedPathNoGitRoot:
 class TestSensitivePathConfigOverride:
     """FD-025: Verify config can override hardcoded sensitive path policies."""
 
-    def _mock_config(self, sensitive_paths):
-        return NahConfig(sensitive_paths=sensitive_paths)
+    def _mock_config(self, sensitive_paths, sensitive_paths_default="ask"):
+        return NahConfig(
+            sensitive_paths=sensitive_paths,
+            sensitive_paths_default=sensitive_paths_default,
+        )
+
+    def test_block_default_escalates_builtin_ask_path(self):
+        """A block default applies even without explicit sensitive_paths."""
+        cfg = self._mock_config({}, sensitive_paths_default="block")
+        with patch("nah.config.get_config", return_value=cfg):
+            paths.reset_sensitive_paths()
+            result = paths.check_path("Read", "~/.aws/credentials")
+        assert result is not None
+        assert result["decision"] == "block"
+
+    def test_block_default_escalates_sensitive_basename(self, tmp_path):
+        """The blanket default also applies to sensitive basenames."""
+        cfg = self._mock_config({}, sensitive_paths_default="block")
+        with patch("nah.config.get_config", return_value=cfg):
+            paths.reset_sensitive_paths()
+            result = paths.check_path("Read", str(tmp_path / ".env"))
+        assert result is not None
+        assert result["decision"] == "block"
+
+    def test_explicit_path_policy_overrides_block_default(self):
+        """A specific global path policy takes precedence over the blanket default."""
+        cfg = self._mock_config({"~/.aws": "ask"}, sensitive_paths_default="block")
+        with patch("nah.config.get_config", return_value=cfg):
+            paths.reset_sensitive_paths()
+            result = paths.check_path("Read", "~/.aws/credentials")
+        assert result is not None
+        assert result["decision"] == "ask"
 
     def test_override_ssh_block_to_ask(self):
         """Global config can change ~/.ssh from block to ask."""

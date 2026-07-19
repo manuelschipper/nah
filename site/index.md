@@ -344,7 +344,7 @@ nah test "just migrate-prod"</code></pre>
     </div>
     <div class="nah-threat-proof">
       <div>
-        <strong>1,673</strong>
+        <strong>1,676</strong>
         <span>audit hits</span>
       </div>
       <div>
@@ -401,7 +401,7 @@ nah test "just migrate-prod"</code></pre>
       </article>
       <article class="nah-llm-card">
         <strong>Your provider</strong>
-        <span>Use local Ollama or remote providers. If review is unavailable, deterministic policy stands.</span>
+        <span>Use local Ollama or remote providers. If classification is unavailable, deterministic policy stands.</span>
       </article>
     </div>
     <article class="nah-llm-config-card">
@@ -416,7 +416,7 @@ llm:
       <pre><code>nah key set openrouter</code></pre>
       <span>Secrets can use your OS keychain. Project config cannot set provider keys.</span>
     </article>
-    <a class="nah-inline-link" href="configuration/llm/">Configure LLM review</a>
+    <a class="nah-inline-link" href="configuration/llm/">Configure LLM classification</a>
   </section>
 
   <section class="nah-section">

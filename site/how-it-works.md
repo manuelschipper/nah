@@ -184,8 +184,8 @@ For `context` policies, nah checks the environment:
 - **Filesystem**: Is the path inside the project? In a trusted path? Targeting a sensitive location?
 - **Network**: Is the host localhost? A known registry? An unknown host?
 - **Database**: Does the target match a `db_targets` entry?
-- **Language execution**: Is the script inside the project or trusted path, and does its content pass inspection?
-- **Browser navigation/file tools**: Does the tool input expose a URL or path that can be checked safely?
+- **Language execution**: Is a file-backed script inside the project or a trusted path? Inline code and heredoc-fed interpreters ask for approval; nah does not inspect script bodies.
+- **Browser navigation/file tools**: These currently fail closed to `ask`; extracting URLs and host paths from structured browser-tool input is not yet implemented.
 
 ## Decision format
 
@@ -197,5 +197,6 @@ nah paused: ...   → asks for confirmation
 
 The technical `reason` remains available in logs and JSON output. The shorter
 `human_reason` is the user-facing copy used in prompts and compact log lines.
-Every decision is logged to `~/.config/nah/nah.log` (JSONL) and inspectable via
-`nah log`.
+Agent-runtime decisions are logged to `~/.config/nah/nah.log` (JSONL) and
+inspectable via `nah log`. Terminal Guard does not log allowed commands by
+default; it logs asks, blocks, bypasses, and errors.

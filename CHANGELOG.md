@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guides, promoting How it works and Threat model, consolidating content-pattern
   configuration under Safety lists, and trimming the optional LLM reference.
 
+### Fixed
+
+- `sensitive_paths_default: block` now escalates built-in ask-sensitive paths
+  and basenames even when no explicit `sensitive_paths` entries are configured.
+
 ## [0.10.0] - 2026-06-28
 
 ### Removed
