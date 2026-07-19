@@ -130,6 +130,12 @@ def human_reason(
         return _finalize("this shell loop pipes output in a way nah cannot inspect safely")
     if "dynamic item list" in clean_reason.lower():
         return _finalize("this shell loop uses a dynamic item list")
+    if "glob matched no files" in clean_reason.lower():
+        return _finalize("this shell loop's glob matched no files at check time")
+    if "glob expands to more than" in clean_reason.lower():
+        return _finalize("this shell loop expands to more files than nah can inspect")
+    if "glob matched an unsafe file name" in clean_reason.lower():
+        return _finalize("this shell loop matched a file name nah cannot expand safely")
     if "unsupported shell expansion" in clean_reason.lower():
         return _finalize("this shell loop uses shell expansion nah cannot inspect safely")
     if "hidden by shell syntax" in clean_reason.lower():

@@ -1,5 +1,6 @@
 """Bash command classifier — tokenize, decompose, classify, compose."""
 
+import glob as _glob
 import os.path
 import re
 import shlex
@@ -35,6 +36,10 @@ _PYTHON_ENV_RISK_VARS = frozenset({
 _CONTROL_FLOW_OPENERS = frozenset({"for", "while", "until", "if"})
 _CONTROL_FLOW_TERMINATORS = {"for": "done", "while": "done", "until": "done", "if": "fi"}
 _LOOP_VALUE_GLOB_CHARS = frozenset("*?[{}")
+# Chars that trigger classify-time glob expansion of for-loop items. Braces
+# are deliberately excluded: {a,b}/{1..3} is brace expansion, not globbing,
+# and stays on the dynamic-item-list ask path.
+_LOOP_GLOB_EXPAND_CHARS = frozenset("*?[")
 _SHELL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -199,9 +204,11 @@ def classify_command(command: str) -> ClassifyResult:
                project_table=project_table, user_actions=user_actions,
                trust_project=trust_project)
 
-    # Decompose each raw stage into classified stages
+    # Decompose each raw stage into classified stages. The process cwd is the
+    # tool call's cwd, so top-level for-loop globs may expand against it;
+    # nested/unwrapped parses keep the fail-closed default (no expansion).
     try:
-        stages = _raw_stages_to_stages(raw_stages)
+        stages = _raw_stages_to_stages(raw_stages, glob_cwd=os.getcwd())
     except ValueError as exc:
         result.final_decision = taxonomy.ASK
         detail = str(exc) or "shlex error"
@@ -1233,9 +1240,20 @@ def _raw_stage_to_stages(
     )
 
 
-def _raw_stages_to_stages(raw_stages: list[tuple[str, str]]) -> list[Stage]:
-    """Convert raw shell stages into classifier stages, unwrapping safe control flow."""
+def _raw_stages_to_stages(
+    raw_stages: list[tuple[str, str]],
+    glob_cwd: str | None = None,
+) -> list[Stage]:
+    """Convert raw shell stages into classifier stages, unwrapping safe control flow.
+
+    ``glob_cwd`` is the directory used for classify-time expansion of static
+    globs in for-loop item lists. ``None`` (the default) disables expansion,
+    which keeps every nested/unwrapped call site fail-closed; only the
+    top-level ``classify_command`` opts in with the process cwd.
+    """
     stages: list[Stage] = []
+    cwd = glob_cwd
+    cwd_unknown = glob_cwd is None
     i = 0
     while i < len(raw_stages):
         stage_str, op = raw_stages[i]
@@ -1244,24 +1262,54 @@ def _raw_stages_to_stages(raw_stages: list[tuple[str, str]]) -> list[Stage]:
             i += 1
             continue
 
+        effective_cwd = None if cwd_unknown else cwd
         keyword = _leading_shell_keyword(stripped)
         control: tuple[list[Stage], int] | None = None
         if keyword == "for":
-            control = _consume_for_loop(raw_stages, i)
+            control = _consume_for_loop(raw_stages, i, glob_cwd=effective_cwd)
         elif keyword in {"while", "until"}:
-            control = _consume_while_until(raw_stages, i, keyword)
+            control = _consume_while_until(raw_stages, i, keyword, glob_cwd=effective_cwd)
         elif keyword == "if":
-            control = _consume_if(raw_stages, i)
+            control = _consume_if(raw_stages, i, glob_cwd=effective_cwd)
 
         if control is not None:
             control_stages, next_i = control
+            cwd, cwd_unknown = _track_glob_cwd(control_stages, cwd, cwd_unknown)
             stages.extend(control_stages)
             i = next_i
             continue
 
-        stages.extend(_raw_stage_to_stages(stage_str, op))
+        new_stages = _raw_stage_to_stages(stage_str, op)
+        cwd, cwd_unknown = _track_glob_cwd(new_stages, cwd, cwd_unknown)
+        stages.extend(new_stages)
         i += 1
     return stages
+
+
+def _track_glob_cwd(
+    stages: list[Stage],
+    cwd: str | None,
+    cwd_unknown: bool,
+) -> tuple[str | None, bool]:
+    """Track the shell cwd used for classify-time glob expansion.
+
+    Mirrors the sequential cwd tracking in ``classify_command`` but is
+    stricter: a cwd-changing stage that is not sequenced with ``&&``/``;``
+    (e.g. behind ``||`` or a pipe, where whether it ran is undecidable)
+    makes the cwd unknown, which disables glob expansion for the rest of
+    the command.
+    """
+    if cwd_unknown or cwd is None:
+        return cwd, True
+    for stage in stages:
+        if not _stage_can_change_cwd(stage):
+            continue
+        if stage.operator not in {"&&", ";", ""}:
+            return cwd, True
+        cwd, cwd_unknown = _stage_shell_cwd_update(stage, cwd, cwd_unknown)
+        if cwd_unknown:
+            return cwd, True
+    return cwd, cwd_unknown
 
 
 def _leading_shell_keyword(stage_str: str) -> str:
@@ -1396,21 +1444,90 @@ def _find_control_flow_body(
     return None
 
 
+def _safe_literal_loop_value(value: str) -> bool:
+    return not (
+        not value
+        or value.startswith("-")
+        or any(ch.isspace() for ch in value)
+        or any(ch in value for ch in _LOOP_VALUE_GLOB_CHARS)
+        or "$" in value
+        or "`" in value
+        or _PSUB_PREFIX in value
+    )
+
+
 def _safe_literal_loop_values(values: list[str]) -> bool:
     if not values or len(values) > _MAX_CONTROL_FLOW_EXPANSIONS:
         return False
+    return all(_safe_literal_loop_value(value) for value in values)
+
+
+def _expand_loop_glob_values(
+    values: list[str],
+    glob_cwd: str | None,
+) -> tuple[list[str] | None, str]:
+    """Expand static glob patterns in a for-loop item list at classify time.
+
+    Returns ``(expanded_values, "")`` on success, or ``(None, reason)`` when
+    the list cannot be expanded safely — an empty reason means "fall back to
+    the generic dynamic-item-list ask".
+
+    Expansion happens at classification time, immediately before execution;
+    files created or renamed in between are outside nah's deterministic model
+    (the same TOCTOU caveat as every other path check nah performs). Every
+    expanded name flows through the normal per-value body classification, so
+    sensitive paths, project boundaries and symlinks are checked there.
+    """
+    if glob_cwd is None:
+        return None, ""
+    if not values or len(values) > _MAX_CONTROL_FLOW_EXPANSIONS:
+        return None, ""
+    expanded: list[str] = []
     for value in values:
         if (
             not value
             or value.startswith("-")
             or any(ch.isspace() for ch in value)
-            or any(ch in value for ch in _LOOP_VALUE_GLOB_CHARS)
+            or "{" in value
+            or "}" in value
             or "$" in value
             or "`" in value
             or _PSUB_PREFIX in value
         ):
-            return False
-    return True
+            return None, ""
+        if not any(ch in value for ch in _LOOP_GLOB_EXPAND_CHARS):
+            expanded.append(value)
+            continue
+        pattern = os.path.expanduser(value)
+        try:
+            if os.path.isabs(pattern):
+                matches = sorted(_glob.glob(pattern, recursive=False))
+            else:
+                matches = sorted(
+                    _glob.glob(pattern, root_dir=glob_cwd, recursive=False)
+                )
+        except (OSError, ValueError):
+            # glob delegates to os.scandir; a failure (permissions, bad
+            # pattern) means we cannot prove what the loop iterates over —
+            # fall through to the generic dynamic-item-list ask.
+            return None, ""
+        if not matches:
+            # Bash would iterate the literal unmatched pattern once;
+            # classifying that literal proves nothing about the files that
+            # may exist at run time, so ask.
+            return None, "for-loop glob matched no files"
+        for match in matches:
+            if not _safe_literal_loop_value(match):
+                return None, "for-loop glob matched an unsafe file name"
+        expanded.extend(matches)
+        if len(expanded) > _MAX_CONTROL_FLOW_EXPANSIONS:
+            return None, (
+                "for-loop glob expands to more than "
+                f"{_MAX_CONTROL_FLOW_EXPANSIONS} items"
+            )
+    if not expanded:
+        return None, ""
+    return expanded, ""
 
 
 def _stages_reference_var(stages: list[Stage], name: str) -> bool:
@@ -1479,7 +1596,11 @@ def _expand_loop_body_for_values(
     return expanded
 
 
-def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[list[Stage], int] | None:
+def _consume_for_loop(
+    raw_stages: list[tuple[str, str]],
+    start: int,
+    glob_cwd: str | None = None,
+) -> tuple[list[Stage], int] | None:
     parsed = _find_control_flow_body(raw_stages, start, "do", "done")
     if parsed is None:
         return None
@@ -1507,7 +1628,7 @@ def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[li
     name = header_tokens[0]
     values = header_tokens[2:]
     try:
-        body_stages = _raw_stages_to_stages(body_raw)
+        body_stages = _raw_stages_to_stages(body_raw, glob_cwd)
     except ValueError:
         return [_control_flow_guard_stage("for", "unparseable for-loop body", raw_parts)], next_i
     if not body_stages:
@@ -1539,7 +1660,28 @@ def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[li
                     body_parts,
                 )
             ], next_i
-        if not _safe_literal_loop_values(values):
+        resolved_values = values if _safe_literal_loop_values(values) else None
+        glob_note: list[Stage] = []
+        if resolved_values is None and any(
+            ch in value for value in values for ch in _LOOP_GLOB_EXPAND_CHARS
+        ):
+            resolved_values, glob_fail_reason = _expand_loop_glob_values(values, glob_cwd)
+            if resolved_values is not None:
+                glob_note = [
+                    Stage(
+                        tokens=["for", name, "in", *values],
+                        operator=";",
+                        action_hint=taxonomy.FILESYSTEM_READ,
+                        action_reason=(
+                            f"for-loop over {len(resolved_values)} glob-expanded files"
+                        ),
+                    )
+                ]
+            elif glob_fail_reason:
+                return guard_stages + [
+                    _control_flow_guard_stage("for", glob_fail_reason, [header])
+                ], next_i
+        if resolved_values is None:
             return guard_stages + [
                 _control_flow_guard_stage(
                     "for",
@@ -1549,8 +1691,9 @@ def _consume_for_loop(raw_stages: list[tuple[str, str]], start: int) -> tuple[li
             ], next_i
         return (
             guard_stages
+            + glob_note
             + body_substitution_guard
-            + _expand_loop_body_for_values(body_stages, name, values, outer_op)
+            + _expand_loop_body_for_values(body_stages, name, resolved_values, outer_op)
         ), next_i
 
     _apply_outer_operator(body_stages, outer_op)
@@ -1561,6 +1704,7 @@ def _consume_while_until(
     raw_stages: list[tuple[str, str]],
     start: int,
     keyword: str,
+    glob_cwd: str | None = None,
 ) -> tuple[list[Stage], int] | None:
     parsed = _find_control_flow_body(raw_stages, start, "do", "done")
     if parsed is None:
@@ -1580,8 +1724,8 @@ def _consume_while_until(
 
     condition_raw = [(header, ";")] if header else []
     try:
-        condition_stages = _raw_stages_to_stages(condition_raw)
-        body_stages = _raw_stages_to_stages(body_raw)
+        condition_stages = _raw_stages_to_stages(condition_raw, glob_cwd)
+        body_stages = _raw_stages_to_stages(body_raw, glob_cwd)
     except ValueError:
         return [_control_flow_guard_stage(keyword, f"unparseable {keyword} body", raw_parts)], next_i
     if not condition_stages or not body_stages:
@@ -1596,7 +1740,11 @@ def _consume_while_until(
     ), next_i
 
 
-def _consume_if(raw_stages: list[tuple[str, str]], start: int) -> tuple[list[Stage], int] | None:
+def _consume_if(
+    raw_stages: list[tuple[str, str]],
+    start: int,
+    glob_cwd: str | None = None,
+) -> tuple[list[Stage], int] | None:
     condition_head = _strip_leading_shell_keyword(raw_stages[start][0], "if")
     if condition_head is None:
         return None
@@ -1665,7 +1813,7 @@ def _consume_if(raw_stages: list[tuple[str, str]], start: int) -> tuple[list[Sta
                     )
                 ], j + 1
             try:
-                stages = _raw_stages_to_stages(executable_raw)
+                stages = _raw_stages_to_stages(executable_raw, glob_cwd)
             except ValueError:
                 return [_control_flow_guard_stage("if", "unparseable if body", raw_parts)], j + 1
             if not stages:
@@ -4250,8 +4398,13 @@ def _unwrap_shell(
                 project_table=project_table, user_actions=user_actions,
                 trust_project=trust_project)
 
+    # The unwrapped shell starts in the outer stage's cwd, so for-loop glob
+    # expansion may use it when it is known; unknown cwd disables expansion.
+    inner_glob_cwd = None
+    if not stage.shell_cwd_unknown:
+        inner_glob_cwd = stage.shell_cwd or os.getcwd()
     try:
-        inner_stages = _raw_stages_to_stages(raw_stages)
+        inner_stages = _raw_stages_to_stages(raw_stages, glob_cwd=inner_glob_cwd)
     except ValueError as exc:
         detail = str(exc) or "shlex error"
         return _obfuscated_result(tokens, f"unparseable inner command ({detail})", user_actions)

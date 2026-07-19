@@ -4029,11 +4029,100 @@ class TestShellControlFlow:
         assert r.final_decision == "block"
         assert r.composition_rule == "sensitive_read | network"
 
-    def test_for_loop_dynamic_values_fail_closed(self, project_root):
+    def test_for_loop_unmatched_glob_fails_closed(self, project_root, monkeypatch):
+        # Static globs expand at classify time; a glob that matches nothing
+        # stays an ask (bash would iterate the literal pattern, and files may
+        # exist by run time — TOCTOU).
+        monkeypatch.chdir(project_root)
         r = classify_command('for f in tests/*.py; do rm "$f"; done')
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "unknown"
+        assert "glob matched no files" in r.reason
+
+    def test_for_loop_glob_expands_readonly_body(self, project_root, monkeypatch):
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        for name in ("a.md", "b.md"):
+            open(os.path.join(docs, name), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('for f in docs/*.md; do cat "$f"; done')
+        assert r.final_decision == "allow"
+        assert "glob-expanded files" in r.reason
+        assert any(sr.tokens == ["cat", "docs/a.md"] for sr in r.stages)
+        assert any(sr.tokens == ["cat", "docs/b.md"] for sr in r.stages)
+
+    def test_for_loop_glob_mixed_with_literals(self, project_root, monkeypatch):
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        open(os.path.join(docs, "a.md"), "w").close()
+        open(os.path.join(project_root, "README.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('for f in README.md docs/*.md; do wc -l "$f"; done')
+        assert r.final_decision == "allow"
+        assert any(sr.tokens == ["wc", "-l", "README.md"] for sr in r.stages)
+        assert any(sr.tokens == ["wc", "-l", "docs/a.md"] for sr in r.stages)
+
+    def test_for_loop_glob_write_body_matches_top_level(self, project_root, monkeypatch):
+        # The expanded body gets the same per-file classification a top-level
+        # command would — the glob adds no leniency of its own.
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        open(os.path.join(docs, "a.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        loop = classify_command('for f in docs/*.md; do rm "$f"; done')
+        top = classify_command("rm docs/a.md")
+        assert loop.final_decision == top.final_decision
+
+    def test_for_loop_glob_unsafe_filename_fails_closed(self, project_root, monkeypatch):
+        open(os.path.join(project_root, "-rf"), "w").close()
+        open(os.path.join(project_root, "ok.txt"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('for f in *; do cat "$f"; done')
+        assert r.final_decision == "ask"
+        assert "unsafe file name" in r.reason
+
+    def test_for_loop_glob_whitespace_filename_fails_closed(self, project_root, monkeypatch):
+        open(os.path.join(project_root, "a b.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('for f in *.md; do cat "$f"; done')
+        assert r.final_decision == "ask"
+        assert "unsafe file name" in r.reason
+
+    def test_for_loop_glob_over_expansion_cap_fails_closed(self, project_root, monkeypatch):
+        many = os.path.join(project_root, "many")
+        os.makedirs(many)
+        for i in range(129):
+            open(os.path.join(many, f"f{i:03d}.txt"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('for f in many/*.txt; do cat "$f"; done')
+        assert r.final_decision == "ask"
+        assert "expands to more than" in r.reason
+
+    def test_for_loop_glob_unknown_cwd_fails_closed(self, project_root, monkeypatch):
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        open(os.path.join(docs, "a.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('cd "$D" && for f in docs/*.md; do cat "$f"; done')
+        assert r.final_decision == "ask"
         assert "dynamic item list" in r.reason
+
+    def test_for_loop_glob_after_cd_expands_in_new_cwd(self, project_root, monkeypatch):
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        open(os.path.join(docs, "a.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command('cd docs && for f in *.md; do cat "$f"; done')
+        assert r.final_decision == "allow"
+        assert any(sr.tokens == ["cat", "a.md"] for sr in r.stages)
+
+    def test_for_loop_glob_in_bash_c_wrapper(self, project_root, monkeypatch):
+        docs = os.path.join(project_root, "docs")
+        os.makedirs(docs)
+        open(os.path.join(docs, "a.md"), "w").close()
+        monkeypatch.chdir(project_root)
+        r = classify_command("bash -c 'for f in docs/*.md; do cat \"$f\"; done'")
+        assert r.final_decision == "allow"
 
     def test_for_loop_brace_expansion_fails_closed(self, project_root):
         r = classify_command('for f in {1..3}; do rm "$f"; done')
