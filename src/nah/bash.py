@@ -1701,6 +1701,31 @@ def _consume_for_loop(
                 body_parts,
             )
         ], next_i
+
+    # Resolve the item list once, for both branches below: literal values pass
+    # through, static globs expand at classify time. The visible body may not
+    # reference the loop var at all while a body *substitution* still does
+    # (`for f in *.md; do echo "$(wc -l < "$f")"; done`), so the guard in the
+    # non-referencing branch needs the resolved values too.
+    resolved_values = values if _safe_literal_loop_values(values) else None
+    glob_note: list[Stage] = []
+    glob_fail_reason = ""
+    if resolved_values is None and any(
+        ch in value for value in values for ch in _LOOP_GLOB_EXPAND_CHARS
+    ):
+        resolved_values, glob_fail_reason = _expand_loop_glob_values(values, glob_cwd)
+        if resolved_values is not None:
+            glob_note = [
+                Stage(
+                    tokens=["for", name, "in", *values],
+                    operator=";",
+                    action_hint=taxonomy.FILESYSTEM_READ,
+                    action_reason=(
+                        f"for-loop over {len(resolved_values)} glob-expanded files"
+                    ),
+                )
+            ]
+
     if references_loop_var:
         if _stages_use_unsupported_loop_var_expansion(body_stages, name):
             return guard_stages + [
@@ -1710,28 +1735,11 @@ def _consume_for_loop(
                     body_parts,
                 )
             ], next_i
-        resolved_values = values if _safe_literal_loop_values(values) else None
-        glob_note: list[Stage] = []
-        if resolved_values is None and any(
-            ch in value for value in values for ch in _LOOP_GLOB_EXPAND_CHARS
-        ):
-            resolved_values, glob_fail_reason = _expand_loop_glob_values(values, glob_cwd)
-            if resolved_values is not None:
-                glob_note = [
-                    Stage(
-                        tokens=["for", name, "in", *values],
-                        operator=";",
-                        action_hint=taxonomy.FILESYSTEM_READ,
-                        action_reason=(
-                            f"for-loop over {len(resolved_values)} glob-expanded files"
-                        ),
-                    )
-                ]
-            elif glob_fail_reason:
+        if resolved_values is None:
+            if glob_fail_reason:
                 return guard_stages + [
                     _control_flow_guard_stage("for", glob_fail_reason, [header])
                 ], next_i
-        if resolved_values is None:
             return guard_stages + [
                 _control_flow_guard_stage(
                     "for",
@@ -1755,19 +1763,21 @@ def _consume_for_loop(
 
     _apply_outer_operator(body_stages, outer_op)
     # A loop-var reference may live only inside an extracted substitution
-    # (e.g. `for f in a b; do echo "$(wc -l < "$f")"; done`), in which case
+    # (e.g. `for f in *.md; do echo "$(wc -l < "$f")"; done`), in which case
     # the visible body does not reference the var and we land here. Carry the
-    # loop values on the guard when they are safe literals so resolution can
-    # still expand the inner command per value; otherwise the guard's
-    # residual-variable check keeps the ask.
-    guard_loop_var = name if _safe_literal_loop_values(values) else ""
+    # resolved loop values (literals or glob expansion) on the guard so
+    # resolution can still expand the inner command per value; unresolvable
+    # values leave the guard's residual-variable check to keep the ask.
+    # Glob failures do not fail the loop here — the body itself does not
+    # iterate the values.
     return (
         guard_stages
+        + glob_note
         + _control_flow_body_substitution_guard(
             "for",
             body_parts,
-            loop_var=guard_loop_var,
-            loop_values=values if guard_loop_var else [],
+            loop_var=name if resolved_values is not None else "",
+            loop_values=resolved_values or [],
         )
         + body_stages
     ), next_i
