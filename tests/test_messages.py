@@ -61,6 +61,40 @@ def test_reason_pattern_messages():
         ("targets sensitive path: ~/.bashrc", "this targets a protected file or folder: ~/.bashrc"),
         ("targets nah config: ~/.config/nah/config.yaml", "this changes nah's own configuration"),
         ("targets hook directory: ~/.claude/hooks/evil.py", "this tries to modify Claude Code hooks"),
+        ("catastrophic delete targets filesystem root: /", "this can erase the filesystem root"),
+        ("catastrophic delete targets home directory: ~", "this can erase your home directory"),
+        (
+            "catastrophic delete targets Git history metadata: .git/objects",
+            "this can destroy local Git history and recovery data",
+        ),
+        ("delete targets Git metadata: .git/index", "this deletes repository metadata"),
+        (
+            "catastrophic delete targets critical system tree: /etc",
+            "this can erase files required by the operating system",
+        ),
+        (
+            "catastrophic delete targets trusted path root: /tmp",
+            "this deletes a trusted directory itself",
+        ),
+        ("delete targets project root: .", "this can erase the current project"),
+        (
+            "catastrophic recursive permission change targets filesystem root",
+            "this can make an entire system tree inaccessible",
+        ),
+        (
+            "catastrophic raw storage format",
+            "this can irreversibly erase a disk or storage volume",
+        ),
+        (
+            "catastrophic write targets raw storage device",
+            "this can irreversibly erase a disk or storage volume",
+        ),
+        ("catastrophic fork bomb", "this can exhaust the machine's process capacity"),
+        ("catastrophic write targets kernel crash trigger", "this can immediately crash the machine"),
+        (
+            "dynamic filesystem delete target: $TARGET",
+            "this delete target depends on shell expansion nah cannot resolve safely",
+        ),
         ("script outside project: /tmp/run-me.sh", "this runs a script outside the current project: /tmp/run-me.sh"),
         ("Write outside project: /tmp/out.txt", "this writes outside the current project: /tmp/out.txt"),
         ("script not found: ./missing.sh", "this script path does not exist: ./missing.sh"),

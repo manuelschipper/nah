@@ -276,9 +276,9 @@ def test_plugin_runner_allow_ask_and_block(tmp_path):
     assert allow.returncode == 0
     assert json.loads(allow.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
 
-    ask = _run_plugin_hook(out, {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}, home)
-    assert ask.returncode == 0
-    assert json.loads(ask.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"
+    blocked = _run_plugin_hook(out, {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}, home)
+    assert blocked.returncode == 0
+    assert json.loads(blocked.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     block = _run_plugin_hook(
         out,

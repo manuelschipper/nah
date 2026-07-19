@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Catastrophic filesystem deletes that select `/`, the current home directory,
+  or their contents now block before runtime approval, including equivalent
+  tilde, environment-variable, glob, wrapper, and multi-target forms.
+- Direct deletion of core Git history metadata, critical operating-system
+  trees, and trusted directory roots now blocks; deletion of other Git metadata
+  and the current project root asks for approval.
+- Explicit raw-storage erasure, recursive permission destruction of protected
+  trees, fork bombs, and writes to the Linux kernel crash trigger now block
+  regardless of action-policy overrides.
+
 - **`eval "$(mise activate <shell>)"` is no longer classified as obfuscated.**
   Agents in mise-managed repos wrap every command as
   `bash -c 'eval "$(mise activate bash)" && <cmd>'` to get mise tools/env on
@@ -68,7 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   combined with a user `kubectl exec` classify entry, could surface nonsense
   reasons like `script not found: <project>/<namespace>` from the lang_exec
   script resolver treating kubectl operands as local script paths.
-
 ## [0.11.0] - 2026-07-19
 
 ### Added

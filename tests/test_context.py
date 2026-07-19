@@ -107,6 +107,68 @@ class TestResolveFilesystemContext:
         assert decision == "allow"
         assert "inside project" in reason
 
+    @pytest.mark.parametrize("target", [
+        "/",
+        "/*",
+        "/**",
+        "~",
+        "~/",
+        "$HOME",
+        "${HOME}",
+        "${HOME:?}",
+        "${HOME:-/tmp}",
+        "~/*",
+        "~/.*",
+        "~/{*,.*}",
+    ])
+    def test_catastrophic_delete_target_blocks(self, project_root, target):
+        decision, reason = resolve_context("filesystem_delete", target_path=target)
+        assert decision == "block"
+        assert "catastrophic delete" in reason
+
+    def test_home_parent_delete_blocks(self, project_root):
+        home_parent = os.path.dirname(os.path.expanduser("~"))
+        decision, reason = resolve_context(
+            "filesystem_delete",
+            target_path=home_parent,
+        )
+        assert decision == "block"
+        assert "home directory" in reason
+
+    @pytest.mark.parametrize("target", [
+        "~/Downloads/old-build",
+        "~/Downloads/*",
+        "/tmp/old-build",
+    ])
+    def test_non_catastrophic_delete_target_not_blocked(self, project_root, target):
+        decision, _reason = resolve_context("filesystem_delete", target_path=target)
+        assert decision != "block"
+
+    def test_configured_trusted_root_delete_blocks(self, project_root, tmp_path):
+        trusted = tmp_path / "trusted"
+        trusted.mkdir()
+        config._cached_config = NahConfig(trusted_paths=[str(trusted)])
+
+        decision, reason = resolve_context(
+            "filesystem_delete",
+            target_path=str(trusted),
+        )
+
+        assert decision == "block"
+        assert "trusted path root" in reason
+
+    def test_configured_trusted_root_child_delete_allows(self, project_root, tmp_path):
+        trusted = tmp_path / "trusted"
+        trusted.mkdir()
+        config._cached_config = NahConfig(trusted_paths=[str(trusted)])
+
+        decision, _reason = resolve_context(
+            "filesystem_delete",
+            target_path=str(trusted / "old-build"),
+        )
+
+        assert decision == "allow"
+
     def test_main_repo_file_inside_project_from_worktree(self, tmp_path, monkeypatch):
         repo, worktree = _make_git_worktree(tmp_path)
         monkeypatch.chdir(worktree)

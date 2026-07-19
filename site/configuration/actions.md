@@ -93,7 +93,7 @@ actions:
 
 Types with `context` as their default policy delegate to a **context resolver**:
 
-- **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location.
+- **Filesystem types** (`filesystem_write`, `filesystem_delete`) -- check if the target path is inside the project, in a trusted path, or targets a sensitive location. Catastrophic targets are subject to the invariant safety floor below.
 - **Network types** (`network_outbound`, `network_write`) -- check if the target host is localhost, a known registry, or an unknown host. `network_write` always asks (known hosts only trusted for reads).
 - **Remote service reads** (`service_read`) -- apply host checks to the remote API target: a known host (or implicit `gh api`/`glab api` host) allows, an unknown host asks. Local daemon inspection is a separate `allow`-policy type (`service_inspect`) and is not host-checked.
 - **Container lifecycle** (`container_lifecycle`) -- check flag-free named container operands against `trusted_containers`; every extracted container must be trusted. Flags, dynamic identities, compose lifecycle commands, missing tokens, and untrusted names fail closed to `ask`.
@@ -105,6 +105,23 @@ Types with `context` as their default policy delegate to a **context resolver**:
 network, volume, and compose build/config commands default to `allow`.
 Unattended presets should tighten it explicitly when Dockerfile `RUN` steps or
 container infrastructure changes should not proceed without a human.
+
+### Invariant safety floor
+
+Some structurally explicit operations block regardless of action-policy
+overrides:
+
+- Deletes selecting the filesystem root, current home, critical operating-system
+  trees, a trusted directory root, or core Git history metadata.
+- Raw disk, partition table, logical volume, and storage-pool erasure.
+- Recursive permission or ownership changes selecting the filesystem root,
+  current home, critical system trees, or a trusted directory root.
+- Canonical fork bombs and writes to Linux's `/proc/sysrq-trigger` crash
+  interface.
+
+Deleting the current project root or non-core `.git` metadata asks for approval.
+Deleting a child beneath a trusted path remains governed by normal context
+policy; trusting `/tmp` does not authorize deleting `/tmp` itself.
 
 ### Legacy `container_write`
 
