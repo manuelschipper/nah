@@ -81,7 +81,7 @@ Coverage depends on the runtime surface:
 | **Glob** | Sensitive path detection on target directory |
 | **Grep** | Credential search pattern detection |
 | **MCP** | Generic classification for third-party tool servers (`mcp__*`) |
-| **apply_patch** | Codex patch path + project-boundary checks; destructive operations (delete/move) require approval |
+| **apply_patch** | Codex patch path + project-boundary checks; deletes follow `filesystem_delete`, while moves and empty replacements require approval |
 
 ## Bash classification pipeline
 

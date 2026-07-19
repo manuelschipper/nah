@@ -127,9 +127,9 @@ When both configs exist, nah merges them with these rules:
 | `exec_sinks` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
 | `sensitive_basenames` | dict of name → policy | global | [Safety lists](safety-lists.md) |
 | `decode_commands` | list or dict (add/remove) | global | [Safety lists](safety-lists.md) |
-| `content_patterns` | dict (add/suppress) | both | [Content inspection (Claude Code)](content.md) |
-| `credential_patterns` | dict (add/suppress) | global | [Content inspection (Claude Code)](content.md) |
-| `llm` | dict (`mode`, providers, per-provider blocks) | global | [LLM layer](llm.md) |
+| `content_patterns` | dict (add/suppress) | both | [Safety lists](safety-lists.md#content_patterns) |
+| `credential_patterns` | dict (add/suppress) | global | [Safety lists](safety-lists.md#credential_patterns) |
+| `llm` | dict (`mode`, providers, per-provider blocks) | global | [Optional LLM classification](llm.md) |
 | `targets` | dict of target → overrides | both* | This page |
 | `db_targets` | list of database/schema dicts | global | [Database targets](database.md) |
 | `log` | dict (verbosity, etc.) | global | [CLI reference](../cli.md#nah-log) |

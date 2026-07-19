@@ -61,6 +61,13 @@ def _patch(path, added='print("ok")'):
 """
 
 
+def _delete_patch(path):
+    return f"""*** Begin Patch
+*** Delete File: {path}
+*** End Patch
+"""
+
+
 def _patch_add_files(files):
     lines = ["*** Begin Patch"]
     for path, content in files:
@@ -786,6 +793,35 @@ def test_apply_patch_same_path_replacement_defaults_to_allow(project_root):
 
     assert code == 0
     assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+
+
+def test_apply_patch_project_delete_defaults_to_allow(project_root, tmp_path):
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _delete_patch("old.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["decision"] == {"behavior": "allow"}
+    entries = _log_entries(tmp_path)
+    assert entries[-1]["action_type"] == "filesystem_delete"
+    assert entries[-1]["classify"]["stages"][0]["policy"] == "context"
+
+
+def test_apply_patch_project_delete_respects_confirm_edits(project_root, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_CONFIRM_EDITS", "1")
+
+    code, out = _run({
+        "tool_name": "apply_patch",
+        "tool_input": {"input": _delete_patch("old.py")},
+        "cwd": project_root,
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
 
 
 def test_apply_patch_empty_same_path_replacement_returns_no_verdict(project_root):

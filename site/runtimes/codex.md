@@ -77,9 +77,10 @@ output. A deterministic block returns a Codex PreToolUse deny. An unresolved
 ask blocks by default.
 
 Safe project-local `apply_patch` add/update edits are allowed by nah after it
-checks the patch's target paths and project boundary (delete/move and other
-destructive patches still ask). If you want Codex to ask before those safe edits
-too, launch with:
+checks the patch's target paths and project boundary. Deletes follow the
+`filesystem_delete` policy, so project-local deletes are also allowed by
+default. Moves and empty replacement patches still ask. If you want Codex to
+ask before safe edits and deletes too, launch with:
 
 ```bash
 nah run codex --confirm-edits
@@ -147,9 +148,6 @@ The default headless sandbox is still `danger-full-access`. That keeps local
 developer workflows working while nah remains the hook-visible policy gate. Use
 `--sandbox workspace-write --network` when you want Codex's filesystem sandbox
 as an additional boundary.
-
-For a complete unattended setup, see
-[Running unsupervised agents](../guides/unsupervised-agents.md).
 
 ## Hook Review
 

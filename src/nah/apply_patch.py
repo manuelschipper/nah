@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from nah import paths, taxonomy
+from nah import context, paths, taxonomy
 
 
 _TRANSCRIPT_RETRY_SECONDS = 0.30
@@ -85,20 +85,28 @@ def classify_codex_apply_patch(
         return _ask(f"apply_patch: malformed patch: {exc}"), _log_input([], "malformed")
 
     cwd = str(payload.get("cwd", "") or "")
+    destructive_reason, deleted_paths = _destructive_patch_details(parsed, cwd)
+    deleted_path_set = set(deleted_paths)
     resolved_paths = [_resolve_patch_path(p, cwd) for p in parsed.paths]
     log_input = _log_input(resolved_paths, parsed.summary())
 
     for raw_path in resolved_paths:
+        action_type = (
+            taxonomy.FILESYSTEM_DELETE
+            if raw_path in deleted_path_set
+            else taxonomy.FILESYSTEM_WRITE
+        )
         path_decision = paths.check_path("Write", raw_path)
         if path_decision:
-            return _with_stage(path_decision, _path_action(path_decision)), log_input
+            return _with_stage(path_decision, action_type), log_input
         boundary_decision = paths.check_project_boundary("apply_patch", raw_path)
         if boundary_decision:
-            return _with_stage(boundary_decision, taxonomy.FILESYSTEM_WRITE), log_input
+            return _with_stage(boundary_decision, action_type), log_input
 
-    destructive_reason = _destructive_patch_reason(parsed, cwd)
     if destructive_reason:
         return _ask(destructive_reason), log_input
+    if deleted_paths:
+        return _classify_delete_paths(deleted_paths), log_input
 
     return _ask(
         "apply_patch: safe project edit handled by nah",
@@ -250,12 +258,16 @@ def _lookup_patch_text_from_transcript(transcript_path: str) -> TranscriptPatchL
     return TranscriptPatchLookup(PatchText(candidates[0], "transcript"), "single")
 
 
-def _destructive_patch_reason(parsed: ParsedPatch, cwd: str) -> str:
-    """Return a native-approval reason for destructive patch shapes.
+def _destructive_patch_details(
+    parsed: ParsedPatch,
+    cwd: str,
+) -> tuple[str, tuple[str, ...]]:
+    """Return a native-approval reason and paths that are truly deleted.
 
     A delete followed by an add for the same resolved path is a whole-file
     replacement. Treat that like an update after normal path/content checks.
-    True deletes, moves, and cross-path replacements remain native approvals.
+    True deletes use the normal filesystem_delete policy. Moves and empty
+    replacements remain native approvals.
     """
     delete_counts: dict[str, int] = {}
     add_counts: dict[str, int] = {}
@@ -263,7 +275,7 @@ def _destructive_patch_reason(parsed: ParsedPatch, cwd: str) -> str:
 
     for op in parsed.operations:
         if op.kind == "move":
-            return "apply_patch: delete/move patch requires native approval"
+            return "apply_patch: move patch requires native approval", ()
         if op.kind == "delete":
             path = _resolve_patch_path(op.path, cwd)
             delete_counts[path] = delete_counts.get(path, 0) + 1
@@ -274,13 +286,51 @@ def _destructive_patch_reason(parsed: ParsedPatch, cwd: str) -> str:
             if op.added_lines:
                 add_has_content[path] = True
 
+    deleted_paths: list[str] = []
     for path, count in delete_counts.items():
         if add_counts.get(path, 0) != count:
-            return "apply_patch: delete/move patch requires native approval"
+            deleted_paths.append(path)
+            continue
         if not add_has_content.get(path, False):
-            return "apply_patch: empty replacement patch requires native approval"
+            return "apply_patch: empty replacement patch requires native approval", ()
 
-    return ""
+    return "", tuple(deleted_paths)
+
+
+def _classify_delete_paths(deleted_paths: tuple[str, ...]) -> dict:
+    """Apply the configured filesystem_delete policy to true file deletions."""
+    from nah.config import get_config
+
+    policy = taxonomy.get_policy(taxonomy.FILESYSTEM_DELETE, get_config().actions)
+    if policy == taxonomy.CONTEXT:
+        results = [
+            context.resolve_context(taxonomy.FILESYSTEM_DELETE, target_path=path)
+            for path in deleted_paths
+        ]
+        decision, reason = max(
+            results,
+            key=lambda result: taxonomy.STRICTNESS.get(result[0], 2),
+        )
+    elif policy in (taxonomy.ALLOW, taxonomy.ASK, taxonomy.BLOCK):
+        decision = policy
+        reason = f"{taxonomy.FILESYSTEM_DELETE} → {policy}"
+    else:
+        decision = taxonomy.ASK
+        reason = f"unknown policy: {policy}"
+
+    if decision == taxonomy.ALLOW:
+        reason = "apply_patch: safe project edit handled by nah"
+        decision = taxonomy.ASK
+
+    return {
+        "decision": decision,
+        "reason": reason,
+        "_meta": {
+            "stages": [
+                _stage(taxonomy.FILESYSTEM_DELETE, decision, policy, reason)
+            ],
+        },
+    }
 
 
 def _resolve_patch_path(path: str, cwd: str) -> str:
@@ -339,13 +389,6 @@ def _stage(action_type: str, decision: str, policy: str, reason: str) -> dict:
         "policy": policy,
         "reason": reason,
     }
-
-
-def _path_action(decision: dict) -> str:
-    reason = decision.get("reason", "")
-    if "delete" in reason.lower():
-        return taxonomy.FILESYSTEM_DELETE
-    return taxonomy.FILESYSTEM_WRITE
 
 
 def _log_input(paths_: list[str], summary: str) -> dict:

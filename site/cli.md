@@ -66,9 +66,10 @@ hook command, open `/hooks` inside Codex and review the nah hooks so
 `PreToolUse`, `PermissionRequest`, and `PostToolUse` are active.
 
 By default, safe project-local `apply_patch` add/update edits are allowed after
-nah checks the patch's target paths and project boundary (delete/move and other
-destructive patches still ask). Add `--confirm-edits` to ask before those safe
-edits too.
+nah checks the patch's target paths and project boundary. Deletes follow the
+`filesystem_delete` policy, so project-local deletes are also allowed by
+default. Moves and empty replacement patches still ask. Add `--confirm-edits`
+to ask before safe edits and deletes too.
 
 `nah run codex exec` is the guarded local headless path. In headless mode,
 unresolved asks block by default unless trusted Codex target config sets

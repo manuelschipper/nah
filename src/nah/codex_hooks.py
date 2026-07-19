@@ -210,7 +210,8 @@ def _apply_codex_edit_confirmation_policy(decision: dict, log_input: dict) -> di
                 continue
             if stage.get("reason") == _SAFE_APPLY_PATCH_REASON:
                 stage["decision"] = taxonomy.ALLOW
-                stage["policy"] = taxonomy.ALLOW
+                if stage.get("policy") == taxonomy.ASK:
+                    stage["policy"] = taxonomy.ALLOW
                 stage["reason"] = allowed["reason"]
     return allowed
 

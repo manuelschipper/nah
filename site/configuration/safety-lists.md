@@ -1,6 +1,8 @@
 # Safety Lists
 
-nah uses four configurable safety lists that feed into classification and composition rules. All lists have built-in defaults that you can extend or trim.
+nah uses configurable safety lists and pattern sets that feed into
+classification and composition rules. All have built-in defaults that you can
+extend or trim.
 
 ## known_registries
 
@@ -130,6 +132,57 @@ decode_commands:
 
 !!! warning
     Removing decode commands weakens composition rules (nah prints a stderr warning).
+
+## content_patterns
+
+nah scans literal text written through Bash redirects, such as
+`echo '...' > file` and heredocs, for destructive, exfiltration, obfuscation,
+and subprocess-execution patterns. This applies wherever nah uses its Bash
+classifier: Claude Code, Codex, Terminal Guard, and `nah test`.
+
+Write/Edit/MultiEdit/NotebookEdit and Codex `apply_patch` payloads are not
+content-scanned. Those surfaces use path, project-boundary, and destructive
+patch checks instead.
+
+Built-in content categories default to `ask`. Configure all three operations in
+the global config; project config can only tighten category policies until the
+project is trusted.
+
+```yaml
+content_patterns:
+  suppress:
+    - "requests.post"
+  add:
+    - category: destructive
+      pattern: "\\bdd\\s+if=.*of=/dev/"
+      description: "dd overwrite of a block device"
+  policies:
+    destructive: block
+    obfuscation: block
+```
+
+`suppress` matches the built-in description string. Each `add` entry needs a
+category, regular expression, and description. Custom category names are
+allowed. Policy values are `ask` or `block`; invalid patterns and unmatched
+suppress entries produce a warning.
+
+## credential_patterns
+
+Claude Code Grep queries are checked for credential-search patterns such as
+`password`, `secret`, `token`, `api_key`, `private_key`, `AWS_SECRET`, and
+`BEGIN.*PRIVATE`. This protects the search query; nah does not scan arbitrary
+write content for secret-looking values.
+
+```yaml
+credential_patterns:
+  suppress:
+    - "\\btoken\\b"
+  add:
+    - "\\bINTERNAL_SECRET\\b"
+```
+
+Credential-pattern configuration is global-only. Values are regular
+expressions; `suppress` matches the built-in regex string.
 
 Use [presets](index.md#presets) when you want different safety-list values for
 different workflows. Preset list values replace the base list for that selected

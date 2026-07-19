@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `nah run claude` now allows Claude Code Auto Mode flags and classifies those
   launches as guarded agent execution. Permission and hook bypass modes remain
   rejected.
+- Codex `apply_patch` deletions now follow the `filesystem_delete` policy, so
+  project-local deletes use the same default behavior as `rm` through Bash.
+- Simplified the documentation navigation by removing the team and unattended
+  guides, promoting How it works and Threat model, consolidating content-pattern
+  configuration under Safety lists, and trimming the optional LLM reference.
 
 ## [0.10.0] - 2026-06-28
 

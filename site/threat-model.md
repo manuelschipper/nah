@@ -79,7 +79,7 @@ renders summary, Markdown, or JSON output.
 | --- | --- | --- | --- |
 | Bash classifier | Yes | Yes | Yes |
 | File/path tools | Yes: Read, Write, Edit, MultiEdit, NotebookEdit, Glob | Partial: `apply_patch` | No |
-| Content inspection | Yes: Bash redirect-to-file literals, Grep | Partial: `apply_patch` path + destructive checks | No |
+| Content inspection | Yes: Bash redirect-to-file literals, Grep | Yes for Bash redirects; `apply_patch` uses structural checks only | Yes: Bash redirect-to-file literals |
 | Search/Grep guard | Yes | No current equivalent | No |
 | MCP classification | Yes | Yes | No |
 | Guard self-protection | Yes | Partial: preflight and guarded patch paths | Shell install paths only |

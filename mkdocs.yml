@@ -50,15 +50,11 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Install: install.md
+  - How it works: how-it-works.md
   - Runtimes:
     - Claude Code: runtimes/claude-code.md
     - Codex: runtimes/codex.md
     - Terminal Guard: runtimes/terminal-guard.md
-  - Guides:
-    - How it works: how-it-works.md
-    - Using nah as a team: guides/team-configuration.md
-    - Running unsupervised agents: guides/unsupervised-agents.md
-    - Threat model: threat-model.md
   - Configuration:
     - Overview: configuration/index.md
     - Action types: configuration/actions.md
@@ -66,9 +62,9 @@ nav:
     - Safety lists: configuration/safety-lists.md
     - Sensitive paths: configuration/sensitive-paths.md
     - Presets: configuration/profiles.md
-    - Content inspection (Claude Code): configuration/content.md
-    - LLM layer: configuration/llm.md
+    - Optional LLM classification: configuration/llm.md
     - Database targets: configuration/database.md
   - CLI reference: cli.md
+  - Threat model: threat-model.md
   - Privacy: privacy.md
   - License: license.md
