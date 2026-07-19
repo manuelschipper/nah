@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subcommands) still classifies as `obfuscated` (fail closed). Bare
   `mise activate` is now a built-in `filesystem_read` classification too.
 
+- **For-loops over static globs are now classified instead of asking.**
+  `for f in docs/*.md; do cat "$f"; done` used to ask with "for-loop variable
+  comes from a dynamic item list" regardless of the body. When the item list
+  is static literals and/or glob patterns (no `$`, backticks, or command
+  substitution), the globs are expanded at classify time against the tracked
+  shell cwd and the loop body is classified per expanded file — a read-only
+  body over project files now allows, while write/network bodies keep their
+  normal per-file decision. Expansion fails closed: unknown cwd (e.g. after
+  `cd "$dir"`), a glob matching nothing, more than 128 matches, or a matched
+  file name that is itself unsafe to expand (leading `-`, whitespace, glob
+  chars) all keep the ask. Brace expansion (`{1..3}`, `{a,b}`) is unchanged.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added
