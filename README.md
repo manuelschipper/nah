@@ -31,11 +31,6 @@ keep it in check, and each trades away something you need.
 - **Auto modes:** Claude Code Auto Mode, Codex auto-review. Less prompting and intent-aware review, but an LLM is still deciding. Advice, not enforcement.
 - **YOLO** (`--dangerously-skip-permissions`): speed, zero guardrails.
 
-Manual permissions and auto modes can both be reasonable for a given security
-posture, and both are safer than disabling permissions entirely. nah is for
-when you want a deterministic policy layer without giving up native approval
-flows.
-
 ### A permission list of command names is the wrong abstraction
 
 `git` can check status, or it can rewrite history.
