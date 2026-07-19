@@ -1,6 +1,8 @@
 """Context resolution — filesystem and network context for 'context' policy decisions."""
 
+import fnmatch
 import os
+import re
 import sys
 import urllib.parse
 
@@ -79,7 +81,7 @@ def resolve_context(
     if action_type in (taxonomy.FILESYSTEM_READ, taxonomy.FILESYSTEM_WRITE,
                        taxonomy.FILESYSTEM_DELETE):
         if target_path:
-            return resolve_filesystem_context(target_path)
+            return resolve_filesystem_context(target_path, action_type=action_type)
         if action_type in (taxonomy.FILESYSTEM_DELETE, taxonomy.FILESYSTEM_WRITE):
             return taxonomy.ASK, f"{action_type}: no target path extracted"
         return taxonomy.ALLOW, f"{action_type}: no target path"
@@ -201,7 +203,248 @@ def resolve_container_lifecycle_context(tokens: list[str] | None) -> tuple[str, 
     return taxonomy.ASK, "container_lifecycle: untrusted container identity"
 
 
-def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
+_HOME_PARAMETER_RE = re.compile(r"\$\{HOME(?:(?::?[-=?])[^}]*)?\}")
+_TREE_WIDE_SUFFIXES = ("*", ".*", "**", "{*,.*}", "{.*,*}", "{.,}*")
+_CRITICAL_SYSTEM_TREES = (
+    "/bin",
+    "/boot",
+    "/etc",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/root",
+    "/sbin",
+    "/usr",
+    "/var",
+    "/Library",
+    "/System",
+)
+_GIT_CORE_METADATA = ("logs", "objects", "packed-refs", "refs", "worktrees")
+_BUILTIN_TRUSTED_ROOTS = ("/tmp", "/private/tmp")
+_RAW_STORAGE_TARGET_RE = re.compile(
+    r"^/dev/(?:"
+    r"(?:x?v|s|h)d[a-z][0-9]*|"
+    r"nvme[0-9]+n[0-9]+(?:p[0-9]+)?|"
+    r"mmcblk[0-9]+(?:p[0-9]+)?|"
+    r"(?:r?disk|ada|da|md|dm-)[0-9]+(?:s[0-9]+)?|"
+    r"mapper/.+|disk/.+|zvol/.+"
+    r")$"
+)
+
+
+def _critical_system_trees() -> tuple[str, ...]:
+    trees = list(_CRITICAL_SYSTEM_TREES)
+    for name in ("SystemRoot", "WINDIR", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
+        value = os.environ.get(name)
+        if value and value not in trees:
+            trees.append(value)
+    return tuple(trees)
+
+
+def _tree_aliases(tree_path: str) -> set[str]:
+    normalized = os.path.normpath(tree_path)
+    return {normalized, os.path.realpath(normalized)}
+
+
+def _glob_selects_path(pattern: str, path: str) -> bool:
+    brace = re.search(r"\{([^{}]+)\}", pattern)
+    if brace:
+        return any(
+            _glob_selects_path(
+                pattern[:brace.start()] + option + pattern[brace.end():],
+                path,
+            )
+            for option in brace.group(1).split(",")
+        )
+    if "**" not in pattern and pattern.count(os.sep) != path.count(os.sep):
+        return False
+    for pattern_part, path_part in zip(pattern.split(os.sep), path.split(os.sep)):
+        if path_part.startswith(".") and not pattern_part.startswith("."):
+            return False
+    return fnmatch.fnmatchcase(path, pattern)
+
+
+def _selects_tree(normalized: str, tree_path: str, *, include_contents: bool) -> bool:
+    aliases = _tree_aliases(tree_path)
+    has_pattern = any(ch in normalized for ch in "*?[{")
+    if not has_pattern:
+        return os.path.realpath(normalized) in aliases
+
+    for alias in aliases:
+        if _glob_selects_path(normalized, alias):
+            return True
+        if include_contents and normalized in {
+            os.path.join(alias, suffix) for suffix in _TREE_WIDE_SUFFIXES
+        }:
+            return True
+    return False
+
+
+def _git_metadata_delete_decision(normalized: str) -> tuple[str, str] | None:
+    has_pattern = any(ch in normalized for ch in "*?[{")
+    target_variants = {normalized}
+    if not has_pattern:
+        target_variants.add(os.path.realpath(normalized))
+
+    for boundary_root in paths.get_project_boundary_roots():
+        for git_root in _tree_aliases(os.path.join(boundary_root, ".git")):
+            if _selects_tree(normalized, git_root, include_contents=False):
+                return taxonomy.BLOCK, "catastrophic delete targets Git metadata root: .git"
+
+            protected_paths = [os.path.join(git_root, name) for name in _GIT_CORE_METADATA]
+            for target in target_variants:
+                for protected in protected_paths:
+                    if (
+                        target == protected
+                        or target.startswith(protected + os.sep)
+                        or (has_pattern and _glob_selects_path(target, protected))
+                    ):
+                        return (
+                            taxonomy.BLOCK,
+                            f"catastrophic delete targets Git history metadata: "
+                            f"{paths.friendly_path(target)}",
+                        )
+
+                if target.startswith(git_root + os.sep):
+                    return (
+                        taxonomy.ASK,
+                        f"delete targets Git metadata: {paths.friendly_path(target)}",
+                    )
+    return None
+
+
+def check_catastrophic_delete_target(
+    target_path: str,
+    *,
+    protect_project_root: bool = True,
+) -> tuple[str, str] | None:
+    """Apply invariant safeguards to catastrophic filesystem delete targets."""
+    if not target_path:
+        return None
+
+    home = os.path.realpath(os.path.expanduser("~"))
+    target_path = _HOME_PARAMETER_RE.sub(home, target_path)
+    expanded = os.path.expanduser(os.path.expandvars(target_path))
+    normalized = os.path.normpath(expanded)
+    root = os.path.realpath(os.path.sep)
+    has_pattern = any(ch in normalized for ch in "*?[{")
+
+    if _selects_tree(normalized, root, include_contents=True):
+        return taxonomy.BLOCK, f"catastrophic delete targets filesystem root: {normalized}"
+
+    if not has_pattern:
+        resolved = os.path.realpath(normalized)
+        if resolved == home or home.startswith(resolved + os.sep):
+            return (
+                taxonomy.BLOCK,
+                f"catastrophic delete targets home directory: {paths.friendly_path(resolved)}",
+            )
+
+    if _selects_tree(normalized, home, include_contents=True):
+        return (
+            taxonomy.BLOCK,
+            f"catastrophic delete targets home directory: {paths.friendly_path(normalized)}",
+        )
+
+    git_decision = _git_metadata_delete_decision(normalized)
+    if git_decision:
+        return git_decision
+
+    for system_tree in _critical_system_trees():
+        if _selects_tree(normalized, system_tree, include_contents=True):
+            return (
+                taxonomy.BLOCK,
+                f"catastrophic delete targets critical system tree: "
+                f"{paths.friendly_path(normalized)}",
+            )
+
+    from nah.config import get_config  # lazy import to avoid circular
+    trusted_paths = {*_BUILTIN_TRUSTED_ROOTS, *get_config().trusted_paths}
+    for trusted_path in trusted_paths:
+        trusted_root = paths.resolve_path(trusted_path)
+        if _selects_tree(normalized, trusted_root, include_contents=False):
+            return (
+                taxonomy.BLOCK,
+                f"catastrophic delete targets trusted path root: "
+                f"{paths.friendly_path(normalized)}",
+            )
+
+    if protect_project_root:
+        for project_root in paths.get_project_boundary_roots():
+            if _selects_tree(normalized, project_root, include_contents=True):
+                return (
+                    taxonomy.ASK,
+                    f"delete targets project root: {paths.friendly_path(normalized)}",
+                )
+    return None
+
+
+def check_catastrophic_tree_mutation_target(target_path: str) -> tuple[str, str] | None:
+    """Block recursive permission changes that can disable a whole system tree."""
+    if not target_path:
+        return None
+
+    home = os.path.realpath(os.path.expanduser("~"))
+    target_path = _HOME_PARAMETER_RE.sub(home, target_path)
+    normalized = os.path.normpath(os.path.expanduser(os.path.expandvars(target_path)))
+    root = os.path.realpath(os.path.sep)
+    has_pattern = any(ch in normalized for ch in "*?[{")
+
+    if _selects_tree(normalized, root, include_contents=True):
+        return taxonomy.BLOCK, "catastrophic recursive permission change targets filesystem root"
+
+    if not has_pattern:
+        resolved = os.path.realpath(normalized)
+        if resolved == home or home.startswith(resolved + os.sep):
+            return taxonomy.BLOCK, "catastrophic recursive permission change targets home directory"
+
+    if _selects_tree(normalized, home, include_contents=True):
+        return taxonomy.BLOCK, "catastrophic recursive permission change targets home directory"
+
+    for system_tree in _critical_system_trees():
+        if _selects_tree(normalized, system_tree, include_contents=True):
+            return taxonomy.BLOCK, "catastrophic recursive permission change targets system tree"
+
+    from nah.config import get_config  # lazy import to avoid circular
+    trusted_paths = {*_BUILTIN_TRUSTED_ROOTS, *get_config().trusted_paths}
+    for trusted_path in trusted_paths:
+        if _selects_tree(
+            normalized,
+            paths.resolve_path(trusted_path),
+            include_contents=False,
+        ):
+            return taxonomy.BLOCK, "catastrophic recursive permission change targets trusted root"
+    return None
+
+
+def is_raw_storage_target(target_path: str) -> bool:
+    expanded = os.path.expanduser(os.path.expandvars(target_path))
+    if _RAW_STORAGE_TARGET_RE.fullmatch(expanded):
+        return True
+    return bool(re.fullmatch(r"(?i)\\\\\.\\PhysicalDrive[0-9]+", expanded))
+
+
+def check_catastrophic_write_target(target_path: str) -> tuple[str, str] | None:
+    """Block writes that directly erase storage or crash the machine."""
+    if not target_path:
+        return None
+    if is_raw_storage_target(target_path):
+        return (
+            taxonomy.BLOCK,
+            f"catastrophic write targets raw storage device: {paths.friendly_path(target_path)}",
+        )
+    resolved = os.path.realpath(os.path.expanduser(os.path.expandvars(target_path)))
+    if resolved == "/proc/sysrq-trigger":
+        return taxonomy.BLOCK, "catastrophic write targets kernel crash trigger"
+    return None
+
+
+def resolve_filesystem_context(
+    target_path: str,
+    *,
+    action_type: str = "",
+    protect_project_root: bool = True,
+) -> tuple[str, str]:
     """Resolve filesystem context for a target path.
 
     Returns (decision, reason).
@@ -210,6 +453,18 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
         return taxonomy.ALLOW, "no target path"
 
     resolved = paths.resolve_path(target_path)
+
+    if action_type == taxonomy.FILESYSTEM_DELETE:
+        catastrophic = check_catastrophic_delete_target(
+            target_path,
+            protect_project_root=protect_project_root,
+        )
+        if catastrophic:
+            return catastrophic
+    elif action_type == taxonomy.FILESYSTEM_WRITE:
+        catastrophic = check_catastrophic_write_target(target_path)
+        if catastrophic:
+            return catastrophic
 
     # Core path check (hook + sensitive)
     basic = paths.check_path_basic_raw(target_path)

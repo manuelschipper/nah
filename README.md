@@ -97,6 +97,15 @@ Before a guarded action runs, nah turns it into a policy decision:
    targets and never lets the LLM override known asks, inline code, writes, or
    blocks.
 
+A small catastrophic-action floor cannot be configured away. nah always blocks
+structurally explicit operations that can erase the filesystem root or home
+directory, destroy core Git history or raw storage, disable critical system
+trees, or crash the machine. Whole-project deletion and destructive operations
+with legitimate uses still ask or follow normal policy.
+
+See the [invariant safety floor](https://nah.build/configuration/actions/#invariant-safety-floor)
+for exact coverage.
+
 Detailed tool coverage and classifier internals live in the
 [How it works docs](https://nah.build/how-it-works/).
 

@@ -38,10 +38,10 @@ def _trust_containers(*identities):
 class TestAcceptanceCriteria:
     """The 7 acceptance criteria from FD-005."""
 
-    def test_rm_rf_root_ask(self, project_root):
+    def test_rm_rf_root_block(self, project_root):
         r = classify_command("rm -rf /")
-        assert r.final_decision == "ask"
-        assert "outside project" in r.reason
+        assert r.final_decision == "block"
+        assert "catastrophic delete" in r.reason
 
     def test_git_status_allow(self, project_root):
         r = classify_command("git status")
@@ -65,8 +65,223 @@ class TestAcceptanceCriteria:
 
     def test_bash_c_unwrap(self, project_root):
         r = classify_command('bash -c "rm -rf /"')
+        assert r.final_decision == "block"
+        assert "catastrophic delete" in r.reason
+
+    @pytest.mark.parametrize("target", [
+        "~",
+        "~/",
+        "$HOME",
+        '"$HOME"',
+        "${HOME}",
+        "${HOME:?}",
+        "${HOME:-/tmp}",
+        "~/*",
+        "~/.*",
+        "~/{*,.*}",
+        "/*",
+    ])
+    def test_catastrophic_delete_targets_block(self, project_root, target):
+        r = classify_command(f"rm -rf {target}")
+        assert r.final_decision == "block"
+        assert "catastrophic delete" in r.reason
+
+    def test_catastrophic_delete_floor_survives_allow_policy(self, project_root):
+        config._cached_config = NahConfig(actions={"filesystem_delete": "allow"})
+        r = classify_command("rm -rf $HOME")
+        assert r.final_decision == "block"
+
+    def test_catastrophic_first_of_multiple_targets_blocks(self, project_root):
+        r = classify_command("rm -rf ~/ /tmp/old-build")
+        assert r.final_decision == "block"
+        assert "catastrophic delete" in r.reason
+
+    @pytest.mark.parametrize("command", [
+        "cd ~ && rm -rf .",
+        "rm -rf /home/*",
+    ])
+    def test_resolved_catastrophic_delete_targets_block(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert "catastrophic delete" in r.reason
+
+    @pytest.mark.parametrize("command", [
+        'TARGET=$HOME && rm -rf "$TARGET"',
+        "env TARGET=/ sh -c 'rm -rf \"$TARGET\"'",
+        "rm -rf $(printf /)",
+    ])
+    def test_dynamic_delete_targets_ask(self, project_root, command):
+        r = classify_command(command)
         assert r.final_decision == "ask"
-        assert "outside project" in r.reason
+
+    def test_nested_home_delete_still_asks(self, project_root):
+        r = classify_command("rm -rf ~/Downloads/old-build")
+        assert r.final_decision == "ask"
+
+    @pytest.mark.parametrize("target", [
+        ".git",
+        ".git/objects",
+        ".git/refs",
+        ".git/logs",
+        ".git/packed-refs",
+        ".git/worktrees",
+        ".git/*",
+        ".git/{objects,refs}",
+    ])
+    def test_git_history_metadata_delete_blocks(self, project_root, target, monkeypatch):
+        monkeypatch.chdir(project_root)
+        r = classify_command(f"rm -rf {target}")
+        assert r.final_decision == "block"
+        assert "Git" in r.reason
+
+    @pytest.mark.parametrize("target", [".git/index", ".git/hooks/pre-commit"])
+    def test_reconstructable_git_metadata_delete_asks(self, project_root, target, monkeypatch):
+        monkeypatch.chdir(project_root)
+        r = classify_command(f"rm -f {target}")
+        assert r.final_decision == "ask"
+        assert "Git metadata" in r.reason
+
+    @pytest.mark.parametrize("target", [
+        "/etc",
+        "/etc/*",
+        "/usr",
+        "/var",
+        "/boot",
+        "/root",
+        "/System",
+        "/Library",
+        "/{etc,usr}",
+    ])
+    def test_critical_system_tree_delete_blocks(self, project_root, target):
+        r = classify_command(f"rm -rf {target}")
+        assert r.final_decision == "block"
+
+    def test_trusted_path_root_delete_blocks(self, project_root):
+        r = classify_command("rm -rf /tmp")
+        assert r.final_decision == "block"
+        assert "trusted path root" in r.reason
+
+    def test_trusted_path_child_delete_stays_allowed(self, project_root):
+        r = classify_command("rm -rf /tmp/nah-old-build")
+        assert r.final_decision == "allow"
+
+    @pytest.mark.parametrize("target", [".", "./*"])
+    def test_project_root_delete_asks(self, project_root, target, monkeypatch):
+        monkeypatch.chdir(project_root)
+        r = classify_command(f"rm -rf {target}")
+        assert r.final_decision == "ask"
+        assert "project root" in r.reason
+
+    def test_find_delete_from_project_root_asks(self, project_root, monkeypatch):
+        monkeypatch.chdir(project_root)
+        r = classify_command("find . -delete")
+        assert r.final_decision == "ask"
+        assert "project root" in r.reason
+
+    def test_delete_boundary_floors_survive_allow_policy(self, project_root, monkeypatch):
+        monkeypatch.chdir(project_root)
+        config._cached_config = NahConfig(actions={"filesystem_delete": "allow"})
+        for command in ("rm -rf .git", "rm -rf /etc", "rm -rf /tmp"):
+            assert classify_command(command).final_decision == "block"
+
+    @pytest.mark.parametrize("command", [
+        "mkfs.ext4 /dev/sda",
+        "wipefs -a /dev/sda",
+        "blkdiscard /dev/nvme0n1",
+        "dd if=/dev/zero of=/dev/sda",
+        "shred /dev/vda",
+        "truncate -s 0 /dev/mapper/data",
+        "cryptsetup luksFormat /dev/sda",
+        "zpool destroy tank",
+        "pvremove /dev/sda",
+        "vgremove data-vg",
+        "lvremove data-vg/root",
+        "sgdisk --zap-all /dev/sda",
+        "parted /dev/sda mklabel gpt",
+        "mdadm --zero-superblock /dev/sda",
+        "nvme format /dev/nvme0n1",
+        "badblocks -w /dev/sda",
+        "sudo mkfs.ext4 /dev/sda",
+        "bash -c 'wipefs -a /dev/sda'",
+    ])
+    def test_raw_storage_destruction_blocks(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert "catastrophic" in r.reason
+
+    @pytest.mark.parametrize("command", [
+        "mkfs.ext4 /tmp/disk.img",
+        "wipefs /dev/sda",
+        "dd if=/dev/zero of=/tmp/disk.img",
+        "shred /tmp/old-secret",
+        "parted /dev/sda print",
+        "lvremove --test data-vg/root",
+        "wipefs --no-act --all /dev/sda",
+        "mkfs.ext4 --help /dev/sda",
+    ])
+    def test_non_destructive_or_file_backed_storage_forms_do_not_block(
+        self,
+        project_root,
+        command,
+    ):
+        assert classify_command(command).final_decision != "block"
+
+    @pytest.mark.parametrize("command", [
+        "chmod -R 000 /",
+        'chown -R nobody:nogroup "$HOME"',
+        "chgrp --recursive nogroup /etc",
+        "setfacl -R -m u::--- /var",
+    ])
+    def test_recursive_permission_destruction_blocks(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert "catastrophic recursive permission change" in r.reason
+
+    def test_non_recursive_root_permission_change_still_asks(self, project_root):
+        assert classify_command("chmod 755 /").final_decision == "ask"
+
+    @pytest.mark.parametrize("command", [
+        ":(){ :|:& };:",
+        "bash -c ':(){ :|:& };:'",
+        "bomb(){ bomb|bomb& }; bomb",
+    ])
+    def test_fork_bombs_block(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert "fork bomb" in r.reason
+
+    def test_fork_bomb_literal_does_not_block(self, project_root):
+        assert classify_command("echo ':(){ :|:& };:'").final_decision == "allow"
+
+    def test_fork_bomb_in_comment_does_not_block(self, project_root):
+        assert classify_command("echo ok # :(){ :|:& };:").final_decision == "allow"
+
+    @pytest.mark.parametrize("command", [
+        "echo b > /proc/sysrq-trigger",
+        "printf b | tee /proc/sysrq-trigger",
+        "cat /tmp/disk.img > /dev/sda",
+        "cp /tmp/disk.img /dev/nvme0n1",
+        "printf data | tee /dev/mapper/data",
+    ])
+    def test_catastrophic_write_targets_block(self, project_root, command):
+        r = classify_command(command)
+        assert r.final_decision == "block"
+        assert "catastrophic" in r.reason
+
+    def test_kernel_crash_trigger_floor_survives_allow_policy(self, project_root):
+        config._cached_config = NahConfig(actions={"filesystem_write": "allow"})
+        assert classify_command("echo b > /proc/sysrq-trigger").final_decision == "block"
+        assert classify_command("cp /tmp/disk.img /dev/sda").final_decision == "block"
+
+    def test_catastrophic_command_floors_survive_allow_policy(self, project_root):
+        config._cached_config = NahConfig(actions={
+            "filesystem_delete": "allow",
+            "filesystem_write": "allow",
+            "unknown": "allow",
+        })
+        assert classify_command("mkfs.ext4 /dev/sda").final_decision == "block"
+        assert classify_command("chmod -R 000 /").final_decision == "block"
+        assert classify_command(":(){ :|:& };:").final_decision == "block"
 
     def test_python_c_inline_asks_for_approval(self, project_root):
         """Visible non-shell inline code asks for approval."""
@@ -937,7 +1152,7 @@ class TestSudoWrapper:
         "command, expected_decision, expected_type, expected_reason",
         [
             ('sudo bash -c "git status"', "allow", "git_safe", "sudo: "),
-            ('sudo bash -c "rm -rf /"', "ask", "filesystem_delete", "outside project"),
+            ('sudo bash -c "rm -rf /"', "block", "filesystem_delete", "catastrophic delete"),
         ],
     )
     def test_sudo_unwraps_nested_shells(self, project_root, command, expected_decision, expected_type, expected_reason):
@@ -1078,11 +1293,11 @@ class TestFindExecUnwrap:
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "filesystem_delete"
 
-    def test_root_rm_asks(self):
+    def test_root_rm_blocks(self):
         r = classify_command(r"find / -type f -exec rm {} \;")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert r.stages[0].action_type == "filesystem_delete"
-        assert "outside project: /" in r.reason
+        assert "catastrophic delete" in r.reason
 
     @pytest.mark.parametrize(
         "command",
@@ -1094,11 +1309,11 @@ class TestFindExecUnwrap:
             r"find -O3 / -type f -exec rm {} \;",
         ],
     )
-    def test_root_rm_after_find_leading_options_asks(self, command):
+    def test_root_rm_after_find_leading_options_blocks(self, command):
         r = classify_command(command)
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert r.stages[0].action_type == "filesystem_delete"
-        assert "outside project: /" in r.reason
+        assert "catastrophic delete" in r.reason
 
     @pytest.mark.parametrize(
         "command, reason",
@@ -2201,7 +2416,7 @@ class TestCommandUnwrap:
 
     def test_chained_wrapper(self, project_root):
         r = classify_command('command bash -c "rm -rf /"')
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
 
     def test_safe_inner(self, project_root):
         r = classify_command("command git status")
@@ -2838,7 +3053,7 @@ class TestEdgeCases:
     def test_aggregation_most_restrictive(self, project_root):
         """When stages have different decisions, most restrictive wins."""
         r = classify_command("git status && rm -rf /")
-        assert r.final_decision == "ask"  # git_safe=allow, rm outside=ask → ask wins
+        assert r.final_decision == "block"
 
 
 # --- New action types (taxonomy expansion) ---
@@ -3399,9 +3614,9 @@ class TestContextResolverFallback:
         assert "/opt/nah-854-out" in r.reason
         assert "/dev/null" not in r.reason
 
-    def test_tee_unsafe_device_target_still_asks(self, project_root):
+    def test_tee_unsafe_device_target_blocks(self, project_root):
         r = classify_command("echo test | tee /dev/sda")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert "/dev/sda" in r.reason
 
     def test_tee_bare_output_error_keeps_following_file_operand(self, project_root):
@@ -3972,12 +4187,12 @@ class TestSubshellGroups:
 
     def test_grouped_rm_stays_dangerous(self, project_root):
         r = classify_command("(rm -rf /)")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert r.stages[0].action_type == "filesystem_delete"
 
     def test_wrapped_grouped_rm_stays_dangerous(self, project_root):
         r = classify_command("bash -c '(rm -rf /)'")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert r.stages[0].action_type == "filesystem_delete"
 
     def test_group_file_redirect_uses_existing_write_context(self, project_root):
@@ -4374,13 +4589,13 @@ class TestShellCommentParsing:
 
     def test_newline_splits_commands_like_semicolon(self, project_root):
         r = classify_command("echo ok\nrm -rf /")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert len(r.stages) == 2
         assert r.stages[1].tokens[:2] == ["rm", "-rf"]
 
     def test_inline_comment_does_not_hide_next_line_command(self, project_root):
         r = classify_command("echo ok  # comment\nrm -rf /")
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert len(r.stages) == 2
         assert r.stages[0].tokens == ["echo", "ok"]
         assert r.stages[1].tokens[:2] == ["rm", "-rf"]
@@ -4464,7 +4679,7 @@ class TestShellLineContinuationParsing:
         delete_cmd = "r" + "m -r" + "f /"
         r = classify_command(f"echo ok && {self.continuation}{delete_cmd}")
 
-        assert r.final_decision == "ask"
+        assert r.final_decision == "block"
         assert len(r.stages) == 2
         assert r.stages[1].tokens[:2] == ["rm", "-rf"]
         assert r.stages[1].action_type == "filesystem_delete"

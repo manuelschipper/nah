@@ -134,6 +134,33 @@ def human_reason(
         return _finalize("this shell loop uses shell expansion nah cannot inspect safely")
     if "hidden by shell syntax" in clean_reason.lower():
         return _finalize("this shell loop hides a variable in shell syntax nah cannot inspect safely")
+    if "catastrophic delete targets filesystem root" in clean_reason.lower():
+        return _finalize("this can erase the filesystem root")
+    if "catastrophic delete targets home directory" in clean_reason.lower():
+        return _finalize("this can erase your home directory")
+    if "catastrophic delete targets git" in clean_reason.lower():
+        return _finalize("this can destroy local Git history and recovery data")
+    if "delete targets git metadata" in clean_reason.lower():
+        return _finalize("this deletes repository metadata")
+    if "catastrophic delete targets critical system tree" in clean_reason.lower():
+        return _finalize("this can erase files required by the operating system")
+    if "catastrophic delete targets trusted path root" in clean_reason.lower():
+        return _finalize("this deletes a trusted directory itself")
+    if "delete targets project root" in clean_reason.lower():
+        return _finalize("this can erase the current project")
+    if "catastrophic recursive permission change" in clean_reason.lower():
+        return _finalize("this can make an entire system tree inaccessible")
+    if "catastrophic" in clean_reason.lower() and any(
+        marker in clean_reason.lower()
+        for marker in ("storage", "partition", "block-device")
+    ):
+        return _finalize("this can irreversibly erase a disk or storage volume")
+    if "catastrophic fork bomb" in clean_reason.lower():
+        return _finalize("this can exhaust the machine's process capacity")
+    if "kernel crash trigger" in clean_reason.lower():
+        return _finalize("this can immediately crash the machine")
+    if "dynamic filesystem delete target" in clean_reason.lower():
+        return _finalize("this delete target depends on shell expansion nah cannot resolve safely")
 
     pattern_message = _reason_pattern_message(clean_reason, tool)
     if pattern_message:

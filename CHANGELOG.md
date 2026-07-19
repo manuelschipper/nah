@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Catastrophic filesystem deletes that select `/`, the current home directory,
+  or their contents now block before runtime approval, including equivalent
+  tilde, environment-variable, glob, wrapper, and multi-target forms.
+- Direct deletion of core Git history metadata, critical operating-system
+  trees, and trusted directory roots now blocks; deletion of other Git metadata
+  and the current project root asks for approval.
+- Explicit raw-storage erasure, recursive permission destruction of protected
+  trees, fork bombs, and writes to the Linux kernel crash trigger now block
+  regardless of action-policy overrides.
+
 ## [0.11.0] - 2026-07-19
 
 ### Added

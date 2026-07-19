@@ -123,6 +123,8 @@ trusted_paths:
 
 `/tmp` and `/private/tmp` are always built-in trusted scratch directories, so
 they do not need to be listed and cannot be removed through `trusted_paths`.
+Trust applies beneath these directories; deleting a trusted directory root
+itself still blocks.
 This only bypasses the project-boundary prompt; sensitive-path and
 self-protection checks still apply. Other Write/Edit/MultiEdit/NotebookEdit
 targets outside the project root trigger an `ask` unless configured here.

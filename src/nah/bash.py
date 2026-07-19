@@ -36,6 +36,10 @@ _CONTROL_FLOW_OPENERS = frozenset({"for", "while", "until", "if"})
 _CONTROL_FLOW_TERMINATORS = {"for": "done", "while": "done", "until": "done", "if": "fi"}
 _LOOP_VALUE_GLOB_CHARS = frozenset("*?[{}")
 _SHELL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_FORK_BOMB_RE = re.compile(
+    r"(?P<name>:|[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{\s*"
+    r"(?P=name)\s*\|\s*(?P=name)\s*&\s*;?\s*\}\s*;?\s*(?P=name)"
+)
 
 
 @dataclass
@@ -76,6 +80,163 @@ class ClassifyResult:
     final_decision: str = taxonomy.ASK
     reason: str = ""
     composition_rule: str = ""
+
+
+def _unquoted_shell_text(command: str) -> str:
+    """Return shell text outside quotes so literal examples do not trigger guards."""
+    output: list[str] = []
+    quote = ""
+    escaped = False
+    comment = False
+    for char in command:
+        if comment:
+            output.append("\n" if char == "\n" else " ")
+            if char == "\n":
+                comment = False
+            continue
+        if escaped:
+            output.append(" " if quote else char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            output.append(" ")
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            output.append(" ")
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            output.append(" ")
+            continue
+        if char == "#" and (not output or output[-1].isspace()):
+            comment = True
+            output.append(" ")
+            continue
+        output.append(char)
+    return "".join(output)
+
+
+def _contains_fork_bomb(command: str) -> bool:
+    return bool(_FORK_BOMB_RE.search(_unquoted_shell_text(command)))
+
+
+def _has_short_flag(tokens: list[str], flag: str) -> bool:
+    return any(
+        token.startswith("-")
+        and not token.startswith("--")
+        and flag in token[1:]
+        for token in tokens
+    )
+
+
+def _catastrophic_storage_reason(tokens: list[str]) -> str:
+    """Return a reason for structurally explicit raw-storage destruction."""
+    if not tokens:
+        return ""
+    command = taxonomy._normalize_command_name(tokens[0])
+    args = tokens[1:]
+    if any(token in {"-h", "--help", "--version"} for token in args):
+        return ""
+    raw_target = any(context.is_raw_storage_target(token) for token in args)
+
+    if command == "dd":
+        raw_target = any(
+            token.startswith("of=")
+            and context.is_raw_storage_target(token.split("=", 1)[1])
+            for token in args
+        )
+        return "catastrophic raw storage overwrite" if raw_target else ""
+
+    if command in {"shred", "truncate"}:
+        return "catastrophic raw storage overwrite" if raw_target else ""
+
+    if (
+        command.startswith("mkfs")
+        or command.startswith("newfs")
+        or command in {"mke2fs", "mkswap"}
+    ) and raw_target:
+        return "catastrophic raw storage format"
+    if command == "wipefs" and raw_target and (
+        "--all" in args or _has_short_flag(args, "a")
+    ) and "--no-act" not in args and not _has_short_flag(args, "n"):
+        return "catastrophic raw storage signature erase"
+    if command in {"blkdiscard", "pvremove"} and raw_target:
+        return "catastrophic raw storage removal"
+    if command in {"lvremove", "vgremove"} and args and not (
+        "--test" in args or _has_short_flag(args, "t")
+    ):
+        return "catastrophic logical storage removal"
+    if command == "cryptsetup" and raw_target and "luksFormat" in args:
+        return "catastrophic raw storage encryption format"
+    if command == "zpool" and "destroy" in args:
+        return "catastrophic storage pool destruction"
+    if command == "sgdisk" and raw_target and any(
+        token in {"-o", "-z", "-Z", "--clear", "--zap", "--zap-all"}
+        for token in args
+    ):
+        return "catastrophic partition table destruction"
+    if command == "sfdisk" and raw_target and "--delete" in args:
+        return "catastrophic partition table destruction"
+    if command == "parted" and raw_target and any(
+        token in {"mklabel", "mktable", "rm"} for token in args
+    ):
+        return "catastrophic partition table destruction"
+    if command == "mdadm" and raw_target and "--zero-superblock" in args:
+        return "catastrophic storage superblock destruction"
+    if command == "nvme" and raw_target and any(token in {"format", "sanitize"} for token in args):
+        return "catastrophic raw storage erase"
+    if command == "hdparm" and raw_target and any("security-erase" in token for token in args):
+        return "catastrophic raw storage erase"
+    if command == "diskutil" and raw_target and any(
+        token in {"eraseDisk", "secureErase", "zeroDisk"} for token in args
+    ):
+        return "catastrophic raw storage erase"
+    if command == "badblocks" and raw_target and _has_short_flag(args, "w"):
+        return "catastrophic destructive block-device test"
+    return ""
+
+
+def _recursive_permission_reason(stage: Stage) -> str:
+    if not stage.tokens:
+        return ""
+    command = taxonomy._normalize_command_name(stage.tokens[0])
+    if command not in {"chmod", "chown", "chgrp", "setfacl"}:
+        return ""
+    args = stage.tokens[1:]
+    if "--recursive" not in args and not _has_short_flag(args, "R"):
+        return ""
+
+    for token in args:
+        if token.startswith("-"):
+            continue
+        targets = [token]
+        resolved = _path_for_shell_cwd(token, stage.shell_cwd, stage.shell_cwd_unknown)
+        if resolved is not None and resolved != token:
+            targets.append(resolved)
+        for target in targets:
+            catastrophic = context.check_catastrophic_tree_mutation_target(target)
+            if catastrophic:
+                return catastrophic[1]
+    return ""
+
+
+def _catastrophic_command_result(stage: Stage) -> StageResult | None:
+    storage_reason = _catastrophic_storage_reason(stage.tokens)
+    permission_reason = _recursive_permission_reason(stage)
+    reason = storage_reason or permission_reason
+    if not reason:
+        return None
+    action_type = taxonomy.FILESYSTEM_DELETE if storage_reason else taxonomy.FILESYSTEM_WRITE
+    return StageResult(
+        tokens=stage.tokens,
+        action_type=action_type,
+        default_policy=taxonomy.BLOCK,
+        decision=taxonomy.BLOCK,
+        reason=reason,
+    )
 
 
 @dataclass
@@ -139,6 +300,11 @@ def classify_command(command: str) -> ClassifyResult:
         return result
 
     normalized_command = _remove_shell_line_continuations(command)
+
+    if _contains_fork_bomb(_strip_heredoc_bodies(normalized_command)):
+        result.final_decision = taxonomy.BLOCK
+        result.reason = "catastrophic fork bomb"
+        return result
 
     # --- FD-103: extract all substitutions before splitting ---
     # Substitutions can contain pipes that _split_on_operators would
@@ -2396,6 +2562,10 @@ def _classify_stage(
         sr.reason = "empty stage"
         return sr
 
+    catastrophic_command = _catastrophic_command_result(stage)
+    if catastrophic_command is not None:
+        return catastrophic_command
+
     # Pre-set action type (e.g. env var with exec sink)
     if stage.action_hint:
         sr.action_type = stage.action_hint
@@ -2476,6 +2646,7 @@ def _classify_stage(
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
         allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
+        action_type=sr.action_type,
     )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
@@ -2541,6 +2712,7 @@ def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
         allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
+        action_type=sr.action_type,
     )
     if path_decision == taxonomy.BLOCK or (
         path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW
@@ -2564,10 +2736,10 @@ def _apply_outer_path_guard(stage: Stage, sr: StageResult) -> StageResult:
                     f"relative path after shell cwd change: {root}",
                 )
             else:
-                root_decision, root_reason = context.resolve_context(
-                    sr.action_type,
-                    tokens=stage.tokens,
-                    target_path=scoped_root,
+                root_decision, root_reason = context.resolve_filesystem_context(
+                    scoped_root,
+                    action_type=sr.action_type,
+                    protect_project_root="-delete" in stage.tokens,
                 )
             if taxonomy.STRICTNESS.get(root_decision, 2) > taxonomy.STRICTNESS.get(sr.decision, 2):
                 sr.decision = root_decision
@@ -2868,7 +3040,10 @@ def _resolve_filesystem_context_for_shell_cwd(
     resolved_target = _path_for_shell_cwd(target, shell_cwd, shell_cwd_unknown)
     if resolved_target is None:
         return taxonomy.ASK, f"relative path after shell cwd change: {target}"
-    return context.resolve_filesystem_context(resolved_target)
+    return context.resolve_filesystem_context(
+        resolved_target,
+        action_type=taxonomy.FILESYSTEM_WRITE,
+    )
 
 
 def _check_path_basic_raw_for_shell_cwd(
@@ -4226,6 +4401,15 @@ def _unwrap_shell(
         return None
     inner = _remove_shell_line_continuations(inner)
 
+    if _contains_fork_bomb(inner):
+        return StageResult(
+            tokens=tokens,
+            action_type=taxonomy.UNKNOWN,
+            default_policy=taxonomy.BLOCK,
+            decision=taxonomy.BLOCK,
+            reason="catastrophic fork bomb",
+        )
+
     # Check for $() or backticks in eval — obfuscated.
     # Also check for placeholders: top-level extraction already replaced
     # $(…) with __nah_psub_N__ before _unwrap_shell runs.
@@ -4499,8 +4683,9 @@ def _classify_redirect_write(stage: Stage, user_actions: dict[str, str] | None) 
     sr.default_policy = taxonomy.get_policy(taxonomy.FILESYSTEM_WRITE, user_actions)
     _apply_policy(sr, shell_cwd=stage.shell_cwd, shell_cwd_unknown=stage.shell_cwd_unknown)
 
-    if sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, reason = _check_redirect(stage)
+    redirect_decision, reason = _check_redirect(stage)
+    if redirect_decision == taxonomy.BLOCK or sr.default_policy == taxonomy.CONTEXT:
+        sr.decision = redirect_decision
         sr.reason = f"redirect target: {reason}"
 
     literal = _extract_redirect_literal(stage) if stage.redirect_fd in ("", "1", "&") else ""
@@ -4874,6 +5059,7 @@ def _safe_python_module_result(
         shell_cwd=stage.shell_cwd,
         shell_cwd_unknown=stage.shell_cwd_unknown,
         allow_nah_log_read=sr.action_type == taxonomy.FILESYSTEM_READ,
+        action_type=sr.action_type,
     )
     if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
@@ -5278,6 +5464,7 @@ def _check_extracted_paths(
     shell_cwd: str = "",
     shell_cwd_unknown: bool = False,
     allow_nah_log_read: bool = False,
+    action_type: str = "",
 ) -> tuple[str, str]:
     """Check all path-like tokens against sensitive paths. Most restrictive wins."""
     from nah.config import is_path_allowed  # lazy import to avoid circular
@@ -5285,13 +5472,51 @@ def _check_extracted_paths(
     block_result = None
     ask_result = None
     project_root = paths.get_project_root()
+    protect_project_root = not (
+        tokens
+        and taxonomy._normalize_command_name(tokens[0]) == "find"
+        and "-delete" not in tokens
+    )
 
     for tok in tokens[1:]:
         check_tok = _glued_input_redirect_target(tok) or tok
         if check_tok.startswith("-"):
             continue
+        resolved_check = _path_for_shell_cwd(check_tok, shell_cwd, shell_cwd_unknown)
+        if action_type == taxonomy.FILESYSTEM_DELETE:
+            catastrophic = context.check_catastrophic_delete_target(
+                check_tok,
+                protect_project_root=protect_project_root,
+            )
+            if catastrophic is None and resolved_check is not None:
+                catastrophic = context.check_catastrophic_delete_target(
+                    resolved_check,
+                    protect_project_root=protect_project_root,
+                )
+            if catastrophic:
+                if catastrophic[0] == taxonomy.BLOCK:
+                    block_result = catastrophic
+                elif ask_result is None:
+                    ask_result = catastrophic
+                continue
+            expanded_check = os.path.expanduser(os.path.expandvars(check_tok))
+            if (
+                "$" in expanded_check
+                or "`" in expanded_check
+                or _PSUB_PREFIX in expanded_check
+            ) and ask_result is None:
+                ask_result = (
+                    taxonomy.ASK,
+                    f"dynamic filesystem delete target: {check_tok}",
+                )
+        elif action_type == taxonomy.FILESYSTEM_WRITE:
+            catastrophic = context.check_catastrophic_write_target(check_tok)
+            if catastrophic is None and resolved_check is not None:
+                catastrophic = context.check_catastrophic_write_target(resolved_check)
+            if catastrophic:
+                block_result = catastrophic
+                continue
         if "/" in check_tok or check_tok.startswith("~") or check_tok.startswith("."):
-            resolved_check = _path_for_shell_cwd(check_tok, shell_cwd, shell_cwd_unknown)
             if resolved_check is None:
                 if ask_result is None:
                     ask_result = (

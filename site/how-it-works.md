@@ -181,7 +181,7 @@ The most restrictive decision across all stages wins: `block > ask > context > a
 
 For `context` policies, nah checks the environment:
 
-- **Filesystem**: Is the path inside the project? In a trusted path? Targeting a sensitive location?
+- **Filesystem**: Is the path inside the project? In a trusted path? Targeting a sensitive location? A fixed safety floor blocks catastrophic system, home, Git-history, storage, permission, and machine-crash operations even when the matching action type is configured to allow.
 - **Network**: Is the host localhost? A known registry? An unknown host?
 - **Database**: Does the target match a `db_targets` entry?
 - **Language execution**: Is a file-backed script inside the project or a trusted path? Inline code and heredoc-fed interpreters ask for approval; nah does not inspect script bodies.
