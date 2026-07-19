@@ -46,9 +46,9 @@ hide:
         <p>Endless prompts, or you over-grant.</p>
       </div>
       <div class="nah-option is-them">
-        <span class="nah-option-mark">&#10007;</span>
+        <span class="nah-option-mark">&#8226;</span>
         <h3>Auto modes</h3>
-        <p>An LLM is still deciding.</p>
+        <p>Less friction and intent-aware review, but still model judgment.</p>
       </div>
       <div class="nah-option is-them">
         <span class="nah-option-mark">&#10007;</span>
@@ -175,9 +175,16 @@ nah blocked: this runs unknown code</code></pre>
       <h2>Advice, not enforcement.</h2>
       <p>
         Claude Code Auto Mode and Codex auto-review are a real improvement on
-        skipping permissions, but they still lean on model judgment, and no
-        classifier is perfect. nah runs before the action executes, classifying
-        actions deterministically without spending tokens.
+        skipping permissions and can be a reasonable choice for some security
+        postures. But they still lean on model judgment rather than a hard
+        enforcement boundary. nah is different: it runs before the action
+        executes, classifying actions deterministically without spending tokens.
+      </p>
+      <p>
+        They can also be layered: nah provides the safety floor, while the
+        runtime adds intent-aware LLM review for ambiguous decisions. You get
+        fewer prompts without treating model judgment as a hard boundary. See
+        <a href="runtimes/claude-code/#claude-code-auto-mode">Claude Code Auto Mode with nah</a>.
       </p>
       <a class="nah-inline-link" href="https://www.anthropic.com/engineering/claude-code-auto-mode">Anthropic on Auto Mode's limits</a>
     </div>

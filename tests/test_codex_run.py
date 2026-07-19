@@ -501,6 +501,21 @@ def test_headless_uses_trusted_target_ask_fallback(tmp_path):
     assert launch.env["NAH_CODEX_HEADLESS_ASK_FALLBACK"] == "allow"
 
 
+def test_headless_forwards_native_ask_fallback_for_fail_closed_hook(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "targets:\n  codex:\n    ask_fallback: native\n",
+        encoding="utf-8",
+    )
+
+    with patch("nah.config._GLOBAL_CONFIG", str(config_path)):
+        launch = _launch(["exec", "run curl -I https://example.com"])
+
+    assert launch.headless is True
+    assert launch.headless_ask_fallback == "native"
+    assert launch.env["NAH_CODEX_HEADLESS_ASK_FALLBACK"] == "native"
+
+
 @pytest.mark.parametrize(
     "args",
     [

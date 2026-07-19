@@ -27,11 +27,15 @@ execs `claude --settings <hooks-json>`. If `nah install claude` has already
 been run, skips `--settings` injection and launches `claude` directly.
 
 Most flags after `nah run claude` are passed through to the `claude` CLI. nah
-rejects flags that bypass permissions, skip hooks, or auto-approve Claude Code
-permissions, including `--dangerously-skip-permissions`,
-`--allow-dangerously-skip-permissions`, `--bare`, `--enable-auto-mode`, and
-`--permission-mode auto` / `--permission-mode bypassPermissions`, because those
-can run tool calls outside the guarded path.
+rejects flags that bypass permissions or skip hooks, including
+`--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`,
+`--bare`, and `--permission-mode bypassPermissions`, because those can run tool
+calls outside the guarded path.
+
+Claude Code Auto Mode flags pass through normally. Set
+`targets.claude.ask_fallback: native` to keep nah's deterministic decisions and
+delegate only unresolved asks to Claude's native reviewer. See
+[Claude Code Auto Mode](runtimes/claude-code.md#claude-code-auto-mode).
 
 ### nah run codex
 
@@ -68,7 +72,8 @@ edits too.
 
 `nah run codex exec` is the guarded local headless path. In headless mode,
 unresolved asks block by default unless trusted Codex target config sets
-`ask_fallback: allow`.
+`ask_fallback: allow`. An explicit `ask_fallback: native` also fails closed to
+`block` because a headless run has no native approval prompt.
 
 nah rejects bypass flags, `codex apply`, `codex review`, remote/cloud runs, and
 user overrides for nah-managed permission keys. `--sandbox` is supported as a

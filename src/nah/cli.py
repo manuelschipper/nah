@@ -20,9 +20,8 @@ _CLAUDE_BLOCKED_FLAGS = {
     "--allow-dangerously-skip-permissions",
     "--bare",
     "--dangerously-skip-permissions",
-    "--enable-auto-mode",
 }
-_CLAUDE_BLOCKED_PERMISSION_MODES = {"auto", "bypassPermissions"}
+_CLAUDE_BLOCKED_PERMISSION_MODES = {"bypassPermissions"}
 _CLAUDE_TOOL_HOOK_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
@@ -1809,7 +1808,7 @@ def cmd_claude(user_args: list[str]) -> None:
         print(
             f"nah run claude: {blocked} is not allowed because nah cannot "
             "protect a Claude Code session launched with permission bypass, "
-            "hook bypass, or auto-approval enabled. Run `nah run claude` without that "
+            "or hook bypass enabled. Run `nah run claude` without that "
             "flag, or run `claude` directly if you intentionally want an "
             "unguarded session.",
             file=sys.stderr,
@@ -1896,8 +1895,6 @@ def _blocked_claude_flag(args: list[str]) -> str:
         if arg == "--":
             return ""
         if arg in _CLAUDE_BLOCKED_FLAGS:
-            return arg
-        if arg.startswith("--enable-auto-mode="):
             return arg
         if arg == "--permission-mode":
             if i + 1 < len(args) and args[i + 1] in _CLAUDE_BLOCKED_PERMISSION_MODES:

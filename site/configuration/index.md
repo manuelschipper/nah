@@ -182,11 +182,17 @@ targets:
 
 Global target overrides can set `actions`, `sensitive_paths_default`,
 `sensitive_paths`, `content_patterns.policies`, `llm.mode`,
-`ask_fallback` (the headless ask resolver, `allow` or `block`), UI settings,
-and shell `terminal` settings. Untrusted project target overrides can
+`ask_fallback` (`allow`, `block`, or `native`), UI settings, and shell
+`terminal` settings. Untrusted project target overrides can
 tighten action, sensitive-path, and content policies only. Trusted project
 config can loosen policy and change non-policy target settings for that exact
 project root.
+
+`ask_fallback: native` leaves unresolved asks to the interactive runtime's own
+permission flow. For Claude Code, this allows Auto Mode to review only the
+ambiguous remainder after nah's deterministic decisions. For interactive Codex,
+it makes the default native behavior explicit. Headless Codex resolves `native`
+to `block` because no native approval prompt is available.
 
 Codex approval settings are owned by `nah run codex`. The launcher defaults to
 Codex `danger-full-access` plus `untrusted` approvals; use

@@ -25,13 +25,16 @@ You shouldn't run a coding agent outside a sandbox. Sometimes you do it anyway,
 on your laptop or on a server with injected secrets. That leaves three ways to
 keep it in check, and each trades away something you need.
 
-### Three options, each a bad trade
+### Three options, different tradeoffs
 
 - **Manual permissions:** approve every action and you drown in prompts; pre-approve and you over-grant.
-- **Auto modes:** Claude Code Auto Mode, Codex auto-review. Less prompting, but an LLM is still deciding. Advice, not enforcement.
+- **Auto modes:** Claude Code Auto Mode, Codex auto-review. Less prompting and intent-aware review, but an LLM is still deciding. Advice, not enforcement.
 - **YOLO** (`--dangerously-skip-permissions`): speed, zero guardrails.
 
-The first two look fixable. They aren't, and it's worth seeing why.
+Manual permissions and auto modes can both be reasonable for a given security
+posture, and both are safer than disabling permissions entirely. nah is for
+when you want a deterministic policy layer without giving up native approval
+flows.
 
 ### A permission list of command names is the wrong abstraction
 
@@ -58,18 +61,23 @@ through prompts.
 ### Auto modes are advice, not enforcement
 
 Auto modes like Claude Code's Auto Mode and Codex auto review are a real
-improvement on skipping permissions, but they still lean on model judgement, and
-no classifier is perfect. Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode)
+improvement on skipping permissions and can be a reasonable fit for some
+security postures. But they still lean on model judgement, and no classifier is
+perfect. Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode)
 of Auto Mode is candid that the deployed pipeline still misses about 1 in 6 real
-overeager actions. nah thinks there's a more predictable path: classify the
-decisions you can express as policy deterministically, and get the same answer
-every time, in milliseconds with no tokens.
+overeager actions.
 
-### What nah does instead
+nah is different: it classifies the decisions you can express as policy
+deterministically and gives the same answer every time, in milliseconds with no
+tokens. The two approaches can also be used together: nah provides the safety
+floor, while the runtime adds intent-aware LLM review for ambiguous decisions.
+That means fewer prompts without treating model judgment as a hard boundary.
 
-**nah doesn't make you trade.** It reads what an action *does*, applies your
-policy in milliseconds, and gives the same answer every time. Low friction and
-no LLM required.
+### What nah adds
+
+nah reads what an action *does*, applies your policy in milliseconds, and gives
+the same answer every time. Use it on its own or underneath a native approval
+mode. Low friction and no LLM required by nah.
 
 ## The Idea
 
@@ -134,6 +142,27 @@ work everywhere. See
 See the [full install docs](https://nah.build/install/) for update, uninstall,
 plugin, and LLM key setup.
 
+### Claude Code Auto Mode
+
+To combine nah's deterministic policy with Claude Code's intent-aware Auto
+Mode, return unresolved asks to Claude's native permission flow:
+
+```yaml
+targets:
+  claude:
+    ask_fallback: native
+```
+
+Then start the protected session:
+
+```bash
+nah run claude --permission-mode auto
+```
+
+nah's deterministic blocks remain blocks. Only unresolved asks are delegated
+to Auto Mode. If direct hooks are installed, plain
+`claude --permission-mode auto` uses the same configuration.
+
 ### Claude Code Plugin-only Install
 
 Use the self-hosted plugin only if you want Claude Code protection without
@@ -148,11 +177,6 @@ claude plugin install nah@nah --scope user
 does not include `nah test`, Codex support, the terminal guard, PyYAML config
 support, or keyring support. If you already installed direct hooks, run
 `nah uninstall claude` before enabling it.
-
-**Don't use `--dangerously-skip-permissions` or `--enable-auto-mode`.** Just
-run `claude` in default mode. `nah run claude` rejects flags that bypass or
-auto-approve Claude Code permissions because those modes can run tool calls
-outside the guarded path.
 
 ## Benchmark
 

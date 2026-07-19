@@ -129,10 +129,10 @@ class TestAcceptanceCriteria:
         assert r.final_decision == "ask"
         assert r.stages[0].action_type == "agent_exec_bypass"
 
-    def test_nah_run_claude_auto_mode_asks(self, project_root):
+    def test_nah_run_claude_auto_mode_is_guarded(self, project_root):
         r = classify_command("nah run claude --enable-auto-mode")
         assert r.final_decision == "ask"
-        assert r.stages[0].action_type == "agent_exec_bypass"
+        assert r.stages[0].action_type == "agent_exec_write"
 
     def test_nah_update_allows_outside_git_root(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

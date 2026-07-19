@@ -1807,14 +1807,16 @@ class TestCodexClassifier:
         ["nah", "run", "claude"],
         ["nah", "run", "claude", "--resume"],
         ["nah", "run", "claude", "-p", "fix bug"],
+        ["nah", "run", "claude", "--enable-auto-mode"],
+        ["nah", "run", "claude", "--enable-auto-mode=true"],
+        ["nah", "run", "claude", "--permission-mode", "auto"],
+        ["nah", "run", "claude", "--permission-mode=auto"],
     ])
     def test_nah_run_claude_guarded_forms(self, tokens):
         assert _ct(tokens) == "agent_exec_write"
 
     @pytest.mark.parametrize("tokens", [
         ["nah", "run", "claude", "--dangerously-skip-permissions"],
-        ["nah", "run", "claude", "--enable-auto-mode"],
-        ["nah", "run", "claude", "--enable-auto-mode=true"],
         ["nah", "run", "claude", "--permission-mode", "bypassPermissions"],
         ["nah", "run", "claude", "--permission-mode=bypassPermissions"],
     ])

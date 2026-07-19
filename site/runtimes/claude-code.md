@@ -39,20 +39,53 @@ Claude process and its nah hooks. `--preset` is a nah launcher flag, not a
 Claude Code flag. If the preset name does not exist, nah stops before starting
 Claude Code.
 
-nah rejects Claude flags that bypass permissions, skip hooks, or auto-approve
-permissions:
+nah rejects Claude flags that bypass permissions or skip hooks:
 
 ```bash
 nah run claude --allow-dangerously-skip-permissions
 nah run claude --bare
 nah run claude --dangerously-skip-permissions
-nah run claude --enable-auto-mode
-nah run claude --permission-mode auto
 nah run claude --permission-mode bypassPermissions
 ```
 
 If direct hooks are installed, plain `claude` is still guarded. If they are
 not installed, plain `claude` runs without nah.
+
+## Claude Code Auto Mode
+
+Auto Mode uses model judgment to review permission requests against the user's
+intent. It reduces prompts and is safer than skipping permissions entirely, but
+it is not a deterministic enforcement boundary. nah and Auto Mode can be
+layered so each handles the decisions it is suited for.
+
+Configure nah to return unresolved asks to Claude Code's native permission
+flow:
+
+```yaml
+# ~/.config/nah/config.yaml
+targets:
+  claude:
+    ask_fallback: native
+```
+
+Then launch a protected Auto Mode session:
+
+```bash
+nah run claude --permission-mode auto
+```
+
+Claude versions that expose `--enable-auto-mode` can pass that flag through
+`nah run claude` too. If direct hooks are installed, plain
+`claude --permission-mode auto` uses the same nah configuration.
+
+`native` changes only unresolved `ask` decisions. nah's deterministic blocks
+remain blocks, while unresolved asks produce no hook verdict and return to
+Claude Code's native reviewer. With the default `active_allow: true`, nah also
+actively approves safe classified calls, leaving Auto Mode to review the
+ambiguous remainder.
+
+This setup requires an installation with YAML config support. The plugin-only
+install does not include that support.
 
 ## Persistent Direct Hooks
 

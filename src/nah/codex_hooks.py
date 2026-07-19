@@ -27,6 +27,7 @@ _HEADLESS_NETWORK_ENV = "NAH_CODEX_NETWORK"
 _SAFE_APPLY_PATCH_REASON = "apply_patch: safe project edit handled by nah"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _HEADLESS_ASK_FALLBACKS = {taxonomy.ALLOW, taxonomy.BLOCK}
+_HEADLESS_ASK_FALLBACK_CONFIGS = _HEADLESS_ASK_FALLBACKS | {"native"}
 _CODEX_PERMISSION_LLM_BUDGET_SECONDS = 10
 
 # Debug-only probe knob. Lets the hook deliberately stall so the harness can
@@ -278,7 +279,7 @@ def _headless_ask_fallback_mode() -> str:
 
 def _headless_ask_fallback_error() -> str:
     value = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
-    if value in _HEADLESS_ASK_FALLBACKS:
+    if value in _HEADLESS_ASK_FALLBACK_CONFIGS:
         return ""
     if value:
         return f"invalid headless ask fallback: {value}"
@@ -435,7 +436,9 @@ def _handle_headless_pre_tool_use(payload: dict, total_ms: int, stdout) -> None:
         if selected_preset:
             runtime["preset"] = selected_preset
         configured_mode = os.environ.get(_HEADLESS_ASK_FALLBACK_ENV, "").strip().lower()
-        if configured_mode and configured_mode not in _HEADLESS_ASK_FALLBACKS:
+        if configured_mode and configured_mode != mode:
+            runtime["ask_fallback_configured"] = configured_mode
+        if configured_mode and configured_mode not in _HEADLESS_ASK_FALLBACK_CONFIGS:
             runtime["ask_fallback_invalid"] = configured_mode
         meta["runtime"] = runtime
         meta["execution"] = _headless_pre_tool_execution(decision)

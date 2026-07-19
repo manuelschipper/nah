@@ -2524,8 +2524,6 @@ def _classify_nah_run_claude(tokens: list[str]) -> str | None:
     for i, tok in enumerate(tokens[3:], start=3):
         if tok == "--dangerously-skip-permissions":
             return AGENT_EXEC_BYPASS
-        if tok == "--enable-auto-mode" or tok.startswith("--enable-auto-mode="):
-            return AGENT_EXEC_BYPASS
         if tok == "--permission-mode" and i + 1 < len(tokens) and tokens[i + 1] == "bypassPermissions":
             return AGENT_EXEC_BYPASS
         if tok == "--permission-mode=bypassPermissions":

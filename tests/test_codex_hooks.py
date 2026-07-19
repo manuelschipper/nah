@@ -206,6 +206,34 @@ def test_headless_pre_tool_ask_fallback_allow_continues(project_root, tmp_path, 
     }
 
 
+def test_headless_pre_tool_native_fallback_fails_closed(project_root, tmp_path, monkeypatch):
+    monkeypatch.setenv("NAH_CODEX_HEADLESS", "1")
+    monkeypatch.setenv("NAH_CODEX_HEADLESS_ASK_FALLBACK", "native")
+
+    code, out = _run({
+        "hookEventName": "PreToolUse",
+        "session_id": "sess_headless_native",
+        "tool_name": "Bash",
+        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "transcript_path": "",
+    }, default_hook_event="PreToolUse")
+
+    assert code == 0
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "block"
+    assert entry["runtime"]["ask_fallback_configured"] == "native"
+    assert entry["runtime"]["ask_fallback_mode"] == "block"
+    assert entry["ask_fallback"]["mode"] == "block"
+    assert entry["ask_fallback"]["from"] == "ask"
+    assert entry["ask_fallback"]["to"] == "block"
+    assert entry["execution"] == {
+        "state": "not_run",
+        "ask_outcome": "not_applicable",
+    }
+
+
 def test_headless_pre_tool_allow_fallback_does_not_weaken_block(
     project_root,
     tmp_path,
@@ -430,6 +458,34 @@ def test_permission_request_ask_fallback_allow_emits_allow(project_root, tmp_pat
     assert entry["execution"] == {
         "state": "requested",
         "ask_outcome": "not_applicable",
+    }
+
+
+def test_permission_request_ask_fallback_native_returns_no_verdict(project_root, tmp_path):
+    config._cached_config = NahConfig(ask_fallback="native")
+    config._cached_target = None
+
+    code, out = _run({
+        "hookEventName": "PermissionRequest",
+        "session_id": "sess_codex",
+        "tool_name": "Bash",
+        "tool_input": {"command": "curl -I https://schipper.ai"},
+        "transcript_path": "",
+    })
+
+    assert code == 0
+    assert out == ""
+    entry = _log_entries(tmp_path)[-1]
+    assert entry["decision"] == "ask"
+    assert entry["ask_fallback"] == {
+        "mode": "native",
+        "from": "ask",
+        "to": "native",
+        "reason": "Bash: unknown host: schipper.ai",
+    }
+    assert entry["execution"] == {
+        "state": "requested",
+        "ask_outcome": "requested",
     }
 
 

@@ -1565,14 +1565,10 @@ class TestCmdClaude:
         (["--allow-dangerously-skip-permissions"], "--allow-dangerously-skip-permissions"),
         (["--bare"], "--bare"),
         (["--dangerously-skip-permissions"], "--dangerously-skip-permissions"),
-        (["--enable-auto-mode"], "--enable-auto-mode"),
-        (["--enable-auto-mode=true"], "--enable-auto-mode=true"),
-        (["--permission-mode", "auto"], "--permission-mode auto"),
-        (["--permission-mode=auto"], "--permission-mode=auto"),
         (["--permission-mode", "bypassPermissions"], "--permission-mode bypassPermissions"),
         (["--permission-mode=bypassPermissions"], "--permission-mode=bypassPermissions"),
     ])
-    def test_rejects_bypass_and_auto_mode_flags(self, args, expected, capsys):
+    def test_rejects_bypass_flags(self, args, expected, capsys):
         from nah.cli import cmd_claude
         with pytest.raises(SystemExit) as exc:
             cmd_claude(args)
@@ -1582,6 +1578,17 @@ class TestCmdClaude:
         assert expected in err
         assert "not allowed" in err
         assert "cannot protect" in err
+
+    @pytest.mark.parametrize("args", [
+        ["--enable-auto-mode"],
+        ["--enable-auto-mode=true"],
+        ["--permission-mode", "auto"],
+        ["--permission-mode=auto"],
+    ])
+    def test_allows_auto_mode_flags(self, args):
+        from nah.cli import _blocked_claude_flag
+
+        assert _blocked_claude_flag(args) == ""
 
     def test_claude_not_found(self):
         from nah.cli import cmd_claude

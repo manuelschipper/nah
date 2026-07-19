@@ -61,7 +61,9 @@ additional sandbox boundary but can also restrict host-level resources.
 For interactive Codex, the `PreToolUse` and `PostToolUse` hooks are
 observation-only. `PostToolUse` lets nah log execution outcomes without
 changing Codex's native approval UI. The interactive enforcement decision
-happens in `PermissionRequest`.
+happens in `PermissionRequest`. Setting `targets.codex.ask_fallback: native`
+makes the default interactive behavior explicit: an unresolved ask returns to
+Codex's native approval reviewer.
 
 When global `llm.mode: on` is configured, interactive Codex uses the same single
 LLM job as Claude Code: classify a deterministically unknown Bash command into a
@@ -110,6 +112,11 @@ fallback path when the task allows it.
 
 Unresolved asks are handled by `targets.codex.ask_fallback`. With the default
 fallback, unresolved asks fail closed as blocks.
+
+The accepted values are `block`, `allow`, and `native`. In headless mode,
+`native` resolves to `block` because there is no interactive approval prompt.
+The decision log records both the configured `native` mode and the effective
+`block` fallback.
 
 Trusted global config or a trusted preset can opt into unattended fallback
 allow:

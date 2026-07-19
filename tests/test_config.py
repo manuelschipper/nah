@@ -502,8 +502,8 @@ class TestMergeConfigs:
         cfg = _merge_configs({}, {}, target="codex")
         assert cfg.ask_fallback == ""
 
-    def test_target_ask_fallback_accepts_block_and_allow(self):
-        for mode in ("block", "allow"):
+    def test_target_ask_fallback_accepts_supported_modes(self):
+        for mode in ("block", "allow", "native"):
             cfg = _merge_configs(
                 {"targets": {"codex": {"ask_fallback": mode}}},
                 {},

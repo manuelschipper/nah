@@ -345,7 +345,7 @@ def _attach_pre_tool_runtime(decision: dict, data: dict) -> None:
 
 
 def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
-    """Convert a final ask decision to the configured target fallback."""
+    """Apply the configured target fallback to a final ask decision."""
     if decision.get("decision") != taxonomy.ASK:
         return decision
     if cfg is None:
@@ -353,7 +353,7 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
 
         cfg = get_config()
     mode = getattr(cfg, "ask_fallback", "")
-    if mode not in (taxonomy.ALLOW, taxonomy.BLOCK):
+    if mode not in (taxonomy.ALLOW, taxonomy.BLOCK, "native"):
         return decision
 
     original_reason = str(decision.get("reason", "") or "")
@@ -364,6 +364,11 @@ def _apply_ask_fallback(decision: dict, cfg=None) -> dict:
         "to": mode,
         "reason": original_reason,
     }
+    if mode == "native":
+        # Keep the audit result as ask; the caller can leave the hook output
+        # empty so the host's native permission flow decides what happens.
+        return decision
+
     decision["decision"] = mode
     verb = "blocked" if mode == taxonomy.BLOCK else "allowed"
     review = original_reason or "review required"
@@ -595,7 +600,13 @@ def main():
         decision.setdefault("_meta", {})["execution"] = _pre_tool_execution(decision)
         d = decision.get("decision", taxonomy.ALLOW)
 
-        if d != taxonomy.ALLOW or _is_active_allow(canonical):
+        ask_fallback = decision.get("_meta", {}).get("ask_fallback", {})
+        native_fallback = (
+            isinstance(ask_fallback, dict) and ask_fallback.get("to") == "native"
+        )
+        # Claude treats empty hook output as no hook decision, so its native
+        # permission mode handles only the unresolved asks delegated here.
+        if not native_fallback and (d != taxonomy.ALLOW or _is_active_allow(canonical)):
             enrich_decision(decision, tool=canonical)
             json.dump(_to_hook_output(decision, agent), sys.stdout)
             sys.stdout.write("\n")
