@@ -17,6 +17,13 @@
   <a href="https://nah.build/privacy/">Privacy</a>
 </p>
 
+> [!IMPORTANT]
+> **nah 1.0 is a ground-up Rust rewrite with breaking changes.** This Python
+> version is in maintenance mode. I will accept security, correctness, and small
+> low-risk fixes, but generally not new classifier or configuration features.
+> When 1.0 arrives, this version will remain available; pin `nah<1` or fork it
+> if you depend on its current behavior.
+
 ---
 
 ## The Problem
