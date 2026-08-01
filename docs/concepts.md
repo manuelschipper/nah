@@ -1,0 +1,76 @@
+# Core concepts
+
+## Effects and coverage
+
+nah does not decide from a command name alone. It lowers a visible tool call
+into typed invocation, filesystem, Git, network, and system-state effects.
+Observation resolves requested working directories, project roots, paths, and
+environment values before guards evaluate them.
+
+Coverage is `full` only when nah preserves every visible input required for
+guard evaluation. This is representation completeness, not proof that nah
+understands an opaque program. Unknown semantics may be fully represented;
+unresolved arguments, code, or native fields remain `partial`.
+
+For Bash, nah parses visible pipelines, branches, loops, subshells, and
+redirects, then unions their possible effects into stages and data-flow edges.
+Unresolved shell state or expansion makes the stream partial.
+
+## Verdicts and failures
+
+- `block` — an active guard or structural self-protection found definite danger.
+- `delegate` — nothing blocked; the runtime keeps control.
+
+A completed decision has only these verdicts; evaluation failure is diagnostic
+state, not a third verdict. A custom-guard failure contributes no finding, so
+other guards still decide. A failure before or within built-in evaluation
+delegates. If no valid decision is produced, there is no verdict and fallback
+is runtime-specific.
+
+nah never approves a call. Delegation returns control to the runtime's normal
+permission or execution behavior. nah is a guard layer, not an approval UI or
+sandbox.
+
+## Guards
+
+A guard blocks a narrow dangerous behavior such as remote content flowing into
+execution, a destructive Git operation, or access to a sensitive path. Guards
+compose by union: any one of them can block a call, and none of them can
+approve one.
+
+An activated custom guard is a one-shot executable that answers `block` or
+`abstain`. Abstain means no finding, not approval. Failure or an invalid response
+contributes a typed failure but no finding.
+
+Coverage does not gate guards: definite evidence may block even when the stream
+is partial; uncertainty alone never blocks.
+
+Run `nah docs guards` for the installed catalog and three tested,
+non-exhaustive examples per built-in guard.
+
+## Trust and activation
+
+User custom guards require activation. Project custom guards require both
+project trust and separate activation; nah does not read their manifests before
+trust. Activation pins the manifest, executable, and declared data. Changed or
+missing activated bytes do not run and add an evaluation failure.
+
+Before trust, `.nah/project.toml` may enable additional built-in guards but
+cannot disable guards or execute repository code. Agents may edit inert guard
+proposals; a human performs trust and activation out of band. nah blocks
+understood intercepted attempts to cross that boundary or disable active
+runtime wiring.
+
+`nah nap` gives the operator a fixed 10-minute, user-global maintenance window:
+plain nap pauses self-protection while guards continue; `--all` pauses every
+non-permanent layer. Permanent nap-state protection remains. See `nah docs
+configuration` and `nah docs security`.
+
+## Audit records
+
+Completed live non-dry-run decisions attempt a redacted audit append; recording
+failure never changes the verdict. Stored records name the deciding runtime
+(`unknown` for plain `nah decide`). `nah why <id>` explains one, `nah log` lists
+recent decisions, and `nah log --blocked` lists blocks independently of
+intervening delegates. `nah log --json` emits JSON Lines. Human log and TUI
+views summarize retained evaluation failures without changing JSON output.

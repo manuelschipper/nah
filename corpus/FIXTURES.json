@@ -1,0 +1,1887 @@
+{
+  "v": 1,
+  "ctx_fixtures": {
+    "default-linux-v1": {
+      "all_shipped_guards_enabled": true,
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    }
+  },
+  "observation_fixtures": {
+    "project-linux-v1": {
+      "cwd": "/workspace/outside",
+      "env": {},
+      "paths": [
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/script.sh",
+          "resolved": "/workspace/outside/script.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "f1",
+          "resolved": "/workspace/outside/f1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "f2",
+          "resolved": "/workspace/outside/f2"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "project-root-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "src",
+          "resolved": "/workspace/project/src"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/.env",
+          "requested": "src/.env",
+          "resolved": "/workspace/project/src/.env"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": ".env",
+          "resolved": "/workspace/project/.env"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/data.txt",
+          "resolved": "/workspace/outside/data.txt"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "composition-linux-v1": {
+      "cwd": "/workspace/outside",
+      "env": {},
+      "paths": [
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "file.txt",
+          "resolved": "/workspace/outside/file.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/file.txt",
+          "resolved": "/workspace/outside/file.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/payload.sh",
+          "requested": "/tmp/payload.sh",
+          "resolved": "/tmp/payload.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "filter.py",
+          "resolved": "/workspace/outside/filter.py"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "package.json",
+          "resolved": "/workspace/outside/package.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/id_rsa",
+          "resolved": "/home/test/.ssh/id_rsa"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/config",
+          "resolved": "/home/test/.ssh/config"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/id_ed25519.pub",
+          "resolved": "/home/test/.ssh/id_ed25519.pub"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/*/.aws/credentials",
+          "resolved": "/home/*/.aws/credentials"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home",
+          "requested": "/home",
+          "resolved": "/home",
+          "descendants": [
+            "/home/test/.aws/credentials"
+          ]
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "downloaded.sh",
+          "resolved": "/workspace/outside/downloaded.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "--help",
+          "resolved": "/workspace/outside/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "payload.ps1",
+          "resolved": "/workspace/outside/payload.ps1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/--help",
+          "resolved": "/workspace/outside/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/payload.ps1",
+          "resolved": "/workspace/outside/payload.ps1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "unrelated.sh",
+          "resolved": "/workspace/outside/unrelated.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/downloaded.sh",
+          "resolved": "/workspace/outside/downloaded.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/bash",
+          "resolved": "/workspace/outside/bash"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/unrelated.sh",
+          "resolved": "/workspace/outside/unrelated.sh"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/dev/null",
+          "requested": "/dev/null",
+          "resolved": "/dev/null"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "local.sh",
+          "resolved": "/workspace/outside/local.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/local.sh",
+          "resolved": "/workspace/outside/local.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/proc/999999/fd/3",
+          "resolved": "/proc/999999/fd/3"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "payload.sh",
+          "resolved": "/workspace/outside/payload.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/payload.sh",
+          "resolved": "/workspace/outside/payload.sh"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/proc/self/fd",
+          "requested": "/dev/fd",
+          "resolved": "/dev/fd"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/outside",
+          "requested": "/workspace/outside",
+          "resolved": "/workspace/outside"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/out",
+          "resolved": "/workspace/outside/out"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/carrier.tar",
+          "resolved": "/workspace/outside/carrier.tar"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/carrier.zip",
+          "resolved": "/workspace/outside/carrier.zip"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/out/dev/fd/3",
+          "resolved": "/workspace/outside/out/dev/fd/3"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/carrier",
+          "resolved": "/workspace/outside/carrier"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/carrier/3",
+          "resolved": "/workspace/outside/carrier/3"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "filesystem-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/",
+          "requested": "/",
+          "resolved": "/"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/dev",
+          "requested": "/dev",
+          "resolved": "/dev"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/proc",
+          "requested": "/proc",
+          "resolved": "/proc"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/sys",
+          "requested": "/sys",
+          "resolved": "/sys"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/run",
+          "requested": "/run",
+          "resolved": "/run"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/run/nah-old.sock",
+          "resolved": "/run/nah-old.sock"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/etc",
+          "requested": "/etc",
+          "resolved": "/etc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/does-not-exist",
+          "resolved": "/does-not-exist"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/unobserved",
+          "resolved": "/tmp/unobserved"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/output",
+          "resolved": "/tmp/output"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/example",
+          "resolved": "/tmp/example"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/downloaded.sh",
+          "resolved": "/workspace/project/downloaded.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/payload.sh",
+          "resolved": "/workspace/project/payload.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/installed.sh",
+          "resolved": "/workspace/project/installed.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/linked.sh",
+          "resolved": "/workspace/project/linked.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/copied.sh",
+          "resolved": "/workspace/project/copied.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local-copy",
+          "resolved": "/workspace/project/local-copy"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/safe",
+          "resolved": "/workspace/project/safe"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/source",
+          "resolved": "/workspace/project/source"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/out.tar",
+          "resolved": "/workspace/project/out.tar"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/x",
+          "resolved": "/workspace/project/x"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/*",
+          "resolved": "/home/test/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/Downloads/old-build",
+          "resolved": "/home/test/Downloads/old-build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/sda",
+          "resolved": "/dev/sda"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/zero",
+          "resolved": "/dev/zero"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/loop0",
+          "resolved": "/dev/loop0"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/sdaa",
+          "resolved": "/dev/sdaa"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/nvme0c0n1",
+          "resolved": "/dev/nvme0c0n1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/pmem0",
+          "resolved": "/dev/pmem0"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/dax0.0",
+          "resolved": "/dev/dax0.0"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/ada0p1",
+          "resolved": "/dev/ada0p1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/mem",
+          "resolved": "/dev/mem"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/sd",
+          "resolved": "/dev/sd"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/pmem",
+          "resolved": "/dev/pmem"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/dev/nvme0cXn1",
+          "resolved": "/dev/nvme0cXn1"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/proc/sysrq-trigger",
+          "requested": "/proc/sysrq-trigger",
+          "resolved": "/proc/sysrq-trigger"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/usr/bin",
+          "requested": "/bin",
+          "resolved": "/bin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/usr/bin",
+          "requested": "/usr/bin",
+          "resolved": "/usr/bin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/usr/sbin",
+          "requested": "/usr/sbin",
+          "resolved": "/usr/sbin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp",
+          "requested": "/tmp",
+          "resolved": "/tmp"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp/out",
+          "requested": "/tmp/out/",
+          "resolved": "/tmp/out/"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/chmod",
+          "requested": "/tmp/chmod",
+          "resolved": "/tmp/chmod"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/et?",
+          "resolved": "/et?"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/private/tmp",
+          "requested": "/private/tmp",
+          "resolved": "/private/tmp"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-old-build",
+          "resolved": "/tmp/nah-old-build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/usr/bin/nah-old-tool",
+          "resolved": "/usr/bin/nah-old-tool"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/usr/bin",
+          "requested": "system-link",
+          "resolved": "/workspace/project/system-link"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/usr/bin",
+          "requested": "/workspace/project/system-link",
+          "resolved": "/workspace/project/system-link"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/commands",
+          "resolved": "/tmp/commands"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/résumé.txt",
+          "resolved": "/workspace/project/résumé.txt"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "secrets-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/id_rsa",
+          "resolved": "/home/test/.ssh/id_rsa"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.ssh/config",
+          "requested": "/home/test/.ssh/config",
+          "resolved": "/home/test/.ssh/config"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.ssh/id_ed25519.pub",
+          "requested": "/home/test/.ssh/id_ed25519.pub",
+          "resolved": "/home/test/.ssh/id_ed25519.pub"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/id_ed25519.backup",
+          "resolved": "/home/test/.ssh/id_ed25519.backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/id_ed25519.pub.backup",
+          "resolved": "/home/test/.ssh/id_ed25519.pub.backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/README.md",
+          "resolved": "/home/test/.ssh/README.md"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/notes.txt",
+          "resolved": "/home/test/.ssh/notes.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/config.backup",
+          "resolved": "/home/test/.ssh/config.backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/known_hosts",
+          "resolved": "/home/test/.ssh/known_hosts"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/authorized_keys",
+          "resolved": "/home/test/.ssh/authorized_keys"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/*/.ssh/id_rsa",
+          "resolved": "/home/*/.ssh/id_rsa"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gnupg/private-keys-v1.d/key",
+          "resolved": "/home/test/.gnupg/private-keys-v1.d/key"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gnupg",
+          "resolved": "/home/test/.gnupg"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.git-credentials",
+          "resolved": "/home/test/.git-credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.netrc",
+          "resolved": "/home/test/.netrc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.npmrc",
+          "resolved": "/home/test/.npmrc"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/etc/shadow",
+          "requested": "/etc/shadow",
+          "resolved": "/etc/shadow"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/list",
+          "requested": "/workspace/project/list",
+          "resolved": "/workspace/project/list"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.ssh/id_rsa",
+          "resolved": "/workspace/project/.ssh/id_rsa"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/alias",
+          "resolved": "/workspace/project/alias"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.env.local",
+          "resolved": "/workspace/project/.env.local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.env.bak",
+          "resolved": "/workspace/project/.env.bak"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.env.example",
+          "resolved": "/workspace/project/.env.example"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.envrc",
+          "resolved": "/workspace/project/.envrc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.pypirc",
+          "resolved": "/workspace/project/.pypirc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.pgpass",
+          "resolved": "/workspace/project/.pgpass"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.boto",
+          "resolved": "/workspace/project/.boto"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/terraform.tfvars",
+          "resolved": "/workspace/project/terraform.tfvars"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.aws/credentials",
+          "resolved": "/home/test/.aws/credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.aws/sso/cache/session.json",
+          "resolved": "/home/test/.aws/sso/cache/session.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/alice/.aws/credentials",
+          "resolved": "/home/alice/.aws/credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/var/lib/service/.aws/credentials",
+          "resolved": "/var/lib/service/.aws/credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.aws/config",
+          "resolved": "/home/test/.aws/config"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/gcloud/application_default_credentials.json",
+          "resolved": "/home/test/.config/gcloud/application_default_credentials.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/gcloud/credentials.db",
+          "resolved": "/home/test/.config/gcloud/credentials.db"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/gh/hosts.yml",
+          "resolved": "/home/test/.config/gh/hosts.yml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.cargo/credentials.toml",
+          "resolved": "/home/test/.cargo/credentials.toml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/pypoetry/auth.toml",
+          "resolved": "/home/test/.config/pypoetry/auth.toml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gem/credentials",
+          "resolved": "/home/test/.gem/credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/glab-cli/config.yml",
+          "resolved": "/home/test/.config/glab-cli/config.yml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/containers/auth.json",
+          "resolved": "/home/test/.config/containers/auth.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gnupg/gpg.conf",
+          "resolved": "/home/test/.gnupg/gpg.conf"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/config.d/work",
+          "resolved": "/home/test/.ssh/config.d/work"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/authorized_keys.d/work",
+          "resolved": "/home/test/.ssh/authorized_keys.d/work"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.docker/config.json",
+          "resolved": "/home/test/.docker/config.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.kube/config",
+          "resolved": "/home/test/.kube/config"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/etc/kubernetes/admin.conf",
+          "resolved": "/etc/kubernetes/admin.conf"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/audit.jsonl",
+          "resolved": "/home/test/.nah/audit.jsonl"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": ".npmrc",
+          "resolved": "/workspace/project/.npmrc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": ".env.production",
+          "resolved": "/workspace/project/.env.production"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "loot",
+          "resolved": "/workspace/project/loot"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/loot",
+          "resolved": "/workspace/project/loot"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "backup",
+          "resolved": "/workspace/project/backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/backup",
+          "resolved": "/workspace/project/backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/metadata-copy",
+          "resolved": "/workspace/project/metadata-copy"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/home/test/.ssh/id_rsa",
+          "requested": "innocent-key",
+          "resolved": "/workspace/project/innocent-key"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/home/test/.ssh/id_rsa",
+          "requested": "/workspace/project/innocent-key",
+          "resolved": "/workspace/project/innocent-key"
+        },
+        {
+          "requested": "/workspace/project/id_rsa",
+          "resolved": "/workspace/project/id_rsa",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/certs/server.key"
+          ]
+        },
+        {
+          "requested": "/workspace/project/certs",
+          "resolved": "/workspace/project/certs",
+          "realpath": "/workspace/project/certs",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/certs/server.key"
+          ]
+        },
+        {
+          "requested": "/workspace/project/src",
+          "resolved": "/workspace/project/src",
+          "realpath": "/workspace/project/src",
+          "kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/source",
+          "resolved": "/workspace/project/source",
+          "realpath": "/workspace/project/source",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/source/server.key"
+          ]
+        },
+        {
+          "requested": "/workspace/project/source/server.key",
+          "resolved": "/workspace/project/source/server.key",
+          "realpath": "/workspace/project/source/server.key",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/source-link",
+          "resolved": "/workspace/project/source-link",
+          "realpath": "/workspace/project/source",
+          "kind": "symlink",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/source/server.key"
+          ]
+        },
+        {
+          "requested": "/workspace/project/hardlinks",
+          "resolved": "/workspace/project/hardlinks",
+          "realpath": "/workspace/project/hardlinks",
+          "kind": "directory",
+          "exists": true,
+          "descendants_incomplete": true
+        },
+        {
+          "requested": "/workspace/project/generated",
+          "resolved": "/workspace/project/generated",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/generated/.env",
+          "resolved": "/workspace/project/generated/.env",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/generated/certs",
+          "resolved": "/workspace/project/generated/certs",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/generated/blob",
+          "resolved": "/workspace/project/generated/blob",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/staging",
+          "resolved": "/workspace/project/staging",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/staging/blob",
+          "resolved": "/workspace/project/staging/blob",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/staged.tgz",
+          "resolved": "/workspace/project/staged.tgz",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/source/server.key.gz",
+          "resolved": "/workspace/project/source/server.key.gz",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/source/server.key.bz2",
+          "resolved": "/workspace/project/source/server.key.bz2",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/source/server.key.xz",
+          "resolved": "/workspace/project/source/server.key.xz",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/source/server.key.packed",
+          "resolved": "/workspace/project/source/server.key.packed",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/existing",
+          "resolved": "/workspace/project/existing",
+          "realpath": "/workspace/project/existing",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/flow-target",
+          "resolved": "/workspace/project/flow-target",
+          "realpath": "/workspace/project/flow-target",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/flow-alias",
+          "resolved": "/workspace/project/flow-alias",
+          "realpath": "/workspace/project/flow-target",
+          "kind": "symlink",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/fifo",
+          "resolved": "/workspace/project/fifo",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/existing-fifo",
+          "resolved": "/workspace/project/existing-fifo",
+          "realpath": "/workspace/project/existing-fifo",
+          "kind": "fifo",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/existing-fifo-link",
+          "resolved": "/workspace/project/existing-fifo-link",
+          "realpath": "/workspace/project/existing-fifo",
+          "kind": "symlink",
+          "target_kind": "fifo",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/dynamic-fifo-link",
+          "resolved": "/workspace/project/dynamic-fifo-link",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/large",
+          "resolved": "/workspace/project/large",
+          "realpath": "/workspace/project/large",
+          "kind": "directory",
+          "exists": true,
+          "descendants_incomplete": true
+        },
+        {
+          "requested": "/workspace/project/certs/server.key",
+          "resolved": "/workspace/project/certs/server.key",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/test/fixtures/server.key",
+          "resolved": "/workspace/project/test/fixtures/server.key",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/test/fixtures/ca.pem",
+          "resolved": "/workspace/project/test/fixtures/ca.pem",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/package.json",
+          "resolved": "/workspace/project/package.json",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/docs/credentials.md",
+          "resolved": "/workspace/project/docs/credentials.md",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/home/test/.ssh",
+          "resolved": "/home/test/.ssh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/home/test/.ssh/",
+          "resolved": "/home/test/.ssh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/home/test/Library/Keychains",
+          "resolved": "/home/test/Library/Keychains",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/home/test/Library/Keychains/login.keychain-db",
+          "resolved": "/home/test/Library/Keychains/login.keychain-db",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/dist.tgz",
+          "resolved": "/workspace/project/dist.tgz",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/backup/",
+          "resolved": "/workspace/project/backup/",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/local.tar",
+          "resolved": "/workspace/project/local.tar",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/evil.example:/tmp/archive",
+          "resolved": "/workspace/project/evil.example:/tmp/archive",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/-d@.env",
+          "resolved": "/workspace/project/-d@.env",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "local-utilities-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/sorted.txt",
+          "resolved": "/workspace/project/sorted.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/etc/passwd",
+          "requested": "/etc/passwd",
+          "resolved": "/etc/passwd"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/data.txt",
+          "resolved": "/workspace/outside/data.txt"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/src",
+          "requested": "/workspace/project/src",
+          "resolved": "/workspace/project/src",
+          "descendants": [
+            "/workspace/project/src/lib.rs"
+          ]
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "project-operations-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/copied.rs",
+          "resolved": "/workspace/project/copied.rs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/old.txt",
+          "requested": "/workspace/project/old.txt",
+          "resolved": "/workspace/project/old.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/moved.txt",
+          "resolved": "/workspace/project/moved.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/generated",
+          "resolved": "/workspace/project/generated"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/generated.txt",
+          "resolved": "/workspace/project/generated.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/build/output",
+          "requested": "/workspace/project/build/output",
+          "resolved": "/workspace/project/build/output"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/empty-dir",
+          "requested": "/workspace/project/empty-dir",
+          "resolved": "/workspace/project/empty-dir"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/input",
+          "resolved": "/workspace/outside/input"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/output",
+          "resolved": "/workspace/outside/output"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "self-protection-linux-v1": {
+      "cwd": "/workspace/project",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/bin/true",
+          "requested": "/bin/true",
+          "resolved": "/bin/true"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.local/bin/nah",
+          "requested": "/home/test/.local/bin/nah",
+          "resolved": "/home/test/.local/bin/nah"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/trust.json",
+          "resolved": "/home/test/.nah/trust.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/config",
+          "resolved": "/home/test/.nah/config"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/alias",
+          "resolved": "/workspace/project/alias"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/replacement",
+          "resolved": "/workspace/project/replacement"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/nap.json",
+          "resolved": "/home/test/.nah/nap.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.nah/trust.json",
+          "requested": "/home/test/.nah/guards/../trust.json",
+          "resolved": "/home/test/.nah/guards/../trust.json"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "/home/test/.nah/trust.json",
+          "requested": "/home/test/.nah/guards/demo/trust-link",
+          "resolved": "/home/test/.nah/guards/demo/trust-link"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/activations.json",
+          "resolved": "/home/test/.nah/activations.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah/guards/demo/run",
+          "resolved": "/home/test/.nah/guards/demo/run"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.nah-archive/notes",
+          "resolved": "/home/test/.nah-archive/notes"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.claude/hooks/evil",
+          "resolved": "/home/test/.claude/hooks/evil"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/Documents/Cline/Hooks/PreToolUse",
+          "resolved": "/home/test/Documents/Cline/Hooks/PreToolUse"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/Cline/Hooks/PreToolUse",
+          "resolved": "/home/test/Cline/Hooks/PreToolUse"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.clinerules/hooks/PreToolUse",
+          "resolved": "/workspace/project/.clinerules/hooks/PreToolUse"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.cline/hooks/PreToolUse",
+          "resolved": "/workspace/project/.cline/hooks/PreToolUse"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.cline/plugins/unsafe.js",
+          "resolved": "/workspace/project/.cline/plugins/unsafe.js"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.copilot",
+          "resolved": "/home/test/.copilot"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.copilot/hooks/nah.json",
+          "resolved": "/home/test/.copilot/hooks/nah.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.copilot/settings.json",
+          "resolved": "/home/test/.copilot/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.github/extensions/unsafe/index.js",
+          "resolved": "/workspace/project/.github/extensions/unsafe/index.js"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.github/hooks/nah.json",
+          "resolved": "/workspace/project/.github/hooks/nah.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.github/copilot/settings.local.json",
+          "resolved": "/workspace/project/.github/copilot/settings.local.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.vscode/settings.json",
+          "resolved": "/workspace/project/.vscode/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.cursor/hooks.json",
+          "resolved": "/home/test/.cursor/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gemini/config/hooks.json",
+          "resolved": "/home/test/.gemini/config/hooks.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.gemini",
+          "requested": "/home/test/.gemini",
+          "resolved": "/home/test/.gemini"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gemini/antigravity-cli/plugins/unsafe/hooks.json",
+          "resolved": "/home/test/.gemini/antigravity-cli/plugins/unsafe/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.gemini/config/plugins/unsafe/hooks.json",
+          "resolved": "/home/test/.gemini/config/plugins/unsafe/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.agents/hooks.json",
+          "resolved": "/workspace/project/.agents/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.agents/plugins/unsafe/hooks.json",
+          "resolved": "/workspace/project/.agents/plugins/unsafe/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.cursor/hooks/override.sh",
+          "resolved": "/workspace/project/.cursor/hooks/override.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/devin",
+          "resolved": "/home/test/.config/devin"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/devin/config.json",
+          "resolved": "/home/test/.config/devin/config.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/opencode/plugins/nah.js",
+          "resolved": "/home/test/.config/opencode/plugins/nah.js"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.opencode/plugins/mutate.js",
+          "resolved": "/workspace/project/.opencode/plugins/mutate.js"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/amp/plugins/nah.ts",
+          "resolved": "/home/test/.config/amp/plugins/nah.ts"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.amp/plugins/mutate.ts",
+          "resolved": "/workspace/project/.amp/plugins/mutate.ts"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.factory/settings.json",
+          "resolved": "/home/test/.factory/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.factory/settings.local.json",
+          "resolved": "/workspace/project/.factory/settings.local.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.factory/plugins/unsafe.js",
+          "resolved": "/workspace/project/.factory/plugins/unsafe.js"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.nah/guards/demo/run",
+          "resolved": "/workspace/project/.nah/guards/demo/run"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.nah/project.toml",
+          "resolved": "/workspace/project/.nah/project.toml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/bin/nah",
+          "resolved": "/workspace/project/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/nah",
+          "requested": "/workspace/project/nah",
+          "resolved": "/workspace/project/nah"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/source.txt",
+          "requested": "/workspace/project/source.txt",
+          "resolved": "/workspace/project/source.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/fix.patch",
+          "requested": "/workspace/project/fix.patch",
+          "resolved": "/workspace/project/fix.patch"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/bundle.tar",
+          "requested": "/workspace/project/bundle.tar",
+          "resolved": "/workspace/project/bundle.tar"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/usr/local/bin/nah",
+          "requested": "/usr/local/bin/nah",
+          "resolved": "/usr/local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.nah",
+          "requested": "/home/test/.nah",
+          "resolved": "/home/test/.nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.local/bin",
+          "requested": "/home/test/.local/bin",
+          "resolved": "/home/test/.local/bin"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/unrelated",
+          "resolved": "/tmp/unrelated"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+#![forbid(unsafe_code)]
+#![forbid(
+    clippy::disallowed_macros,
+    clippy::disallowed_methods,
+    clippy::disallowed_types
+)]
+
+//! Pure decision reduction from ActionStream, PolicyCtx, and validated guard
+//! responses into DecisionCore. Shipped guards live here as plain
+//! Rust code; transport, validation, and orchestration do not.
+
+use nah_proto::action::ActionStream;
+use nah_proto::ctx::PolicyCtx;
+use nah_proto::decision::{
+    DecisionCore, DecisionError, GuardAttribution, GuardContribution, Verdict,
+};
+use nah_proto::extension::ValidatedExtensionResponse;
+
+mod execution_guards;
+mod filesystem_guards;
+mod git_guards;
+mod secret_guards;
+mod structural;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EnforcementMode {
+    Normal,
+    SelfProtectionPaused,
+    AllPaused,
+}
+
+pub const SHIPPED_GUARDS: &[&str] = &[
+    "exec-decoded",
+    "exec-network-shell",
+    "exec-obfuscated",
+    "exec-remote",
+    "exfil-pipe",
+    "fs-forkbomb",
+    "fs-home",
+    "fs-raw-device",
+    "fs-root",
+    "fs-storage-destroy",
+    "git-force-push",
+    "git-hard-reset",
+    "git-metadata",
+    "git-recovery-destroy",
+    "git-rewrite-force",
+    "secrets-env",
+    "secrets-keys",
+];
+
+/// Reduces shipped policy and already-validated extension responses.
+///
+/// Shipped guards, self-protection, and validated extension responses meet only
+/// at this reducer. Incomplete analysis is evidence, not a block: a call blocks
+/// only when a guard or self-protection positively identifies it.
+pub fn decide(
+    action_stream: &ActionStream,
+    policy_ctx: &PolicyCtx,
+    responses: &[ValidatedExtensionResponse],
+) -> Result<DecisionCore, DecisionError> {
+    decide_with_mode(
+        action_stream,
+        policy_ctx,
+        responses,
+        EnforcementMode::Normal,
+    )
+}
+
+pub fn decide_with_mode(
+    action_stream: &ActionStream,
+    policy_ctx: &PolicyCtx,
+    responses: &[ValidatedExtensionResponse],
+    mode: EnforcementMode,
+) -> Result<DecisionCore, DecisionError> {
+    if structural::permanent_blocks(action_stream) {
+        return DecisionCore::structural_block(action_stream, structural::PERMANENT_REASON);
+    }
+    if mode == EnforcementMode::AllPaused {
+        return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
+    }
+    if mode == EnforcementMode::Normal && structural::critical_blocks(action_stream) {
+        return DecisionCore::structural_block(action_stream, structural::CRITICAL_REASON);
+    }
+
+    let mut contributions = Vec::new();
+    let filesystem_block = filesystem_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let git_block = git_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let secret_block = secret_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let execution_block = execution_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let shipped_block = filesystem_block || git_block || secret_block || execution_block;
+    let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
+
+    add_extension_guards(responses, &mut contributions)?;
+
+    let verdict = if has_block {
+        Verdict::Block
+    } else {
+        Verdict::Delegate
+    };
+
+    DecisionCore::new(action_stream, verdict, contributions)
+}
+
+fn add_extension_guards(
+    responses: &[ValidatedExtensionResponse],
+    contributions: &mut Vec<GuardContribution>,
+) -> Result<(), DecisionError> {
+    for response in responses.iter().filter(|response| response.is_block()) {
+        let guard = GuardAttribution::extension(response.activation().clone());
+        contributions.push(GuardContribution::new(guard, response.reason())?);
+    }
+    Ok(())
+}

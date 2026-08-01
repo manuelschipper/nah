@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nah-proto",
+    "crates/nah-parse",
+    "crates/nah-actions",
+    "crates/nah-observe",
+    "crates/nah-policy",
+    "crates/nah-extensions",
+    "crates/nah-cli",
+    "crates/nah-corpus",
+    "tools/gates",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.91.1"
+license = "MIT"
+publish = false

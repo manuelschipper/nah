@@ -1,0 +1,5 @@
+error[E0451]: fields `activation`, `outcome` and `reason` of struct `ValidatedExtensionResponse` are private
+ --> tests/ui/validated_response_struct_literal.rs:4:36
+  |
+4 |     ValidatedExtensionResponse { ..value }
+  |                                    ^^^^^ fields `activation`, `outcome` and `reason` are private

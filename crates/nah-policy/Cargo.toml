@@ -1,0 +1,17 @@
+[package]
+name = "nah-policy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nah-proto = { path = "../nah-proto" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "decide"
+harness = false

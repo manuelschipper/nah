@@ -1,0 +1,17 @@
+/target
+__pycache__/
+.internal/
+.playwright-mcp/
+/ARCHITECTURE.md
+/BUILD.md
+/SPEC.md
+
+# agent worktrees
+.claude/worktrees/
+
+# homepage build output and recorder sandbox
+/homepage/dist/
+/homepage/.tui-home/
+/homepage/wasm/target/
+/.wrangler/
+/.molds/

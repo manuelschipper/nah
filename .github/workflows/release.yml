@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo "CC_$(echo '${{ matrix.target }}' | tr '-' '_')=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked -p nah-cli --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          BIN=target/${{ matrix.target }}/release/nah
+          strip "$BIN" || true
+          mkdir -p pkg
+          cp "$BIN" LICENSE pkg/
+          tar -C pkg -czf nah-${{ matrix.target }}.tar.gz nah LICENSE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nah-${{ matrix.target }}
+          path: nah-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Checksums
+        run: sha256sum nah-*.tar.gz > sha256sums.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          FLAGS=""
+          case "$TAG" in *-*) FLAGS="--prerelease" ;; esac
+          gh release create "$TAG" $FLAGS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "nah $TAG" \
+            --notes "See [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md)." \
+            nah-*.tar.gz sha256sums.txt

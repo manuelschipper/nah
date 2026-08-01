@@ -1,0 +1,161 @@
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+
+mod support;
+
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use serde_json::{Value, json};
+use support::repo;
+
+fn run_hook(home: &std::path::Path, payload: Value) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "copilot", "run"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("COPILOT_HOME")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn cli_payload(cwd: &std::path::Path, tool: &str, input: Value) -> Value {
+    json!({
+        "sessionId":"session-1",
+        "timestamp":1,
+        "cwd":cwd,
+        "toolName":tool,
+        "toolArgs":input.to_string()
+    })
+}
+
+fn vscode_payload(cwd: &std::path::Path, tool: &str, input: Value) -> Value {
+    json!({
+        "hook_event_name":"PreToolUse",
+        "session_id":"session-1",
+        "timestamp":"2026-07-26T00:00:00Z",
+        "cwd":cwd,
+        "tool_name":tool,
+        "tool_input":input
+    })
+}
+
+#[test]
+fn adapter_maps_cli_and_vscode_decisions() {
+    let home_temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah
+    // resolves paths before matching them
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    let project = repo(home);
+    std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+
+    let delegated = run_hook(
+        home,
+        cli_payload(&project, "bash", json!({"command":"git status"})),
+    );
+    assert!(delegated.status.success(), "{delegated:?}");
+    assert!(delegated.stdout.is_empty());
+
+    let delegated = run_hook(
+        home,
+        cli_payload(&project, "web_fetch", json!({"url":"https://example.com"})),
+    );
+    assert!(delegated.status.success(), "{delegated:?}");
+    assert!(delegated.stdout.is_empty());
+
+    let runtime_lifecycle = run_hook(
+        home,
+        vscode_payload(
+            &project,
+            "runTerminalCommand",
+            json!({"command":"nah hook copilot uninstall"}),
+        ),
+    );
+    assert!(runtime_lifecycle.status.success(), "{runtime_lifecycle:?}");
+    let output: Value = serde_json::from_slice(&runtime_lifecycle.stdout).unwrap();
+    assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        output["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("do not retry")
+    );
+    assert_eq!(
+        output["hookSpecificOutput"]["additionalContext"],
+        output["hookSpecificOutput"]["permissionDecisionReason"],
+        "VS Code's model must receive the same block guidance as the user"
+    );
+
+    for path in [
+        home.join(".copilot/hooks/nah.json"),
+        home.join(".copilot/settings.json"),
+    ] {
+        let wiring = run_hook(
+            home,
+            vscode_payload(
+                &project,
+                "create_file",
+                json!({"filePath":path,"content":"disabled"}),
+            ),
+        );
+        let output: Value = serde_json::from_slice(&wiring.stdout).unwrap();
+        assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
+
+    let sensitive = run_hook(
+        home,
+        vscode_payload(
+            &project,
+            "read_file",
+            json!({"filePath":project.join(".env")}),
+        ),
+    );
+    let output: Value = serde_json::from_slice(&sensitive.stdout).unwrap();
+    assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
+
+    let vscode_delegated = run_hook(
+        home,
+        vscode_payload(
+            &project,
+            "read_file",
+            json!({"filePath":project.join("src/lib.rs")}),
+        ),
+    );
+    assert!(vscode_delegated.status.success(), "{vscode_delegated:?}");
+    assert!(vscode_delegated.stdout.is_empty());
+}
+
+#[test]
+fn malformed_payloads_delegate_in_each_protocol() {
+    let home_temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah
+    // resolves paths before matching them
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    let project = repo(home);
+    for payload in [
+        json!({"sessionId":"session-1","cwd":project,"toolName":"bash","toolArgs":"not json"}),
+        json!({
+            "hook_event_name":"PreToolUse",
+            "session_id":"session-1",
+            "cwd":project,
+            "tool_name":"read_file",
+            "tool_input":{"filePath":7}
+        }),
+    ] {
+        let output = run_hook(home, payload);
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+    }
+}

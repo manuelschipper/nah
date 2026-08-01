@@ -1,0 +1,6 @@
+verdict: delegate
+coverage: full
+reason: no guard blocked this call
+policy: none
+effects:
+- e0 {"kind":"invocation","invocation":{"kind":"known","program":"echo","operation":"local-utility","input":{"kind":"shell","words":["echo","hello"],"argv":["echo","hello"]},"cwd":"<project>"}}

@@ -1,0 +1,2 @@
+{"command":"echo ok","ctx_fixture":"default-linux-v1","expected":{"verdict":"delegate"},"id":"duplicate","observation_fixture":"project-linux-v1","v":1}
+{"command":"echo still-ok","ctx_fixture":"default-linux-v1","expected":{"verdict":"delegate"},"id":"duplicate","observation_fixture":"project-linux-v1","v":1}

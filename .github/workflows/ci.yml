@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Format
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path spikes/p2-tree-sitter/Cargo.toml --all --check
+          cargo fmt --manifest-path tools/gates/fixtures/impure-alias/Cargo.toml --check
+      - name: Lint
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo clippy --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - name: Test (includes purity, dependency-direction, and corpus gates)
+        run: |
+          cargo test --workspace --locked
+          cargo test --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --locked
+      - name: Release KPIs and benches compile
+        run: |
+          cargo test --release -p nah-cli --test latency captured_walking_skeleton_p99_is_below_one_millisecond --locked
+          cargo test --release -p nah-cli --test latency captured_bash_spine_p99_is_below_one_millisecond --locked
+          cargo test --release -p nah-cli --test latency captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --nocapture --test-threads=1
+          cargo test --release -p nah-parse a_long_pipeline_is_scanned_inside_its_documented_bound --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
+          cargo bench --workspace --no-run --locked
+          cargo bench --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --no-run --locked
+
+  # 1.0 ships Linux and macOS binaries; native Windows support is deferred,
+  # so the matrix covers the platforms releases are built for.
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          components: clippy
+      - name: Cross-platform native pipeline
+        run: cargo test -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --locked
+      - name: Cross-platform lint
+        run: cargo clippy -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --all-targets --locked -- -D warnings

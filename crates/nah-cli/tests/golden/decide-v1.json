@@ -1,0 +1,10 @@
+{
+  "coverage": "full",
+  "duration_us": 0,
+  "id": "<decision-id>",
+  "policy_attributions": [],
+  "reason": "no guard blocked this call",
+  "schema": "nah/decide/v1",
+  "v": 1,
+  "verdict": "delegate"
+}

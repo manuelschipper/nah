@@ -1,0 +1,61 @@
+{
+  "consultations": [],
+  "decision": {
+    "coverage": "full",
+    "policy_attributions": [],
+    "reason": "no guard blocked this call",
+    "verdict": "delegate"
+  },
+  "exec_request": {
+    "action_stream": {
+      "coverage": "full",
+      "effects": [
+        {
+          "id": "e0",
+          "kind": {
+            "invocation": {
+              "cwd": "<project>",
+              "input": {
+                "argv": [
+                  "echo",
+                  "hello"
+                ],
+                "kind": "shell",
+                "words": [
+                  "echo",
+                  "hello"
+                ]
+              },
+              "kind": "known",
+              "operation": "local-utility",
+              "program": "echo"
+            },
+            "kind": "invocation"
+          },
+          "stage": "s0"
+        }
+      ],
+      "flows": [],
+      "v": 1
+    },
+    "observation": {
+      "cwd": {
+        "status": "ok",
+        "value": "<project>"
+      },
+      "roots": {
+        "status": "ok",
+        "value": [
+          {
+            "kind": "project",
+            "path": "<project>"
+          }
+        ]
+      }
+    },
+    "v": 1
+  },
+  "failures": [],
+  "schema": "nah/test/v1",
+  "v": 1
+}

@@ -1,0 +1,27 @@
+[package]
+name = "nah-home-wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# standalone on purpose: this crate only builds for wasm32-wasip1 (plus a
+# native diff harness) and must not join the workspace's every-day builds
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "harness"
+path = "src/main.rs"
+
+[dependencies]
+nah-cli = { path = "../../crates/nah-cli" }
+nah-proto = { path = "../../crates/nah-proto" }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1

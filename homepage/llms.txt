@@ -1,0 +1,28 @@
+# nah
+
+> nah is a guard that sits in your coding agent's hook path and reads tool
+> calls before they run. It blocks the calls it can prove are disasters —
+> deterministically, in microseconds, with no LLM — and leaves everything
+> else to your normal approval flow. One Rust binary. When a guard you need
+> is missing, your agent can write it.
+
+## Install
+
+- `curl -fsSL nahguard.ai/install | sh`
+- Then wire your runtime: `nah hook claude install` (replace `claude` with
+  `amp`, `antigravity`, `cline`, `codex`, `copilot`, `cursor`, `devin`,
+  `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, and more).
+
+## Links
+
+- Site: https://nahguard.ai/
+- Source: https://github.com/manuelschipper/nah
+- Docs: https://github.com/manuelschipper/nah/tree/main/docs
+- News (changelog): https://github.com/manuelschipper/nah/blob/main/CHANGELOG.md
+- Author: Manuel Schipper — https://schipper.ai/
+
+## For agents
+
+If you are a coding agent and nah blocked one of your tool calls, the block
+message names the guard and the reason. Tell your user what was blocked and
+why; do not try to route around the guard.

@@ -1,0 +1,294 @@
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+
+mod support;
+
+use nah_cli::decide_with;
+use nah_proto::action::Coverage;
+use nah_proto::decision::Verdict;
+use serde_json::json;
+use support::{call, ctx, repo};
+
+#[cfg(unix)]
+#[test]
+fn destructive_git_guards_are_semantic_end_to_end() {
+    let temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah resolves
+    // paths before matching them
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let repo = repo(&root);
+    let context = ctx(&root);
+    for (command, guard) in [
+        ("rm -rf .git", "git-metadata"),
+        ("rm -rf .git/objects/aa", "git-metadata"),
+        ("rm -rf .git//objects/aa", "git-metadata"),
+        ("unlink .git/objects/aa", "git-metadata"),
+        ("rm -rf '.git/*'", "git-metadata"),
+        ("rm -rf '.git/{objects,refs}'", "git-metadata"),
+        ("echo corrupt > .git/objects/aa", "git-metadata"),
+        ("cp replacement .git/refs/heads/main", "git-metadata"),
+        ("touch .git/packed-refs", "git-metadata"),
+        ("rm -rf backup.git/objects", "git-metadata"),
+        ("echo corrupt > backup.git/refs/heads/main", "git-metadata"),
+        ("git push --force", "git-force-push"),
+        ("git push --mirror origin", "git-force-push"),
+        (
+            "git -c advice.detachedHead=false push --mirror",
+            "git-force-push",
+        ),
+        (
+            "git push --force --repo --help origin main",
+            "git-force-push",
+        ),
+        ("git push --force \"$REMOTE\"", "git-force-push"),
+        ("git push origin +main", "git-force-push"),
+        (
+            "git push --force-with-lease=other origin +main",
+            "git-force-push",
+        ),
+        ("git reset --hard", "git-hard-reset"),
+        ("git -c 'alias.wipe=reset --hard' wipe", "git-hard-reset"),
+        ("git -c 'alias.wipe=!rm -rf /' wipe", "fs-root"),
+        ("git reset --h", "git-hard-reset"),
+        ("/usr/bin/git reset --h", "git-hard-reset"),
+        ("git reset --hard \"$REV\"", "git-hard-reset"),
+        ("git filter-branch -f -- --all", "git-rewrite-force"),
+        ("git filter-branch --force -- --all", "git-rewrite-force"),
+        ("git filter-repo --force", "git-rewrite-force"),
+        (
+            "git filter-repo --force --replace-text --help",
+            "git-rewrite-force",
+        ),
+        ("sudo git filter-repo --force", "git-rewrite-force"),
+        (
+            "git reflog expire --all --expire=now",
+            "git-recovery-destroy",
+        ),
+        (
+            "git reflog expire --expire-unreachable=now --all",
+            "git-recovery-destroy",
+        ),
+        ("git gc --prune=now", "git-recovery-destroy"),
+        ("git -c gc.pruneExpire=now gc", "git-recovery-destroy"),
+        ("git gc --p=now", "git-recovery-destroy"),
+        ("git prune --expire=now", "git-recovery-destroy"),
+        ("git prune --exp=now", "git-recovery-destroy"),
+        ("git prune --expire now", "git-recovery-destroy"),
+        (
+            "git reflog expire --expire-=now --a",
+            "git-recovery-destroy",
+        ),
+        ("git push --force-w=other origin +main", "git-force-push"),
+        ("sudo git -C . reset --hard", "git-hard-reset"),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|attribution| attribution.name() == guard),
+            "{command}: {:?}",
+            result.core().policy_attributions()
+        );
+    }
+
+    for command in [
+        "rm -rf .git/index",
+        "rm -rf .git/objects/../index",
+        "rm -rf .git/hooks/pre-commit",
+        "rm -rf assets.git/index",
+        "git push --force-with-lease",
+        "git push --force-with-lease origin +main",
+        "git push --force-with-lease=main origin +main",
+        "git push -- --force",
+        "git -- push --force",
+        "git reset --soft HEAD~1",
+        "git reset -- --hard",
+        "git filter-branch -- --all",
+        "git filter-repo --invert-paths --path secret",
+        "git filter-repo --dry-run --force",
+        "git filter-repo --analyze",
+        "git filter-repo --version",
+        "git reflog show",
+        "git reflog show expire",
+        "git reflog expire --all",
+        "git reflog expire --dry-run --all --expire=now",
+        "git reflog delete HEAD@{0}",
+        "git gc --prune=2.weeks.ago",
+        "git push --dry-run --force origin main",
+        "git push -nf origin main",
+        "git push --dry-run --mirror origin",
+        "git push -n --mirror origin",
+        "git clone --mirror origin local.git",
+        "git push origin --delete old",
+        "git push --delete \"$REMOTE\" \"$REF\"",
+        "git push origin :old",
+        "git push --prune origin",
+        "git push -vd origin old",
+        "git prune",
+        "git prune --expire=2.weeks.ago",
+        "echo safe > .git/index",
+        "echo safe > .git/hooks/pre-commit",
+        "git push --help --mirror",
+        "git reset --hard --help",
+        "git filter-repo --force --help",
+        "git gc --prune=now --help",
+        "git push -- --delete",
+        "git push -- --mirror",
+        "git push \"$FLAGS\"",
+        "git prune --dry-run",
+        "git prune --d --exp=now",
+        "git prune -n",
+        "git reflog \"$ACTION\"",
+        "git reflog expire --d --a --expire=now",
+        "git push --dr --force origin main",
+        "git stash drop 'stash@{0}'",
+        "git stash clear",
+        "git worktree list",
+        "git worktree remove \"$PATH\"",
+        "git worktree prune",
+        "git worktree prune --dry-run",
+        "git worktree -- remove old",
+        "git -c user.name=Alice status",
+        "git -c gc.pruneExpire=now gc --no-prune",
+        "git -c gc.pruneExpire=now gc --prune=2.weeks.ago",
+        "timeout 5 git worktree remove old",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_ne!(result.core().verdict(), Verdict::Block, "{command}");
+    }
+
+    for (command, coverage) in [
+        ("git -c user.name=Alice status", Coverage::Full),
+        ("git -c \"user.name=$NAME\" status", Coverage::Full),
+        ("git -c \"alias.wipe=$ALIAS\" wipe", Coverage::Partial),
+        ("git --config-env=alias.wipe=ALIAS wipe", Coverage::Partial),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+        assert_eq!(result.core().coverage(), coverage, "{command}");
+    }
+}
+
+#[test]
+fn granular_git_operations_lower_to_their_exact_coverage() {
+    let temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah resolves
+    // paths before matching them
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let repo = repo(&root);
+    std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
+    let context = ctx(&root);
+
+    for command in [
+        "git status --short",
+        "git status > status.txt",
+        "git branch -a",
+        "git tag --list",
+        "git remote",
+        "git add src/lib.rs",
+        "git commit -m update",
+        "git switch -c topic",
+        "git checkout -b topic",
+        "git restore --staged src/lib.rs",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+        assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
+    }
+
+    for (command, coverage) in [
+        ("git fetch origin", Coverage::Full),
+        ("git log --oneline -1", Coverage::Partial),
+        ("git diff -- src/lib.rs", Coverage::Partial),
+        ("git show HEAD:src/lib.rs", Coverage::Partial),
+        ("git blame src/lib.rs", Coverage::Partial),
+        ("git branch topic", Coverage::Full),
+        ("git tag v1", Coverage::Full),
+        ("git remote -v", Coverage::Full),
+        ("git checkout main", Coverage::Full),
+        ("git restore src/lib.rs", Coverage::Full),
+        ("git stash push", Coverage::Full),
+        ("git stash apply", Coverage::Full),
+        ("git diff --output=patch.txt", Coverage::Partial),
+        ("git commit --amend -m update", Coverage::Partial),
+        ("git commit -am update", Coverage::Partial),
+        ("git commit -m update src/lib.rs", Coverage::Partial),
+        ("git commit --no-verify -m update", Coverage::Partial),
+        ("git commit -n -m update", Coverage::Partial),
+        ("git add -A", Coverage::Partial),
+        ("git add .", Coverage::Partial),
+        ("git add src", Coverage::Partial),
+        ("git add 'src/*'", Coverage::Partial),
+        ("git switch main", Coverage::Partial),
+        ("git switch --create=topic main", Coverage::Partial),
+        ("git switch --discard-changes main", Coverage::Partial),
+        ("git switch --orphan topic", Coverage::Partial),
+        ("git switch --detach HEAD", Coverage::Partial),
+        (
+            "git restore --staged --source=HEAD~1 src/lib.rs",
+            Coverage::Partial,
+        ),
+        ("git restore --staged 'src/*'", Coverage::Partial),
+        ("git restore --staged", Coverage::Partial),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+        assert_eq!(result.core().coverage(), coverage, "{command}");
+    }
+
+    for command in [
+        "git diff -- .env",
+        "git show HEAD:.env",
+        "git log -p -- .env",
+        "git blame .env",
+        "git add .env",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "secrets-env"),
+            "{command}: {:?}",
+            result.core().policy_attributions()
+        );
+    }
+
+    let outside = &root.join("outside");
+    std::fs::create_dir(outside).unwrap();
+    let result = decide_with(
+        &call("Bash", json!({"command":"git status"}), outside),
+        &context,
+        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+    );
+    assert_eq!(result.core().verdict(), Verdict::Delegate);
+    assert_eq!(result.core().coverage(), Coverage::Partial);
+}

@@ -1,0 +1,30 @@
+{
+  "command": "Read [redacted]",
+  "consultations": [],
+  "core": {
+    "coverage": "full",
+    "policy_attributions": [],
+    "reason": "no guard blocked this call",
+    "verdict": "delegate"
+  },
+  "diagnostics": [],
+  "effects": [
+    {
+      "description": "invoke Read read",
+      "id": "e0"
+    },
+    {
+      "description": "read <project>/src/lib.rs",
+      "id": "e1"
+    }
+  ],
+  "envelope": {
+    "duration_us": 0,
+    "id": "<decision-id>",
+    "timestamp_rfc3339": "<timestamp>"
+  },
+  "runtime": "unknown",
+  "schema": "nah/audit/v1",
+  "status": "decision",
+  "v": 1
+}
