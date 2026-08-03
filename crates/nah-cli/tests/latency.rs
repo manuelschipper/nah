@@ -51,7 +51,7 @@ fn captured_walking_skeleton_p99_is_below_one_millisecond() {
     // The workspace's normal debug test run gets scheduler/allocator slack;
     // CI also runs this exact test optimized, where the product budget applies.
     let limit = if cfg!(debug_assertions) {
-        Duration::from_millis(5)
+        Duration::from_millis(10)
     } else {
         Duration::from_millis(1)
     };
@@ -91,7 +91,7 @@ fn captured_bash_spine_p99_is_below_one_millisecond() {
     samples.sort_unstable();
     let p99 = samples[(samples.len() * 99) / 100];
     let limit = if cfg!(debug_assertions) {
-        Duration::from_millis(5)
+        Duration::from_millis(10)
     } else {
         Duration::from_millis(1)
     };
@@ -138,7 +138,7 @@ fn captured_ambient_preflight_p99_is_below_one_millisecond() {
     let p99 = samples[(samples.len() * 99) / 100];
     println!("captured ambient preflight p50 {p50:?}, p99 {p99:?}");
     let limit = if cfg!(debug_assertions) {
-        Duration::from_millis(5)
+        Duration::from_millis(10)
     } else {
         Duration::from_millis(1)
     };
@@ -180,7 +180,7 @@ fn captured_inline_signature_p99_is_below_one_millisecond() {
     samples.sort_unstable();
     let p99 = samples[(samples.len() * 99) / 100];
     let limit = if cfg!(debug_assertions) {
-        Duration::from_millis(5)
+        Duration::from_millis(10)
     } else {
         Duration::from_millis(1)
     };
