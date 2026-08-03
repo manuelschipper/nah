@@ -1,5 +1,6 @@
 //! Evaluates catastrophic filesystem guards; it does not resolve paths or parse commands.
 
+use nah_inline::{FindingKind, InlineReport};
 use nah_proto::action::{
     ActionStream, Effect, EffectKind, FilesystemOperation, InvocationEffect, SemanticCode,
     pattern_bound,
@@ -15,6 +16,7 @@ const FS_FORKBOMB: &str = "fs-forkbomb";
 
 pub(crate) fn add(
     action_stream: &ActionStream,
+    inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
@@ -45,7 +47,7 @@ pub(crate) fn add(
             .enabled_shipped_guards()
             .iter()
             .any(|enabled| enabled == name)
-            || !matches(name, action_stream)
+            || !(matches(name, action_stream) || inline_match(name, inline_report))
         {
             continue;
         }
@@ -54,6 +56,15 @@ pub(crate) fn add(
         blocked = true;
     }
     Ok(blocked)
+}
+
+fn inline_match(name: &str, report: &InlineReport) -> bool {
+    let kind = match name {
+        FS_ROOT => FindingKind::RootDestruction,
+        FS_HOME => FindingKind::HomeDestruction,
+        _ => return false,
+    };
+    report.contains_exact(kind)
 }
 
 fn matches(name: &str, action_stream: &ActionStream) -> bool {

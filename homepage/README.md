@@ -16,7 +16,7 @@ asciinema player, the TUI recording — so `dist/` is `index.html`,
 - `record-tui.py` — re-records the TUI demo into `nah-tui.cast` by
   driving `target/release/nah tui` through a PTY with a sandboxed HOME.
 - `wasm/` — the "Try it yourself" engine: the real decision pipeline
-  (`nah-parse` → `nah-actions` → `nah-policy` via `nah-cli`'s
+  (`nah-parse` → `nah-actions` + `nah-inline` → `nah-policy` via `nah-cli`'s
   `decide_with`) compiled to wasm32-wasip1, deciding against a fixed
   synthetic machine with shipped defaults. The page falls back to
   inline regex rules until it loads or where WebAssembly is missing.
@@ -46,7 +46,7 @@ cargo build --release --lib --target wasm32-wasip1
 ```
 
 Then prove it still tells the truth — the native harness runs the same
-code and must match `nah test --json` (with factory defaults) on every
+code and must match `nah test --json` (with built-in defaults) on every
 command:
 
 ```
@@ -60,4 +60,4 @@ HOME=$(mktemp -d) nah test --json "<command>"   # compare per command
 Copy voice and truthfulness rules live in `.internal/COPY.md`. The short
 version: guard names and reason text are never paraphrased — they must
 match `nah test --json` output clause-for-clause. Re-diff after any
-change to `crates/nah-policy` or the hook messages.
+change to `crates/nah-inline`, `crates/nah-policy`, or the hook messages.

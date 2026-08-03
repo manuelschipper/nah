@@ -5,20 +5,24 @@ use std::io::{Read, Write};
 use nah_proto::decision::Verdict;
 use serde_json::{Value, json};
 
-use crate::{hook_adapter, runtime::Runtime};
+use crate::{
+    hook_adapter,
+    runtime::{FailurePolicy, Runtime},
+};
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
-    match hook_adapter::decide(stdin, stderr, Runtime::Claude) {
+    match hook_adapter::decide(stdin, stderr, Runtime::Claude, failure_policy) {
         hook_adapter::HookOutcome::Decision(decision) => match decision.verdict() {
             Verdict::Block => emit(
                 stdout,
                 deny(
                     &hook_adapter::feedback(&decision),
-                    decision.evaluation_failed(),
+                    decision.guard_block_incomplete(),
                 ),
             ),
             Verdict::Delegate if decision.evaluation_failed() => emit(
@@ -28,12 +32,23 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Verdict::Delegate => {}
         },
         hook_adapter::HookOutcome::IrrelevantEvent => {}
-        hook_adapter::HookOutcome::MalformedInput => {}
-        hook_adapter::HookOutcome::EvaluationUnavailable => {
-            emit(
-                stdout,
-                json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
-            );
+        hook_adapter::HookOutcome::MalformedInput => {
+            if let Some(reason) = hook_adapter::unavailable_feedback(
+                failure_policy,
+                Runtime::Claude,
+                hook_adapter::IntegrationUnavailable::MalformedInput,
+            ) {
+                emit(stdout, deny(&reason, false));
+            }
+        }
+        hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+            match hook_adapter::unavailable_feedback(failure_policy, Runtime::Claude, kind) {
+                Some(reason) => emit(stdout, deny(&reason, false)),
+                None => emit(
+                    stdout,
+                    json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
+                ),
+            }
         }
     }
     0
@@ -62,6 +77,6 @@ fn deny(reason: &str, incomplete: bool) -> Value {
 mod tests {
     #[test]
     fn native_adapter_stays_thin() {
-        assert!(include_str!("claude_adapter.rs").lines().count() <= 75);
+        assert!(include_str!("claude_adapter.rs").lines().count() <= 86);
     }
 }

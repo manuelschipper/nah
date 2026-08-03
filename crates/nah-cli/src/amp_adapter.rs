@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::hook_adapter::{self, HookOutcome};
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 #[derive(Deserialize)]
 struct AmpHookInput {
@@ -23,31 +23,53 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request = serde_json::from_reader::<_, AmpHookInput>(stdin)
         .map_err(|error| error.to_string())
         .and_then(normalize);
     let output = match request {
-        Ok(request) => match hook_adapter::decide_input(request, stderr, Runtime::Amp) {
-            HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-                json!({
-                    "block": true,
-                    "reason": format!("nah - {}", hook_adapter::feedback(&decision)),
-                    "evaluation_failed": decision.evaluation_failed()
-                })
+        Ok(request) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Amp, failure_policy) {
+                HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
+                    json!({
+                        "block": true,
+                        "reason": format!("nah - {}", hook_adapter::feedback(&decision)),
+                        "evaluation_failed": decision.evaluation_failed()
+                    })
+                }
+                HookOutcome::Decision(decision) => {
+                    json!({"block": false, "evaluation_failed": decision.evaluation_failed()})
+                }
+                HookOutcome::IrrelevantEvent => return 0,
+                HookOutcome::MalformedInput => unavailable(
+                    failure_policy,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
+                )
+                .unwrap_or_else(|| delegated(false)),
+                HookOutcome::EvaluationUnavailable(kind) => {
+                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| delegated(true))
+                }
             }
-            HookOutcome::Decision(decision) => {
-                json!({"block": false, "evaluation_failed": decision.evaluation_failed()})
-            }
-            HookOutcome::IrrelevantEvent => return 0,
-            HookOutcome::MalformedInput => delegated(false),
-            HookOutcome::EvaluationUnavailable => delegated(true),
-        },
-        Err(_) => delegated(false),
+        }
+        Err(_) => unavailable(
+            failure_policy,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .unwrap_or_else(|| delegated(false)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
     0
+}
+
+fn unavailable(
+    failure_policy: FailurePolicy,
+    unavailable: hook_adapter::IntegrationUnavailable,
+) -> Option<Value> {
+    hook_adapter::unavailable_feedback(failure_policy, Runtime::Amp, unavailable).map(
+        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
+    )
 }
 
 fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
@@ -276,6 +298,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 149);
+        assert!(implementation.lines().count() <= 173);
     }
 }

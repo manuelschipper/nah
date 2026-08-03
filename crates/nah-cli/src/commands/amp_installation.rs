@@ -6,19 +6,22 @@ use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
 
-pub(crate) fn mutate_amp_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_amp_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_plugin(&home, &executable)
+            install_plugin(&home, &executable, policy)
         } else {
             uninstall_plugin(&home)
         }
@@ -48,11 +51,25 @@ pub(crate) fn amp_hook_status() -> Result<RuntimeHookStatus, String> {
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    Ok(if bytes == plugin(&executable)?.as_bytes() {
-        RuntimeHookStatus::WiringCurrent
-    } else {
-        RuntimeHookStatus::NeedsReinstall
-    })
+    Ok(
+        if bytes == plugin(&executable, FailurePolicy::Delegate)?.as_bytes() {
+            RuntimeHookStatus::WiringCurrent
+        } else if bytes == plugin(&executable, FailurePolicy::Block)?.as_bytes() {
+            RuntimeHookStatus::WiringCurrentFailClosed
+        } else {
+            let strict = bytes
+                .windows(br#"["hook", "amp", "run", "--fail-closed"]"#.len())
+                .any(|part| part == br#"["hook", "amp", "run", "--fail-closed"]"#);
+            let delegate = bytes
+                .windows(br#"["hook", "amp", "run"]"#.len())
+                .any(|part| part == br#"["hook", "amp", "run"]"#);
+            RuntimeHookStatus::stale(if strict && !delegate {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            })
+        },
+    )
 }
 
 pub(crate) fn amp_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -61,7 +78,11 @@ pub(crate) fn amp_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![AmpHookPaths::new(&home).plugin])
 }
 
-fn install_plugin(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_plugin(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = AmpHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -71,7 +92,7 @@ fn install_plugin(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, Str
         .ok_or_else(|| "invalid-amp-plugin-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "amp-plugin-write-failed")?;
     reject_symlinks(&paths)?;
-    let desired = plugin(executable)?;
+    let desired = plugin(executable, policy)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
         Ok(bytes) if owned(&bytes) => save(&paths.plugin, desired.as_bytes())?,
@@ -195,12 +216,17 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     sync_parent(parent)
 }
 
-fn plugin(executable: &Path) -> Result<String, String> {
+fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let executable =
         serde_json::to_string(executable).map_err(|_| "invalid-nah-executable-path".to_owned())?;
+    let failure_arg = if policy == FailurePolicy::Block {
+        r#", "--fail-closed""#
+    } else {
+        ""
+    };
     Ok(format!(
         r#"{MARKER}
 import type {{ PluginAPI }} from "@ampcode/plugin";
@@ -212,7 +238,7 @@ const maxOutputBytes = 65536;
 
 function decide(input: unknown): Promise<{{ block: boolean; reason?: string; evaluation_failed: boolean }}> {{
   return new Promise((resolve, reject) => {{
-    const child = spawn(nahExecutable, ["hook", "amp", "run"], {{
+    const child = spawn(nahExecutable, ["hook", "amp", "run"{failure_arg}], {{
       stdio: ["pipe", "pipe", "pipe"],
     }});
     let stdout = "";
@@ -319,7 +345,7 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
 
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
-    text.starts_with(MARKER) && text.contains(r#"["hook", "amp", "run"]"#)
+    text.starts_with(MARKER) && text.contains(r#"["hook", "amp", "run""#)
 }
 
 #[cfg(unix)]

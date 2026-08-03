@@ -382,6 +382,66 @@ fn bare_selector_matches_standard_path_but_not_an_arbitrary_lookalike() {
 }
 
 #[test]
+fn custom_guards_receive_original_interpreter_and_nested_command_effects() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    assert!(
+        nah(home, &["guard", "new", "nested-rm"], None)
+            .status
+            .success()
+    );
+    fs::write(
+        home.join(".nah/guards/nested-rm/policy.toml"),
+        "name = \"nested-rm\"\nmatch = [\"rm\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+    )
+    .unwrap();
+    fs::write(
+        home.join(".nah/guards/nested-rm/run"),
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+request = json.load(sys.stdin)
+programs = [
+    effect["kind"].get("invocation", {}).get("program")
+    for effect in request["action_stream"]["effects"]
+]
+if "python3" in programs and "rm" in programs:
+    print(json.dumps({"block": True, "reason": "nested rm is visible"}))
+else:
+    print(json.dumps({"abstain": True}))
+"#,
+    )
+    .unwrap();
+    assert!(
+        nah(home, &["guard", "enable", "nested-rm"], None)
+            .status
+            .success()
+    );
+    let input = serde_json::json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {"command": "python3 -c \"import os; os.system('rm -rf /tmp/example')\""},
+        "cwd": home
+    })
+    .to_string();
+
+    let decided = nah(home, &["decide"], Some(&input));
+
+    assert_eq!(decided.status.code(), Some(1), "{decided:?}");
+    let output: serde_json::Value = serde_json::from_slice(&decided.stdout).unwrap();
+    assert_eq!(output["verdict"], "block");
+    assert!(
+        output["policy_attributions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|attribution| attribution["activation"]["identity"]["name"] == "nested-rm")
+    );
+}
+
+#[test]
 fn project_guard_selection_follows_the_matching_invocations_cwd() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and a trusted root

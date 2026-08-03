@@ -7,18 +7,21 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-pub(crate) fn mutate_droid_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_droid_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -39,13 +42,15 @@ pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
     let hooks = load(&paths.hooks)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_handler(&executable)?;
+    let desired = desired_handler(&executable, FailurePolicy::Delegate)?;
+    let strict_desired = desired_handler(&executable, FailurePolicy::Block)?;
     let current = inspect_standalone(&hooks, &desired)?;
+    let strict_current = inspect_standalone(&hooks, &strict_desired)?;
     let old_current =
         hook_config::inspect(&hooks, &desired, is_owned_handler, "invalid-droid-settings")?;
-    let legacy = load(&paths.legacy_settings)?;
+    let legacy_config = load(&paths.legacy_settings)?;
     let legacy = hook_config::inspect(
-        &legacy,
+        &legacy_config,
         &desired,
         is_owned_handler,
         "invalid-droid-settings",
@@ -58,7 +63,7 @@ pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
         is_owned_handler,
         "invalid-droid-settings",
     )?;
-    Ok(match (current, old_current, legacy, nested, old_nested) {
+    let status = match (current, old_current, legacy, nested, old_nested) {
         (
             RuntimeHookStatus::NotConfigured,
             RuntimeHookStatus::NotConfigured,
@@ -74,7 +79,24 @@ pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
             RuntimeHookStatus::NotConfigured,
         ) => RuntimeHookStatus::WiringCurrent,
         _ => RuntimeHookStatus::NeedsReinstall,
-    })
+    };
+    let modes = [&hooks, &legacy_config, &nested_config]
+        .into_iter()
+        .flat_map(owned_fail_closed_modes)
+        .collect::<Vec<_>>();
+    if status == RuntimeHookStatus::NeedsReinstall
+        && strict_current == RuntimeHookStatus::WiringCurrent
+        && modes == [true]
+    {
+        Ok(RuntimeHookStatus::WiringCurrentFailClosed)
+    } else if status == RuntimeHookStatus::NeedsReinstall
+        && !modes.is_empty()
+        && modes.iter().all(|strict| *strict)
+    {
+        Ok(RuntimeHookStatus::NeedsReinstallFailClosed)
+    } else {
+        Ok(status)
+    }
 }
 
 pub(crate) fn droid_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -88,7 +110,11 @@ pub(crate) fn droid_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     ])
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = DroidHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -98,7 +124,7 @@ fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, Strin
         .filter(|path| path.exists())
         .map(|path| load(path).map(|config| (path, config)))
         .collect::<Result<Vec<_>, _>>()?;
-    let desired = desired_handler(executable)?;
+    let desired = desired_handler(executable, policy)?;
     let mut hooks_changed = migrate_nested_hooks(&mut hooks)?;
     hooks_changed |= add_standalone(&mut hooks, desired)?;
     if hooks_changed {
@@ -204,11 +230,15 @@ fn load(path: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
-fn desired_handler(executable: &Path) -> Result<Value, String> {
+fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
-    let run = format!("{} hook droid run", shell_quote(executable));
+    let run = format!(
+        "{} hook droid run{}",
+        shell_quote(executable),
+        policy.command_suffix()
+    );
     let command = format!(
         "{run} || {{ status=$?; [ \"$status\" -eq 2 ] && exit 2; printf '%s\\n' \
          'nah - evaluation failed; this call was delegated to the runtime'; exit 0; }}"
@@ -307,8 +337,41 @@ fn is_owned_handler(handler: &Value) -> bool {
     command
         .split_once(" hook droid run")
         .is_some_and(|(executable, suffix)| {
-            is_nah_executable(executable) && (suffix.is_empty() || suffix.starts_with(" || { "))
+            is_nah_executable(executable)
+                && (suffix.is_empty()
+                    || suffix == " --fail-closed"
+                    || suffix.starts_with(" --fail-closed || { ")
+                    || suffix.starts_with(" || { "))
         })
+}
+
+fn owned_fail_closed_modes(config: &Value) -> Vec<bool> {
+    let mut handlers = Vec::new();
+    for event in ["PreToolUse", "PermissionRequest", "PostToolUse"] {
+        if let Some(groups) = config.get(event).and_then(Value::as_array) {
+            handlers.extend(
+                groups
+                    .iter()
+                    .flat_map(|group| group["hooks"].as_array().into_iter().flatten()),
+            );
+        }
+        if let Some(groups) = config["hooks"].get(event).and_then(Value::as_array) {
+            handlers.extend(
+                groups
+                    .iter()
+                    .flat_map(|group| group["hooks"].as_array().into_iter().flatten()),
+            );
+        }
+    }
+    handlers
+        .into_iter()
+        .filter(|handler| is_owned_handler(handler))
+        .map(|handler| {
+            handler["command"]
+                .as_str()
+                .is_some_and(|command| command.contains(" hook droid run --fail-closed"))
+        })
+        .collect()
 }
 
 fn is_nah_executable(executable: &str) -> bool {
@@ -389,4 +452,17 @@ fn sync_parent(parent: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn sync_parent(_parent: &Path) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mixed_owned_handler_modes_are_not_reliably_strict() {
+        let strict = desired_handler(Path::new("/old/nah"), FailurePolicy::Block).unwrap();
+        let delegate = desired_handler(Path::new("/old/nah"), FailurePolicy::Delegate).unwrap();
+        let config = json!({"PreToolUse":[{"matcher":"*","hooks":[strict,delegate]}]});
+        assert_eq!(owned_fail_closed_modes(&config), [true, false]);
+    }
 }

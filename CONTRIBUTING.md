@@ -47,7 +47,7 @@ command without executing it.
 - Start from [`docs/architecture.md`](docs/architecture.md); every area has an
   owning module.
 - Preserve the dependency direction: ambient I/O stays out of `nah-proto`,
-  `nah-parse`, `nah-actions`, and `nah-policy`, and the decision pipeline is
-  assembled only in `nah-cli`.
+  `nah-parse`, `nah-inline`, `nah-actions`, and `nah-policy`, and the decision
+  pipeline is assembled only in `nah-cli`.
 - Prefer existing effect and guard patterns over new abstractions.
 - Never weaken a failing security test to make a change pass.

@@ -7,13 +7,14 @@ nah is a Rust workspace with one decision pipeline and explicit ownership.
 ```text
 tool call
   -> validate the call site; normalize Bash or accept typed native input
+  -> plan typed effects; exact inline child commands re-enter Bash lowering
   -> plan required observations
   -> bounded environment-only preflight and replanning
   -> capture a request-bound observation with stable requested environment values
   -> derive policy context and finalize typed effects
   -> unless all enforcement is paused, select and consult custom guards
   -> reduce structural protection, built-in guards, and validated custom blocks
-  -> block or delegate
+  -> fail-closed conversion, then block or delegate
 ```
 
 `nah-cli` is the composition root; runtime adapters, the corpus harness, and the
@@ -29,17 +30,19 @@ write audit records.
 | --- | --- |
 | `nah-proto` | Validated shared and wire/storage contracts |
 | `nah-parse` | Bash syntax model and normalization |
-| `nah-actions` | Pure plan/finalize lowering into typed effects |
+| `nah-inline` | Bounded language findings and exact child-execution descriptors |
+| `nah-actions` | Pure plan/finalize lowering, including proven inline children |
 | `nah-observe` | Requested host and project facts |
 | `nah-policy` | Structural protection, built-in guards, and verdict reduction |
 | `nah-extensions` | Custom-guard lifecycle, selection, templates, execution, and cache |
 | `nah-cli` | Live composition, records, commands, and runtime adapters |
 | `nah-corpus` | Frozen fixtures, execution, oracle audit, and reconciliation |
 
-Internal dependencies are: actions → parse/proto; observe, policy, and
-extensions → proto; CLI → all six library crates; corpus → CLI/proto.
-Parse and proto have no internal dependencies. Ambient I/O stays out of
-`nah-proto`, `nah-parse`, `nah-actions`, and `nah-policy`. `tools/gates` is
+Internal dependencies are: inline → proto; actions → inline/parse/proto;
+policy → inline/proto; observe and extensions → proto; CLI → all seven library
+crates; corpus → CLI/proto. Parse and proto have no internal dependencies.
+Ambient I/O stays out of `nah-proto`, `nah-parse`, `nah-inline`, `nah-actions`,
+and `nah-policy`. `tools/gates` is
 workspace/CI validation tooling, not a runtime crate.
 
 Paths below beginning with `nah-*` start under `crates/`; every path names its
@@ -51,12 +54,13 @@ crate. Tests and other paths are repository-relative.
 | --- | --- |
 | Shared tool, context, observation, action, decision, and guard contracts | `nah-proto/src/{tool,ctx,observation,action,decision,exec_v1,extension}.rs` |
 | Bash syntax and fork-bomb graph parsing | `nah-parse/src/{model,parser}.rs`, `nah-parse/src/parser/fork_bomb.rs` |
+| Inline language findings, child descriptors, and protected-state recognition | `nah-inline/src/{lib,finding,syntax}.rs`, `nah-inline/src/languages/` |
 | Plan/finalize entry points and native tools | `nah-actions/src/{lib,native,codex_patch}.rs` |
 | Ordered Bash lowering and shell/command phases | `nah-actions/src/bash.rs`, `nah-actions/src/bash/` |
 | Feature-specific Bash planning, effects, and finalization | `nah-actions/src/bash_*.rs`, `nah-actions/src/{paths,shell_word}.rs`, `nah-actions/src/shell_word/` |
 | Host and project fact fulfillment | `nah-observe/src/{io_paths,path_facts,roots,project_guards,descendants}.rs` |
 | Built-in guards and reduction | `nah-policy/src/{lib,filesystem_guards,git_guards,secret_guards,execution_guards}.rs` |
-| Self-protection recognition, projection, nap, and reduction | `nah-actions/src/bash_self_protection{,/inline{,/syntax}}.rs`, `nah-actions/src/self_protection_tiers.rs`, `nah-cli/src/commands/runtime.rs`, `nah-cli/src/nap.rs`, `nah-policy/src/structural.rs` |
+| Self-protection projection, shell recognition, nap, and reduction | `nah-actions/src/{bash_self_protection,self_protection_tiers}.rs`, `nah-inline/src/languages/`, `nah-cli/src/{commands/runtime,nap}.rs`, `nah-policy/src/structural.rs` |
 | Custom-guard trust, activation, selection, execution, and cache | `nah-extensions/src/{trust,activation,bundle,selection,execution,transport,cache}.rs` |
 | Runtime translation and wiring | `nah-cli/src/*_adapter.rs`, `nah-cli/src/{hook_adapter,adapter_fields}.rs`, `nah-cli/src/commands/*_installation.rs`; matching or inline tests |
 | Live state, pipeline, dispatch, runtime identity, and records | `nah-cli/src/{live_state,pipeline,dispatch,runtime}.rs`, `nah-cli/src/records/` |
@@ -71,6 +75,9 @@ host; finalization consumes bound facts supplied by `nah-observe`.
 
 - Bash interpretation: `nah-parse`, then `nah-actions/src/bash/` or the
   matching `bash_*.rs` analyzer.
+- Inline interpreter signatures: `nah-inline/src/languages/`; shared call/state
+  parsing lives in `common.rs`, dormant-callable masking in `deferred.rs`, exact
+  children re-enter `nah-actions`, and private findings reach `nah-policy`.
 - Native tool shapes: the runtime adapter, `nah-actions/src/native.rs`, and
   `codex_patch.rs` for `apply_patch`.
 - A built-in guard: its semantic lowering in `nah-actions`, reducer in `nah-policy`,

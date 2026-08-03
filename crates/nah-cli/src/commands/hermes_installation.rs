@@ -7,20 +7,24 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_yaml_ng::{Mapping, Value};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const COMMAND: &str = "nah hook hermes run";
+const FAIL_CLOSED_COMMAND: &str = "nah hook hermes run --fail-closed";
 const EVENT: &str = "pre_tool_call";
 
-pub(crate) fn mutate_hermes_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_hermes_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         let configured = configured_hermes_home(&home);
         let home = resolve_hermes_home(&configured, platform)?;
         if install {
-            install_hook(&home)
+            install_hook(&home, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -58,10 +62,29 @@ pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
         return Err("hermes-hook-ownership-ambiguous".into());
     }
     Ok(
-        if entries.iter().any(|entry| entry == &desired_hook()) && allowlisted(&paths.allowlist)? {
+        if entries
+            .iter()
+            .any(|entry| entry == &desired_hook(FailurePolicy::Delegate))
+            && allowlisted(&paths.allowlist, FailurePolicy::Delegate)?
+        {
             RuntimeHookStatus::WiringCurrent
+        } else if entries
+            .iter()
+            .any(|entry| entry == &desired_hook(FailurePolicy::Block))
+            && allowlisted(&paths.allowlist, FailurePolicy::Block)?
+        {
+            RuntimeHookStatus::WiringCurrentFailClosed
         } else {
-            RuntimeHookStatus::NeedsReinstall
+            RuntimeHookStatus::stale(
+                if entries
+                    .iter()
+                    .any(|entry| command(entry) == Some(FAIL_CLOSED_COMMAND))
+                {
+                    FailurePolicy::Block
+                } else {
+                    FailurePolicy::Delegate
+                },
+            )
         },
     )
 }
@@ -93,7 +116,7 @@ fn resolve_hermes_home(
     AbsolutePath::new(platform, configured).map_err(|error| error.to_string())
 }
 
-fn install_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn install_hook(home: &AbsolutePath, policy: FailurePolicy) -> Result<PathBuf, String> {
     let paths = HermesHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -101,7 +124,7 @@ fn install_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let entries = hook_entries_mut(&mut config)?;
     if entries
         .iter()
-        .any(|entry| command(entry) == Some(COMMAND) && !owned_hook(entry))
+        .any(|entry| is_nah_command(command(entry)) && !owned_hook(entry))
     {
         return Err("hermes-hook-not-owned".into());
     }
@@ -112,12 +135,12 @@ fn install_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     match owned.as_slice() {
-        [] => entries.push(desired_hook()),
-        [index] => entries[*index] = desired_hook(),
+        [] => entries.push(desired_hook(policy)),
+        [index] => entries[*index] = desired_hook(policy),
         _ => return Err("hermes-hook-ownership-ambiguous".into()),
     }
     save_config(&paths.config, &config)?;
-    approve_hook(&paths)?;
+    approve_hook(&paths, policy)?;
     drop(lock);
     Ok(paths.config)
 }
@@ -291,12 +314,26 @@ fn remove_hook(config: &mut Mapping, index: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn desired_hook() -> Value {
+fn desired_hook(policy: FailurePolicy) -> Value {
     let mut hook = Mapping::new();
-    hook.insert(yaml_key("command"), Value::String(COMMAND.into()));
+    hook.insert(
+        yaml_key("command"),
+        Value::String(command_for(policy).into()),
+    );
     hook.insert(yaml_key("timeout"), Value::Number(5.into()));
     hook.insert(yaml_key("managed_by"), Value::String("nah".into()));
     Value::Mapping(hook)
+}
+
+fn command_for(policy: FailurePolicy) -> &'static str {
+    match policy {
+        FailurePolicy::Delegate => COMMAND,
+        FailurePolicy::Block => FAIL_CLOSED_COMMAND,
+    }
+}
+
+fn is_nah_command(command: Option<&str>) -> bool {
+    matches!(command, Some(COMMAND | FAIL_CLOSED_COMMAND))
 }
 
 fn owned_hook(value: &Value) -> bool {
@@ -318,7 +355,7 @@ fn yaml_key(value: &str) -> Value {
     Value::String(value.into())
 }
 
-fn allowlisted(path: &Path) -> Result<bool, String> {
+fn allowlisted(path: &Path, policy: FailurePolicy) -> Result<bool, String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -332,20 +369,21 @@ fn allowlisted(path: &Path) -> Result<bool, String> {
         .is_some_and(|approvals| {
             approvals.iter().any(|entry| {
                 entry.get("event").and_then(serde_json::Value::as_str) == Some(EVENT)
-                    && entry.get("command").and_then(serde_json::Value::as_str) == Some(COMMAND)
+                    && entry.get("command").and_then(serde_json::Value::as_str)
+                        == Some(command_for(policy))
             })
         }))
 }
 
-fn approve_hook(paths: &HermesHookPaths) -> Result<(), String> {
-    update_allowlist(paths, true)
+fn approve_hook(paths: &HermesHookPaths, policy: FailurePolicy) -> Result<(), String> {
+    update_allowlist(paths, Some(policy))
 }
 
 fn revoke_hook(paths: &HermesHookPaths) -> Result<(), String> {
-    update_allowlist(paths, false)
+    update_allowlist(paths, None)
 }
 
-fn update_allowlist(paths: &HermesHookPaths, approve: bool) -> Result<(), String> {
+fn update_allowlist(paths: &HermesHookPaths, approve: Option<FailurePolicy>) -> Result<(), String> {
     let lock = open_lock(&paths.allowlist_lock, "hermes-hook-allowlist-lock-failed")?;
     let mut value = match std::fs::read_to_string(&paths.allowlist) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -362,12 +400,12 @@ fn update_allowlist(paths: &HermesHookPaths, approve: bool) -> Result<(), String
         .ok_or_else(|| "hermes-hook-allowlist-invalid".to_owned())?;
     approvals.retain(|entry| {
         entry.get("event").and_then(serde_json::Value::as_str) != Some(EVENT)
-            || entry.get("command").and_then(serde_json::Value::as_str) != Some(COMMAND)
+            || !is_nah_command(entry.get("command").and_then(serde_json::Value::as_str))
     });
-    if approve {
+    if let Some(policy) = approve {
         approvals.push(serde_json::json!({
             "event": EVENT,
-            "command": COMMAND,
+            "command": command_for(policy),
             "approved_at": crate::dispatch::timestamp_rfc3339(),
             "script_mtime_at_approval": null
         }));

@@ -9,20 +9,23 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde_json::{Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MAX_HOOK_FILE_BYTES: u64 = 1024 * 1024;
 
-pub(crate) fn mutate_kiro_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_kiro_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let root = kiro_root(&home, platform)?;
     let path = if install {
         let executable =
             std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-        install_hook(&home, &root, &executable)?
+        install_hook(&home, &root, &executable, policy)?
     } else {
         uninstall_hook(&home, &root)?
     };
@@ -47,11 +50,18 @@ pub(crate) fn kiro_hook_status() -> Result<RuntimeHookStatus, String> {
     };
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_hook(&executable)?;
-    if configured.config == desired {
+    if configured.config == desired_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
+    } else if configured.config == desired_hook(&executable, FailurePolicy::Block)? {
+        Ok(RuntimeHookStatus::WiringCurrentFailClosed)
     } else if is_owned(&configured.config) {
-        Ok(RuntimeHookStatus::NeedsReinstall)
+        Ok(RuntimeHookStatus::stale(
+            if configured.config.to_string().contains("run --fail-closed") {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            },
+        ))
     } else {
         Err("kiro-hook-file-conflict".into())
     }
@@ -64,12 +74,17 @@ pub(crate) fn kiro_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![KiroHookPaths::new(&home, &root).hook])
 }
 
-fn install_hook(home: &AbsolutePath, root: &Path, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    root: &Path,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = KiroHookPaths::new(home, root);
     let lock = lock(&paths)?;
     let directory =
         open_hook_directory(&paths, true)?.ok_or_else(|| "kiro-hook-write-failed".to_owned())?;
-    let desired = desired_hook(executable)?;
+    let desired = desired_hook(executable, policy)?;
     let configured = load(&directory)?;
     if let Some(configured) = configured.as_ref() {
         if configured.config == desired {
@@ -137,14 +152,18 @@ impl KiroHookPaths {
     }
 }
 
-fn desired_hook(executable: &Path) -> Result<Value, String> {
+fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let run = if cfg!(windows) {
-        format!("\"{executable}\" hook kiro run")
+        format!("\"{executable}\" hook kiro run{}", policy.command_suffix())
     } else {
-        format!("{} hook kiro run", shell_quote(executable))
+        format!(
+            "{} hook kiro run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     let command = if cfg!(windows) {
         run
@@ -208,6 +227,8 @@ fn is_owned(config: &Value) -> bool {
 }
 
 fn is_owned_command(command: &str) -> bool {
+    let command = command.replacen(" hook kiro run --fail-closed", " hook kiro run", 1);
+    let command = command.as_str();
     const UNIX_SUFFIX: &str = " hook kiro run || { status=$?; [ \"$status\" -eq 1 ] && exit 1; \
                                [ \"$status\" -eq 2 ] && exit 2; printf '%s\\n' \
                                'nah - evaluation failed; this call was delegated to the runtime' \
@@ -770,7 +791,7 @@ mod tests {
 
         save(
             &directory,
-            &desired_hook(Path::new("/usr/bin/nah")).unwrap(),
+            &desired_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap(),
             None,
         )
         .unwrap();
@@ -790,7 +811,7 @@ mod tests {
         let home_absolute = AbsolutePath::new(Platform::Linux, home_path).unwrap();
         let paths = KiroHookPaths::new(&home_absolute, &home.path().join(".kiro"));
         let directory = open_hook_directory(&paths, true).unwrap().unwrap();
-        let desired = desired_hook(Path::new("/usr/bin/nah")).unwrap();
+        let desired = desired_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap();
 
         save(&directory, &desired, None).unwrap();
         let configured = load(&directory).unwrap().unwrap();

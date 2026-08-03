@@ -6,6 +6,10 @@
 nah hook hermes install
 ```
 
+`--fail-closed` denies explicit failures/refusals; ordinary uncertainty still
+delegates. `--fail-open` restores the default; flagless reinstall preserves it.
+The loaded nah process must be able to respond.
+
 Restart Hermes. Remove only nah's owned hook with:
 
 ```sh
@@ -27,8 +31,7 @@ tools remain opaque. Tool calls made through `hermes_tools` re-enter the normal
 hook. Blocks return Hermes'
 documented `decision: block` response. Every other call delegates by returning
 no directive, preserving Hermes' approval flow. Malformed input does the same.
-Evaluation failure also returns no directive and writes fixed diagnostic
-feedback.
+By default, evaluation failure also returns no directive and fixed feedback.
 
 ## Boundaries
 

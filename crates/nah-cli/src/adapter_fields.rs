@@ -4,6 +4,37 @@ use serde_json::Value;
 
 pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
     let allowed: &[&str] = match (runtime, tool) {
+        ("claude" | "codex", "Bash") => &["command", "description", "timeout", "run_in_background"],
+        ("claude" | "codex", "Read") => &["file_path", "offset", "limit", "pages"],
+        ("claude" | "codex", "Write") => &["file_path", "content"],
+        ("claude" | "codex", "Delete") => &["file_path"],
+        ("claude" | "codex", "Edit") => &[
+            "file_path",
+            "old_string",
+            "new_string",
+            "replace_all",
+            "edits",
+        ],
+        ("claude" | "codex", "Find") => &["pattern", "path", "limit"],
+        ("claude" | "codex", "Ls") => &["path", "depth"],
+        ("claude" | "codex", "Glob") => &["pattern", "path"],
+        ("claude" | "codex", "Grep") => &[
+            "pattern",
+            "path",
+            "glob",
+            "output_mode",
+            "-A",
+            "-B",
+            "-C",
+            "context",
+            "line_numbers",
+            "case_insensitive",
+            "type",
+            "head_limit",
+            "offset",
+            "multiline",
+        ],
+        ("claude" | "codex", "apply_patch") => &["command"],
         ("amp", "shell_command") => &["command", "workdir", "timeout_ms"],
         ("amp", "apply_patch") => &["patchText"],
         ("amp", "create_file") => &["path", "content"],
@@ -151,6 +182,8 @@ mod tests {
     #[test]
     fn every_runtime_rejects_an_unknown_field_for_a_documented_tool() {
         for (runtime, tool, input) in [
+            ("claude", "Read", json!({"file_path":"file"})),
+            ("codex", "Read", json!({"file_path":"file"})),
             ("amp", "shell_command", json!({"command":"pwd"})),
             (
                 "antigravity",

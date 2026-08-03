@@ -37,6 +37,7 @@ jobs:
           cargo test --release -p nah-cli --test latency captured_walking_skeleton_p99_is_below_one_millisecond --locked
           cargo test --release -p nah-cli --test latency captured_bash_spine_p99_is_below_one_millisecond --locked
           cargo test --release -p nah-cli --test latency captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test latency captured_inline_signature_p99_is_below_one_millisecond --locked
           cargo test --release -p nah-parse a_long_pipeline_is_scanned_inside_its_documented_bound --locked -- --ignored --nocapture --test-threads=1
           cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
           cargo bench --workspace --no-run --locked
@@ -58,6 +59,6 @@ jobs:
         with:
           components: clippy
       - name: Cross-platform native pipeline
-        run: cargo test -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --locked
+        run: cargo test -p nah-inline -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --locked
       - name: Cross-platform lint
-        run: cargo clippy -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --all-targets --locked -- -D warnings
+        run: cargo clippy -p nah-inline -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --all-targets --locked -- -D warnings

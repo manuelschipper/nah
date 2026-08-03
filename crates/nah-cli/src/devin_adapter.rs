@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::hook_adapter::{self, HookOutcome};
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 #[derive(Deserialize)]
 struct DevinHookInput {
@@ -25,6 +25,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     project_dir: Option<&str>,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request =
         match hook_adapter::read_event::<_, DevinHookInput>(stdin, "hook_event_name", "PreToolUse")
@@ -36,7 +37,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Err(error) => Err(error.to_string()),
         };
     let decision = match request {
-        Ok(request) => hook_adapter::decide_input(request, stderr, Runtime::Devin),
+        Ok(request) => hook_adapter::decide_input(request, stderr, Runtime::Devin, failure_policy),
         Err(_) => HookOutcome::MalformedInput,
     };
     match decision {
@@ -44,7 +45,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             let feedback = hook_adapter::feedback(&decision);
             deny(stdout, &feedback);
             let _ = writeln!(stderr, "nah - {feedback}");
-            if decision.evaluation_failed() {
+            if decision.guard_block_incomplete() {
                 let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
             }
             2
@@ -55,12 +56,34 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             }
             0
         }
-        HookOutcome::IrrelevantEvent | HookOutcome::MalformedInput => 0,
-        HookOutcome::EvaluationUnavailable => {
-            let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-            0
+        HookOutcome::IrrelevantEvent => 0,
+        HookOutcome::MalformedInput => deny_unavailable(
+            stdout,
+            stderr,
+            failure_policy,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .unwrap_or(0),
+        HookOutcome::EvaluationUnavailable(kind) => {
+            deny_unavailable(stdout, stderr, failure_policy, kind).unwrap_or_else(|| {
+                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                0
+            })
         }
     }
+}
+
+fn deny_unavailable<W: Write, E: Write>(
+    stdout: &mut W,
+    stderr: &mut E,
+    failure_policy: FailurePolicy,
+    unavailable: hook_adapter::IntegrationUnavailable,
+) -> Option<u8> {
+    hook_adapter::unavailable_feedback(failure_policy, Runtime::Devin, unavailable).map(|reason| {
+        deny(stdout, &reason);
+        let _ = writeln!(stderr, "nah - {reason}");
+        2
+    })
 }
 
 fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> {
@@ -294,6 +317,6 @@ mod tests {
     fn native_adapter_stays_contained() {
         let source = include_str!("devin_adapter.rs");
         let implementation = source.split("#[cfg(test)]").next().unwrap();
-        assert!(implementation.lines().count() <= 205);
+        assert!(implementation.lines().count() <= 232);
     }
 }

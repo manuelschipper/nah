@@ -103,6 +103,29 @@ fn decide_writes_a_redacted_log_which_drives_why_and_log() {
 }
 
 #[test]
+fn blocked_inline_source_never_reaches_the_audit_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let project = repo(&root);
+    let payload = json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {
+            "command": "python3 -c \"import shutil; marker='inline-planted-secret'; shutil.rmtree('/')\""
+        },
+        "cwd": project,
+    })
+    .to_string();
+
+    let decided = nah(&root, &["decide"], Some(&payload));
+    assert_eq!(decided.status.code(), Some(1), "{decided:?}");
+    let bytes = std::fs::read_to_string(root.join(".nah/audit.jsonl")).unwrap();
+    assert!(!bytes.contains("inline-planted-secret"));
+    assert!(!bytes.contains("shutil.rmtree"));
+    assert!(bytes.contains("Bash [redacted]"));
+}
+
+#[test]
 fn blocked_log_lists_the_last_blocks_independently() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves

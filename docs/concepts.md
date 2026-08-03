@@ -7,25 +7,32 @@ into typed invocation, filesystem, Git, network, and system-state effects.
 Observation resolves requested working directories, project roots, paths, and
 environment values before guards evaluate them.
 
-Coverage is `full` only when nah preserves every visible input required for
-guard evaluation. This is representation completeness, not proof that nah
-understands an opaque program. Unknown semantics may be fully represented;
+Coverage is `full` when nah preserves every visible input needed by guards.
+It does not mean nah understands an opaque program. Unknown semantics may be
+fully represented;
 unresolved arguments, code, or native fields remain `partial`.
 
 For Bash, nah parses visible pipelines, branches, loops, subshells, and
 redirects, then unions their possible effects into stages and data-flow edges.
 Unresolved shell state or expansion makes the stream partial.
 
+Visible inline source in Python, JavaScript, Ruby, Perl, PHP, Lua, R, Julia,
+Swift, PowerShell, or cmd stays a `code-execution` effect. A bounded pass may
+add private exact findings for built-in guards. Proven child shell source or
+argv re-enters the Bash planner and publishes its effects to all guards.
+Child stdout connects only for APIs that inherit it; cwd and environment stay
+unknown unless proven. Unsupported or ambiguous code adds no finding;
+malformed or bounded-out code adds a refusal. The interpreter remains visible.
+
 ## Verdicts and failures
 
 - `block` — an active guard or structural self-protection found definite danger.
 - `delegate` — nothing blocked; the runtime keeps control.
 
-A completed decision has only these verdicts; evaluation failure is diagnostic
-state, not a third verdict. A custom-guard failure contributes no finding, so
-other guards still decide. A failure before or within built-in evaluation
-delegates. If no valid decision is produced, there is no verdict and fallback
-is runtime-specific.
+Evaluation failure is diagnostic, not a third verdict. By default it contributes
+no finding and delegates if policy cannot reduce. An installed `--fail-closed`
+hook blocks explicit failures/refusals, not ordinary uncertainty; no valid
+decision uses runtime-native denial. See `nah docs security`.
 
 nah never approves a call. Delegation returns control to the runtime's normal
 permission or execution behavior. nah is a guard layer, not an approval UI or

@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 nah-proto = { path = "../nah-proto" }
 nah-parse = { path = "../nah-parse" }
+nah-inline = { path = "../nah-inline" }
 
 [dev-dependencies]
 serde_json = "1"

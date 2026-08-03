@@ -78,6 +78,11 @@ visible working directory is its trusted project root or a descendant. Once
 selected, it receives the complete stream: re-check each invocation's program
 and `cwd` rather than treating unrelated or out-of-root effects as in scope.
 
+Exact child commands found in visible interpreter code may appear as additional
+stages beside the original `code-execution` invocation. They use the ordinary
+effect schema; a flow to the parent exists only when the child API is proven to
+inherit stdout. Do not infer nesting or execution from stage adjacency.
+
 Every `data` path must be unique, relative, nonempty, and made only of normal
 path components. `policy.toml` and `run` cannot be data entries. Manifest, run,
 and data entries must be regular files, not symlinks; `run` must be executable
@@ -256,6 +261,9 @@ semantically invalid response produces a typed failure and no finding. Other
 guards still run; any definite finding blocks, otherwise the call delegates.
 Live non-dry-run dispatch attempts to persist the failure redacted. A valid
 abstention contributes nothing.
+
+`--fail-closed` converts that delegate to a structural block. Only validated
+responses enter the memo cache, so failures execute again.
 
 Selected custom guards execute sequentially, so their elapsed time accumulates
 within the agent runtime's hook deadline. Runtime limits and behavior vary.

@@ -50,7 +50,7 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Cline: wiring current\nverify: nah docs runtime-cline\n"
+        "Cline: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-cline\n"
     );
     assert!(nah(home, &["hook", "cline", "install"]).status.success());
     assert_eq!(std::fs::read(&ide_path).unwrap(), first);
@@ -63,7 +63,7 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
         let status = nah(home, &["hook", "cline", "status"]);
         assert_eq!(
             String::from_utf8_lossy(&status.stdout),
-            "Cline: reinstall required\nnext: nah hook cline install\ndocs: nah docs runtime-cline\n"
+            "Cline: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook cline install\ndocs: nah docs runtime-cline\n"
         );
         assert!(nah(home, &["hook", "cline", "install"]).status.success());
     }

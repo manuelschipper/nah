@@ -576,21 +576,23 @@ dependencies = [
 
 [[package]]
 name = "nah-actions"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
+ "nah-inline",
  "nah-parse",
  "nah-proto",
 ]
 
 [[package]]
 name = "nah-cli"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "clap",
  "getrandom",
  "hmac",
  "nah-actions",
  "nah-extensions",
+ "nah-inline",
  "nah-observe",
  "nah-parse",
  "nah-policy",
@@ -607,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "nah-extensions"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "nah-proto",
  "serde",
@@ -628,8 +630,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nah-inline"
+version = "1.0.0"
+dependencies = [
+ "nah-proto",
+]
+
+[[package]]
 name = "nah-observe"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "nah-proto",
  "toml",
@@ -639,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "nah-parse"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
@@ -647,14 +656,15 @@ dependencies = [
 
 [[package]]
 name = "nah-policy"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
+ "nah-inline",
  "nah-proto",
 ]
 
 [[package]]
 name = "nah-proto"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",

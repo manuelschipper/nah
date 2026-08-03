@@ -71,6 +71,11 @@ struct Lowerer {
     detected_fork_bomb: bool,
     visible_stdin: Option<VisibleStdin>,
     visible_execution_states: Vec<VisibleExecutionState>,
+    inline_child_stages: BTreeSet<usize>,
+    inline_report: nah_inline::InlineReport,
+    inline_failed: bool,
+    inline_child_count: usize,
+    inline_child_bytes: usize,
     prelowered_visible_stages: BTreeSet<usize>,
     unresolved_current_shell_stages: BTreeSet<usize>,
     tracked_execution_stream_stages: BTreeSet<usize>,
@@ -188,7 +193,13 @@ pub(crate) fn draft(
     platform: Platform,
     ambient_variables: &[(String, VariableValue)],
     critical_paths: &[AbsolutePath],
-) -> (Draft, Vec<ObservationQuery>) {
+) -> (
+    Draft,
+    Draft,
+    Vec<ObservationQuery>,
+    nah_inline::InlineReport,
+    bool,
+) {
     let mut lowerer = Lowerer {
         complete: syntax.complete(),
         stages: Vec::new(),
@@ -218,6 +229,11 @@ pub(crate) fn draft(
         detected_fork_bomb: false,
         visible_stdin: None,
         visible_execution_states: Vec::new(),
+        inline_child_stages: BTreeSet::new(),
+        inline_report: nah_inline::InlineReport::default(),
+        inline_failed: false,
+        inline_child_count: 0,
+        inline_child_bytes: 0,
         prelowered_visible_stages: BTreeSet::new(),
         unresolved_current_shell_stages: BTreeSet::new(),
         tracked_execution_stream_stages: BTreeSet::new(),
@@ -230,6 +246,7 @@ pub(crate) fn draft(
     lowerer.lower_visible_programs();
     lowerer.attach_fork_bomb();
     lowerer.ensure_analysis_refusal_stage();
+    let mut coverage_draft = lowerer.coverage_draft();
     add_artifact_flows(&lowerer.stages, &mut lowerer.flows, lowerer.platform);
     add_artifact_identities(&mut lowerer.stages, lowerer.platform);
     add_recursive_descendant_inspections(
@@ -238,18 +255,69 @@ pub(crate) fn draft(
         &mut lowerer.queries,
         lowerer.platform,
     );
+    add_artifact_flows(
+        &coverage_draft.stages,
+        &mut coverage_draft.flows,
+        lowerer.platform,
+    );
+    add_artifact_identities(&mut coverage_draft.stages, lowerer.platform);
+    add_recursive_descendant_inspections(
+        &mut coverage_draft.stages,
+        &coverage_draft.flows,
+        &mut lowerer.queries,
+        lowerer.platform,
+    );
+    let draft = Draft {
+        complete: lowerer.complete,
+        analysis_refused: lowerer.analysis_refused,
+        stages: lowerer.stages,
+        flows: lowerer.flows,
+    };
     (
-        Draft {
-            complete: lowerer.complete,
-            analysis_refused: lowerer.analysis_refused,
-            stages: lowerer.stages,
-            flows: lowerer.flows,
-        },
+        draft,
+        coverage_draft,
         lowerer.queries,
+        lowerer.inline_report,
+        lowerer.inline_failed,
     )
 }
 
 impl Lowerer {
+    fn coverage_draft(&self) -> Draft {
+        let mut old_to_new = vec![None; self.stages.len()];
+        let mut stages = Vec::new();
+        for (old, stage) in self.stages.iter().enumerate() {
+            if self.inline_child_stages.contains(&old) {
+                continue;
+            }
+            old_to_new[old] = Some(stages.len());
+            stages.push(stage.clone());
+        }
+        for stage in &mut stages {
+            stage.execution_dominators = stage
+                .execution_dominators
+                .iter()
+                .filter_map(|old| old_to_new.get(*old).copied().flatten())
+                .collect();
+        }
+        let flows = self
+            .flows
+            .iter()
+            .filter_map(|(from, to)| {
+                Some((
+                    old_to_new.get(*from).copied().flatten()?,
+                    old_to_new.get(*to).copied().flatten()?,
+                ))
+            })
+            .collect();
+        Draft {
+            complete: self.complete,
+            analysis_refused: self.analysis_refused,
+            stages,
+            flows,
+        }
+    }
+
     fn merged_state(&mut self, states: &[ShellState]) -> ShellState {
         let (state, origins_saturated) = merge_states(states, &self.function_bodies);
         if origins_saturated {
@@ -360,6 +428,7 @@ impl Lowerer {
             const MAX_SEQUENCE_STATES: usize = 16;
             if exits.len() > MAX_SEQUENCE_STATES {
                 self.complete = false;
+                self.analysis_refused = true;
                 exits = vec![self.merged_state(&exits)];
             } else if exits.len() > 1 {
                 self.complete = false;

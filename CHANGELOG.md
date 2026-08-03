@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Opt-in fail-closed runtime hooks** — `nah hook <runtime> install
+  --fail-closed` now blocks otherwise-delegated explicit evaluation failures
+  and bounded analysis refusals, with fixed recovery guidance and native denial
+  when no valid decision exists. Default installs remain delegate-on-failure;
+  `--fail-open` downgrades and flagless reinstall preserves recognized mode.
+- **Inline language disaster signatures** — built-in guards now recognize
+  selected exact visible Python, JavaScript, Ruby, Perl, PHP, Lua, R, Julia,
+  Swift, PowerShell, and cmd forms for supported filesystem and execution
+  disasters. Exact child shell and argv calls reuse normal Bash effects and
+  proven stdout flows; ambiguous child calls or unsupported code add nothing.
+- **Stable inline extension input** — visible interpreter code remains an
+  `code-execution` invocation with source `interpreter-inline` for custom
+  guards, alongside any proven child effects; private built-in findings do not
+  rewrite its source classification.
+
 ## nah 1.0.0 — Aug 1, 2026
 
 First release. One static Rust binary that hooks into a coding agent,
@@ -14,8 +31,7 @@ else to the runtime.
   can block, never allow.
 - **14 runtime adapters** — one install command each for claude code,
   codex, cursor, cline, copilot, antigravity, kiro, amp, devin, droid,
-  opencode, openclaw, hermes, and pi. Every adapter hooks the native
-  path and fails closed.
+  opencode, openclaw, hermes, and pi. Every adapter hooks the native path.
 - **Custom guards in any language** — `nah guard new`, effects on stdin,
   block or abstain on stdout. Extensions can only make nah stricter, and
   project guards stay inert until a human trusts the repository.

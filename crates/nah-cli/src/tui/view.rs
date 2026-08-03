@@ -393,9 +393,15 @@ fn render_runtimes(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_are
                 Ok(status) => (
                     status_name(*status),
                     match status {
-                        RuntimeHookStatus::WiringCurrent => Style::new().fg(Color::Green),
+                        RuntimeHookStatus::WiringCurrent
+                        | RuntimeHookStatus::WiringCurrentFailClosed => {
+                            Style::new().fg(Color::Green)
+                        }
                         RuntimeHookStatus::NotConfigured => Style::default(),
-                        RuntimeHookStatus::NeedsReinstall => Style::new().fg(Color::Yellow),
+                        RuntimeHookStatus::NeedsReinstall
+                        | RuntimeHookStatus::NeedsReinstallFailClosed => {
+                            Style::new().fg(Color::Yellow)
+                        }
                     },
                 ),
                 Err(_) => ("cannot inspect", Style::new().fg(Color::Red)),

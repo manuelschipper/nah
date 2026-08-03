@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::hook_adapter::{self, HookOutcome};
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 #[derive(Deserialize)]
 struct KiroHookInput {
@@ -25,6 +25,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     _stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request = read_input(stdin).and_then(|value| {
         if value
@@ -39,31 +40,57 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             .and_then(normalize)
     });
     match request {
-        Ok(Some(request)) => match hook_adapter::decide_input(request, stderr, Runtime::Kiro) {
-            HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-                let _ = writeln!(stderr, "nah - {}", hook_adapter::feedback(&decision));
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+        Ok(Some(request)) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Kiro, failure_policy) {
+                HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
+                    let _ = writeln!(stderr, "nah - {}", hook_adapter::feedback(&decision));
+                    if decision.guard_block_incomplete() {
+                        let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+                    }
+                    2
                 }
-                2
-            }
-            HookOutcome::Decision(decision) => {
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                    1
-                } else {
-                    0
+                HookOutcome::Decision(decision) => {
+                    if decision.evaluation_failed() {
+                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        1
+                    } else {
+                        0
+                    }
+                }
+                HookOutcome::IrrelevantEvent => 0,
+                HookOutcome::MalformedInput => deny_unavailable(
+                    stderr,
+                    failure_policy,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
+                )
+                .unwrap_or(0),
+                HookOutcome::EvaluationUnavailable(kind) => {
+                    deny_unavailable(stderr, failure_policy, kind).unwrap_or_else(|| {
+                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        1
+                    })
                 }
             }
-            HookOutcome::IrrelevantEvent | HookOutcome::MalformedInput => 0,
-            HookOutcome::EvaluationUnavailable => {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                1
-            }
-        },
+        }
         Ok(None) => 0,
-        Err(_) => 0,
+        Err(_) => deny_unavailable(
+            stderr,
+            failure_policy,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .unwrap_or(0),
     }
+}
+
+fn deny_unavailable<E: Write>(
+    stderr: &mut E,
+    failure_policy: FailurePolicy,
+    unavailable: hook_adapter::IntegrationUnavailable,
+) -> Option<u8> {
+    hook_adapter::unavailable_feedback(failure_policy, Runtime::Kiro, unavailable).map(|reason| {
+        let _ = writeln!(stderr, "nah - {reason}");
+        2
+    })
 }
 
 fn read_input<R: Read>(stdin: &mut R) -> Result<Value, String> {

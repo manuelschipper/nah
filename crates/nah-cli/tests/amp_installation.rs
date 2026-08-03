@@ -57,15 +57,37 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     assert!(current.status.success(), "{current:?}");
     assert_eq!(
         String::from_utf8_lossy(&current.stdout),
-        "Amp: wiring current\nverify: nah docs runtime-amp\n"
+        "Amp: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-amp\n"
     );
+
+    let strict = nah(home, &["hook", "amp", "install", "--fail-closed"]);
+    assert!(strict.status.success(), "{strict:?}");
+    let strict_bytes = std::fs::read(&plugin).unwrap();
+    assert!(String::from_utf8_lossy(&strict_bytes).contains("--fail-closed"));
+    let strict_status = nah(home, &["hook", "amp", "status"]);
+    assert!(String::from_utf8_lossy(&strict_status.stdout).contains("failure policy: fail-closed"));
+    let preserved = nah(home, &["hook", "amp", "install"]);
+    assert!(preserved.status.success(), "{preserved:?}");
+    assert_eq!(std::fs::read(&plugin).unwrap(), strict_bytes);
+    std::fs::write(&plugin, [strict_bytes.as_slice(), b"// stale\n"].concat()).unwrap();
+    let strict_stale = nah(home, &["hook", "amp", "status"]);
+    assert!(
+        String::from_utf8_lossy(&strict_stale.stdout)
+            .contains("detected failure policy: fail-closed")
+    );
+    let preserved = nah(home, &["hook", "amp", "install"]);
+    assert!(preserved.status.success(), "{preserved:?}");
+    assert_eq!(std::fs::read(&plugin).unwrap(), strict_bytes);
+    let downgraded = nah(home, &["hook", "amp", "install", "--fail-open"]);
+    assert!(downgraded.status.success(), "{downgraded:?}");
+    assert_eq!(std::fs::read(&plugin).unwrap(), first_bytes);
 
     std::fs::write(&plugin, format!("{source}\n// stale\n")).unwrap();
     let stale = nah(home, &["hook", "amp", "status"]);
     assert!(stale.status.success(), "{stale:?}");
     assert_eq!(
         String::from_utf8_lossy(&stale.stdout),
-        "Amp: reinstall required\nnext: nah hook amp install\ndocs: nah docs runtime-amp\n"
+        "Amp: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook amp install\ndocs: nah docs runtime-amp\n"
     );
 
     let installed_again = nah(home, &["hook", "amp", "install"]);

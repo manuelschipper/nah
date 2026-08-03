@@ -991,7 +991,7 @@ fn branches_loops_cases_and_group_redirects_keep_typed_structure() {
 
 fn refusal(source: &str) -> String {
     match normalize(source) {
-        Err(nah_parse::ParseError::ExceedsLimit(reason)) => reason.to_owned(),
+        Err(nah_parse::ParseError::ExceedsLimit(limit)) => limit.to_string(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

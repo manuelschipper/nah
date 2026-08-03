@@ -6,19 +6,22 @@ use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "Managed by nah: Cline PreToolUse";
 
-pub(crate) fn mutate_cline_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_cline_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, platform)
+            install_hook(&home, &executable, platform, policy)
         } else {
             uninstall_hook(&home, platform)
         }
@@ -40,17 +43,40 @@ pub(crate) fn cline_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_symlinks(&paths)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_hook(&executable, platform)?;
-    let ide = hook_state(&paths.ide_hook, &desired)?;
-    let cli = hook_state(&paths.cli_hook, &desired)?;
+    let delegate = desired_hook(&executable, platform, FailurePolicy::Delegate)?;
+    let strict = desired_hook(&executable, platform, FailurePolicy::Block)?;
+    let ide = hook_state(&paths.ide_hook, &delegate)?;
+    let cli = hook_state(&paths.cli_hook, &delegate)?;
     if ide.is_none() && cli.is_none() {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     if ide == Some(true) && cli == Some(true) {
         Ok(RuntimeHookStatus::WiringCurrent)
+    } else if hook_state(&paths.ide_hook, &strict)? == Some(true)
+        && hook_state(&paths.cli_hook, &strict)? == Some(true)
+    {
+        Ok(RuntimeHookStatus::WiringCurrentFailClosed)
     } else {
-        Ok(RuntimeHookStatus::NeedsReinstall)
+        Ok(RuntimeHookStatus::stale(configured_policy(&paths)?))
     }
+}
+
+fn configured_policy(paths: &ClineHookPaths) -> Result<FailurePolicy, String> {
+    let mut modes = Vec::new();
+    for path in paths.hooks() {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => modes.push(contents.contains(" hook cline run --fail-closed")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("cline-hook-read-failed".into()),
+        }
+    }
+    Ok(
+        if !modes.is_empty() && modes.into_iter().all(|strict| strict) {
+            FailurePolicy::Block
+        } else {
+            FailurePolicy::Delegate
+        },
+    )
 }
 
 pub(crate) fn cline_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -64,11 +90,12 @@ fn install_hook(
     home: &AbsolutePath,
     executable: &Path,
     platform: Platform,
+    policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = ClineHookPaths::new(home, platform);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
-    let desired = desired_hook(executable, platform)?;
+    let desired = desired_hook(executable, platform, policy)?;
     let ide = hook_state(&paths.ide_hook, &desired)?;
     let cli = hook_state(&paths.cli_hook, &desired)?;
     if ide != Some(true) {
@@ -174,24 +201,31 @@ fn documents_path(home: &Path, platform: Platform) -> PathBuf {
         .unwrap_or_else(|| home.join("Documents"))
 }
 
-fn desired_hook(executable: &Path, platform: Platform) -> Result<String, String> {
+fn desired_hook(
+    executable: &Path,
+    platform: Platform,
+    policy: FailurePolicy,
+) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     if platform == Platform::Windows {
         let executable = executable.replace('\'', "''");
         Ok(format!(
-            "# {MARKER}\n$payload = [Console]::In.ReadToEnd()\n$payload | & '{executable}' hook cline run\nexit $LASTEXITCODE\n"
+            "# {MARKER}\n$payload = [Console]::In.ReadToEnd()\n$payload | & '{executable}' hook cline run{}\nexit $LASTEXITCODE\n",
+            policy.command_suffix()
         ))
     } else {
         Ok(format!(
-            "#!/bin/sh\n# {MARKER}\nexec {} hook cline run\n",
-            shell_quote(executable)
+            "#!/bin/sh\n# {MARKER}\nexec {} hook cline run{}\n",
+            shell_quote(executable),
+            policy.command_suffix()
         ))
     }
 }
 
 fn is_owned(contents: &str) -> bool {
+    let contents = contents.replace(" hook cline run --fail-closed", " hook cline run");
     let lines = contents.lines().collect::<Vec<_>>();
     match lines.as_slice() {
         ["#!/bin/sh", marker, command]
@@ -333,12 +367,51 @@ mod tests {
 
     #[test]
     fn generated_posix_and_powershell_hooks_are_owned() {
-        let posix = desired_hook(Path::new("/opt/nah"), Platform::Linux).unwrap();
-        let windows =
-            desired_hook(Path::new(r"C:\Program Files\nah.exe"), Platform::Windows).unwrap();
+        let posix = desired_hook(
+            Path::new("/opt/nah"),
+            Platform::Linux,
+            FailurePolicy::Delegate,
+        )
+        .unwrap();
+        let windows = desired_hook(
+            Path::new(r"C:\Program Files\nah.exe"),
+            Platform::Windows,
+            FailurePolicy::Delegate,
+        )
+        .unwrap();
         assert!(is_owned(&posix));
         assert!(is_owned(&windows));
         assert!(windows.contains("[Console]::In.ReadToEnd()"));
         assert!(!is_owned(&format!("{posix}echo unsafe\n")));
+    }
+
+    #[test]
+    fn mixed_stale_hook_files_default_to_delegate() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = ClineHookPaths {
+            ide_hook: temp.path().join("ide"),
+            cli_hook: temp.path().join("cli"),
+            lock: temp.path().join("lock"),
+            directories: vec![],
+        };
+        std::fs::write(
+            &paths.ide_hook,
+            desired_hook(Path::new("/old/nah"), Platform::Linux, FailurePolicy::Block).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &paths.cli_hook,
+            desired_hook(
+                Path::new("/old/nah"),
+                Platform::Linux,
+                FailurePolicy::Delegate,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(configured_policy(&paths).unwrap(), FailurePolicy::Delegate);
+
+        std::fs::remove_file(&paths.cli_hook).unwrap();
+        assert_eq!(configured_policy(&paths).unwrap(), FailurePolicy::Block);
     }
 }

@@ -8,7 +8,10 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{hook_adapter, live_state, runtime::Runtime};
+use crate::{
+    hook_adapter, live_state,
+    runtime::{FailurePolicy, Runtime},
+};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,8 +34,15 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(stdin, stdout, stderr, live_state::host_platform())
+    run_for_platform(
+        stdin,
+        stdout,
+        stderr,
+        live_state::host_platform(),
+        failure_policy,
+    )
 }
 
 fn run_for_platform<R: Read, W: Write, E: Write>(
@@ -40,6 +50,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     platform: Platform,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let input = match serde_json::from_reader::<_, Value>(stdin) {
         Ok(value)
@@ -56,23 +67,38 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     };
     let request = input.and_then(|input| normalize_for_platform(input, platform));
     let output = match request {
-        Ok(request) => match hook_adapter::decide_input(request, stderr, Runtime::Cline) {
-            hook_adapter::HookOutcome::Decision(decision)
-                if decision.verdict() == Verdict::Block =>
-            {
-                cancel(
-                    &hook_adapter::feedback(&decision),
-                    decision.evaluation_failed(),
+        Ok(request) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Cline, failure_policy) {
+                hook_adapter::HookOutcome::Decision(decision)
+                    if decision.verdict() == Verdict::Block =>
+                {
+                    cancel(
+                        &hook_adapter::feedback(&decision),
+                        decision.guard_block_incomplete(),
+                    )
+                }
+                hook_adapter::HookOutcome::Decision(decision) => {
+                    delegated(decision.evaluation_failed())
+                }
+                hook_adapter::HookOutcome::IrrelevantEvent => return 0,
+                hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
+                    failure_policy,
+                    Runtime::Cline,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
+                .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
+                hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+                    hook_adapter::unavailable_feedback(failure_policy, Runtime::Cline, kind)
+                        .map_or_else(|| delegated(true), |reason| cancel(&reason, false))
+                }
             }
-            hook_adapter::HookOutcome::Decision(decision) => {
-                delegated(decision.evaluation_failed())
-            }
-            hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-            hook_adapter::HookOutcome::MalformedInput => delegated(false),
-            hook_adapter::HookOutcome::EvaluationUnavailable => delegated(true),
-        },
-        Err(_) => delegated(false),
+        }
+        Err(_) => hook_adapter::unavailable_feedback(
+            failure_policy,
+            Runtime::Cline,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
@@ -535,7 +561,13 @@ mod tests {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             assert_eq!(
-                run_for_platform(&mut stdin, &mut stdout, &mut stderr, Platform::Windows),
+                run_for_platform(
+                    &mut stdin,
+                    &mut stdout,
+                    &mut stderr,
+                    Platform::Windows,
+                    FailurePolicy::Delegate,
+                ),
                 0
             );
             let output: Value = serde_json::from_slice(&stdout).unwrap();

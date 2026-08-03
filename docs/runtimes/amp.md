@@ -6,6 +6,13 @@
 nah hook amp install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart Amp or run `plugins: reload`. There is no `nah run` wrapper. Remove
 only nah's plugin with:
 
@@ -27,7 +34,7 @@ custom tools remain opaque. Blocks return Amp's `reject-and-continue` response
 with nah-branded feedback. Amp's current `tool.call` API has no neutral or
 abstain result, so the bridge expresses a nah `delegate` with Amp's
 runtime-native `{ action: "allow" }` continuation token. Nah has no Allow
-verdict or policy path. Malformed calls remain opaque. If evaluation fails,
+verdict or policy path. Under the default mode, malformed calls remain opaque. If evaluation fails,
 the plugin delegates with that same token and shows a warning when Amp exposes
 its UI feedback channel.
 

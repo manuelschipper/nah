@@ -8,7 +8,10 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{hook_adapter, runtime::Runtime};
+use crate::{
+    hook_adapter,
+    runtime::{FailurePolicy, Runtime},
+};
 
 #[derive(Deserialize)]
 struct HermesHookInput {
@@ -24,6 +27,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request = match hook_adapter::read_event::<_, HermesHookInput>(
         stdin,
@@ -35,33 +39,53 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         Err(error) => Err(error.to_string()),
     };
     let output = match request {
-        Ok(request) => match hook_adapter::decide_input(request, stderr, Runtime::Hermes) {
-            hook_adapter::HookOutcome::Decision(decision)
-                if decision.verdict() == Verdict::Block =>
-            {
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+        Ok(request) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Hermes, failure_policy) {
+                hook_adapter::HookOutcome::Decision(decision)
+                    if decision.verdict() == Verdict::Block =>
+                {
+                    if decision.guard_block_incomplete() {
+                        let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+                    }
+                    json!({"decision":"block","reason":format!("nah - {}", hook_adapter::feedback(&decision))})
                 }
-                json!({"decision":"block","reason":format!("nah - {}", hook_adapter::feedback(&decision))})
-            }
-            hook_adapter::HookOutcome::Decision(decision) => {
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                hook_adapter::HookOutcome::Decision(decision) => {
+                    if decision.evaluation_failed() {
+                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    }
+                    json!({})
                 }
-                json!({})
+                hook_adapter::HookOutcome::IrrelevantEvent => return 0,
+                hook_adapter::HookOutcome::MalformedInput => unavailable(
+                    failure_policy,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
+                )
+                .unwrap_or_else(|| json!({})),
+                hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| {
+                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        json!({})
+                    })
+                }
             }
-            hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-            hook_adapter::HookOutcome::MalformedInput => json!({}),
-            hook_adapter::HookOutcome::EvaluationUnavailable => {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                json!({})
-            }
-        },
-        Err(_) => json!({}),
+        }
+        Err(_) => unavailable(
+            failure_policy,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .unwrap_or_else(|| json!({})),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
     0
+}
+
+fn unavailable(
+    failure_policy: FailurePolicy,
+    unavailable: hook_adapter::IntegrationUnavailable,
+) -> Option<Value> {
+    hook_adapter::unavailable_feedback(failure_policy, Runtime::Hermes, unavailable)
+        .map(|reason| json!({"decision":"block","reason":format!("nah - {reason}")}))
 }
 
 fn normalize(input: HermesHookInput) -> Result<ToolCallInput, String> {

@@ -6,7 +6,8 @@ use super::command_effects::AnalyzedCommand;
 use super::filesystem::allocated_descriptor_variable;
 use super::{Lowered, Lowerer};
 use crate::bash_flow::{redirects_stdin, redirects_stdout};
-use crate::bash_model::{ProgramDraft, VariableValue};
+use crate::bash_lookup::LookupState;
+use crate::bash_model::{InvocationDraft, ProgramDraft, VariableValue};
 use crate::bash_wrappers::{command_exec_has_no_command, exec_has_no_command};
 
 impl Lowerer {
@@ -35,6 +36,37 @@ impl Lowerer {
             execution,
             lastpipe_update,
         } = command;
+        let inline_state = matches!(
+            &stage_draft.invocation,
+            InvocationDraft::CodeExecution { program, .. } if nah_inline::supports(program)
+        )
+        .then(|| {
+            let parent_state = self.state.clone();
+            let parent_ambient_variables = self.ambient_variables.clone();
+            let parent_complete = self.complete;
+            let parent_lookup_mode = self.next_lookup_mode;
+            let parent_aliases = self.active_aliases.clone();
+            self.prepare_isolated_environment(
+                &program,
+                &local_arguments,
+                assignments,
+                &assignment_updates,
+            );
+            self.state.functions.clear();
+            self.state.lookup = LookupState::default();
+            self.active_aliases = None;
+            let visible = super::VisibleExecutionState {
+                stage,
+                state: self.state.clone(),
+                ambient_variables: self.ambient_variables.clone(),
+            };
+            self.state = parent_state;
+            self.ambient_variables = parent_ambient_variables;
+            self.complete = parent_complete;
+            self.next_lookup_mode = parent_lookup_mode;
+            self.active_aliases = parent_aliases;
+            visible
+        });
         let mut lowered_source = Lowered::default();
         self.stages.push(stage_draft);
         if let Some(mut visible) = self.pending_visible_child_state.take() {
@@ -48,6 +80,22 @@ impl Lowerer {
             self.flows.push((origin, stage));
         }
         self.flows.extend(descriptor_flows);
+        if !current_shell_source
+            && !current_shell_eval
+            && (matches!(
+                self.stages[stage].invocation,
+                InvocationDraft::CodeExecution { code: None, .. }
+            ) || matches!(
+                &self.stages[stage].invocation,
+                InvocationDraft::CodeExecution { source, .. }
+                    if source == &nah_proto::action::SemanticCode::SHELL_STDIN
+            ))
+        {
+            self.resolve_visible_execution_at_boundary(stage);
+        }
+        if let Some(inline_state) = inline_state {
+            self.analyze_inline_stage(inline_state);
+        }
         if current_shell_source {
             if let Some(payload) = self.visible_execution_payload(stage) {
                 lowered_source = self.lower_source_payload(

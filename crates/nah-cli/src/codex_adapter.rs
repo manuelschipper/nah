@@ -6,14 +6,24 @@ use nah_proto::ctx::Platform;
 use nah_proto::decision::Verdict;
 use serde_json::{Value, json};
 
-use crate::{hook_adapter, live_state, runtime::Runtime};
+use crate::{
+    hook_adapter, live_state,
+    runtime::{FailurePolicy, Runtime},
+};
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(stdin, stdout, stderr, live_state::host_platform())
+    run_for_platform(
+        stdin,
+        stdout,
+        stderr,
+        live_state::host_platform(),
+        failure_policy,
+    )
 }
 
 fn run_for_platform<R: Read, W: Write, E: Write>(
@@ -21,10 +31,20 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     platform: Platform,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let mut input = match serde_json::from_reader::<_, Value>(stdin) {
         Ok(input) => input,
-        Err(_) => return 0,
+        Err(_) => {
+            if let Some(reason) = hook_adapter::unavailable_feedback(
+                failure_policy,
+                Runtime::Codex,
+                hook_adapter::IntegrationUnavailable::MalformedInput,
+            ) {
+                emit(stdout, deny(&reason, false));
+            }
+            return 0;
+        }
     };
     if hook_adapter::irrelevant_event(&input, "hook_event_name", "PreToolUse") {
         return 0;
@@ -33,13 +53,18 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         input["tool_name"] = json!("CodexWindowsShell");
     }
     let encoded = serde_json::to_vec(&input).expect("JSON value serializes");
-    match hook_adapter::decide(&mut encoded.as_slice(), stderr, Runtime::Codex) {
+    match hook_adapter::decide(
+        &mut encoded.as_slice(),
+        stderr,
+        Runtime::Codex,
+        failure_policy,
+    ) {
         hook_adapter::HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
             emit(
                 stdout,
                 deny(
                     &hook_adapter::feedback(&decision),
-                    decision.evaluation_failed(),
+                    decision.guard_block_incomplete(),
                 ),
             );
         }
@@ -47,9 +72,20 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
             emit(stdout, diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE));
         }
         hook_adapter::HookOutcome::Decision(_) | hook_adapter::HookOutcome::IrrelevantEvent => {}
-        hook_adapter::HookOutcome::MalformedInput => {}
-        hook_adapter::HookOutcome::EvaluationUnavailable => {
-            emit(stdout, diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE));
+        hook_adapter::HookOutcome::MalformedInput => {
+            if let Some(reason) = hook_adapter::unavailable_feedback(
+                failure_policy,
+                Runtime::Codex,
+                hook_adapter::IntegrationUnavailable::MalformedInput,
+            ) {
+                emit(stdout, deny(&reason, false));
+            }
+        }
+        hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+            match hook_adapter::unavailable_feedback(failure_policy, Runtime::Codex, kind) {
+                Some(reason) => emit(stdout, deny(&reason, false)),
+                None => emit(stdout, diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE)),
+            }
         }
     }
     0
@@ -115,7 +151,13 @@ mod tests {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             assert_eq!(
-                run_for_platform(&mut input, &mut stdout, &mut stderr, Platform::Windows),
+                run_for_platform(
+                    &mut input,
+                    &mut stdout,
+                    &mut stderr,
+                    Platform::Windows,
+                    FailurePolicy::Delegate,
+                ),
                 0
             );
             assert!(stdout.is_empty(), "{command}");
@@ -133,7 +175,13 @@ mod tests {
         let mut stderr = Vec::new();
 
         assert_eq!(
-            run_for_platform(&mut input, &mut stdout, &mut stderr, Platform::Windows),
+            run_for_platform(
+                &mut input,
+                &mut stdout,
+                &mut stderr,
+                Platform::Windows,
+                FailurePolicy::Delegate,
+            ),
             0
         );
         assert!(stdout.is_empty());
@@ -160,6 +208,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 84);
+        assert!(implementation.lines().count() <= 124);
     }
 }

@@ -7,18 +7,21 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-pub(crate) fn mutate_claude_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_claude_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_claude_hook(&home, &executable)
+            install_claude_hook(&home, &executable, policy)
         } else {
             uninstall_claude_hook(&home)
         }
@@ -34,10 +37,12 @@ pub(crate) fn claude_hook_status() -> Result<RuntimeHookStatus, String> {
     let settings = load_settings(&paths.settings)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    hook_config::inspect(
+    hook_config::inspect_modes(
         &settings,
-        &desired_handler(&executable)?,
+        &desired_handler(&executable, FailurePolicy::Delegate)?,
+        &desired_handler(&executable, FailurePolicy::Block)?,
         is_nah_handler,
+        is_fail_closed_handler,
         "invalid-claude-hooks",
     )
 }
@@ -48,12 +53,16 @@ pub(crate) fn claude_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![ClaudeHookPaths::new(&home).settings])
 }
 
-fn install_claude_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_claude_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = ClaudeHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
     let mut settings = load_settings(&paths.settings)?;
-    let desired = desired_handler(executable)?;
+    let desired = desired_handler(executable, policy)?;
     if hook_config::add(
         &mut settings,
         desired,
@@ -186,14 +195,18 @@ fn reject_symlinks(paths: &ClaudeHookPaths) -> Result<(), String> {
     reject_symlink(&paths.settings)
 }
 
-fn desired_handler(executable: &Path) -> Result<Value, String> {
+fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let command = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
+    let mut args = vec!["hook", "claude", "run"];
+    if policy == FailurePolicy::Block {
+        args.push("--fail-closed");
+    }
     Ok(json!({
         "type": "command",
         "command": command,
-        "args": ["hook", "claude", "run"],
+        "args": args,
         "timeout": 5
     }))
 }
@@ -220,8 +233,23 @@ fn is_nah_handler(handler: &Value) -> bool {
     // Keep recognizing the removed form so reinstall and uninstall clean up old entries.
     matches!(
         args.as_deref(),
-        Some(["hook", "claude", "run"]) | Some(["hook", "claude", "run", "--strict"])
+        Some(["hook", "claude", "run"])
+            | Some(["hook", "claude", "run", "--fail-closed"])
+            | Some(["hook", "claude", "run", "--strict"])
     )
+}
+
+fn is_fail_closed_handler(handler: &Value) -> bool {
+    handler
+        .get("args")
+        .and_then(Value::as_array)
+        .is_some_and(|args| {
+            args.iter()
+                .map(Value::as_str)
+                .collect::<Option<Vec<_>>>()
+                .as_deref()
+                == Some(&["hook", "claude", "run", "--fail-closed"][..])
+        })
 }
 
 #[cfg(unix)]

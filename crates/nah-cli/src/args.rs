@@ -202,14 +202,14 @@ pub(crate) struct HookArgs {
     pub(crate) action: HookAction,
 }
 
-#[derive(Clone, Copy, Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum HookAction {
     /// Install nah-owned runtime configuration.
     ///
     /// Runtime loading, restart, and coverage behavior varies. Read
     /// `nah docs runtimes` and the matching `runtime-*` topic, then verify
     /// against the runtime's latest documentation.
-    Install,
+    Install(HookInstallArgs),
     /// Remove nah-owned runtime configuration.
     ///
     /// Removes only nah-owned wiring. Runtime configuration outside nah's
@@ -222,7 +222,25 @@ pub(crate) enum HookAction {
     Status,
     /// Run the machine-facing runtime adapter.
     #[command(hide = true)]
-    Run,
+    Run(HookRunArgs),
+}
+
+#[derive(Clone, Copy, Debug, Default, Args)]
+pub(crate) struct HookInstallArgs {
+    /// Block intercepted calls when required safety evaluation cannot finish.
+    #[arg(long, conflicts_with = "fail_open")]
+    pub(crate) fail_closed: bool,
+
+    /// Delegate evaluation failures to the runtime.
+    #[arg(long, conflicts_with = "fail_closed")]
+    pub(crate) fail_open: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Args)]
+pub(crate) struct HookRunArgs {
+    /// Block when required safety evaluation cannot finish.
+    #[arg(long)]
+    pub(crate) fail_closed: bool,
 }
 
 #[derive(Debug, Args)]
@@ -293,11 +311,14 @@ mod tests {
             vec!["nah", "guard", "new", "corp"],
             vec!["nah", "guard", "new", "corp", "--project", "/repo"],
             vec!["nah", "hook", "antigravity", "install"],
+            vec!["nah", "hook", "claude", "install", "--fail-closed"],
+            vec!["nah", "hook", "claude", "install", "--fail-open"],
             vec!["nah", "hook", "cline", "install"],
             vec!["nah", "hook", "openclaw", "install"],
             vec!["nah", "hook", "kiro", "install"],
             vec!["nah", "hook", "amp", "status"],
             vec!["nah", "hook", "codex", "run"],
+            vec!["nah", "hook", "codex", "run", "--fail-closed"],
             vec!["nah", "why", "decision-1"],
             vec!["nah", "log", "--blocked", "--json", "-n", "5"],
             vec!["nah", "docs", "extending"],
@@ -305,6 +326,21 @@ mod tests {
         ] {
             assert!(parse_from(arguments.clone()).is_ok(), "{arguments:?}");
         }
+    }
+
+    #[test]
+    fn install_failure_policy_flags_are_exclusive() {
+        assert!(
+            parse_from([
+                "nah",
+                "hook",
+                "claude",
+                "install",
+                "--fail-open",
+                "--fail-closed",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

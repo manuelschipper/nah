@@ -81,6 +81,38 @@ fn failed_evaluations_keep_the_completed_policy_verdict() {
 }
 
 #[test]
+fn unavailable_records_have_a_pinned_redacted_v1_shape() {
+    let record = AuditRecordV1::unavailable(
+        DecisionEnvelope::new("decision-unavailable", "2026-08-03T12:00:00Z", 0).unwrap(),
+        "amp",
+        "fixed recovery",
+        "hook-input",
+        "malformed",
+    );
+
+    assert_eq!(
+        serde_json::to_value(record).unwrap(),
+        serde_json::json!({
+            "schema":"nah/audit/v1",
+            "v":1,
+            "status":"unavailable",
+            "reason":"fixed recovery",
+            "envelope":{
+                "id":"decision-unavailable",
+                "timestamp_rfc3339":"2026-08-03T12:00:00Z",
+                "duration_us":0
+            },
+            "runtime":"amp",
+            "command":"[unavailable]",
+            "effects":[],
+            "diagnostics":[],
+            "consultations":[],
+            "failures":[{"source":"integration","component":"hook-input","code":"malformed"}]
+        })
+    );
+}
+
+#[test]
 fn network_commands_are_redacted_without_secret_shaped_heuristics() {
     let stream = nah_proto::action::ActionStream::new(
         Coverage::Full,
@@ -248,7 +280,8 @@ fn extension_reasons_are_redacted_in_full_and_fallback_records() {
         "claude",
         AuditDiagnostics::new(&[], &[], &[]),
     );
-    let fallback = AuditRecordV1::failure(&tool_call, &core, envelope.clone(), "claude", &[], &[]);
+    let fallback =
+        AuditRecordV1::failure(&tool_call, &core, envelope.clone(), "claude", &[], &[], &[]);
     let second = AuditRecordV1::redact(
         &tool_call,
         &stream,

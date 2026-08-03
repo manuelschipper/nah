@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/nah-proto",
     "crates/nah-parse",
+    "crates/nah-inline",
     "crates/nah-actions",
     "crates/nah-observe",
     "crates/nah-policy",

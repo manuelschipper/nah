@@ -8,7 +8,10 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{hook_adapter, live_state, runtime::Runtime};
+use crate::{
+    hook_adapter, live_state,
+    runtime::{FailurePolicy, Runtime},
+};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,34 +33,57 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request = serde_json::from_reader::<_, AntigravityHookInput>(stdin)
         .map_err(|error| error.to_string())
         .and_then(normalize);
     let output = match request {
-        Ok(request) => match hook_adapter::decide_input(request, stderr, Runtime::Antigravity) {
-            hook_adapter::HookOutcome::Decision(decision) => match decision.verdict() {
-                Verdict::Block => {
-                    if decision.evaluation_failed() {
-                        let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+        Ok(request) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Antigravity, failure_policy)
+            {
+                hook_adapter::HookOutcome::Decision(decision) => match decision.verdict() {
+                    Verdict::Block => {
+                        if decision.guard_block_incomplete() {
+                            let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+                        }
+                        deny(&hook_adapter::feedback(&decision))
                     }
-                    deny(&hook_adapter::feedback(&decision))
-                }
-                Verdict::Delegate => {
-                    if decision.evaluation_failed() {
-                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    Verdict::Delegate => {
+                        if decision.evaluation_failed() {
+                            let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        }
+                        json!({"decision":"ask"})
                     }
-                    json!({"decision":"ask"})
+                },
+                hook_adapter::HookOutcome::IrrelevantEvent => return 0,
+                hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
+                    failure_policy,
+                    Runtime::Antigravity,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
+                )
+                .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
+                hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+                    match hook_adapter::unavailable_feedback(
+                        failure_policy,
+                        Runtime::Antigravity,
+                        kind,
+                    ) {
+                        Some(reason) => deny(&reason),
+                        None => {
+                            let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                            json!({"decision":"ask"})
+                        }
+                    }
                 }
-            },
-            hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-            hook_adapter::HookOutcome::MalformedInput => json!({"decision":"ask"}),
-            hook_adapter::HookOutcome::EvaluationUnavailable => {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                json!({"decision":"ask"})
             }
-        },
-        Err(_) => json!({"decision":"ask"}),
+        }
+        Err(_) => hook_adapter::unavailable_feedback(
+            failure_policy,
+            Runtime::Antigravity,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
@@ -421,6 +447,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 303);
+        assert!(implementation.lines().count() <= 317);
     }
 }

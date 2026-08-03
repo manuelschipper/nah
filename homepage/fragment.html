@@ -722,11 +722,10 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="prose">
           <p>
             That's because nah doesn't take a command at its word. It parses
-            every call into its <b>effects</b> before anything runs, and
-            blocks the ones that spell disaster. A block tells the agent
-            what was stopped and what to do instead of retrying. When no
-            guard claims a call, nah delegates: your runtime decides,
-            exactly as it does today.
+            every call into effects before anything runs and blocks calls that
+            spell disaster. A block tells the agent what was stopped and what
+            to do instead of retrying. When no guard claims a call, nah
+            delegates: your runtime decides, your permissions stay yours.
           </p>
         </div>
         <div class="gclasses">
@@ -754,8 +753,8 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <h2 class="claim">Deterministic programs, not LLM judges.</h2>
         <div class="prose">
           <p>
-            Each guard runs as code over the call's effects, so a verdict
-            lands in microseconds and doesn't drift between runs.
+            Each guard runs as deterministic code, so a verdict lands in
+            microseconds and doesn't drift between runs.
           </p>
         </div>
         <ul class="frags">

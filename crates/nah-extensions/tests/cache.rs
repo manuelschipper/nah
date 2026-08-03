@@ -11,7 +11,7 @@ use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationInput};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::extension::ConsultationOutcome;
 
-use support::{Fixture, consultation_outcomes};
+use support::{Fixture, consultation_outcomes, make_executable};
 
 #[test]
 fn semantic_rejection_remains_a_response_and_is_never_cached() {
@@ -42,6 +42,55 @@ printf '%s\n' '{"block":false,"reason":"invalid guard"}'"#,
             expected
         );
     }
+}
+
+#[test]
+fn execution_failures_are_never_memoized() {
+    for (name, tail, expected) in [
+        ("timeout-miss", "sleep 2", ConsultationOutcome::Timeout),
+        ("crash-miss", "exit 9", ConsultationOutcome::Crash),
+        (
+            "protocol-miss",
+            "printf '%s\\n' not-json",
+            ConsultationOutcome::RejectedTransport {
+                code: nah_proto::extension::TransportRejectionCode::InvalidJson,
+            },
+        ),
+    ] {
+        let fixture = Fixture::shell(
+            name,
+            &format!(
+                "count_file=\"$PWD/count\"\ncount=0\n[ ! -f \"$count_file\" ] || count=$(cat \"$count_file\")\nprintf '%s' \"$((count + 1))\" > \"$count_file\"\n{tail}"
+            ),
+        );
+        for _ in 0..2 {
+            let outcomes = consultation_outcomes(fixture.consult());
+            assert_eq!(outcomes.len(), 1);
+            assert_eq!(outcomes[0], expected);
+        }
+        assert_eq!(
+            fs::read_to_string(fixture.run.parent().unwrap().join("count")).unwrap(),
+            "2",
+            "{name}"
+        );
+    }
+
+    let spawn = Fixture::shell("spawn-miss", "exit 0");
+    fs::remove_file(&spawn.run).unwrap();
+    assert_eq!(
+        consultation_outcomes(spawn.consult()),
+        [ConsultationOutcome::SpawnFailure]
+    );
+    fs::write(
+        &spawn.run,
+        "#!/bin/sh\nprintf '%s\\n' '{\"block\":true,\"reason\":\"recovered\"}'\n",
+    )
+    .unwrap();
+    make_executable(&spawn.run);
+    assert!(matches!(
+        consultation_outcomes(spawn.consult()).as_slice(),
+        [ConsultationOutcome::Response { .. }]
+    ));
 }
 
 #[test]

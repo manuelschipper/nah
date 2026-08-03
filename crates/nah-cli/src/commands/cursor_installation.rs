@@ -7,17 +7,20 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-pub(crate) fn mutate_cursor_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_cursor_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -32,17 +35,46 @@ pub(crate) fn cursor_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
     validate_version(&mut config)?;
-    let mut without_owned = config.clone();
-    if !remove(&mut without_owned)? {
+    let mut base = config.clone();
+    if !remove(&mut base)? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    add(&mut without_owned, desired_hook(&executable)?)?;
-    Ok(if without_owned == config {
+    let mut delegate = base.clone();
+    add(
+        &mut delegate,
+        desired_hook(&executable, FailurePolicy::Delegate)?,
+    )?;
+    let mut strict = base;
+    add(
+        &mut strict,
+        desired_hook(&executable, FailurePolicy::Block)?,
+    )?;
+    Ok(if delegate == config {
         RuntimeHookStatus::WiringCurrent
+    } else if strict == config {
+        RuntimeHookStatus::WiringCurrentFailClosed
     } else {
-        RuntimeHookStatus::NeedsReinstall
+        let mut hooks = config["hooks"]["preToolUse"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|hook| is_nah_hook(hook));
+        let strict = hooks.next().is_some_and(|hook| {
+            hook["command"]
+                .as_str()
+                .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
+        }) && hooks.all(|hook| {
+            hook["command"]
+                .as_str()
+                .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
+        });
+        RuntimeHookStatus::stale(if strict {
+            FailurePolicy::Block
+        } else {
+            FailurePolicy::Delegate
+        })
     })
 }
 
@@ -52,13 +84,17 @@ pub(crate) fn cursor_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![CursorHookPaths::new(&home).hooks])
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = CursorHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
     validate_version(&mut config)?;
-    let desired = desired_hook(executable)?;
+    let desired = desired_hook(executable, policy)?;
     if add(&mut config, desired)? {
         save(&paths.hooks, &config)?;
     }
@@ -215,14 +251,21 @@ fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
     Ok(pre_tool_use)
 }
 
-fn desired_hook(executable: &Path) -> Result<Value, String> {
+fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let command = if cfg!(windows) {
-        format!("\"{executable}\" hook cursor run")
+        format!(
+            "\"{executable}\" hook cursor run{}",
+            policy.command_suffix()
+        )
     } else {
-        format!("{} hook cursor run", shell_quote(executable))
+        format!(
+            "{} hook cursor run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     Ok(json!({
         "command": command,
@@ -236,11 +279,11 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn is_nah_hook(hook: &Value) -> bool {
-    let Some(executable) = hook
-        .get("command")
-        .and_then(Value::as_str)
-        .and_then(|command| command.strip_suffix(" hook cursor run"))
-    else {
+    let Some(command) = hook.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
+    let Some(executable) = command.strip_suffix(" hook cursor run") else {
         return false;
     };
     let executable = executable.to_ascii_lowercase();

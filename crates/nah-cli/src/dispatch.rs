@@ -32,7 +32,7 @@ use crate::opencode_adapter;
 use crate::pi_adapter;
 use crate::pipeline::{decide_live_with_self_protection, failed_delegate};
 use crate::records;
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 const CLI_USAGE_ERROR: u8 = 4;
 
@@ -79,10 +79,34 @@ fn run_with<R: Read, W: Write, E: Write>(
         Command::Guards => emit_catalog(false, stdout, stderr),
         Command::Guard { action } => configure_guard(action, stdout, stderr),
         Command::Hook(args) => match args.action {
-            HookAction::Install => configure_runtime_hook(args.runtime, true, stdout, stderr),
-            HookAction::Uninstall => configure_runtime_hook(args.runtime, false, stdout, stderr),
+            HookAction::Install(install) => configure_runtime_hook(
+                args.runtime,
+                true,
+                if install.fail_closed {
+                    Some(FailurePolicy::Block)
+                } else if install.fail_open {
+                    Some(FailurePolicy::Delegate)
+                } else {
+                    None
+                },
+                stdout,
+                stderr,
+            ),
+            HookAction::Uninstall => {
+                configure_runtime_hook(args.runtime, false, None, stdout, stderr)
+            }
             HookAction::Status => inspect_runtime_hook(args.runtime, stdout, stderr),
-            HookAction::Run => run_runtime_hook(args.runtime, stdin, stdout, stderr),
+            HookAction::Run(run) => run_runtime_hook(
+                args.runtime,
+                if run.fail_closed {
+                    FailurePolicy::Block
+                } else {
+                    FailurePolicy::Delegate
+                },
+                stdin,
+                stdout,
+                stderr,
+            ),
         },
         Command::Why(args) => explain(&args.id, stdout, stderr),
         Command::Log(args) => list_log(args.count, args.json, args.blocked, stdout, stderr),
@@ -170,10 +194,11 @@ fn guard_selector(args: &GuardTargetArgs) -> GuardSelector {
 fn configure_runtime_hook<W: Write, E: Write>(
     runtime: Runtime,
     install: bool,
+    failure_policy: Option<FailurePolicy>,
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
-    match set_runtime_configured(runtime, install) {
+    match set_runtime_configured(runtime, install, failure_policy) {
         Ok(mutation) => {
             for line in mutation.lines() {
                 let _ = writeln!(stdout, "{line}");
@@ -199,6 +224,28 @@ fn inspect_runtime_hook<W: Write, E: Write>(
             match status {
                 RuntimeHookStatus::WiringCurrent => {
                     let _ = writeln!(stdout, "{}: wiring current", entry.name);
+                    let _ = writeln!(
+                        stdout,
+                        "failure policy: {}",
+                        FailurePolicy::Delegate.cli_name()
+                    );
+                    let _ = writeln!(
+                        stdout,
+                        "guarantee: runtime approval remains authoritative when nah cannot decide"
+                    );
+                    let _ = writeln!(stdout, "verify: nah docs runtime-{runtime_name}");
+                }
+                RuntimeHookStatus::WiringCurrentFailClosed => {
+                    let _ = writeln!(stdout, "{}: wiring current", entry.name);
+                    let _ = writeln!(
+                        stdout,
+                        "failure policy: {}",
+                        FailurePolicy::Block.cli_name()
+                    );
+                    let _ = writeln!(
+                        stdout,
+                        "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
+                    );
                     let _ = writeln!(stdout, "verify: nah docs runtime-{runtime_name}");
                 }
                 RuntimeHookStatus::NotConfigured => {
@@ -208,6 +255,21 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                 }
                 RuntimeHookStatus::NeedsReinstall => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
+                    let _ = writeln!(stdout, "detected failure policy: delegate-on-failure");
+                    let _ = writeln!(
+                        stdout,
+                        "guarantee: runtime approval remains authoritative when nah cannot decide"
+                    );
+                    let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
+                    let _ = writeln!(stdout, "docs: nah docs runtime-{runtime_name}");
+                }
+                RuntimeHookStatus::NeedsReinstallFailClosed => {
+                    let _ = writeln!(stdout, "{}: reinstall required", entry.name);
+                    let _ = writeln!(stdout, "detected failure policy: fail-closed");
+                    let _ = writeln!(
+                        stdout,
+                        "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
+                    );
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
                     let _ = writeln!(stdout, "docs: nah docs runtime-{runtime_name}");
                 }
@@ -223,28 +285,35 @@ fn inspect_runtime_hook<W: Write, E: Write>(
 
 fn run_runtime_hook<R: Read, W: Write, E: Write>(
     runtime: Runtime,
+    failure_policy: FailurePolicy,
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
     match runtime {
-        Runtime::Amp => amp_adapter::run(stdin, stdout, stderr),
-        Runtime::Antigravity => antigravity_adapter::run(stdin, stdout, stderr),
-        Runtime::Claude => claude_adapter::run(stdin, stdout, stderr),
-        Runtime::Cline => cline_adapter::run(stdin, stdout, stderr),
-        Runtime::Codex => codex_adapter::run(stdin, stdout, stderr),
-        Runtime::Copilot => copilot_adapter::run(stdin, stdout, stderr),
-        Runtime::Cursor => cursor_adapter::run(stdin, stdout, stderr),
+        Runtime::Amp => amp_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Antigravity => antigravity_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Claude => claude_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Cline => cline_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Codex => codex_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Copilot => copilot_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Cursor => cursor_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Devin => {
             let project_dir = std::env::var("DEVIN_PROJECT_DIR").ok();
-            devin_adapter::run(stdin, stdout, stderr, project_dir.as_deref())
+            devin_adapter::run(
+                stdin,
+                stdout,
+                stderr,
+                project_dir.as_deref(),
+                failure_policy,
+            )
         }
-        Runtime::Droid => droid_adapter::run(stdin, stdout, stderr),
-        Runtime::Hermes => hermes_adapter::run(stdin, stdout, stderr),
-        Runtime::Kiro => kiro_adapter::run(stdin, stdout, stderr),
-        Runtime::OpenClaw => openclaw_adapter::run(stdin, stdout, stderr),
-        Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr),
-        Runtime::Pi => pi_adapter::run(stdin, stdout, stderr),
+        Runtime::Droid => droid_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Hermes => hermes_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Kiro => kiro_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::OpenClaw => openclaw_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Pi => pi_adapter::run(stdin, stdout, stderr, failure_policy),
     }
 }
 
@@ -289,13 +358,15 @@ pub(crate) fn run_decide<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
-    run_decide_for_runtime(stdin, stdout, stderr, None).code
+    run_decide_for_runtime(stdin, stdout, stderr, None, FailurePolicy::Delegate).code
 }
 
 pub(crate) struct DecideOutcome {
     pub(crate) code: u8,
     pub(crate) audit_recorded: bool,
     pub(crate) evaluation_failed: bool,
+    pub(crate) fail_closed_block: bool,
+    pub(crate) operator_required_unavailable: bool,
 }
 
 /// `runtime` is the adapter that produced this call, and is recorded with the
@@ -305,6 +376,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     runtime: Option<Runtime>,
+    failure_policy: FailurePolicy,
 ) -> DecideOutcome {
     // A panic would end the process with a signal and no decision body, which
     // every adapter reads as "nah did not block". Report no decision instead,
@@ -312,7 +384,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     // backstop for a defect nobody has found yet; it cannot catch a stack
     // overflow, which is why the parser bounds its own recursion.
     let decided = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        decide_and_emit(stdin, stdout, stderr, runtime)
+        decide_and_emit(stdin, stdout, stderr, runtime, failure_policy)
     }));
     decided.unwrap_or_else(|_| {
         let _ = writeln!(stderr, "nah: internal failure; no decision was produced");
@@ -320,6 +392,8 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
             code: ExitCode::UNAVAILABLE.value(),
             audit_recorded: false,
             evaluation_failed: true,
+            fail_closed_block: false,
+            operator_required_unavailable: true,
         }
     })
 }
@@ -329,6 +403,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     runtime: Option<Runtime>,
+    failure_policy: FailurePolicy,
 ) -> DecideOutcome {
     let started = Instant::now();
     let mut payload = String::new();
@@ -340,6 +415,8 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             code: ExitCode::UNAVAILABLE.value(),
             audit_recorded: false,
             evaluation_failed: true,
+            fail_closed_block: false,
+            operator_required_unavailable: true,
         };
     }
     let input = match serde_json::from_str::<ToolCallInput>(&payload) {
@@ -350,11 +427,17 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                 code: ExitCode::UNAVAILABLE.value(),
                 audit_recorded: false,
                 evaluation_failed: true,
+                fail_closed_block: false,
+                operator_required_unavailable: true,
             };
         }
     };
+    let mut all_paused = false;
     let mut result = match live_state::load() {
         Ok(state) => {
+            all_paused = state
+                .nap
+                .is_some_and(|active| active.mode() == NapMode::All);
             let self_protection = runtime
                 .map(runtime_self_protection)
                 .transpose()
@@ -380,13 +463,34 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             failed_delegate("pipeline", "context", "context failed")
         }
     };
+    let mut fail_closed_block = false;
+    if failure_policy == FailurePolicy::Block
+        && !all_paused
+        && result.core().verdict() == nah_proto::decision::Verdict::Delegate
+        && (!result.failures().is_empty() || !result.refusals().is_empty())
+    {
+        let core = nah_proto::decision::DecisionCore::structural_block(
+            result.action_stream(),
+            result.recovery_advice().message(),
+        )
+        .expect("fixed fail-closed reason is valid");
+        result.replace_core(core);
+        fail_closed_block = true;
+    }
     let duration_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
     let id = decision_id();
     let envelope = DecisionEnvelope::new(&id, &timestamp_rfc3339(), duration_us)
         .expect("generated decision envelope is valid");
     let mut audit_recorded = false;
     if let Some((ctx, input)) = audit {
-        match records::append_decision(&ctx, &input, &result, envelope.clone(), runtime) {
+        match records::append_decision(
+            &ctx,
+            &input,
+            &result,
+            envelope.clone(),
+            runtime,
+            failure_policy == FailurePolicy::Block,
+        ) {
             Ok(()) => audit_recorded = true,
             Err(error) => {
                 result.push_warning(format!("audit failed: {error}"));
@@ -397,6 +501,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                     &result,
                     envelope,
                     runtime,
+                    failure_policy == FailurePolicy::Block,
                 ) {
                     Ok(()) => audit_recorded = true,
                     Err(fallback_error) => {
@@ -406,7 +511,15 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             }
         }
     } else if let Some((home, platform, input)) = failure_audit {
-        match records::append_failure(&home, platform, &input, &result, envelope, runtime) {
+        match records::append_failure(
+            &home,
+            platform,
+            &input,
+            &result,
+            envelope,
+            runtime,
+            failure_policy == FailurePolicy::Block,
+        ) {
             Ok(()) => audit_recorded = true,
             Err(error) => result.push_warning(format!("audit failed: {error}")),
         }
@@ -423,6 +536,8 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
         code: emit_decision_output(stdout, &output),
         audit_recorded,
         evaluation_failed,
+        fail_closed_block,
+        operator_required_unavailable: false,
     }
 }
 
@@ -559,7 +674,7 @@ fn list_log<W: Write, E: Write>(
     }
 }
 
-fn decision_id() -> String {
+pub(crate) fn decision_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -745,8 +860,15 @@ mod tests {
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let code = run_decide(&mut PanickingStdin, &mut stdout, &mut stderr);
-        assert_eq!(code, ExitCode::UNAVAILABLE.value());
+        let outcome = run_decide_for_runtime(
+            &mut PanickingStdin,
+            &mut stdout,
+            &mut stderr,
+            Some(Runtime::Claude),
+            FailurePolicy::Block,
+        );
+        assert_eq!(outcome.code, ExitCode::UNAVAILABLE.value());
+        assert!(outcome.operator_required_unavailable);
         assert!(stdout.is_empty());
         let stderr = String::from_utf8(stderr).unwrap();
         assert!(stderr.contains("no decision was produced"), "{stderr}");

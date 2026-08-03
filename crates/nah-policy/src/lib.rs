@@ -9,6 +9,7 @@
 //! responses into DecisionCore. Shipped guards live here as plain
 //! Rust code; transport, validation, and orchestration do not.
 
+use nah_inline::InlineReport;
 use nah_proto::action::ActionStream;
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{
@@ -73,21 +74,42 @@ pub fn decide_with_mode(
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
+    decide_with_mode_and_inline(
+        action_stream,
+        &InlineReport::default(),
+        policy_ctx,
+        responses,
+        mode,
+    )
+}
+
+pub fn decide_with_mode_and_inline(
+    action_stream: &ActionStream,
+    inline_report: &InlineReport,
+    policy_ctx: &PolicyCtx,
+    responses: &[ValidatedExtensionResponse],
+    mode: EnforcementMode,
+) -> Result<DecisionCore, DecisionError> {
     if structural::permanent_blocks(action_stream) {
         return DecisionCore::structural_block(action_stream, structural::PERMANENT_REASON);
     }
     if mode == EnforcementMode::AllPaused {
         return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
     }
-    if mode == EnforcementMode::Normal && structural::critical_blocks(action_stream) {
+    if mode == EnforcementMode::Normal
+        && (structural::critical_blocks(action_stream)
+            || inline_report.contains_conservative(nah_inline::FindingKind::NahTampering))
+    {
         return DecisionCore::structural_block(action_stream, structural::CRITICAL_REASON);
     }
 
     let mut contributions = Vec::new();
-    let filesystem_block = filesystem_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let filesystem_block =
+        filesystem_guards::add(action_stream, inline_report, policy_ctx, &mut contributions)?;
     let git_block = git_guards::add(action_stream, policy_ctx, &mut contributions)?;
     let secret_block = secret_guards::add(action_stream, policy_ctx, &mut contributions)?;
-    let execution_block = execution_guards::add(action_stream, policy_ctx, &mut contributions)?;
+    let execution_block =
+        execution_guards::add(action_stream, inline_report, policy_ctx, &mut contributions)?;
     let shipped_block = filesystem_block || git_block || secret_block || execution_block;
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 

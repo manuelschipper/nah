@@ -3,7 +3,7 @@
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
 
-use crate::bash_execution::{execution_code, execution_source, python_decodes_to_shell};
+use crate::bash_execution::{execution_code, execution_source};
 use crate::bash_model::{InvocationDraft, ProgramDraft};
 use crate::shell_word::static_word;
 
@@ -89,15 +89,6 @@ pub(crate) fn invocation(
     }
     if let Some(source) = execution_source(program, arguments) {
         let code = execution_code(program, arguments, source.as_str());
-        let source = if source == SemanticCode::INTERPRETER_INLINE
-            && code
-                .as_deref()
-                .is_some_and(|code| python_decodes_to_shell(program, code))
-        {
-            SemanticCode::DECODED_EXECUTION
-        } else {
-            source
-        };
         return InvocationDraft::CodeExecution {
             program: lexical_program.to_owned(),
             interpreter: (!matches!(program.as_str(), "." | "source")).then(|| program.clone()),

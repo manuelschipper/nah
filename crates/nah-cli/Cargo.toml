@@ -13,6 +13,7 @@ hmac = "0.12"
 nah-proto = { path = "../nah-proto" }
 nah-parse = { path = "../nah-parse" }
 nah-actions = { path = "../nah-actions" }
+nah-inline = { path = "../nah-inline" }
 nah-observe = { path = "../nah-observe" }
 nah-policy = { path = "../nah-policy" }
 nah-extensions = { path = "../nah-extensions" }

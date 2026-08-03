@@ -2,6 +2,29 @@
 
 use clap::ValueEnum;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum FailurePolicy {
+    #[default]
+    Delegate,
+    Block,
+}
+
+impl FailurePolicy {
+    pub(crate) const fn cli_name(self) -> &'static str {
+        match self {
+            Self::Delegate => "delegate-on-failure",
+            Self::Block => "fail-closed",
+        }
+    }
+
+    pub(crate) const fn command_suffix(self) -> &'static str {
+        match self {
+            Self::Delegate => "",
+            Self::Block => " --fail-closed",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum Runtime {
     Amp,

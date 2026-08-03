@@ -6,6 +6,13 @@
 nah hook antigravity install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart Antigravity and inspect the `nah` entry with `/hooks`. The managed
 global hook is shared by Antigravity CLI (`agy`) and the Antigravity desktop
 application. Remove only nah's entry with:
@@ -33,9 +40,10 @@ not invoke nah and use Antigravity's normal permission flow directly.
 
 Task operations, web and browser tools, MCP tools, permission requests,
 scheduling, agent coordination, media generation, and future tools are
-outside the matcher and remain runtime-owned. Malformed known inputs and
-evaluation failures return `ask`; evaluation failures also write fixed
-feedback to the hook diagnostic channel.
+outside the matcher and remain runtime-owned. Under the default mode,
+malformed known inputs and evaluation failures return `ask`; they also write
+fixed feedback to the hook diagnostic channel. With `--fail-closed`, incomplete
+known inputs are denied.
 
 ## Boundaries
 

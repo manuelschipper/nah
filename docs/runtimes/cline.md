@@ -7,6 +7,13 @@ nah hook cline install
 nah hook cline status
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Reload the IDE and confirm **Hooks** is enabled. CLI hooks load automatically;
 verify them with `cline config hooks --json`. Remove nah's hook with:
 
@@ -30,9 +37,9 @@ feedback; delegated calls return `cancel: false`, preserving Cline permissions.
 IDE events use `hookName: PreToolUse` and may name the tool with
 `preToolUse.tool`; CLI 3.0.48 uses `hookName: tool_call` and
 `preToolUse.toolName`. Both supply arguments in `preToolUse.parameters`.
-Stale, conflicting, or malformed shapes delegate without claiming to
-understand them. Evaluation failure returns `cancel: false` with fixed context
-feedback.
+Stale or conflicting wiring requires reinstall. Unknown tools stay opaque and
+delegate. By default, malformed known shapes and evaluation failures return
+`cancel: false`; with `--fail-closed`, incomplete known shapes are denied.
 
 ## Boundaries
 

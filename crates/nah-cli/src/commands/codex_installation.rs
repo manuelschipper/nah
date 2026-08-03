@@ -7,19 +7,22 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-pub(crate) fn mutate_codex_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_codex_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     reject_custom_home()?;
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -41,10 +44,12 @@ pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {
     let hooks = load(&paths.hooks)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    hook_config::inspect(
+    hook_config::inspect_modes(
         &hooks,
-        &desired_handler(&executable)?,
+        &desired_handler(&executable, FailurePolicy::Delegate)?,
+        &desired_handler(&executable, FailurePolicy::Block)?,
         is_nah_handler,
+        is_fail_closed_handler,
         "invalid-codex-hooks",
     )
 }
@@ -68,12 +73,16 @@ fn reject_custom_home() -> Result<(), String> {
     }
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = CodexHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
     let mut hooks = load(&paths.hooks)?;
-    let desired = desired_handler(executable)?;
+    let desired = desired_handler(executable, policy)?;
     if hook_config::add(&mut hooks, desired, is_nah_handler, "invalid-codex-hooks")? {
         save(&paths.hooks, &hooks)?;
     }
@@ -200,14 +209,18 @@ fn reject_symlinks(paths: &CodexHookPaths) -> Result<(), String> {
     reject_symlink(&paths.hooks)
 }
 
-fn desired_handler(executable: &Path) -> Result<Value, String> {
+fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let command = if cfg!(windows) {
-        format!("\"{executable}\" hook codex run")
+        format!("\"{executable}\" hook codex run{}", policy.command_suffix())
     } else {
-        format!("{} hook codex run", shell_quote(executable))
+        format!(
+            "{} hook codex run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     Ok(json!({
         "type": "command",
@@ -227,17 +240,24 @@ fn is_nah_handler(handler: &Value) -> bool {
     if handler.get("type").and_then(Value::as_str) != Some("command") {
         return false;
     }
-    let Some(executable) = handler
-        .get("command")
-        .and_then(Value::as_str)
-        .and_then(|command| command.strip_suffix(" hook codex run"))
-    else {
+    let Some(command) = handler.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
+    let Some(executable) = command.strip_suffix(" hook codex run") else {
         return false;
     };
     let executable = executable.to_ascii_lowercase();
     (executable.starts_with('\'') && executable.ends_with("/nah'"))
         || (executable.starts_with('"')
             && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\"")))
+}
+
+fn is_fail_closed_handler(handler: &Value) -> bool {
+    handler
+        .get("command")
+        .and_then(Value::as_str)
+        .is_some_and(|command| command.ends_with(" hook codex run --fail-closed"))
 }
 
 #[cfg(unix)]

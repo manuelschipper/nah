@@ -266,6 +266,7 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
                 }))
             },
             |_, _| ConsultedExtensions::default(),
+            false,
         );
         assert_eq!(calls, 2);
         assert_eq!(result.core().verdict(), expected);
@@ -306,6 +307,7 @@ fn runtime_self_protection_tracks_static_python_path_variables() {
                 }))
             },
             |_, _| ConsultedExtensions::default(),
+            false,
         );
         assert_eq!(result.core().verdict(), expected, "{command}");
     }
@@ -371,6 +373,8 @@ fn oscillating_environment_delegates_with_a_warning() {
             .iter()
             .any(|warning| warning.contains("changed repeatedly"))
     );
+    assert_eq!(result.refusals()[0].component(), "environment");
+    assert_eq!(result.refusals()[0].code(), "oscillation");
     assert!(result.observation().is_none());
 }
 
@@ -393,6 +397,8 @@ fn environment_name_and_value_bounds_delegate_with_a_warning() {
             .iter()
             .any(|warning| warning.contains("analysis limits"))
     );
+    assert_eq!(name_result.refusals()[0].component(), "environment");
+    assert_eq!(name_result.refusals()[0].code(), "name-limit");
 
     let mut value_calls = 0;
     let value_result = decide_with(&input("echo \"$BIG\""), &context(), |request| {
@@ -409,6 +415,8 @@ fn environment_name_and_value_bounds_delegate_with_a_warning() {
             .iter()
             .any(|warning| warning.contains("analysis limits"))
     );
+    assert_eq!(value_result.refusals()[0].component(), "environment");
+    assert_eq!(value_result.refusals()[0].code(), "value-limit");
 }
 
 #[test]
@@ -427,4 +435,6 @@ fn environment_round_bound_stops_unique_drift() {
             .iter()
             .any(|warning| warning.contains("analysis limits"))
     );
+    assert_eq!(result.refusals()[0].component(), "environment");
+    assert_eq!(result.refusals()[0].code(), "round-limit");
 }

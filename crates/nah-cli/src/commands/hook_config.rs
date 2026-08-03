@@ -2,6 +2,8 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::runtime::FailurePolicy;
+
 use super::RuntimeHookStatus;
 
 pub(super) fn inspect(
@@ -18,6 +20,38 @@ pub(super) fn inspect(
     } else {
         RuntimeHookStatus::NeedsReinstall
     })
+}
+
+pub(super) fn inspect_modes(
+    config: &Value,
+    delegate: &Value,
+    fail_closed: &Value,
+    is_owned: fn(&Value) -> bool,
+    is_fail_closed: fn(&Value) -> bool,
+    invalid: &'static str,
+) -> Result<RuntimeHookStatus, String> {
+    let count = matching_handler_count(config, is_owned, invalid)?;
+    if count == 0 {
+        return Ok(RuntimeHookStatus::NotConfigured);
+    }
+    if count == 1 && has_global_hook(config, delegate) {
+        return Ok(RuntimeHookStatus::WiringCurrent);
+    }
+    if count == 1 && has_global_hook(config, fail_closed) {
+        return Ok(RuntimeHookStatus::WiringCurrentFailClosed);
+    }
+    let mut owned = config["hooks"]["PreToolUse"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+        .filter(|handler| is_owned(handler));
+    let strict = owned.next().is_some_and(is_fail_closed) && owned.all(is_fail_closed);
+    Ok(RuntimeHookStatus::stale(if strict {
+        FailurePolicy::Block
+    } else {
+        FailurePolicy::Delegate
+    }))
 }
 
 pub(super) fn add(
@@ -150,6 +184,10 @@ mod tests {
         handler.get("owned").and_then(Value::as_bool) == Some(true)
     }
 
+    fn fail_closed(handler: &Value) -> bool {
+        handler.get("strict").and_then(Value::as_bool) == Some(true)
+    }
+
     #[test]
     fn inspection_distinguishes_absent_current_and_stale_wiring() {
         let desired = json!({"owned":true,"command":"nah"});
@@ -175,6 +213,20 @@ mod tests {
                 "invalid"
             )
             .unwrap(),
+            RuntimeHookStatus::NeedsReinstall
+        );
+    }
+
+    #[test]
+    fn mixed_stale_modes_default_to_delegate() {
+        let delegate = json!({"owned":true,"strict":false});
+        let strict = json!({"owned":true,"strict":true});
+        let config = json!({"hooks":{"PreToolUse":[{
+            "matcher":"*",
+            "hooks":[delegate.clone(),strict.clone()]
+        }]}});
+        assert_eq!(
+            inspect_modes(&config, &delegate, &strict, owned, fail_closed, "invalid").unwrap(),
             RuntimeHookStatus::NeedsReinstall
         );
     }

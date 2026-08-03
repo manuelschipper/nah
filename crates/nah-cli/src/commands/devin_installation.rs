@@ -7,19 +7,22 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const EVENTS: [&str; 3] = ["PreToolUse", "PermissionRequest", "PostToolUse"];
 
-pub(crate) fn mutate_devin_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_devin_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -39,20 +42,47 @@ pub(crate) fn devin_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_symlinks(&paths)?;
     let mut config = load(&paths.config)?;
     validate_version(&mut config)?;
-    let mut expected = config.clone();
-    if !remove_owned(&mut expected)? {
+    let mut base = config.clone();
+    if !remove_owned(&mut base)? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    pre_tool_hooks(&mut expected)?.push(json!({
+    let mut delegate = base.clone();
+    pre_tool_hooks(&mut delegate)?.push(json!({
         "matcher": "",
-        "hooks": [desired_handler(&executable)?]
+        "hooks": [desired_handler(&executable, FailurePolicy::Delegate)?]
     }));
-    Ok(if expected == config {
+    let mut strict = base;
+    pre_tool_hooks(&mut strict)?.push(json!({
+        "matcher": "",
+        "hooks": [desired_handler(&executable, FailurePolicy::Block)?]
+    }));
+    Ok(if delegate == config {
         RuntimeHookStatus::WiringCurrent
+    } else if strict == config {
+        RuntimeHookStatus::WiringCurrentFailClosed
     } else {
-        RuntimeHookStatus::NeedsReinstall
+        let mut handlers = config["hooks"]["PreToolUse"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+            .filter(|handler| is_owned_handler(handler));
+        let strict = handlers.next().is_some_and(|handler| {
+            handler["command"]
+                .as_str()
+                .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
+        }) && handlers.all(|handler| {
+            handler["command"]
+                .as_str()
+                .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
+        });
+        RuntimeHookStatus::stale(if strict {
+            FailurePolicy::Block
+        } else {
+            FailurePolicy::Delegate
+        })
     })
 }
 
@@ -62,7 +92,11 @@ pub(crate) fn devin_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![DevinHookPaths::new(&home).config])
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = DevinHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -72,7 +106,7 @@ fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, Strin
     remove_owned(&mut config)?;
     pre_tool_hooks(&mut config)?.push(json!({
         "matcher": "",
-        "hooks": [desired_handler(executable)?]
+        "hooks": [desired_handler(executable, policy)?]
     }));
     if config != original {
         save(&paths.config, &config)?;
@@ -246,14 +280,18 @@ fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
         .ok_or_else(|| "invalid-devin-config".to_owned())
 }
 
-fn desired_handler(executable: &Path) -> Result<Value, String> {
+fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let command = if cfg!(windows) {
-        format!("\"{executable}\" hook devin run")
+        format!("\"{executable}\" hook devin run{}", policy.command_suffix())
     } else {
-        format!("{} hook devin run", shell_quote(executable))
+        format!(
+            "{} hook devin run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     Ok(json!({"type":"command","command":command,"timeout":5}))
 }
@@ -271,6 +309,7 @@ fn is_owned_handler(handler: &Value) -> bool {
     else {
         return false;
     };
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     command
         .strip_suffix(" hook devin run")
         .is_some_and(is_nah_executable)

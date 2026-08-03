@@ -15,6 +15,10 @@ fn run_without_home(runtime: &str, project: &std::path::Path, payload: Value) ->
     run_adapter(runtime, None, project, payload, true)
 }
 
+fn run_without_home_strict(runtime: &str, project: &std::path::Path, payload: Value) -> Value {
+    run_adapter_mode(runtime, None, project, payload, true, true)
+}
+
 fn run_adapter(
     runtime: &str,
     home: Option<&std::path::Path>,
@@ -22,9 +26,23 @@ fn run_adapter(
     payload: Value,
     devin_project: bool,
 ) -> Value {
+    run_adapter_mode(runtime, home, project, payload, devin_project, false)
+}
+
+fn run_adapter_mode(
+    runtime: &str,
+    home: Option<&std::path::Path>,
+    project: &std::path::Path,
+    payload: Value,
+    devin_project: bool,
+    fail_closed: bool,
+) -> Value {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command.args(["hook", runtime, "run"]);
+    if fail_closed {
+        command.arg("--fail-closed");
+    }
     command
-        .args(["hook", runtime, "run"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -64,6 +82,46 @@ fn run_adapter(
         "stdout_raw": stdout,
         "stderr": String::from_utf8(output.stderr).unwrap(),
     })
+}
+
+fn assert_native_deny(runtime: &str, observed: &Value) {
+    match runtime {
+        "claude" | "codex" => assert_eq!(
+            observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
+            "{runtime}: {observed}"
+        ),
+        "copilot" => assert!(
+            observed["stdout"]["permissionDecision"] == "deny"
+                || observed["stdout"]["hookSpecificOutput"]["permissionDecision"] == "deny",
+            "{runtime}: {observed}"
+        ),
+        "droid" | "kiro" => assert_eq!(observed["code"], 2, "{runtime}: {observed}"),
+        "cursor" => {
+            assert_eq!(observed["code"], 2, "{runtime}: {observed}");
+            assert_eq!(observed["stdout"]["permission"], "deny");
+        }
+        "devin" => {
+            assert_eq!(observed["code"], 2, "{runtime}: {observed}");
+            assert_eq!(observed["stdout"]["decision"], "block");
+        }
+        "amp" | "pi" | "opencode" | "openclaw" => {
+            assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}")
+        }
+        "cline" => assert_eq!(observed["stdout"]["cancel"], true, "{runtime}: {observed}"),
+        "antigravity" => {
+            assert_eq!(
+                observed["stdout"]["decision"], "deny",
+                "{runtime}: {observed}"
+            )
+        }
+        "hermes" => {
+            assert_eq!(
+                observed["stdout"]["decision"], "block",
+                "{runtime}: {observed}"
+            )
+        }
+        _ => unreachable!("{runtime}"),
+    }
 }
 
 fn configure_missing_guard(home: &std::path::Path) {
@@ -227,6 +285,15 @@ fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
     payload
 }
 
+fn with_command(runtime: &str, mut payload: Value, command: &str) -> Value {
+    match runtime {
+        "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(command),
+        "cline" => payload["preToolUse"]["parameters"]["command"] = json!(command),
+        _ => payload["tool_input"]["command"] = json!(command),
+    }
+    payload
+}
+
 fn with_tool_input(runtime: &str, mut payload: Value, input: Value) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"] = input,
@@ -331,6 +398,246 @@ fn every_adapter_delegates_when_nah_cannot_decide() {
             _ => {}
         }
     }
+}
+
+#[test]
+fn every_adapter_denies_when_fail_closed_cannot_decide() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for (runtime, payload) in danger(&project) {
+        let observed = run_without_home_strict(runtime, &project, payload);
+        assert_native_deny(runtime, &observed);
+        let rendered = observed.to_string();
+        assert!(
+            rendered.contains("ask the operator"),
+            "{runtime}: {observed}"
+        );
+        assert!(!rendered.contains("rm -rf /"), "{runtime}: {observed}");
+        assert!(
+            !rendered.contains("context failed"),
+            "{runtime}: {observed}"
+        );
+    }
+}
+
+#[test]
+fn fail_closed_preserves_healthy_uncertainty() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for (runtime, payload) in danger(&project) {
+        let observed = run_adapter_mode(
+            runtime,
+            Some(temp.path()),
+            &project,
+            with_command(runtime, payload, "unknown-tool --dynamic"),
+            true,
+            true,
+        );
+        let expected = delegated(runtime, false);
+        assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");
+        assert_eq!(
+            observed["stdout"], expected["stdout"],
+            "{runtime}: {observed}"
+        );
+    }
+}
+
+#[test]
+fn fail_closed_blocks_a_parser_refusal_in_json_and_exit_code_adapters() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let oversized = format!("echo {}", "a".repeat(1024 * 1024));
+
+    for (runtime, payload) in danger(&project)
+        .into_iter()
+        .filter(|(runtime, _)| matches!(*runtime, "amp" | "droid"))
+    {
+        let observed = run_adapter_mode(
+            runtime,
+            Some(temp.path()),
+            &project,
+            with_command(runtime, payload, &oversized),
+            true,
+            true,
+        );
+        assert_native_deny(runtime, &observed);
+        assert!(
+            observed
+                .to_string()
+                .contains("split the intended operation")
+        );
+        assert!(!observed.to_string().contains(&oversized));
+    }
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    for line in records.lines() {
+        let record: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(record["status"], "decision");
+        assert_eq!(record["core"]["verdict"], "block");
+        assert!(
+            record["failures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|failure| {
+                    failure["source"] == "analysis"
+                        && failure["component"] == "bash-parser"
+                        && failure["code"] == "source-limit"
+                })
+        );
+    }
+}
+
+#[test]
+fn fail_closed_blocks_unknown_fields_on_known_claude_and_codex_tools() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for runtime in ["claude", "codex"] {
+        let payload = json!({
+            "hook_event_name":"PreToolUse",
+            "tool_name":"Read",
+            "tool_input":{"file_path":"src/lib.rs","futureBehavior":"execute"},
+            "cwd":project,
+            "session_id":"session-1"
+        });
+        let delegated = run_adapter_mode(
+            runtime,
+            Some(temp.path()),
+            &project,
+            payload.clone(),
+            true,
+            false,
+        );
+        assert_eq!(delegated["stdout"], Value::Null, "{runtime}: {delegated}");
+
+        let blocked = run_adapter_mode(runtime, Some(temp.path()), &project, payload, true, true);
+        assert_native_deny(runtime, &blocked);
+
+        let opaque = json!({
+            "hook_event_name":"PreToolUse",
+            "tool_name":"future_tool",
+            "tool_input":{"futureBehavior":"execute"},
+            "cwd":project,
+            "session_id":"session-1"
+        });
+        let opaque = run_adapter_mode(runtime, Some(temp.path()), &project, opaque, true, true);
+        assert_eq!(opaque["stdout"], Value::Null, "{runtime}: {opaque}");
+    }
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    assert!(records.lines().any(|line| {
+        let record: Value = serde_json::from_str(line).unwrap();
+        record["failures"].as_array().is_some_and(|failures| {
+            failures.iter().any(|failure| {
+                failure["source"] == "analysis"
+                    && failure["component"] == "adapter-normalization"
+                    && failure["code"] == "incomplete"
+            })
+        })
+    }));
+}
+
+#[test]
+fn fail_closed_blocks_a_selected_custom_guard_failure_without_caching_a_verdict() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    configure_missing_guard(temp.path());
+    let (_, payload) = danger(&project)
+        .into_iter()
+        .find(|(runtime, _)| *runtime == "claude")
+        .unwrap();
+
+    for _ in 0..2 {
+        let observed = run_adapter_mode(
+            "claude",
+            Some(temp.path()),
+            &project,
+            with_command("claude", payload.clone(), "unknown-tool --dynamic"),
+            true,
+            true,
+        );
+        assert_native_deny("claude", &observed);
+        assert!(observed.to_string().contains("ask the operator"));
+    }
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    assert_eq!(records.lines().count(), 2);
+    for line in records.lines() {
+        let record: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(record["core"]["verdict"], "block");
+        assert!(
+            record["failures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|failure| {
+                    failure["source"] == "nah" || failure["source"] == "custom-guard"
+                })
+        );
+    }
+}
+
+#[test]
+fn fail_closed_denies_malformed_input_and_records_only_fixed_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let raw_secret = "malformed-secret-value";
+
+    for (runtime, _) in danger(&project) {
+        let observed = run_adapter_mode(
+            runtime,
+            Some(temp.path()),
+            &project,
+            json!({"unexpected":raw_secret}),
+            false,
+            true,
+        );
+        assert_native_deny(runtime, &observed);
+        assert!(
+            !observed.to_string().contains(raw_secret),
+            "{runtime}: {observed}"
+        );
+    }
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    assert!(!records.contains(raw_secret));
+    for line in records.lines() {
+        let record: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(record["status"], "unavailable");
+        assert_eq!(record["command"], "[unavailable]");
+        assert_eq!(record["failures"][0]["source"], "integration");
+    }
+}
+
+#[test]
+fn fail_closed_uses_copilot_hybrid_deny_and_denies_missing_devin_project() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    let copilot = run_adapter_mode(
+        "copilot",
+        Some(temp.path()),
+        &project,
+        json!([]),
+        true,
+        true,
+    );
+    assert_eq!(copilot["stdout"]["permissionDecision"], "deny");
+    assert_eq!(
+        copilot["stdout"]["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+
+    let (_, payload) = danger(&project)
+        .into_iter()
+        .find(|(runtime, _)| *runtime == "devin")
+        .unwrap();
+    let devin = run_adapter_mode("devin", Some(temp.path()), &project, payload, false, true);
+    assert_native_deny("devin", &devin);
+    assert!(devin.to_string().contains("ask the operator"));
 }
 
 #[test]
@@ -457,10 +764,19 @@ fn irrelevant_lifecycle_events_emit_no_policy_response() {
             continue;
         };
         for payload in [payload, minimal_irrelevant_event(runtime).unwrap()] {
-            let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
-            assert_eq!(observed["code"], 0, "{runtime}: {observed}");
-            assert_eq!(observed["stdout"], Value::Null, "{runtime}: {observed}");
-            assert_eq!(observed["stderr"], "", "{runtime}: {observed}");
+            for fail_closed in [false, true] {
+                let observed = run_adapter_mode(
+                    runtime,
+                    Some(temp.path()),
+                    &project,
+                    payload.clone(),
+                    true,
+                    fail_closed,
+                );
+                assert_eq!(observed["code"], 0, "{runtime}: {observed}");
+                assert_eq!(observed["stdout"], Value::Null, "{runtime}: {observed}");
+                assert_eq!(observed["stderr"], "", "{runtime}: {observed}");
+            }
         }
     }
     assert!(!temp.path().join(".nah/audit.jsonl").exists());

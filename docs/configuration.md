@@ -114,6 +114,10 @@ preserves unrelated runtime configuration. Each runtime has loading, trust,
 and coverage limitations that nah cannot repair. Read `nah docs runtimes` and
 the selected `runtime-*` topic before relying on the hook.
 
+`--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
+default. Flagless reinstall preserves a recognized mode, otherwise delegate is
+used. The TUI reports and preserves the mode.
+
 While a hook is active, nah blocks visible install/uninstall commands,
 mutations to its active wiring and standard enablement files, native removal
 commands naming nah, and recognized child launches that skip the hook or
@@ -128,5 +132,6 @@ nah hook <runtime> status
 ```
 
 Status reports `wiring current`, `not configured`, or `reinstall required`,
-then prints the relevant install or documentation command. Current wiring does
+the detected failure policy, then the relevant install or documentation
+command. Current wiring does
 not prove that the runtime loaded or trusted it.

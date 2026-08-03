@@ -13,12 +13,25 @@
   `amp`, `antigravity`, `cline`, `codex`, `copilot`, `cursor`, `devin`,
   `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, and more).
 
+## Docs
+
+- Index: https://nahguard.ai/docs/
+- Start: https://nahguard.ai/docs/start/
+- Core concepts: https://nahguard.ai/docs/concepts/
+- CLI guide: https://nahguard.ai/docs/cli/
+- Configuration: https://nahguard.ai/docs/configuration/
+- Extending: https://nahguard.ai/docs/extensions/
+- Agent runtimes: https://nahguard.ai/docs/runtimes/ (per-runtime pages at
+  /docs/runtimes/<name>/)
+- Threat model: https://nahguard.ai/docs/threat-model/
+- Security boundaries: https://nahguard.ai/docs/security/
+- Architecture: https://nahguard.ai/docs/architecture/
+
 ## Links
 
 - Site: https://nahguard.ai/
+- News (changelog): https://nahguard.ai/news/
 - Source: https://github.com/manuelschipper/nah
-- Docs: https://github.com/manuelschipper/nah/tree/main/docs
-- News (changelog): https://github.com/manuelschipper/nah/blob/main/CHANGELOG.md
 - Author: Manuel Schipper — https://schipper.ai/
 
 ## For agents

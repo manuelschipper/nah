@@ -6,6 +6,13 @@
 nah hook pi install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Run `/reload` in Pi. Remove only nah's extension with:
 
 ```sh
@@ -34,9 +41,9 @@ not load the installed extension. Pi also loads sibling global, project, and
 package extensions. For parallel tool batches, Pi runs each call's preflight
 handlers in sequence before executing nonblocked siblings concurrently. After
 nah delegates, later handlers can still mutate the call. A `tool_call` handler
-error blocks the tool, but nah catches adapter failure, delegates, and requests
-a UI warning when Pi exposes one. Disabled or unloaded extensions and trusted
-extensions that act directly remain outside nah.
+error blocks the tool, but in the default mode nah catches adapter failure,
+delegates, and requests a UI warning when Pi exposes one. Disabled or unloaded
+extensions and trusted extensions that act directly remain outside nah.
 
 While active, this adapter blocks visible lifecycle commands and direct
 mutations to its nah-owned extension. Visible child launches using

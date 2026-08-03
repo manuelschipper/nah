@@ -6,6 +6,13 @@
 nah hook opencode install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart OpenCode. Remove only nah's plugin with:
 
 ```sh
@@ -33,8 +40,8 @@ servers without the plugin, plugin load failures, name shadowing, and trusted
 plugins that act directly remain outside nah. OpenCode runs plugin handlers
 sequentially; later plugins see and can mutate a call after nah delegates it.
 Plugin hook errors normally abort the tool, but the nah plugin catches adapter
-failure, delegates, and requests a warning toast when the client API is
-available.
+failure in the default mode, delegates, and requests a warning toast when the
+client API is available.
 
 This installer targets the OpenCode V1 `opencode` executable and plugin API.
 It does not support the OpenCode 2.0 beta `opencode2` executable; upstream

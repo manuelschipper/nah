@@ -36,12 +36,14 @@ boundary.
   operator.
 - Valid unknown, opaque, or bounded semantics delegate unless understood
   evidence positively identifies danger. Uncertainty alone is not a block.
-- A custom-guard failure contributes no finding; a failure in built-in analysis
-  delegates. Malformed or unsupported adapter input may produce no verdict;
-  runtime fallback then varies.
+- Analyzer or custom-guard failure adds no finding by default. A loaded
+  `--fail-closed` hook blocks explicit failures/refusals and uses native denial
+  for malformed/no-decision input; ordinary uncertainty still delegates.
 
 These properties apply only to tool calls that reach a loaded nah adapter and
-to effects nah can observe and model.
+to evidence nah can observe and model. Inline child effects require exact
+source and arguments; unproven child cwd, environment, or output capture is not
+assumed and supplies no derived fact or flow.
 
 ## Trust assumptions and limits
 

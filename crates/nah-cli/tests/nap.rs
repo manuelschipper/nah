@@ -95,6 +95,36 @@ fn decide(home: &Path, cwd: &Path, command: &str) -> (DecisionOutput, String) {
     (decision, String::from_utf8(output.stderr).unwrap())
 }
 
+fn strict_claude(home: &Path, cwd: &Path, command: &str) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "claude", "run", "--fail-closed"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            json!({
+                "hook_event_name":"PreToolUse",
+                "tool_name":"Bash",
+                "tool_input":{"command":command},
+                "cwd":cwd,
+                "session_id":"session-1"
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -206,9 +236,31 @@ fn all_nap_delegates_every_non_permanent_call_and_wake_restores_enforcement() {
     let timestamp = now();
     write_authenticated_nap(home, "all", timestamp, timestamp + 600);
 
+    for command in [
+        r#"python3 -c "import os; os.system('nah nap')""#,
+        r#"python3 -c "import os; os.system('script -qec \"nah nap\" /dev/null')""#,
+        r#"node -e "const {spawn}=require('child_process'); spawn('nah', ['nap'])""#,
+        r#"pwsh -Command "Start-Process nah -ArgumentList nap""#,
+    ] {
+        let (permanent, _) = decide(home, &project, command);
+        assert_eq!(permanent.verdict(), Verdict::Block, "{command}");
+        assert!(permanent.reason().contains("operator"), "{command}");
+    }
+
+    let (critical, _) = decide(
+        home,
+        &project,
+        r#"python3 -c "import os; os.system('nah trust .')""#,
+    );
+    assert_eq!(critical.verdict(), Verdict::Delegate);
+
     let (paused, stderr) = decide(home, &project, "rm -rf /");
     assert_eq!(paused.verdict(), Verdict::Delegate);
     assert!(stderr.contains("all enforcement nap active globally"));
+
+    let refusal = strict_claude(home, &project, &format!("echo {}", "a".repeat(1024 * 1024)));
+    assert!(refusal.status.success(), "{refusal:?}");
+    assert!(refusal.stdout.is_empty(), "{refusal:?}");
 
     for protected in ["nap.json", "nap.key"] {
         let command = format!(

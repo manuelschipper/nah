@@ -147,3 +147,45 @@ fn captured_ambient_preflight_p99_is_below_one_millisecond() {
         "captured ambient preflight p99 {p99:?} exceeds {limit:?}"
     );
 }
+
+#[test]
+#[cfg_attr(debug_assertions, ignore = "release-mode KPI run")]
+fn captured_inline_signature_p99_is_below_one_millisecond() {
+    let _serial = serialize_kpi_test();
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let repo = repo(&root);
+    let context = ctx(&root);
+    let input = call(
+        "Bash",
+        json!({"command": "python3 -c \"import shutil; shutil.rmtree('/')\""}),
+        &repo,
+    );
+    let mut captured = None;
+    let first = decide_with(&input, &context, |request| {
+        let observation = nah_observe::fulfill(request).map_err(|error| error.to_string())?;
+        captured = Some(observation.clone());
+        Ok(observation)
+    });
+    assert_eq!(first.core().verdict(), Verdict::Block);
+    let observation = captured.unwrap();
+
+    let mut samples = Vec::with_capacity(10_000);
+    for _ in 0..10_000 {
+        let started = Instant::now();
+        let result = decide_with(&input, &context, |_| Ok(observation.clone()));
+        assert_eq!(result.core().verdict(), Verdict::Block);
+        samples.push(started.elapsed());
+    }
+    samples.sort_unstable();
+    let p99 = samples[(samples.len() * 99) / 100];
+    let limit = if cfg!(debug_assertions) {
+        Duration::from_millis(5)
+    } else {
+        Duration::from_millis(1)
+    };
+    assert!(
+        p99 <= limit,
+        "captured inline-signature p99 {p99:?} exceeds {limit:?}"
+    );
+}

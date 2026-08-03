@@ -6,13 +6,16 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
 
-pub(crate) fn mutate_openclaw_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_openclaw_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = if unsupported_environment() {
         Err("custom-openclaw-home-unsupported".to_owned())
@@ -21,7 +24,7 @@ pub(crate) fn mutate_openclaw_hook(install: bool) -> Result<RuntimeMutation, Str
             if install {
                 let executable = std::env::current_exe()
                     .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-                install_plugin(&home, &executable)
+                install_plugin(&home, &executable, policy)
             } else {
                 uninstall_plugin(&home)
             }
@@ -59,11 +62,22 @@ pub(crate) fn openclaw_hook_status() -> Result<RuntimeHookStatus, String> {
     Ok(
         if read_json(&paths.package)? == package()
             && read_json(&paths.manifest)? == manifest()
-            && current_module == plugin(&executable)
+            && current_module == plugin(&executable, FailurePolicy::Delegate)
         {
             RuntimeHookStatus::WiringCurrent
+        } else if read_json(&paths.package)? == package()
+            && read_json(&paths.manifest)? == manifest()
+            && current_module == plugin(&executable, FailurePolicy::Block)
+        {
+            RuntimeHookStatus::WiringCurrentFailClosed
         } else {
-            RuntimeHookStatus::NeedsReinstall
+            let strict = current_module.contains(r#"["hook", "openclaw", "run", "--fail-closed"]"#);
+            let delegate = current_module.contains(r#"["hook", "openclaw", "run"]"#);
+            RuntimeHookStatus::stale(if strict && !delegate {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            })
         },
     )
 }
@@ -94,7 +108,11 @@ fn unsupported_environment() -> bool {
         || custom_profile
 }
 
-fn install_plugin(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_plugin(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = OpenClawHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -107,7 +125,7 @@ fn install_plugin(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, Str
 
     std::fs::create_dir_all(&paths.plugin).map_err(|_| "openclaw-plugin-write-failed")?;
     reject_symlinks(&paths)?;
-    save_source(&paths.plugin, executable)?;
+    save_source(&paths.plugin, executable, policy)?;
     validate_owned_target(&paths)?;
     drop(lock);
     Ok(paths.plugin)
@@ -231,7 +249,7 @@ fn validate_owned_target(paths: &OpenClawHookPaths) -> Result<(), String> {
     if package.pointer("/nah/managed") != Some(&Value::Bool(true))
         || manifest.get("id").and_then(Value::as_str) != Some("nah")
         || !module.starts_with(MARKER)
-        || !module.contains(r#"["hook", "openclaw", "run"]"#)
+        || !module.contains(r#"["hook", "openclaw", "run""#)
     {
         return Err("openclaw-plugin-not-owned".into());
     }
@@ -243,7 +261,7 @@ fn read_json(path: &Path) -> Result<Value, String> {
     serde_json::from_slice(&bytes).map_err(|_| "openclaw-plugin-not-owned".into())
 }
 
-fn save_source(directory: &Path, executable: &Path) -> Result<(), String> {
+fn save_source(directory: &Path, executable: &Path, policy: FailurePolicy) -> Result<(), String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -259,7 +277,7 @@ fn save_source(directory: &Path, executable: &Path) -> Result<(), String> {
         serde_json::to_vec_pretty(&manifest()).map_err(|_| "openclaw-plugin-write-failed")?,
     )
     .map_err(|_| "openclaw-plugin-write-failed")?;
-    std::fs::write(directory.join("index.js"), plugin(&executable))
+    std::fs::write(directory.join("index.js"), plugin(&executable, policy))
         .map_err(|_| "openclaw-plugin-write-failed".to_owned())
 }
 
@@ -283,7 +301,12 @@ fn manifest() -> Value {
     })
 }
 
-fn plugin(executable: &str) -> String {
+fn plugin(executable: &str, policy: FailurePolicy) -> String {
+    let failure_arg = if policy == FailurePolicy::Block {
+        r#", "--fail-closed""#
+    } else {
+        ""
+    };
     format!(
         r#"{MARKER}
 import {{ spawn }} from "node:child_process";
@@ -295,7 +318,7 @@ const maxOutputBytes = 65536;
 
 function decide(input) {{
   return new Promise((resolve, reject) => {{
-    const child = spawn(nahExecutable, ["hook", "openclaw", "run"], {{
+    const child = spawn(nahExecutable, ["hook", "openclaw", "run"{failure_arg}], {{
       stdio: ["pipe", "pipe", "pipe"],
     }});
     let stdout = "";

@@ -16,7 +16,13 @@ use std::process::Command;
 /// Crates whose code must be pure: no I/O, env, clocks, processes, unsafe, or
 /// ambient global state. Enforced in layers: compiler-resolved Clippy
 /// restrictions, this lexical guardrail, and dependency allowlists.
-pub const PURE_CRATES: &[&str] = &["nah-proto", "nah-parse", "nah-actions", "nah-policy"];
+pub const PURE_CRATES: &[&str] = &[
+    "nah-proto",
+    "nah-parse",
+    "nah-inline",
+    "nah-actions",
+    "nah-policy",
+];
 
 /// Tokens that must never appear in a pure crate's `src/`. Coarse on
 /// purpose: a false positive is a loud conversation; a false negative is a
@@ -51,15 +57,17 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
     match krate {
         "nah-proto" => &[],
         "nah-parse" => &["nah-proto"],
-        "nah-actions" => &["nah-proto", "nah-parse"],
+        "nah-inline" => &["nah-proto"],
+        "nah-actions" => &["nah-proto", "nah-parse", "nah-inline"],
         "nah-observe" => &["nah-proto"],
-        "nah-policy" => &["nah-proto"],
+        "nah-policy" => &["nah-proto", "nah-inline"],
         "nah-extensions" => &["nah-proto"],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[
             "nah-proto",
             "nah-parse",
+            "nah-inline",
             "nah-actions",
             "nah-observe",
             "nah-policy",

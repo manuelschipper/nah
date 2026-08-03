@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nah_proto::action::{ActionStream, Coverage};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
 use nah_proto::ctx::Ctx;
 use nah_proto::decision::{DecisionCore, Verdict};
 use nah_proto::extension::{ExtensionConsultation, ValidatedExtensionResponse};
@@ -29,6 +29,7 @@ pub struct DecisionResult {
     consultations: Vec<ExtensionConsultation>,
     diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
     failures: Vec<EvaluationFailure>,
+    refusals: Vec<AnalysisRefusal>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,6 +43,20 @@ pub struct EvaluationFailure {
 enum EvaluationFailureSource {
     Nah,
     CustomGuard,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnalysisRefusal {
+    component: &'static str,
+    code: &'static str,
+    recovery: RecoveryAdvice,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum RecoveryAdvice {
+    RetryOnce,
+    CorrectOrSimplify,
+    OperatorRequired,
 }
 
 #[derive(Default)]
@@ -86,6 +101,44 @@ impl EvaluationFailure {
     }
 }
 
+impl AnalysisRefusal {
+    fn new(component: &'static str, code: &'static str, recovery: RecoveryAdvice) -> Self {
+        Self {
+            component,
+            code,
+            recovery,
+        }
+    }
+
+    pub const fn source(&self) -> &'static str {
+        "analysis"
+    }
+
+    pub const fn component(&self) -> &'static str {
+        self.component
+    }
+
+    pub const fn code(&self) -> &'static str {
+        self.code
+    }
+}
+
+impl RecoveryAdvice {
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::RetryOnce => {
+                "nah could not complete required safety evaluation; retry once; if it is blocked again, ask the operator; do not bypass nah through another tool"
+            }
+            Self::CorrectOrSimplify => {
+                "nah reached a safety analysis boundary; correct incomplete syntax or split the intended operation into smaller independently reviewable calls; do not encode, obfuscate, move it into an existing script, drop safety-relevant arguments, or change nah state"
+            }
+            Self::OperatorRequired => {
+                "nah could not complete required safety evaluation; ask the operator to inspect nah; do not retry through another tool or change nah state"
+            }
+        }
+    }
+}
+
 impl DecisionResult {
     pub fn core(&self) -> &DecisionCore {
         &self.core
@@ -111,6 +164,23 @@ impl DecisionResult {
         &self.failures
     }
 
+    pub fn refusals(&self) -> &[AnalysisRefusal] {
+        &self.refusals
+    }
+
+    pub(crate) fn replace_core(&mut self, core: DecisionCore) {
+        self.core = core;
+    }
+
+    pub(crate) fn recovery_advice(&self) -> RecoveryAdvice {
+        self.failures
+            .iter()
+            .map(failure_recovery)
+            .chain(self.refusals.iter().map(|refusal| refusal.recovery))
+            .max()
+            .unwrap_or(RecoveryAdvice::OperatorRequired)
+    }
+
     pub(crate) fn diagnostics(&self) -> &[nah_extensions::ConsultationDiagnostic] {
         &self.diagnostics
     }
@@ -128,6 +198,17 @@ impl DecisionResult {
     }
 }
 
+fn failure_recovery(failure: &EvaluationFailure) -> RecoveryAdvice {
+    if failure.source() == "custom-guard"
+        && matches!(failure.code(), "timeout" | "crash" | "spawn-failure")
+        || failure.source() == "nah" && failure.component() == "observation"
+    {
+        RecoveryAdvice::RetryOnce
+    } else {
+        RecoveryAdvice::OperatorRequired
+    }
+}
+
 /// Run the exact application pipeline with a supplied observation source.
 /// Live CLI calls and frozen corpus execution both enter through this function.
 pub fn decide_with<F>(input: &ToolCallInput, ctx: &Ctx, observe: F) -> DecisionResult
@@ -141,6 +222,7 @@ where
         nah_policy::EnforcementMode::Normal,
         observe,
         |_, _| ConsultedExtensions::default(),
+        false,
     )
 }
 
@@ -188,6 +270,7 @@ pub(crate) fn decide_live_with_self_protection(
                     .collect(),
             }
         },
+        false,
     );
     if state.extension_state_unavailable && mode != nah_policy::EnforcementMode::AllPaused {
         result.push_failure(EvaluationFailure::nah("custom-guard-state", "unavailable"));
@@ -226,6 +309,7 @@ where
         nah_policy::EnforcementMode::Normal,
         observe,
         consult,
+        false,
     )
 }
 
@@ -236,14 +320,32 @@ fn decide_with_extensions_mode<F, U>(
     mode: nah_policy::EnforcementMode,
     mut observe: F,
     consult: U,
+    simulate_inline_failure: bool,
 ) -> DecisionResult
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
     U: FnOnce(&Observation, &ActionStream) -> ConsultedExtensions,
 {
+    let mut refusals = Vec::new();
+    if !input.normalization_complete() {
+        push_refusal(
+            &mut refusals,
+            AnalysisRefusal::new(
+                "adapter-normalization",
+                "incomplete",
+                RecoveryAdvice::OperatorRequired,
+            ),
+        );
+    }
     let call_site = match input.call_site(ctx.platform()) {
         Ok(call_site) => call_site,
-        Err(_) => return delegated("tool call could not be analyzed".into()),
+        Err(_) => {
+            push_refusal(
+                &mut refusals,
+                AnalysisRefusal::new("call-site", "invalid", RecoveryAdvice::OperatorRequired),
+            );
+            return delegated_with_refusals("tool call could not be analyzed".into(), refusals);
+        }
     };
     let syntax = if input.tool() == "Bash" {
         let Some(command) = input
@@ -252,16 +354,49 @@ where
             .and_then(|object| object.get("command"))
             .and_then(serde_json::Value::as_str)
         else {
-            return delegated("Bash input could not be analyzed".into());
+            push_refusal(
+                &mut refusals,
+                AnalysisRefusal::new(
+                    "bash-input",
+                    "invalid-command",
+                    RecoveryAdvice::CorrectOrSimplify,
+                ),
+            );
+            return delegated_with_refusals("Bash input could not be analyzed".into(), refusals);
         };
         match nah_parse::normalize(command) {
-            Ok(syntax) => Some(syntax),
-            // Bounds protect nah itself. They do not prove the tool call is
-            // dangerous, so the runtime retains the decision.
-            Err(nah_parse::ParseError::ExceedsLimit(reason)) => {
-                return delegated(reason.to_owned());
+            Ok(syntax) => {
+                if !syntax.complete() {
+                    push_refusal(
+                        &mut refusals,
+                        AnalysisRefusal::new(
+                            "bash-syntax",
+                            "incomplete",
+                            RecoveryAdvice::CorrectOrSimplify,
+                        ),
+                    );
+                }
+                Some(syntax)
             }
-            Err(_) => return failed_delegate("bash-parser", "failed", "Bash parser failed"),
+            Err(nah_parse::ParseError::ExceedsLimit(limit)) => {
+                push_refusal(
+                    &mut refusals,
+                    AnalysisRefusal::new(
+                        "bash-parser",
+                        limit.code(),
+                        RecoveryAdvice::CorrectOrSimplify,
+                    ),
+                );
+                return delegated_with_refusals(limit.to_string(), refusals);
+            }
+            Err(_) => {
+                return failed_delegate_with_refusals(
+                    "bash-parser",
+                    "failed",
+                    "Bash parser failed",
+                    refusals,
+                );
+            }
         }
     } else {
         None
@@ -282,22 +417,78 @@ where
     ) {
         Ok(stable) => stable,
         Err(EnvironmentFailure::Unavailable) => {
-            return failed_delegate("observation", "failed", "observation failed");
+            return failed_delegate_with_refusals(
+                "observation",
+                "failed",
+                "observation failed",
+                refusals,
+            );
         }
-        Err(EnvironmentFailure::Refuse(reason)) => return delegated(reason.to_owned()),
+        Err(EnvironmentFailure::Refuse(refusal)) => {
+            push_refusal(
+                &mut refusals,
+                AnalysisRefusal::new("environment", refusal.code(), refusal.recovery()),
+            );
+            return delegated_with_refusals(refusal.reason().to_owned(), refusals);
+        }
     };
+    refusals.extend(
+        plan.inline_report()
+            .refusals()
+            .iter()
+            .copied()
+            .map(inline_refusal),
+    );
     let derivation = match nah_proto::ctx::derive_policy_ctx(ctx, &observation) {
         Ok(derivation) => derivation,
-        Err(_) => return failed_delegate("policy-context", "failed", "policy context failed"),
+        Err(_) => {
+            return failed_delegate_with_refusals(
+                "policy-context",
+                "failed",
+                "policy context failed",
+                refusals,
+            );
+        }
     };
     let warnings = derivation
         .unknown_declared_guards()
         .iter()
         .map(|name| format!("unknown project guard `{name}`"))
         .collect::<Vec<_>>();
+    let mut inline_report = plan.inline_report().clone();
+    let mut inline_failed = plan.inline_failed();
+    if simulate_inline_failure {
+        inline_report = nah_inline::InlineReport::default();
+        inline_failed = true;
+    }
     let action_stream = nah_actions::finalize(plan, observation.clone());
+    if action_stream.effects().iter().any(|effect| {
+        matches!(
+            effect.kind(),
+            EffectKind::SystemState { operation } if operation == &SemanticCode::ANALYSIS_REFUSED
+        )
+    }) {
+        push_refusal(
+            &mut refusals,
+            AnalysisRefusal::new(
+                "bash-lowering",
+                "refused",
+                RecoveryAdvice::CorrectOrSimplify,
+            ),
+        );
+    }
     if mode == nah_policy::EnforcementMode::AllPaused {
-        return match decide_policy(&action_stream, derivation.policy_ctx(), &[], mode) {
+        let mut failures = Vec::new();
+        if inline_failed {
+            failures.push(EvaluationFailure::nah("inline-analysis", "failed"));
+        }
+        return match decide_policy(
+            &action_stream,
+            &inline_report,
+            derivation.policy_ctx(),
+            &[],
+            mode,
+        ) {
             Ok(core) => DecisionResult {
                 core,
                 action_stream,
@@ -305,16 +496,21 @@ where
                 warnings,
                 consultations: vec![],
                 diagnostics: vec![],
-                failures: vec![],
+                failures,
+                refusals,
             },
-            Err(()) => failed_with_stream(
-                action_stream,
-                observation,
-                warnings,
-                vec![],
-                vec![],
-                vec![EvaluationFailure::nah("shipped-policy", "failed")],
-            ),
+            Err(()) => {
+                failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
+                failed_with_stream(
+                    action_stream,
+                    observation,
+                    warnings,
+                    vec![],
+                    vec![],
+                    failures,
+                    refusals,
+                )
+            }
         };
     }
     let ConsultedExtensions {
@@ -326,7 +522,16 @@ where
     } = consult(&observation, &action_stream);
     let mut warnings = warnings;
     warnings.extend(extension_warnings);
-    match decide_policy(&action_stream, derivation.policy_ctx(), &responses, mode) {
+    if inline_failed {
+        failures.push(EvaluationFailure::nah("inline-analysis", "failed"));
+    }
+    match decide_policy(
+        &action_stream,
+        &inline_report,
+        derivation.policy_ctx(),
+        &responses,
+        mode,
+    ) {
         Ok(core) => DecisionResult {
             core,
             action_stream,
@@ -335,6 +540,7 @@ where
             consultations,
             diagnostics,
             failures,
+            refusals,
         },
         Err(()) => {
             failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
@@ -345,6 +551,7 @@ where
                 consultations,
                 diagnostics,
                 failures,
+                refusals,
             )
         }
     }
@@ -352,12 +559,19 @@ where
 
 fn decide_policy(
     action_stream: &ActionStream,
+    inline_report: &nah_inline::InlineReport,
     policy_ctx: &nah_proto::ctx::PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: nah_policy::EnforcementMode,
 ) -> Result<DecisionCore, ()> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        nah_policy::decide_with_mode(action_stream, policy_ctx, responses, mode)
+        nah_policy::decide_with_mode_and_inline(
+            action_stream,
+            inline_report,
+            policy_ctx,
+            responses,
+            mode,
+        )
     }))
     .map_err(|_| ())?
     .map_err(|_| ())
@@ -542,7 +756,7 @@ struct EnvironmentBudget {
 impl EnvironmentBudget {
     fn register_round(&mut self) -> Result<(), EnvironmentFailure> {
         if self.rounds == MAX_ENVIRONMENT_ROUNDS {
-            return Err(EnvironmentFailure::Refuse(ENVIRONMENT_LIMIT_REASON));
+            return Err(EnvironmentFailure::Refuse(EnvironmentRefusal::RoundLimit));
         }
         self.rounds += 1;
         Ok(())
@@ -551,7 +765,7 @@ impl EnvironmentBudget {
     fn register_names(&mut self, names: &BTreeSet<String>) -> Result<(), EnvironmentFailure> {
         self.names.extend(names.iter().cloned());
         if self.names.len() > MAX_ENVIRONMENT_NAMES {
-            Err(EnvironmentFailure::Refuse(ENVIRONMENT_LIMIT_REASON))
+            Err(EnvironmentFailure::Refuse(EnvironmentRefusal::NameLimit))
         } else {
             Ok(())
         }
@@ -568,7 +782,7 @@ impl EnvironmentBudget {
             .map(|(_, value)| value.value_bytes())
             .sum::<usize>();
         if self.value_bytes.saturating_add(additional) > MAX_ENVIRONMENT_VALUE_BYTES {
-            return Err(EnvironmentFailure::Refuse(ENVIRONMENT_LIMIT_REASON));
+            return Err(EnvironmentFailure::Refuse(EnvironmentRefusal::ValueLimit));
         }
         self.value_bytes += additional;
         self.values.extend(
@@ -584,7 +798,7 @@ impl EnvironmentBudget {
         if self.states.insert(snapshot.clone()) {
             Ok(())
         } else {
-            Err(EnvironmentFailure::Refuse(ENVIRONMENT_OSCILLATION_REASON))
+            Err(EnvironmentFailure::Refuse(EnvironmentRefusal::Oscillation))
         }
     }
 
@@ -599,10 +813,59 @@ impl EnvironmentBudget {
 
 enum EnvironmentFailure {
     Unavailable,
-    Refuse(&'static str),
+    Refuse(EnvironmentRefusal),
 }
 
-fn delegated(warning: String) -> DecisionResult {
+#[derive(Clone, Copy)]
+enum EnvironmentRefusal {
+    RoundLimit,
+    NameLimit,
+    ValueLimit,
+    Oscillation,
+}
+
+impl EnvironmentRefusal {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::RoundLimit => "round-limit",
+            Self::NameLimit => "name-limit",
+            Self::ValueLimit => "value-limit",
+            Self::Oscillation => "oscillation",
+        }
+    }
+
+    const fn reason(self) -> &'static str {
+        match self {
+            Self::RoundLimit | Self::NameLimit | Self::ValueLimit => ENVIRONMENT_LIMIT_REASON,
+            Self::Oscillation => ENVIRONMENT_OSCILLATION_REASON,
+        }
+    }
+
+    const fn recovery(self) -> RecoveryAdvice {
+        match self {
+            Self::Oscillation => RecoveryAdvice::RetryOnce,
+            Self::RoundLimit | Self::NameLimit | Self::ValueLimit => {
+                RecoveryAdvice::CorrectOrSimplify
+            }
+        }
+    }
+}
+
+fn inline_refusal(refusal: nah_inline::InlineRefusal) -> AnalysisRefusal {
+    AnalysisRefusal::new(
+        "inline-analysis",
+        refusal.code(),
+        RecoveryAdvice::CorrectOrSimplify,
+    )
+}
+
+fn push_refusal(refusals: &mut Vec<AnalysisRefusal>, refusal: AnalysisRefusal) {
+    if !refusals.contains(&refusal) {
+        refusals.push(refusal);
+    }
+}
+
+fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> DecisionResult {
     let stream = ActionStream::new(Coverage::Partial, vec![], vec![])
         .expect("empty partial stream is the pre-analysis delegate contract");
     let core = DecisionCore::new(&stream, Verdict::Delegate, vec![])
@@ -615,6 +878,7 @@ fn delegated(warning: String) -> DecisionResult {
         consultations: vec![],
         diagnostics: vec![],
         failures: vec![],
+        refusals,
     }
 }
 
@@ -623,7 +887,16 @@ pub(crate) fn failed_delegate(
     code: &'static str,
     warning: &'static str,
 ) -> DecisionResult {
-    let mut result = delegated(warning.to_owned());
+    failed_delegate_with_refusals(component, code, warning, vec![])
+}
+
+fn failed_delegate_with_refusals(
+    component: &'static str,
+    code: &'static str,
+    warning: &'static str,
+    refusals: Vec<AnalysisRefusal>,
+) -> DecisionResult {
+    let mut result = delegated_with_refusals(warning.to_owned(), refusals);
     result
         .failures
         .push(EvaluationFailure::nah(component, code));
@@ -637,6 +910,7 @@ fn failed_with_stream(
     consultations: Vec<ExtensionConsultation>,
     diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
     failures: Vec<EvaluationFailure>,
+    refusals: Vec<AnalysisRefusal>,
 ) -> DecisionResult {
     warnings.push("policy evaluation failed".into());
     let core = DecisionCore::new(&action_stream, Verdict::Delegate, vec![])
@@ -649,6 +923,7 @@ fn failed_with_stream(
         consultations,
         diagnostics,
         failures,
+        refusals,
     }
 }
 

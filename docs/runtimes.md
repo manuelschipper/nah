@@ -42,9 +42,15 @@ failures yield `delegate`. A custom-guard failure contributes no finding, so
 other guards still decide. Persisted redacted details are available through
 `nah log` and `nah why`.
 
+`--fail-closed` blocks explicit failures/refusals; ordinary uncertainty
+delegates, and adapter unavailability uses native denial. `--fail-open` restores
+the default; flagless reinstall preserves a known mode. This requires nah to
+respond.
+
 `install` writes nah-owned integration files or configuration. `uninstall`
 removes only that wiring. `status` reports `not configured`, `wiring current`,
-or `reinstall required` from the wiring on disk. It cannot prove that a running
+or `reinstall required` plus the detected failure policy from the wiring on
+disk. It cannot prove that a running
 agent loaded the hook, that the runtime permits it, or that every tool path
 emits an intercepted event.
 

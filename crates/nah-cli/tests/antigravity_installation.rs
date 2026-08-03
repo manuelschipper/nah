@@ -116,7 +116,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Antigravity: wiring current\nverify: nah docs runtime-antigravity\n"
+        "Antigravity: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-antigravity\n"
     );
 
     let installed_again = nah(home, &["hook", "antigravity", "install"]);
@@ -243,7 +243,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Antigravity: reinstall required\nnext: nah hook antigravity install\ndocs: nah docs runtime-antigravity\n"
+        "Antigravity: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook antigravity install\ndocs: nah docs runtime-antigravity\n"
     );
     let repaired = nah(home, &["hook", "antigravity", "install"]);
     assert!(repaired.status.success(), "{repaired:?}");

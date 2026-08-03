@@ -494,13 +494,6 @@ fn runtime_launch_bypass(
     }
 }
 
-fn runtime_launch_program(program: &str) -> bool {
-    matches!(
-        normalized_program(program).as_str(),
-        "claude" | "codex" | "devin" | "droid" | "hermes" | "openclaw" | "opencode" | "pi"
-    )
-}
-
 fn runtime_terminal_information(words: &[String]) -> bool {
     words
         .iter()
@@ -1177,10 +1170,6 @@ fn runtime_names() -> &'static [&'static str] {
         "pi",
     ]
 }
-
-mod inline;
-
-pub(crate) use inline::reclassify_inline;
 
 pub(crate) fn protected_path(
     path: &str,

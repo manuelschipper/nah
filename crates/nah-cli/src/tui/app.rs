@@ -587,7 +587,7 @@ impl App {
             },
             Confirmation::ConfigureRuntime {
                 runtime, install, ..
-            } => match set_runtime_configured(runtime, install) {
+            } => match set_runtime_configured(runtime, install, None) {
                 Ok(mutation) => {
                     self.success(mutation.summary());
                     self.refresh();
@@ -1126,9 +1126,11 @@ fn wrapped_lines(text: &str) -> u16 {
 
 pub(crate) const fn status_name(status: RuntimeHookStatus) -> &'static str {
     match status {
-        RuntimeHookStatus::WiringCurrent => "wiring current",
+        RuntimeHookStatus::WiringCurrent => "wiring current · delegate-on-failure",
+        RuntimeHookStatus::WiringCurrentFailClosed => "wiring current · fail-closed",
         RuntimeHookStatus::NotConfigured => "not configured",
-        RuntimeHookStatus::NeedsReinstall => "needs reinstall",
+        RuntimeHookStatus::NeedsReinstall => "needs reinstall · delegate-on-failure",
+        RuntimeHookStatus::NeedsReinstallFailClosed => "needs reinstall · fail-closed",
     }
 }
 

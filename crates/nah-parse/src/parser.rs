@@ -26,10 +26,41 @@ const TOO_LARGE: &str = "command is larger than nah can analyse (1 MiB limit)";
 const TOO_DEEP: &str = "command nests too deeply for nah to analyse (512 level limit)";
 const TOO_COMPLEX: &str = "command is too complex for nah to analyse (25000 syntax node limit)";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParseLimit {
+    Source,
+    Depth,
+    Nodes,
+}
+
+impl ParseLimit {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Source => "source-limit",
+            Self::Depth => "depth-limit",
+            Self::Nodes => "node-limit",
+        }
+    }
+
+    const fn reason(self) -> &'static str {
+        match self {
+            Self::Source => TOO_LARGE,
+            Self::Depth => TOO_DEEP,
+            Self::Nodes => TOO_COMPLEX,
+        }
+    }
+}
+
+impl std::fmt::Display for ParseLimit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.reason())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParseError {
     /// The command is past a documented bound, so nah refused to walk it.
-    ExceedsLimit(&'static str),
+    ExceedsLimit(ParseLimit),
     /// The Bash grammar itself was unusable.
     Grammar(String),
 }
@@ -37,7 +68,7 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ExceedsLimit(reason) => formatter.write_str(reason),
+            Self::ExceedsLimit(limit) => formatter.write_str(limit.reason()),
             Self::Grammar(error) => formatter.write_str(error),
         }
     }
@@ -49,7 +80,7 @@ pub fn syntax_is_clean(source: &str) -> Result<bool, ParseError> {
 
 pub fn normalize(source: &str) -> Result<Syntax, ParseError> {
     if source.len() > MAX_SOURCE_BYTES {
-        return Err(ParseError::ExceedsLimit(TOO_LARGE));
+        return Err(ParseError::ExceedsLimit(ParseLimit::Source));
     }
     let tree = parse(source)?;
     if let Some(reason) = syntax_limit(&tree) {
@@ -79,14 +110,14 @@ fn parse(source: &str) -> Result<Tree, ParseError> {
 
 /// Measures semantic nesting without charging tree-sitter's left-nested
 /// representation of a flat `&&`/`||` chain.
-fn syntax_limit(tree: &Tree) -> Option<&'static str> {
+fn syntax_limit(tree: &Tree) -> Option<ParseLimit> {
     let root = tree.root_node();
     let mut stack = vec![(root, 0_usize)];
     let mut nodes = 0;
     while let Some((node, depth)) = stack.pop() {
         nodes += 1;
         if nodes > MAX_SYNTAX_NODES {
-            return Some(TOO_COMPLEX);
+            return Some(ParseLimit::Nodes);
         }
         let mut cursor = node.walk();
         let mut children = node.children(&mut cursor).collect::<Vec<_>>();
@@ -95,7 +126,7 @@ fn syntax_limit(tree: &Tree) -> Option<&'static str> {
             let child_depth =
                 depth + usize::from(!(node.kind() == "list" && child.kind() == "list"));
             if child_depth > MAX_SYNTAX_DEPTH {
-                return Some(TOO_DEEP);
+                return Some(ParseLimit::Depth);
             }
             stack.push((child, child_depth));
         }

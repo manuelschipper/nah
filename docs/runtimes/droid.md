@@ -25,9 +25,9 @@ nested hook-file path is legacy.
 ## Behavior
 
 Execute, Read, Create, Edit, ApplyPatch, Grep, literal-relative Glob, and LS
-tools use the shared policy. Wildcard or multiple globs delegate
-conservatively. Definite blocks exit 2 with nah-branded feedback. Malformed and
-every other unblocked call delegate to Droid's permission flow. If nah is
+tools use the shared policy. Wildcard or multiple globs delegate.
+Definite blocks and `--fail-closed` failures/refusals exit 2. By default,
+malformed and other unblocked calls delegate to Droid. If nah is
 missing or exits unexpectedly, the installed shell command exits 0 with fixed
 feedback on standard output.
 

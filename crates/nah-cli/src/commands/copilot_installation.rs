@@ -7,18 +7,21 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-pub(crate) fn mutate_copilot_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_copilot_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     reject_custom_home()?;
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -43,11 +46,18 @@ pub(crate) fn copilot_hook_status() -> Result<RuntimeHookStatus, String> {
     let configured = load(&paths.hook)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_hook(&executable)?;
-    if configured == desired {
+    if configured == desired_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
+    } else if configured == desired_hook(&executable, FailurePolicy::Block)? {
+        Ok(RuntimeHookStatus::WiringCurrentFailClosed)
     } else if is_owned(&configured) {
-        Ok(RuntimeHookStatus::NeedsReinstall)
+        Ok(RuntimeHookStatus::stale(
+            if configured.to_string().contains("run --fail-closed") {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            },
+        ))
     } else {
         Err("copilot-hook-file-conflict".into())
     }
@@ -63,11 +73,15 @@ pub(crate) fn copilot_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     ])
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = CopilotHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
-    let desired = desired_hook(executable)?;
+    let desired = desired_hook(executable, policy)?;
     if paths.hook.exists() {
         let configured = load(&paths.hook)?;
         if configured == desired {
@@ -124,14 +138,21 @@ fn reject_custom_home() -> Result<(), String> {
     }
 }
 
-fn desired_hook(executable: &Path) -> Result<Value, String> {
+fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let command = if cfg!(windows) {
-        format!("\"{executable}\" hook copilot run")
+        format!(
+            "\"{executable}\" hook copilot run{}",
+            policy.command_suffix()
+        )
     } else {
-        format!("{} hook copilot run", shell_quote(executable))
+        format!(
+            "{} hook copilot run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     Ok(json!({
         "version":1,
@@ -175,6 +196,7 @@ fn is_owned(config: &Value) -> bool {
 }
 
 fn is_owned_command(command: &str) -> bool {
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook copilot run") else {
         return false;
     };

@@ -82,8 +82,11 @@ enum Draft {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisPlan {
     draft: Draft,
+    bash_coverage_draft: Option<bash_model::Draft>,
     observation_request: ObservationRequest,
     ambient_variables: Vec<(String, bash_model::VariableValue)>,
+    inline_report: nah_inline::InlineReport,
+    inline_failed: bool,
     home: AbsolutePath,
     critical_paths: Vec<AbsolutePath>,
     trusted_roots: Vec<AbsolutePath>,
@@ -110,6 +113,14 @@ impl SelfProtectionProjection {
 impl AnalysisPlan {
     pub fn observation_request(&self) -> &ObservationRequest {
         &self.observation_request
+    }
+
+    pub fn inline_report(&self) -> &nah_inline::InlineReport {
+        &self.inline_report
+    }
+
+    pub const fn inline_failed(&self) -> bool {
+        self.inline_failed
     }
 }
 
@@ -158,7 +169,7 @@ fn plan_with_ambient_variables(
             roots_key: ROOTS_KEY.into(),
         },
     ];
-    let (request_id, draft) = match input {
+    let (request_id, draft, bash_coverage_draft, inline_report, inline_failed) = match input {
         AnalysisInput::Native(input) => {
             let draft = native::draft(input, call_site, ctx.platform());
             match &draft {
@@ -184,20 +195,34 @@ fn plan_with_ambient_variables(
                 }
                 native::Draft::Opaque { .. } | native::Draft::Unsupported => {}
             }
-            ("native-v1", Draft::Native(draft))
+            (
+                "native-v1",
+                Draft::Native(draft),
+                None,
+                nah_inline::InlineReport::default(),
+                false,
+            )
         }
         AnalysisInput::Bash(syntax, input) => {
-            let (mut draft, path_queries) = bash::draft(
-                syntax,
-                call_site.requested_cwd(),
-                ctx.home(),
-                ctx.platform(),
-                ambient_variables,
-                self_protection.protected_paths(),
-            );
+            let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
+                bash::draft(
+                    syntax,
+                    call_site.requested_cwd(),
+                    ctx.home(),
+                    ctx.platform(),
+                    ambient_variables,
+                    self_protection.protected_paths(),
+                );
             draft.complete &= input.normalization_complete();
+            coverage_draft.complete &= input.normalization_complete();
             queries.extend(path_queries);
-            ("bash-v1", Draft::Bash(draft))
+            (
+                "bash-v1",
+                Draft::Bash(draft),
+                Some(coverage_draft),
+                inline_report,
+                inline_failed,
+            )
         }
     };
     let observation_request = ObservationRequest::new(SchemaVersion::V1, request_id, queries)
@@ -213,8 +238,11 @@ fn plan_with_ambient_variables(
         .collect();
     AnalysisPlan {
         draft,
+        bash_coverage_draft,
         observation_request,
         ambient_variables: requested_ambient_variables,
+        inline_report,
+        inline_failed,
         home: ctx.home().clone(),
         critical_paths: self_protection.protected_paths().to_vec(),
         trusted_roots: ctx
@@ -374,7 +402,22 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
         }
         Draft::Native(native::Draft::Unsupported) => return partial(),
         Draft::Bash(draft) => {
-            let Some((complete, stages, flows)) = bash_finalize::finalize(
+            let outer_complete = plan
+                .bash_coverage_draft
+                .and_then(|draft| {
+                    bash_finalize::finalize(
+                        draft,
+                        &observation,
+                        roots,
+                        cwd,
+                        &plan.home,
+                        &plan.trusted_roots,
+                        &plan.critical_paths,
+                        plan.platform,
+                    )
+                })
+                .is_some_and(|(complete, _, _)| complete);
+            let Some((_complete, stages, flows)) = bash_finalize::finalize(
                 draft,
                 &observation,
                 roots,
@@ -386,7 +429,7 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
             ) else {
                 return partial();
             };
-            let coverage = if complete {
+            let coverage = if outer_complete {
                 Coverage::Full
             } else {
                 Coverage::Partial

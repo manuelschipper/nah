@@ -808,6 +808,7 @@ dependencies = [
 name = "nah-actions"
 version = "1.0.0"
 dependencies = [
+ "nah-inline",
  "nah-parse",
  "nah-proto",
  "serde_json",
@@ -822,6 +823,7 @@ dependencies = [
  "hmac",
  "nah-actions",
  "nah-extensions",
+ "nah-inline",
  "nah-observe",
  "nah-parse",
  "nah-policy",
@@ -860,6 +862,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nah-inline"
+version = "1.0.0"
+dependencies = [
+ "nah-proto",
+]
+
+[[package]]
 name = "nah-observe"
 version = "1.0.0"
 dependencies = [
@@ -885,6 +894,7 @@ name = "nah-policy"
 version = "1.0.0"
 dependencies = [
  "criterion",
+ "nah-inline",
  "nah-proto",
 ]
 

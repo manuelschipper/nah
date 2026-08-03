@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn runtime_status_names_show_the_preserved_failure_policy() {
+    assert_eq!(
+        status_name(RuntimeHookStatus::WiringCurrent),
+        "wiring current · delegate-on-failure"
+    );
+    assert_eq!(
+        status_name(RuntimeHookStatus::WiringCurrentFailClosed),
+        "wiring current · fail-closed"
+    );
+}
+
+#[test]
 fn built_in_changes_stage_without_writing() {
     let mut app = App::fixture();
     app.toggle_guard();

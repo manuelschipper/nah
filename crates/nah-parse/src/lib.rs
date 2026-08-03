@@ -15,4 +15,6 @@ pub use model::{
     CaseArm, CaseTermination, ConditionalBranch, LoopControlKind, LoopKind, Redirect, Statement,
     Substitution, Syntax, UnmodeledStateExpansion, Word,
 };
-pub use parser::{MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, ParseError, normalize, syntax_is_clean};
+pub use parser::{
+    MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, ParseError, ParseLimit, normalize, syntax_is_clean,
+};

@@ -6,6 +6,13 @@
 nah hook claude install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart Claude Code and inspect the active PreToolUse hook with `/hooks`.
 Remove only nah's entry with:
 
@@ -40,7 +47,8 @@ automatic hook discovery. Neither mode loads nah's user hook.
 
 Claude continues a tool call when a command hook exits with anything other
 than the blocking exit code 2, including ordinary errors and timeouts.
-Evaluation failure delegates and returns a fixed `systemMessage`; malformed
+Under the default mode, evaluation failure delegates and returns a fixed
+`systemMessage`; malformed
 outer input returns no decision. Other matching hooks run in parallel,
 including hooks bundled by enabled plugins, and one hook cannot prevent another
 from starting. Users can set `disableAllHooks`; administrators can set

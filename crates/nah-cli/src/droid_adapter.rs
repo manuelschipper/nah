@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::hook_adapter::{self, HookOutcome};
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 #[derive(Deserialize)]
 struct DroidHookInput {
@@ -25,6 +25,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let request =
         match hook_adapter::read_event::<_, DroidHookInput>(stdin, "hook_event_name", "PreToolUse")
@@ -34,28 +35,54 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Err(error) => Err(error.to_string()),
         };
     match request {
-        Ok(request) => match hook_adapter::decide_input(request, stderr, Runtime::Droid) {
-            HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-                let _ = writeln!(stderr, "nah - {}", hook_adapter::feedback(&decision));
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+        Ok(request) => {
+            match hook_adapter::decide_input(request, stderr, Runtime::Droid, failure_policy) {
+                HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
+                    let _ = writeln!(stderr, "nah - {}", hook_adapter::feedback(&decision));
+                    if decision.guard_block_incomplete() {
+                        let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
+                    }
+                    2
                 }
-                2
-            }
-            HookOutcome::Decision(decision) => {
-                if decision.evaluation_failed() {
-                    let _ = writeln!(stdout, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                HookOutcome::Decision(decision) => {
+                    if decision.evaluation_failed() {
+                        let _ = writeln!(stdout, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    }
+                    0
                 }
-                0
+                HookOutcome::IrrelevantEvent => 0,
+                HookOutcome::MalformedInput => deny_unavailable(
+                    stderr,
+                    failure_policy,
+                    hook_adapter::IntegrationUnavailable::MalformedInput,
+                )
+                .unwrap_or(0),
+                HookOutcome::EvaluationUnavailable(kind) => {
+                    deny_unavailable(stderr, failure_policy, kind).unwrap_or_else(|| {
+                        let _ = writeln!(stdout, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        0
+                    })
+                }
             }
-            HookOutcome::IrrelevantEvent | HookOutcome::MalformedInput => 0,
-            HookOutcome::EvaluationUnavailable => {
-                let _ = writeln!(stdout, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                0
-            }
-        },
-        Err(_) => 0,
+        }
+        Err(_) => deny_unavailable(
+            stderr,
+            failure_policy,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .unwrap_or(0),
     }
+}
+
+fn deny_unavailable<E: Write>(
+    stderr: &mut E,
+    failure_policy: FailurePolicy,
+    unavailable: hook_adapter::IntegrationUnavailable,
+) -> Option<u8> {
+    hook_adapter::unavailable_feedback(failure_policy, Runtime::Droid, unavailable).map(|reason| {
+        let _ = writeln!(stderr, "nah - {reason}");
+        2
+    })
 }
 
 fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
@@ -373,6 +400,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 228);
+        assert!(implementation.lines().count() <= 258);
     }
 }

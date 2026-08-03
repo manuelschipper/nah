@@ -6,6 +6,13 @@
 nah hook codex install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Open local Codex, run `/hooks`, and trust the new hook. Remove only nah's entry
 with:
 
@@ -52,7 +59,7 @@ disable all hooks with `features.hooks = false`. Administrators can require
 plugins load alongside other sources. Multiple matching hooks start
 concurrently, so nah cannot stop a sibling hook from acting. Unsupported hook
 output, hook errors, and timeouts do not provide a nah block and can fail open
-into Codex's normal flow. Evaluation failure delegates and returns a fixed
+into Codex's normal flow. Under the default mode, evaluation failure delegates and returns a fixed
 `systemMessage`; it does not manufacture a deny.
 
 While active, this adapter blocks visible lifecycle commands, mutations to

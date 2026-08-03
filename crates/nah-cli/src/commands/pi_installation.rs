@@ -6,19 +6,22 @@ use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
 
-pub(crate) fn mutate_pi_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_pi_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_extension(&home, &executable)
+            install_extension(&home, &executable, policy)
         } else {
             uninstall_extension(&home)
         }
@@ -48,11 +51,25 @@ pub(crate) fn pi_hook_status() -> Result<RuntimeHookStatus, String> {
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    Ok(if bytes == extension(&executable)?.as_bytes() {
-        RuntimeHookStatus::WiringCurrent
-    } else {
-        RuntimeHookStatus::NeedsReinstall
-    })
+    Ok(
+        if bytes == extension(&executable, FailurePolicy::Delegate)?.as_bytes() {
+            RuntimeHookStatus::WiringCurrent
+        } else if bytes == extension(&executable, FailurePolicy::Block)?.as_bytes() {
+            RuntimeHookStatus::WiringCurrentFailClosed
+        } else {
+            let strict = bytes
+                .windows(br#"["hook", "pi", "run", "--fail-closed"]"#.len())
+                .any(|part| part == br#"["hook", "pi", "run", "--fail-closed"]"#);
+            let delegate = bytes
+                .windows(br#"["hook", "pi", "run"]"#.len())
+                .any(|part| part == br#"["hook", "pi", "run"]"#);
+            RuntimeHookStatus::stale(if strict && !delegate {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            })
+        },
+    )
 }
 
 pub(crate) fn pi_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -61,7 +78,11 @@ pub(crate) fn pi_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![PiHookPaths::new(&home).extension])
 }
 
-fn install_extension(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_extension(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = PiHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -71,7 +92,7 @@ fn install_extension(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, 
         .ok_or_else(|| "invalid-pi-extension-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "pi-extension-write-failed")?;
     reject_symlinks(&paths)?;
-    let desired = extension(executable)?;
+    let desired = extension(executable, policy)?;
     match std::fs::read(&paths.extension) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
         Ok(bytes) if owned(&bytes) => save(&paths.extension, desired.as_bytes())?,
@@ -197,12 +218,17 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     sync_parent(parent)
 }
 
-fn extension(executable: &Path) -> Result<String, String> {
+fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let executable =
         serde_json::to_string(executable).map_err(|_| "invalid-nah-executable-path".to_owned())?;
+    let failure_arg = if policy == FailurePolicy::Block {
+        r#", "--fail-closed""#
+    } else {
+        ""
+    };
     Ok(format!(
         r#"{MARKER}
 const {{ spawn }} = require("node:child_process");
@@ -211,7 +237,7 @@ const maxOutputBytes = 65536;
 
 function decide(event, context) {{
   return new Promise((resolve, reject) => {{
-    const child = spawn(nahExecutable, ["hook", "pi", "run"], {{
+    const child = spawn(nahExecutable, ["hook", "pi", "run"{failure_arg}], {{
       stdio: ["pipe", "pipe", "pipe"],
     }});
     let stdout = "";
@@ -301,7 +327,7 @@ module.exports = function nahPiExtension(pi) {{
 
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
-    text.starts_with(MARKER) && text.contains(r#"["hook", "pi", "run"]"#)
+    text.starts_with(MARKER) && text.contains(r#"["hook", "pi", "run""#)
 }
 
 #[cfg(unix)]

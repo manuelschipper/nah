@@ -66,6 +66,7 @@ pub(crate) fn append_decision(
     result: &DecisionResult,
     envelope: DecisionEnvelope,
     runtime: Option<Runtime>,
+    include_refusals: bool,
 ) -> Result<(), AuditError> {
     let record = redaction::AuditRecordV1::redact(
         tool_call,
@@ -78,7 +79,12 @@ pub(crate) fn append_decision(
             result.consultations(),
             result.diagnostics(),
         )
-        .with_failures(result.failures()),
+        .with_failures(result.failures())
+        .with_refusals(if include_refusals {
+            result.refusals()
+        } else {
+            &[]
+        }),
     );
     DecisionLog::new(decision_log_path(ctx.home(), ctx.platform())).append(&record)
 }
@@ -90,6 +96,7 @@ pub(crate) fn append_failure(
     result: &DecisionResult,
     envelope: DecisionEnvelope,
     runtime: Option<Runtime>,
+    include_refusals: bool,
 ) -> Result<(), AuditError> {
     let record = redaction::AuditRecordV1::failure(
         tool_call,
@@ -98,6 +105,30 @@ pub(crate) fn append_failure(
         runtime_name(runtime),
         result.warnings(),
         result.failures(),
+        if include_refusals {
+            result.refusals()
+        } else {
+            &[]
+        },
+    );
+    DecisionLog::new(decision_log_path(home, platform)).append(&record)
+}
+
+pub(crate) fn append_unavailable(
+    home: &AbsolutePath,
+    platform: Platform,
+    envelope: DecisionEnvelope,
+    runtime: Runtime,
+    component: &str,
+    code: &str,
+    reason: &str,
+) -> Result<(), AuditError> {
+    let record = redaction::AuditRecordV1::unavailable(
+        envelope,
+        runtime.cli_name(),
+        reason,
+        component,
+        code,
     );
     DecisionLog::new(decision_log_path(home, platform)).append(&record)
 }

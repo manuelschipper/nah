@@ -9,9 +9,9 @@ guard findings and understood protected-state changes outside maintenance.
 
 - nah returns only block or delegate; no guard can authorize a call.
 - Project custom guards require trust and activation, which pins bundle bytes.
-- A custom-guard failure contributes no finding; other guards still decide. A
-  failure before or within built-in evaluation delegates. Completed non-dry-run
-  failures enter the redacted audit log when writable.
+- Analyzer or custom-guard failure adds no finding by default; other evidence
+  still decides. `--fail-closed` blocks explicit failures and bounded refusals.
+  Completed live failures enter the redacted audit log when writable.
 - Understood attempts to mutate nah state, its executable, or
   authority-changing commands block.
 - Active adapters also protect understood changes to standard hook and loading
@@ -32,9 +32,9 @@ guard findings and understood protected-state changes outside maintenance.
   effects, not arbitrary contents.
 - Custom guards are trusted executables; nah does not sandbox them.
 
-Malformed, unknown, future, opaque, or bounded input delegates absent understood
-danger. If no decision is produced, the integration does not synthesize a block;
-fallback and feedback vary by runtime.
+Unknown or opaque input delegates. Fail-closed uses native denial for malformed
+or no-decision input, but requires loaded nah to respond; missing hooks/binaries,
+runtime failure or bypass, and broken pipes remain outside.
 
 ## Delegate is not approval
 

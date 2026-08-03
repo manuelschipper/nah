@@ -327,13 +327,6 @@ impl Lowerer {
             invocation_origins.extend(visible.origins.iter().copied());
             invocation_origins = self.bounded_origins(invocation_origins);
         }
-        crate::bash_self_protection::reclassify_inline(
-            &mut invocation,
-            &self.home,
-            &self.critical_paths,
-            self.platform,
-            &self.runtime_variables,
-        );
         let recognized_command = terminal_help
             || local_utility.is_some()
             || project.is_some()

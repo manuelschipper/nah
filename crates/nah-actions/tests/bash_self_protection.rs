@@ -1,12 +1,34 @@
 mod support;
 
-use nah_actions::{SelfProtectionProjection, finalize};
-use nah_proto::action::{Coverage, EffectKind, InvocationEffect, NahProtectionTier};
+use nah_actions::{AnalysisPlan, SelfProtectionProjection, finalize};
+use nah_inline::{FindingKind, InlineReport};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationEffect, NahProtectionTier};
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
 };
 use support::{Change, absolute, bash_plan, bash_plan_with_self_protection, facts, observe};
+
+fn finalize_with_inline(
+    plan: AnalysisPlan,
+    observation: Observation,
+) -> (ActionStream, InlineReport) {
+    let report = plan.inline_report().clone();
+    let stream = finalize(plan, observation);
+    (stream, report)
+}
+
+fn structurally_protected(stream: &ActionStream, report: &InlineReport) -> bool {
+    report.contains_conservative(FindingKind::NahTampering)
+        || stream.effects().iter().any(|effect| {
+            matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation.as_str() == "critical-mutation"
+            )
+        })
+}
 
 #[test]
 fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
@@ -468,14 +490,10 @@ fn exact_interpreter_mutations_of_self_protected_paths_are_structural() {
         r#"cmd /c 'claude --safe-mode'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -547,14 +565,10 @@ fn direct_python_decode_to_shell_execution_is_typed() {
         "python -c 'import base64, subprocess\nsubprocess.run(\nbase64.b64decode(payload),\nshell=True\n)'",
     ] {
         let plan = bash_plan(source);
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::CodeExecution { source, .. }
-                } if source.as_str() == "decoded-execution"
-            )),
+            report.contains_exact(FindingKind::DecodedExecution),
             "{source}: {:?}",
             stream.effects()
         );
@@ -573,14 +587,10 @@ fn direct_python_decode_to_shell_execution_is_typed() {
         r#"python -c 'import base64; subprocess=object(); subprocess.run(base64.b64decode(payload), shell=True)'"#,
     ] {
         let plan = bash_plan(source);
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::CodeExecution { source, .. }
-                } if source.as_str() == "decoded-execution"
-            )),
+            !report.contains_exact(FindingKind::DecodedExecution),
             "{source}: {:?}",
             stream.effects()
         );
@@ -662,14 +672,10 @@ fn new_hardlinks_from_self_protected_paths_are_structural() {
         r#"perl -e 'link "/home/test/.kiro/hooks/nah.json", "/tmp/alias"'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -681,14 +687,10 @@ fn new_hardlinks_from_self_protected_paths_are_structural() {
         "cp /home/test/.kiro/hooks/nah.json /tmp/copy",
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            !structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -706,14 +708,10 @@ fn namespace_mutations_of_self_protected_path_ancestors_are_structural() {
         r#"python -c 'import shutil; shutil.rmtree("/home/test/.kiro/hooks")'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -727,14 +725,10 @@ fn namespace_mutations_of_self_protected_path_ancestors_are_structural() {
         r#"python -c 'print("/home/test/.kiro/hooks", __import__("os").rename("/tmp/a", "/tmp/b"))'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            !structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -758,14 +752,10 @@ fn access_control_mutations_of_self_protected_path_ancestors_are_structural() {
         r#"python -c 'import subprocess; subprocess.run(["chmod", "000", "/home/test/.kiro/hooks"])'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -782,14 +772,10 @@ fn access_control_mutations_of_self_protected_path_ancestors_are_structural() {
         r#"python -c 'from pathlib import Path; parent=Path("/home/test/.kiro/hooks"); Path("/tmp/unrelated").chmod(0)'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            !structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
@@ -802,28 +788,20 @@ fn access_control_mutations_of_self_protected_path_ancestors_are_structural() {
         r#"python -c 'import os; os.chmod("/srv/kiro", 0)'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, external_self_protection.clone());
-        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        let observation = observe(plan.observation_request(), "echo");
+        let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )),
+            structurally_protected(&stream, &report),
             "{source}: {:?}",
             stream.effects()
         );
     }
 
     let plan = bash_plan_with_self_protection("chmod 000 /srv", external_self_protection);
-    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+    let observation = observe(plan.observation_request(), "echo");
+    let (stream, report) = finalize_with_inline(plan, observation);
     assert!(
-        !stream.effects().iter().any(|effect| matches!(
-            effect.kind(),
-            EffectKind::Invocation {
-                invocation: InvocationEffect::Known { operation, .. }
-            } if operation.as_str() == "critical-mutation"
-        )),
+        !structurally_protected(&stream, &report),
         "{:?}",
         stream.effects()
     );

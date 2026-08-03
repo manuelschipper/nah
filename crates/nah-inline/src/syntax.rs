@@ -1,6 +1,8 @@
 //! Lexical scanning and bounded static-call parsing for inline interpreters.
 
-use crate::bash_execution::is_python_interpreter;
+use crate::is_python_interpreter;
+
+const MAX_VISIBLE_DELIMITERS: usize = 4_096;
 
 fn starts_line_comment(bytes: &[u8], index: usize, program: &str) -> bool {
     if bytes[index] == b'#'
@@ -52,7 +54,7 @@ fn mark_fixed_block_comment(
     opening: &[u8],
     closing: &[u8],
     nested: bool,
-) -> usize {
+) -> (usize, bool) {
     let mut index = start + opening.len();
     let mut depth = 1usize;
     while index < bytes.len() {
@@ -70,7 +72,7 @@ fn mark_fixed_block_comment(
         }
     }
     mark_comment(mask, start, index);
-    index
+    (index, depth == 0)
 }
 
 fn lua_long_bracket(bytes: &[u8], index: usize, delimiter: u8) -> Option<(usize, usize)> {
@@ -84,7 +86,7 @@ fn lua_long_bracket(bytes: &[u8], index: usize, delimiter: u8) -> Option<(usize,
     (bytes.get(cursor) == Some(&delimiter)).then_some((cursor + 1, cursor - index - 1))
 }
 
-fn mark_lua_block_comment(mask: &mut [bool], bytes: &[u8], start: usize) -> Option<usize> {
+fn mark_lua_block_comment(mask: &mut [bool], bytes: &[u8], start: usize) -> Option<(usize, bool)> {
     if !bytes[start..].starts_with(b"--") {
         return None;
     }
@@ -94,12 +96,12 @@ fn mark_lua_block_comment(mask: &mut [bool], bytes: &[u8], start: usize) -> Opti
             && closing_equals == equals
         {
             mark_comment(mask, start, end);
-            return Some(end);
+            return Some((end, true));
         }
         index += 1;
     }
     mark_comment(mask, start, bytes.len());
-    Some(bytes.len())
+    Some((bytes.len(), false))
 }
 
 fn directive_at_line_start(bytes: &[u8], index: usize, directive: &[u8]) -> bool {
@@ -110,7 +112,12 @@ fn directive_at_line_start(bytes: &[u8], index: usize, directive: &[u8]) -> bool
             .is_none_or(u8::is_ascii_whitespace)
 }
 
-fn mark_directive_comment(mask: &mut [bool], bytes: &[u8], start: usize, closing: &[u8]) -> usize {
+fn mark_directive_comment(
+    mask: &mut [bool],
+    bytes: &[u8],
+    start: usize,
+    closing: &[u8],
+) -> (usize, bool) {
     let mut line_start = start;
     loop {
         let line_end = bytes[line_start..]
@@ -118,8 +125,11 @@ fn mark_directive_comment(mask: &mut [bool], bytes: &[u8], start: usize, closing
             .position(|byte| *byte == b'\n')
             .map_or(bytes.len(), |offset| line_start + offset + 1);
         mark_comment(mask, line_start, line_end);
-        if directive_at_line_start(bytes, line_start, closing) || line_end == bytes.len() {
-            return line_end;
+        if directive_at_line_start(bytes, line_start, closing) {
+            return (line_end, true);
+        }
+        if line_end == bytes.len() {
+            return (line_end, false);
         }
         line_start = line_end;
     }
@@ -143,11 +153,12 @@ fn starts_perl_pod(bytes: &[u8], index: usize) -> bool {
     .any(|directive| directive_at_line_start(bytes, index, directive))
 }
 
-fn comment_mask(code: &str, program: &str) -> Vec<bool> {
+fn comment_mask(code: &str, program: &str) -> (Vec<bool>, bool) {
     let bytes = code.as_bytes();
     let mut mask = vec![false; bytes.len()];
     let mut index = 0;
     let mut quote = None;
+    let mut complete = true;
     while index < bytes.len() {
         if let Some(active_quote) = quote {
             if bytes[index] == b'\\' && index + 1 < bytes.len() {
@@ -161,21 +172,29 @@ fn comment_mask(code: &str, program: &str) -> Vec<bool> {
             continue;
         }
         if program == "ruby" && directive_at_line_start(bytes, index, b"=begin") {
-            index = mark_directive_comment(&mut mask, bytes, index, b"=end");
+            let (end, closed) = mark_directive_comment(&mut mask, bytes, index, b"=end");
+            index = end;
+            complete &= closed;
             continue;
         }
         if program == "perl" && starts_perl_pod(bytes, index) {
-            index = mark_directive_comment(&mut mask, bytes, index, b"=cut");
+            let (end, closed) = mark_directive_comment(&mut mask, bytes, index, b"=cut");
+            index = end;
+            complete &= closed;
             continue;
         }
         if program == "lua"
-            && let Some(end) = mark_lua_block_comment(&mut mask, bytes, index)
+            && let Some((end, closed)) = mark_lua_block_comment(&mut mask, bytes, index)
         {
             index = end;
+            complete &= closed;
             continue;
         }
         if let Some((opening, closing, nested)) = fixed_block_comment(bytes, index, program) {
-            index = mark_fixed_block_comment(&mut mask, bytes, index, opening, closing, nested);
+            let (end, closed) =
+                mark_fixed_block_comment(&mut mask, bytes, index, opening, closing, nested);
+            index = end;
+            complete &= closed;
             continue;
         }
         if starts_line_comment(bytes, index, program) {
@@ -189,18 +208,18 @@ fn comment_mask(code: &str, program: &str) -> Vec<bool> {
         }
         let candidate = bytes[index];
         if matches!(candidate, b'\'' | b'"')
-            || candidate == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby")
+            || candidate == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby" | "php")
         {
             quote = Some(candidate);
         }
         index += 1;
     }
-    mask
+    (mask, complete && quote.is_none())
 }
 
-pub(super) fn code_segments<'a>(code: &'a str, program: &str) -> Vec<&'a str> {
+pub fn code_segments<'a>(code: &'a str, program: &str) -> Vec<&'a str> {
     let bytes = code.as_bytes();
-    let comments = comment_mask(code, program);
+    let comments = comment_mask(code, program).0;
     let mut segments = Vec::new();
     let mut start = 0;
     let mut index = 0;
@@ -381,6 +400,36 @@ fn raw_python_string(bytes: &[u8], quote_index: usize, program: &str) -> bool {
             ))
 }
 
+fn formatted_python_string(bytes: &[u8], quote_index: usize, program: &str) -> bool {
+    if !is_python_interpreter(program) {
+        return false;
+    }
+    let mut start = quote_index;
+    while start > 0 && bytes[start - 1].is_ascii_alphabetic() {
+        start -= 1;
+    }
+    bytes[start..quote_index]
+        .iter()
+        .any(|byte| matches!(byte, b'f' | b'F'))
+}
+
+fn interpolation_at(bytes: &[u8], index: usize, quote: u8, program: &str) -> bool {
+    match program {
+        "node" | "nodejs" | "deno" | "bun" => quote == b'`' && bytes[index..].starts_with(b"${"),
+        "ruby" => {
+            matches!(quote, b'"' | b'`')
+                && (bytes[index..].starts_with(b"#{")
+                    || bytes[index..].starts_with(b"#$")
+                    || bytes[index..].starts_with(b"#@"))
+        }
+        "perl" => matches!(quote, b'"' | b'`') && matches!(bytes[index], b'$' | b'@'),
+        "php" | "powershell" | "pwsh" => matches!(quote, b'"' | b'`') && bytes[index] == b'$',
+        "julia" => quote == b'"' && bytes[index] == b'$',
+        "swift" => quote == b'"' && bytes[index..].starts_with(b"\\("),
+        _ => false,
+    }
+}
+
 fn braced_literal(bytes: &[u8], index: usize, prefix: &[u8]) -> Option<(usize, String)> {
     if !bytes[index..].starts_with(prefix) {
         return None;
@@ -426,8 +475,8 @@ fn lua_bracket_literal(bytes: &[u8], index: usize) -> Option<(usize, String)> {
     ))
 }
 
-pub(super) fn lexical_code(code: &str, program: &str) -> (String, Vec<String>, Vec<usize>, bool) {
-    let (outside, strings, string_offsets, backtick_exec) = lexical_code_exact(code, program);
+pub fn lexical_code(code: &str, program: &str) -> (String, Vec<String>, Vec<usize>, bool) {
+    let (outside, strings, string_offsets, _, backtick_exec) = lexical_code_cased(code, program);
     (
         outside.to_ascii_lowercase(),
         strings,
@@ -436,15 +485,65 @@ pub(super) fn lexical_code(code: &str, program: &str) -> (String, Vec<String>, V
     )
 }
 
-pub(super) fn lexical_code_exact(
+pub fn structurally_bounded(code: &str, program: &str) -> Result<(), crate::InlineRefusal> {
+    let (outside, _, _, _, _, complete) = lexical_code_exact_with_status(code, program);
+    if !complete {
+        return Err(crate::InlineRefusal::StructureIncomplete);
+    }
+    let mut stack = Vec::new();
+    let mut delimiters = 0usize;
+    for byte in outside.bytes() {
+        match byte {
+            b'(' | b'[' | b'{' => {
+                delimiters += 1;
+                if delimiters > MAX_VISIBLE_DELIMITERS {
+                    return Err(crate::InlineRefusal::DelimiterLimit);
+                }
+                stack.push(byte);
+            }
+            b')' | b']' | b'}' => {
+                if !matches!(
+                    (stack.pop(), byte),
+                    (Some(b'('), b')') | (Some(b'['), b']') | (Some(b'{'), b'}')
+                ) {
+                    return Err(crate::InlineRefusal::StructureMismatch);
+                }
+            }
+            _ => {}
+        }
+    }
+    if stack.is_empty() {
+        Ok(())
+    } else {
+        Err(crate::InlineRefusal::StructureMismatch)
+    }
+}
+
+pub fn lexical_code_exact(code: &str, program: &str) -> (String, Vec<String>, Vec<usize>, bool) {
+    let (outside, strings, offsets, _, backtick_exec, _) =
+        lexical_code_exact_with_status(code, program);
+    (outside, strings, offsets, backtick_exec)
+}
+
+pub fn lexical_code_cased(
     code: &str,
     program: &str,
-) -> (String, Vec<String>, Vec<usize>, bool) {
+) -> (String, Vec<String>, Vec<usize>, Vec<bool>, bool) {
+    let (outside, strings, offsets, static_strings, backtick_exec, _) =
+        lexical_code_exact_with_status(code, program);
+    (outside, strings, offsets, static_strings, backtick_exec)
+}
+
+fn lexical_code_exact_with_status(
+    code: &str,
+    program: &str,
+) -> (String, Vec<String>, Vec<usize>, Vec<bool>, bool, bool) {
     let bytes = code.as_bytes();
-    let comments = comment_mask(code, program);
+    let (comments, mut complete) = comment_mask(code, program);
     let mut outside = String::with_capacity(code.len());
     let mut strings = Vec::new();
     let mut string_offsets = Vec::new();
+    let mut static_strings = Vec::new();
     let mut index = 0;
     let mut backtick_exec = false;
     while index < bytes.len() {
@@ -459,24 +558,36 @@ pub(super) fn lexical_code_exact(
             "lua" => lua_bracket_literal(bytes, index),
             _ => None,
         };
+        if alternative.is_none()
+            && ((program == "ruby" && bytes[index..].starts_with(b"%q{"))
+                || (program == "perl" && bytes[index..].starts_with(b"q{"))
+                || (program == "lua" && bytes[index..].starts_with(b"[[")))
+        {
+            complete = false;
+        }
         if let Some((end, value)) = alternative {
             strings.push(value);
             string_offsets.push(index);
+            static_strings.push(true);
             outside.extend(std::iter::repeat_n(' ', end - index));
             index = end;
             continue;
         }
         let quote = bytes[index];
-        let quoted = matches!(quote, b'\'' | b'"')
-            || quote == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby");
+        let quoted = (quote == b'"'
+            || quote == b'\'' && !matches!(program, "cmd" | "julia" | "swift"))
+            || quote == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby" | "php");
         if quoted {
             let raw_string = raw_python_string(bytes, index, program);
+            let mut static_string = !formatted_python_string(bytes, index, program);
             let string_offset = index;
-            let executable_backtick = quote == b'`' && matches!(program, "perl" | "ruby");
+            let executable_backtick = quote == b'`' && matches!(program, "perl" | "ruby" | "php");
             outside.push(' ');
             index += 1;
             let mut value = String::new();
+            let mut closed = false;
             while index < bytes.len() {
+                static_string &= !interpolation_at(bytes, index, quote, program);
                 if raw_string && bytes[index] == b'\\' && index + 1 < bytes.len() {
                     value.push('\\');
                     value.push(bytes[index + 1] as char);
@@ -498,43 +609,67 @@ pub(super) fn lexical_code_exact(
                 } else if bytes[index] == quote {
                     outside.push(' ');
                     index += 1;
+                    closed = true;
                     break;
                 } else {
-                    value.push(bytes[index] as char);
-                    outside.push(' ');
-                    index += 1;
+                    let Some(character) = code[index..].chars().next() else {
+                        break;
+                    };
+                    value.push(character);
+                    outside.extend(std::iter::repeat_n(' ', character.len_utf8()));
+                    index += character.len_utf8();
                 }
             }
             strings.push(value);
             string_offsets.push(string_offset);
+            static_strings.push(static_string);
             backtick_exec |= executable_backtick;
+            complete &= closed;
             continue;
         }
-        outside.push(bytes[index] as char);
-        index += 1;
+        let Some(character) = code[index..].chars().next() else {
+            break;
+        };
+        outside.push(character);
+        index += character.len_utf8();
     }
-    (outside, strings, string_offsets, backtick_exec)
+    (
+        outside,
+        strings,
+        string_offsets,
+        static_strings,
+        backtick_exec,
+        complete,
+    )
 }
 
-pub(super) fn contains_call(source: &str, name: &str, bare: bool) -> bool {
+pub fn contains_call(source: &str, name: &str, _bare: bool) -> bool {
     source.match_indices(name).any(|(index, _)| {
-        let before = source[..index].chars().next_back();
         let after = source[index + name.len()..].trim_start();
-        (name.starts_with('.')
-            || !before.is_some_and(|character| {
-                character.is_ascii_alphanumeric() || character == '_' || bare && character == '.'
-            }))
-            && after.starts_with('(')
+        (name.starts_with('.') || call_prefix_boundary(source, index)) && after.starts_with('(')
     })
 }
 
-#[derive(Default)]
-pub(super) struct StaticCallArgument {
-    pub(super) outside: String,
-    pub(super) strings: Vec<String>,
+fn call_prefix_boundary(source: &str, index: usize) -> bool {
+    let before = source[..index].chars().next_back();
+    match before {
+        Some(character) if character.is_ascii_alphanumeric() || character == '_' => false,
+        Some('.' | '$' | '@' | '%' | '&' | '\\') => false,
+        Some(':') => !source[..index - 1].ends_with(':'),
+        Some('>') => !source[..index - 1].ends_with('-'),
+        _ => true,
+    }
 }
 
-pub(super) fn named_call_argument(argument: &StaticCallArgument, names: &[&str]) -> bool {
+#[derive(Default)]
+pub struct StaticCallArgument {
+    pub outside: String,
+    pub strings: Vec<String>,
+    pub string_offsets: Vec<usize>,
+    pub static_strings: Vec<bool>,
+}
+
+pub fn named_call_argument(argument: &StaticCallArgument, names: &[&str]) -> bool {
     let outside = argument.outside.trim_start();
     names.iter().any(|name| {
         outside.strip_prefix(name).is_some_and(|rest| {
@@ -544,60 +679,127 @@ pub(super) fn named_call_argument(argument: &StaticCallArgument, names: &[&str])
     })
 }
 
-pub(super) fn static_call_arguments(
+pub fn static_call_arguments(
     outside: &str,
     strings: &[String],
     string_offsets: &[usize],
     name: &str,
-    bare: bool,
+    _bare: bool,
 ) -> Vec<Vec<StaticCallArgument>> {
+    let static_strings = vec![true; strings.len()];
+    static_call_arguments_cased(
+        outside,
+        outside,
+        strings,
+        string_offsets,
+        &static_strings,
+        name,
+        _bare,
+    )
+}
+
+pub fn static_call_arguments_cased(
+    matching_outside: &str,
+    exact_outside: &str,
+    strings: &[String],
+    string_offsets: &[usize],
+    static_strings: &[bool],
+    name: &str,
+    _bare: bool,
+) -> Vec<Vec<StaticCallArgument>> {
+    if matching_outside.len() != exact_outside.len() || strings.len() != static_strings.len() {
+        return Vec::new();
+    }
     let mut calls = Vec::new();
-    for (index, _) in outside.match_indices(name) {
-        let before = outside[..index].chars().next_back();
-        if !name.starts_with('.')
-            && before.is_some_and(|character| {
-                character.is_ascii_alphanumeric() || character == '_' || bare && character == '.'
-            })
-        {
+    for (index, _) in matching_outside.match_indices(name) {
+        if !name.starts_with('.') && !call_prefix_boundary(matching_outside, index) {
             continue;
         }
-        let suffix = &outside[index + name.len()..];
+        let suffix = &matching_outside[index + name.len()..];
         let whitespace = suffix.len() - suffix.trim_start().len();
         let open = index + name.len() + whitespace;
-        if outside.as_bytes().get(open) != Some(&b'(') {
+        if matching_outside.as_bytes().get(open) != Some(&b'(') {
             continue;
         }
-        if let Some(arguments) = static_call_arguments_at(outside, strings, string_offsets, open) {
+        if let Some(arguments) = static_call_arguments_at_cased(
+            matching_outside,
+            exact_outside,
+            strings,
+            string_offsets,
+            static_strings,
+            open,
+        ) {
             calls.push(arguments);
         }
     }
     calls
 }
 
-pub(super) fn static_call_arguments_at(
+pub fn static_call_arguments_at(
     outside: &str,
     strings: &[String],
     string_offsets: &[usize],
     open: usize,
 ) -> Option<Vec<StaticCallArgument>> {
-    if outside.as_bytes().get(open) != Some(&b'(') {
+    let static_strings = vec![true; strings.len()];
+    static_call_arguments_at_cased(
+        outside,
+        outside,
+        strings,
+        string_offsets,
+        &static_strings,
+        open,
+    )
+}
+
+pub fn static_call_arguments_at_cased(
+    matching_outside: &str,
+    exact_outside: &str,
+    strings: &[String],
+    string_offsets: &[usize],
+    static_strings: &[bool],
+    open: usize,
+) -> Option<Vec<StaticCallArgument>> {
+    if matching_outside.len() != exact_outside.len()
+        || strings.len() != static_strings.len()
+        || matching_outside.as_bytes().get(open) != Some(&b'(')
+    {
         return None;
     }
     let mut ranges = Vec::new();
     let mut start = open + 1;
     let mut depth = 0usize;
     let mut end = None;
-    for (offset, byte) in outside.as_bytes()[open + 1..].iter().copied().enumerate() {
+    for (offset, byte) in matching_outside.as_bytes()[open + 1..]
+        .iter()
+        .copied()
+        .enumerate()
+    {
         let cursor = open + 1 + offset;
         match byte {
             b'(' | b'[' | b'{' => depth += 1,
             b')' if depth == 0 => {
-                ranges.push((start, cursor));
+                let has_content = !matching_outside[start..cursor].trim().is_empty()
+                    || string_offsets
+                        .iter()
+                        .any(|offset| *offset >= start && *offset < cursor);
+                if has_content {
+                    ranges.push((start, cursor));
+                } else if ranges.is_empty() {
+                    ranges.clear();
+                }
                 end = Some(cursor);
                 break;
             }
             b')' | b']' | b'}' => depth = depth.saturating_sub(1),
             b',' if depth == 0 => {
+                let has_content = !matching_outside[start..cursor].trim().is_empty()
+                    || string_offsets
+                        .iter()
+                        .any(|offset| *offset >= start && *offset < cursor);
+                if !has_content {
+                    return None;
+                }
                 ranges.push((start, cursor));
                 start = cursor + 1;
             }
@@ -609,13 +811,25 @@ pub(super) fn static_call_arguments_at(
         ranges
             .into_iter()
             .map(|(start, end)| StaticCallArgument {
-                outside: outside[start..end].to_owned(),
-                strings: strings
-                    .iter()
-                    .zip(string_offsets)
-                    .filter(|(_, offset)| **offset >= start && **offset < end)
-                    .map(|(value, _)| value.clone())
-                    .collect(),
+                outside: exact_outside[start..end].to_owned(),
+                strings: {
+                    let first = string_offsets.partition_point(|offset| *offset < start);
+                    let last = string_offsets.partition_point(|offset| *offset < end);
+                    strings[first..last].to_vec()
+                },
+                string_offsets: {
+                    let first = string_offsets.partition_point(|offset| *offset < start);
+                    let last = string_offsets.partition_point(|offset| *offset < end);
+                    string_offsets[first..last]
+                        .iter()
+                        .map(|offset| offset - start)
+                        .collect()
+                },
+                static_strings: {
+                    let first = string_offsets.partition_point(|offset| *offset < start);
+                    let last = string_offsets.partition_point(|offset| *offset < end);
+                    static_strings[first..last].to_vec()
+                },
             })
             .collect(),
     )

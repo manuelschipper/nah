@@ -10,7 +10,7 @@ use nah_proto::extension::{ConsultationOutcome, ExtensionConsultation, Transport
 use nah_proto::tool::ToolCallInput;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
-use crate::pipeline::EvaluationFailure;
+use crate::pipeline::{AnalysisRefusal, EvaluationFailure};
 
 const MASK: &str = "[redacted]";
 
@@ -148,6 +148,7 @@ pub(super) struct AuditDiagnostics<'a> {
     consultations: &'a [ExtensionConsultation],
     stderr: &'a [ConsultationDiagnostic],
     failures: &'a [EvaluationFailure],
+    refusals: &'a [AnalysisRefusal],
 }
 
 impl<'a> AuditDiagnostics<'a> {
@@ -161,11 +162,17 @@ impl<'a> AuditDiagnostics<'a> {
             consultations,
             stderr,
             failures: &[],
+            refusals: &[],
         }
     }
 
     pub(super) fn with_failures(mut self, failures: &'a [EvaluationFailure]) -> Self {
         self.failures = failures;
+        self
+    }
+
+    pub(super) fn with_refusals(mut self, refusals: &'a [AnalysisRefusal]) -> Self {
+        self.refusals = refusals;
         self
     }
 }
@@ -220,7 +227,7 @@ impl AuditRecordV1 {
                 .map(|warning| RedactedText(warning.clone()))
                 .collect(),
             consultations,
-            failures: redact_failures(diagnostics.failures),
+            failures: redact_failures(diagnostics.failures, diagnostics.refusals),
         }
     }
 
@@ -231,6 +238,7 @@ impl AuditRecordV1 {
         runtime: &str,
         warnings: &[String],
         failures: &[EvaluationFailure],
+        refusals: &[AnalysisRefusal],
     ) -> Self {
         let outcome = AuditOutcome::Decision {
             core: redact_core(core),
@@ -248,7 +256,34 @@ impl AuditRecordV1 {
                 .map(|warning| RedactedText(warning.clone()))
                 .collect(),
             consultations: vec![],
-            failures: redact_failures(failures),
+            failures: redact_failures(failures, refusals),
+        }
+    }
+
+    pub(super) fn unavailable(
+        envelope: DecisionEnvelope,
+        runtime: &str,
+        reason: &str,
+        component: &str,
+        code: &str,
+    ) -> Self {
+        Self {
+            schema: Self::SCHEMA,
+            v: SchemaVersion::V1,
+            outcome: AuditOutcome::Unavailable {
+                reason: RedactedText(reason.to_owned()),
+            },
+            envelope,
+            runtime: runtime.to_owned(),
+            command: RedactedText("[unavailable]".into()),
+            effects: vec![],
+            diagnostics: vec![],
+            consultations: vec![],
+            failures: vec![AuditFailure {
+                source: "integration".into(),
+                component: component.to_owned(),
+                code: code.to_owned(),
+            }],
         }
     }
 
@@ -410,7 +445,10 @@ impl AuditRecordV1 {
     }
 }
 
-fn redact_failures(failures: &[EvaluationFailure]) -> Vec<AuditFailure> {
+fn redact_failures(
+    failures: &[EvaluationFailure],
+    refusals: &[AnalysisRefusal],
+) -> Vec<AuditFailure> {
     failures
         .iter()
         .map(|failure| AuditFailure {
@@ -418,6 +456,11 @@ fn redact_failures(failures: &[EvaluationFailure]) -> Vec<AuditFailure> {
             component: failure.component().to_owned(),
             code: failure.code().to_owned(),
         })
+        .chain(refusals.iter().map(|refusal| AuditFailure {
+            source: refusal.source().to_owned(),
+            component: refusal.component().to_owned(),
+            code: refusal.code().to_owned(),
+        }))
         .collect()
 }
 

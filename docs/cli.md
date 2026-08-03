@@ -34,6 +34,9 @@ never reconstructs or reveals the raw command.
 Use `nah hook --help` for runtime names and `nah docs runtimes` before
 installation.
 
+`--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
+default. Flagless reinstall preserves a recognized mode, and `status` reports it.
+
 Starting or extending a nap requires a separate interactive operator terminal
 and confirmation; intercepted agents cannot invoke it. Naps are user-global,
 expire after 10 minutes, and do not roll back changes. `nah wake` ends one

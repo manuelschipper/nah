@@ -6,6 +6,13 @@
 nah hook devin install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart Devin and inspect `/hooks`. Remove only nah's handlers with:
 
 ```sh
@@ -33,7 +40,8 @@ auto-approves shell and fetch tools. Devin does not document either mode as
 disabling `PreToolUse`, so a loaded nah hook can still block; delegated calls
 may execute without a prompt. Exit 2 blocks, while other nonzero hook exits are
 logged and continue. The nah adapter deliberately uses exit 2 when its own
-guard blocks. Evaluation failure exits 0 with fixed diagnostic feedback.
+guard blocks. Under the default mode, evaluation failure exits 0 with fixed
+diagnostic feedback.
 
 Devin imports Claude hooks by default, so installing both integrations can
 check a call twice. The adapter uses `DEVIN_PROJECT_DIR`; a persistent shell's

@@ -8,7 +8,10 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{hook_adapter, runtime::Runtime};
+use crate::{
+    hook_adapter,
+    runtime::{FailurePolicy, Runtime},
+};
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -43,6 +46,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
+    failure_policy: FailurePolicy,
 ) -> u8 {
     let parsed = serde_json::from_reader::<_, Value>(stdin);
     if parsed
@@ -64,7 +68,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     let (surface, decision) = match request {
         Ok((surface, request)) => (
             surface,
-            hook_adapter::decide_input(request, stderr, Runtime::Copilot),
+            hook_adapter::decide_input(request, stderr, Runtime::Copilot, failure_policy),
         ),
         Err(_) => (surface, hook_adapter::HookOutcome::MalformedInput),
     };
@@ -72,10 +76,14 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         hook_adapter::HookOutcome::Decision(decision) => match decision.verdict() {
             Verdict::Block => {
                 let feedback = hook_adapter::feedback(&decision);
-                if decision.evaluation_failed() && matches!(surface, Surface::Cli) {
+                if decision.guard_block_incomplete() && matches!(surface, Surface::Cli) {
                     emit_progress(stdout, hook_adapter::BLOCK_FAILURE_MESSAGE);
                 }
-                Some(response(surface, &feedback, decision.evaluation_failed()))
+                Some(response(
+                    surface,
+                    &feedback,
+                    decision.guard_block_incomplete(),
+                ))
             }
             Verdict::Delegate if decision.evaluation_failed() => match surface {
                 Surface::Cli => {
@@ -90,17 +98,27 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Verdict::Delegate => None,
         },
         hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-        hook_adapter::HookOutcome::MalformedInput => None,
-        hook_adapter::HookOutcome::EvaluationUnavailable => match surface {
-            Surface::Cli => {
-                emit_progress(stdout, hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                None
+        hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
+            failure_policy,
+            Runtime::Copilot,
+            hook_adapter::IntegrationUnavailable::MalformedInput,
+        )
+        .map(|reason| response(surface, &reason, false)),
+        hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+            match hook_adapter::unavailable_feedback(failure_policy, Runtime::Copilot, kind) {
+                Some(reason) => Some(response(surface, &reason, false)),
+                None => match surface {
+                    Surface::Cli => {
+                        emit_progress(stdout, hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        None
+                    }
+                    Surface::VsCode => {
+                        Some(json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}))
+                    }
+                    Surface::Unknown => None,
+                },
             }
-            Surface::VsCode => {
-                Some(json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}))
-            }
-            Surface::Unknown => None,
-        },
+        }
     };
     if let Some(output) = output {
         let _ = serde_json::to_writer(&mut *stdout, &output);

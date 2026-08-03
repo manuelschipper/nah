@@ -7,6 +7,13 @@ nah hook copilot install
 nah hook copilot status
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Restart Copilot CLI or reload VS Code after installation. Remove only nah's
 owned file with:
 
@@ -38,7 +45,7 @@ and delegate.
   install a repository hook.
 - Copilot CLI command-hook crashes and nonzero exits fail closed, but hook
   timeouts always fail open into Copilot's permission flow. This is runtime
-  behavior; nah cannot strengthen it. nah itself delegates evaluation failure:
+  behavior; nah cannot strengthen it. In the default mode nah delegates evaluation failure:
   CLI receives a progress message and VS Code receives a `systemMessage`.
 - Copilot's `--yolo` and `--allow-all` modes remove its normal permission
   prompts but do not document disabling hooks. A nah block still applies if

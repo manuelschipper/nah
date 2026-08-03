@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::ValueEnum;
 
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 
 use super::{
     amp_hook_status, amp_self_protection_paths, antigravity_hook_status,
@@ -26,8 +26,28 @@ type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeHookStatus {
     WiringCurrent,
+    WiringCurrentFailClosed,
     NotConfigured,
     NeedsReinstall,
+    NeedsReinstallFailClosed,
+}
+
+impl RuntimeHookStatus {
+    pub(crate) const fn stale(policy: FailurePolicy) -> Self {
+        match policy {
+            FailurePolicy::Delegate => Self::NeedsReinstall,
+            FailurePolicy::Block => Self::NeedsReinstallFailClosed,
+        }
+    }
+
+    pub(crate) const fn failure_policy(self) -> FailurePolicy {
+        match self {
+            Self::WiringCurrentFailClosed | Self::NeedsReinstallFailClosed => FailurePolicy::Block,
+            Self::WiringCurrent | Self::NotConfigured | Self::NeedsReinstall => {
+                FailurePolicy::Delegate
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,22 +139,33 @@ pub(crate) fn runtime_entry(runtime: Runtime) -> RuntimeEntry {
 pub(crate) fn set_runtime_configured(
     runtime: Runtime,
     install: bool,
+    failure_policy: Option<FailurePolicy>,
 ) -> Result<RuntimeMutation, String> {
+    let failure_policy = match (install, failure_policy) {
+        (true, Some(policy)) => policy,
+        // Status is only a preservation hint. The installer still owns error
+        // reporting and safety checks when existing wiring cannot be inspected.
+        (true, None) => runtime_entry(runtime)
+            .status
+            .map(RuntimeHookStatus::failure_policy)
+            .unwrap_or(FailurePolicy::Delegate),
+        (false, _) => FailurePolicy::Delegate,
+    };
     match runtime {
-        Runtime::Amp => mutate_amp_hook(install),
-        Runtime::Antigravity => mutate_antigravity_hook(install),
-        Runtime::Claude => mutate_claude_hook(install),
-        Runtime::Cline => mutate_cline_hook(install),
-        Runtime::Codex => mutate_codex_hook(install),
-        Runtime::Copilot => mutate_copilot_hook(install),
-        Runtime::Cursor => mutate_cursor_hook(install),
-        Runtime::Devin => mutate_devin_hook(install),
-        Runtime::Droid => mutate_droid_hook(install),
-        Runtime::Hermes => mutate_hermes_hook(install),
-        Runtime::Kiro => mutate_kiro_hook(install),
-        Runtime::OpenClaw => mutate_openclaw_hook(install),
-        Runtime::OpenCode => mutate_opencode_hook(install),
-        Runtime::Pi => mutate_pi_hook(install),
+        Runtime::Amp => mutate_amp_hook(install, failure_policy),
+        Runtime::Antigravity => mutate_antigravity_hook(install, failure_policy),
+        Runtime::Claude => mutate_claude_hook(install, failure_policy),
+        Runtime::Cline => mutate_cline_hook(install, failure_policy),
+        Runtime::Codex => mutate_codex_hook(install, failure_policy),
+        Runtime::Copilot => mutate_copilot_hook(install, failure_policy),
+        Runtime::Cursor => mutate_cursor_hook(install, failure_policy),
+        Runtime::Devin => mutate_devin_hook(install, failure_policy),
+        Runtime::Droid => mutate_droid_hook(install, failure_policy),
+        Runtime::Hermes => mutate_hermes_hook(install, failure_policy),
+        Runtime::Kiro => mutate_kiro_hook(install, failure_policy),
+        Runtime::OpenClaw => mutate_openclaw_hook(install, failure_policy),
+        Runtime::OpenCode => mutate_opencode_hook(install, failure_policy),
+        Runtime::Pi => mutate_pi_hook(install, failure_policy),
     }
 }
 

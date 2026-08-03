@@ -7,20 +7,23 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Map, Value, json};
 
-use crate::live_state;
+use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const HOOK_NAME: &str = "nah";
 const HOOK_MATCHER: &str = "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search";
 
-pub(crate) fn mutate_antigravity_hook(install: bool) -> Result<RuntimeMutation, String> {
+pub(crate) fn mutate_antigravity_hook(
+    install: bool,
+    policy: FailurePolicy,
+) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable)
+            install_hook(&home, &executable, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -44,11 +47,16 @@ pub(crate) fn antigravity_hook_status() -> Result<RuntimeHookStatus, String> {
     };
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_hook(&executable)?;
-    if configured == &desired {
+    if configured == &desired_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
+    } else if configured == &desired_hook(&executable, FailurePolicy::Block)? {
+        Ok(RuntimeHookStatus::WiringCurrentFailClosed)
     } else if is_owned(configured) {
-        Ok(RuntimeHookStatus::NeedsReinstall)
+        Ok(RuntimeHookStatus::stale(if is_fail_closed(configured) {
+            FailurePolicy::Block
+        } else {
+            FailurePolicy::Delegate
+        }))
     } else {
         Err("antigravity-hook-name-conflict".into())
     }
@@ -60,12 +68,16 @@ pub(crate) fn antigravity_self_protection_paths() -> Result<Vec<PathBuf>, String
     Ok(vec![AntigravityHookPaths::new(&home).hooks])
 }
 
-fn install_hook(home: &AbsolutePath, executable: &Path) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = AntigravityHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_hook_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
-    let desired = desired_hook(executable)?;
+    let desired = desired_hook(executable, policy)?;
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-antigravity-hooks".to_owned())?;
@@ -171,14 +183,21 @@ fn load(path: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
-fn desired_hook(executable: &Path) -> Result<Value, String> {
+fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
     let command = if cfg!(windows) {
-        format!("\"{executable}\" hook antigravity run")
+        format!(
+            "\"{executable}\" hook antigravity run{}",
+            policy.command_suffix()
+        )
     } else {
-        format!("{} hook antigravity run", shell_quote(executable))
+        format!(
+            "{} hook antigravity run{}",
+            shell_quote(executable),
+            policy.command_suffix()
+        )
     };
     Ok(json!({
         "enabled": true,
@@ -207,7 +226,22 @@ fn is_owned(definition: &Value) -> bool {
         .any(is_owned_command)
 }
 
+fn is_fail_closed(definition: &Value) -> bool {
+    let mut commands = definition["PreToolUse"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+        .filter_map(|handler| handler["command"].as_str())
+        .filter(|command| is_owned_command(command));
+    commands
+        .next()
+        .is_some_and(|command| command.ends_with(" hook antigravity run --fail-closed"))
+        && commands.all(|command| command.ends_with(" hook antigravity run --fail-closed"))
+}
+
 fn is_owned_command(command: &str) -> bool {
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook antigravity run") else {
         return false;
     };

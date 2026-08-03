@@ -9,6 +9,13 @@ nah hook kiro install
 kiro-cli --v3
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 The installer writes the nah-owned hook at `~/.kiro/hooks/nah.json`, or under
 an existing canonical `KIRO_HOME` when that absolute path is configured. It
 refuses symlinked Kiro roots and hook paths. Inspect its bytes and test a safe
@@ -27,10 +34,10 @@ Kiro's batched filesystem calls and unmapped built-in or MCP tools remain
 opaque and delegate. nah never approves a call, so every delegate continues
 into Kiro's normal permission flow.
 
-Definite blocks exit 2 with nah-branded feedback. Malformed calls delegate.
-Evaluation failure, including a missing or unexpectedly failing nah binary,
-exits 1 with fixed feedback; Kiro treats it as a warning and proceeds. nah
-does not impose an adapter-specific input-size limit.
+Definite blocks exit 2 with nah-branded feedback. In the default mode,
+malformed calls and evaluation failure delegate. A missing or unexpectedly
+failing nah binary exits 1 with fixed feedback; Kiro treats it as a warning
+and proceeds. nah does not impose an adapter-specific input-size limit.
 
 ## Boundaries
 

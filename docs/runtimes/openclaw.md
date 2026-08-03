@@ -6,6 +6,10 @@
 nah hook openclaw install
 ```
 
+`--fail-closed` denies explicit failures/refusals; uncertainty
+delegates. `--fail-open` restores the default; flagless reinstall preserves it.
+The loaded nah process must be able to respond.
+
 Restart the OpenClaw Gateway. Remove nah through the managed lifecycle:
 
 ```sh
@@ -28,8 +32,8 @@ return OpenClaw's terminal block result. Every other call delegates to
 OpenClaw's tool policy and approval flow. Optional exec controls beyond the
 command are not fully modeled: a definite command block survives, while other
 such calls delegate conservatively. Process actions, missing workspace
-identity, and malformed known input remain opaque and delegate. Adapter failure
-also delegates and writes a warning when OpenClaw provides its logger.
+identity, and malformed known input remain opaque. Under the default mode they
+and adapter failure delegate, with a warning when OpenClaw provides its logger.
 
 Code mode's outer exec remains opaque; inner tool calls are intercepted when
 they re-enter known tools. Browser, code execution, process control,

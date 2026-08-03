@@ -6,6 +6,13 @@
 nah hook cursor install
 ```
 
+To deny explicit evaluation failures and bounded analysis refusals, install
+with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+`--fail-open` restores the default; flagless reinstall preserves a recognized
+mode. The guarantee requires the loaded nah process to return a response;
+missing hooks/binaries, runtime timeout, process termination, bypass, and
+broken output pipes remain outside it.
+
 Remove only nah's hook with:
 
 ```sh
@@ -33,10 +40,11 @@ load project hooks only after a writable environment is created, not during
 their initial read-only exploration.
 
 Cursor documents `preToolUse` for more tool families than nah currently
-understands; unknown or malformed tools remain opaque and delegate. nah does
-not install Cursor's `failClosed` option: hook or evaluation failure must not
-become a synthetic block. Other hook sources, loading, and runtime failures
-remain outside nah.
+understands; unknown tools remain opaque and delegate. In the default mode,
+malformed known tools also delegate. With `--fail-closed`, an incomplete known
+tool shape is denied. nah does not install Cursor's separate `failClosed`
+option. Its own policy blocks only while the nah process can return a native
+deny. Other hook sources, loading, and runtime failures remain outside nah.
 
 While active, this adapter blocks visible lifecycle commands and mutations to
 the shared user `hooks.json` that keeps nah loaded. Permission modes such as
