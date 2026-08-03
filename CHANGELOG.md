@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.1.0 — Aug 3, 2026
 
 - **Opt-in fail-closed runtime hooks** — `nah hook <runtime> install
   --fail-closed` now blocks otherwise-delegated explicit evaluation failures
