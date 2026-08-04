@@ -9,11 +9,11 @@
 
 <p align="center">
   <a href="https://nahguard.ai/">nahguard.ai</a> &bull;
-  <a href="#it-knows-a-disaster-when-it-sees-one">What it blocks</a> &bull;
-  <a href="#deterministic-programs-not-llm-judges">How it decides</a> &bull;
-  <a href="#install-for-your-agent">Install</a> &bull;
-  <a href="#extend-it-with-the-guard-you-need">Extend</a> &bull;
-  <a href="docs/threat-model.md">Threat model</a>
+  <a href="#it-knows-a-disaster-when-it-sees-one">what it blocks</a> &bull;
+  <a href="#deterministic-programs-not-llm-judges">how it decides</a> &bull;
+  <a href="#install-for-your-agent">install</a> &bull;
+  <a href="#extend-it-with-the-guard-you-need">extend</a> &bull;
+  <a href="docs/threat-model.md">threat model</a>
 </p>
 
 ```sh
