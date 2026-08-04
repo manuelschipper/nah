@@ -50,4 +50,3 @@ command without executing it.
   `nah-parse`, `nah-inline`, `nah-actions`, and `nah-policy`, and the decision
   pipeline is assembled only in `nah-cli`.
 - Prefer existing effect and guard patterns over new abstractions.
-- Never weaken a failing security test to make a change pass.
