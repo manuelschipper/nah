@@ -170,7 +170,7 @@ nah guard disable git-hard-reset
 <img src="assets/nah-tui.gif" width="520"
      alt="the nah TUI: browsing the guard catalog, toggling a guard, applying the change">
 
-## Extend it with the guard you need.
+## Extensions are just programs you build
 
 No catalog covers what's dangerous in your particular stack: describe the
 danger to your agent, and point it to:
