@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.2.0 — Aug 4, 2026
 
 - **Generated web guard reference** — the homepage build now renders
   `/docs/guards/` directly from the compiled CLI catalog under shipped-default

@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "gates"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde_json",
 ]
@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "nah-actions"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "nah-inline",
  "nah-parse",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "nah-cli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "clap",
  "getrandom 0.4.3",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "nah-corpus"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "nah-cli",
  "nah-proto",
@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "nah-extensions"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "nah-proto",
  "serde",
@@ -863,14 +863,14 @@ dependencies = [
 
 [[package]]
 name = "nah-inline"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "nah-proto",
 ]
 
 [[package]]
 name = "nah-observe"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "nah-proto",
  "tempfile",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "nah-parse"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "proptest",
  "serde_json",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "nah-policy"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "criterion",
  "nah-inline",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "nah-proto"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "proptest",
  "serde",
