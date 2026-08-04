@@ -25,5 +25,7 @@ nah docs start
 ```
 
 Runtime-specific topics use names such as `runtime-codex` and
-`runtime-hermes`. `nah docs guards` renders the current built-in policy
-catalog, tested examples, enablement state, and custom guard status.
+`runtime-hermes`. The website publishes a generated
+[guard catalog](https://nahguard.ai/docs/guards/) from the compiled binary.
+`nah docs guards` renders the same built-in policy catalog and tested examples,
+plus local enablement state and custom guard status.

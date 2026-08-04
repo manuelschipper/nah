@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Generated web guard reference** — the homepage build now renders
+  `/docs/guards/` directly from the compiled CLI catalog under shipped-default
+  state, preventing a second hand-maintained guard list from drifting.
 - **Destructive Git worktree guards** — two new default-on guards block forced
   project-root cleans, project-wide checkout/restore, and statically proven
   forced branch changes while named targets and ambiguous checkout forms still

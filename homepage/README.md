@@ -1,8 +1,8 @@
 # nahguard.ai homepage
 
-A single static page. Everything ships inline — fonts, line art, the
-asciinema player, the TUI recording — so `dist/` is `index.html`,
-`og.png`, and `nah.wasm`.
+A self-contained static site. The landing-page fonts, line art, asciinema
+player, and TUI recording ship inline; `dist/` also contains the generated
+documentation, news, crawler files, install script, og card, and WASM engine.
 
 ## Layout
 
@@ -11,8 +11,9 @@ asciinema player, the TUI recording — so `dist/` is `index.html`,
 - `build.py` — assembles `dist/`: bakes the GitHub star/issue counts
   (cached in `stars.txt` / `issues.txt` for offline builds), splices
   `nah-tui.cast`, derives the favicons and the og card from the
-  hand-lettered word mask embedded in the fragment, and copies the
-  wasm engine when it has been built.
+  hand-lettered word mask embedded in the fragment, renders the compiled
+  CLI's built-in guard catalog at `/docs/guards/`, and copies the wasm engine
+  when it has been built.
 - `record-tui.py` — re-records the TUI demo into `nah-tui.cast` by
   driving `target/release/nah tui` through a PTY with a sandboxed HOME.
 - `wasm/` — the "Try it yourself" engine: the real decision pipeline
@@ -24,9 +25,13 @@ asciinema player, the TUI recording — so `dist/` is `index.html`,
 ## Build & preview
 
 ```
+cargo build --release --locked -p nah-cli --manifest-path ../Cargo.toml
 python3 build.py
-cp dist/* /home/dev/previews/nah-homepage/   # served on :8090
+cp -r dist/. /home/dev/previews/nah-homepage/   # served on :8090
 ```
+
+`build.py` intentionally fails if `../target/release/nah` is missing. Set
+`NAH_DOCS_BIN` only when testing an explicit alternative compiled binary.
 
 ## Rebuilding the wasm engine
 

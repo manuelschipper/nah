@@ -205,7 +205,7 @@ website, and `nah docs <topic>` share one source:
 | [`cli`](docs/cli.md) | See the human and machine command surfaces. |
 | [`configuration`](docs/configuration.md) | Configure guards and trusted projects. |
 | [`extending`](docs/extensions.md) | Build one-shot guard programs. |
-| [`guards`](#it-knows-a-disaster-when-it-sees-one) | Inspect built-in behavior, examples, and live guard status. |
+| [`guards`](https://nahguard.ai/docs/guards/) | Inspect built-in behavior and tested examples. |
 | [`runtimes`](docs/runtimes.md) | Choose and install a supported agent integration. |
 | [`security`](docs/security.md) | Review nah's enforcement and trust boundaries. |
 | [`threat-model`](docs/threat-model.md) | Understand nah's adversary, assumptions, and companion controls. |

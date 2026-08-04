@@ -3,8 +3,9 @@
 full document head (charset/viewport/title/description/OG/twitter/theme-color),
 favicon data URI derived from the hand-lettered word mask, og.png card, and
 the current TUI recording spliced in from nah-tui.cast. Also renders
-../docs/*.md to /docs/ pages and CHANGELOG.md to /news/ in the same
-paper/ink/mono system. Run under a python that has Pillow and markdown
+../docs/*.md and the compiled guard catalog to /docs/ pages, and CHANGELOG.md
+to /news/ in the same paper/ink/mono system. Run under a python that has
+Pillow and markdown
 (on the deploy host: /home/dev/.venvs/nah-homepage/bin/python)."""
 import base64
 import io
@@ -12,6 +13,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import tempfile
 import urllib.request
 
 import markdown
@@ -228,13 +231,54 @@ else:
     wasm_note = "NO nah.wasm (build homepage/wasm first)"
 
 # ---- docs and news pages ------------------------------------------------
-# Rendered verbatim from ../docs/*.md and ../CHANGELOG.md into the same
-# paper/ink/mono system as the landing page. The generator never writes or
-# rewrites copy; the only transformations are markdown -> HTML, .md link
-# targets -> site paths, and linkifying the runtime names on the runtimes
-# page to their own pages.
+# Hand-written pages are rendered verbatim from ../docs/*.md and
+# ../CHANGELOG.md into the same paper/ink/mono system as the landing page.
+# The guard page is generated separately from the compiled CLI catalog.
 ROOT = os.path.dirname(HERE)
 DOCS_SRC = f"{ROOT}/docs"
+
+
+def generated_guard_docs():
+    nah_bin = os.path.abspath(
+        os.environ.get("NAH_DOCS_BIN", f"{ROOT}/target/release/nah")
+    )
+    if not os.path.isfile(nah_bin) or not os.access(nah_bin, os.X_OK):
+        raise RuntimeError(
+            f"compiled nah not found at {nah_bin}; run "
+            "cargo build --release --locked -p nah-cli"
+        )
+
+    # Public docs must reflect shipped defaults, not the deploy user's local
+    # disabled or custom guards. A temporary HOME gives the CLI fresh state.
+    with tempfile.TemporaryDirectory(prefix="nah-homepage-guards-") as home:
+        env = os.environ.copy()
+        env["HOME"] = home
+        result = subprocess.run(
+            [nah_bin, "docs", "guards"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{nah_bin} docs guards failed: {result.stderr.strip()}"
+        )
+
+    prefix = "Built-in:\n\n"
+    custom_marker = "\nCustom:\n"
+    if not result.stdout.startswith(prefix) or custom_marker not in result.stdout:
+        raise RuntimeError("nah docs guards returned an unexpected document shape")
+    built_in = result.stdout[len(prefix):].split(custom_marker, 1)[0].strip()
+    guard_count = len(re.findall(r"(?m)^# [a-z0-9-]+$", built_in))
+    if guard_count == 0:
+        raise RuntimeError("nah docs guards returned no built-in guards")
+
+    # The CLI renders each guard as a standalone document heading. Demote
+    # those headings beneath the website page title.
+    built_in = re.sub(r"(?m)^# ", "## ", built_in)
+    return f"# Guards\n\n{built_in}\n", guard_count
 
 
 def word_mark(color, height=40):
@@ -329,10 +373,12 @@ footer a{color:inherit}
 """
 
 
-# Sidebar structure comes from the docs' own indexes, verbatim: topic
-# order and labels from README.md, runtime labels from runtimes.md.
+# Sidebar structure comes from the docs' own indexes: topic order and labels
+# from README.md plus the generated guard catalog, runtime labels from
+# runtimes.md.
 _readme_text = open(f"{DOCS_SRC}/README.md", encoding="utf-8").read()
 TOPICS = re.findall(r"^- \[([^]]+)\]\(([a-z-]+)\.md\)", _readme_text, re.M)
+TOPICS.insert(2, ("Guard catalog", "guards"))
 _runtimes_text = open(f"{DOCS_SRC}/runtimes.md", encoding="utf-8").read()
 RUNTIME_LABELS = re.findall(r"^- `([a-z0-9-]+)` — (.+)$", _runtimes_text, re.M)
 
@@ -456,6 +502,12 @@ PAGES.append(render_doc(
     "docs/index.html", "NAH(1) · DOCUMENTATION", "docs",
 ))
 
+# /docs/guards/ from the exact compiled catalog, under fresh default state
+guard_docs, guard_count = generated_guard_docs()
+PAGES.append(render_doc(
+    guard_docs, "docs/guards/index.html", "NAH(1) · GUARDS", "docs",
+))
+
 # topic pages
 runtime_slugs = sorted(
     f[:-3] for f in os.listdir(f"{DOCS_SRC}/runtimes") if f.endswith(".md")
@@ -504,5 +556,5 @@ open(f"{OUT_DIR}/sitemap.xml", "w").write(
 
 print(
     f"index.html {len(doc)} bytes · og.png · title {title!r} · 2 favicons · "
-    f"{wasm_note} · {len(PAGES)} docs/news pages"
+    f"{wasm_note} · {guard_count} generated guards · {len(PAGES)} docs/news pages"
 )

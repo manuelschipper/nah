@@ -18,6 +18,7 @@
 - Index: https://nahguard.ai/docs/
 - Start: https://nahguard.ai/docs/start/
 - Core concepts: https://nahguard.ai/docs/concepts/
+- Guard catalog: https://nahguard.ai/docs/guards/
 - CLI guide: https://nahguard.ai/docs/cli/
 - Configuration: https://nahguard.ai/docs/configuration/
 - Extending: https://nahguard.ai/docs/extensions/
