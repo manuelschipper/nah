@@ -1,17 +1,18 @@
 //! The homepage "Try it yourself" engine: the real decision pipeline compiled
 //! to wasm32, deciding against a fixed synthetic machine instead of a live one.
 //!
-//! The synthetic machine is deliberately boring — an empty project directory,
-//! no git repo, no dotfiles, shipped defaults with every guard on — so the
-//! page demos exactly what a fresh install would say. Observations answer the
-//! way the corpus fixtures do: paths are missing, env is unset except HOME.
+//! The synthetic machine is deliberately boring — an empty directory with a
+//! fixed project boundary, no git metadata, no dotfiles, shipped defaults with
+//! every guard on — so the page demos exactly what a fresh install would say.
+//! Observations answer the way the corpus fixtures do: the project root exists,
+//! other paths are missing, and env is unset except HOME.
 
 use nah_cli::{all_shipped_guard_states_enabled, decide_with, POLICY_VERSION};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
     ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
-    ProjectGuardDeclaration, ProjectGuardObservation,
+    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
 };
 use nah_proto::tool::ToolCallInput;
 
@@ -91,7 +92,9 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                 },
             },
             ObservationQuery::Roots { .. } => ObservationValue::Roots {
-                observed: Observed::Ok { value: vec![] },
+                observed: Observed::Ok {
+                    value: vec![Root::new(RootKind::Project, absolute(CWD)?)],
+                },
             },
             ObservationQuery::Env { name, .. } => ObservationValue::Env {
                 observed: Observed::Ok {
@@ -107,8 +110,16 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                 inspect_descendants,
                 ..
             } => {
-                let mut value =
-                    PathObservation::new(absolute(&resolve(requested))?, None, PathKind::Missing);
+                let resolved = resolve(requested);
+                let mut value = if resolved == CWD {
+                    PathObservation::new(
+                        absolute(CWD)?,
+                        Some(absolute(CWD)?),
+                        PathKind::Directory,
+                    )
+                } else {
+                    PathObservation::new(absolute(&resolved)?, None, PathKind::Missing)
+                };
                 if *inspect_descendants {
                     value = value.with_descendants(
                         DescendantObservation::new(vec![], true)
@@ -120,8 +131,11 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                 }
             }
             ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
-                observation: ProjectGuardObservation::new(None, ProjectGuardDeclaration::Absent)
-                    .map_err(|error| error.to_string())?,
+                observation: ProjectGuardObservation::new(
+                    Some(Root::new(RootKind::Project, absolute(CWD)?)),
+                    ProjectGuardDeclaration::Absent,
+                )
+                .map_err(|error| error.to_string())?,
             },
         };
         facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
@@ -153,6 +167,50 @@ fn resolve(requested: &str) -> String {
         }
     }
     format!("/{}", parts.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decision(command: &str) -> serde_json::Value {
+        serde_json::from_str(&decide_json(command)).expect("demo decision JSON")
+    }
+
+    #[test]
+    fn destructive_git_demo_commands_use_the_shipped_guards() {
+        for (command, guard) in [
+            ("git clean -f", "git-clean-force"),
+            ("git restore .", "git-worktree-discard"),
+            ("git checkout -f", "git-worktree-discard"),
+            (
+                "git switch --discard-changes main",
+                "git-worktree-discard",
+            ),
+        ] {
+            let value = decision(command);
+            assert_eq!(value["verdict"], "block", "{command}: {value}");
+            assert!(
+                value["guards"]
+                    .as_array()
+                    .is_some_and(|guards| guards.iter().any(|actual| actual == guard)),
+                "{command}: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn targeted_and_ambiguous_git_demo_commands_delegate() {
+        for command in [
+            "git clean -f -- src/lib.rs",
+            "git restore src/lib.rs",
+            "git checkout -f main",
+            "git restore :/",
+        ] {
+            let value = decision(command);
+            assert_eq!(value["verdict"], "delegate", "{command}: {value}");
+        }
+    }
 }
 
 // ---- wasm ABI: one in-flight result buffer, single-threaded by nature ----

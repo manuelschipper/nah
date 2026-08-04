@@ -79,6 +79,15 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         ("git push --force-w=other origin +main", "git-force-push"),
         ("sudo git -C . reset --hard", "git-hard-reset"),
+        ("git clean -f", "git-clean-force"),
+        ("git clean -fdx", "git-clean-force"),
+        ("git -c clean.requireForce=false clean", "git-clean-force"),
+        ("git checkout -- .", "git-worktree-discard"),
+        ("git checkout .", "git-worktree-discard"),
+        ("git restore .", "git-worktree-discard"),
+        ("git restore --staged --worktree .", "git-worktree-discard"),
+        ("git checkout -f", "git-worktree-discard"),
+        ("git switch --discard-changes main", "git-worktree-discard"),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -158,6 +167,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "git -c gc.pruneExpire=now gc --no-prune",
         "git -c gc.pruneExpire=now gc --prune=2.weeks.ago",
         "timeout 5 git worktree remove old",
+        "git clean -n -f",
+        "git clean -f -- src/lib.rs",
+        "git clean -f ':/'",
+        "git checkout -f main",
+        "git checkout -f -- src/lib.rs",
+        "git restore src/lib.rs",
+        "git restore ':/'",
+        "git branch -D old",
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -204,6 +221,7 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
         "git switch -c topic",
         "git checkout -b topic",
         "git restore --staged src/lib.rs",
+        "git restore --staged --source=HEAD~1 src/lib.rs",
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -239,13 +257,8 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
         ("git add 'src/*'", Coverage::Partial),
         ("git switch main", Coverage::Partial),
         ("git switch --create=topic main", Coverage::Partial),
-        ("git switch --discard-changes main", Coverage::Partial),
         ("git switch --orphan topic", Coverage::Partial),
         ("git switch --detach HEAD", Coverage::Partial),
-        (
-            "git restore --staged --source=HEAD~1 src/lib.rs",
-            Coverage::Partial,
-        ),
         ("git restore --staged 'src/*'", Coverage::Partial),
         ("git restore --staged", Coverage::Partial),
     ] {

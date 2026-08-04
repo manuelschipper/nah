@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Destructive Git worktree guards** — two new default-on guards block forced
+  project-root cleans, project-wide checkout/restore, and statically proven
+  forced branch changes while named targets and ambiguous checkout forms still
+  delegate.
+
 ## nah 1.1.0 — Aug 3, 2026
 
 - **Opt-in fail-closed runtime hooks** — `nah hook <runtime> install

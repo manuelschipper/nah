@@ -9,11 +9,13 @@ Built-in:
 - [x] fs-raw-device
 - [x] fs-root
 - [x] fs-storage-destroy
+- [x] git-clean-force
 - [x] git-force-push
 - [x] git-hard-reset
 - [x] git-metadata
 - [x] git-recovery-destroy
 - [x] git-rewrite-force
+- [x] git-worktree-discard
 - [x] secrets-env
 - [x] secrets-keys
 

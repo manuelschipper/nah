@@ -65,6 +65,8 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     assert!(docs.status.success(), "{docs:?}");
     let docs = String::from_utf8(docs.stdout).unwrap();
     assert!(docs.contains("# git-hard-reset\n\nStatus: enabled"));
+    assert!(docs.contains("# git-clean-force\n\nStatus: enabled"));
+    assert!(docs.contains("# git-worktree-discard\n\nStatus: enabled"));
     assert!(
         docs.contains(
             "Examples nah blocks:\n\n- `git reset --hard`\n- `git reset --hard HEAD~1`\n"
@@ -73,6 +75,22 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     assert!(!docs.contains("Kind: guard"));
     assert!(docs.contains("If disabled, matching calls are no longer blocked"));
     assert!(!docs.contains("approval prompt"));
+
+    for (guard, command) in [
+        ("git-clean-force", "git clean -f"),
+        ("git-worktree-discard", "git restore ."),
+    ] {
+        assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+        let disabled = nah(temp.path(), &project, &["guard", "disable", guard], None);
+        assert!(disabled.status.success(), "{disabled:?}");
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate"
+        );
+        let enabled = nah(temp.path(), &project, &["guard", "enable", guard], None);
+        assert!(enabled.status.success(), "{enabled:?}");
+        assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+    }
 
     let disabled = nah(
         temp.path(),

@@ -33,7 +33,7 @@ If you need custom guards, you can just point your agent to nah's docs and ask i
 
 ## It knows a disaster when it sees one.
 
-17 guards, all on by default, covering four classes of disaster: **execution hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
+19 guards, all on by default, covering four classes of disaster: **execution hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -49,11 +49,13 @@ If you need custom guards, you can just point your agent to nah's docs and ask i
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-storage-destroy` | Definite logical-volume and storage-pool destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
+| `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
+| `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.

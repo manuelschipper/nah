@@ -72,6 +72,7 @@ fn behavior(name: &str) -> &'static str {
         "fs-root" => {
             "Blocks deletion or recursive permission changes selecting filesystem or system roots."
         }
+        "git-clean-force" => "Blocks an effective forced Git clean selecting the project root.",
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
         "git-hard-reset" => "Blocks Git hard resets.",
         "git-metadata" => {
@@ -82,6 +83,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-rewrite-force" => {
             "Blocks history rewriting that explicitly bypasses safety or backup checks."
+        }
+        "git-worktree-discard" => {
+            "Blocks project-wide checkout or restore and proven forced branch changes."
         }
         "secrets-env" => "Blocks reads of .env files and sensitive basenames.",
         "secrets-keys" => "Blocks reads or writes of private-key and credential-store paths.",
@@ -133,6 +137,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "zpool destroy tank",
         ],
         "fs-root" => ["rm -rf /", "chmod -R 000 /etc", "find / -delete"],
+        "git-clean-force" => [
+            "git clean -fd",
+            "git clean -fdx",
+            "git -c clean.requireForce=false clean",
+        ],
         "git-force-push" => [
             "git push --force",
             "git push origin +main",
@@ -157,6 +166,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git filter-branch --force -- --all",
             "git filter-repo --force",
             "sudo git filter-repo --force",
+        ],
+        "git-worktree-discard" => [
+            "git checkout -f",
+            "git switch --discard-changes main",
+            "git restore .",
         ],
         "secrets-env" => [
             "cat .env",

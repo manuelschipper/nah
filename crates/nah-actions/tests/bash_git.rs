@@ -366,6 +366,8 @@ fn git_commands_lower_only_their_exact_semantic_operations() {
         "git checkout -b topic -B existing",
         "git checkout -b topic main",
         "git checkout '-btopic*'",
+        "git checkout :/",
+        "git restore :/",
         "git restore --staged 'src/*'",
         "git restore --staged",
         "git -c core.pager=evil log",

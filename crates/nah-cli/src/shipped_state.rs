@@ -254,4 +254,24 @@ mod tests {
         assert!(state.is_enabled("exec-remote"));
         assert!(state.is_enabled("fs-root"));
     }
+
+    #[test]
+    fn new_guards_default_on_without_rewriting_legacy_disabled_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("built-ins.json");
+        let known = ["git-clean-force", "git-hard-reset", "git-worktree-discard"];
+        std::fs::write(&path, r#"{"v":1,"disabled":["git-hard-reset"]}"#).unwrap();
+
+        let state = ShippedState::load(&path, &known).unwrap();
+        assert!(state.is_enabled("git-clean-force"));
+        assert!(!state.is_enabled("git-hard-reset"));
+        assert!(state.is_enabled("git-worktree-discard"));
+
+        set_enabled(&path, &known, "git-clean-force", false).unwrap();
+        set_enabled(&path, &known, "git-worktree-discard", false).unwrap();
+        let state = ShippedState::load(&path, &known).unwrap();
+        assert!(!state.is_enabled("git-clean-force"));
+        assert!(!state.is_enabled("git-hard-reset"));
+        assert!(!state.is_enabled("git-worktree-discard"));
+    }
 }

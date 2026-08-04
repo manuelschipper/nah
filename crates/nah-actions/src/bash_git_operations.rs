@@ -90,10 +90,14 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
             ("checkout-branch", checkout_is_reviewed(&values))
         }
         "checkout" if !written_filesystems.is_empty() => ("checkout-worktree", true),
+        "checkout" if values.iter().any(|argument| unsupported_pathspec(argument)) => {
+            ("checkout-worktree", false)
+        }
         "restore" if !written_filesystems.is_empty() => ("restore-worktree", true),
         "restore" if !complete || restores_staged(&values) => {
             ("restore-staged", restore_is_reviewed(&values))
         }
+        "restore" => ("restore-worktree", false),
         "fetch" if !has_help(&values) => {
             return Some(Lowering {
                 complete,
@@ -586,6 +590,10 @@ fn explicit_path(path: &str) -> bool {
         && !contains_shell_pattern(path)
         && !path.contains(['{', '}'])
         && !has_unmodeled_expansion(path)
+}
+
+fn unsupported_pathspec(argument: &str) -> bool {
+    !argument.starts_with('-') && !explicit_path(argument)
 }
 
 fn commit_is_reviewed(arguments: &[&str]) -> bool {

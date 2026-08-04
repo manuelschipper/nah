@@ -651,6 +651,13 @@
         {
           "exists": true,
           "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
           "realpath": "/workspace/project/.git",
           "requested": "/workspace/project/.git",
           "resolved": "/workspace/project/.git"
@@ -743,6 +750,46 @@
           "realpath": "/workspace/project/git",
           "requested": "/workspace/project/git",
           "resolved": "/workspace/project/git"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-subdir-linux-v1": {
+      "cwd": "/workspace/project/src",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/src",
+          "requested": "/workspace/project/src",
+          "resolved": "/workspace/project/src"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/src/..",
+          "resolved": "/workspace/project/src/.."
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
         }
       ],
       "roots": [
@@ -1539,6 +1586,20 @@
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.nah",
+          "requested": "/home/test/.nah",
+          "resolved": "/home/test/.nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.nah",
+          "requested": "/home/test/.nah/.",
+          "resolved": "/home/test/.nah/."
+        },
         {
           "exists": true,
           "kind": "file",
