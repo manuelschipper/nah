@@ -41,11 +41,13 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-raw-device",
     "fs-root",
     "fs-storage-destroy",
+    "git-clean-force",
     "git-force-push",
     "git-hard-reset",
     "git-metadata",
     "git-recovery-destroy",
     "git-rewrite-force",
+    "git-worktree-discard",
     "secrets-env",
     "secrets-keys",
 ];

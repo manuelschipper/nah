@@ -142,6 +142,118 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
 }
 
 #[test]
+fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
+    for (source, operation) in [
+        ("git clean -f", "clean-force"),
+        ("git clean -fdx", "clean-force"),
+        ("git clean --f", "clean-force"),
+        ("git clean --no-force -f", "clean-force"),
+        ("git clean -f -e '*.keep'", "clean-force"),
+        ("git -c clean.requireForce=false clean", "clean-force"),
+        ("git checkout -f", "worktree-discard"),
+        ("git checkout -qf", "worktree-discard"),
+        ("git checkout -f -", "worktree-discard"),
+        ("git checkout -f -b topic", "worktree-discard"),
+        ("git checkout -fb topic", "worktree-discard"),
+        ("git switch -f main", "worktree-discard"),
+        ("git switch --discard-changes main", "worktree-discard"),
+        ("git switch --di main", "worktree-discard"),
+        ("git switch -f -", "worktree-discard"),
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(stream.effects().iter().any(|effect| {
+            matches!(effect.kind(), EffectKind::Git { operation: actual } if actual.as_str() == operation)
+        }), "{source}: {:?}", stream.effects());
+    }
+
+    for source in [
+        "git clean -f --no-force",
+        "git clean -n -f",
+        "git clean -i -f",
+        "git clean -nef .",
+        "git clean -ef .",
+        "git clean -f :/",
+        "git clean -f ':!keep'",
+        "git clean -f \"$PATH\"",
+        "git -c clean.requireForce=maybe clean",
+        "git checkout -f main",
+        "git checkout -f -- src/lib.rs",
+        "git checkout -bf",
+        "git switch -C main",
+        "git switch --force-create main",
+        "git switch -f",
+        "git switch -f --no-force main",
+        "git switch --discard-changes --no-discard-changes main",
+        "git switch -f \"$BRANCH\"",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Git { operation } if matches!(operation.as_str(), "clean-force" | "worktree-discard"))
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn clean_checkout_and_restore_project_literal_filesystem_effects() {
+    for (source, operation) in [
+        ("git clean -f", FilesystemOperation::Delete),
+        ("git clean -fdx -- .", FilesystemOperation::Delete),
+        ("git checkout -- .", FilesystemOperation::Write),
+        ("git checkout .", FilesystemOperation::Write),
+        ("git checkout HEAD -- .", FilesystemOperation::Write),
+        ("git restore .", FilesystemOperation::Write),
+        ("git restore --source=HEAD~1 .", FilesystemOperation::Write),
+        (
+            "git restore --staged --worktree .",
+            FilesystemOperation::Write,
+        ),
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.operation == operation && effect.selects_root
+                )
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        "git clean -n -f",
+        "git clean -i -f",
+        "git clean -f build/generated",
+        "git clean -f :/",
+        "git checkout -f -- src/lib.rs",
+        "git restore src/lib.rs",
+        "git restore --staged .",
+        "git restore --patch .",
+        "git restore :/",
+        "git restore ':!keep'",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Filesystem { effect } if effect.selects_root)
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
 fn git_commands_lower_only_their_exact_semantic_operations() {
     for (source, operation) in [
         ("git status --short", "status"),
@@ -162,8 +274,18 @@ fn git_commands_lower_only_their_exact_semantic_operations() {
         ("git switch --create=topic", "switch"),
         ("git checkout -b topic", "checkout-branch"),
         ("git checkout HEAD -- src/lib.rs", "checkout-worktree"),
+        ("git checkout .", "checkout-worktree"),
+        ("git clean -n", "clean"),
         ("git restore src/lib.rs", "restore-worktree"),
         ("git restore --staged src/lib.rs", "restore-staged"),
+        (
+            "git restore --staged --source=HEAD~1 src/lib.rs",
+            "restore-staged",
+        ),
+        (
+            "git restore --staged --worktree src/lib.rs",
+            "restore-worktree",
+        ),
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
@@ -244,8 +366,6 @@ fn git_commands_lower_only_their_exact_semantic_operations() {
         "git checkout -b topic -B existing",
         "git checkout -b topic main",
         "git checkout '-btopic*'",
-        "git restore --staged --worktree src/lib.rs",
-        "git restore --staged --source=HEAD~1 src/lib.rs",
         "git restore --staged 'src/*'",
         "git restore --staged",
         "git -c core.pager=evil log",

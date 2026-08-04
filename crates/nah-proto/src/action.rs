@@ -175,6 +175,7 @@ pub struct SemanticCode(Cow<'static, str>);
 impl SemanticCode {
     pub const ANALYSIS_REFUSED: Self = Self::borrowed("analysis-refused");
     pub const CLOCK_SET: Self = Self::borrowed("clock-set");
+    pub const CLEAN_FORCE: Self = Self::borrowed("clean-force");
     pub const CRITICAL_MUTATION: Self = Self::borrowed("critical-mutation");
     pub const DECODE: Self = Self::borrowed("decode");
     pub const DECODED_EXECUTION: Self = Self::borrowed("decoded-execution");
@@ -208,6 +209,7 @@ impl SemanticCode {
     pub const STORAGE_WRITE: Self = Self::borrowed("storage-write");
     pub const EVALUATED_SUBSTITUTION: Self = Self::borrowed("evaluated-substitution");
     pub const UNRESOLVED_COMMAND: Self = Self::borrowed("unresolved-command");
+    pub const WORKTREE_DISCARD: Self = Self::borrowed("worktree-discard");
 
     const fn borrowed(value: &'static str) -> Self {
         Self(Cow::Borrowed(value))

@@ -4,7 +4,9 @@ use nah_parse::Word;
 use nah_proto::action::FilesystemOperation;
 use nah_proto::ctx::Platform;
 
+use crate::bash_git_config::git_boolean;
 use crate::bash_git_config::{ParsedGit, parse};
+use crate::bash_git_operations::clean_options;
 use crate::shell_word::static_word;
 
 pub(crate) fn command_operation(program: &str, arguments: &[Word]) -> Option<&'static str> {
@@ -13,13 +15,16 @@ pub(crate) fn command_operation(program: &str, arguments: &[Word]) -> Option<&'s
     }
     let parsed = parse(arguments);
     let (subcommand, arguments) = parsed.command()?;
-    if has_help(subcommand, arguments)
+    if (!matches!(subcommand, "clean" | "checkout" | "switch") && has_help(subcommand, arguments))
         || option_before_separator(arguments, "--version")
         || has_no_side_effect(subcommand, arguments)
     {
         return None;
     }
     match subcommand {
+        "clean" if clean_force(&parsed, arguments) => Some("clean-force"),
+        "checkout" if forced_checkout(arguments) => Some("worktree-discard"),
+        "switch" if forced_switch(arguments) => Some("worktree-discard"),
         "push" if force_push(arguments) => Some("force-push"),
         "reset" if option_before_separator(arguments, "--hard") => Some("hard-reset"),
         "filter-repo" if option_before_separator(arguments, "--force") => Some("rewrite-force"),
@@ -34,6 +39,200 @@ pub(crate) fn command_operation(program: &str, arguments: &[Word]) -> Option<&'s
         "reflog" if destroys_all_reflog_recovery(arguments) => Some("recovery-destroy"),
         _ => None,
     }
+}
+
+fn clean_force(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {
+    if !parsed.complete() {
+        return false;
+    }
+    let Some(values) = static_values(arguments) else {
+        return false;
+    };
+    let values = values.iter().map(String::as_str).collect::<Vec<_>>();
+    let Some(options) = clean_options(&values) else {
+        return false;
+    };
+    !options.terminal
+        && !options.dry_run
+        && !options.interactive
+        && (options.force
+            || parsed.config("clean.requireforce").and_then(git_boolean) == Some(false))
+}
+
+fn forced_checkout(arguments: &[Word]) -> bool {
+    let Some(values) = static_values(arguments) else {
+        return false;
+    };
+    let mut force = false;
+    let mut branch_mode = false;
+    let mut target = false;
+    let mut index = 0;
+    while index < values.len() {
+        let argument = values[index].as_str();
+        match argument {
+            "--" => return false,
+            "--force" => force = true,
+            "--no-force" => force = false,
+            "--detach" => branch_mode = true,
+            "--no-detach" => branch_mode = false,
+            "--orphan" => {
+                index += 1;
+                if values.get(index).is_none() {
+                    return false;
+                }
+                branch_mode = true;
+                target = true;
+            }
+            "--quiet"
+            | "--no-quiet"
+            | "--guess"
+            | "--no-guess"
+            | "--progress"
+            | "--no-progress"
+            | "--overwrite-ignore"
+            | "--no-overwrite-ignore"
+            | "--ignore-other-worktrees"
+            | "--no-ignore-other-worktrees" => {}
+            "--help"
+            | "--version"
+            | "--patch"
+            | "--no-patch"
+            | "--merge"
+            | "--no-merge"
+            | "--ours"
+            | "--theirs"
+            | "--pathspec-from-file"
+            | "--pathspec-file-nul" => return false,
+            argument if argument.starts_with("--orphan=") => {
+                branch_mode = true;
+                target = argument.len() > "--orphan=".len();
+            }
+            argument if argument.starts_with("--pathspec-from-file=") => return false,
+            argument if argument.starts_with("--conflict") => return false,
+            "-" => {
+                branch_mode = true;
+                target = true;
+            }
+            argument if argument.starts_with('-') && !argument.starts_with("--") => {
+                let flags = &argument.as_bytes()[1..];
+                let mut position = 0;
+                while position < flags.len() {
+                    match flags[position] as char {
+                        'f' => force = true,
+                        'q' | 'l' => {}
+                        'd' => branch_mode = true,
+                        'b' | 'B' => {
+                            branch_mode = true;
+                            target = true;
+                            if position + 1 == flags.len() {
+                                index += 1;
+                                if values.get(index).is_none() {
+                                    return false;
+                                }
+                            }
+                            break;
+                        }
+                        _ => return false,
+                    }
+                    position += 1;
+                }
+            }
+            argument if argument.starts_with('-') => return false,
+            _ => target = true,
+        }
+        index += 1;
+    }
+    force && (!target || branch_mode)
+}
+
+fn forced_switch(arguments: &[Word]) -> bool {
+    let Some(values) = static_values(arguments) else {
+        return false;
+    };
+    let mut force = false;
+    let mut discard = false;
+    let mut target = false;
+    let mut after_separator = false;
+    let mut index = 0;
+    while index < values.len() {
+        let argument = values[index].as_str();
+        if after_separator {
+            target = true;
+            index += 1;
+            continue;
+        }
+        match argument {
+            "--" => after_separator = true,
+            "--force" => force = true,
+            "--no-force" => force = false,
+            "--discard-changes" => discard = true,
+            "--no-discard-changes" => discard = false,
+            "--quiet"
+            | "--no-quiet"
+            | "--guess"
+            | "--no-guess"
+            | "--detach"
+            | "--no-detach"
+            | "--progress"
+            | "--no-progress"
+            | "--overwrite-ignore"
+            | "--no-overwrite-ignore"
+            | "--ignore-other-worktrees"
+            | "--no-ignore-other-worktrees" => {}
+            "--help" | "--version" | "--merge" | "--no-merge" => return false,
+            "--create" | "--force-create" | "--orphan" => {
+                index += 1;
+                if values.get(index).is_none() {
+                    return false;
+                }
+                target = true;
+            }
+            argument
+                if argument.starts_with("--create=")
+                    || argument.starts_with("--force-create=")
+                    || argument.starts_with("--orphan=") =>
+            {
+                target = argument
+                    .split_once('=')
+                    .is_some_and(|(_, value)| !value.is_empty());
+            }
+            argument if argument.starts_with("--conflict") => return false,
+            "-" => target = true,
+            argument if argument.starts_with('-') && !argument.starts_with("--") => {
+                let flags = &argument.as_bytes()[1..];
+                let mut position = 0;
+                while position < flags.len() {
+                    match flags[position] as char {
+                        'f' => force = true,
+                        'q' | 'd' => {}
+                        'c' | 'C' => {
+                            target = true;
+                            if position + 1 == flags.len() {
+                                index += 1;
+                                if values.get(index).is_none() {
+                                    return false;
+                                }
+                            }
+                            break;
+                        }
+                        _ => return false,
+                    }
+                    position += 1;
+                }
+            }
+            argument if argument.starts_with('-') => return false,
+            _ => target = true,
+        }
+        index += 1;
+    }
+    target && (force || discard)
+}
+
+fn static_values(arguments: &[Word]) -> Option<Vec<String>> {
+    arguments
+        .iter()
+        .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
+        .collect()
 }
 
 pub(crate) fn metadata_mutation(

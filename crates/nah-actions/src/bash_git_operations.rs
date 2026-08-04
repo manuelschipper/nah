@@ -1,7 +1,9 @@
 //! Lowers Git read and local-write operations into typed effects; it does not decide them.
 
 use nah_parse::Word;
+use nah_proto::action::FilesystemOperation;
 
+use crate::bash_git_config::parse;
 use crate::shell_word::{contains_shell_pattern, has_unmodeled_expansion, static_word};
 
 pub(crate) struct Lowering {
@@ -9,6 +11,7 @@ pub(crate) struct Lowering {
     pub(crate) existing_filesystems: Vec<String>,
     pub(crate) filesystems: Vec<String>,
     pub(crate) written_filesystems: Vec<String>,
+    pub(crate) deleted_filesystems: Vec<String>,
     pub(crate) operation: &'static str,
     pub(crate) network_outbound: bool,
     pub(crate) project_scoped: bool,
@@ -18,18 +21,46 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
     if program != "git" {
         return None;
     }
-    let (subcommand, arguments) = semantic_subcommand(arguments)?;
+    let parsed = parse(arguments);
+    let parsed_worktree = parsed
+        .command()
+        .filter(|(subcommand, _)| matches!(*subcommand, "clean" | "checkout" | "restore"));
+    let (subcommand, arguments, directory, globals_complete) =
+        if let Some((subcommand, arguments)) = parsed_worktree {
+            (
+                subcommand.to_owned(),
+                arguments,
+                parsed.directory(),
+                parsed.complete() && !parsed.alternate_worktree(),
+            )
+        } else {
+            let (subcommand, arguments) = semantic_subcommand(arguments)?;
+            (subcommand, arguments, None, true)
+        };
     let values = arguments
         .iter()
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
         .collect::<Vec<_>>();
-    let complete = values.iter().all(Option::is_some);
+    let complete = globals_complete && values.iter().all(Option::is_some);
     let values = values
         .iter()
         .flatten()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let written_filesystems = worktree_paths(&subcommand, &values).unwrap_or_default();
+    let mutations = complete
+        .then(|| command_mutations(&subcommand, &values))
+        .flatten();
+    let mutation_paths = |operation| {
+        mutations
+            .as_ref()
+            .into_iter()
+            .flatten()
+            .filter(|(_, actual, _)| *actual == operation)
+            .map(|(path, _, _)| qualify_worktree_path(directory, path))
+            .collect::<Vec<_>>()
+    };
+    let written_filesystems = mutation_paths(FilesystemOperation::Write);
+    let deleted_filesystems = mutation_paths(FilesystemOperation::Delete);
 
     let (operation, reviewed) = match subcommand.as_str() {
         "status" => ("status", !has_help(&values)),
@@ -53,21 +84,23 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
         "add" => ("add", add_files(&values).is_some()),
         "commit" => ("commit", commit_is_reviewed(&values)),
         "stash" if !stash_deletes_entries(&values) => ("stash", !has_help(&values)),
+        "clean" => ("clean", mutations.is_some()),
         "switch" => ("switch", switch_is_reviewed(&values)),
         "checkout" if !complete || checkout_creates_branch(&values) => {
             ("checkout-branch", checkout_is_reviewed(&values))
         }
         "checkout" if !written_filesystems.is_empty() => ("checkout-worktree", true),
+        "restore" if !written_filesystems.is_empty() => ("restore-worktree", true),
         "restore" if !complete || restores_staged(&values) => {
             ("restore-staged", restore_is_reviewed(&values))
         }
-        "restore" if !written_filesystems.is_empty() => ("restore-worktree", true),
         "fetch" if !has_help(&values) => {
             return Some(Lowering {
                 complete,
                 existing_filesystems: vec![],
                 filesystems: vec![],
                 written_filesystems: vec![],
+                deleted_filesystems: vec![],
                 operation: "fetch",
                 network_outbound: true,
                 project_scoped: false,
@@ -87,64 +120,43 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
             .unwrap_or_default(),
         filesystems,
         written_filesystems,
+        deleted_filesystems,
         operation,
         network_outbound: false,
         project_scoped: true,
     })
 }
 
-pub(crate) fn worktree_mutations(program: &str, arguments: &[Word]) -> Option<Vec<String>> {
+pub(crate) fn worktree_mutations(
+    program: &str,
+    arguments: &[Word],
+) -> Option<Vec<(String, FilesystemOperation, bool)>> {
     if program != "git" {
+        return None;
+    }
+    let parsed = parse(arguments);
+    let (subcommand, arguments) = parsed.command()?;
+    if !parsed.complete() || parsed.alternate_worktree() {
         return None;
     }
     let values = arguments
         .iter()
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
         .collect::<Option<Vec<_>>>()?;
-    let (directory, subcommand, values) = worktree_subcommand(&values)?;
     let values = values.iter().map(String::as_str).collect::<Vec<_>>();
-    let paths = worktree_paths(subcommand, &values)?;
+    let mutations = command_mutations(subcommand, &values)?;
     Some(
-        paths
+        mutations
             .into_iter()
-            .map(|path| qualify_worktree_path(directory, &path))
+            .map(|(path, operation, recursive)| {
+                (
+                    qualify_worktree_path(parsed.directory(), &path),
+                    operation,
+                    recursive,
+                )
+            })
             .collect(),
     )
-}
-
-fn worktree_subcommand(arguments: &[String]) -> Option<(Option<&str>, &str, &[String])> {
-    let mut directory = None;
-    let mut index = 0;
-    while let Some(argument) = arguments.get(index) {
-        if argument == "-C" {
-            directory = Some(arguments.get(index + 1)?.as_str());
-            index += 2;
-        } else if let Some(value) = argument
-            .strip_prefix("-C")
-            .filter(|value| !value.is_empty())
-        {
-            directory = Some(value);
-            index += 1;
-        } else if matches!(
-            argument.as_str(),
-            "-P" | "--no-pager"
-                | "--no-replace-objects"
-                | "--literal-pathspecs"
-                | "--glob-pathspecs"
-                | "--noglob-pathspecs"
-                | "--icase-pathspecs"
-                | "--no-optional-locks"
-                | "--no-lazy-fetch"
-                | "--no-advice"
-        ) {
-            index += 1;
-        } else if argument.starts_with('-') {
-            return None;
-        } else {
-            return Some((directory, argument, &arguments[index + 1..]));
-        }
-    }
-    None
 }
 
 fn qualify_worktree_path(directory: Option<&str>, path: &str) -> String {
@@ -156,31 +168,193 @@ fn qualify_worktree_path(directory: Option<&str>, path: &str) -> String {
     }
 }
 
-fn worktree_paths(subcommand: &str, arguments: &[&str]) -> Option<Vec<String>> {
+fn command_mutations(
+    subcommand: &str,
+    arguments: &[&str],
+) -> Option<Vec<(String, FilesystemOperation, bool)>> {
     match subcommand {
-        "checkout" => {
-            let separator = arguments.iter().position(|argument| *argument == "--")?;
-            exact_paths(&arguments[separator + 1..])
-        }
-        "restore" => restore_worktree_paths(arguments),
+        "clean" => clean_options(arguments).map(|options| {
+            if options.terminal || options.dry_run || options.interactive {
+                return Vec::new();
+            }
+            let paths = if options.paths.is_empty() {
+                vec![".".to_owned()]
+            } else {
+                options.paths
+            };
+            paths
+                .into_iter()
+                .map(|path| (path, FilesystemOperation::Delete, false))
+                .collect()
+        }),
+        "checkout" => checkout_worktree_paths(arguments).map(|paths| {
+            paths
+                .into_iter()
+                .map(|path| (path, FilesystemOperation::Write, false))
+                .collect()
+        }),
+        "restore" => restore_options(arguments).map(|options| {
+            if !options.worktree || options.patch {
+                return Vec::new();
+            }
+            options
+                .paths
+                .into_iter()
+                .map(|path| (path, FilesystemOperation::Write, false))
+                .collect()
+        }),
         _ => None,
     }
 }
 
-fn restore_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
+pub(crate) struct CleanOptions {
+    pub(crate) force: bool,
+    pub(crate) dry_run: bool,
+    pub(crate) interactive: bool,
+    pub(crate) terminal: bool,
+    paths: Vec<String>,
+}
+
+pub(crate) fn clean_options(arguments: &[&str]) -> Option<CleanOptions> {
     let mut paths = Vec::new();
-    let mut staged = false;
-    let mut worktree = false;
+    let mut force = false;
+    let mut dry_run = false;
+    let mut interactive = false;
+    let mut terminal = false;
     let mut after_options = false;
     let mut index = 0;
     while index < arguments.len() {
         let argument = arguments[index];
         if !after_options && argument == "--" {
             after_options = true;
-        } else if !after_options && matches!(argument, "--staged" | "-S") {
+        } else if !after_options {
+            match argument {
+                "--force" => force = true,
+                "--no-force" => force = false,
+                "--dry-run" => dry_run = true,
+                "--no-dry-run" => dry_run = false,
+                "--interactive" => interactive = true,
+                "--no-interactive" => interactive = false,
+                "--quiet" | "--no-quiet" | "-d" | "-x" | "-X" => {}
+                "--help" | "--version" | "-h" => terminal = true,
+                "--exclude" => {
+                    index += 1;
+                    arguments.get(index)?;
+                }
+                argument if argument.starts_with("--exclude=") => {}
+                argument if argument.starts_with('-') => {
+                    let flags = argument.strip_prefix('-')?;
+                    if flags.is_empty() || !flags.is_ascii() {
+                        return None;
+                    }
+                    let bytes = flags.as_bytes();
+                    let mut position = 0;
+                    while position < bytes.len() {
+                        match bytes[position] as char {
+                            'f' => force = true,
+                            'n' => dry_run = true,
+                            'i' => interactive = true,
+                            'd' | 'x' | 'X' | 'q' => {}
+                            'e' => {
+                                if position + 1 == bytes.len() {
+                                    index += 1;
+                                    arguments.get(index)?;
+                                }
+                                break;
+                            }
+                            _ => return None,
+                        }
+                        position += 1;
+                    }
+                }
+                argument if explicit_path(argument) => {
+                    after_options = true;
+                    paths.push(argument.to_owned());
+                }
+                _ => return None,
+            }
+        } else if explicit_path(argument) {
+            paths.push(argument.to_owned());
+        } else {
+            return None;
+        }
+        index += 1;
+    }
+    Some(CleanOptions {
+        force,
+        dry_run,
+        interactive,
+        terminal,
+        paths,
+    })
+}
+
+fn checkout_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
+    if let Some(separator) = arguments.iter().position(|argument| *argument == "--") {
+        if !checkout_path_prefix(&arguments[..separator]) {
+            return None;
+        }
+        return exact_paths(&arguments[separator + 1..]);
+    }
+    if !checkout_path_prefix(arguments) {
+        return None;
+    }
+    let paths = arguments
+        .iter()
+        .filter(|argument| !argument.starts_with('-'))
+        .copied()
+        .collect::<Vec<_>>();
+    paths
+        .iter()
+        .any(|path| {
+            matches!(*path, "." | "./" | ".." | "../")
+                || path.starts_with("./")
+                || path.starts_with("../")
+                || path.starts_with('/')
+        })
+        .then(|| paths.into_iter().map(str::to_owned).collect())
+}
+
+fn checkout_path_prefix(arguments: &[&str]) -> bool {
+    arguments.iter().all(|argument| {
+        explicit_path(argument)
+            || matches!(
+                *argument,
+                "-f" | "-q" | "-fq" | "-qf" | "--force" | "--no-force" | "--quiet" | "--no-quiet"
+            )
+    })
+}
+
+struct RestoreOptions {
+    staged: bool,
+    worktree: bool,
+    patch: bool,
+    paths: Vec<String>,
+}
+
+fn restore_options(arguments: &[&str]) -> Option<RestoreOptions> {
+    let mut paths = Vec::new();
+    let mut staged = false;
+    let mut worktree = None;
+    let mut patch = false;
+    let mut after_options = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index];
+        if !after_options && argument == "--" {
+            after_options = true;
+        } else if !after_options && argument == "--staged" {
             staged = true;
-        } else if !after_options && matches!(argument, "--worktree" | "-W") {
-            worktree = true;
+        } else if !after_options && argument == "--no-staged" {
+            staged = false;
+        } else if !after_options && argument == "--worktree" {
+            worktree = Some(true);
+        } else if !after_options && argument == "--no-worktree" {
+            worktree = Some(false);
+        } else if !after_options && argument == "--patch" {
+            patch = true;
+        } else if !after_options && argument == "--no-patch" {
+            patch = false;
         } else if !after_options && matches!(argument, "--source" | "-s") {
             index += 1;
             arguments.get(index)?;
@@ -188,18 +362,42 @@ fn restore_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
             && (argument.starts_with("--source=")
                 || matches!(
                     argument,
-                    "--ours"
-                        | "--theirs"
-                        | "--overlay"
+                    "--overlay"
                         | "--no-overlay"
                         | "--ignore-unmerged"
                         | "--recurse-submodules"
                         | "--no-recurse-submodules"
                         | "--progress"
+                        | "--no-progress"
                         | "--quiet"
+                        | "--no-quiet"
                         | "-q"
                 ))
         {
+        } else if !after_options && argument.starts_with('-') && !argument.starts_with("--") {
+            let flags = argument.strip_prefix('-')?;
+            if flags.is_empty() || !flags.is_ascii() {
+                return None;
+            }
+            let bytes = flags.as_bytes();
+            let mut position = 0;
+            while position < bytes.len() {
+                match bytes[position] as char {
+                    'S' => staged = true,
+                    'W' => worktree = Some(true),
+                    'p' => patch = true,
+                    'q' => {}
+                    's' => {
+                        if position + 1 == bytes.len() {
+                            index += 1;
+                            arguments.get(index)?;
+                        }
+                        break;
+                    }
+                    _ => return None,
+                }
+                position += 1;
+            }
         } else if !after_options && argument.starts_with('-') {
             return None;
         } else if explicit_path(argument) {
@@ -209,10 +407,12 @@ fn restore_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
         }
         index += 1;
     }
-    if staged && !worktree {
-        return Some(Vec::new());
-    }
-    (!paths.is_empty()).then_some(paths)
+    Some(RestoreOptions {
+        staged,
+        worktree: worktree.unwrap_or(!staged),
+        patch,
+        paths,
+    })
 }
 
 fn exact_paths(arguments: &[&str]) -> Option<Vec<String>> {
@@ -220,7 +420,7 @@ fn exact_paths(arguments: &[&str]) -> Option<Vec<String>> {
         .iter()
         .map(|path| explicit_path(path).then(|| (*path).to_owned()))
         .collect::<Option<Vec<_>>>()?;
-    (!paths.is_empty()).then_some(paths)
+    Some(paths)
 }
 
 fn semantic_subcommand(arguments: &[Word]) -> Option<(String, &[Word])> {
@@ -466,39 +666,40 @@ fn short_create_target(argument: &str) -> Option<&str> {
 }
 
 fn restores_staged(arguments: &[&str]) -> bool {
-    has_option(arguments, "--staged") || has_short_option(arguments, 'S')
+    let mut staged = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index];
+        if argument == "--" {
+            break;
+        }
+        if argument == "--staged" {
+            staged = true;
+        } else if argument == "--no-staged" {
+            staged = false;
+        } else if argument == "--source" || argument == "-s" {
+            index += 1;
+        } else if argument.starts_with('-') && !argument.starts_with("--") {
+            let flags = &argument.as_bytes()[1..];
+            let mut position = 0;
+            while position < flags.len() {
+                match flags[position] as char {
+                    'S' => staged = true,
+                    's' => break,
+                    _ => {}
+                }
+                position += 1;
+            }
+        }
+        index += 1;
+    }
+    staged
 }
 
 fn restore_is_reviewed(arguments: &[&str]) -> bool {
-    let mut staged = false;
-    let mut path = false;
-    let mut after_options = false;
-    for argument in arguments {
-        if !after_options && *argument == "--" {
-            after_options = true;
-        } else if !after_options {
-            match *argument {
-                "--staged" | "-S" => staged = true,
-                "--quiet" | "-q" => {}
-                argument if argument.starts_with('-') => return false,
-                argument if restore_path(argument) => path = true,
-                _ => return false,
-            }
-        } else if restore_path(argument) {
-            path = true;
-        } else {
-            return false;
-        }
-    }
-    staged && path
-}
-
-fn restore_path(argument: &str) -> bool {
-    !argument.is_empty()
-        && !argument.starts_with([':', '!'])
-        && !contains_shell_pattern(argument)
-        && !argument.contains(['{', '}'])
-        && !has_unmodeled_expansion(argument)
+    restore_options(arguments).is_some_and(|options| {
+        options.staged && !options.worktree && !options.patch && !options.paths.is_empty()
+    })
 }
 
 fn has_help(arguments: &[&str]) -> bool {
@@ -507,22 +708,10 @@ fn has_help(arguments: &[&str]) -> bool {
         .any(|argument| matches!(*argument, "-h" | "--help"))
 }
 
-fn has_option(arguments: &[&str], expected: &str) -> bool {
-    arguments.contains(&expected)
-}
-
 fn has_option_prefix(arguments: &[&str], expected: &str) -> bool {
     arguments.iter().any(|argument| {
         argument
             .strip_prefix(expected)
             .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('='))
-    })
-}
-
-fn has_short_option(arguments: &[&str], expected: char) -> bool {
-    arguments.iter().any(|argument| {
-        argument.starts_with('-')
-            && !argument.starts_with("--")
-            && argument[1..].chars().any(|flag| flag == expected)
     })
 }

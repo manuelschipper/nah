@@ -1,6 +1,6 @@
 //! Evaluates destructive Git guards; it does not interpret command-line syntax.
 
-use nah_proto::action::{ActionStream, EffectKind, SemanticCode};
+use nah_proto::action::{ActionStream, Effect, EffectKind, FilesystemOperation, SemanticCode};
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
@@ -11,6 +11,11 @@ pub(crate) fn add(
 ) -> Result<bool, DecisionError> {
     let mut blocked = false;
     for (name, operation, reason) in [
+        (
+            "git-clean-force",
+            &SemanticCode::CLEAN_FORCE,
+            "git-clean-force blocked a forced clean selecting the project root; preview with git clean -n, name the intended target, or ask the operator to perform the project-wide clean",
+        ),
         (
             "git-metadata",
             &SemanticCode::METADATA_MUTATION,
@@ -36,14 +41,17 @@ pub(crate) fn add(
             &SemanticCode::RECOVERY_DESTROY,
             "git-recovery-destroy blocked deletion of Git recovery history; keep reflogs and recovery refs; ask the operator to verify they are no longer needed",
         ),
+        (
+            "git-worktree-discard",
+            &SemanticCode::WORKTREE_DISCARD,
+            "git-worktree-discard blocked a project-wide working-tree discard; inspect git diff, stash wanted work, use a named restore, or ask the operator to perform the broad discard",
+        ),
     ] {
         if !policy_ctx
             .enabled_shipped_guards()
             .iter()
             .any(|enabled| enabled == name)
-            || !action_stream.effects().iter().any(|effect| {
-                matches!(effect.kind(), EffectKind::Git { operation: actual } if actual == operation)
-            })
+            || !matches_operation(name, operation, action_stream)
         {
             continue;
         }
@@ -52,4 +60,41 @@ pub(crate) fn add(
         blocked = true;
     }
     Ok(blocked)
+}
+
+fn matches_operation(name: &str, operation: &SemanticCode, action_stream: &ActionStream) -> bool {
+    action_stream.effects().iter().any(|effect| {
+        let EffectKind::Git { operation: actual } = effect.kind() else {
+            return false;
+        };
+        if name == "git-clean-force" {
+            return actual == operation
+                && same_stage_root_filesystem(action_stream, effect, FilesystemOperation::Delete);
+        }
+        if name == "git-worktree-discard" {
+            return actual == operation
+                || matches!(actual.as_str(), "checkout-worktree" | "restore-worktree")
+                    && same_stage_root_filesystem(
+                        action_stream,
+                        effect,
+                        FilesystemOperation::Write,
+                    );
+        }
+        actual == operation
+    })
+}
+
+fn same_stage_root_filesystem(
+    action_stream: &ActionStream,
+    git_effect: &Effect,
+    operation: FilesystemOperation,
+) -> bool {
+    action_stream.effects().iter().any(|candidate| {
+        candidate.stage() == git_effect.stage()
+            && matches!(
+                candidate.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == operation && effect.selects_root
+            )
+    })
 }

@@ -25,12 +25,7 @@ pub(crate) fn command_filesystems(
         return Some(analysis.filesystems);
     }
     if program == "git" {
-        return crate::bash_git_operations::worktree_mutations(program, arguments).map(|targets| {
-            targets
-                .into_iter()
-                .map(|target| (target, FilesystemOperation::Write, false))
-                .collect()
-        });
+        return crate::bash_git_operations::worktree_mutations(program, arguments);
     }
     let arguments = arguments
         .iter()

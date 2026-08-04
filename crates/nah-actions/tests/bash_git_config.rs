@@ -115,6 +115,36 @@ fn static_gc_expiry_configuration_obeys_last_wins_and_cli_overrides() {
 }
 
 #[test]
+fn clean_force_configuration_is_bounded_and_last_wins() {
+    for value in ["", "false", "FALSE", "no", "off", "0"] {
+        let source = format!("git -c clean.requireForce={value} clean");
+        let stream = stream(&source);
+        assert!(stream.effects().iter().any(|effect| {
+            matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "clean-force")
+        }), "{source}: {:?}", stream.effects());
+    }
+
+    for source in [
+        "git -c clean.requireForce=false -c clean.requireForce=true clean",
+        "git -c clean.requireForce=maybe clean",
+        "git -c clean.requireForce=false clean -n",
+    ] {
+        let stream = stream(source);
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "clean-force")
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+    assert_eq!(
+        stream("git -c clean.requireForce=maybe clean").coverage(),
+        Coverage::Partial
+    );
+}
+
+#[test]
 fn dynamic_git_configuration_is_partial_and_never_guessed() {
     for source in [
         "git -c \"user.name=$NAME\" status",

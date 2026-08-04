@@ -123,7 +123,38 @@ fn normalize_git_arguments(arguments: &[Word]) -> Vec<Word> {
         break argument.to_owned();
     };
 
-    let rules = match subcommand.as_str() {
+    let rules: &[OptionRule] = match subcommand.as_str() {
+        "clean" => &[
+            rule("--force", "--f"),
+            rule("--no-force", "--no-f"),
+            rule("--dry-run", "--d"),
+            rule("--no-dry-run", "--no-d"),
+            rule("--interactive", "--i"),
+            rule("--no-interactive", "--no-i"),
+            rule("--exclude", "--e"),
+            rule("--quiet", "--q"),
+            rule("--no-quiet", "--no-q"),
+        ],
+        "checkout" => &[
+            rule("--force", "--f"),
+            rule("--no-force", "--no-f"),
+            rule("--detach", "--d"),
+            rule("--no-detach", "--no-d"),
+            rule("--orphan", "--or"),
+        ],
+        "restore" => &[
+            rule("--staged", "--st"),
+            rule("--no-staged", "--no-st"),
+            rule("--source", "--so"),
+            rule("--worktree", "--w"),
+            rule("--no-worktree", "--no-w"),
+        ],
+        "switch" => &[
+            rule("--force", "--force"),
+            rule("--no-force", "--no-force"),
+            rule("--discard-changes", "--di"),
+            rule("--no-discard-changes", "--no-di"),
+        ],
         "reset" => &[rule("--hard", "--h")][..],
         "gc" => &[rule("--prune", "--p")],
         "prune" => &[rule("--expire", "--exp"), rule("--dry-run", "--d")],
@@ -261,5 +292,48 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["--git-d=/tmp", "reset", "--h"]
         );
+    }
+
+    #[test]
+    fn reviewed_git_discard_options_normalize_only_unique_prefixes() {
+        for (arguments, expected) in [
+            (
+                vec!["clean", "--f", "--no-f", "--d", "--no-d", "--i", "--no-i"],
+                vec![
+                    "clean",
+                    "--force",
+                    "--no-force",
+                    "--dry-run",
+                    "--no-dry-run",
+                    "--interactive",
+                    "--no-interactive",
+                ],
+            ),
+            (
+                vec!["checkout", "--f", "--d", "--or=topic"],
+                vec!["checkout", "--force", "--detach", "--orphan=topic"],
+            ),
+            (
+                vec!["restore", "--st", "--so=HEAD", "--w"],
+                vec!["restore", "--staged", "--source=HEAD", "--worktree"],
+            ),
+            (
+                vec!["switch", "--f", "--di", "--no-di"],
+                vec!["switch", "--f", "--discard-changes", "--no-discard-changes"],
+            ),
+        ] {
+            let words = arguments
+                .iter()
+                .map(|argument| Word::from_literal(argument))
+                .collect::<Vec<_>>();
+            let normalized = normalize_arguments("git", &words, Platform::Linux);
+            assert_eq!(
+                normalized
+                    .iter()
+                    .map(|word| static_argument(word).unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 }

@@ -11,6 +11,8 @@ pub(crate) struct ParsedGit<'a> {
     arguments: &'a [Word],
     configs: Vec<(String, String)>,
     globals: Vec<String>,
+    directory: Option<String>,
+    alternate_worktree: bool,
 }
 
 impl<'a> ParsedGit<'a> {
@@ -33,6 +35,14 @@ impl<'a> ParsedGit<'a> {
             .iter()
             .rev()
             .find_map(|(candidate, value)| (candidate == key).then_some(value.as_str()))
+    }
+
+    pub(crate) fn directory(&self) -> Option<&str> {
+        self.directory.as_deref()
+    }
+
+    pub(crate) const fn alternate_worktree(&self) -> bool {
+        self.alternate_worktree
     }
 
     fn alias(&self) -> Option<&str> {
@@ -90,6 +100,8 @@ pub(crate) fn parse(arguments: &[Word]) -> ParsedGit<'_> {
         arguments: &[],
         configs: Vec::new(),
         globals: Vec::new(),
+        directory: None,
+        alternate_worktree: false,
     };
     let mut index = 0;
     while let Some(word) = arguments.get(index) {
@@ -146,18 +158,36 @@ pub(crate) fn parse(arguments: &[Word]) -> ParsedGit<'_> {
                 }
                 continue;
             };
+            if argument == "-C" {
+                update_directory(&mut parsed.directory, &value);
+            } else if matches!(argument.as_str(), "--git-dir" | "--work-tree") {
+                parsed.alternate_worktree = true;
+            }
             parsed.globals.extend([argument, value]);
             index += 2;
             continue;
         }
-        if argument.starts_with("-C") && argument.len() > 2
-            || ATTACHED.iter().any(|prefix| argument.starts_with(prefix))
+        if let Some(value) = argument
+            .strip_prefix("-C")
+            .filter(|value| !value.is_empty())
         {
+            update_directory(&mut parsed.directory, value);
+            parsed.globals.push(argument);
+            index += 1;
+            continue;
+        }
+        if ATTACHED.iter().any(|prefix| argument.starts_with(prefix)) {
+            if argument.starts_with("--git-dir=") || argument.starts_with("--work-tree=") {
+                parsed.alternate_worktree = true;
+            }
             parsed.globals.push(argument);
             index += 1;
             continue;
         }
         if FLAGS.contains(&argument.as_str()) {
+            if argument == "--bare" {
+                parsed.alternate_worktree = true;
+            }
             parsed.globals.push(argument);
             index += 1;
             continue;
@@ -236,6 +266,7 @@ fn add_config(configs: &mut Vec<(String, String)>, value: &str) -> bool {
         return false;
     }
     let complete = matches!(key.as_str(), "gc.pruneexpire" | "user.email" | "user.name")
+        || key == "clean.requireforce" && git_boolean(value.trim()).is_some()
         || key
             .strip_prefix("alias.")
             .is_some_and(|name| !name.is_empty())
@@ -243,6 +274,43 @@ fn add_config(configs: &mut Vec<(String, String)>, value: &str) -> bool {
         || key.starts_with("color.");
     configs.push((key, value.trim().to_owned()));
     complete
+}
+
+pub(crate) fn git_boolean(value: &str) -> Option<bool> {
+    if value.is_empty()
+        || value.eq_ignore_ascii_case("false")
+        || value.eq_ignore_ascii_case("no")
+        || value.eq_ignore_ascii_case("off")
+        || value == "0"
+    {
+        Some(false)
+    } else if value.eq_ignore_ascii_case("true")
+        || value.eq_ignore_ascii_case("yes")
+        || value.eq_ignore_ascii_case("on")
+        || value == "1"
+    {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn update_directory(directory: &mut Option<String>, value: &str) {
+    if value.is_empty() {
+        return;
+    }
+    if value.starts_with(['/', '~'])
+        || value.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+        || directory.is_none()
+    {
+        *directory = Some(value.to_owned());
+        return;
+    }
+    let current = directory
+        .as_deref()
+        .unwrap_or_default()
+        .trim_end_matches(['/', '\\']);
+    *directory = Some(format!("{current}/{value}"));
 }
 
 fn split_command_alias(value: &str) -> Option<Vec<String>> {

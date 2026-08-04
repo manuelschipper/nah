@@ -133,6 +133,17 @@ impl Lowerer {
                     &mut filesystem_drafts,
                 );
             }
+            for target in &git.deleted_filesystems {
+                let Some(requested) = self.resolve_requested(target) else {
+                    continue;
+                };
+                self.add_filesystem(
+                    &requested,
+                    FilesystemOperation::Delete,
+                    false,
+                    &mut filesystem_drafts,
+                );
+            }
             for target in &git.existing_filesystems {
                 let Some(requested) = self.resolve_requested(target) else {
                     continue;
