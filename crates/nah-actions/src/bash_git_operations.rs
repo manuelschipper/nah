@@ -3,7 +3,7 @@
 use nah_parse::Word;
 use nah_proto::action::FilesystemOperation;
 
-use crate::bash_git_config::parse;
+use crate::bash_git_config::{git_boolean, parse};
 use crate::shell_word::{contains_shell_pattern, has_unmodeled_expansion, static_word};
 
 pub(crate) struct Lowering {
@@ -47,8 +47,10 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
         .flatten()
         .map(String::as_str)
         .collect::<Vec<_>>();
+    let clean_config_allows =
+        parsed.config("clean.requireforce").and_then(git_boolean) == Some(false);
     let mutations = complete
-        .then(|| command_mutations(&subcommand, &values))
+        .then(|| command_mutations(&subcommand, &values, clean_config_allows))
         .flatten();
     let mutation_paths = |operation| {
         mutations
@@ -148,7 +150,9 @@ pub(crate) fn worktree_mutations(
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
         .collect::<Option<Vec<_>>>()?;
     let values = values.iter().map(String::as_str).collect::<Vec<_>>();
-    let mutations = command_mutations(subcommand, &values)?;
+    let clean_config_allows =
+        parsed.config("clean.requireforce").and_then(git_boolean) == Some(false);
+    let mutations = command_mutations(subcommand, &values, clean_config_allows)?;
     Some(
         mutations
             .into_iter()
@@ -175,10 +179,15 @@ fn qualify_worktree_path(directory: Option<&str>, path: &str) -> String {
 fn command_mutations(
     subcommand: &str,
     arguments: &[&str],
+    clean_config_allows: bool,
 ) -> Option<Vec<(String, FilesystemOperation, bool)>> {
     match subcommand {
         "clean" => clean_options(arguments).map(|options| {
-            if options.terminal || options.dry_run || options.interactive {
+            if options.terminal
+                || options.dry_run
+                || options.interactive
+                || !(options.force || clean_config_allows)
+            {
                 return Vec::new();
             }
             let paths = if options.paths.is_empty() {
@@ -246,6 +255,7 @@ pub(crate) fn clean_options(arguments: &[&str]) -> Option<CleanOptions> {
                     arguments.get(index)?;
                 }
                 argument if argument.starts_with("--exclude=") => {}
+                "-" => paths.push(argument.to_owned()),
                 argument if argument.starts_with('-') => {
                     let flags = argument.strip_prefix('-')?;
                     if flags.is_empty() || !flags.is_ascii() {
@@ -271,13 +281,10 @@ pub(crate) fn clean_options(arguments: &[&str]) -> Option<CleanOptions> {
                         position += 1;
                     }
                 }
-                argument if explicit_path(argument) => {
-                    after_options = true;
-                    paths.push(argument.to_owned());
-                }
+                argument if explicit_path(argument) => paths.push(argument.to_owned()),
                 _ => return None,
             }
-        } else if explicit_path(argument) {
+        } else if explicit_path_after_separator(argument) {
             paths.push(argument.to_owned());
         } else {
             return None;
@@ -295,7 +302,13 @@ pub(crate) fn clean_options(arguments: &[&str]) -> Option<CleanOptions> {
 
 fn checkout_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
     if let Some(separator) = arguments.iter().position(|argument| *argument == "--") {
-        if !checkout_path_prefix(&arguments[..separator]) {
+        if !checkout_path_prefix(&arguments[..separator])
+            || arguments[..separator]
+                .iter()
+                .filter(|argument| explicit_path(argument))
+                .count()
+                > 1
+        {
             return None;
         }
         return exact_paths(&arguments[separator + 1..]);
@@ -320,13 +333,26 @@ fn checkout_worktree_paths(arguments: &[&str]) -> Option<Vec<String>> {
 }
 
 fn checkout_path_prefix(arguments: &[&str]) -> bool {
-    arguments.iter().all(|argument| {
-        explicit_path(argument)
-            || matches!(
-                *argument,
-                "-f" | "-q" | "-fq" | "-qf" | "--force" | "--no-force" | "--quiet" | "--no-quiet"
-            )
-    })
+    let mut patch = false;
+    for argument in arguments {
+        if explicit_path(argument) {
+            continue;
+        }
+        match *argument {
+            "--patch" => patch = true,
+            "--no-patch" => patch = false,
+            "--force" | "--no-force" | "--quiet" | "--no-quiet" => {}
+            argument if argument.starts_with('-') && !argument.starts_with("--") => {
+                let flags = &argument[1..];
+                if flags.is_empty() || !flags.chars().all(|flag| matches!(flag, 'f' | 'q' | 'p')) {
+                    return false;
+                }
+                patch |= flags.contains('p');
+            }
+            _ => return false,
+        }
+    }
+    !patch
 }
 
 struct RestoreOptions {
@@ -404,7 +430,11 @@ fn restore_options(arguments: &[&str]) -> Option<RestoreOptions> {
             }
         } else if !after_options && argument.starts_with('-') {
             return None;
-        } else if explicit_path(argument) {
+        } else if if after_options {
+            explicit_path_after_separator(argument)
+        } else {
+            explicit_path(argument)
+        } {
             paths.push(argument.to_owned());
         } else {
             return None;
@@ -422,7 +452,7 @@ fn restore_options(arguments: &[&str]) -> Option<RestoreOptions> {
 fn exact_paths(arguments: &[&str]) -> Option<Vec<String>> {
     let paths = arguments
         .iter()
-        .map(|path| explicit_path(path).then(|| (*path).to_owned()))
+        .map(|path| explicit_path_after_separator(path).then(|| (*path).to_owned()))
         .collect::<Option<Vec<_>>>()?;
     Some(paths)
 }
@@ -586,6 +616,14 @@ fn content_paths(operation: &str, arguments: &[&str]) -> Vec<String> {
 fn explicit_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('-')
+        && !path.starts_with([':', '!'])
+        && !contains_shell_pattern(path)
+        && !path.contains(['{', '}'])
+        && !has_unmodeled_expansion(path)
+}
+
+fn explicit_path_after_separator(path: &str) -> bool {
+    !path.is_empty()
         && !path.starts_with([':', '!'])
         && !contains_shell_pattern(path)
         && !path.contains(['{', '}'])

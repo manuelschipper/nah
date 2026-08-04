@@ -65,7 +65,11 @@ fn forced_checkout(arguments: &[Word]) -> bool {
     };
     let mut force = false;
     let mut branch_mode = false;
+    let mut detach = false;
+    let mut merge = false;
+    let mut patch = false;
     let mut target = false;
+    let mut operands = 0;
     let mut index = 0;
     while index < values.len() {
         let argument = values[index].as_str();
@@ -73,8 +77,12 @@ fn forced_checkout(arguments: &[Word]) -> bool {
             "--" => return false,
             "--force" => force = true,
             "--no-force" => force = false,
-            "--detach" => branch_mode = true,
-            "--no-detach" => branch_mode = false,
+            "--detach" => detach = true,
+            "--no-detach" => detach = false,
+            "--merge" => merge = true,
+            "--no-merge" => merge = false,
+            "--patch" => patch = true,
+            "--no-patch" => patch = false,
             "--orphan" => {
                 index += 1;
                 if values.get(index).is_none() {
@@ -95,10 +103,6 @@ fn forced_checkout(arguments: &[Word]) -> bool {
             | "--no-ignore-other-worktrees" => {}
             "--help"
             | "--version"
-            | "--patch"
-            | "--no-patch"
-            | "--merge"
-            | "--no-merge"
             | "--ours"
             | "--theirs"
             | "--pathspec-from-file"
@@ -112,6 +116,7 @@ fn forced_checkout(arguments: &[Word]) -> bool {
             "-" => {
                 branch_mode = true;
                 target = true;
+                operands += 1;
             }
             argument if argument.starts_with('-') && !argument.starts_with("--") => {
                 let flags = &argument.as_bytes()[1..];
@@ -120,7 +125,8 @@ fn forced_checkout(arguments: &[Word]) -> bool {
                     match flags[position] as char {
                         'f' => force = true,
                         'q' | 'l' => {}
-                        'd' => branch_mode = true,
+                        'd' => detach = true,
+                        'p' => patch = true,
                         'b' | 'B' => {
                             branch_mode = true;
                             target = true;
@@ -138,11 +144,14 @@ fn forced_checkout(arguments: &[Word]) -> bool {
                 }
             }
             argument if argument.starts_with('-') => return false,
-            _ => target = true,
+            _ => {
+                target = true;
+                operands += 1;
+            }
         }
         index += 1;
     }
-    force && (!target || branch_mode)
+    force && !merge && !patch && operands <= 1 && (!target || branch_mode || detach)
 }
 
 fn forced_switch(arguments: &[Word]) -> bool {
@@ -151,13 +160,17 @@ fn forced_switch(arguments: &[Word]) -> bool {
     };
     let mut force = false;
     let mut discard = false;
+    let mut merge = false;
     let mut target = false;
+    let mut target_option = None;
+    let mut operands = 0;
     let mut after_separator = false;
     let mut index = 0;
     while index < values.len() {
         let argument = values[index].as_str();
         if after_separator {
             target = true;
+            operands += 1;
             index += 1;
             continue;
         }
@@ -167,6 +180,8 @@ fn forced_switch(arguments: &[Word]) -> bool {
             "--no-force" => force = false,
             "--discard-changes" => discard = true,
             "--no-discard-changes" => discard = false,
+            "--merge" => merge = true,
+            "--no-merge" => merge = false,
             "--quiet"
             | "--no-quiet"
             | "--guess"
@@ -179,8 +194,12 @@ fn forced_switch(arguments: &[Word]) -> bool {
             | "--no-overwrite-ignore"
             | "--ignore-other-worktrees"
             | "--no-ignore-other-worktrees" => {}
-            "--help" | "--version" | "--merge" | "--no-merge" => return false,
+            "--help" | "--version" => return false,
             "--create" | "--force-create" | "--orphan" => {
+                if target_option.is_some() {
+                    return false;
+                }
+                target_option = Some(argument == "--orphan");
                 index += 1;
                 if values.get(index).is_none() {
                     return false;
@@ -192,12 +211,19 @@ fn forced_switch(arguments: &[Word]) -> bool {
                     || argument.starts_with("--force-create=")
                     || argument.starts_with("--orphan=") =>
             {
+                if target_option.is_some() {
+                    return false;
+                }
+                target_option = Some(argument.starts_with("--orphan="));
                 target = argument
                     .split_once('=')
                     .is_some_and(|(_, value)| !value.is_empty());
             }
             argument if argument.starts_with("--conflict") => return false,
-            "-" => target = true,
+            "-" => {
+                target = true;
+                operands += 1;
+            }
             argument if argument.starts_with('-') && !argument.starts_with("--") => {
                 let flags = &argument.as_bytes()[1..];
                 let mut position = 0;
@@ -206,6 +232,10 @@ fn forced_switch(arguments: &[Word]) -> bool {
                         'f' => force = true,
                         'q' | 'd' => {}
                         'c' | 'C' => {
+                            if target_option.is_some() {
+                                return false;
+                            }
+                            target_option = Some(false);
                             target = true;
                             if position + 1 == flags.len() {
                                 index += 1;
@@ -221,11 +251,19 @@ fn forced_switch(arguments: &[Word]) -> bool {
                 }
             }
             argument if argument.starts_with('-') => return false,
-            _ => target = true,
+            _ => {
+                target = true;
+                operands += 1;
+            }
         }
         index += 1;
     }
-    target && (force || discard)
+    let valid_operands = match target_option {
+        Some(true) => operands == 0,
+        Some(false) => operands <= 1,
+        None => operands == 1,
+    };
+    target && !merge && valid_operands && (force || discard)
 }
 
 fn static_values(arguments: &[Word]) -> Option<Vec<String>> {

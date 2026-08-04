@@ -9,11 +9,13 @@ use support::{filesystem, guard_policy, guarded_stream, project_scope};
 #[test]
 fn git_guards_block_only_their_one_sentence_operation() {
     for (guard, operation) in [
+        ("git-clean-force", "clean-force"),
         ("git-metadata", "metadata-mutation"),
         ("git-force-push", "force-push"),
         ("git-hard-reset", "hard-reset"),
         ("git-recovery-destroy", "recovery-destroy"),
         ("git-rewrite-force", "rewrite-force"),
+        ("git-worktree-discard", "worktree-discard"),
     ] {
         let stream = guarded_stream(EffectKind::Git {
             operation: nah_proto::action::SemanticCode::new(operation).unwrap(),
@@ -35,119 +37,38 @@ fn git_guards_block_only_their_one_sentence_operation() {
 }
 
 #[test]
-fn git_clean_force_requires_a_same_stage_project_root_delete() {
-    let root_delete = filesystem(
-        FilesystemOperation::Delete,
-        "/repo",
-        project_scope(),
-        nah_proto::action::Sensitivity::None,
-    );
-    let named_delete = filesystem(
-        FilesystemOperation::Delete,
-        "/repo/build",
-        project_scope(),
-        nah_proto::action::Sensitivity::None,
-    );
-    for (stages, expected) in [
+fn root_filesystem_effects_cannot_substitute_for_guard_evidence() {
+    for (guard, operation, filesystem_operation) in [
+        ("git-clean-force", "clean", FilesystemOperation::Delete),
         (
-            vec![vec![
-                EffectKind::opaque("git").unwrap(),
-                EffectKind::Git {
-                    operation: nah_proto::action::SemanticCode::CLEAN_FORCE,
-                },
-                root_delete.clone(),
-            ]],
-            Verdict::Block,
-        ),
-        (
-            vec![vec![
-                EffectKind::opaque("git").unwrap(),
-                EffectKind::Git {
-                    operation: nah_proto::action::SemanticCode::CLEAN_FORCE,
-                },
-                named_delete,
-            ]],
-            Verdict::Delegate,
-        ),
-        (
-            vec![
-                vec![
-                    EffectKind::opaque("git").unwrap(),
-                    EffectKind::Git {
-                        operation: nah_proto::action::SemanticCode::CLEAN_FORCE,
-                    },
-                ],
-                vec![EffectKind::opaque("writer").unwrap(), root_delete],
-            ],
-            Verdict::Delegate,
+            "git-worktree-discard",
+            "restore-worktree",
+            FilesystemOperation::Write,
         ),
     ] {
-        let stream = ActionStream::new(Coverage::Partial, stages, vec![]).unwrap();
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("git-clean-force", true), &[]).unwrap();
-        assert_eq!(decision.verdict(), expected);
-    }
-}
-
-#[test]
-fn git_worktree_discard_accepts_proven_branch_mode_or_same_stage_root_write() {
-    let direct = guarded_stream(EffectKind::Git {
-        operation: nah_proto::action::SemanticCode::WORKTREE_DISCARD,
-    });
-    assert_eq!(
-        nah_policy::decide(&direct, &guard_policy("git-worktree-discard", true), &[],)
-            .unwrap()
-            .verdict(),
-        Verdict::Block
-    );
-
-    let root_write = filesystem(
-        FilesystemOperation::Write,
-        "/repo",
-        project_scope(),
-        nah_proto::action::Sensitivity::None,
-    );
-    let correlated = ActionStream::new(
-        Coverage::Full,
-        vec![vec![
-            EffectKind::opaque("git").unwrap(),
-            EffectKind::Git {
-                operation: nah_proto::action::SemanticCode::new("restore-worktree").unwrap(),
-            },
-            root_write.clone(),
-        ]],
-        vec![],
-    )
-    .unwrap();
-    assert_eq!(
-        nah_policy::decide(
-            &correlated,
-            &guard_policy("git-worktree-discard", true),
-            &[],
-        )
-        .unwrap()
-        .verdict(),
-        Verdict::Block
-    );
-
-    let split = ActionStream::new(
-        Coverage::Partial,
-        vec![
-            vec![
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
                 EffectKind::opaque("git").unwrap(),
                 EffectKind::Git {
-                    operation: nah_proto::action::SemanticCode::new("checkout-worktree").unwrap(),
+                    operation: nah_proto::action::SemanticCode::new(operation).unwrap(),
                 },
-            ],
-            vec![EffectKind::opaque("writer").unwrap(), root_write],
-        ],
-        vec![],
-    )
-    .unwrap();
-    assert_eq!(
-        nah_policy::decide(&split, &guard_policy("git-worktree-discard", true), &[],)
-            .unwrap()
-            .verdict(),
-        Verdict::Delegate
-    );
+                filesystem(
+                    filesystem_operation,
+                    "/repo",
+                    project_scope(),
+                    nah_proto::action::Sensitivity::None,
+                ),
+            ]],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Delegate,
+            "{guard}"
+        );
+    }
 }

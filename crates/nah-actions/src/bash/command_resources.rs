@@ -39,11 +39,17 @@ impl Lowerer {
         redirected_descriptors: &DescriptorState,
         stage: usize,
         classifications: &CommandClassifications,
+        git_environment_override: bool,
         mut filesystem_drafts: Vec<FilesystemDraft>,
         mut network_endpoints: Vec<NetworkEndpoint>,
         mut descriptor_flows: Vec<DescriptorFlow>,
     ) -> CommandResources {
         let mut system_states = Vec::new();
+        let git_command_guard = match program {
+            _ if git_environment_override => None,
+            ProgramDraft::Static(program) => git_command_operation(program, arguments),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         // The shell expands these targets before the command runs, so their
         // effects stay bounded by the literal prefix instead of naming a path.
         let mut patterns = pattern_targets(arguments);
@@ -96,6 +102,7 @@ impl Lowerer {
             }
         } else if !terminal_help
             && classifications.git.is_none()
+            && !git_environment_override
             && let ProgramDraft::Static(program) = program
         {
             self.lower_command_filesystems(program, arguments, &patterns, &mut filesystem_drafts);
@@ -132,6 +139,9 @@ impl Lowerer {
                     false,
                     &mut filesystem_drafts,
                 );
+                if let Some(filesystem) = filesystem_drafts.last_mut() {
+                    filesystem.git_guard = Some(SemanticCode::WORKTREE_DISCARD);
+                }
             }
             for target in &git.deleted_filesystems {
                 let Some(requested) = self.resolve_requested(target) else {
@@ -143,6 +153,11 @@ impl Lowerer {
                     false,
                     &mut filesystem_drafts,
                 );
+                if git_command_guard == Some(SemanticCode::CLEAN_FORCE.as_str())
+                    && let Some(filesystem) = filesystem_drafts.last_mut()
+                {
+                    filesystem.git_guard = Some(SemanticCode::CLEAN_FORCE);
+                }
             }
             for target in &git.existing_filesystems {
                 let Some(requested) = self.resolve_requested(target) else {
@@ -150,6 +165,9 @@ impl Lowerer {
                 };
                 self.add_existing_file(&requested, &mut filesystem_drafts);
             }
+        }
+        if git_environment_override {
+            self.complete = false;
         }
         if let Some(execution) = &classifications.execution {
             if !execution.complete {
@@ -318,6 +336,7 @@ impl Lowerer {
         network_endpoints.dedup();
         let mut git_operations = filesystem_drafts
             .iter()
+            .filter(|filesystem| filesystem.git_guard.is_none())
             .filter(|filesystem| {
                 metadata_mutation(
                     &filesystem.requested,
@@ -328,8 +347,8 @@ impl Lowerer {
             })
             .map(|_| SemanticCode::METADATA_MUTATION)
             .collect::<Vec<_>>();
-        if let ProgramDraft::Static(program) = program
-            && let Some(operation) = git_command_operation(program, arguments)
+        if let Some(operation) = git_command_guard
+            && operation != SemanticCode::CLEAN_FORCE.as_str()
         {
             git_operations.push(
                 SemanticCode::new(operation).expect("Git operations are validated constants"),

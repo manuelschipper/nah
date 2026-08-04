@@ -13,9 +13,10 @@ use super::command_resources::CommandResources;
 use super::{AssignmentUpdate, Lowered, Lowerer};
 use crate::bash_descriptors::{DescriptorRedirectPlan, shell_attached_to_dev_socket};
 use crate::bash_flow::redirects_stdin;
+use crate::bash_git::command_operation as git_command_operation;
 use crate::bash_invocation::invocation;
 use crate::bash_logical_storage::models_logical_storage_command;
-use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft};
+use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue};
 use crate::bash_self_protection::{
     EnvironmentVariables, environment_operation as nah_environment_operation,
     hardlink_operation as nah_hardlink_operation, inspection_operation as nah_inspection_operation,
@@ -138,7 +139,7 @@ impl Lowerer {
             invocation_origins.extend(origins.iter().copied());
             invocation_origins = self.bounded_origins(invocation_origins);
         }
-        let classifications = self.classify_command(
+        let mut classifications = self.classify_command(
             &program,
             &local_arguments,
             redirected_descriptors,
@@ -148,6 +149,31 @@ impl Lowerer {
             tar_argument_variants.as_deref(),
             lowered_payload.is_some(),
         );
+        let git_worktree_guard_candidate = matches!(&program, ProgramDraft::Static(program) if program == "git")
+            && (matches!(
+                git_command_operation("git", &local_arguments),
+                Some("clean-force" | "worktree-discard")
+            ) || classifications.git.as_ref().is_some_and(|git| {
+                !git.written_filesystems.is_empty() || !git.deleted_filesystems.is_empty()
+            }));
+        if git_worktree_guard_candidate {
+            self.env_key("GIT_DIR");
+            self.env_key("GIT_WORK_TREE");
+        }
+        let git_environment_override = git_worktree_guard_candidate
+            && (assignments
+                .iter()
+                .any(|(name, _)| matches!(name.as_str(), "GIT_DIR" | "GIT_WORK_TREE"))
+                || self
+                    .visible_environment_variables()
+                    .iter()
+                    .any(|(name, value)| {
+                        matches!(name.as_str(), "GIT_DIR" | "GIT_WORK_TREE")
+                            && !matches!(value, VariableValue::Unset)
+                    }));
+        if git_environment_override {
+            classifications.git = None;
+        }
         if let Some(execution) = &classifications.execution {
             network_endpoints.extend(execution.network_endpoints.iter().cloned());
             descriptor_flows.extend(
@@ -259,6 +285,7 @@ impl Lowerer {
             redirected_descriptors,
             stage,
             &classifications,
+            git_environment_override,
             filesystem_drafts,
             network_endpoints,
             descriptor_flows,

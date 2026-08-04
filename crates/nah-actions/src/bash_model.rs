@@ -129,6 +129,9 @@ pub(crate) struct FilesystemDraft {
     pub(crate) descendant_key: Option<String>,
     pub(crate) requested: String,
     pub(crate) operation: FilesystemOperation,
+    // A Git guard is emitted only if this exact projected mutation resolves
+    // to the project root. Redirects and other same-stage effects stay untagged.
+    pub(crate) git_guard: Option<SemanticCode>,
     pub(crate) recursive: bool,
     pub(crate) symlink_traversal: SymlinkTraversal,
     pub(crate) network_bound: bool,

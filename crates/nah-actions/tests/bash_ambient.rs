@@ -329,6 +329,36 @@ fn changed_environment_makes_the_full_result_partial() {
 }
 
 #[test]
+fn inherited_git_worktree_overrides_suppress_project_guard_evidence() {
+    for source in ["git clean -f", "git restore .", "git switch -f main"] {
+        let values = [
+            ("GIT_DIR", EnvValue::Unset),
+            ("GIT_WORK_TREE", EnvValue::Value("/tmp/alternate")),
+        ];
+        let plan = ambient_plan(source, &values);
+        for expected in ["GIT_DIR", "GIT_WORK_TREE"] {
+            assert!(plan.observation_request().queries().iter().any(|query| {
+                matches!(query, ObservationQuery::Env { name, .. } if name == expected)
+            }));
+        }
+        let observation = full_observation(plan.observation_request(), &values);
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::Git { operation }
+                        if matches!(operation.as_str(), "clean-force" | "worktree-discard")
+                )
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
 fn ambient_redirect_target_uses_the_same_resolution_layer() {
     let values = [("OUT", EnvValue::Value("/home/test/.nah/config"))];
     let plan = ambient_plan("printf x > \"$OUT\"", &values);

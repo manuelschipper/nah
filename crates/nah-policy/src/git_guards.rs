@@ -1,6 +1,6 @@
 //! Evaluates destructive Git guards; it does not interpret command-line syntax.
 
-use nah_proto::action::{ActionStream, Effect, EffectKind, FilesystemOperation, SemanticCode};
+use nah_proto::action::{ActionStream, EffectKind, SemanticCode};
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
@@ -51,7 +51,7 @@ pub(crate) fn add(
             .enabled_shipped_guards()
             .iter()
             .any(|enabled| enabled == name)
-            || !matches_operation(name, operation, action_stream)
+            || !matches_operation(operation, action_stream)
         {
             continue;
         }
@@ -62,39 +62,11 @@ pub(crate) fn add(
     Ok(blocked)
 }
 
-fn matches_operation(name: &str, operation: &SemanticCode, action_stream: &ActionStream) -> bool {
+fn matches_operation(operation: &SemanticCode, action_stream: &ActionStream) -> bool {
     action_stream.effects().iter().any(|effect| {
         let EffectKind::Git { operation: actual } = effect.kind() else {
             return false;
         };
-        if name == "git-clean-force" {
-            return actual == operation
-                && same_stage_root_filesystem(action_stream, effect, FilesystemOperation::Delete);
-        }
-        if name == "git-worktree-discard" {
-            return actual == operation
-                || matches!(actual.as_str(), "checkout-worktree" | "restore-worktree")
-                    && same_stage_root_filesystem(
-                        action_stream,
-                        effect,
-                        FilesystemOperation::Write,
-                    );
-        }
         actual == operation
-    })
-}
-
-fn same_stage_root_filesystem(
-    action_stream: &ActionStream,
-    git_effect: &Effect,
-    operation: FilesystemOperation,
-) -> bool {
-    action_stream.effects().iter().any(|candidate| {
-        candidate.stage() == git_effect.stage()
-            && matches!(
-                candidate.kind(),
-                EffectKind::Filesystem { effect }
-                    if effect.operation == operation && effect.selects_root
-            )
     })
 }

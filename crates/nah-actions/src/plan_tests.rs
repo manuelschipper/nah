@@ -39,6 +39,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     descendant_key: None,
                     requested: "/repo/out".into(),
                     operation: FilesystemOperation::Write,
+                    git_guard: None,
                     recursive: false,
                     symlink_traversal: SymlinkTraversal::None,
                     network_bound: false,

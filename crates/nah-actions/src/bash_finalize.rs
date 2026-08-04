@@ -68,7 +68,7 @@ pub(crate) fn finalize(
     let mut prior_sensitive_writes: Vec<(AbsolutePath, Sensitivity)> = Vec::new();
     let mut stages = draft_stages
         .into_iter()
-        .map(|stage| {
+        .map(|mut stage| {
             let conditional_execution = stage.conditional_depth > 0;
             let invocation_cwd = stage
                 .invocation_cwd
@@ -399,6 +399,12 @@ pub(crate) fn finalize(
                             prior_sensitive_writes.push((effect.target.clone(), *sensitivity));
                         }
                     }
+                }
+                if selects_root
+                    && let Some(operation) = filesystem.git_guard.as_ref()
+                    && !stage.git_operations.contains(operation)
+                {
+                    stage.git_operations.push(operation.clone());
                 }
                 effects.extend(effects_with_sensitivities(effect, &sensitivities));
             }

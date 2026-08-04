@@ -176,12 +176,16 @@ fn facts_with_descendants(
                 },
                 ObservationQuery::Env { name, .. } => ObservationValue::Env {
                     observed: Observed::Ok {
-                        value: EnvObservation::Value {
-                            text: if name == "TOOL" {
-                                env_program.into()
-                            } else {
-                                "value".into()
-                            },
+                        value: if matches!(name.as_str(), "GIT_DIR" | "GIT_WORK_TREE") {
+                            EnvObservation::Unset
+                        } else {
+                            EnvObservation::Value {
+                                text: if name == "TOOL" {
+                                    env_program.into()
+                                } else {
+                                    "value".into()
+                                },
+                            }
                         },
                     },
                 },

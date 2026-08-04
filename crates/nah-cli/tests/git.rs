@@ -2,11 +2,13 @@
 
 mod support;
 
+use std::process::Command;
+
 use nah_cli::decide_with;
 use nah_proto::action::Coverage;
 use nah_proto::decision::Verdict;
 use serde_json::json;
-use support::{call, ctx, repo};
+use support::{call, ctx, git, repo};
 
 #[cfg(unix)]
 #[test]
@@ -81,13 +83,28 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ("sudo git -C . reset --hard", "git-hard-reset"),
         ("git clean -f", "git-clean-force"),
         ("git clean -fdx", "git-clean-force"),
+        ("git clean . -f", "git-clean-force"),
+        ("git clean build -f .", "git-clean-force"),
+        ("git clean -f .git/..", "git-clean-force"),
+        ("git clean . -f -", "git-clean-force"),
         ("git -c clean.requireForce=false clean", "git-clean-force"),
         ("git checkout -- .", "git-worktree-discard"),
         ("git checkout .", "git-worktree-discard"),
         ("git restore .", "git-worktree-discard"),
         ("git restore --staged --worktree .", "git-worktree-discard"),
         ("git checkout -f", "git-worktree-discard"),
+        ("git checkout -f --no-merge", "git-worktree-discard"),
+        ("git checkout -f --no-patch", "git-worktree-discard"),
+        (
+            "git checkout -f -b topic --no-detach origin/other",
+            "git-worktree-discard",
+        ),
+        ("git checkout -- . --keep", "git-worktree-discard"),
+        ("git checkout --no-patch -- .", "git-worktree-discard"),
+        ("git checkout HEAD .", "git-worktree-discard"),
+        ("git restore -- . --keep", "git-worktree-discard"),
         ("git switch --discard-changes main", "git-worktree-discard"),
+        ("git switch -f --no-merge main", "git-worktree-discard"),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -170,10 +187,21 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "git clean -n -f",
         "git clean -f -- src/lib.rs",
         "git clean -f ':/'",
+        "git clean -- . -f",
+        "GIT_WORK_TREE=/tmp/alternate git clean -f",
+        "git clean .git",
+        "git clean -f .git",
         "git checkout -f main",
+        "git checkout HEAD HEAD -- .",
         "git checkout -f -- src/lib.rs",
         "git restore src/lib.rs",
+        "git restore src/lib.rs > .",
         "git restore ':/'",
+        "git switch -f main other",
+        "git checkout -f --no-merge --merge",
+        "git checkout -f --no-patch --patch",
+        "git checkout --no-patch --patch -- .",
+        "git switch -f --no-merge --merge main",
         "git branch -D old",
     ] {
         let result = decide_with(
@@ -198,6 +226,124 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), coverage, "{command}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn parser_regressions_match_real_git_behavior() {
+    let clean_temp = tempfile::tempdir().unwrap();
+    let clean_repo = repo(clean_temp.path());
+    std::fs::write(clean_repo.join("untracked"), "discard me\n").unwrap();
+    git(&clean_repo, &["clean", ".", "-f"]);
+    assert!(!clean_repo.join("untracked").exists());
+    std::fs::write(clean_repo.join("lexical"), "discard me too\n").unwrap();
+    git(&clean_repo, &["clean", "-f", ".git/.."]);
+    assert!(!clean_repo.join("lexical").exists());
+    std::fs::write(clean_repo.join("lone-dash"), "discard me too\n").unwrap();
+    git(&clean_repo, &["clean", ".", "-f", "-"]);
+    assert!(!clean_repo.join("lone-dash").exists());
+
+    let branch_temp = tempfile::tempdir().unwrap();
+    let branch_repo = repo(branch_temp.path());
+    git(&branch_repo, &["branch", "origin/other"]);
+    std::fs::remove_file(branch_repo.join("src/lib.rs")).unwrap();
+    git(
+        &branch_repo,
+        &[
+            "checkout",
+            "-f",
+            "-b",
+            "topic",
+            "--no-detach",
+            "origin/other",
+        ],
+    );
+    assert!(branch_repo.join("src/lib.rs").exists());
+    std::fs::remove_file(branch_repo.join("src/lib.rs")).unwrap();
+    git(&branch_repo, &["checkout", "-f", "--no-merge"]);
+    assert!(branch_repo.join("src/lib.rs").exists());
+    std::fs::remove_file(branch_repo.join("src/lib.rs")).unwrap();
+    git(&branch_repo, &["checkout", "-f", "--no-patch"]);
+    assert!(branch_repo.join("src/lib.rs").exists());
+    std::fs::remove_file(branch_repo.join("src/lib.rs")).unwrap();
+    git(
+        &branch_repo,
+        &["switch", "-f", "--no-merge", "origin/other"],
+    );
+    assert!(branch_repo.join("src/lib.rs").exists());
+
+    let dash_temp = tempfile::tempdir().unwrap();
+    let dash_repo = repo(dash_temp.path());
+    std::fs::write(dash_repo.join("--keep"), "tracked\n").unwrap();
+    git(&dash_repo, &["add", "--", "--keep"]);
+    git(
+        &dash_repo,
+        &[
+            "-c",
+            "user.name=nah test",
+            "-c",
+            "user.email=nah@example.invalid",
+            "commit",
+            "-qm",
+            "dash path fixture",
+        ],
+    );
+    std::fs::remove_file(dash_repo.join("src/lib.rs")).unwrap();
+    std::fs::remove_file(dash_repo.join("--keep")).unwrap();
+    git(&dash_repo, &["checkout", "--", ".", "--keep"]);
+    assert!(dash_repo.join("src/lib.rs").exists());
+    assert!(dash_repo.join("--keep").exists());
+    std::fs::remove_file(dash_repo.join("src/lib.rs")).unwrap();
+    git(&dash_repo, &["checkout", "HEAD", "."]);
+    assert!(dash_repo.join("src/lib.rs").exists());
+    std::fs::remove_file(dash_repo.join("src/lib.rs")).unwrap();
+    git(&dash_repo, &["checkout", "--no-patch", "--", "."]);
+    assert!(dash_repo.join("src/lib.rs").exists());
+    std::fs::remove_file(dash_repo.join("src/lib.rs")).unwrap();
+    std::fs::remove_file(dash_repo.join("--keep")).unwrap();
+    git(&dash_repo, &["restore", "--", ".", "--keep"]);
+    assert!(dash_repo.join("src/lib.rs").exists());
+    assert!(dash_repo.join("--keep").exists());
+
+    let alternate_temp = tempfile::tempdir().unwrap();
+    let alternate_repo = repo(alternate_temp.path());
+    let alternate_tree = alternate_temp.path().join("alternate");
+    std::fs::create_dir(&alternate_tree).unwrap();
+    std::fs::write(alternate_tree.join("untracked"), "discard me\n").unwrap();
+    let status = Command::new("git")
+        .current_dir(&alternate_repo)
+        .env("GIT_WORK_TREE", &alternate_tree)
+        .args(["clean", "-f"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(!alternate_tree.join("untracked").exists());
+    assert!(alternate_repo.join("src/lib.rs").exists());
+
+    let metadata_temp = tempfile::tempdir().unwrap();
+    let metadata_repo = repo(metadata_temp.path());
+    let refused = Command::new("git")
+        .arg("-C")
+        .arg(&metadata_repo)
+        .args(["clean", ".git"])
+        .status()
+        .unwrap();
+    assert!(!refused.success());
+    git(&metadata_repo, &["clean", "-f", ".git"]);
+    assert!(metadata_repo.join(".git").exists());
+
+    let inherited_home = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .current_dir(&alternate_repo)
+        .env("HOME", inherited_home.path())
+        .env("GIT_WORK_TREE", &alternate_tree)
+        .args(["test", "--json", "git clean -f"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["decision"]["verdict"], "delegate");
+    assert_eq!(result["decision"]["coverage"], "partial");
 }
 
 #[test]

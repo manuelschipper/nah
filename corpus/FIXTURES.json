@@ -665,6 +665,13 @@
         {
           "exists": true,
           "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
           "realpath": "/workspace/project/.git/objects/aa",
           "requested": "/workspace/project/.git/objects/aa",
           "resolved": "/workspace/project/.git/objects/aa"
@@ -729,6 +736,25 @@
           "realpath": "/workspace/project/src/lib.rs",
           "requested": "/workspace/project/src/lib.rs",
           "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
         },
         {
           "exists": true,
