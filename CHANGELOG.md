@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Mobile theme toggle alignment** — the homepage theme control now shares
+  the navigation links' text baseline on small screens.
+
 ## nah 1.2.0 — Aug 4, 2026
 
 - **Generated web guard reference** — the homepage build now renders
