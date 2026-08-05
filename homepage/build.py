@@ -24,10 +24,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FRAGMENT = f"{HERE}/fragment.html"
 OUT_DIR = f"{HERE}/dist"
 
-RED = (0xA5, 0x32, 0x1E)
 INK = (0x23, 0x21, 0x1E)
 SOFT = (0x6E, 0x67, 0x5B)
 PAPER = (0xFA, 0xF6, 0xEC)
+
+# the dark theme's tokens, used for the share card
+DARK_PAPER = (0x1A, 0x17, 0x14)
+DARK_INK = (0xEF, 0xE8, 0xDA)
+DARK_SOFT = (0xAD, 0xA3, 0x94)
 
 DESCRIPTION = (
     "nah is a guard that sits in your coding agent's hook path and reads "
@@ -128,11 +132,13 @@ def favicon(color):
 fav_light = favicon(INK)
 fav_dark = favicon(PAPER)
 
-# -- og card: paper, big red word, tagline underneath --------------------
-og = Image.new("RGB", (1200, 630), PAPER)
+# -- og card: the dark theme, so the word reads white in a feed. Red is the
+#    block stamp's colour and means "something was stopped"; a share card is
+#    not a verdict, and the hero mark on the page is inked, not red. ---------
+og = Image.new("RGB", (1200, 630), DARK_PAPER)
 ww = 470
 wh = round(word.size[1] * ww / word.size[0])
-big = inked(alpha.resize((ww, wh), Image.LANCZOS), RED)
+big = inked(alpha.resize((ww, wh), Image.LANCZOS), DARK_INK)
 og.paste(big, ((1200 - ww) // 2, 108), big)
 draw = ImageDraw.Draw(og)
 mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 34)
@@ -140,9 +146,9 @@ mono_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.tt
 tag = "expensive mistakes stop here"
 facts = "microsecond verdicts · no LLM · one Rust binary"
 tw = draw.textlength(tag, font=mono)
-draw.text(((1200 - tw) / 2, 108 + wh + 66), tag, font=mono, fill=INK)
+draw.text(((1200 - tw) / 2, 108 + wh + 66), tag, font=mono, fill=DARK_INK)
 fw = draw.textlength(facts, font=mono_sm)
-draw.text(((1200 - fw) / 2, 108 + wh + 130), facts, font=mono_sm, fill=SOFT)
+draw.text(((1200 - fw) / 2, 108 + wh + 130), facts, font=mono_sm, fill=DARK_SOFT)
 og.save(f"{OUT_DIR}/og.png", "PNG", optimize=True)
 
 # -- assemble the document ----------------------------------------------
@@ -172,7 +178,7 @@ head = f"""<!doctype html>
 <meta property="og:url" content="https://nahguard.ai/">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{DESCRIPTION}">
-<meta property="og:image" content="https://nahguard.ai/og.png">
+<meta property="og:image" content="https://nahguard.ai/og.png?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -422,7 +428,7 @@ def page_shell(page_title, eyebrow, body_html, description, path, current):
 <meta property="og:url" content="https://nahguard.ai{path}">
 <meta property="og:title" content="{page_title} · nah">
 <meta property="og:description" content="{description}">
-<meta property="og:image" content="https://nahguard.ai/og.png">
+<meta property="og:image" content="https://nahguard.ai/og.png?v=2">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF6EC">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1714">
