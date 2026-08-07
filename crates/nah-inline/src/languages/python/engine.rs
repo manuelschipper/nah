@@ -1461,13 +1461,15 @@ impl Interpreter<'_> {
             return Value::Unknown;
         };
         let mut local = state.clone();
+        let globals = global_names(&function.body, &function.source);
         for name in assigned_names(&function.body, &function.source) {
-            local.bindings.insert(name, Value::Unknown);
+            if !globals.contains(&name) {
+                local.bindings.insert(name, Value::Unknown);
+            }
         }
         for (name, value) in bindings {
             local.bindings.insert(name, value);
         }
-        let globals = global_names(&function.body, &function.source);
         self.call_stack.push(function.name);
         let outer_source = std::mem::replace(&mut self.source, function.source);
         let result = match self.exec_block(&function.body, &mut local, depth + 1) {
@@ -2187,23 +2189,53 @@ fn join_states(mut left: State, right: State) -> State {
 
 fn assigned_names(node: &HirNode, source: &str) -> BTreeSet<String> {
     fn visit(node: &HirNode, source: &str, names: &mut BTreeSet<String>, root: bool) {
-        if !root
-            && matches!(
-                node.kind(),
-                HirKind::Function | HirKind::Class | HirKind::Lambda
-            )
-        {
-            return;
+        if !root {
+            match node.kind() {
+                HirKind::Function | HirKind::Class => {
+                    if let Some(name) = node.child(HirField::Name) {
+                        names.insert(unsafe_text(source, name).to_owned());
+                    }
+                    return;
+                }
+                HirKind::DecoratedDefinition => {
+                    if let Some(name) = node
+                        .child(HirField::Definition)
+                        .and_then(|definition| definition.child(HirField::Name))
+                    {
+                        names.insert(unsafe_text(source, name).to_owned());
+                    }
+                    return;
+                }
+                HirKind::Lambda => return,
+                _ => {}
+            }
         }
-        if node.kind() == HirKind::Assignment
-            && let Some(left) = node.child(HirField::Left)
-        {
-            collect_targets(left, source, names);
-        }
-        if node.kind() == HirKind::Function
-            && let Some(name) = node.child(HirField::Name)
-        {
-            names.insert(unsafe_text(source, name).to_owned());
+        match node.kind() {
+            HirKind::Assignment | HirKind::AugmentedAssignment | HirKind::For => {
+                if let Some(left) = node.child(HirField::Left) {
+                    collect_targets(left, source, names);
+                }
+            }
+            HirKind::Import => {
+                for imported in named_children(node) {
+                    let (name, alias) = import_name(imported, source);
+                    names.insert(alias.unwrap_or_else(|| {
+                        name.split('.').next().unwrap_or(name.as_str()).to_owned()
+                    }));
+                }
+                return;
+            }
+            HirKind::ImportFrom => {
+                for imported in node.children().iter().filter(|child| {
+                    matches!(child.kind(), HirKind::AliasedImport | HirKind::DottedName)
+                        && child.field() != Some(HirField::ModuleName)
+                }) {
+                    let (name, alias) = import_name(imported, source);
+                    names.insert(alias.unwrap_or(name));
+                }
+                return;
+            }
+            _ => {}
         }
         for child in node.children() {
             visit(child, source, names, false);
@@ -2212,7 +2244,12 @@ fn assigned_names(node: &HirNode, source: &str) -> BTreeSet<String> {
     fn collect_targets(node: &HirNode, source: &str, names: &mut BTreeSet<String>) {
         if node.kind() == HirKind::Identifier {
             names.insert(unsafe_text(source, node).to_owned());
-        } else {
+        } else if matches!(
+            node.kind(),
+            HirKind::Tuple | HirKind::List | HirKind::ParenthesizedExpression
+        ) || node.kind() == HirKind::Unsupported
+            && unsafe_text(source, node).trim_start().starts_with('*')
+        {
             for child in node.children() {
                 collect_targets(child, source, names);
             }
@@ -2811,6 +2848,32 @@ mod tests {
             "import shutil\ndef danger(path): shutil.rmtree(path)\ndanger(path='/')",
             "import shutil\ndef danger(path: str): shutil.rmtree(path)\ndanger('/')",
             "import shutil\ndef invoke(callback, target): callback(target)\nalias=invoke\nalias(shutil.rmtree, '/')",
+        ] {
+            assert!(
+                report(code).contains_exact(FindingKind::RootDestruction),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn function_locals_are_predeclared_without_masking_global_or_attribute_access() {
+        for code in [
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    shutil += other\nrun()",
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    import shutil\nrun()",
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    *shutil, = values\nrun()",
+            "import shutil as tool\ndef run():\n    tool.rmtree('/')\n    import package as tool\nrun()",
+            "from shutil import rmtree\ndef run():\n    rmtree('/')\n    from shutil import rmtree\nrun()",
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    for shutil in []:\n        pass\nrun()",
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    def shutil():\n        pass\nrun()",
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    class shutil:\n        pass\nrun()",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+
+        for code in [
+            "import shutil\ndef run():\n    shutil.rmtree('/')\n    shutil.member = None\nrun()",
+            "import shutil\ndef run():\n    global shutil\n    shutil.rmtree('/')\n    shutil = None\nrun()",
         ] {
             assert!(
                 report(code).contains_exact(FindingKind::RootDestruction),
