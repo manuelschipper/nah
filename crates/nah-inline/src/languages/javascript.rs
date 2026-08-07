@@ -11,6 +11,8 @@ use super::common::{
     update_static_binding,
 };
 
+mod parser;
+
 #[derive(Clone)]
 struct JavaScriptState {
     require_owned: bool,
@@ -40,6 +42,11 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
+    match parser::javascript(input.code) {
+        Ok(admission) if admission.executable() => {}
+        Ok(_) => return InlineReport::default(),
+        Err(refusal) => return InlineReport::refused(refusal),
+    }
     let mut report = InlineReport::default();
     let mut states = vec![(0usize, JavaScriptState::default())];
     let code = super::deferred::mask(input.code, program);

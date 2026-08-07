@@ -1,0 +1,16 @@
+{"id":"javascript-runtime","dialect":"javascript","code":"const child = require('node:child_process'); child.execSync('printf ok')","executable":true}
+{"id":"javascript-rejects-types","dialect":"javascript","code":"const target: string = '/tmp'","executable":false}
+{"id":"javascript-jsx","dialect":"javascript","code":"const element = <Widget value={1} />","executable":true}
+{"id":"typescript-type-only","dialect":"typescript","code":"interface Job { command: string }\ntype Result = Job | null\ndeclare const job: Job","executable":true}
+{"id":"typescript-runtime","dialect":"typescript","code":"const child: typeof import('node:child_process') = require('node:child_process'); child.execSync('printf ok')","executable":true}
+{"id":"typescript-rejects-jsx","dialect":"typescript","code":"const element = <Widget value={1} />","executable":false}
+{"id":"tsx-type-only","dialect":"tsx","code":"type Props = { value: number }; const element = <Widget value={1} />","executable":true}
+{"id":"javascript-balanced-malformed","dialect":"javascript","code":"const target = ; require('node:child_process').execSync('rm -rf /')","executable":false}
+{"id":"typescript-balanced-malformed","dialect":"typescript","code":"const target: string = ; require('node:child_process').execSync('rm -rf /')","executable":false}
+{"id":"tsx-balanced-malformed","dialect":"tsx","code":"const element = <Widget value={1 +} />","executable":false}
+{"id":"top-level-return","dialect":"javascript","code":"return; require('node:child_process').execSync('rm -rf /')","executable":false}
+{"id":"function-return","dialect":"javascript","code":"function value() { return 1 }","executable":true}
+{"id":"top-level-break","dialect":"javascript","code":"break; require('node:child_process').execSync('rm -rf /')","executable":false}
+{"id":"loop-break","dialect":"javascript","code":"while (true) { break }","executable":true}
+{"id":"top-level-continue","dialect":"javascript","code":"continue; require('node:child_process').execSync('rm -rf /')","executable":false}
+{"id":"loop-continue","dialect":"javascript","code":"for (;;) { continue }","executable":true}

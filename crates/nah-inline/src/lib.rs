@@ -818,6 +818,25 @@ mod tests {
     }
 
     #[test]
+    fn malformed_javascript_units_are_atomic() {
+        let dangerous = "require('child_process').execSync('rm -rf /')";
+        for code in [
+            format!("const target = ; {dangerous}"),
+            format!("return; {dangerous}"),
+        ] {
+            assert_eq!(report("node", &code), InlineReport::default(), "{code}");
+        }
+        assert_only_refusal(
+            report("node", &format!("{dangerous}]")),
+            InlineRefusal::StructureMismatch,
+        );
+        assert_only_refusal(
+            report("node", "const target = 'unterminated"),
+            InlineRefusal::StructureIncomplete,
+        );
+    }
+
+    #[test]
     fn language_namespaces_and_exact_imports_keep_their_ownership() {
         for (program, code) in [
             ("perl", "$system=1; system('rm -rf /')"),
