@@ -1,0 +1,30 @@
+{"id":"ordinary-python","code":"import shutil; shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"ipython3-python3-dialect","program":"ipython3","code":"import os; name='ok'; os.system(f'printf {name}')","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf ok","stdout_inherited":true}],"refusals":[]}}
+{"id":"bash-cell","code":"\n%%bash\nprintf one\nprintf two\n","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"bash","code":"printf one\nprintf two\n","stdout_inherited":true}],"refusals":[]}}
+{"id":"sh-cell","code":"%%sh   \nprintf sh","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf sh","stdout_inherited":true}],"refusals":[]}}
+{"id":"bash-cell-braces-are-shell","code":"%%bash\nprintf '%s' {one,two}","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"bash","code":"printf '%s' {one,two}","stdout_inherited":true}],"refusals":[]}}
+{"id":"cell-magic-arguments-opaque","code":"%%bash -x\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"cell-magic-after-comment-opaque","code":"# comment\n%%bash\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"indented-cell-magic-opaque","code":"  %%bash\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"unknown-cell-magic-opaque","code":"%%writefile /tmp/x\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"shell-escape","code":"!printf visible","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf visible","stdout_inherited":true}],"refusals":[]}}
+{"id":"captured-shell-escape","code":"!!printf captured","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf captured","stdout_inherited":false}],"refusals":[]}}
+{"id":"execution-order","code":"import os\nos.system('first')\n!second\nos.system('third')\n!!fourth","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"first","stdout_inherited":true},{"kind":"shell","program":"sh","code":"second","stdout_inherited":true},{"kind":"shell","program":"sh","code":"third","stdout_inherited":true},{"kind":"shell","program":"sh","code":"fourth","stdout_inherited":false}],"refusals":[]}}
+{"id":"python-state-crosses-escape","code":"import os\ncommand='after'\n!before\nos.system(command)","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"before","stdout_inherited":true},{"kind":"shell","program":"sh","code":"after","stdout_inherited":true}],"refusals":[]}}
+{"id":"quoted-shell-command","code":"!printf '\"quoted\"'","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf '\"quoted\"'","stdout_inherited":true}],"refusals":[]}}
+{"id":"escaped-shell-command","code":"!printf 'C:\\\\tmp/é'","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf 'C:\\\\tmp/é'","stdout_inherited":true}],"refusals":[]}}
+{"id":"python-interpolation-opaque","code":"value='danger'; !echo {value}","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"line-interpolation-opaque","code":"value='danger'\n!echo {value}","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"dollar-interpolation-opaque","code":"target='/'\n!rm -rf $target","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"run-magic-opaque","code":"%run /tmp/task.py","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"custom-magic-opaque","code":"%custom rm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"indented-escape-opaque","code":"if True:\n    !rm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"continued-escape-opaque","code":"value = (\n!rm -rf /\n)","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"backslash-continued-escape-opaque","code":"value = 1 + \\\n!rm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"triple-string-magics-inert","code":"text = \"\"\"\n!rm -rf /\n%run /tmp/task.py\n%%bash\n\"\"\"\nimport shutil; shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"comment-magic-inert","code":"# !rm -rf /\n# %run /tmp/task.py\nimport shutil; shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"malformed-residual-is-atomic","code":"!rm -rf /\nvalue = @","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"structurally-malformed-residual-is-atomic","code":"!rm -rf /\nvalue = (","expected":{"findings":[],"nested_executions":[],"refusals":["structure-mismatch"]}}
+{"id":"literal-get-ipython-left-opaque","code":"get_ipython().system('rm -rf /')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"intrinsic-name-cannot-be-spoofed","code":"__nah_ipython_system_7f19__('rm -rf /')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"dynamic-intrinsic-name-cannot-be-spoofed","code":"name='__nah_ipython_'+'system_7f19__'; eval(name)('rm -rf /')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}

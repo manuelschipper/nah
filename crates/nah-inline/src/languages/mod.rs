@@ -74,7 +74,7 @@ pub(crate) fn analyze(
 ) -> InlineReport {
     let program = normalized_program(input.program);
     if is_ipython_interpreter(&program) {
-        ipython::analyze(&program, &input, protection, depth)
+        ipython::analyze(&program, &input, protection, depth).into_report()
     } else if is_python_interpreter(&program) {
         python::analyze(&program, &input, protection, depth)
     } else if common::protection::is_perl_interpreter(&program) {

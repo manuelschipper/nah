@@ -29,6 +29,7 @@ enum Module {
     Base64,
     Builtins,
     Io,
+    Ipython,
     Os,
     Environment,
     OsPath,
@@ -48,7 +49,11 @@ enum KnownFunction {
     Eval,
     Exec,
     Getattr,
+    GetIpython,
     Import,
+    IpythonCell,
+    IpythonGetoutput,
+    IpythonSystem,
     IoFile,
     Open,
     OsAbspath,
@@ -352,6 +357,12 @@ pub(super) fn analyze(
         pending_control: None,
     };
     let mut state = State::default();
+    if crate::is_ipython_interpreter(program) {
+        state.bindings.insert(
+            "get_ipython".to_owned(),
+            Value::Known(KnownFunction::GetIpython),
+        );
+    }
     interpreter.exec_block(module.root(), &mut state, depth);
     if let Some(refusal) = interpreter.budget.refusal {
         interpreter.report.refuse(refusal);
@@ -1384,6 +1395,15 @@ impl Interpreter<'_> {
     }
 
     fn call(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let ipython_target = crate::is_ipython_interpreter(self.program)
+            && node.child(HirField::Function).is_some_and(|function| {
+                matches!(
+                    self.text(function),
+                    "get_ipython().system"
+                        | "get_ipython().getoutput"
+                        | "get_ipython().run_cell_magic"
+                )
+            });
         let callable = node
             .child(HirField::Function)
             .map_or(Value::Unknown, |function| self.eval(function, state, depth));
@@ -1427,6 +1447,9 @@ impl Interpreter<'_> {
                 if module == Module::Environment {
                     invalidate_module(module, state);
                 }
+                if module == Module::Ipython {
+                    self.draft.set_partial();
+                }
                 state.relative_cwd_known = false;
                 Value::Unknown
             }
@@ -1436,6 +1459,9 @@ impl Interpreter<'_> {
             }
             _ => {
                 invalidate_argument_cells(&arguments, state);
+                if ipython_target {
+                    self.draft.set_partial();
+                }
                 state.relative_cwd_known = false;
                 Value::Unknown
             }
@@ -1510,6 +1536,17 @@ impl Interpreter<'_> {
         depth: usize,
     ) -> Value {
         match function {
+            KnownFunction::GetIpython => {
+                if arguments.complete
+                    && arguments.positional.is_empty()
+                    && arguments.keywords.is_empty()
+                    && !state.invalid_modules.contains(&Module::Ipython)
+                {
+                    Value::Module(Module::Ipython)
+                } else {
+                    Value::Unknown
+                }
+            }
             KnownFunction::ShutilRmtree => {
                 let keyword_only = if before_python3_minor(self.program, 3) {
                     &[] as &[_]
@@ -1582,6 +1619,76 @@ impl Interpreter<'_> {
                     None,
                 )
                 .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+            }
+            KnownFunction::IpythonSystem | KnownFunction::IpythonGetoutput => {
+                if !self.complete || !state.relative_cwd_known {
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                }
+                if arguments.complete
+                    && arguments.positional.len() == 1
+                    && arguments.keywords.is_empty()
+                    && let Some(code) = arguments.positional.first().and_then(value_string)
+                    && super::super::ipython::exact_shell_command(code)
+                    && self.input.platform != Platform::Windows
+                {
+                    self.push_shell(code, function == KnownFunction::IpythonSystem);
+                    let origin = self.emit_call(
+                        LanguageCallKind::EvaluatedShell,
+                        if function == KnownFunction::IpythonSystem {
+                            "ipython.system"
+                        } else {
+                            "ipython.getoutput"
+                        },
+                        &arguments,
+                        state,
+                        Vec::new(),
+                        None,
+                    );
+                    state.bindings.insert("_exit_code".into(), Value::Unknown);
+                    return if function == KnownFunction::IpythonSystem {
+                        Value::None
+                    } else {
+                        origin.map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+                    };
+                }
+                self.draft.set_partial();
+                Value::Unknown
+            }
+            KnownFunction::IpythonCell => {
+                if !self.complete || !state.relative_cwd_known {
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                }
+                let program = arguments.positional.first().and_then(value_string);
+                let line = arguments.positional.get(1).and_then(value_string);
+                let code = arguments.positional.get(2).and_then(value_string);
+                if arguments.complete
+                    && arguments.positional.len() == 3
+                    && arguments.keywords.is_empty()
+                    && matches!(program, Some("bash" | "sh"))
+                    && line == Some("")
+                    && let (Some(program), Some(code)) = (program, code)
+                    && self.input.platform != Platform::Windows
+                {
+                    if program == "bash" {
+                        self.push_shell_program(program, code, true);
+                    } else {
+                        self.draft.set_partial();
+                    }
+                    self.emit_call(
+                        LanguageCallKind::EvaluatedShell,
+                        "ipython.run_cell_magic",
+                        &arguments,
+                        state,
+                        Vec::new(),
+                        None,
+                    );
+                    state.bindings.insert("_exit_code".into(), Value::Unknown);
+                    return Value::None;
+                }
+                self.draft.set_partial();
+                Value::Unknown
             }
             KnownFunction::OsExec(kind) => {
                 if !valid_os_exec_shape(kind, &arguments)
@@ -2869,11 +2976,15 @@ impl Interpreter<'_> {
     }
 
     fn push_shell(&mut self, code: &str, stdout_inherited: bool) {
+        self.push_shell_program("sh", code, stdout_inherited);
+    }
+
+    fn push_shell_program(&mut self, program: &str, code: &str, stdout_inherited: bool) {
         if !self.budget.admit_value_bytes(Some(code.len())) {
             return;
         }
         self.report.push_nested_execution(NestedExecution::Shell {
-            program: "sh".into(),
+            program: program.to_owned(),
             code: code.to_owned(),
             stdout_inherited,
         });
@@ -3223,6 +3334,9 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Builtins, "compile") => KnownFunction::Compile,
         (Module::Builtins, "open") => KnownFunction::Open,
         (Module::Builtins, "getattr") => KnownFunction::Getattr,
+        (Module::Ipython, "system") => KnownFunction::IpythonSystem,
+        (Module::Ipython, "getoutput") => KnownFunction::IpythonGetoutput,
+        (Module::Ipython, "run_cell_magic") => KnownFunction::IpythonCell,
         (Module::Io, "FileIO") => KnownFunction::IoFile,
         (Module::Urllib, "request") => return Some(Value::Module(Module::UrllibRequest)),
         (Module::Os, "path") => return Some(Value::Module(Module::OsPath)),

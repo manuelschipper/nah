@@ -209,6 +209,9 @@ mod tests {
                 "{program}"
             );
         }
+        for program in ["ipy", "ipython2", "ipython3.12"] {
+            assert!(!supports(program), "{program}");
+        }
     }
 
     #[test]
