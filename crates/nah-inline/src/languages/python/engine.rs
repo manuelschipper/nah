@@ -2172,7 +2172,11 @@ fn join_states(mut left: State, right: State) -> State {
         .collect::<BTreeSet<_>>();
     for name in names {
         let value = match (left.bindings.get(&name), right.bindings.get(&name)) {
-            (Some(left), Some(right)) if left == right => left.clone(),
+            (Some(left_value), Some(right_value))
+                if values_match(left_value, right_value, &left.functions, &right.functions) =>
+            {
+                left_value.clone()
+            }
             _ => Value::Unknown,
         };
         left.bindings.insert(name, value);
@@ -2180,11 +2184,49 @@ fn join_states(mut left: State, right: State) -> State {
     let cells = left.cells.len().max(right.cells.len());
     left.cells.resize(cells, Cell::Unknown);
     for (index, cell) in left.cells.iter_mut().enumerate() {
-        if right.cells.get(index) != Some(cell) {
+        if !right.cells.get(index).is_some_and(|right_cell| {
+            cells_match(cell, right_cell, &left.functions, &right.functions)
+        }) {
             *cell = Cell::Unknown;
         }
     }
     left
+}
+
+fn values_match(
+    left: &Value,
+    right: &Value,
+    left_functions: &[LocalFunction],
+    right_functions: &[LocalFunction],
+) -> bool {
+    match (left, right) {
+        (Value::LocalFunction(left_index), Value::LocalFunction(right_index)) => {
+            left_index == right_index
+                && left_functions
+                    .get(*left_index)
+                    .is_some_and(|function| right_functions.get(*right_index) == Some(function))
+        }
+        _ => left == right,
+    }
+}
+
+fn cells_match(
+    left: &Cell,
+    right: &Cell,
+    left_functions: &[LocalFunction],
+    right_functions: &[LocalFunction],
+) -> bool {
+    match (left, right) {
+        (Cell::Unknown, Cell::Unknown) => true,
+        (Cell::Sequence(left), Cell::Sequence(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| values_match(left, right, left_functions, right_functions))
+        }
+        _ => false,
+    }
 }
 
 fn assigned_names(node: &HirNode, source: &str) -> BTreeSet<String> {
@@ -2880,6 +2922,28 @@ mod tests {
                 "{code}"
             );
         }
+    }
+
+    #[test]
+    fn branch_local_function_indices_do_not_alias_different_bodies() {
+        assert_eq!(
+            report(
+                "import shutil\nif condition:\n    def action(): shutil.rmtree('/')\nelse:\n    def action(): pass\naction()"
+            ),
+            InlineReport::default()
+        );
+        assert_eq!(
+            report(
+                "import shutil\nif condition:\n    def action(): shutil.rmtree('/')\n    callbacks=[action]\nelse:\n    def action(): pass\n    callbacks=[action]\ncallback,=callbacks\ncallback()"
+            ),
+            InlineReport::default()
+        );
+        assert!(
+            report(
+                "import shutil\ndef action(): shutil.rmtree('/')\nif condition:\n    alias=action\nelse:\n    alias=action\nalias()"
+            )
+            .contains_exact(FindingKind::RootDestruction)
+        );
     }
 
     #[test]
