@@ -74,7 +74,7 @@ fn exact_content_does_not_cross_an_unproven_stream_or_overwrite() {
 #[test]
 fn exact_content_reparsing_is_shell_specific_and_bounded() {
     let python = stream("echo 'rm -rf /' > payload.py; python3 payload.py");
-    assert_eq!(python.coverage(), Coverage::Full);
+    assert_eq!(python.coverage(), Coverage::Partial);
     assert!(!has_root_delete(
         "echo 'rm -rf /' > payload.py; python3 payload.py"
     ));

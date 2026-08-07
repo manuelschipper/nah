@@ -10,6 +10,10 @@
   branches, finite loops, simple functions, decoded values, and exact child
   execution. Unsupported behavior stays local, while malformed required suites
   use the existing structural-mismatch refusal.
+- **Canonical Python API effects** — proven Python filesystem, subprocess, and
+  reviewed HTTP calls now publish ordinary ActionStream stages, path
+  observations, sensitivity, and data-flow edges for built-in and custom
+  guards. Unresolved values make coverage partial; unowned calls add no effect.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

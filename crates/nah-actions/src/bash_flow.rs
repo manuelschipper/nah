@@ -268,6 +268,7 @@ fn alias_requires_missing_target(stage: &StageDraft) -> bool {
         InvocationDraft::Known { argv, .. }
         | InvocationDraft::CodeExecution { argv, .. }
         | InvocationDraft::Opaque { argv, .. } => argv.as_deref(),
+        InvocationDraft::Native { .. } => None,
     };
     !argv.is_some_and(|argv| {
         argv.iter()
@@ -303,7 +304,8 @@ fn alias_transform(stage: &StageDraft) -> Option<(String, String, bool)> {
         InvocationDraft::Opaque {
             program: ProgramDraft::Env { .. } | ProgramDraft::Unresolved,
             ..
-        } => return None,
+        }
+        | InvocationDraft::Native { .. } => return None,
     };
     if target_directory_form(stage) {
         return None;
@@ -340,6 +342,7 @@ fn target_directory_form(stage: &StageDraft) -> bool {
         InvocationDraft::Known { argv, .. }
         | InvocationDraft::CodeExecution { argv, .. }
         | InvocationDraft::Opaque { argv, .. } => argv.as_deref(),
+        InvocationDraft::Native { .. } => None,
     };
     argv.is_some_and(|argv| {
         argv.iter().skip(1).any(|argument| {
@@ -372,7 +375,8 @@ fn stage_program(stage: &StageDraft) -> Option<&str> {
         InvocationDraft::Opaque {
             program: ProgramDraft::Env { .. } | ProgramDraft::Unresolved,
             ..
-        } => None,
+        }
+        | InvocationDraft::Native { .. } => None,
     }
 }
 

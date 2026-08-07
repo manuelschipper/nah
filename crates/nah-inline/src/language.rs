@@ -109,6 +109,7 @@ pub struct LanguageCall {
     filesystems: Vec<LanguageFilesystem>,
     endpoint: Option<String>,
     conditional_depth: usize,
+    execution_dominators: Vec<usize>,
 }
 
 impl LanguageCall {
@@ -118,6 +119,7 @@ impl LanguageCall {
         filesystems: Vec<LanguageFilesystem>,
         endpoint: Option<String>,
         conditional_depth: usize,
+        execution_dominators: Vec<usize>,
     ) -> Self {
         Self {
             kind,
@@ -125,6 +127,7 @@ impl LanguageCall {
             filesystems,
             endpoint,
             conditional_depth,
+            execution_dominators,
         }
     }
 
@@ -147,6 +150,10 @@ impl LanguageCall {
     pub const fn conditional_depth(&self) -> usize {
         self.conditional_depth
     }
+
+    pub fn execution_dominators(&self) -> &[usize] {
+        &self.execution_dominators
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +161,7 @@ pub struct LanguageFilesystem {
     requested: Option<String>,
     operation: FilesystemOperation,
     recursive: bool,
+    content_access: bool,
 }
 
 impl LanguageFilesystem {
@@ -166,7 +174,17 @@ impl LanguageFilesystem {
             requested,
             operation,
             recursive,
+            content_access: true,
         }
+    }
+
+    pub(crate) fn metadata(mut self) -> Self {
+        self.content_access = false;
+        self
+    }
+
+    pub(crate) fn metadata_if(self, metadata: bool) -> Self {
+        if metadata { self.metadata() } else { self }
     }
 
     pub fn requested(&self) -> Option<&str> {
@@ -179,6 +197,10 @@ impl LanguageFilesystem {
 
     pub const fn recursive(&self) -> bool {
         self.recursive
+    }
+
+    pub const fn content_access(&self) -> bool {
+        self.content_access
     }
 }
 

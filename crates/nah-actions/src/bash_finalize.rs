@@ -90,6 +90,17 @@ pub(crate) fn finalize(
             };
             let mut effects = vec![invocation];
             for filesystem in stage.filesystems {
+                if filesystem.key.is_none()
+                    && filesystem.requested.is_empty()
+                    && filesystem.unresolved_selection
+                {
+                    complete = false;
+                    effects.push(EffectKind::FilesystemUnresolved {
+                        operation: filesystem.operation,
+                        recursive: filesystem.recursive,
+                    });
+                    continue;
+                }
                 if platform == Platform::Windows
                     && filesystem.unresolved_selection
                     && filesystem.operation != FilesystemOperation::Read
@@ -397,6 +408,22 @@ fn finalize_invocation(
                 }
             }
         }
+        InvocationDraft::Native {
+            program,
+            operation,
+            input,
+        } => {
+            if !input.complete() {
+                *complete = false;
+            }
+            match EffectKind::known_with_input(&program, operation.as_str(), input) {
+                Ok(invocation) => invocation,
+                Err(_) => {
+                    *complete = false;
+                    unresolved_invocation(vec![program])
+                }
+            }
+        }
         InvocationDraft::CodeExecution {
             program,
             interpreter,
@@ -524,6 +551,7 @@ fn mark_observed_network_reads(stages: &mut [StageDraft], flows: &[(usize, usize
                     && matches!(
                         &stage.invocation,
                         InvocationDraft::Known { operation, .. }
+                            | InvocationDraft::Native { operation, .. }
                             if operation == &SemanticCode::NETWORK_TRANSFER
                                 || operation == &SemanticCode::NETWORK_LISTENER
                     );

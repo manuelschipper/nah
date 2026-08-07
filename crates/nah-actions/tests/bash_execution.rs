@@ -230,7 +230,13 @@ fn nested_inline_commands_share_path_planning_without_changing_outer_coverage() 
     let plan = bash_plan(malformed);
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     assert_eq!(stream.coverage(), Coverage::Full);
-    assert_eq!(stream.effects().len(), 1);
+    assert_eq!(stream.effects().len(), 2);
+    assert!(matches!(
+        stream.effects()[1].kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::Known { operation, .. }
+        } if operation == &SemanticCode::EVALUATED_SHELL
+    ));
 }
 
 #[test]

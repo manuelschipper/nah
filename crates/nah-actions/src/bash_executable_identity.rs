@@ -309,6 +309,7 @@ fn invocation_input(invocation: &InvocationDraft) -> (&[String], Option<&[String
         InvocationDraft::Opaque { words, argv, .. }
         | InvocationDraft::Known { words, argv, .. }
         | InvocationDraft::CodeExecution { words, argv, .. } => (words, argv.as_deref()),
+        InvocationDraft::Native { .. } => (&[], None),
     }
 }
 
@@ -651,6 +652,7 @@ fn invocation_argv(stage: &StageDraft) -> Option<&[String]> {
         InvocationDraft::Known { argv, .. }
         | InvocationDraft::CodeExecution { argv, .. }
         | InvocationDraft::Opaque { argv, .. } => argv.as_deref(),
+        InvocationDraft::Native { .. } => None,
     }
 }
 
@@ -689,7 +691,8 @@ fn invocation_program(invocation: &InvocationDraft) -> Option<&str> {
         InvocationDraft::Opaque {
             program: ProgramDraft::Env { .. } | ProgramDraft::Unresolved,
             ..
-        } => None,
+        }
+        | InvocationDraft::Native { .. } => None,
     }
 }
 

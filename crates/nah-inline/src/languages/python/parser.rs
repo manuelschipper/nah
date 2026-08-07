@@ -1,4 +1,5 @@
-use std::{collections::BTreeSet, ops::Range};
+use std::collections::BTreeSet;
+use std::ops::Range;
 
 use tree_sitter::{Node, ParseOptions, Parser};
 

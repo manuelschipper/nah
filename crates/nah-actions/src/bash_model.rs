@@ -1,6 +1,6 @@
 //! Shared draft contracts for pure Bash planning and finalization.
 
-use nah_proto::action::{FilesystemOperation, NetworkDirection, SemanticCode};
+use nah_proto::action::{FilesystemOperation, InvocationInput, NetworkDirection, SemanticCode};
 use nah_proto::observation::SymlinkTraversal;
 
 pub(crate) type FilesystemSpec = (String, FilesystemOperation, bool);
@@ -102,6 +102,11 @@ pub(crate) enum InvocationDraft {
         operation: SemanticCode,
         words: Vec<String>,
         argv: Option<Vec<String>>,
+    },
+    Native {
+        program: String,
+        operation: SemanticCode,
+        input: InvocationInput,
     },
     CodeExecution {
         program: String,

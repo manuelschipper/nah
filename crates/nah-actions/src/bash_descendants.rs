@@ -123,7 +123,7 @@ fn network_sink(stage: &StageDraft) -> bool {
         || stage.network_outbound
             && matches!(
                 &stage.invocation,
-                InvocationDraft::Known { operation, .. }
+                InvocationDraft::Known { operation, .. } | InvocationDraft::Native { operation, .. }
                     if operation == &SemanticCode::NETWORK_TRANSFER
                         || operation == &SemanticCode::NETWORK_LISTENER
             )
@@ -141,7 +141,8 @@ fn stage_program(stage: &StageDraft) -> Option<&str> {
         InvocationDraft::Opaque {
             program: ProgramDraft::Env { .. } | ProgramDraft::Unresolved,
             ..
-        } => None,
+        }
+        | InvocationDraft::Native { .. } => None,
     }
 }
 
@@ -153,6 +154,7 @@ fn stage_is_symbolic_link(stage: &StageDraft) -> bool {
         InvocationDraft::Known { argv, .. }
         | InvocationDraft::CodeExecution { argv, .. }
         | InvocationDraft::Opaque { argv, .. } => argv.as_deref(),
+        InvocationDraft::Native { .. } => None,
     };
     argv.is_some_and(|argv| {
         argv.iter()

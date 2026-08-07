@@ -50,8 +50,22 @@ shutil.rmtree = lambda path: None""#,
         );
         assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
         assert_eq!(result.core().policy_attributions()[0].name(), "fs-root");
-        assert_eq!(result.action_stream().coverage(), Coverage::Full);
-        assert_eq!(result.action_stream().effects().len(), 1, "{command}");
+        let expected_coverage = if command.contains("lambda path") {
+            Coverage::Partial
+        } else {
+            Coverage::Full
+        };
+        assert_eq!(
+            result.action_stream().coverage(),
+            expected_coverage,
+            "{command}"
+        );
+        let expected_effects = if command.starts_with("python3") { 3 } else { 1 };
+        assert_eq!(
+            result.action_stream().effects().len(),
+            expected_effects,
+            "{command}"
+        );
         assert!(matches!(
             result.action_stream().effects()[0].kind(),
             nah_proto::action::EffectKind::Invocation {
@@ -189,9 +203,14 @@ fn nested_execution_preserves_time_and_unknown_child_state() {
             |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+        let expected_coverage = if command.starts_with("printf %s") {
+            Coverage::Partial
+        } else {
+            Coverage::Full
+        };
         assert_eq!(
             result.action_stream().coverage(),
-            Coverage::Full,
+            expected_coverage,
             "{command}"
         );
     }

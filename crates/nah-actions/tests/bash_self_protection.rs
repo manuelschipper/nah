@@ -558,6 +558,7 @@ fn direct_python_decode_to_shell_execution_is_typed() {
         r#"python -c 'import base64, subprocess; subprocess.Popen(base64.b64decode(payload), cwd="/tmp", shell=True)'"#,
         r#"python -c 'import base64, subprocess; subprocess.check_call(base64.b64decode(payload), shell=True)'"#,
         r#"python -c 'import base64, subprocess; subprocess.check_output(base64.b64decode(payload), shell=True)'"#,
+        r#"python -c 'import base64, subprocess; decoded=base64.b64decode(payload); subprocess.run(decoded, shell=True)'"#,
         r#"python -c 'import base64, os; os.system(base64.b64decode(payload).decode())'"#,
         r#"python -c 'import base64, os; os.popen(base64.b64decode(payload).decode())'"#,
         r#"python -c 'import base64, os; os.system(base64.b64decode(payload).decode(),)'"#,
@@ -577,7 +578,6 @@ fn direct_python_decode_to_shell_execution_is_typed() {
     for source in [
         r#"python -c 'import base64; print(base64.b64decode(payload).decode())'"#,
         r#"python -c 'import base64, subprocess; subprocess.run(base64.b64decode(payload), shell=False)'"#,
-        r#"python -c 'import base64, subprocess; decoded=base64.b64decode(payload); subprocess.run(decoded, shell=True)'"#,
         r#"python -c 'import subprocess; subprocess.run("printf safe", shell=True)'"#,
         r#"python -c 'import base64, subprocess; subprocess.run(base64.b64decode(payload), env={"shell": True})'"#,
         r#"python -c 'print("subprocess.run(base64.b64decode(payload), shell=True)")'"#,

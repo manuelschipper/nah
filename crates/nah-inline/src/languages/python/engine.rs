@@ -1,7 +1,5 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use nah_proto::action::{FilesystemOperation, InvocationInput};
 use nah_proto::ctx::Platform;
@@ -303,6 +301,7 @@ struct Interpreter<'a> {
     complete: bool,
     draft: LanguageDraft,
     conditional_depth: usize,
+    execution_dominators: Vec<usize>,
     call_stack: Vec<String>,
 }
 
@@ -328,6 +327,7 @@ pub(super) fn analyze(
         complete: true,
         draft: LanguageDraft::default(),
         conditional_depth: 0,
+        execution_dominators: Vec::new(),
         call_stack: Vec::with_capacity(depth),
     };
     let mut state = State::default();
@@ -816,11 +816,14 @@ impl Interpreter<'_> {
                 self.complete = false;
                 let mut yes = state.clone();
                 let mut no = state.clone();
+                let dominators = self.execution_dominators.clone();
                 self.conditional_depth += 1;
                 let yes_control = consequence
                     .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
+                self.execution_dominators.clone_from(&dominators);
                 let no_control = self.exec_alternatives(&alternatives, &mut no, depth);
                 self.conditional_depth -= 1;
+                self.execution_dominators = dominators;
                 *state = join_states(yes, no);
                 if yes_control == no_control {
                     yes_control
@@ -859,12 +862,15 @@ impl Interpreter<'_> {
                         self.complete = false;
                         let mut yes = state.clone();
                         let mut no = state.clone();
+                        let dominators = self.execution_dominators.clone();
                         self.conditional_depth += 1;
                         let yes_control = alternative
                             .child(HirField::Consequence)
                             .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
+                        self.execution_dominators.clone_from(&dominators);
                         let no_control = self.exec_alternatives(rest, &mut no, depth);
                         self.conditional_depth -= 1;
+                        self.execution_dominators = dominators;
                         *state = join_states(yes, no);
                         if yes_control == no_control {
                             yes_control
@@ -893,19 +899,35 @@ impl Interpreter<'_> {
             self.complete = false;
             let before = state.clone();
             self.assign(target, Value::Unknown, state);
+            let dominators = self.execution_dominators.clone();
             self.conditional_depth += 1;
             let control = self.exec_block(body, state, depth);
-            let mut zero_iterations = before;
-            let zero_control = self.exec_loop_else(node, &mut zero_iterations, depth);
-            if matches!(control, Control::Next | Control::Continue) {
-                let _ = self.exec_loop_else(node, state, depth);
-            }
+            self.execution_dominators.clone_from(&dominators);
+            let joined_control = match &control {
+                Control::Next | Control::Continue => {
+                    *state = join_states(before, state.clone());
+                    self.exec_loop_else(node, state, depth)
+                }
+                Control::Break => {
+                    let mut zero_iterations = before;
+                    let _ = self.exec_loop_else(node, &mut zero_iterations, depth);
+                    *state = join_states(zero_iterations, state.clone());
+                    Control::Next
+                }
+                _ => {
+                    let mut zero_iterations = before;
+                    let zero_control = self.exec_loop_else(node, &mut zero_iterations, depth);
+                    *state = zero_iterations;
+                    if control == zero_control {
+                        control
+                    } else {
+                        Control::Next
+                    }
+                }
+            };
             self.conditional_depth -= 1;
-            *state = join_states(zero_iterations, state.clone());
-            if control == zero_control {
-                return control;
-            }
-            return Control::Next;
+            self.execution_dominators = dominators;
+            return joined_control;
         };
         if values.len() > MAX_LOOP_ITERATIONS {
             self.complete = false;
@@ -958,12 +980,15 @@ impl Interpreter<'_> {
                 }
                 None => {
                     self.complete = false;
+                    let dominators = self.execution_dominators.clone();
                     self.conditional_depth += 1;
                     let mut exits = state.clone();
                     let exit_control = self.exec_loop_else(node, &mut exits, depth);
+                    self.execution_dominators.clone_from(&dominators);
                     let mut iterates = state.clone();
                     let body_control = self.exec_block(body, &mut iterates, depth);
                     self.conditional_depth -= 1;
+                    self.execution_dominators = dominators;
                     *state = if matches!(
                         body_control,
                         Control::Return(_) | Control::Raise | Control::Diverge
@@ -1320,6 +1345,7 @@ impl Interpreter<'_> {
                     3,
                     &["path", "ignore_errors", "onerror", "onexc", "dir_fd"],
                 ) || required_argument(&arguments, 0, "path").is_none()
+                    || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
@@ -1344,9 +1370,11 @@ impl Interpreter<'_> {
                 let valid = if function == KnownFunction::OsSystem {
                     valid_call_shape(&arguments, 1, &["command"])
                         && required_argument(&arguments, 0, "command").is_some()
+                        && possible_scalar_argument(&arguments, 0, "command")
                 } else {
                     valid_call_shape(&arguments, 3, &["cmd", "mode", "buffering"])
                         && required_argument(&arguments, 0, "cmd").is_some()
+                        && possible_scalar_argument(&arguments, 0, "cmd")
                 };
                 if !valid {
                     return Value::Unknown;
@@ -1382,7 +1410,9 @@ impl Interpreter<'_> {
                 .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             KnownFunction::OsExec(kind) => {
-                if !valid_os_exec_shape(kind, &arguments) {
+                if !valid_os_exec_shape(kind, &arguments)
+                    || !possible_os_exec(kind, &arguments, state)
+                {
                     return Value::Unknown;
                 }
                 let callable = os_exec_callable(kind);
@@ -1400,10 +1430,16 @@ impl Interpreter<'_> {
             KnownFunction::Subprocess(kind) => {
                 if required_argument(&arguments, 0, "args").is_none()
                     || arguments.positional.len() > 1
+                    || !valid_subprocess_shape(&arguments)
                 {
                     return Value::Unknown;
                 }
                 let origin = if let Some(shell) = subprocess_shell(&arguments) {
+                    let command = required_argument(&arguments, 0, "args")
+                        .expect("required subprocess argument was checked");
+                    if !possible_subprocess_command(command, state) {
+                        return Value::Unknown;
+                    }
                     self.emit_call(
                         if shell {
                             LanguageCallKind::EvaluatedShell
@@ -1551,7 +1587,9 @@ impl Interpreter<'_> {
                 .unwrap_or(Value::Unknown),
             KnownFunction::ShutilWhich => Value::Unknown,
             KnownFunction::Request(kind) => {
-                if required_argument(&arguments, 0, request_url_keyword(kind)).is_none() {
+                if required_argument(&arguments, 0, request_url_keyword(kind)).is_none()
+                    || !possible_scalar_argument(&arguments, 0, request_url_keyword(kind))
+                {
                     return Value::Unknown;
                 }
                 let callable = request_callable(kind);
@@ -1602,6 +1640,9 @@ impl Interpreter<'_> {
                 if required_argument(&arguments, 0, "file").is_none() {
                     return Value::Unknown;
                 }
+                if !argument(&arguments, 0, "file").is_some_and(possible_open_target) {
+                    return Value::Unknown;
+                }
                 let callable = if function == KnownFunction::Open {
                     "builtins.open"
                 } else {
@@ -1634,6 +1675,7 @@ impl Interpreter<'_> {
                 };
                 if !valid_call_shape(&arguments, 1, &["path", "dir_fd"])
                     || required_argument(&arguments, 0, "path").is_none()
+                    || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
@@ -1685,6 +1727,7 @@ impl Interpreter<'_> {
                         let name = keywords[position];
                         required_argument(&arguments, position, name).is_none()
                     })
+                    || !possible_path_argument(&arguments, 0, keyword)
                 {
                     return Value::Unknown;
                 }
@@ -1692,13 +1735,16 @@ impl Interpreter<'_> {
                     callable,
                     &arguments,
                     state,
-                    vec![filesystem_argument(
-                        &arguments,
-                        0,
-                        keyword,
-                        FilesystemOperation::Write,
-                        recursive,
-                    )],
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            keyword,
+                            FilesystemOperation::Write,
+                            recursive,
+                        )
+                        .metadata_if(function != KnownFunction::OsTruncate),
+                    ],
                 );
                 Value::None
             }
@@ -1715,10 +1761,13 @@ impl Interpreter<'_> {
                     ],
                 ) || required_argument(&arguments, 0, "src").is_none()
                     || required_argument(&arguments, 1, "dst").is_none()
+                    || !possible_path_argument(&arguments, 0, "src")
+                    || !possible_path_argument(&arguments, 1, "dst")
                 {
                     return Value::Unknown;
                 }
                 let recursive = kind == CopyKind::Copytree;
+                let metadata = matches!(kind, CopyKind::Copymode | CopyKind::Copystat);
                 self.emit_filesystem_call(
                     shutil_copy_callable(kind),
                     &arguments,
@@ -1730,14 +1779,16 @@ impl Interpreter<'_> {
                             "src",
                             FilesystemOperation::Read,
                             recursive,
-                        ),
+                        )
+                        .metadata_if(metadata),
                         filesystem_argument(
                             &arguments,
                             1,
                             "dst",
                             FilesystemOperation::Write,
                             recursive,
-                        ),
+                        )
+                        .metadata_if(metadata),
                     ],
                 );
                 Value::Unknown
@@ -1763,6 +1814,7 @@ impl Interpreter<'_> {
                     || (0..required).any(|position| {
                         required_argument(&arguments, position, keywords[position]).is_none()
                     })
+                    || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
@@ -1770,13 +1822,16 @@ impl Interpreter<'_> {
                     callable,
                     &arguments,
                     state,
-                    vec![filesystem_argument(
-                        &arguments,
-                        0,
-                        "path",
-                        FilesystemOperation::Write,
-                        false,
-                    )],
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            "path",
+                            FilesystemOperation::Write,
+                            false,
+                        )
+                        .metadata(),
+                    ],
                 );
                 Value::None
             }
@@ -1785,7 +1840,10 @@ impl Interpreter<'_> {
             | KnownFunction::OsRename
             | KnownFunction::OsReplace
             | KnownFunction::OsSymlink
-            | KnownFunction::ShutilMove => Value::Unknown,
+            | KnownFunction::ShutilMove => {
+                self.draft.set_partial();
+                Value::Unknown
+            }
         }
     }
 
@@ -1825,8 +1883,18 @@ impl Interpreter<'_> {
             self.draft.set_partial();
         }
         let origins = argument_origins(arguments, state);
-        let call = LanguageCall::new(kind, input, filesystems, endpoint, self.conditional_depth);
+        let call = LanguageCall::new(
+            kind,
+            input,
+            filesystems,
+            endpoint,
+            self.conditional_depth,
+            self.execution_dominators.clone(),
+        );
         let ordinal = self.draft.push_call(call)?;
+        if self.conditional_depth > 0 {
+            self.execution_dominators.push(ordinal);
+        }
         for origin in origins {
             self.draft.push_flow(origin, ordinal);
         }
@@ -1973,11 +2041,17 @@ impl Interpreter<'_> {
                     &format!("pathlib.path.{method}"),
                     &arguments,
                     state,
-                    vec![LanguageFilesystem::new(
-                        Some(path),
-                        FilesystemOperation::Write,
-                        method == "mkdir",
-                    )],
+                    vec![
+                        LanguageFilesystem::new(
+                            Some(path),
+                            FilesystemOperation::Write,
+                            method == "mkdir"
+                                && argument(&arguments, 1, "parents")
+                                    .and_then(exact_bool)
+                                    .unwrap_or(false),
+                        )
+                        .metadata_if(matches!(method, "touch" | "mkdir" | "chmod" | "lchmod")),
+                    ],
                 );
                 Value::None
             }
@@ -2002,7 +2076,10 @@ impl Interpreter<'_> {
                 );
                 Value::None
             }
-            "rename" | "replace" | "hardlink_to" | "link_to" | "symlink_to" => Value::None,
+            "rename" | "replace" | "hardlink_to" | "link_to" | "symlink_to" => {
+                self.draft.set_partial();
+                Value::None
+            }
             _ => Value::Unknown,
         }
     }
@@ -2303,10 +2380,24 @@ impl Interpreter<'_> {
             ("and", Some(true)) | ("or", Some(false)) => node
                 .child(HirField::Right)
                 .map_or(Value::Unknown, |right| self.eval(right, state, depth)),
-            _ => {
-                if let Some(right) = node.child(HirField::Right) {
-                    self.eval(right, state, depth);
+            ("and" | "or", None) => {
+                self.complete = false;
+                let dominators = self.execution_dominators.clone();
+                for ordinal in producer_ordinals(&left) {
+                    if !self.execution_dominators.contains(&ordinal) {
+                        self.execution_dominators.push(ordinal);
+                    }
                 }
+                self.conditional_depth += 1;
+                let right = node
+                    .child(HirField::Right)
+                    .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+                self.conditional_depth -= 1;
+                self.execution_dominators = dominators;
+                join_values(left, right)
+            }
+            _ => {
+                self.complete = false;
                 Value::Unknown
             }
         }
@@ -2325,7 +2416,17 @@ impl Interpreter<'_> {
             if matches!(child.kind(), HirKind::Token | HirKind::Comment) {
                 continue;
             }
+            let conditional = unknown && left.is_some();
+            let dominators = self.execution_dominators.clone();
+            if conditional {
+                self.complete = false;
+                self.conditional_depth += 1;
+            }
             let right = self.eval(child, state, depth);
+            if conditional {
+                self.conditional_depth -= 1;
+                self.execution_dominators = dominators;
+            }
             let Some(previous) = left.replace(right.clone()) else {
                 continue;
             };
@@ -2377,10 +2478,13 @@ impl Interpreter<'_> {
             Some(false) => self.eval(children[2], state, depth),
             None => {
                 self.complete = false;
+                let dominators = self.execution_dominators.clone();
                 self.conditional_depth += 1;
                 let yes = self.eval(children[0], state, depth);
+                self.execution_dominators.clone_from(&dominators);
                 let no = self.eval(children[2], state, depth);
                 self.conditional_depth -= 1;
+                self.execution_dominators = dominators;
                 join_values(yes, no)
             }
         }
@@ -2749,7 +2853,7 @@ fn native_value(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) ->
                 })
                 .collect();
             visiting.remove(cell);
-            (native_tag("sequence", Some(JsonValue::Array(items))), exact)
+            (native_sequence(items), exact)
         }
         Value::Decoded(value) => native_value(value, state, visiting),
         Value::Unknown
@@ -2780,6 +2884,13 @@ fn bounded_native_string(kind: &str, value: &str) -> (JsonValue, bool) {
 
 fn native_unknown() -> JsonValue {
     native_tag("unknown", None)
+}
+
+fn native_sequence(items: Vec<JsonValue>) -> JsonValue {
+    let mut tagged = Map::new();
+    tagged.insert("kind".into(), JsonValue::String("sequence".into()));
+    tagged.insert("items".into(), JsonValue::Array(items));
+    JsonValue::Object(tagged)
 }
 
 fn native_tag(kind: &str, value: Option<JsonValue>) -> JsonValue {
@@ -3440,6 +3551,58 @@ fn valid_os_exec_shape(kind: StringKind, arguments: &Arguments) -> bool {
     }
 }
 
+fn possible_path_argument(arguments: &Arguments, position: usize, keyword: &str) -> bool {
+    argument(arguments, position, keyword).is_some_and(possible_scalar_value)
+}
+
+fn possible_scalar_argument(arguments: &Arguments, position: usize, keyword: &str) -> bool {
+    argument(arguments, position, keyword).is_some_and(possible_scalar_value)
+}
+
+fn possible_scalar_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Unknown
+            | Value::String(_)
+            | Value::ImplicitString(_)
+            | Value::Bytes(_)
+            | Value::Path(_)
+            | Value::Decoded(_)
+            | Value::Produced(_)
+    )
+}
+
+fn possible_open_target(value: &Value) -> bool {
+    possible_scalar_value(value) || matches!(value, Value::Int(_))
+}
+
+fn possible_subprocess_command(value: &Value, state: &State) -> bool {
+    if possible_scalar_value(value) {
+        return true;
+    }
+    match value {
+        Value::Cell(cell) => match state.cells.get(*cell) {
+            Some(Cell::Sequence(values)) => values.iter().all(possible_scalar_value),
+            Some(Cell::Unknown) | None => true,
+        },
+        _ => false,
+    }
+}
+
+fn possible_os_exec(kind: StringKind, arguments: &Arguments, state: &State) -> bool {
+    match kind {
+        StringKind::Execl | StringKind::Execlp => {
+            arguments.positional.iter().all(possible_scalar_value)
+        }
+        StringKind::Execle => arguments.positional[..arguments.positional.len() - 1]
+            .iter()
+            .all(possible_scalar_value),
+        StringKind::Execv | StringKind::Execvp | StringKind::Execvpe => {
+            possible_scalar_value(&arguments.positional[0])
+                && possible_subprocess_command(&arguments.positional[1], state)
+        }
+    }
+}
 fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
     if !arguments.complete || arguments.positional.len() > 1 {
         return None;
@@ -3489,6 +3652,42 @@ fn subprocess_shell(arguments: &Arguments) -> Option<bool> {
         .iter()
         .find(|(name, _)| name == "shell")
         .map_or(Some(false), |(_, value)| exact_bool(value))
+}
+
+fn valid_subprocess_shape(arguments: &Arguments) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "args",
+        "bufsize",
+        "executable",
+        "stdin",
+        "stdout",
+        "stderr",
+        "preexec_fn",
+        "close_fds",
+        "shell",
+        "cwd",
+        "env",
+        "universal_newlines",
+        "startupinfo",
+        "creationflags",
+        "restore_signals",
+        "start_new_session",
+        "pass_fds",
+        "user",
+        "group",
+        "extra_groups",
+        "encoding",
+        "errors",
+        "text",
+        "umask",
+        "pipesize",
+        "process_group",
+        "input",
+        "capture_output",
+        "timeout",
+        "check",
+    ];
+    valid_call_shape(arguments, 1, KEYWORDS)
 }
 
 fn exact_bool(value: &Value) -> Option<bool> {
@@ -4085,6 +4284,7 @@ mod tests {
             complete: true,
             draft: LanguageDraft::default(),
             conditional_depth: 0,
+            execution_dominators: Vec::new(),
             call_stack: Vec::new(),
         };
         interpreter.dynamic_execution(

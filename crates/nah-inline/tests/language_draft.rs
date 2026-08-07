@@ -1,5 +1,6 @@
 use nah_inline::{
-    InlineInput, LanguageAnalysis, LanguageCallKind, ProtectionInput, analyze_with_language_effects,
+    InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, ProtectionInput,
+    analyze_with_language_effects,
 };
 use nah_proto::{
     action::{FilesystemOperation, InvocationInput},
@@ -27,6 +28,10 @@ fn native(call: &nah_inline::LanguageCall) -> (&serde_json::Value, bool) {
         panic!("language calls must use Native input")
     };
     (value, *complete)
+}
+
+fn callable(call: &nah_inline::LanguageCall) -> &str {
+    native(call).0["callable"].as_str().unwrap()
 }
 
 #[test]
@@ -97,9 +102,10 @@ fn unknown_and_rebound_calls_do_not_invent_effects() {
 #[test]
 fn known_names_with_non_executable_argument_shapes_do_not_emit() {
     let analysis = analyze(
-        "import os, requests\nfrom pathlib import Path\nos.remove()\nos.system()\nrequests.get()\nPath('/tmp/x').write_text()",
+        "import os, requests, subprocess\nfrom pathlib import Path\nos.remove()\nos.remove(42)\nos.system()\nos.system(False)\nrequests.get()\nrequests.get(42)\nsubprocess.run(42)\nsubprocess.run(['echo'], note='invalid')\nPath('/tmp/x').write_text()",
     );
     assert!(analysis.draft().calls().is_empty());
+    assert!(analysis.draft().complete());
 }
 
 #[test]
@@ -114,6 +120,14 @@ fn exact_dead_branch_emits_no_call_and_unknown_branch_retains_modality() {
     assert_eq!(analysis.draft().calls().len(), 1);
     assert_eq!(analysis.draft().calls()[0].conditional_depth(), 1);
     assert!(!analysis.draft().complete());
+
+    let analysis = analyze(
+        "import os\nif condition:\n    os.remove('/tmp/x')\n    os.remove('/tmp/y')\nelse:\n    os.remove('/tmp/z')",
+    );
+    let calls = analysis.draft().calls();
+    assert!(calls[0].execution_dominators().is_empty());
+    assert_eq!(calls[1].execution_dominators(), &[0]);
+    assert!(calls[2].execution_dominators().is_empty());
 }
 
 #[test]
@@ -155,7 +169,7 @@ fn move_and_link_identity_calls_remain_deferred() {
 #[test]
 fn oversized_collection_becomes_unknown_without_growing_the_contract() {
     let values = (0..65)
-        .map(|value| value.to_string())
+        .map(|value| format!("'{value}'"))
         .collect::<Vec<_>>()
         .join(",");
     let analysis = analyze(&format!("import subprocess\nsubprocess.run([{values}])"));
@@ -163,4 +177,180 @@ fn oversized_collection_becomes_unknown_without_growing_the_contract() {
     let (value, complete) = native(call);
     assert_eq!(value["positional"], json!([{"kind": "unknown"}]));
     assert!(!complete);
+}
+
+#[test]
+fn current_truthiness_try_class_and_divergence_control_effect_reachability() {
+    for code in [
+        "import os\nif []:\n    os.remove('/tmp/x')",
+        "import os\nif {}:\n    os.remove('/tmp/x')",
+        "import os\ntry:\n    pass\nexcept:\n    os.remove('/tmp/x')",
+        "import os\nwhile True:\n    pass\nos.remove('/tmp/x')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    for code in [
+        "import os\ntry:\n    raise RuntimeError()\nexcept:\n    os.remove('/tmp/x')",
+        "import os\nclass Cleanup:\n    os.remove('/tmp/x')",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    }
+}
+
+#[test]
+fn dynamic_code_keeps_mode_isolation_and_defining_source_identity() {
+    assert!(
+        analyze("eval(\"import os; os.remove('/tmp/x')\")")
+            .draft()
+            .calls()
+            .is_empty()
+    );
+
+    for code in [
+        "exec(\"import os; os.remove('/tmp/x')\")",
+        "eval(compile(\"import os; os.remove('/tmp/x')\", 'nested.py', 'exec'))",
+        "exec(\"def cleanup():\\n import os\\n os.remove('/tmp/x')\")\ncleanup()",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    }
+
+    assert!(
+        analyze("exec(\"import os\", {}, {})\nos.remove('/tmp/x')")
+            .draft()
+            .calls()
+            .is_empty()
+    );
+}
+
+#[test]
+fn local_function_binding_and_branch_identity_gate_effects() {
+    for code in [
+        "import os\ndef danger(required):\n    os.remove('/tmp/x')\ndanger()",
+        "import os\ndef danger(value):\n    os.remove('/tmp/x')\ndanger(1, 2)",
+        "import os\ndef danger(value):\n    os.remove('/tmp/x')\ndanger(other=1)",
+        "import os\nif condition:\n    def action(): os.remove('/tmp/x')\nelse:\n    def action(): pass\naction()",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    for code in [
+        "import os\ndef danger(path='/tmp/x'): os.remove(path)\ndanger()",
+        "import os\ndef danger(path): os.remove(path)\ndanger(path='/tmp/x')",
+        "import os\ndef action(): os.remove('/tmp/x')\nif condition:\n    alias=action\nelse:\n    alias=action\nalias()",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    }
+}
+
+#[test]
+fn local_function_cell_mutations_reach_native_call_evidence() {
+    let analysis = analyze(
+        "import subprocess\nargv=['rm']\nalias=argv\ndef finish(parts): parts.extend(['-rf','/'])\nfinish(alias)\nsubprocess.run(argv)",
+    );
+    let call = &analysis.draft().calls()[0];
+    assert_eq!(
+        native(call),
+        (
+            &json!({
+                "v": 1,
+                "language": "python",
+                "callable": "subprocess.run",
+                "positional": [{
+                    "kind": "sequence",
+                    "items": [
+                        {"kind": "string", "value": "rm"},
+                        {"kind": "string", "value": "-rf"},
+                        {"kind": "string", "value": "/"},
+                    ],
+                }],
+                "keywords": [],
+            }),
+            true,
+        )
+    );
+}
+
+#[test]
+fn mutations_and_formatted_conversions_never_reuse_exact_sink_values() {
+    for mutation in ["argv[0]='echo'", "argv.clear()"] {
+        let analysis = analyze(&format!(
+            "import subprocess\nargv=['rm','-rf','/']\n{mutation}\nsubprocess.run(argv)"
+        ));
+        assert_eq!(analysis.draft().calls().len(), 1, "{mutation}");
+        let (value, complete) = native(&analysis.draft().calls()[0]);
+        assert_eq!(value["positional"], json!([{"kind": "unknown"}]));
+        assert!(!complete);
+        assert!(analysis.report().nested_executions().is_empty());
+    }
+
+    assert!(
+        analyze("import os\napi=os\nos.system=safe\napi.system('rm -rf /')")
+            .draft()
+            .calls()
+            .is_empty()
+    );
+
+    let analysis = analyze("import os\ntarget='/'\nos.remove(f'{target!r}')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        None
+    );
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
+fn speculative_loop_else_sites_emit_once_without_cross_branch_dominators() {
+    let analysis = analyze(
+        "import os\nfor item in items:\n    os.remove('/tmp/body')\nelse:\n    os.remove('/tmp/else')",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(callable(&calls[0]), "os.remove");
+    assert_eq!(callable(&calls[1]), "os.remove");
+    assert_eq!(calls[0].filesystems()[0].requested(), Some("/tmp/body"));
+    assert_eq!(calls[1].filesystems()[0].requested(), Some("/tmp/else"));
+    assert!(calls[0].execution_dominators().is_empty());
+    assert!(calls[1].execution_dominators().is_empty());
+    assert_eq!(calls[0].conditional_depth(), 1);
+    assert_eq!(calls[1].conditional_depth(), 1);
+}
+
+#[test]
+fn short_circuit_and_chained_comparison_sinks_stay_conditional() {
+    let analysis = analyze(
+        "from pathlib import Path\nimport os\nPath('/tmp/input').read_text() and os.remove('/tmp/output')",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].conditional_depth(), 0);
+    assert_eq!(calls[1].conditional_depth(), 1);
+    assert_eq!(calls[1].execution_dominators(), &[0]);
+
+    let analysis = analyze("import os\ncondition < 1 < os.remove('/tmp/output')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(analysis.draft().calls()[0].conditional_depth(), 1);
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
+fn interpreter_value_bounds_cannot_expand_native_evidence() {
+    let values = (0..257)
+        .map(|value| format!("'{value}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let analysis = analyze(&format!("import subprocess\nsubprocess.run([{values}])"));
+    assert_eq!(analysis.report().refusals(), [InlineRefusal::WorkLimit]);
+    let call = &analysis.draft().calls()[0];
+    let (value, complete) = native(call);
+    assert_eq!(value["positional"], json!([{"kind": "unknown"}]));
+    assert!(!complete);
+    assert!(serde_json::to_vec(value).unwrap().len() < 1024 * 1024);
 }
