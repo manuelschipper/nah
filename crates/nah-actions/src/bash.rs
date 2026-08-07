@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use nah_parse::{LoopControlKind, Redirect, Statement, Substitution, Syntax, Word};
-use nah_proto::action::SemanticCode;
+use nah_proto::action::{InvocationInput, SemanticCode};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::observation::ObservationQuery;
 
@@ -200,89 +200,192 @@ pub(crate) fn draft(
     nah_inline::InlineReport,
     bool,
 ) {
-    let mut lowerer = Lowerer {
-        complete: syntax.complete(),
-        stages: Vec::new(),
-        flows: Vec::new(),
-        queries: Vec::new(),
-        state: ShellState::initial(requested_cwd.as_str(), home.as_str()),
-        ambient_variables: ambient_variables.to_vec(),
-        runtime_variables: ambient_variables.to_vec(),
-        initial_cwd: requested_cwd.as_str().to_owned(),
-        loop_depth: 0,
-        home: home.as_str().to_owned(),
-        critical_paths: critical_paths.to_vec(),
+    let mut lowerer = Lowerer::new(
+        syntax.complete(),
+        requested_cwd,
+        home,
         platform,
+        ambient_variables,
+        critical_paths,
+    );
+    lowerer.lower_syntax(syntax);
+    lowerer.finish()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn visible_python_draft(
+    outer_program: &str,
+    source: &str,
+    input: InvocationInput,
+    requested_cwd: &AbsolutePath,
+    home: &AbsolutePath,
+    platform: Platform,
+    ambient_variables: &[(String, VariableValue)],
+    critical_paths: &[AbsolutePath],
+) -> (
+    Draft,
+    Draft,
+    Vec<ObservationQuery>,
+    nah_inline::InlineReport,
+    bool,
+) {
+    let complete = input.complete();
+    let mut lowerer = Lowerer::new(
+        complete,
+        requested_cwd,
+        home,
+        platform,
+        ambient_variables,
+        critical_paths,
+    );
+    lowerer.stages.push(StageDraft {
+        invocation: InvocationDraft::CodeExecution {
+            program: outer_program.to_owned(),
+            interpreter: Some("python".to_owned()),
+            source: SemanticCode::INTERPRETER_INLINE,
+            code: Some(source.to_owned()),
+            input: Some(input),
+            words: Vec::new(),
+            argv: None,
+        },
+        invocation_cwd: None,
+        filesystems: Vec::new(),
+        git_operations: Vec::new(),
+        git_project_scoped: false,
+        network_outbound: false,
+        network_endpoints: Vec::new(),
+        system_states: Vec::new(),
+        fifo_creations: Vec::new(),
+        stdout: StdoutDraft::Unknown,
+        content_writes: Vec::new(),
         payload_depth: 0,
         conditional_depth: 0,
-        analysis_refused: false,
-        function_bodies: Vec::new(),
-        active_function_calls: Vec::new(),
-        function_local_scopes: Vec::new(),
-        next_lookup_mode: None,
-        active_aliases: None,
-        next_alias_eligible: None,
-        active_alias_expansions: Vec::new(),
-        alias_expansions: 0,
-        function_expansions: 0,
-        asynchronous_depth: 0,
-        detected_fork_bomb: false,
-        visible_stdin: None,
-        visible_execution_states: Vec::new(),
-        inline_child_stages: BTreeSet::new(),
-        inline_report: nah_inline::InlineReport::default(),
-        inline_failed: false,
-        inline_child_count: 0,
-        inline_child_bytes: 0,
-        prelowered_visible_stages: BTreeSet::new(),
-        unresolved_current_shell_stages: BTreeSet::new(),
-        tracked_execution_stream_stages: BTreeSet::new(),
-        pending_visible_child_state: None,
-        suppress_bash_startup: false,
-        next_descriptor_id: 0,
-        speculative: false,
-    };
-    lowerer.lower_syntax(syntax);
-    lowerer.lower_visible_programs();
-    lowerer.attach_fork_bomb();
-    lowerer.ensure_analysis_refusal_stage();
-    let mut coverage_draft = lowerer.coverage_draft();
-    add_artifact_flows(&lowerer.stages, &mut lowerer.flows, lowerer.platform);
-    add_artifact_identities(&mut lowerer.stages, lowerer.platform);
-    add_recursive_descendant_inspections(
-        &mut lowerer.stages,
-        &lowerer.flows,
-        &mut lowerer.queries,
-        lowerer.platform,
+        execution_dominators: Vec::new(),
+    });
+    let mut state = lowerer.state.clone();
+    state.cwd = Cwd::Unknown;
+    if let Some(pwd) = state
+        .variables
+        .iter_mut()
+        .find(|binding| binding.name == "PWD")
+    {
+        pwd.value = VariableValue::Unknown;
+        pwd.origins.clear();
+    }
+    lowerer.analyze_direct_inline_stage(
+        VisibleExecutionState {
+            stage: 0,
+            state,
+            ambient_variables: lowerer.ambient_variables.clone(),
+        },
+        "python",
+        source,
     );
-    add_artifact_flows(
-        &coverage_draft.stages,
-        &mut coverage_draft.flows,
-        lowerer.platform,
-    );
-    add_artifact_identities(&mut coverage_draft.stages, lowerer.platform);
-    add_recursive_descendant_inspections(
-        &mut coverage_draft.stages,
-        &coverage_draft.flows,
-        &mut lowerer.queries,
-        lowerer.platform,
-    );
-    let draft = Draft {
-        complete: lowerer.complete,
-        analysis_refused: lowerer.analysis_refused,
-        stages: lowerer.stages,
-        flows: lowerer.flows,
-    };
-    (
-        draft,
-        coverage_draft,
-        lowerer.queries,
-        lowerer.inline_report,
-        lowerer.inline_failed,
-    )
+    lowerer.finish()
 }
 
 impl Lowerer {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        complete: bool,
+        requested_cwd: &AbsolutePath,
+        home: &AbsolutePath,
+        platform: Platform,
+        ambient_variables: &[(String, VariableValue)],
+        critical_paths: &[AbsolutePath],
+    ) -> Self {
+        Self {
+            complete,
+            stages: Vec::new(),
+            flows: Vec::new(),
+            queries: Vec::new(),
+            state: ShellState::initial(requested_cwd.as_str(), home.as_str()),
+            ambient_variables: ambient_variables.to_vec(),
+            runtime_variables: ambient_variables.to_vec(),
+            initial_cwd: requested_cwd.as_str().to_owned(),
+            loop_depth: 0,
+            home: home.as_str().to_owned(),
+            critical_paths: critical_paths.to_vec(),
+            platform,
+            payload_depth: 0,
+            conditional_depth: 0,
+            analysis_refused: false,
+            function_bodies: Vec::new(),
+            active_function_calls: Vec::new(),
+            function_local_scopes: Vec::new(),
+            next_lookup_mode: None,
+            active_aliases: None,
+            next_alias_eligible: None,
+            active_alias_expansions: Vec::new(),
+            alias_expansions: 0,
+            function_expansions: 0,
+            asynchronous_depth: 0,
+            detected_fork_bomb: false,
+            visible_stdin: None,
+            visible_execution_states: Vec::new(),
+            inline_child_stages: BTreeSet::new(),
+            inline_report: nah_inline::InlineReport::default(),
+            inline_failed: false,
+            inline_child_count: 0,
+            inline_child_bytes: 0,
+            prelowered_visible_stages: BTreeSet::new(),
+            unresolved_current_shell_stages: BTreeSet::new(),
+            tracked_execution_stream_stages: BTreeSet::new(),
+            pending_visible_child_state: None,
+            suppress_bash_startup: false,
+            next_descriptor_id: 0,
+            speculative: false,
+        }
+    }
+
+    fn finish(
+        mut self,
+    ) -> (
+        Draft,
+        Draft,
+        Vec<ObservationQuery>,
+        nah_inline::InlineReport,
+        bool,
+    ) {
+        self.lower_visible_programs();
+        self.attach_fork_bomb();
+        self.ensure_analysis_refusal_stage();
+        let mut coverage_draft = self.coverage_draft();
+        add_artifact_flows(&self.stages, &mut self.flows, self.platform);
+        add_artifact_identities(&mut self.stages, self.platform);
+        add_recursive_descendant_inspections(
+            &mut self.stages,
+            &self.flows,
+            &mut self.queries,
+            self.platform,
+        );
+        add_artifact_flows(
+            &coverage_draft.stages,
+            &mut coverage_draft.flows,
+            self.platform,
+        );
+        add_artifact_identities(&mut coverage_draft.stages, self.platform);
+        add_recursive_descendant_inspections(
+            &mut coverage_draft.stages,
+            &coverage_draft.flows,
+            &mut self.queries,
+            self.platform,
+        );
+        let draft = Draft {
+            complete: self.complete,
+            analysis_refused: self.analysis_refused,
+            stages: self.stages,
+            flows: self.flows,
+        };
+        (
+            draft,
+            coverage_draft,
+            self.queries,
+            self.inline_report,
+            self.inline_failed,
+        )
+    }
+
     fn coverage_draft(&self) -> Draft {
         let mut old_to_new = vec![None; self.stages.len()];
         let mut stages = Vec::new();

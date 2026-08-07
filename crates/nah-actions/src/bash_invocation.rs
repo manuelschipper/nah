@@ -26,6 +26,7 @@ pub(crate) fn invocation(
             interpreter: None,
             source: SemanticCode::UNRESOLVED_COMMAND,
             code: None,
+            input: None,
             words,
             argv: None,
         };
@@ -56,6 +57,7 @@ pub(crate) fn invocation(
             interpreter: None,
             source: SemanticCode::SHELL_PATTERN,
             code: None,
+            input: None,
             words,
             argv: None,
         };
@@ -66,6 +68,7 @@ pub(crate) fn invocation(
             interpreter: None,
             source: SemanticCode::DIRECT_FILE,
             code: None,
+            input: None,
             words,
             argv,
         };
@@ -93,6 +96,7 @@ pub(crate) fn invocation(
             interpreter: (!matches!(program.as_str(), "." | "source")).then(|| program.clone()),
             source: execution.source,
             code: execution.code,
+            input: None,
             words,
             argv,
         };
@@ -156,6 +160,7 @@ pub(crate) fn invocation(
         interpreter,
         source,
         code,
+        input: None,
         words,
         argv,
     }

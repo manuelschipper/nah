@@ -271,7 +271,7 @@ pub(crate) fn draft(input: &ToolCallInput, call_site: &CallSite, platform: Platf
     }
 }
 
-fn invocation_input(input: &ToolCallInput) -> InvocationInput {
+pub(crate) fn invocation_input(input: &ToolCallInput) -> InvocationInput {
     let value = input.invocation_input();
     if value.to_string().len() <= INVOCATION_EVIDENCE_CAP {
         InvocationInput::native(value.clone(), true)

@@ -72,6 +72,12 @@ pub(crate) const INVOCATION_EVIDENCE_CAP: usize = 1024 * 1024;
 pub enum AnalysisInput<'a> {
     Native(&'a ToolCallInput),
     Bash(&'a nah_parse::Syntax, &'a ToolCallInput),
+    VisibleCode(VisibleCode<'a>, &'a ToolCallInput),
+}
+
+#[derive(Clone, Copy)]
+pub enum VisibleCode<'a> {
+    Python { source: &'a str },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -219,6 +225,30 @@ fn plan_with_ambient_variables(
             queries.extend(path_queries);
             (
                 "bash-v1",
+                Draft::Bash(draft),
+                Some(coverage_draft),
+                inline_report,
+                inline_failed,
+            )
+        }
+        AnalysisInput::VisibleCode(VisibleCode::Python { source }, input) => {
+            let invocation_input = native::invocation_input(input);
+            let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
+                bash::visible_python_draft(
+                    input.tool(),
+                    source,
+                    invocation_input,
+                    call_site.requested_cwd(),
+                    ctx.home(),
+                    ctx.platform(),
+                    ambient_variables,
+                    self_protection.protected_paths(),
+                );
+            draft.complete &= input.normalization_complete();
+            coverage_draft.complete &= input.normalization_complete();
+            queries.extend(path_queries);
+            (
+                "language-v1",
                 Draft::Bash(draft),
                 Some(coverage_draft),
                 inline_report,

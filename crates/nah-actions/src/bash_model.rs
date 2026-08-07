@@ -113,6 +113,7 @@ pub(crate) enum InvocationDraft {
         interpreter: Option<String>,
         source: SemanticCode,
         code: Option<String>,
+        input: Option<InvocationInput>,
         words: Vec<String>,
         argv: Option<Vec<String>>,
     },

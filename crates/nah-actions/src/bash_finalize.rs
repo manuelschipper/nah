@@ -446,6 +446,7 @@ fn finalize_invocation(
             interpreter,
             source,
             mut code,
+            input,
             words,
             argv,
         } => {
@@ -457,12 +458,15 @@ fn finalize_invocation(
                     })
                 })
                 .flatten();
-            let mut input = bounded_shell_input(&program, words, argv);
+            let native_input = input.is_some();
+            let mut input = input.unwrap_or_else(|| bounded_shell_input(&program, words, argv));
             if code.as_ref().is_some_and(|code| {
                 evidence_size(&input).saturating_add(code.len()) > INVOCATION_EVIDENCE_CAP
             }) {
                 code = None;
-                input = InvocationInput::shell(&program, vec![program.clone()], None);
+                if !native_input {
+                    input = InvocationInput::shell(&program, vec![program.clone()], None);
+                }
             }
             if !input.complete()
                 || source.as_str().ends_with("-inline") && code.is_none()

@@ -190,12 +190,31 @@ impl Lowerer {
         else {
             return;
         };
+        self.analyze_language_stage(execution, &program, &code, true);
+    }
+
+    pub(super) fn analyze_direct_inline_stage(
+        &mut self,
+        execution: VisibleExecutionState,
+        program: &str,
+        code: &str,
+    ) {
+        self.analyze_language_stage(execution, program, code, false);
+    }
+
+    fn analyze_language_stage(
+        &mut self,
+        execution: VisibleExecutionState,
+        program: &str,
+        code: &str,
+        cwd_authoritative: bool,
+    ) {
         let environment = inline_environment(&execution);
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             nah_inline::analyze_with_language_effects(
                 nah_inline::InlineInput {
-                    program: &program,
-                    code: &code,
+                    program,
+                    code,
                     home: &self.home,
                     platform: self.platform,
                 },
@@ -212,6 +231,11 @@ impl Lowerer {
         let (report, language_draft) = analysis.into_parts();
         let nested = report.nested_executions().to_vec();
         self.inline_report.extend(report);
+        let (cwd, pwd) = if cwd_authoritative {
+            (known_cwd(&execution.state), current_pwd(&execution.state))
+        } else {
+            (None, None)
+        };
         LanguageDraftTarget {
             complete: &mut self.complete,
             stages: &mut self.stages,
@@ -223,9 +247,9 @@ impl Lowerer {
         .append(
             LanguageExecution {
                 stage: execution.stage,
-                program: &program,
-                cwd: known_cwd(&execution.state),
-                pwd: current_pwd(&execution.state),
+                program,
+                cwd,
+                pwd,
             },
             &language_draft,
         );
