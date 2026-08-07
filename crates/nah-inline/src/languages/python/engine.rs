@@ -29,6 +29,7 @@ enum Module {
     Httpx,
     Shutil,
     Subprocess,
+    Urllib,
     UrllibRequest,
 }
 
@@ -46,6 +47,7 @@ enum KnownFunction {
     OsChmod,
     OsChown,
     OsExec(StringKind),
+    OsExpanduser,
     OsGetenv,
     OsLink,
     OsMkdir,
@@ -523,9 +525,14 @@ impl Interpreter<'_> {
     fn import(&mut self, node: &HirNode, state: &mut State) {
         for imported in named_children(node) {
             let (name, alias) = import_name(imported, &self.source);
+            let value = if alias.is_some() {
+                module_value(&name)
+            } else {
+                name.split('.').next().and_then(module_value)
+            }
+            .unwrap_or(Value::Unknown);
             let binding =
                 alias.unwrap_or_else(|| name.split('.').next().unwrap_or(name.as_str()).to_owned());
-            let value = module_value(&name).unwrap_or(Value::Unknown);
             state.bindings.insert(binding, value);
         }
     }
@@ -1117,13 +1124,20 @@ impl Interpreter<'_> {
                     Value::String(parts.into_iter().fold(String::new(), join_path))
                 })
             }
-            KnownFunction::OsAbspath | KnownFunction::OsRealpath => arguments
+            KnownFunction::OsExpanduser => arguments
                 .positional
                 .first()
                 .and_then(value_string)
                 .map_or(Value::Unknown, |path| {
                     Value::String(expand_home(path, self.input.home))
                 }),
+            KnownFunction::OsAbspath => arguments
+                .positional
+                .first()
+                .and_then(value_string)
+                .filter(|path| is_absolute(path, self.input.platform))
+                .map_or(Value::Unknown, |path| Value::String(path.to_owned())),
+            KnownFunction::OsRealpath => Value::Unknown,
             KnownFunction::OsGetenv => arguments
                 .positional
                 .first()
@@ -1255,9 +1269,8 @@ impl Interpreter<'_> {
                 }
                 Value::Path(joined)
             }
-            "resolve" | "absolute" | "expanduser" => {
-                Value::Path(expand_home(&path, self.input.home))
-            }
+            "expanduser" => Value::Path(expand_home(&path, self.input.home)),
+            "resolve" | "absolute" => Value::Unknown,
             "read_text" | "read_bytes" => Value::Unknown,
             "unlink" | "rmdir" | "rename" | "replace" | "write_text" | "write_bytes" | "touch"
             | "mkdir" | "chmod" | "hardlink_to" | "link_to" | "symlink_to" => Value::None,
@@ -1363,11 +1376,18 @@ impl Interpreter<'_> {
                         .iter()
                         .all(|value| value_string(value).is_some()) =>
             {
-                arguments.positional[1..]
-                    .iter()
-                    .filter_map(value_string)
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
+                std::iter::once(
+                    value_string(&arguments.positional[0])
+                        .expect("the guarded arguments are exact strings")
+                        .to_owned(),
+                )
+                .chain(
+                    arguments.positional[2..]
+                        .iter()
+                        .filter_map(value_string)
+                        .map(str::to_owned),
+                )
+                .collect::<Vec<_>>()
             }
             StringKind::Execv | StringKind::Execvp
                 if arguments.keywords.is_empty() && arguments.positional.len() == 2 =>
@@ -1378,6 +1398,9 @@ impl Interpreter<'_> {
                 let Some(argv) = argv_value(&arguments.positional[1], state) else {
                     return;
                 };
+                if argv.is_empty() {
+                    return;
+                }
                 std::iter::once(program.to_owned())
                     .chain(argv.into_iter().skip(1))
                     .collect()
@@ -1587,6 +1610,7 @@ fn module_value(name: &str) -> Option<Value> {
         "httpx" => Module::Httpx,
         "shutil" => Module::Shutil,
         "subprocess" => Module::Subprocess,
+        "urllib" => Module::Urllib,
         "urllib.request" => Module::UrllibRequest,
         _ => return None,
     };
@@ -1610,6 +1634,7 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Builtins, "open") => KnownFunction::Open,
         (Module::Builtins, "getattr") => KnownFunction::Getattr,
         (Module::Io, "FileIO") => KnownFunction::IoFile,
+        (Module::Urllib, "request") => return Some(Value::Module(Module::UrllibRequest)),
         (Module::Os, "path") => return Some(Value::Module(Module::OsPath)),
         (Module::Os, "environ") => return Some(Value::Module(Module::Environment)),
         (Module::Os, "system") => KnownFunction::OsSystem,
@@ -1634,7 +1659,8 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Os, "truncate") => KnownFunction::OsTruncate,
         (Module::Os, "open") => KnownFunction::OsOpen,
         (Module::Os, "getenv") => KnownFunction::OsGetenv,
-        (Module::OsPath, "expanduser" | "abspath") => KnownFunction::OsAbspath,
+        (Module::OsPath, "expanduser") => KnownFunction::OsExpanduser,
+        (Module::OsPath, "abspath") => KnownFunction::OsAbspath,
         (Module::OsPath, "realpath") => KnownFunction::OsRealpath,
         (Module::OsPath, "join") => KnownFunction::PathJoin,
         (Module::Pathlib, "Path") => KnownFunction::Path,
@@ -2188,6 +2214,19 @@ fn expand_home(path: &str, home: &str) -> String {
     }
 }
 
+fn is_absolute(path: &str, platform: Platform) -> bool {
+    if platform == Platform::Windows {
+        path.starts_with(['/', '\\'])
+            || path.as_bytes().get(1) == Some(&b':')
+                && path
+                    .as_bytes()
+                    .get(2)
+                    .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+    } else {
+        path.starts_with('/')
+    }
+}
+
 fn normalize_path(path: &str, platform: Platform) -> String {
     let absolute = path.starts_with(['/', '\\']);
     let mut components = Vec::new();
@@ -2277,5 +2316,26 @@ mod tests {
             report("import shutil\nif shutil.rmtree('/') == None:\n    pass")
                 .contains_exact(FindingKind::RootDestruction)
         );
+    }
+
+    #[test]
+    fn path_and_exec_summaries_preserve_runtime_identity() {
+        assert_eq!(
+            report("import os, shutil\nshutil.rmtree(os.path.abspath('~'))"),
+            InlineReport::default()
+        );
+        assert!(
+            report("import os, shutil\nshutil.rmtree(os.path.expanduser('~'))")
+                .contains_exact(FindingKind::HomeDestruction)
+        );
+        assert_eq!(
+            report("import os.path, shutil\nshutil.rmtree(os.abspath('~'))"),
+            InlineReport::default()
+        );
+        assert!(matches!(
+            report("import os\nos.execl('/bin/echo', 'rm', '-rf', '/')")
+                .nested_executions(),
+            [NestedExecution::Command { argv, .. }] if argv == &["/bin/echo", "-rf", "/"]
+        ));
     }
 }

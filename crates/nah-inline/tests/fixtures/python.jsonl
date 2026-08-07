@@ -17,6 +17,9 @@
 {"id":"subprocess-unknown-shell-option","program":"python3","code":"import subprocess; subprocess.run(['rm', '-rf', '/'], shell=flag)","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"os-execv","program":"python3","code":"import os; os.execv('/bin/rm', ['rm', '-rf', '/'])","expected":{"findings":[],"nested_executions":[{"kind":"command","argv":["/bin/rm","-rf","/"],"stdout_inherited":true}],"refusals":[]}}
 {"id":"os-execlp","program":"python3","code":"import os; os.execlp('rm', 'rm', '-rf', '/')","expected":{"findings":[],"nested_executions":[{"kind":"command","argv":["rm","-rf","/"],"stdout_inherited":true}],"refusals":[]}}
+{"id":"os-execl-distinct-argv0","program":"python3","code":"import os; os.execl('/bin/echo', 'rm', '-rf', '/')","expected":{"findings":[],"nested_executions":[{"kind":"command","argv":["/bin/echo","-rf","/"],"stdout_inherited":true}],"refusals":[]}}
+{"id":"abspath-does-not-expand-home","program":"python3","code":"import os, shutil; shutil.rmtree(os.path.abspath('~'))","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"expanduser-expands-home","program":"python3","code":"import os, shutil; shutil.rmtree(os.path.expanduser('~'))","expected":{"findings":["home-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"literal-eval","program":"python3","code":"eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"concatenated-eval","program":"python3","code":"eval(\"import shutil; \" + \"shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"rebound-eval","program":"python3","code":"eval = print; eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
