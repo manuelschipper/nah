@@ -66,6 +66,8 @@ struct LocalFunction {
     parameters: Option<Vec<String>>,
     body: HirNode,
     expression_body: bool,
+    required_scope_depth: usize,
+    source_identity: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,6 +89,7 @@ enum Value {
     Process,
     Environment,
     UnknownModuleMember(Module),
+    UnknownReceiver(Box<Value>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,6 +204,44 @@ impl State {
         }
         self.owned_members.clear();
     }
+
+    fn invalidate_value(&mut self, value: &Value) {
+        match value {
+            Value::Module(module) | Value::UnknownModuleMember(module) => {
+                self.invalidate_module(*module);
+            }
+            Value::Array(values) => {
+                for value in values {
+                    self.invalidate_value(value);
+                }
+            }
+            Value::Object(properties) => {
+                for value in properties.values() {
+                    self.invalidate_value(value);
+                }
+            }
+            Value::UnknownReceiver(value) => self.invalidate_value(value),
+            _ => {}
+        }
+        if matches!(value, Value::Array(_) | Value::Object(_)) {
+            for scope in &mut self.scopes {
+                for binding in scope.bindings.values_mut() {
+                    if binding == value {
+                        *binding = Value::Unknown;
+                    }
+                }
+            }
+        }
+        if matches!(value, Value::Process | Value::Environment) {
+            for scope in &mut self.scopes {
+                for binding in scope.bindings.values_mut() {
+                    if matches!(binding, Value::Process | Value::Environment) {
+                        *binding = Value::Unknown;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -269,6 +310,25 @@ impl Budget {
     fn refuse(&mut self) {
         self.refusal.get_or_insert(InlineRefusal::WorkLimit);
     }
+
+    fn absorb(&mut self, other: Self) {
+        self.work = self.work.saturating_add(other.work);
+        self.statements = self.statements.saturating_add(other.statements);
+        self.functions = self.functions.saturating_add(other.functions);
+        self.dynamic_source_bytes = self
+            .dynamic_source_bytes
+            .saturating_add(other.dynamic_source_bytes);
+        if self.work > MAX_WORK
+            || self.statements > MAX_STATEMENTS
+            || self.functions > MAX_FUNCTIONS
+            || self.dynamic_source_bytes > MAX_DYNAMIC_SOURCE_BYTES
+        {
+            self.refuse();
+        }
+        if let Some(refusal) = other.refusal {
+            self.refusal.get_or_insert(refusal);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -297,7 +357,8 @@ struct Arguments {
 struct Interpreter<'a> {
     program: &'a str,
     source: &'a str,
-    input: &'a InlineInput<'a>,
+    home: &'a str,
+    platform: Platform,
     depth: usize,
     report: InlineReport,
     budget: Budget,
@@ -324,7 +385,8 @@ pub(super) fn analyze(
     let mut interpreter = Interpreter {
         program,
         source: input.code,
-        input,
+        home: input.home,
+        platform: input.platform,
         depth,
         report: InlineReport::default(),
         budget: Budget::default(),
@@ -376,7 +438,7 @@ impl<'a> Interpreter<'a> {
                     let Some(name) = child.child(HirField::Name) else {
                         continue;
                     };
-                    let Some(function) = self.function_value(child) else {
+                    let Some(function) = self.function_value(child, state) else {
                         return false;
                     };
                     state.declare(self.text(name), function);
@@ -538,12 +600,25 @@ impl<'a> Interpreter<'a> {
             None => {
                 let mut yes = state.clone();
                 let mut no = state.clone();
+                let saved_return = self.return_value.clone();
+                self.return_value = saved_return.clone();
                 let yes_control = consequence.map_or(Control::Next, |branch| {
                     self.exec_branch(branch, &mut yes, call_depth)
                 });
+                let yes_return = self.return_value.clone();
+                self.return_value = saved_return.clone();
                 let no_control = alternative.map_or(Control::Next, |branch| {
                     self.exec_branch(branch, &mut no, call_depth)
                 });
+                let no_return = self.return_value.clone();
+                self.return_value =
+                    if yes_control == Control::Return && no_control == Control::Return {
+                        join_values(yes_return, no_return)
+                    } else if yes_control == Control::Return || no_control == Control::Return {
+                        Value::Unknown
+                    } else {
+                        saved_return
+                    };
                 *state = join_states(yes, no);
                 if yes_control == no_control {
                     yes_control
@@ -655,7 +730,7 @@ impl<'a> Interpreter<'a> {
             HirKind::Array => self.array(node, state, call_depth),
             HirKind::Object => self.object(node, state, call_depth),
             HirKind::FunctionExpression | HirKind::ArrowFunction => {
-                self.function_value(node).unwrap_or(Value::Unknown)
+                self.function_value(node, state).unwrap_or(Value::Unknown)
             }
             HirKind::ParenthesizedExpression => named_children(node)
                 .next()
@@ -850,11 +925,16 @@ impl<'a> Interpreter<'a> {
                     .map_or(Value::Unknown, |object| {
                         self.eval(object, state, call_depth)
                     });
-                if let Some(property) = self.member_name(node, state, call_depth)
-                    && let Value::Module(module) = object
-                    && let Some(member) = module_member(module, &property)
-                {
-                    state.owned_members.remove(&(module, member));
+                let property = self.member_name(node, state, call_depth);
+                match (&object, property.as_deref()) {
+                    (Value::Module(module), Some(property)) => {
+                        if let Some(member) = module_member(*module, property) {
+                            state.owned_members.remove(&(*module, member));
+                        } else {
+                            state.invalidate_module(*module);
+                        }
+                    }
+                    _ => state.invalidate_value(&object),
                 }
             }
             _ => {}
@@ -955,13 +1035,18 @@ impl<'a> Interpreter<'a> {
                 },
             ),
             Value::Object(properties) => {
-                properties.get(&property).cloned().unwrap_or(Value::Unknown)
+                let value = properties.get(&property).cloned();
+                match value {
+                    Some(value) if value != Value::Unknown => value,
+                    _ => Value::UnknownReceiver(Box::new(Value::Object(properties))),
+                }
             }
+            Value::Array(values) => Value::UnknownReceiver(Box::new(Value::Array(values))),
             Value::ObjectBuiltin if property == "defineProperty" => {
                 Value::Known(KnownFunction::DefineProperty)
             }
             Value::Process if property == "env" => Value::Environment,
-            Value::Environment if property == "HOME" => Value::String(self.input.home.to_owned()),
+            Value::Environment if property == "HOME" => Value::String(self.home.to_owned()),
             _ => Value::Unknown,
         }
     }
@@ -995,16 +1080,20 @@ impl<'a> Interpreter<'a> {
         );
         match callable {
             Value::Require => self.require(arguments),
-            Value::Eval => self.eval_source(arguments),
+            Value::Eval => self.eval_source(arguments, state),
             Value::Known(function) => self.call_known(function, arguments, state),
             Value::Function(function) => self.call_local(&function, arguments, state, call_depth),
             Value::UnknownModuleMember(module) => {
                 state.invalidate_module(module);
                 Value::Unknown
             }
+            Value::UnknownReceiver(receiver) => {
+                state.invalidate_value(&receiver);
+                Value::Unknown
+            }
             _ => {
                 for value in &arguments.values {
-                    invalidate_modules(value, state);
+                    state.invalidate_value(value);
                 }
                 Value::Unknown
             }
@@ -1053,7 +1142,7 @@ impl<'a> Interpreter<'a> {
             .map_or(Value::Unknown, Value::Module)
     }
 
-    fn eval_source(&mut self, arguments: Arguments) -> Value {
+    fn eval_source(&mut self, arguments: Arguments, state: &mut State) -> Value {
         if !arguments.complete || arguments.values.len() != 1 {
             return Value::Unknown;
         }
@@ -1063,16 +1152,48 @@ impl<'a> Interpreter<'a> {
         if !self.budget.enter_dynamic_source(source.len()) {
             return Value::Unknown;
         }
-        self.report.extend(crate::analyze_at(
-            InlineInput {
-                program: self.program,
-                code: source,
-                home: self.input.home,
-                platform: self.input.platform,
-            },
-            None,
-            self.depth + 1,
-        ));
+        if self.depth + 1 >= 16 {
+            self.report.refuse(InlineRefusal::RecursionLimit);
+            state.widen();
+            return Value::Unknown;
+        }
+        let module = match super::parser::javascript(source) {
+            Ok(module) if module.executable() => module,
+            Ok(_) => {
+                state.widen();
+                return Value::Unknown;
+            }
+            Err(refusal) => {
+                self.report.refuse(refusal);
+                state.widen();
+                return Value::Unknown;
+            }
+        };
+        let mutates = source_mutates(module.root());
+        let mut nested = Interpreter {
+            program: self.program,
+            source,
+            home: self.home,
+            platform: self.platform,
+            depth: self.depth + 1,
+            report: InlineReport::default(),
+            budget: Budget::default(),
+            return_value: Value::Undefined,
+        };
+        let mut nested_state = state.clone();
+        nested.hoist_vars(module.root(), &mut nested_state);
+        nested.exec_sequence(module.root(), &mut nested_state, false, 0);
+        let failed = nested.budget.refusal.is_some();
+        if let Some(refusal) = nested.budget.refusal {
+            nested.report.refuse(refusal);
+        }
+        self.report.extend(nested.report);
+        self.budget.absorb(nested.budget);
+        if mutates || failed {
+            state.widen();
+        } else {
+            *state = nested_state;
+        }
         Value::Unknown
     }
 
@@ -1094,6 +1215,8 @@ impl<'a> Interpreter<'a> {
                     } else {
                         state.invalidate_module(*module);
                     }
+                } else if let Some(value) = arguments.values.first() {
+                    state.invalidate_value(value);
                 }
                 Value::Unknown
             }
@@ -1127,7 +1250,7 @@ impl<'a> Interpreter<'a> {
                             super::super::common::add_exact_shell(
                                 &mut self.report,
                                 code,
-                                self.input.platform,
+                                self.platform,
                             );
                         }
                     }
@@ -1151,6 +1274,12 @@ impl<'a> Interpreter<'a> {
         call_depth: usize,
     ) -> Value {
         if call_depth >= MAX_CALL_DEPTH || !arguments.complete {
+            return Value::Unknown;
+        }
+        if state.scopes.len() < function.required_scope_depth {
+            return Value::Unknown;
+        }
+        if function.source_identity != self.source.as_ptr() as usize {
             return Value::Unknown;
         }
         let Some(parameters) = &function.parameters else {
@@ -1179,7 +1308,7 @@ impl<'a> Interpreter<'a> {
         value
     }
 
-    fn function_value(&mut self, node: &HirNode) -> Option<Value> {
+    fn function_value(&mut self, node: &HirNode, state: &State) -> Option<Value> {
         if !self.budget.add_function() {
             return None;
         }
@@ -1188,6 +1317,8 @@ impl<'a> Interpreter<'a> {
         Some(Value::Function(Arc::new(LocalFunction {
             parameters,
             expression_body: body.kind() != HirKind::StatementBlock,
+            required_scope_depth: state.scopes.len(),
+            source_identity: self.source.as_ptr() as usize,
             body,
         })))
     }
@@ -1381,15 +1512,15 @@ impl<'a> Interpreter<'a> {
     }
 
     fn add_destructive_target(&mut self, target: &str) {
-        let normalized = normalize_path(target, self.input.platform);
-        let home = normalize_path(self.input.home, self.input.platform);
+        let normalized = normalize_path(target, self.platform);
+        let home = normalize_path(self.home, self.platform);
         if normalized == home {
             self.report
                 .push(Finding::exact(FindingKind::HomeDestruction));
         }
         if SYSTEM_TREES
             .iter()
-            .any(|tree| normalize_path(tree, self.input.platform) == normalized)
+            .any(|tree| normalize_path(tree, self.platform) == normalized)
         {
             self.report
                 .push(Finding::exact(FindingKind::RootDestruction));
@@ -1468,6 +1599,25 @@ fn named_children(node: &HirNode) -> impl Iterator<Item = &HirNode> {
     node.children()
         .iter()
         .filter(|child| !matches!(child.kind(), HirKind::Token | HirKind::Comment))
+}
+
+fn source_mutates(node: &HirNode) -> bool {
+    if matches!(
+        node.kind(),
+        HirKind::AssignmentExpression
+            | HirKind::AugmentedAssignmentExpression
+            | HirKind::UpdateExpression
+            | HirKind::LexicalDeclaration
+            | HirKind::VariableDeclaration
+            | HirKind::FunctionDeclaration
+            | HirKind::ClassDeclaration
+            | HirKind::ImportStatement
+            | HirKind::Unsupported
+            | HirKind::Error
+    ) {
+        return true;
+    }
+    named_children(node).any(source_mutates)
 }
 
 fn module_from_source(source: &str) -> Option<Module> {
@@ -1567,7 +1717,7 @@ fn string_coercion(value: &Value) -> Option<String> {
 
 fn truthy(value: &Value) -> Option<bool> {
     match value {
-        Value::Unknown | Value::UnknownModuleMember(_) => None,
+        Value::Unknown | Value::UnknownModuleMember(_) | Value::UnknownReceiver(_) => None,
         Value::Undefined | Value::Null => Some(false),
         Value::Bool(value) => Some(*value),
         Value::Number(value) => Some(*value != 0),
@@ -1665,25 +1815,6 @@ fn join_states(mut left: State, right: State) -> State {
         .copied()
         .collect();
     left
-}
-
-fn invalidate_modules(value: &Value, state: &mut State) {
-    match value {
-        Value::Module(module) | Value::UnknownModuleMember(module) => {
-            state.invalidate_module(*module);
-        }
-        Value::Array(values) => {
-            for value in values {
-                invalidate_modules(value, state);
-            }
-        }
-        Value::Object(properties) => {
-            for value in properties.values() {
-                invalidate_modules(value, state);
-            }
-        }
-        _ => {}
-    }
 }
 
 fn values_bytes(values: &[Value]) -> Option<usize> {
@@ -1933,6 +2064,9 @@ mod tests {
         assert!(root(
             "import {rmSync as remove} from 'fs'; remove('/', {recursive:true})"
         ));
+        assert!(root(
+            "const files=require('fs'); eval(\"files.rmSync('/', {recursive:true})\")"
+        ));
         assert_eq!(
             report("const {spawn}=require('child_process'); spawn('nah', ['nap'])")
                 .nested_executions(),
@@ -1964,6 +2098,7 @@ mod tests {
             "if (true) { const fs=require('fs'); } fs.rmSync('/', {recursive:true})",
             "function safe(require) { require('fs').rmSync('/', {recursive:true}) } safe(other)",
             "try { throw 1 } catch (require) { require('fs').rmSync('/', {recursive:true}) }",
+            "const fs=require('fs'); function make(){const fs=safe; return ()=>fs.rmSync('/', {recursive:true})} make()()",
         ] {
             assert_eq!(report(code), InlineReport::default(), "{code}");
         }
@@ -1978,9 +2113,21 @@ mod tests {
             "const fs=require('fs'); plugin(fs); fs.rmSync('/', {recursive:true})",
             "const fs=require('fs'); if (flag) { fs.rmSync=safe } fs.rmSync('/', {recursive:true})",
             "const fs=require('fs'); switch (flag) { default: break } fs.rmSync('/', {recursive:true})",
+            "const options={recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
+            "const options={recursive:true}; const alias=options; alias.recursive=false; require('fs').rmSync('/', options)",
+            "const options={recursive:true}; Object.defineProperty(options, 'recursive', {value:false}); require('fs').rmSync('/', options)",
+            "process.env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
+            "const env=process.env; env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
+            "eval('require=safe'); require('fs').rmSync('/', {recursive:true})",
+            "eval(\"require('fs').rmSync=safe\"); require('fs').rmSync('/', {recursive:true})",
         ] {
             assert_eq!(report(code), InlineReport::default(), "{code}");
         }
+        assert!(
+            report("const args=['-rf','/']; args.push('safe'); require('child_process').spawn('rm', args)")
+                .nested_executions()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1994,6 +2141,19 @@ mod tests {
             assert_eq!(report(code), InlineReport::default(), "{code}");
         }
         assert!(root("false || require('fs').rmSync('/', {recursive:true})"));
+    }
+
+    #[test]
+    fn uncertain_function_returns_do_not_choose_one_branch() {
+        assert_eq!(
+            report(
+                "function target(){if(flag){return '/tmp/safe'}else{return '/'}} require('fs').rmSync(target(), {recursive:true})"
+            ),
+            InlineReport::default()
+        );
+        assert!(root(
+            "function target(){if(flag){return '/'}else{return '/'}} require('fs').rmSync(target(), {recursive:true})"
+        ));
     }
 
     #[test]
