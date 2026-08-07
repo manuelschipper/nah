@@ -218,6 +218,25 @@ fn current_truthiness_try_class_and_divergence_control_effect_reachability() {
 }
 
 #[test]
+fn class_body_abrupt_control_does_not_fall_through() {
+    for code in [
+        "import os\nclass Stop:\n    raise RuntimeError()\n    os.remove('/tmp/body')\nos.remove('/tmp/tail')",
+        "import os\nclass Stop:\n    while True: pass\n    os.remove('/tmp/body')\nos.remove('/tmp/tail')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis = analyze(
+        "import os\ntry:\n    class Stop:\n        raise RuntimeError()\nexcept:\n    os.remove('/tmp/caught')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/caught")
+    );
+}
+
+#[test]
 fn dynamic_code_keeps_mode_isolation_and_defining_source_identity() {
     assert!(
         analyze("eval(\"import os; os.remove('/tmp/x')\")")

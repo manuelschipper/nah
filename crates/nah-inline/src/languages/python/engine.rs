@@ -410,6 +410,7 @@ impl Interpreter<'_> {
                 Control::Next
             }
             HirKind::DecoratedDefinition => {
+                let mut control = Control::Next;
                 for decorator in node
                     .children()
                     .iter()
@@ -423,15 +424,12 @@ impl Interpreter<'_> {
                     if definition.kind() == HirKind::Function {
                         self.define_function(definition, state, depth, true);
                     } else {
-                        self.exec_class(definition, state, depth);
+                        control = self.exec_class(definition, state, depth);
                     }
                 }
-                Control::Next
+                control
             }
-            HirKind::Class => {
-                self.exec_class(node, state, depth);
-                Control::Next
-            }
+            HirKind::Class => self.exec_class(node, state, depth),
             HirKind::Return => {
                 let value = named_children(node)
                     .next()
@@ -844,7 +842,7 @@ impl Interpreter<'_> {
         }
     }
 
-    fn exec_class(&mut self, node: &HirNode, state: &mut State, depth: usize) {
+    fn exec_class(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
         for child in node.children() {
             if matches!(child.field(), Some(HirField::Name | HirField::Body)) {
                 continue;
@@ -855,18 +853,23 @@ impl Interpreter<'_> {
         }
         if let Some(body) = node.child(HirField::Body) {
             let mut class_state = state.clone();
-            if self.exec_block(body, &mut class_state, depth) != Control::Next {
+            let control = self.exec_block(body, &mut class_state, depth);
+            if control != Control::Next {
                 self.complete = false;
             }
             propagate_invalid_modules(&class_state.invalid_modules, state);
             state.relative_cwd_known &= class_state.relative_cwd_known;
             state.cells = class_state.cells;
+            if control != Control::Next {
+                return control;
+            }
         }
         if let Some(name) = node.child(HirField::Name) {
             state
                 .bindings
                 .insert(self.text(name).to_owned(), Value::Unknown);
         }
+        Control::Next
     }
 
     fn if_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
