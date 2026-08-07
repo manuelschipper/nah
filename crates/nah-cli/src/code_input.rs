@@ -2,6 +2,8 @@
 
 use serde_json::{Map, Value, json};
 
+use nah_proto::tool::ToolCallInput;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
     Python { source: String },
@@ -17,6 +19,32 @@ impl CodeInput {
             Self::TypeScript { source } => ("typescript", source),
         };
         json!({"code":source,"language":language})
+    }
+}
+
+pub(crate) struct HookDecisionInput<'a> {
+    request: ToolCallInput,
+    code: Option<&'a CodeInput>,
+}
+
+impl<'a> HookDecisionInput<'a> {
+    pub(crate) fn into_parts(self) -> (ToolCallInput, Option<&'a CodeInput>) {
+        (self.request, self.code)
+    }
+}
+
+impl<'a> From<ToolCallInput> for HookDecisionInput<'a> {
+    fn from(request: ToolCallInput) -> Self {
+        Self {
+            request,
+            code: None,
+        }
+    }
+}
+
+impl<'a> From<(ToolCallInput, Option<&'a CodeInput>)> for HookDecisionInput<'a> {
+    fn from((request, code): (ToolCallInput, Option<&'a CodeInput>)) -> Self {
+        Self { request, code }
     }
 }
 

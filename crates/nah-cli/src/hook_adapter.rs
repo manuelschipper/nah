@@ -145,12 +145,13 @@ pub(crate) fn irrelevant_event(value: &Value, field: &str, expected: &str) -> bo
         .is_some_and(|actual| actual != expected)
 }
 
-pub(crate) fn decide_input<E: Write>(
-    request: ToolCallInput,
+pub(crate) fn decide_input<'a, E: Write>(
+    request: impl Into<crate::code_input::HookDecisionInput<'a>>,
     stderr: &mut E,
     runtime: Runtime,
     failure_policy: FailurePolicy,
 ) -> HookOutcome {
+    let (request, code) = request.into().into_parts();
     let request = serde_json::to_vec(&request).expect("validated tool input serializes");
     let mut decision_bytes = Vec::new();
     let outcome = run_decide_for_runtime(
@@ -159,9 +160,9 @@ pub(crate) fn decide_input<E: Write>(
         stderr,
         Some(runtime),
         failure_policy,
+        code,
     );
-    let code = outcome.code;
-    if code == ExitCode::UNAVAILABLE.value() {
+    if outcome.code == ExitCode::UNAVAILABLE.value() {
         // `nah decide` reports no decision body when it cannot decide at all.
         return fail(
             "decision unavailable",
@@ -174,7 +175,7 @@ pub(crate) fn decide_input<E: Write>(
         );
     }
     match serde_json::from_slice::<DecisionOutput>(&decision_bytes) {
-        Ok(decision) if code == ExitCode::from(decision.verdict()).value() => {
+        Ok(decision) if outcome.code == ExitCode::from(decision.verdict()).value() => {
             HookOutcome::Decision(HookDecision {
                 output: decision,
                 audit_recorded: outcome.audit_recorded,

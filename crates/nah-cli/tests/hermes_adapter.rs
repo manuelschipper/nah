@@ -60,6 +60,14 @@ fn run_hook_with_home(
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn audit_records(home: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(home.join(".nah/audit.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
 #[test]
 fn custom_hermes_home_shared_wiring_delegates() {
     let home_temp = tempfile::tempdir().unwrap();
@@ -197,4 +205,64 @@ fn hermes_adapter_maps_guards_and_malformed_input() {
 
     let malformed = run_hook(home, &project, "read_file", json!({"path":7}));
     assert_eq!(malformed, json!({}));
+}
+
+#[test]
+fn hermes_python_reaches_exact_direct_effects_without_shell_rewriting() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+    std::fs::create_dir_all(home.join(".hermes")).unwrap();
+    let source = "import os; os.remove('/tmp/hermes-direct-python-target')";
+
+    assert_eq!(
+        run_hook(&home, &project, "execute_code", json!({"code":source})),
+        json!({})
+    );
+    let records = audit_records(&home);
+    let record = records.last().unwrap();
+    assert_eq!(record["runtime"], "hermes");
+    assert_eq!(record["command"], "execute_code [redacted]");
+    assert_eq!(record["core"]["coverage"], "full");
+    assert_eq!(
+        record["effects"],
+        json!([
+            {"id":"e0","description":"execute python interpreter-inline"},
+            {"id":"e1","description":"invoke python direct-file"},
+            {"id":"e2","description":"delete /tmp/hermes-direct-python-target"},
+        ])
+    );
+}
+
+#[test]
+fn hermes_unknown_python_and_invalid_code_shapes_stay_opaque() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+    std::fs::create_dir_all(home.join(".hermes")).unwrap();
+
+    assert_eq!(
+        run_hook(
+            &home,
+            &project,
+            "execute_code",
+            json!({"code":"plugin.remove('/tmp/not-an-effect')"}),
+        ),
+        json!({})
+    );
+    assert_eq!(
+        audit_records(&home).last().unwrap()["effects"],
+        json!([{"id":"e0","description":"execute python interpreter-inline"}])
+    );
+
+    for input in [
+        json!({"code":7}),
+        json!({"code":"import shutil; shutil.rmtree('/')","futureBehavior":"execute"}),
+    ] {
+        assert_eq!(run_hook(&home, &project, "execute_code", input), json!({}));
+        assert_eq!(
+            audit_records(&home).last().unwrap()["effects"],
+            json!([{"id":"e0","description":"invoke execute_code opaque"}])
+        );
+    }
 }

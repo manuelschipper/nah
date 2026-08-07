@@ -25,10 +25,14 @@ entries, and configuration are preserved.
 
 Hermes' native shell hook sends the pending call directly to
 `nah hook hermes run`. Terminal, read, write, replace/patch, content-search,
-and literal file-name search tools use nah's shared effects. Wildcard file-name
-searches, process-control, `execute_code`, browser, MCP, plugin, and future
-tools remain opaque. Tool calls made through `hermes_tools` re-enter the normal
-hook. Blocks return Hermes'
+literal file-name search, and exact `execute_code` Python payloads use nah's
+shared effects. The Python frontend recognizes bounded standard-library
+filesystem and subprocess calls plus reviewed network clients without running
+the code. Absolute paths retain exact evidence; relative paths stay unresolved
+because the execution kernel's working directory is not assumed from the hook.
+Wildcard file-name searches, process-control, browser, MCP, plugin, malformed
+or extended code payloads, and future tools remain opaque. Tool calls made
+through `hermes_tools` re-enter the normal hook. Blocks return Hermes'
 documented `decision: block` response. Every other call delegates by returning
 no directive, preserving Hermes' approval flow. Malformed input does the same.
 By default, evaluation failure also returns no directive and fixed feedback.
@@ -51,8 +55,10 @@ Python plugin hooks run before shell hooks. The first valid block wins, and an
 earlier approval directive does not override a later nah block.
 
 Direct filesystem, subprocess, or network effects inside `execute_code` do not
-re-enter hooks. An unapproved or revoked hook, inaccessible alternate home,
-manual action, and direct trusted-plugin work remain outside nah. Verify with
+re-enter hooks. Nah can decide only from the exact visible Python source and
+keeps unsupported or dynamic behavior uncertain. An unapproved or revoked
+hook, inaccessible alternate home, manual action, and direct trusted-plugin
+work remain outside nah. Verify with
 `hermes hooks list` and `hermes hooks test pre_tool_call --for-tool terminal`
 after installation. The default test uses a harmless `echo`; to test blocking,
 pass `--payload-file` a JSON object such as

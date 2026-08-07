@@ -40,8 +40,13 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         Err(error) => Err(error.to_string()),
     };
     let output = match request {
-        Ok((request, _code)) => {
-            match hook_adapter::decide_input(request, stderr, Runtime::Hermes, failure_policy) {
+        Ok((request, code)) => {
+            match hook_adapter::decide_input(
+                (request, code.as_ref()),
+                stderr,
+                Runtime::Hermes,
+                failure_policy,
+            ) {
                 hook_adapter::HookOutcome::Decision(decision)
                     if decision.verdict() == Verdict::Block =>
                 {

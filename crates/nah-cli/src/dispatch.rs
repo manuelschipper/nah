@@ -12,6 +12,7 @@ use crate::antigravity_adapter;
 use crate::args::{Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
 use crate::claude_adapter;
 use crate::cline_adapter;
+use crate::code_input::CodeInput;
 use crate::codex_adapter;
 use crate::commands::{
     GuardSelector, RuntimeHookStatus, list_custom_guards, list_shipped_guards, new_guard,
@@ -358,7 +359,7 @@ pub(crate) fn run_decide<R: Read, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
-    run_decide_for_runtime(stdin, stdout, stderr, None, FailurePolicy::Delegate).code
+    run_decide_for_runtime(stdin, stdout, stderr, None, FailurePolicy::Delegate, None).code
 }
 
 pub(crate) struct DecideOutcome {
@@ -377,14 +378,20 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     runtime: Option<Runtime>,
     failure_policy: FailurePolicy,
+    code: Option<&CodeInput>,
 ) -> DecideOutcome {
+    let code = if runtime == Some(Runtime::Hermes) {
+        code
+    } else {
+        None
+    };
     // A panic would end the process with a signal and no decision body, which
     // every adapter reads as "nah did not block". Report no decision instead,
     // so each adapter answers through its own unavailable branch. This is the
     // backstop for a defect nobody has found yet; it cannot catch a stack
     // overflow, which is why the parser bounds its own recursion.
     let decided = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        decide_and_emit(stdin, stdout, stderr, runtime, failure_policy)
+        decide_and_emit(stdin, stdout, stderr, runtime, failure_policy, code)
     }));
     decided.unwrap_or_else(|_| {
         let _ = writeln!(stderr, "nah: internal failure; no decision was produced");
@@ -404,6 +411,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     runtime: Option<Runtime>,
     failure_policy: FailurePolicy,
+    code: Option<&CodeInput>,
 ) -> DecideOutcome {
     let started = Instant::now();
     let mut payload = String::new();
@@ -444,7 +452,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                 .map(|self_protection| self_protection.unwrap_or_default());
             let result = match self_protection {
                 Ok(self_protection) => {
-                    decide_live_with_self_protection(&input, &state, &self_protection)
+                    decide_live_with_self_protection(&input, code, &state, &self_protection)
                 }
                 Err(_) => failed_delegate(
                     "runtime-self-protection",
@@ -866,6 +874,7 @@ mod tests {
             &mut stderr,
             Some(Runtime::Claude),
             FailurePolicy::Block,
+            None,
         );
         assert_eq!(outcome.code, ExitCode::UNAVAILABLE.value());
         assert!(outcome.operator_required_unavailable);

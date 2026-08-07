@@ -1,4 +1,6 @@
-use nah_proto::action::{EffectKind, FilesystemOperation, InvocationEffect};
+use nah_proto::action::{
+    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput, SemanticCode,
+};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::decision::Verdict;
 use nah_proto::observation::{
@@ -10,9 +12,11 @@ use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
 use super::{
-    ConsultedExtensions, decide_with, decide_with_extensions, decide_with_extensions_mode,
+    ConsultedExtensions, decide_with, decide_with_code, decide_with_extensions,
+    decide_with_extensions_mode,
 };
 use crate::catalog::POLICY_VERSION;
+use crate::code_input::CodeInput;
 
 fn context() -> Ctx {
     Ctx::new(
@@ -36,6 +40,18 @@ fn input(command: &str) -> ToolCallInput {
         None,
     )
     .unwrap()
+}
+
+fn python_input(source: &str) -> ToolCallInput {
+    ToolCallInput::new(
+        SchemaVersion::V1,
+        "execute_code",
+        json!({"code":source,"language":"python"}),
+        "/repo",
+        None,
+    )
+    .unwrap()
+    .with_original_input(json!({"code":source}), true)
 }
 
 fn absolute(path: &str) -> AbsolutePath {
@@ -149,6 +165,80 @@ fn calls_without_environment_dependencies_observe_once() {
 }
 
 #[test]
+fn direct_python_pipeline_keeps_absolute_and_unresolved_relative_effects_distinct() {
+    let source = "import os; os.remove('/tmp/exact'); os.remove('relative')";
+    let input = python_input(source);
+    let code = CodeInput::Python {
+        source: source.into(),
+    };
+    let result = decide_with_code(&input, &code, &context(), |request| {
+        assert!(request.queries().iter().any(|query| {
+            matches!(query, ObservationQuery::Path { requested, .. } if requested == "/tmp/exact")
+        }));
+        assert!(!request.queries().iter().any(|query| {
+            matches!(query, ObservationQuery::Path { requested, .. } if requested == "/repo/relative")
+        }));
+        Ok(observed(request, |_| value("unused")))
+    });
+
+    assert_eq!(result.action_stream().coverage(), Coverage::Partial);
+    assert!(matches!(
+        result.action_stream().effects()[0].kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::CodeExecution {
+                program,
+                interpreter: Some(interpreter),
+                source: effect_source,
+                code: Some(code),
+                input: InvocationInput::Native { value, complete: true },
+                cwd: None,
+            }
+        } if program == "execute_code"
+            && interpreter == "python"
+            && effect_source == &SemanticCode::INTERPRETER_INLINE
+            && code == source
+            && value == &json!({"code":source})
+    ));
+    assert!(has_delete(&result, "/tmp/exact"));
+    assert!(
+        result
+            .action_stream()
+            .effects()
+            .iter()
+            .any(|effect| matches!(
+                effect.kind(),
+                EffectKind::FilesystemUnresolved {
+                    operation: FilesystemOperation::Delete,
+                    recursive: false,
+                }
+            ))
+    );
+}
+
+#[test]
+fn visible_python_is_never_inferred_without_the_typed_code_input() {
+    let source = "import os; os.remove('/tmp/not-routed')";
+    let input = python_input(source);
+    let result = decide_with(&input, &context(), |request| {
+        assert!(
+            !request
+                .queries()
+                .iter()
+                .any(|query| matches!(query, ObservationQuery::Path { .. }))
+        );
+        Ok(observed(request, |_| value("unused")))
+    });
+
+    assert_eq!(result.action_stream().effects().len(), 1);
+    assert!(matches!(
+        result.action_stream().effects()[0].kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::Opaque { program, .. }
+        } if program == "execute_code"
+    ));
+}
+
+#[test]
 fn ambient_program_and_operand_gain_canonical_path_observation() {
     let mut calls = 0;
     let result = decide_with(&input("$TOOL $TARGET"), &context(), |request| {
@@ -254,6 +344,7 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
         let mut calls = 0;
         let result = decide_with_extensions_mode(
             &input("$TOOL \"$TARGET\""),
+            None,
             &context(),
             &self_protection,
             mode,
@@ -298,6 +389,7 @@ fn runtime_self_protection_tracks_static_python_path_variables() {
     ] {
         let result = decide_with_extensions_mode(
             &input(command),
+            None,
             &context(),
             &self_protection,
             nah_policy::EnforcementMode::Normal,

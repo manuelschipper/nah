@@ -12,6 +12,7 @@ use nah_proto::observation::{
 };
 use nah_proto::tool::ToolCallInput;
 
+use crate::code_input::CodeInput;
 use crate::live_state::LiveState;
 use crate::nap::NapMode;
 
@@ -217,6 +218,29 @@ where
 {
     decide_with_extensions_mode(
         input,
+        None,
+        ctx,
+        &nah_actions::SelfProtectionProjection::default(),
+        nah_policy::EnforcementMode::Normal,
+        observe,
+        |_, _| ConsultedExtensions::default(),
+        false,
+    )
+}
+
+#[cfg(test)]
+fn decide_with_code<F>(
+    input: &ToolCallInput,
+    code: &CodeInput,
+    ctx: &Ctx,
+    observe: F,
+) -> DecisionResult
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
+    decide_with_extensions_mode(
+        input,
+        Some(code),
         ctx,
         &nah_actions::SelfProtectionProjection::default(),
         nah_policy::EnforcementMode::Normal,
@@ -229,6 +253,7 @@ where
 pub(crate) fn decide_live(input: &ToolCallInput, state: &LiveState) -> DecisionResult {
     decide_live_with_self_protection(
         input,
+        None,
         state,
         &nah_actions::SelfProtectionProjection::default(),
     )
@@ -236,6 +261,7 @@ pub(crate) fn decide_live(input: &ToolCallInput, state: &LiveState) -> DecisionR
 
 pub(crate) fn decide_live_with_self_protection(
     input: &ToolCallInput,
+    code: Option<&CodeInput>,
     state: &LiveState,
     self_protection: &nah_actions::SelfProtectionProjection,
 ) -> DecisionResult {
@@ -246,6 +272,7 @@ pub(crate) fn decide_live_with_self_protection(
     };
     let mut result = decide_with_extensions_mode(
         input,
+        code,
         &state.ctx,
         self_protection,
         mode,
@@ -304,6 +331,7 @@ where
 {
     decide_with_extensions_mode(
         input,
+        None,
         ctx,
         &nah_actions::SelfProtectionProjection::default(),
         nah_policy::EnforcementMode::Normal,
@@ -313,8 +341,10 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn decide_with_extensions_mode<F, U>(
     input: &ToolCallInput,
+    code: Option<&CodeInput>,
     ctx: &Ctx,
     self_protection: &nah_actions::SelfProtectionProjection,
     mode: nah_policy::EnforcementMode,
@@ -401,9 +431,15 @@ where
     } else {
         None
     };
-    let analysis_input = match &syntax {
-        Some(syntax) => nah_actions::AnalysisInput::Bash(syntax, input),
-        None => nah_actions::AnalysisInput::Native(input),
+    let analysis_input = match (&syntax, code) {
+        (Some(syntax), _) => nah_actions::AnalysisInput::Bash(syntax, input),
+        (None, Some(CodeInput::Python { source })) if input.tool() == "execute_code" => {
+            nah_actions::AnalysisInput::VisibleCode(
+                nah_actions::VisibleCode::Python { source },
+                input,
+            )
+        }
+        (None, _) => nah_actions::AnalysisInput::Native(input),
     };
     let plan =
         nah_actions::plan_with_self_protection(analysis_input, ctx, &call_site, self_protection);
