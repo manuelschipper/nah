@@ -20,14 +20,11 @@ use crate::{
 pub(crate) fn supports(program: &str) -> bool {
     let program = normalized_program(program);
     is_python_interpreter(&program)
+        || javascript::profile(&program).is_some()
         || common::protection::is_perl_interpreter(&program)
         || matches!(
             program.as_str(),
-            "node"
-                | "nodejs"
-                | "deno"
-                | "bun"
-                | "ruby"
+            "ruby"
                 | "php"
                 | "lua"
                 | "luajit"
@@ -39,6 +36,10 @@ pub(crate) fn supports(program: &str) -> bool {
                 | "pwsh"
                 | "cmd"
         )
+}
+
+pub(crate) fn has_javascript_profile(program: &str) -> bool {
+    javascript::profile(&normalized_program(program)).is_some()
 }
 
 pub(crate) fn analyze_python(
@@ -81,8 +82,10 @@ pub(crate) fn analyze(
         perl::analyze("perl", &input, protection)
     } else {
         match program.as_str() {
-            "node" | "nodejs" => javascript::analyze(&program, &input, protection, depth),
-            "deno" | "bun" => InlineReport::default(),
+            "node" | "nodejs" | "deno" | "deno-js" | "deno-typescript" | "deno-tsx" | "bun"
+            | "tsx" | "javascript" | "typescript" => {
+                javascript::analyze(&program, &input, protection, depth)
+            }
             "ruby" => ruby::analyze(&program, &input, protection),
             "php" => php::analyze(&program, &input, protection),
             "lua" | "luajit" => lua::analyze(&program, &input, protection),
@@ -108,6 +111,9 @@ pub(crate) fn analyze_language(
     }
     if is_python_interpreter(&program) {
         return python::analyze_language(&program, &input, protection, depth);
+    }
+    if javascript::profile(&program).is_some() {
+        return javascript::analyze_language(&program, &input, protection, depth);
     }
     LanguageAnalysis::new(analyze(input, protection, depth), LanguageDraft::default())
 }

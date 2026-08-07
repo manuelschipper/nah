@@ -98,6 +98,9 @@ fn analyze_language_at(
     if is_python_interpreter(program) {
         return languages::analyze_python(input, protection, depth);
     }
+    if languages::has_javascript_profile(program) {
+        return languages::analyze_language(input, protection, depth);
+    }
     if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
         return LanguageAnalysis::refused(refusal);
     }
@@ -164,6 +167,30 @@ mod tests {
         })
     }
 
+    fn finds_root(program: &str, code: &str) -> bool {
+        let analysis = analyze_with_language_effects(
+            InlineInput {
+                program,
+                code,
+                home: "/home/dev",
+                platform: Platform::Linux,
+            },
+            ProtectionInput {
+                critical_paths: &[],
+                ambient_variables: &[],
+            },
+        );
+        analysis
+            .report()
+            .contains_exact(FindingKind::RootDestruction)
+            || analysis.draft().calls().iter().any(|call| {
+                call.filesystems().iter().any(|filesystem| {
+                    filesystem.requested() == Some("/")
+                        && filesystem.operation() != nah_proto::action::FilesystemOperation::Read
+                })
+            })
+    }
+
     fn has_shell(report: &InlineReport, expected: &str) -> bool {
         report.nested_executions().iter().any(|execution| {
             matches!(execution, NestedExecution::Shell { code, .. } if code == expected)
@@ -192,10 +219,7 @@ mod tests {
                 "require('fs').rmSync('/', {recursive:true, force:true})",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}: {code}"
-            );
+            assert!(finds_root(program, code), "{program}: {code}");
         }
     }
 
@@ -228,10 +252,7 @@ mod tests {
             ("pwsh", "Remove-Item -Recurse '/'"),
             ("cmd", "rmdir /s \"/\""),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}: {code}"
-            );
+            assert!(finds_root(program, code), "{program}: {code}");
         }
     }
 
@@ -633,10 +654,10 @@ mod tests {
             );
         }
 
-        assert!(
-            report("node", "require('fs').rm('/', {recursive:true}, () => {})",)
-                .contains_exact(FindingKind::RootDestruction)
-        );
+        assert!(finds_root(
+            "node",
+            "require('fs').rm('/', {recursive:true}, () => {})",
+        ));
     }
 
     #[test]
@@ -682,10 +703,7 @@ mod tests {
             "import shutil; shutil.rmtree('/./')",
             "import shutil; shutil.rmtree('/tmp/..')",
         ] {
-            assert!(
-                report("python3", code).contains_exact(FindingKind::RootDestruction),
-                "{code}"
-            );
+            assert!(finds_root("python3", code), "{code}");
         }
     }
 
@@ -844,10 +862,7 @@ mod tests {
             "[1].map(x => x); require('fs').rmSync('/', {recursive:true})",
             "function harmless(require) {}; require('fs').rmSync('/', {recursive:true})",
         ] {
-            assert!(
-                report("node", code).contains_exact(FindingKind::RootDestruction),
-                "{code}"
-            );
+            assert!(finds_root("node", code), "{code}");
         }
     }
 
@@ -895,10 +910,7 @@ mod tests {
                 "import Foundation\nlet FileManagerAlias=1\ntry! FileManager.default.removeItem(atPath: \"/\")",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}: {code}"
-            );
+            assert!(finds_root(program, code), "{program}: {code}");
         }
     }
 
@@ -1112,10 +1124,7 @@ mod tests {
                 "import Foundation\nlet dormant={ try! FileManager.default.removeItem(atPath: \"/\") }\ntry! FileManager.default.removeItem(atPath: \"/\")",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}: {code}"
-            );
+            assert!(finds_root(program, code), "{program}: {code}");
         }
         assert!(has_shell(
             &report(
@@ -1161,10 +1170,7 @@ mod tests {
                 "exec(\"import shutil; shutil.rmtree('/')\", {}, {}, closure=None)",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}: {code}"
-            );
+            assert!(finds_root(program, code), "{program}: {code}");
         }
     }
 
@@ -1260,10 +1266,7 @@ mod tests {
                 "require 'fileutils'\ndef danger\nFileUtils.rm_rf('/')\nend\ndanger()",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}"
-            );
+            assert!(finds_root(program, code), "{program}");
         }
     }
 
@@ -1297,20 +1300,14 @@ mod tests {
 
     #[test]
     fn javascript_distinguishes_callbacks_from_immediately_invoked_arrows() {
-        assert!(
-            report(
-                "node",
-                "(()=>require('fs').rmSync('/', {recursive:true}))()",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            report(
-                "node",
-                "(()=>{}, require('fs').rmSync('/', {recursive:true}))",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
+        assert!(finds_root(
+            "node",
+            "(()=>require('fs').rmSync('/', {recursive:true}))()",
+        ));
+        assert!(finds_root(
+            "node",
+            "(()=>{}, require('fs').rmSync('/', {recursive:true}))",
+        ));
         assert_eq!(
             report(
                 "node",
@@ -1318,20 +1315,14 @@ mod tests {
             ),
             InlineReport::default()
         );
-        assert!(
-            report(
-                "node",
-                "require === other; require('fs').rmSync('/', {recursive:true})",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            report(
-                "node",
-                "fake.rm=()=>{}; require('fs').rmSync('/', {recursive:true})",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
+        assert!(finds_root(
+            "node",
+            "require === other; require('fs').rmSync('/', {recursive:true})",
+        ));
+        assert!(finds_root(
+            "node",
+            "fake.rm=()=>{}; require('fs').rmSync('/', {recursive:true})",
+        ));
         assert_eq!(
             report(
                 "node",
@@ -1343,20 +1334,14 @@ mod tests {
 
     #[test]
     fn repeated_helpers_use_call_time_state_without_leaking_locals() {
-        assert!(
-            report(
-                "node",
-                "const fs=require('fs'); let target='/tmp/safe';\nfunction danger() { fs.rmSync(target, {recursive:true}) }\ndanger(); target='/'; danger()",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            report(
-                "node",
-                "const fs=require('fs');\nfunction local() { const fs=safe; }\nlocal(); fs.rmSync('/', {recursive:true})",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
+        assert!(finds_root(
+            "node",
+            "const fs=require('fs'); let target='/tmp/safe';\nfunction danger() { fs.rmSync(target, {recursive:true}) }\ndanger(); target='/'; danger()",
+        ));
+        assert!(finds_root(
+            "node",
+            "const fs=require('fs');\nfunction local() { const fs=safe; }\nlocal(); fs.rmSync('/', {recursive:true})",
+        ));
         assert_eq!(
             report(
                 "node",
@@ -1396,20 +1381,14 @@ mod tests {
                 "{program}: {code}"
             );
         }
-        assert!(
-            report(
-                "node",
-                "require('fs').rmSync('/', {recursive:true}); if (condition) {}",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            report(
-                "node",
-                "if (condition) {}; require('fs').rmSync('/', {recursive:true})",
-            )
-            .contains_exact(FindingKind::RootDestruction)
-        );
+        assert!(finds_root(
+            "node",
+            "require('fs').rmSync('/', {recursive:true}); if (condition) {}",
+        ));
+        assert!(finds_root(
+            "node",
+            "if (condition) {}; require('fs').rmSync('/', {recursive:true})",
+        ));
     }
 
     #[test]
@@ -1479,10 +1458,7 @@ mod tests {
             "def outer():\n    def danger():\n        import shutil\n        shutil.rmtree('/')\n    danger()\nouter()",
             "import shutil\ntarget='/'\ndef danger():\n    shutil.rmtree(target)\ndanger()\ntarget=input()",
         ] {
-            assert!(
-                report("python3", code).contains_exact(FindingKind::RootDestruction),
-                "{code}"
-            );
+            assert!(finds_root("python3", code), "{code}");
         }
     }
 
@@ -1503,10 +1479,7 @@ mod tests {
                 "from shutil import rmtree as remove_all; remove_all('/')",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}"
-            );
+            assert!(finds_root(program, code), "{program}");
         }
     }
 
@@ -1543,10 +1516,7 @@ mod tests {
                 "const fs=require('fs'); let target='/'; fs.rmSync(target, {recursive:true}); target=input()",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}"
-            );
+            assert!(finds_root(program, code), "{program}");
         }
     }
 
@@ -1605,10 +1575,7 @@ mod tests {
                 "eval(\"require('fs').\" + \"rmSync('/', {recursive:true})\")",
             ),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}"
-            );
+            assert!(finds_root(program, code), "{program}");
         }
     }
 
@@ -1635,10 +1602,7 @@ mod tests {
             "const value={now:require('fs').rmSync('/', {recursive:true})}",
             "const value={[require('fs').rmSync('/', {recursive:true})]:true}",
         ] {
-            assert!(
-                report("node", code).contains_exact(FindingKind::RootDestruction),
-                "{code}"
-            );
+            assert!(finds_root("node", code), "{code}");
         }
     }
 
@@ -1670,10 +1634,7 @@ mod tests {
             ("node", "require('fs').rmSync('/', {recursive: true})"),
             ("Rscript", "unlink('/', recursive = TRUE)"),
         ] {
-            assert!(
-                report(program, code).contains_exact(FindingKind::RootDestruction),
-                "{program}"
-            );
+            assert!(finds_root(program, code), "{program}");
         }
         assert!(has_shell(
             &report(

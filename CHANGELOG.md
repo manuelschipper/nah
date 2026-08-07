@@ -22,11 +22,13 @@
   scanner. Rename, hardlink, and access-control effects retain protected path
   identity; unreachable, rebound, and unresolved `which()` targets do not
   block.
-- **JavaScript effect frontend** — inline JavaScript now lowers into owned HIR
-  and a bounded interpreter for CommonJS and ES imports, constants, scopes,
-  helpers, branches, loops, exact eval, filesystem calls, and child processes.
-  Rebinding, escaped closures, mutable aliases, and unsupported behavior widen
-  locally instead of fabricating effects.
+- **Canonical JavaScript and TypeScript effects** — inline JavaScript,
+  TypeScript, and TSX now lower into owned HIR and a bounded interpreter for
+  constants, scopes, helpers, branches, loops, exact eval, and reviewed Node
+  filesystem and child-process calls. Proven calls publish ordinary
+  ActionStream effects; unowned Deno, Bun, and direct-tool profiles do not
+  inherit Node APIs, while rebinding and unsupported behavior stay explicit
+  instead of fabricating effects.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

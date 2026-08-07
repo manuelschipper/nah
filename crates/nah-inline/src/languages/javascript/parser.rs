@@ -61,6 +61,8 @@ pub(super) enum HirKind {
     ComputedPropertyName,
     MethodDefinition,
     ParenthesizedExpression,
+    TransparentExpression,
+    AwaitExpression,
     SequenceExpression,
     BinaryExpression,
     UnaryExpression,
@@ -83,6 +85,9 @@ pub(super) enum HirKind {
     NamespaceImport,
     NamedImports,
     ImportSpecifier,
+    ExportStatement,
+    RequiredParameter,
+    TypeOnly,
     SpreadElement,
     ClassDeclaration,
     EmptyStatement,
@@ -199,20 +204,56 @@ struct Context {
 }
 
 pub(super) fn javascript(code: &str) -> Result<HirModule, InlineRefusal> {
-    parse(code, tree_sitter_javascript::LANGUAGE.into())
+    parse(
+        code,
+        tree_sitter_javascript::LANGUAGE.into(),
+        Context::default(),
+    )
 }
 
-#[allow(dead_code)] // The TypeScript runtime routes in the next frontend tranche.
+pub(super) fn javascript_function_body(code: &str) -> Result<HirModule, InlineRefusal> {
+    parse(
+        code,
+        tree_sitter_javascript::LANGUAGE.into(),
+        Context {
+            in_function: true,
+            ..Context::default()
+        },
+    )
+}
+
 pub(super) fn typescript(code: &str) -> Result<HirModule, InlineRefusal> {
-    parse(code, tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+    parse(
+        code,
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        Context::default(),
+    )
 }
 
-#[allow(dead_code)] // The TSX file route lands with typed source routing.
+pub(super) fn typescript_function_body(code: &str) -> Result<HirModule, InlineRefusal> {
+    parse(
+        code,
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        Context {
+            in_function: true,
+            ..Context::default()
+        },
+    )
+}
+
 pub(super) fn tsx(code: &str) -> Result<HirModule, InlineRefusal> {
-    parse(code, tree_sitter_typescript::LANGUAGE_TSX.into())
+    parse(
+        code,
+        tree_sitter_typescript::LANGUAGE_TSX.into(),
+        Context::default(),
+    )
 }
 
-fn parse(code: &str, language: Language) -> Result<HirModule, InlineRefusal> {
+fn parse(
+    code: &str,
+    language: Language,
+    root_context: Context,
+) -> Result<HirModule, InlineRefusal> {
     let mut parser = Parser::new();
     parser
         .set_language(&language)
@@ -231,7 +272,7 @@ fn parse(code: &str, language: Language) -> Result<HirModule, InlineRefusal> {
         )
         .ok_or(InlineRefusal::WorkLimit)?;
     let root = tree.root_node();
-    let opaque = inspect(root)?;
+    let opaque = inspect(root, root_context)?;
     let mut nodes = 0usize;
     let root = lower_node(root, None, 0, &mut nodes)?;
     let mut coverage = Vec::new();
@@ -244,10 +285,10 @@ fn parse(code: &str, language: Language) -> Result<HirModule, InlineRefusal> {
     })
 }
 
-fn inspect(root: Node<'_>) -> Result<bool, InlineRefusal> {
+fn inspect(root: Node<'_>, root_context: Context) -> Result<bool, InlineRefusal> {
     let mut nodes = 0usize;
     let mut opaque = root.has_error();
-    let mut stack = vec![(root, 0usize, Context::default())];
+    let mut stack = vec![(root, 0usize, root_context)];
     while let Some((node, depth, context)) = stack.pop() {
         nodes += 1;
         if nodes > MAX_NODES || depth > MAX_DEPTH {
@@ -374,6 +415,12 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "computed_property_name" => HirKind::ComputedPropertyName,
         "method_definition" => HirKind::MethodDefinition,
         "parenthesized_expression" => HirKind::ParenthesizedExpression,
+        "as_expression"
+        | "satisfies_expression"
+        | "non_null_expression"
+        | "type_assertion"
+        | "instantiation_expression" => HirKind::TransparentExpression,
+        "await_expression" => HirKind::AwaitExpression,
         "sequence_expression" => HirKind::SequenceExpression,
         "binary_expression" => HirKind::BinaryExpression,
         "unary_expression" => HirKind::UnaryExpression,
@@ -396,6 +443,12 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "namespace_import" => HirKind::NamespaceImport,
         "named_imports" => HirKind::NamedImports,
         "import_specifier" => HirKind::ImportSpecifier,
+        "export_statement" => HirKind::ExportStatement,
+        "required_parameter" => HirKind::RequiredParameter,
+        "ambient_declaration"
+        | "function_signature"
+        | "interface_declaration"
+        | "type_alias_declaration" => HirKind::TypeOnly,
         "spread_element" => HirKind::SpreadElement,
         "class_declaration" => HirKind::ClassDeclaration,
         "empty_statement" => HirKind::EmptyStatement,

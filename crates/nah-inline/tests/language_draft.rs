@@ -35,6 +35,202 @@ fn analyze_program_platform<'a>(
     )
 }
 
+#[test]
+fn javascript_direct_file_call_uses_canonical_effects_only() {
+    let analysis = analyze_program(
+        "node",
+        "require('node:fs').rmSync('/tmp/cache', {recursive:true})",
+    );
+    assert!(analysis.report().findings().is_empty());
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].kind(), LanguageCallKind::DirectFile);
+    assert_eq!(callable(&calls[0]), "fs.rmSync");
+    assert_eq!(
+        native(&calls[0]),
+        (
+            &json!({
+                "v": 1,
+                "language": "javascript",
+                "callable": "fs.rmSync",
+                "positional": [
+                    {"kind": "string", "value": "/tmp/cache"},
+                    {
+                        "kind": "object",
+                        "properties": [{
+                            "name": "recursive",
+                            "value": {"kind": "bool", "value": true},
+                        }],
+                    },
+                ],
+                "keywords": [],
+            }),
+            true,
+        )
+    );
+    assert_eq!(calls[0].filesystems().len(), 1);
+    assert_eq!(
+        calls[0].filesystems()[0].operation(),
+        FilesystemOperation::Delete
+    );
+    assert!(calls[0].filesystems()[0].recursive());
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn javascript_node_parity_preserves_source_and_destination_semantics() {
+    let analysis = analyze_program(
+        "node",
+        "const fs=require('fs');\nfs.copyFileSync('/protected/source', '/safe/backup');\nfs.copyFileSync('/safe/source', '/protected/destination');\nfs.createWriteStream('/protected/stream');\nfs.openSync('/protected/open', 'w');\nfs.linkSync('/protected/source', '/safe/link');\nfs.chmodSync('/protected/mode', 0);",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(
+        calls.iter().map(callable).collect::<Vec<_>>(),
+        [
+            "fs.copyFileSync",
+            "fs.copyFileSync",
+            "fs.createWriteStream",
+            "fs.openSync",
+            "fs.linkSync",
+            "fs.chmodSync",
+        ]
+    );
+    assert_eq!(
+        calls[0]
+            .filesystems()
+            .iter()
+            .map(|filesystem| (filesystem.requested(), filesystem.operation()))
+            .collect::<Vec<_>>(),
+        [
+            (Some("/protected/source"), FilesystemOperation::Read),
+            (Some("/safe/backup"), FilesystemOperation::Write),
+        ]
+    );
+    assert_eq!(
+        calls[1]
+            .filesystems()
+            .iter()
+            .map(|filesystem| (filesystem.requested(), filesystem.operation()))
+            .collect::<Vec<_>>(),
+        [
+            (Some("/safe/source"), FilesystemOperation::Read),
+            (Some("/protected/destination"), FilesystemOperation::Write),
+        ]
+    );
+    assert_eq!(
+        calls[4].filesystems()[1].identity_path(),
+        Some("/protected/source")
+    );
+    assert!(calls[4].filesystems()[1].identity_observed());
+    assert!(!calls[5].filesystems()[0].content_access());
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn javascript_child_calls_are_canonical_and_keep_nested_source_analysis() {
+    let analysis = analyze_program(
+        "node",
+        "const cp=require('node:child_process'); cp.execSync('printf ok'); cp.spawn('nah', ['nap'])",
+    );
+    assert_eq!(
+        analysis
+            .draft()
+            .calls()
+            .iter()
+            .map(|call| (call.kind(), callable(call)))
+            .collect::<Vec<_>>(),
+        [
+            (LanguageCallKind::EvaluatedShell, "child_process.execSync"),
+            (LanguageCallKind::LocalUtility, "child_process.spawn"),
+        ]
+    );
+    assert_eq!(analysis.report().nested_executions().len(), 2);
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn javascript_rebinding_and_unowned_hosts_never_invent_node_effects() {
+    let rebound = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.copyFileSync=safe; fs.copyFileSync('/safe', '/protected')",
+    );
+    assert!(rebound.draft().calls().is_empty());
+    assert!(!rebound.draft().complete());
+
+    for (program, code) in [
+        (
+            "javascript",
+            "await tools.exec({command:'rm -rf /'}); require('fs').rmSync('/')",
+        ),
+        ("typescript", "await tools.remove('/protected')"),
+        ("bun", "Bun.spawn(['rm', '-rf', '/'])"),
+        ("deno-typescript", "await Deno.remove('/protected')"),
+    ] {
+        let analysis = analyze_program(program, code);
+        assert!(analysis.draft().calls().is_empty(), "{program}");
+        assert!(!analysis.draft().complete(), "{program}");
+    }
+}
+
+#[test]
+fn typescript_wrappers_are_transparent_for_owned_tsx_calls() {
+    let analysis = analyze_program(
+        "tsx",
+        "interface Job { path: string }\ntype Target = string\nconst fs: typeof import('node:fs') = require('node:fs') as typeof import('node:fs')\nasync function clean(path: string) { await fs.rmSync(path!, {recursive:true}) }\nawait clean('/tmp/cache')",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(callable(&calls[0]), "fs.rmSync");
+    assert_eq!(calls[0].filesystems()[0].requested(), Some("/tmp/cache"));
+    assert_eq!(native(&calls[0]).0["language"], "tsx");
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn javascript_profiles_preserve_source_context_and_deno_ambiguity() {
+    let direct = analyze_program("javascript", "return; tools.remove('/unreachable')");
+    assert!(direct.draft().calls().is_empty());
+    assert!(direct.draft().complete());
+    assert!(direct.report().refusals().is_empty());
+
+    let node = analyze_program("node", "return; require('fs').rmSync('/unreachable')");
+    assert!(node.draft().calls().is_empty());
+    assert!(!node.draft().complete());
+
+    let deno = analyze_program("deno", "const element = <Widget value={1} />");
+    assert!(deno.draft().calls().is_empty());
+    assert!(!deno.draft().complete());
+
+    let typed = analyze_program(
+        "deno-typescript",
+        "type Job = { value: number }; const value: number = 1",
+    );
+    assert!(typed.draft().calls().is_empty());
+    assert!(typed.draft().complete());
+}
+
+#[test]
+fn javascript_unknown_branches_and_cwd_changes_remain_explicit() {
+    let analysis = analyze_program(
+        "node",
+        "const fs=require('fs'); if (condition) { fs.rmSync('/tmp/a') ; fs.rmSync('/tmp/b') } plugin(); fs.rmSync('relative')",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].conditional_depth(), 1);
+    assert_eq!(calls[1].execution_dominators(), &[0]);
+    assert_eq!(calls[2].filesystems()[0].requested(), None);
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
+fn javascript_eval_merges_canonical_calls_without_legacy_findings() {
+    let analysis = analyze_program("node", "eval(\"require('fs').rmSync('/tmp/cache')\")");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "fs.rmSync");
+    assert!(analysis.report().findings().is_empty());
+}
+
 fn native(call: &nah_inline::LanguageCall) -> (&serde_json::Value, bool) {
     let InvocationInput::Native { value, complete } = call.input() else {
         panic!("language calls must use Native input")

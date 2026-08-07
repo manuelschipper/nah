@@ -1,10 +1,16 @@
 use std::{collections::BTreeMap, collections::BTreeSet, sync::Arc};
 
+use nah_proto::action::{FilesystemOperation, InvocationInput};
 use nah_proto::ctx::Platform;
+use serde_json::{Map, Value as JsonValue};
 
-use crate::{Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, ProtectionInput};
+use crate::{
+    InlineInput, InlineRefusal, InlineReport, LanguageAnalysis, LanguageCall, LanguageCallKind,
+    LanguageDraft, LanguageFilesystem,
+};
 
 use super::parser::{CoverageKind, HirField, HirKind, HirNode};
+use super::{Profile, RuntimeOwnership, SourceContext, SyntaxProfile};
 
 const MAX_WORK: usize = 262_144;
 const MAX_STATEMENTS: usize = 4_096;
@@ -13,28 +19,9 @@ const MAX_CALL_DEPTH: usize = 16;
 const MAX_COLLECTION_ITEMS: usize = 256;
 const MAX_VALUE_BYTES: usize = crate::SOURCE_LIMIT;
 const MAX_DYNAMIC_SOURCE_BYTES: usize = crate::SOURCE_LIMIT;
-
-const SYSTEM_TREES: &[&str] = &[
-    "/",
-    "/bin",
-    "/boot",
-    "/dev",
-    "/etc",
-    "/lib",
-    "/lib32",
-    "/lib64",
-    "/proc",
-    "/root",
-    "/run",
-    "/sbin",
-    "/sys",
-    "/usr",
-    "/var",
-    "/Library",
-    "/System",
-    "/private/etc",
-    "/private/var",
-];
+const MAX_NATIVE_ARGUMENTS: usize = 16;
+const MAX_NATIVE_COLLECTION_ITEMS: usize = 64;
+const MAX_NATIVE_EVIDENCE_BYTES: usize = crate::SOURCE_LIMIT;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Module {
@@ -44,8 +31,35 @@ enum Module {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Member {
+    AppendFile,
+    AppendFileSync,
+    Chmod,
+    ChmodSync,
+    Chown,
+    ChownSync,
+    CopyFile,
+    CopyFileSync,
+    CreateWriteStream,
+    Link,
+    LinkSync,
+    Mkdir,
+    MkdirSync,
+    Open,
+    OpenSync,
+    Rename,
+    RenameSync,
+    Rmdir,
+    RmdirSync,
     Rm,
     RmSync,
+    Symlink,
+    SymlinkSync,
+    Truncate,
+    TruncateSync,
+    Unlink,
+    UnlinkSync,
+    WriteFile,
+    WriteFileSync,
     Exec,
     ExecSync,
     Spawn,
@@ -102,42 +116,66 @@ struct Scope {
 struct State {
     scopes: Vec<Scope>,
     owned_members: BTreeSet<(Module, Member)>,
+    relative_cwd_known: bool,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        let bindings = [
-            ("require", Value::Require),
-            ("eval", Value::Eval),
-            ("Object", Value::ObjectBuiltin),
-            ("process", Value::Process),
-        ]
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
-        .collect();
-        let owned_members = [
-            (Module::Fs, Member::Rm),
-            (Module::Fs, Member::RmSync),
-            (Module::ChildProcess, Member::Exec),
-            (Module::ChildProcess, Member::ExecSync),
-            (Module::ChildProcess, Member::Spawn),
-            (Module::ChildProcess, Member::SpawnSync),
-            (Module::ChildProcess, Member::ExecFile),
-            (Module::ChildProcess, Member::ExecFileSync),
-        ]
-        .into_iter()
-        .collect();
+impl State {
+    fn new(ownership: RuntimeOwnership) -> Self {
+        let mut bindings = [("eval", Value::Eval), ("Object", Value::ObjectBuiltin)]
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect::<BTreeMap<_, _>>();
+        let mut owned_members = BTreeSet::new();
+        if ownership == RuntimeOwnership::Node {
+            bindings.insert("require".into(), Value::Require);
+            bindings.insert("process".into(), Value::Process);
+            owned_members.extend([
+                (Module::Fs, Member::AppendFile),
+                (Module::Fs, Member::AppendFileSync),
+                (Module::Fs, Member::Chmod),
+                (Module::Fs, Member::ChmodSync),
+                (Module::Fs, Member::Chown),
+                (Module::Fs, Member::ChownSync),
+                (Module::Fs, Member::CopyFile),
+                (Module::Fs, Member::CopyFileSync),
+                (Module::Fs, Member::CreateWriteStream),
+                (Module::Fs, Member::Link),
+                (Module::Fs, Member::LinkSync),
+                (Module::Fs, Member::Mkdir),
+                (Module::Fs, Member::MkdirSync),
+                (Module::Fs, Member::Open),
+                (Module::Fs, Member::OpenSync),
+                (Module::Fs, Member::Rename),
+                (Module::Fs, Member::RenameSync),
+                (Module::Fs, Member::Rmdir),
+                (Module::Fs, Member::RmdirSync),
+                (Module::Fs, Member::Rm),
+                (Module::Fs, Member::RmSync),
+                (Module::Fs, Member::Symlink),
+                (Module::Fs, Member::SymlinkSync),
+                (Module::Fs, Member::Truncate),
+                (Module::Fs, Member::TruncateSync),
+                (Module::Fs, Member::Unlink),
+                (Module::Fs, Member::UnlinkSync),
+                (Module::Fs, Member::WriteFile),
+                (Module::Fs, Member::WriteFileSync),
+                (Module::ChildProcess, Member::Exec),
+                (Module::ChildProcess, Member::ExecSync),
+                (Module::ChildProcess, Member::Spawn),
+                (Module::ChildProcess, Member::SpawnSync),
+                (Module::ChildProcess, Member::ExecFile),
+                (Module::ChildProcess, Member::ExecFileSync),
+            ]);
+        }
         Self {
             scopes: vec![Scope {
                 bindings,
                 function: true,
             }],
             owned_members,
+            relative_cwd_known: true,
         }
     }
-}
-
-impl State {
     fn get(&self, name: &str) -> Value {
         self.scopes
             .iter()
@@ -203,6 +241,7 @@ impl State {
             }
         }
         self.owned_members.clear();
+        self.relative_cwd_known = false;
     }
 
     fn invalidate_value(&mut self, value: &Value) {
@@ -355,26 +394,45 @@ struct Arguments {
 }
 
 struct Interpreter<'a> {
-    program: &'a str,
     source: &'a str,
     home: &'a str,
     platform: Platform,
     depth: usize,
+    profile: Profile,
     report: InlineReport,
+    draft: LanguageDraft,
+    complete: bool,
     budget: Budget,
     return_value: Value,
+    conditional_depth: usize,
+    execution_dominators: Vec<usize>,
 }
 
-pub(super) fn analyze(
-    program: &str,
-    input: &InlineInput<'_>,
-    protection: Option<&ProtectionInput<'_>>,
-    depth: usize,
-) -> InlineReport {
-    let module = match super::parser::javascript(input.code) {
+pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -> LanguageAnalysis {
+    if profile.syntax == SyntaxProfile::Ambiguous {
+        return LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial());
+    }
+    let parsed = match (profile.syntax, profile.context) {
+        (SyntaxProfile::JavaScript, SourceContext::Module) => super::parser::javascript(input.code),
+        (SyntaxProfile::JavaScript, SourceContext::FunctionBody) => {
+            super::parser::javascript_function_body(input.code)
+        }
+        (SyntaxProfile::TypeScript, SourceContext::Module) => super::parser::typescript(input.code),
+        (SyntaxProfile::TypeScript, SourceContext::FunctionBody) => {
+            super::parser::typescript_function_body(input.code)
+        }
+        (SyntaxProfile::Tsx, _) => super::parser::tsx(input.code),
+        (SyntaxProfile::Ambiguous, _) => unreachable!(),
+    };
+    let module = match parsed {
         Ok(module) if module.executable() => module,
-        Ok(_) => return InlineReport::default(),
-        Err(refusal) => return InlineReport::refused(refusal),
+        Ok(_) => {
+            if let Err(refusal) = crate::syntax::structurally_bounded(input.code, "node") {
+                return LanguageAnalysis::refused(refusal);
+            }
+            return LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial());
+        }
+        Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
     debug_assert!(module.coverage().iter().all(|covered| {
         matches!(
@@ -383,22 +441,30 @@ pub(super) fn analyze(
         ) && covered.span().end() <= input.code.len()
     }));
     let mut interpreter = Interpreter {
-        program,
         source: input.code,
         home: input.home,
         platform: input.platform,
         depth,
+        profile,
         report: InlineReport::default(),
+        draft: LanguageDraft::default(),
+        complete: true,
         budget: Budget::default(),
         return_value: Value::Undefined,
+        conditional_depth: 0,
+        execution_dominators: Vec::new(),
     };
-    let mut state = State::default();
+    let mut state = State::new(profile.ownership);
     interpreter.hoist_vars(module.root(), &mut state);
     interpreter.exec_sequence(module.root(), &mut state, false, 0);
     if let Some(refusal) = interpreter.budget.refusal {
         interpreter.report.refuse(refusal);
+        interpreter.draft.set_partial();
     }
-    super::super::common::with_protection(interpreter.report, program, input, protection)
+    if !interpreter.complete {
+        interpreter.draft.set_partial();
+    }
+    LanguageAnalysis::new(interpreter.report, interpreter.draft)
 }
 
 impl<'a> Interpreter<'a> {
@@ -453,6 +519,11 @@ impl<'a> Interpreter<'a> {
                     }
                 }
                 HirKind::ImportStatement => self.bind_import(child, state),
+                HirKind::ExportStatement => {
+                    if !self.type_only_export(child) && !self.predeclare(child, state) {
+                        return false;
+                    }
+                }
                 HirKind::ClassDeclaration => {
                     if let Some(name) = child.child(HirField::Name) {
                         state.declare(self.text(name), Value::Unknown);
@@ -479,7 +550,11 @@ impl<'a> Interpreter<'a> {
                 HirKind::FunctionDeclaration
                 | HirKind::FunctionExpression
                 | HirKind::ArrowFunction
-                | HirKind::ClassDeclaration => {}
+                | HirKind::ClassDeclaration
+                | HirKind::TypeOnly => {}
+                HirKind::ExportStatement if !self.type_only_export(child) => {
+                    self.hoist_vars(child, state)
+                }
                 _ => self.hoist_vars(child, state),
             }
         }
@@ -528,7 +603,22 @@ impl<'a> Interpreter<'a> {
                 self.declaration(node, state, call_depth);
                 Control::Next
             }
-            HirKind::FunctionDeclaration | HirKind::ImportStatement => Control::Next,
+            HirKind::FunctionDeclaration | HirKind::ImportStatement | HirKind::TypeOnly => {
+                Control::Next
+            }
+            HirKind::ExportStatement => {
+                if !self.type_only_export(node) {
+                    for child in named_children(node) {
+                        if !matches!(child.kind(), HirKind::TypeOnly) {
+                            let control = self.exec_statement(child, state, call_depth);
+                            if control != Control::Next {
+                                return control;
+                            }
+                        }
+                    }
+                }
+                Control::Next
+            }
             HirKind::IfStatement => self.if_statement(node, state, call_depth),
             HirKind::WhileStatement => self.while_statement(node, state, call_depth),
             HirKind::BreakStatement => Control::Break,
@@ -550,6 +640,7 @@ impl<'a> Interpreter<'a> {
             HirKind::TryStatement => self.try_statement(node, state, call_depth),
             HirKind::Comment | HirKind::Token | HirKind::EmptyStatement => Control::Next,
             HirKind::ClassDeclaration | HirKind::Unsupported | HirKind::Error => {
+                self.complete = false;
                 state.widen();
                 Control::Next
             }
@@ -598,19 +689,25 @@ impl<'a> Interpreter<'a> {
                 self.exec_branch(branch, state, call_depth)
             }),
             None => {
+                self.complete = false;
                 let mut yes = state.clone();
                 let mut no = state.clone();
                 let saved_return = self.return_value.clone();
+                let saved_dominators = self.execution_dominators.clone();
+                self.conditional_depth += 1;
                 self.return_value = saved_return.clone();
                 let yes_control = consequence.map_or(Control::Next, |branch| {
                     self.exec_branch(branch, &mut yes, call_depth)
                 });
                 let yes_return = self.return_value.clone();
+                self.execution_dominators = saved_dominators.clone();
                 self.return_value = saved_return.clone();
                 let no_control = alternative.map_or(Control::Next, |branch| {
                     self.exec_branch(branch, &mut no, call_depth)
                 });
                 let no_return = self.return_value.clone();
+                self.conditional_depth -= 1;
+                self.execution_dominators = saved_dominators;
                 self.return_value =
                     if yes_control == Control::Return && no_control == Control::Return {
                         join_values(yes_return, no_return)
@@ -656,9 +753,14 @@ impl<'a> Interpreter<'a> {
                     }
                 }
                 None => {
+                    self.complete = false;
                     let before = state.clone();
                     let mut iterated = state.clone();
+                    let saved_dominators = self.execution_dominators.clone();
+                    self.conditional_depth += 1;
                     self.exec_branch(body, &mut iterated, call_depth);
+                    self.conditional_depth -= 1;
+                    self.execution_dominators = saved_dominators;
                     *state = join_states(before, iterated);
                     return Control::Next;
                 }
@@ -732,7 +834,9 @@ impl<'a> Interpreter<'a> {
             HirKind::FunctionExpression | HirKind::ArrowFunction => {
                 self.function_value(node, state).unwrap_or(Value::Unknown)
             }
-            HirKind::ParenthesizedExpression => named_children(node)
+            HirKind::ParenthesizedExpression
+            | HirKind::TransparentExpression
+            | HirKind::AwaitExpression => named_children(node)
                 .next()
                 .map_or(Value::Unknown, |child| self.eval(child, state, call_depth)),
             HirKind::SequenceExpression => {
@@ -770,7 +874,10 @@ impl<'a> Interpreter<'a> {
                 .map_or(Value::Undefined, |child| {
                     self.eval(child, state, call_depth)
                 }),
-            HirKind::Unsupported | HirKind::Error => Value::Unknown,
+            HirKind::Unsupported | HirKind::Error => {
+                self.complete = false;
+                Value::Unknown
+            }
             _ => Value::Unknown,
         }
     }
@@ -791,8 +898,13 @@ impl<'a> Interpreter<'a> {
                 Some(false) => left,
                 Some(true) => self.eval(right_node, state, call_depth),
                 None => {
+                    self.complete = false;
                     let before = state.clone();
+                    let saved_dominators = self.execution_dominators.clone();
+                    self.conditional_depth += 1;
                     let right = self.eval(right_node, state, call_depth);
+                    self.conditional_depth -= 1;
+                    self.execution_dominators = saved_dominators;
                     *state = join_states(before, state.clone());
                     join_values(left, right)
                 }
@@ -801,8 +913,13 @@ impl<'a> Interpreter<'a> {
                 Some(true) => left,
                 Some(false) => self.eval(right_node, state, call_depth),
                 None => {
+                    self.complete = false;
                     let before = state.clone();
+                    let saved_dominators = self.execution_dominators.clone();
+                    self.conditional_depth += 1;
                     let right = self.eval(right_node, state, call_depth);
+                    self.conditional_depth -= 1;
+                    self.execution_dominators = saved_dominators;
                     *state = join_states(before, state.clone());
                     join_values(left, right)
                 }
@@ -810,8 +927,13 @@ impl<'a> Interpreter<'a> {
             "??" => match left {
                 Value::Null | Value::Undefined => self.eval(right_node, state, call_depth),
                 Value::Unknown => {
+                    self.complete = false;
                     let before = state.clone();
+                    let saved_dominators = self.execution_dominators.clone();
+                    self.conditional_depth += 1;
                     let right = self.eval(right_node, state, call_depth);
+                    self.conditional_depth -= 1;
+                    self.execution_dominators = saved_dominators;
                     *state = join_states(before, state.clone());
                     join_values(Value::Unknown, right)
                 }
@@ -878,14 +1000,20 @@ impl<'a> Interpreter<'a> {
                 alternative.map_or(Value::Unknown, |value| self.eval(value, state, call_depth))
             }
             None => {
+                self.complete = false;
                 let mut yes = state.clone();
                 let mut no = state.clone();
+                let saved_dominators = self.execution_dominators.clone();
+                self.conditional_depth += 1;
                 let yes_value = consequence.map_or(Value::Unknown, |value| {
                     self.eval(value, &mut yes, call_depth)
                 });
+                self.execution_dominators = saved_dominators.clone();
                 let no_value = alternative.map_or(Value::Unknown, |value| {
                     self.eval(value, &mut no, call_depth)
                 });
+                self.conditional_depth -= 1;
+                self.execution_dominators = saved_dominators;
                 *state = join_states(yes, no);
                 join_values(yes_value, no_value)
             }
@@ -1085,16 +1213,22 @@ impl<'a> Interpreter<'a> {
             Value::Function(function) => self.call_local(&function, arguments, state, call_depth),
             Value::UnknownModuleMember(module) => {
                 state.invalidate_module(module);
+                state.relative_cwd_known = false;
+                self.complete = false;
                 Value::Unknown
             }
             Value::UnknownReceiver(receiver) => {
                 state.invalidate_value(&receiver);
+                state.relative_cwd_known = false;
+                self.complete = false;
                 Value::Unknown
             }
             _ => {
                 for value in &arguments.values {
                     state.invalidate_value(value);
                 }
+                state.relative_cwd_known = false;
+                self.complete = false;
                 Value::Unknown
             }
         }
@@ -1127,19 +1261,27 @@ impl<'a> Interpreter<'a> {
                 break;
             }
         }
+        if !arguments.complete {
+            self.complete = false;
+        }
         arguments
     }
 
     fn require(&mut self, arguments: Arguments) -> Value {
         if !arguments.complete || arguments.values.len() != 1 {
+            self.complete = false;
             return Value::Unknown;
         }
-        arguments
+        let value = arguments
             .values
             .first()
             .and_then(value_string)
             .and_then(module_from_source)
-            .map_or(Value::Unknown, Value::Module)
+            .map_or(Value::Unknown, Value::Module);
+        if value == Value::Unknown {
+            self.complete = false;
+        }
+        value
     }
 
     fn eval_source(&mut self, arguments: Arguments, state: &mut State) -> Value {
@@ -1154,31 +1296,41 @@ impl<'a> Interpreter<'a> {
         }
         if self.depth + 1 >= 16 {
             self.report.refuse(InlineRefusal::RecursionLimit);
+            self.complete = false;
             state.widen();
             return Value::Unknown;
         }
         let module = match super::parser::javascript(source) {
             Ok(module) if module.executable() => module,
             Ok(_) => {
+                self.complete = false;
                 state.widen();
                 return Value::Unknown;
             }
             Err(refusal) => {
                 self.report.refuse(refusal);
+                self.complete = false;
                 state.widen();
                 return Value::Unknown;
             }
         };
         let mutates = source_mutates(module.root());
         let mut nested = Interpreter {
-            program: self.program,
             source,
             home: self.home,
             platform: self.platform,
             depth: self.depth + 1,
+            profile: Profile {
+                syntax: SyntaxProfile::JavaScript,
+                ..self.profile
+            },
             report: InlineReport::default(),
+            draft: LanguageDraft::default(),
+            complete: true,
             budget: Budget::default(),
             return_value: Value::Undefined,
+            conditional_depth: self.conditional_depth,
+            execution_dominators: Vec::new(),
         };
         let mut nested_state = state.clone();
         nested.hoist_vars(module.root(), &mut nested_state);
@@ -1186,8 +1338,14 @@ impl<'a> Interpreter<'a> {
         let failed = nested.budget.refusal.is_some();
         if let Some(refusal) = nested.budget.refusal {
             nested.report.refuse(refusal);
+            nested.draft.set_partial();
+        }
+        if !nested.complete {
+            nested.draft.set_partial();
         }
         self.report.extend(nested.report);
+        self.merge_nested_draft(&nested.draft, &nested.execution_dominators);
+        self.complete &= nested.complete;
         self.budget.absorb(nested.budget);
         if mutates || failed {
             state.widen();
@@ -1195,6 +1353,47 @@ impl<'a> Interpreter<'a> {
             *state = nested_state;
         }
         Value::Unknown
+    }
+
+    fn merge_nested_draft(&mut self, nested: &LanguageDraft, nested_dominators: &[usize]) {
+        if !nested.complete() {
+            self.draft.set_partial();
+        }
+        let external_dominators = self.execution_dominators.clone();
+        let mut ordinals = Vec::with_capacity(nested.calls().len());
+        for call in nested.calls() {
+            let mut dominators = external_dominators.clone();
+            dominators.extend(
+                call.execution_dominators()
+                    .iter()
+                    .filter_map(|ordinal| ordinals.get(*ordinal).copied().flatten()),
+            );
+            dominators.sort_unstable();
+            dominators.dedup();
+            let call = LanguageCall::new(
+                call.kind(),
+                call.input().clone(),
+                call.filesystems().to_vec(),
+                call.endpoint().map(str::to_owned),
+                call.conditional_depth(),
+                dominators,
+            );
+            ordinals.push(self.draft.push_call(call));
+        }
+        for flow in nested.flows() {
+            if let (Some(Some(from)), Some(Some(to))) =
+                (ordinals.get(flow.from()), ordinals.get(flow.to()))
+            {
+                self.draft.push_flow(*from, *to);
+            }
+        }
+        self.execution_dominators.extend(
+            nested_dominators
+                .iter()
+                .filter_map(|ordinal| ordinals.get(*ordinal).copied().flatten()),
+        );
+        self.execution_dominators.sort_unstable();
+        self.execution_dominators.dedup();
     }
 
     fn call_known(
@@ -1221,32 +1420,65 @@ impl<'a> Interpreter<'a> {
                 Value::Unknown
             }
             KnownFunction::Fs(member) => {
-                let supported = match member {
-                    Member::RmSync => {
-                        arguments.complete
-                            && arguments.values.len() == 2
-                            && arguments.values.get(1).is_some_and(recursive_options)
+                match summarize_fs_call(member, &arguments) {
+                    FsCallSummary::Effect(filesystems) => {
+                        self.emit_call(
+                            LanguageCallKind::DirectFile,
+                            fs_callable(member),
+                            &arguments,
+                            state,
+                            filesystems,
+                        );
                     }
-                    Member::Rm => {
-                        arguments.complete
-                            && arguments.values.len() == 3
-                            && arguments.values.get(1).is_some_and(recursive_options)
-                            && arguments.values.get(2).is_some_and(empty_callback)
+                    FsCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
                     }
-                    _ => false,
-                };
-                if supported && let Some(target) = arguments.values.first().and_then(value_string) {
-                    self.add_destructive_target(target);
+                    FsCallSummary::Invalid => {}
                 }
                 Value::Undefined
             }
             KnownFunction::Child(member) => {
+                let supported = match member {
+                    Member::Exec | Member::ExecSync => {
+                        arguments.complete
+                            && arguments.values.len() == 1
+                            && arguments
+                                .values
+                                .first()
+                                .is_some_and(possible_scalar_argument)
+                    }
+                    Member::Spawn | Member::SpawnSync | Member::ExecFile | Member::ExecFileSync => {
+                        arguments.complete
+                            && (1..=2).contains(&arguments.values.len())
+                            && arguments
+                                .values
+                                .first()
+                                .is_some_and(possible_scalar_argument)
+                            && arguments.values.get(1).is_none_or(possible_argv_argument)
+                    }
+                    _ => false,
+                };
+                if !supported {
+                    return Value::Unknown;
+                }
+                self.emit_call(
+                    match member {
+                        Member::Exec | Member::ExecSync => LanguageCallKind::EvaluatedShell,
+                        Member::Spawn
+                        | Member::SpawnSync
+                        | Member::ExecFile
+                        | Member::ExecFileSync => LanguageCallKind::LocalUtility,
+                        _ => unreachable!(),
+                    },
+                    child_callable(member),
+                    &arguments,
+                    state,
+                    Vec::new(),
+                );
                 match member {
                     Member::Exec | Member::ExecSync => {
-                        if arguments.complete
-                            && arguments.values.len() == 1
-                            && let Some(code) = arguments.values.first().and_then(value_string)
-                        {
+                        if let Some(code) = arguments.values.first().and_then(value_string) {
                             super::super::common::add_exact_shell(
                                 &mut self.report,
                                 code,
@@ -1259,11 +1491,58 @@ impl<'a> Interpreter<'a> {
                             super::super::common::add_exact_argv(&mut self.report, argv);
                         }
                     }
-                    Member::Rm | Member::RmSync => {}
+                    _ => unreachable!(),
                 }
                 Value::Unknown
             }
         }
+    }
+
+    fn emit_call(
+        &mut self,
+        kind: LanguageCallKind,
+        callable: &str,
+        arguments: &Arguments,
+        state: &State,
+        filesystems: Vec<LanguageFilesystem>,
+    ) -> Option<usize> {
+        let mut unresolved_filesystem = false;
+        let filesystems = filesystems
+            .into_iter()
+            .map(|mut filesystem| {
+                if !state.relative_cwd_known
+                    && filesystem
+                        .requested()
+                        .is_some_and(|path| !is_absolute(path, self.platform))
+                {
+                    filesystem = filesystem.without_requested();
+                    unresolved_filesystem = true;
+                }
+                filesystem
+            })
+            .collect::<Vec<_>>();
+        let input = language_call_input(self.profile.syntax, callable, arguments);
+        if !input.complete()
+            || unresolved_filesystem
+            || filesystems
+                .iter()
+                .any(|filesystem| filesystem.requested().is_none())
+        {
+            self.draft.set_partial();
+        }
+        let call = LanguageCall::new(
+            kind,
+            input,
+            filesystems,
+            None,
+            self.conditional_depth,
+            self.execution_dominators.clone(),
+        );
+        let ordinal = self.draft.push_call(call)?;
+        if self.conditional_depth > 0 {
+            self.execution_dominators.push(ordinal);
+        }
+        Some(ordinal)
     }
 
     fn call_local(
@@ -1274,18 +1553,23 @@ impl<'a> Interpreter<'a> {
         call_depth: usize,
     ) -> Value {
         if call_depth >= MAX_CALL_DEPTH || !arguments.complete {
+            self.complete = false;
             return Value::Unknown;
         }
         if state.scopes.len() < function.required_scope_depth {
+            self.complete = false;
             return Value::Unknown;
         }
         if function.source_identity != self.source.as_ptr() as usize {
+            self.complete = false;
             return Value::Unknown;
         }
         let Some(parameters) = &function.parameters else {
+            self.complete = false;
             return Value::Unknown;
         };
         if parameters.len() != arguments.values.len() {
+            self.complete = false;
             return Value::Unknown;
         }
         state.push_scope(true);
@@ -1325,20 +1609,30 @@ impl<'a> Interpreter<'a> {
 
     fn parameters(&self, node: &HirNode) -> Option<Vec<String>> {
         if let Some(parameter) = node.child(HirField::Parameter) {
-            return (parameter.kind() == HirKind::Identifier)
-                .then(|| vec![self.text(parameter).to_owned()]);
+            return self.parameter_name(parameter).map(|name| vec![name]);
         }
         let Some(parameters) = node.child(HirField::Parameters) else {
             return Some(Vec::new());
         };
         let mut names = Vec::new();
         for parameter in named_children(parameters) {
-            if parameter.kind() != HirKind::Identifier {
-                return None;
-            }
-            names.push(self.text(parameter).to_owned());
+            names.push(self.parameter_name(parameter)?);
         }
         Some(names)
+    }
+
+    fn parameter_name(&self, node: &HirNode) -> Option<String> {
+        let identifier = match node.kind() {
+            HirKind::Identifier => node,
+            HirKind::RequiredParameter if node.child(HirField::Value).is_none() => node
+                .child(HirField::Name)
+                .or_else(|| node.child(HirField::Parameter))
+                .or_else(|| {
+                    named_children(node).find(|child| child.kind() == HirKind::Identifier)
+                })?,
+            _ => return None,
+        };
+        (identifier.kind() == HirKind::Identifier).then(|| self.text(identifier).to_owned())
     }
 
     fn template(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
@@ -1511,23 +1805,10 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn add_destructive_target(&mut self, target: &str) {
-        let normalized = normalize_path(target, self.platform);
-        let home = normalize_path(self.home, self.platform);
-        if normalized == home {
-            self.report
-                .push(Finding::exact(FindingKind::HomeDestruction));
-        }
-        if SYSTEM_TREES
-            .iter()
-            .any(|tree| normalize_path(tree, self.platform) == normalized)
-        {
-            self.report
-                .push(Finding::exact(FindingKind::RootDestruction));
-        }
-    }
-
     fn bind_import(&mut self, node: &HirNode, state: &mut State) {
+        if self.text(node).trim_start().starts_with("import type ") {
+            return;
+        }
         let source = node
             .child(HirField::Source)
             .map(|source| self.text(source).to_owned());
@@ -1535,7 +1816,11 @@ impl<'a> Interpreter<'a> {
             .as_deref()
             .and_then(|source| self.decode_string(source))
             .as_deref()
-            .and_then(module_from_source);
+            .and_then(module_from_source)
+            .filter(|_| self.profile.ownership == RuntimeOwnership::Node);
+        if module.is_none() {
+            self.complete = false;
+        }
         let Some(clause) = named_children(node).find(|child| child.kind() == HirKind::ImportClause)
         else {
             return;
@@ -1560,6 +1845,9 @@ impl<'a> Interpreter<'a> {
                     for specifier in named_children(child)
                         .filter(|child| child.kind() == HirKind::ImportSpecifier)
                     {
+                        if self.text(specifier).trim_start().starts_with("type ") {
+                            continue;
+                        }
                         let Some(name_node) = specifier.child(HirField::Name) else {
                             continue;
                         };
@@ -1586,6 +1874,11 @@ impl<'a> Interpreter<'a> {
                 _ => {}
             }
         }
+    }
+
+    fn type_only_export(&self, node: &HirNode) -> bool {
+        self.text(node).trim_start().starts_with("export type ")
+            || named_children(node).all(|child| child.kind() == HirKind::TypeOnly)
     }
 
     fn text(&self, node: &HirNode) -> &str {
@@ -1630,8 +1923,35 @@ fn module_from_source(source: &str) -> Option<Module> {
 
 fn module_member(module: Module, property: &str) -> Option<Member> {
     match (module, property) {
+        (Module::Fs, "appendFile") => Some(Member::AppendFile),
+        (Module::Fs, "appendFileSync") => Some(Member::AppendFileSync),
+        (Module::Fs, "chmod") => Some(Member::Chmod),
+        (Module::Fs, "chmodSync") => Some(Member::ChmodSync),
+        (Module::Fs, "chown") => Some(Member::Chown),
+        (Module::Fs, "chownSync") => Some(Member::ChownSync),
+        (Module::Fs, "copyFile") => Some(Member::CopyFile),
+        (Module::Fs, "copyFileSync") => Some(Member::CopyFileSync),
+        (Module::Fs, "createWriteStream") => Some(Member::CreateWriteStream),
+        (Module::Fs, "link") => Some(Member::Link),
+        (Module::Fs, "linkSync") => Some(Member::LinkSync),
+        (Module::Fs, "mkdir") => Some(Member::Mkdir),
+        (Module::Fs, "mkdirSync") => Some(Member::MkdirSync),
+        (Module::Fs, "open") => Some(Member::Open),
+        (Module::Fs, "openSync") => Some(Member::OpenSync),
+        (Module::Fs, "rename") => Some(Member::Rename),
+        (Module::Fs, "renameSync") => Some(Member::RenameSync),
+        (Module::Fs, "rmdir") => Some(Member::Rmdir),
+        (Module::Fs, "rmdirSync") => Some(Member::RmdirSync),
         (Module::Fs, "rm") => Some(Member::Rm),
         (Module::Fs, "rmSync") => Some(Member::RmSync),
+        (Module::Fs, "symlink") => Some(Member::Symlink),
+        (Module::Fs, "symlinkSync") => Some(Member::SymlinkSync),
+        (Module::Fs, "truncate") => Some(Member::Truncate),
+        (Module::Fs, "truncateSync") => Some(Member::TruncateSync),
+        (Module::Fs, "unlink") => Some(Member::Unlink),
+        (Module::Fs, "unlinkSync") => Some(Member::UnlinkSync),
+        (Module::Fs, "writeFile") => Some(Member::WriteFile),
+        (Module::Fs, "writeFileSync") => Some(Member::WriteFileSync),
         (Module::ChildProcess, "exec") => Some(Member::Exec),
         (Module::ChildProcess, "execSync") => Some(Member::ExecSync),
         (Module::ChildProcess, "spawn") => Some(Member::Spawn),
@@ -1640,6 +1960,471 @@ fn module_member(module: Module, property: &str) -> Option<Member> {
         (Module::ChildProcess, "execFileSync") => Some(Member::ExecFileSync),
         _ => None,
     }
+}
+
+fn fs_callable(member: Member) -> &'static str {
+    match member {
+        Member::AppendFile => "fs.appendFile",
+        Member::AppendFileSync => "fs.appendFileSync",
+        Member::Chmod => "fs.chmod",
+        Member::ChmodSync => "fs.chmodSync",
+        Member::Chown => "fs.chown",
+        Member::ChownSync => "fs.chownSync",
+        Member::CopyFile => "fs.copyFile",
+        Member::CopyFileSync => "fs.copyFileSync",
+        Member::CreateWriteStream => "fs.createWriteStream",
+        Member::Link => "fs.link",
+        Member::LinkSync => "fs.linkSync",
+        Member::Mkdir => "fs.mkdir",
+        Member::MkdirSync => "fs.mkdirSync",
+        Member::Open => "fs.open",
+        Member::OpenSync => "fs.openSync",
+        Member::Rename => "fs.rename",
+        Member::RenameSync => "fs.renameSync",
+        Member::Rmdir => "fs.rmdir",
+        Member::RmdirSync => "fs.rmdirSync",
+        Member::Rm => "fs.rm",
+        Member::RmSync => "fs.rmSync",
+        Member::Symlink => "fs.symlink",
+        Member::SymlinkSync => "fs.symlinkSync",
+        Member::Truncate => "fs.truncate",
+        Member::TruncateSync => "fs.truncateSync",
+        Member::Unlink => "fs.unlink",
+        Member::UnlinkSync => "fs.unlinkSync",
+        Member::WriteFile => "fs.writeFile",
+        Member::WriteFileSync => "fs.writeFileSync",
+        _ => unreachable!(),
+    }
+}
+
+fn child_callable(member: Member) -> &'static str {
+    match member {
+        Member::Exec => "child_process.exec",
+        Member::ExecSync => "child_process.execSync",
+        Member::Spawn => "child_process.spawn",
+        Member::SpawnSync => "child_process.spawnSync",
+        Member::ExecFile => "child_process.execFile",
+        Member::ExecFileSync => "child_process.execFileSync",
+        _ => unreachable!(),
+    }
+}
+
+enum FsCallSummary {
+    Effect(Vec<LanguageFilesystem>),
+    Partial,
+    Invalid,
+}
+
+fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
+    if !arguments.complete {
+        return FsCallSummary::Partial;
+    }
+    let values = &arguments.values;
+    let path = |index, operation, recursive| {
+        LanguageFilesystem::new(
+            values.get(index).and_then(value_string).map(str::to_owned),
+            operation,
+            recursive,
+        )
+    };
+    let possible_path = |index| values.get(index).is_some_and(possible_path_argument);
+    match member {
+        Member::Rm | Member::Rmdir => {
+            let recursive = match values.as_slice() {
+                [target, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    false
+                }
+                [target, options, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    match recursive_option(options) {
+                        OptionValue::Exact(recursive) => recursive,
+                        OptionValue::Partial => return FsCallSummary::Partial,
+                        OptionValue::Invalid => return FsCallSummary::Invalid,
+                    }
+                }
+                _ => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, recursive)])
+        }
+        Member::RmSync | Member::RmdirSync => {
+            if !possible_path(0) || !(1..=2).contains(&values.len()) {
+                return FsCallSummary::Invalid;
+            }
+            let recursive = match values
+                .get(1)
+                .map_or(OptionValue::Exact(false), recursive_option)
+            {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => return FsCallSummary::Partial,
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, recursive)])
+        }
+        Member::Unlink => {
+            if values.len() != 2 || !possible_path(0) || !possible_callback(&values[1]) {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, false)])
+        }
+        Member::UnlinkSync => {
+            if values.len() != 1 || !possible_path(0) {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, false)])
+        }
+        Member::WriteFile | Member::AppendFile => {
+            let valid = match values.as_slice() {
+                [target, data, callback] => {
+                    possible_path_argument(target)
+                        && possible_data(data)
+                        && possible_callback(callback)
+                }
+                [target, data, options, callback] => {
+                    possible_path_argument(target)
+                        && possible_data(data)
+                        && possible_write_options(options)
+                        && possible_callback(callback)
+                }
+                _ => false,
+            };
+            if !valid {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::WriteFileSync | Member::AppendFileSync => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || !possible_data(&values[1])
+                || values
+                    .get(2)
+                    .is_some_and(|value| !possible_write_options(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::CreateWriteStream => {
+            if !(1..=2).contains(&values.len())
+                || !possible_path(0)
+                || values.get(1).is_some_and(|value| !possible_object(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::CopyFile => {
+            let valid = match values.as_slice() {
+                [source, target, callback] => {
+                    possible_path_argument(source)
+                        && possible_path_argument(target)
+                        && possible_callback(callback)
+                }
+                [source, target, mode, callback] => {
+                    possible_path_argument(source)
+                        && possible_path_argument(target)
+                        && possible_number(mode)
+                        && possible_callback(callback)
+                }
+                _ => false,
+            };
+            if !valid {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(0, FilesystemOperation::Read, false),
+                path(1, FilesystemOperation::Write, false),
+            ])
+        }
+        Member::CopyFileSync => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || !possible_path(1)
+                || values.get(2).is_some_and(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(0, FilesystemOperation::Read, false),
+                path(1, FilesystemOperation::Write, false),
+            ])
+        }
+        Member::Rename | Member::Link => {
+            if values.len() != 3
+                || !possible_path(0)
+                || !possible_path(1)
+                || !possible_callback(&values[2])
+            {
+                return FsCallSummary::Invalid;
+            }
+            move_or_link_filesystems(member, values, &path)
+        }
+        Member::RenameSync | Member::LinkSync => {
+            if values.len() != 2 || !possible_path(0) || !possible_path(1) {
+                return FsCallSummary::Invalid;
+            }
+            move_or_link_filesystems(member, values, &path)
+        }
+        Member::Symlink => {
+            let valid = match values.as_slice() {
+                [source, target, callback] => {
+                    possible_path_argument(source)
+                        && possible_path_argument(target)
+                        && possible_callback(callback)
+                }
+                [source, target, kind, callback] => {
+                    possible_path_argument(source)
+                        && possible_path_argument(target)
+                        && possible_symlink_kind(kind)
+                        && possible_callback(callback)
+                }
+                _ => false,
+            };
+            if !valid {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(1, FilesystemOperation::Write, false)
+                    .metadata()
+                    .without_final_symlink_follow(),
+            ])
+        }
+        Member::SymlinkSync => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || !possible_path(1)
+                || values
+                    .get(2)
+                    .is_some_and(|value| !possible_symlink_kind(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(1, FilesystemOperation::Write, false)
+                    .metadata()
+                    .without_final_symlink_follow(),
+            ])
+        }
+        Member::Truncate => {
+            let valid = match values.as_slice() {
+                [target, callback] => possible_path_argument(target) && possible_callback(callback),
+                [target, length, callback] => {
+                    possible_path_argument(target)
+                        && possible_number(length)
+                        && possible_callback(callback)
+                }
+                _ => false,
+            };
+            if !valid {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::TruncateSync => {
+            if !(1..=2).contains(&values.len())
+                || !possible_path(0)
+                || values.get(1).is_some_and(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::Chmod | Member::Chown => {
+            let expected = if member == Member::Chmod { 3 } else { 4 };
+            if values.len() != expected
+                || !possible_path(0)
+                || values[1..expected - 1]
+                    .iter()
+                    .any(|value| !possible_number(value))
+                || !possible_callback(&values[expected - 1])
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false).metadata()])
+        }
+        Member::ChmodSync | Member::ChownSync => {
+            let expected = if member == Member::ChmodSync { 2 } else { 3 };
+            if values.len() != expected
+                || !possible_path(0)
+                || values[1..].iter().any(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false).metadata()])
+        }
+        Member::Mkdir => {
+            let recursive = match values.as_slice() {
+                [target, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    false
+                }
+                [target, options, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    match recursive_option(options) {
+                        OptionValue::Exact(recursive) => recursive,
+                        OptionValue::Partial => return FsCallSummary::Partial,
+                        OptionValue::Invalid => return FsCallSummary::Invalid,
+                    }
+                }
+                _ => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, recursive)])
+        }
+        Member::MkdirSync => {
+            if !possible_path(0) || !(1..=2).contains(&values.len()) {
+                return FsCallSummary::Invalid;
+            }
+            let recursive = match values
+                .get(1)
+                .map_or(OptionValue::Exact(false), recursive_option)
+            {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => return FsCallSummary::Partial,
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, recursive)])
+        }
+        Member::Open => {
+            let flags = match values.as_slice() {
+                [target, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    "r"
+                }
+                [target, flags, callback]
+                    if possible_path_argument(target) && possible_callback(callback) =>
+                {
+                    let Some(flags) = value_string(flags) else {
+                        return FsCallSummary::Partial;
+                    };
+                    flags
+                }
+                [target, flags, mode, callback]
+                    if possible_path_argument(target)
+                        && possible_number(mode)
+                        && possible_callback(callback) =>
+                {
+                    let Some(flags) = value_string(flags) else {
+                        return FsCallSummary::Partial;
+                    };
+                    flags
+                }
+                _ => return FsCallSummary::Invalid,
+            };
+            open_filesystems(flags, &path)
+        }
+        Member::OpenSync => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || values.get(2).is_some_and(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            let Some(flags) = values.get(1).and_then(value_string) else {
+                return FsCallSummary::Partial;
+            };
+            open_filesystems(flags, &path)
+        }
+        Member::Exec
+        | Member::ExecSync
+        | Member::Spawn
+        | Member::SpawnSync
+        | Member::ExecFile
+        | Member::ExecFileSync => FsCallSummary::Invalid,
+    }
+}
+
+fn move_or_link_filesystems(
+    member: Member,
+    values: &[Value],
+    path: &impl Fn(usize, FilesystemOperation, bool) -> LanguageFilesystem,
+) -> FsCallSummary {
+    let identity = values.first().and_then(value_string).map(str::to_owned);
+    if matches!(member, Member::Link | Member::LinkSync) {
+        FsCallSummary::Effect(vec![
+            path(0, FilesystemOperation::Write, false).metadata(),
+            path(1, FilesystemOperation::Write, false).observed_identity(identity, true, true),
+        ])
+    } else {
+        FsCallSummary::Effect(vec![
+            path(0, FilesystemOperation::Delete, false),
+            path(1, FilesystemOperation::Write, false)
+                .identity(identity, false)
+                .protects_descendants()
+                .without_final_symlink_follow(),
+        ])
+    }
+}
+
+fn open_filesystems(
+    flags: &str,
+    path: &impl Fn(usize, FilesystemOperation, bool) -> LanguageFilesystem,
+) -> FsCallSummary {
+    let operations: &[FilesystemOperation] = match flags {
+        "r" | "rs" => &[FilesystemOperation::Read],
+        "r+" | "rs+" => &[FilesystemOperation::Read, FilesystemOperation::Write],
+        "w" | "wx" | "w+" | "wx+" | "a" | "ax" | "a+" | "ax+" | "as" | "as+" => {
+            &[FilesystemOperation::Write]
+        }
+        _ => return FsCallSummary::Invalid,
+    };
+    FsCallSummary::Effect(
+        operations
+            .iter()
+            .map(|operation| path(0, *operation, false))
+            .collect(),
+    )
+}
+
+enum OptionValue {
+    Exact(bool),
+    Partial,
+    Invalid,
+}
+
+fn recursive_option(value: &Value) -> OptionValue {
+    match value {
+        Value::Object(properties) => match properties.get("recursive") {
+            Some(Value::Bool(recursive)) => OptionValue::Exact(*recursive),
+            Some(Value::Unknown) => OptionValue::Partial,
+            Some(_) => OptionValue::Invalid,
+            None => OptionValue::Exact(false),
+        },
+        Value::Unknown => OptionValue::Partial,
+        _ => OptionValue::Invalid,
+    }
+}
+
+fn possible_callback(value: &Value) -> bool {
+    matches!(value, Value::Function(_) | Value::Unknown)
+}
+
+fn possible_data(value: &Value) -> bool {
+    matches!(value, Value::String(_) | Value::Unknown)
+}
+
+fn possible_object(value: &Value) -> bool {
+    matches!(value, Value::Object(_) | Value::Unknown)
+}
+
+fn possible_write_options(value: &Value) -> bool {
+    matches!(value, Value::String(_) | Value::Object(_) | Value::Unknown)
+}
+
+fn possible_number(value: &Value) -> bool {
+    matches!(value, Value::Number(_) | Value::Unknown)
+}
+
+fn possible_symlink_kind(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::String(_) | Value::Undefined | Value::Null | Value::Unknown
+    )
 }
 
 fn property_value(value: &Value, property: &str, state: &State) -> Value {
@@ -1661,24 +2446,20 @@ fn property_value(value: &Value, property: &str, state: &State) -> Value {
     }
 }
 
-fn recursive_options(value: &Value) -> bool {
-    let Value::Object(properties) = value else {
-        return false;
-    };
-    properties.get("recursive") == Some(&Value::Bool(true))
-        && properties.iter().all(|(name, value)| match name.as_str() {
-            "recursive" | "force" => matches!(value, Value::Bool(_)),
-            _ => false,
-        })
+fn possible_path_argument(value: &Value) -> bool {
+    matches!(value, Value::String(_) | Value::Unknown)
 }
 
-fn empty_callback(value: &Value) -> bool {
-    let Value::Function(function) = value else {
-        return false;
-    };
-    function.parameters.as_deref() == Some(&[])
-        && !function.expression_body
-        && named_children(&function.body).next().is_none()
+fn possible_scalar_argument(value: &Value) -> bool {
+    matches!(value, Value::String(_) | Value::Unknown)
+}
+
+fn possible_argv_argument(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().all(possible_scalar_argument),
+        Value::Unknown => true,
+        _ => false,
+    }
 }
 
 fn child_argv(arguments: &Arguments) -> Option<Vec<String>> {
@@ -1702,6 +2483,144 @@ fn value_string(value: &Value) -> Option<&str> {
         Value::String(value) => Some(value),
         _ => None,
     }
+}
+
+fn language_call_input(
+    syntax: SyntaxProfile,
+    callable: &str,
+    arguments: &Arguments,
+) -> InvocationInput {
+    let mut complete = arguments.complete;
+    let represented = arguments.values.len();
+    let mut positional = Vec::with_capacity(represented.min(MAX_NATIVE_ARGUMENTS));
+    for value in arguments.values.iter().take(MAX_NATIVE_ARGUMENTS) {
+        let (value, exact) = native_value(value, 0);
+        complete &= exact;
+        positional.push(value);
+    }
+    if represented > MAX_NATIVE_ARGUMENTS {
+        complete = false;
+        if let Some(value) = positional.last_mut() {
+            *value = native_unknown();
+        }
+    }
+    let mut payload = language_call_payload(syntax, callable, positional);
+    if serde_json::to_vec(&payload).map_or(true, |bytes| bytes.len() > MAX_NATIVE_EVIDENCE_BYTES) {
+        complete = false;
+        payload = language_call_payload(syntax, callable, vec![native_unknown()]);
+    }
+    InvocationInput::native(payload, complete)
+}
+
+fn language_call_payload(
+    syntax: SyntaxProfile,
+    callable: &str,
+    positional: Vec<JsonValue>,
+) -> JsonValue {
+    let language = match syntax {
+        SyntaxProfile::JavaScript => "javascript",
+        SyntaxProfile::TypeScript => "typescript",
+        SyntaxProfile::Tsx => "tsx",
+        SyntaxProfile::Ambiguous => unreachable!(),
+    };
+    let mut payload = Map::new();
+    payload.insert("v".into(), JsonValue::from(1));
+    payload.insert("language".into(), JsonValue::String(language.into()));
+    payload.insert("callable".into(), JsonValue::String(callable.into()));
+    payload.insert("positional".into(), JsonValue::Array(positional));
+    payload.insert("keywords".into(), JsonValue::Array(Vec::new()));
+    JsonValue::Object(payload)
+}
+
+fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
+    if depth >= 16 {
+        return (native_unknown(), false);
+    }
+    match value {
+        Value::Undefined => (native_tag("undefined", None), true),
+        Value::Null => (native_tag("null", None), true),
+        Value::Bool(value) => (native_tag("bool", Some(JsonValue::Bool(*value))), true),
+        Value::Number(value) => (native_tag("int", Some(JsonValue::from(*value))), true),
+        Value::String(value) => bounded_native_string(value),
+        Value::Array(values) if values.len() <= MAX_NATIVE_COLLECTION_ITEMS => {
+            let mut exact = true;
+            let items = values
+                .iter()
+                .map(|value| {
+                    let (value, item_exact) = native_value(value, depth + 1);
+                    exact &= item_exact;
+                    value
+                })
+                .collect();
+            (native_sequence(items), exact)
+        }
+        Value::Object(properties) if properties.len() <= MAX_NATIVE_COLLECTION_ITEMS => {
+            let mut exact = true;
+            let properties = properties
+                .iter()
+                .map(|(name, value)| {
+                    let (value, property_exact) = native_value(value, depth + 1);
+                    exact &= property_exact;
+                    let mut property = Map::new();
+                    property.insert("name".into(), JsonValue::String(name.clone()));
+                    property.insert("value".into(), value);
+                    JsonValue::Object(property)
+                })
+                .collect();
+            (native_object(properties), exact)
+        }
+        Value::Unknown
+        | Value::Array(_)
+        | Value::Object(_)
+        | Value::Module(_)
+        | Value::Known(_)
+        | Value::Function(_)
+        | Value::Require
+        | Value::Eval
+        | Value::ObjectBuiltin
+        | Value::Process
+        | Value::Environment
+        | Value::UnknownModuleMember(_)
+        | Value::UnknownReceiver(_) => (native_unknown(), false),
+    }
+}
+
+fn bounded_native_string(value: &str) -> (JsonValue, bool) {
+    if value.len() > MAX_NATIVE_EVIDENCE_BYTES {
+        (native_unknown(), false)
+    } else {
+        (
+            native_tag("string", Some(JsonValue::String(value.to_owned()))),
+            true,
+        )
+    }
+}
+
+fn native_unknown() -> JsonValue {
+    native_tag("unknown", None)
+}
+
+fn native_sequence(items: Vec<JsonValue>) -> JsonValue {
+    let mut tagged = Map::new();
+    tagged.insert("kind".into(), JsonValue::String("sequence".into()));
+    tagged.insert("items".into(), JsonValue::Array(items));
+    JsonValue::Object(tagged)
+}
+
+fn native_object(properties: Vec<JsonValue>) -> JsonValue {
+    let mut tagged = Map::new();
+    tagged.insert("kind".into(), JsonValue::String("object".into()));
+    tagged.insert("properties".into(), JsonValue::Array(properties));
+    JsonValue::Object(tagged)
+}
+
+fn native_tag(kind: &str, value: Option<JsonValue>) -> JsonValue {
+    let mut tagged = Map::new();
+    tagged.insert("kind".into(), JsonValue::String(kind.into()));
+    if let Some(value) = value {
+        tagged.insert("value".into(), value);
+    }
+    JsonValue::Object(tagged)
 }
 
 fn string_coercion(value: &Value) -> Option<String> {
@@ -1783,6 +2702,7 @@ fn join_states(mut left: State, right: State) -> State {
                 .intersection(&right.owned_members)
                 .copied()
                 .collect(),
+            relative_cwd_known: left.relative_cwd_known && right.relative_cwd_known,
         };
     }
     for (left_scope, right_scope) in left.scopes.iter_mut().zip(right.scopes) {
@@ -1814,6 +2734,7 @@ fn join_states(mut left: State, right: State) -> State {
         .intersection(&right.owned_members)
         .copied()
         .collect();
+    left.relative_cwd_known &= right.relative_cwd_known;
     left
 }
 
@@ -1999,58 +2920,45 @@ fn delimited_has_hole(node: &HirNode, source: &str) -> bool {
     false
 }
 
-fn normalize_path(path: &str, platform: Platform) -> String {
-    let mut path = path.trim().replace('\\', "/");
-    if platform == Platform::Windows {
-        path.make_ascii_lowercase();
-    }
-    let (prefix, rest) = if let Some(rest) = path.strip_prefix('/') {
-        ("/".to_owned(), rest)
-    } else if platform == Platform::Windows
-        && path.as_bytes().get(1) == Some(&b':')
-        && path.as_bytes().get(2) == Some(&b'/')
-    {
-        (path[..3].to_owned(), &path[3..])
-    } else {
-        return path.trim_end_matches('/').to_owned();
-    };
-    let mut components = Vec::new();
-    for component in rest.split('/') {
-        match component {
-            "" | "." => {}
-            ".." => {
-                components.pop();
-            }
-            _ => components.push(component),
-        }
-    }
-    if components.is_empty() {
-        prefix
-    } else {
-        format!("{prefix}{}", components.join("/"))
-    }
+fn is_absolute(path: &str, platform: Platform) -> bool {
+    path.starts_with('/')
+        || platform == Platform::Windows
+            && (path.starts_with("\\\\")
+                || path.as_bytes().get(1) == Some(&b':')
+                    && path
+                        .as_bytes()
+                        .get(2)
+                        .is_some_and(|byte| matches!(byte, b'/' | b'\\')))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn report(code: &str) -> InlineReport {
+    fn analysis(code: &str) -> LanguageAnalysis {
+        let profile = super::super::profile("node").unwrap();
         analyze(
-            "node",
+            profile,
             &InlineInput {
                 program: "node",
                 code,
                 home: "/home/dev",
                 platform: Platform::Linux,
             },
-            None,
             0,
         )
     }
 
+    fn report(code: &str) -> InlineReport {
+        analysis(code).into_report()
+    }
+
     fn root(code: &str) -> bool {
-        report(code).contains_exact(FindingKind::RootDestruction)
+        analysis(code).draft().calls().iter().any(|call| {
+            call.filesystems()
+                .iter()
+                .any(|filesystem| filesystem.requested() == Some("/"))
+        })
     }
 
     #[test]
