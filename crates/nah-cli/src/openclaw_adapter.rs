@@ -35,8 +35,13 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         .map_err(|error| error.to_string())
         .and_then(normalize);
     let output = match request {
-        Ok((request, _code)) => {
-            match hook_adapter::decide_input(request, stderr, Runtime::OpenClaw, failure_policy) {
+        Ok((request, code)) => {
+            match hook_adapter::decide_input(
+                (request, code.as_ref()),
+                stderr,
+                Runtime::OpenClaw,
+                failure_policy,
+            ) {
                 HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
                     json!({
                         "block":true,

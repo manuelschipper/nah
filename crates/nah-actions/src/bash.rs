@@ -213,8 +213,9 @@ pub(crate) fn draft(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn visible_python_draft(
+pub(crate) fn visible_language_draft(
     outer_program: &str,
+    language: &str,
     source: &str,
     input: InvocationInput,
     requested_cwd: &AbsolutePath,
@@ -241,7 +242,7 @@ pub(crate) fn visible_python_draft(
     lowerer.stages.push(StageDraft {
         invocation: InvocationDraft::CodeExecution {
             program: outer_program.to_owned(),
-            interpreter: Some("python".to_owned()),
+            interpreter: Some(language.to_owned()),
             source: SemanticCode::INTERPRETER_INLINE,
             code: Some(source.to_owned()),
             input: Some(input),
@@ -278,7 +279,7 @@ pub(crate) fn visible_python_draft(
             state,
             ambient_variables: lowerer.ambient_variables.clone(),
         },
-        "python",
+        language,
         source,
     );
     lowerer.finish()

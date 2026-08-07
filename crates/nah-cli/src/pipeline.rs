@@ -439,6 +439,22 @@ where
                 input,
             )
         }
+        (None, Some(CodeInput::JavaScript { source }))
+            if input.tool() == "OpenClawCodeModeExec" =>
+        {
+            nah_actions::AnalysisInput::VisibleCode(
+                nah_actions::VisibleCode::JavaScript { source },
+                input,
+            )
+        }
+        (None, Some(CodeInput::TypeScript { source }))
+            if input.tool() == "OpenClawCodeModeExec" =>
+        {
+            nah_actions::AnalysisInput::VisibleCode(
+                nah_actions::VisibleCode::TypeScript { source },
+                input,
+            )
+        }
         (None, _) => nah_actions::AnalysisInput::Native(input),
     };
     let plan =

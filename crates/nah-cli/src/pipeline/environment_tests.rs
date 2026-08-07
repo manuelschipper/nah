@@ -54,6 +54,18 @@ fn python_input(source: &str) -> ToolCallInput {
     .with_original_input(json!({"code":source}), true)
 }
 
+fn openclaw_code_input(source: &str, language: &str) -> ToolCallInput {
+    ToolCallInput::new(
+        SchemaVersion::V1,
+        "OpenClawCodeModeExec",
+        json!({"code":source,"language":language}),
+        "/repo",
+        None,
+    )
+    .unwrap()
+    .with_original_input(json!({"code":source,"command":source}), true)
+}
+
 fn absolute(path: &str) -> AbsolutePath {
     AbsolutePath::new(Platform::Linux, path).unwrap()
 }
@@ -213,6 +225,50 @@ fn direct_python_pipeline_keeps_absolute_and_unresolved_relative_effects_distinc
                 }
             ))
     );
+}
+
+#[test]
+fn direct_openclaw_code_uses_the_proven_language_without_node_ownership() {
+    for (source, language, code) in [
+        (
+            "return require('fs').rmSync('/tmp/not-node')",
+            "javascript",
+            CodeInput::JavaScript {
+                source: "return require('fs').rmSync('/tmp/not-node')".into(),
+            },
+        ),
+        (
+            "const value: number = 1; return value",
+            "typescript",
+            CodeInput::TypeScript {
+                source: "const value: number = 1; return value".into(),
+            },
+        ),
+    ] {
+        let input = openclaw_code_input(source, language);
+        let result = decide_with_code(&input, &code, &context(), |request| {
+            assert!(!request.queries().iter().any(|query| {
+                matches!(query, ObservationQuery::Path { requested, .. } if requested == "/tmp/not-node")
+            }));
+            Ok(observed(request, |_| value("unused")))
+        });
+        assert!(matches!(
+            result.action_stream().effects()[0].kind(),
+            EffectKind::Invocation {
+                invocation: InvocationEffect::CodeExecution {
+                    program,
+                    interpreter: Some(interpreter),
+                    source: effect_source,
+                    code: Some(actual),
+                    ..
+                }
+            } if program == "OpenClawCodeModeExec"
+                && interpreter == language
+                && effect_source == &SemanticCode::INTERPRETER_INLINE
+                && actual == source
+        ));
+        assert!(!has_delete(&result, "/tmp/not-node"));
+    }
 }
 
 #[test]

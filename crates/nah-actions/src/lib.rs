@@ -78,6 +78,8 @@ pub enum AnalysisInput<'a> {
 #[derive(Clone, Copy)]
 pub enum VisibleCode<'a> {
     Python { source: &'a str },
+    JavaScript { source: &'a str },
+    TypeScript { source: &'a str },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -231,11 +233,17 @@ fn plan_with_ambient_variables(
                 inline_failed,
             )
         }
-        AnalysisInput::VisibleCode(VisibleCode::Python { source }, input) => {
+        AnalysisInput::VisibleCode(visible, input) => {
+            let (language, source) = match visible {
+                VisibleCode::Python { source } => ("python", source),
+                VisibleCode::JavaScript { source } => ("javascript", source),
+                VisibleCode::TypeScript { source } => ("typescript", source),
+            };
             let invocation_input = native::invocation_input(input);
             let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
-                bash::visible_python_draft(
+                bash::visible_language_draft(
                     input.tool(),
+                    language,
                     source,
                     invocation_input,
                     call_site.requested_cwd(),

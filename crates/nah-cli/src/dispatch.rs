@@ -380,7 +380,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     failure_policy: FailurePolicy,
     code: Option<&CodeInput>,
 ) -> DecideOutcome {
-    let code = if runtime == Some(Runtime::Hermes) {
+    let code = if matches!(runtime, Some(Runtime::Hermes | Runtime::OpenClaw)) {
         code
     } else {
         None
