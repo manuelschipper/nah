@@ -283,6 +283,13 @@ enum ArgumentBindings {
     Incomplete,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CallShape {
+    Valid,
+    Invalid,
+    Incomplete,
+}
+
 impl Default for Arguments {
     fn default() -> Self {
         Self {
@@ -1467,13 +1474,31 @@ impl Interpreter<'_> {
                     }
                 }
                 HirKind::DictionarySplat => {
-                    self.eval_children(child, state, depth);
-                    arguments.complete = false;
+                    let value = named_children(child)
+                        .next()
+                        .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+                    if !matches!(value, Value::EmptyDictionary) {
+                        arguments.complete = false;
+                    }
                 }
                 _ => arguments.positional.push(self.eval(child, state, depth)),
             }
         }
         arguments
+    }
+
+    fn admit_call_shape(&mut self, shape: CallShape) -> bool {
+        match shape {
+            CallShape::Valid => true,
+            CallShape::Invalid => {
+                self.pending_control = Some(Control::Raise);
+                false
+            }
+            CallShape::Incomplete => {
+                self.complete = false;
+                false
+            }
+        }
     }
 
     fn call_known(
@@ -1721,12 +1746,13 @@ impl Interpreter<'_> {
                 .map_or(Value::Unknown, Value::String),
             KnownFunction::OsRealpath => Value::Unknown,
             KnownFunction::OsGetenv => {
+                if !self.admit_call_shape(call_shape(&arguments, 1, &["key", "default"], 0, &[])) {
+                    return Value::Unknown;
+                }
                 if state.invalid_modules.contains(&Module::Environment) {
                     Value::Unknown
                 } else {
-                    arguments
-                        .positional
-                        .first()
+                    argument(&arguments, 0, "key")
                         .and_then(value_string)
                         .filter(|name| *name == "HOME")
                         .and_then(|_| bounded_owned(self.input.home, &mut self.budget))
@@ -1734,8 +1760,16 @@ impl Interpreter<'_> {
                 }
             }
             KnownFunction::Getattr => {
-                if arguments.positional.len() >= 2
-                    && let Some(attribute) = arguments.positional.get(1).and_then(value_string)
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    2,
+                    &["object", "name", "default"],
+                    3,
+                    &[],
+                )) {
+                    return Value::Unknown;
+                }
+                if let Some(attribute) = arguments.positional.get(1).and_then(value_string)
                     && let Some(value) = arguments.positional.first()
                 {
                     return match value {
@@ -1756,7 +1790,7 @@ impl Interpreter<'_> {
                 .unwrap_or(Value::Unknown),
             KnownFunction::ShutilWhich => Value::Unknown,
             KnownFunction::Request(kind) => {
-                if required_argument(&arguments, 0, request_url_keyword(kind)).is_none()
+                if !self.admit_call_shape(request_call_shape(kind, &arguments, self.program))
                     || !possible_scalar_argument(&arguments, 0, request_url_keyword(kind))
                 {
                     return Value::Unknown;
@@ -1831,20 +1865,27 @@ impl Interpreter<'_> {
                 self.emit_filesystem_call(callable, &arguments, state, filesystems)
                     .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
-            KnownFunction::OsRemove
-            | KnownFunction::OsUnlink
-            | KnownFunction::OsRemovedirs
-            | KnownFunction::OsRmdir => {
-                let (callable, recursive) = match function {
-                    KnownFunction::OsRemove => ("os.remove", false),
-                    KnownFunction::OsUnlink => ("os.unlink", false),
-                    KnownFunction::OsRemovedirs => ("os.removedirs", true),
-                    KnownFunction::OsRmdir => ("os.rmdir", false),
+            KnownFunction::OsRemove | KnownFunction::OsUnlink | KnownFunction::OsRmdir => {
+                let callable = match function {
+                    KnownFunction::OsRemove => "os.remove",
+                    KnownFunction::OsUnlink => "os.unlink",
+                    KnownFunction::OsRmdir => "os.rmdir",
                     _ => unreachable!(),
                 };
-                if !valid_call_shape(&arguments, 1, &["path", "dir_fd"])
-                    || required_argument(&arguments, 0, "path").is_none()
-                    || !possible_path_argument(&arguments, 0, "path")
+                let legacy = is_python2(self.program)
+                    || python3_minor(self.program).is_some_and(|minor| minor < 3);
+                let keyword_only = if legacy {
+                    &[] as &[_]
+                } else {
+                    &["dir_fd"] as &[_]
+                };
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    1,
+                    &["path"],
+                    usize::from(legacy),
+                    keyword_only,
+                )) || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
@@ -1857,7 +1898,27 @@ impl Interpreter<'_> {
                         0,
                         "path",
                         FilesystemOperation::Delete,
-                        recursive,
+                        false,
+                    )],
+                );
+                Value::None
+            }
+            KnownFunction::OsRemovedirs => {
+                if !self.admit_call_shape(call_shape(&arguments, 1, &["name"], 0, &[]))
+                    || !possible_path_argument(&arguments, 0, "name")
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    "os.removedirs",
+                    &arguments,
+                    state,
+                    vec![filesystem_argument(
+                        &arguments,
+                        0,
+                        "name",
+                        FilesystemOperation::Delete,
+                        true,
                     )],
                 );
                 Value::None
@@ -1918,18 +1979,7 @@ impl Interpreter<'_> {
                 Value::None
             }
             KnownFunction::ShutilCopy(kind) => {
-                if !valid_call_shape(
-                    &arguments,
-                    2,
-                    &[
-                        "src",
-                        "dst",
-                        "follow_symlinks",
-                        "copy_function",
-                        "dirs_exist_ok",
-                    ],
-                ) || required_argument(&arguments, 0, "src").is_none()
-                    || required_argument(&arguments, 1, "dst").is_none()
+                if !self.admit_call_shape(shutil_copy_call_shape(kind, &arguments, self.program))
                     || !possible_path_argument(&arguments, 0, "src")
                     || !possible_path_argument(&arguments, 1, "dst")
                 {
@@ -2336,9 +2386,10 @@ impl Interpreter<'_> {
     ) -> Value {
         match method {
             "with_name" => {
-                arguments
-                    .positional
-                    .first()
+                if !self.admit_call_shape(call_shape(&arguments, 1, &["name"], 0, &[])) {
+                    return Value::Unknown;
+                }
+                argument(&arguments, 0, "name")
                     .and_then(value_string)
                     .map_or(Value::Unknown, |name| {
                         let parent = path
@@ -3495,9 +3546,6 @@ fn values_bytes(values: &[Value]) -> Option<usize> {
 }
 
 fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> ArgumentBindings {
-    if !arguments.complete {
-        return ArgumentBindings::Incomplete;
-    }
     if arguments.positional.len() > parameters.len() {
         return ArgumentBindings::Invalid;
     }
@@ -3522,6 +3570,9 @@ fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> ArgumentBi
             return ArgumentBindings::Invalid;
         }
         values[index] = Some(value.clone());
+    }
+    if !arguments.complete {
+        return ArgumentBindings::Incomplete;
     }
     let bindings = parameters
         .iter()
@@ -4136,17 +4187,191 @@ fn required_argument<'a>(
     }
 }
 
+fn call_shape(
+    arguments: &Arguments,
+    required: usize,
+    positional: &[&str],
+    positional_only: usize,
+    keyword_only: &[&str],
+) -> CallShape {
+    if arguments.positional.len() > positional.len() {
+        return CallShape::Invalid;
+    }
+    let mut seen = BTreeSet::new();
+    for (name, _) in &arguments.keywords {
+        if !seen.insert(name.as_str()) {
+            return CallShape::Invalid;
+        }
+        if let Some(index) = positional.iter().position(|parameter| parameter == name) {
+            if index < positional_only || index < arguments.positional.len() {
+                return CallShape::Invalid;
+            }
+        } else if !keyword_only.contains(&name.as_str()) {
+            return CallShape::Invalid;
+        }
+    }
+    if !arguments.complete {
+        return CallShape::Incomplete;
+    }
+    for (index, name) in positional.iter().take(required).enumerate() {
+        if index >= arguments.positional.len()
+            && (index < positional_only
+                || !arguments
+                    .keywords
+                    .iter()
+                    .any(|(keyword, _)| keyword == name))
+        {
+            return CallShape::Invalid;
+        }
+    }
+    CallShape::Valid
+}
+
+fn request_call_shape(kind: RequestKind, arguments: &Arguments, program: &str) -> CallShape {
+    const REQUESTS_COMMON: &[&str] = &[
+        "params",
+        "data",
+        "headers",
+        "cookies",
+        "files",
+        "auth",
+        "timeout",
+        "allow_redirects",
+        "proxies",
+        "hooks",
+        "stream",
+        "verify",
+        "cert",
+        "json",
+    ];
+    const HTTPX_COMMON: &[&str] = &[
+        "params",
+        "headers",
+        "cookies",
+        "auth",
+        "proxy",
+        "proxies",
+        "follow_redirects",
+        "cert",
+        "verify",
+        "timeout",
+        "trust_env",
+    ];
+    const HTTPX_BODY: &[&str] = &[
+        "content",
+        "data",
+        "files",
+        "json",
+        "params",
+        "headers",
+        "cookies",
+        "auth",
+        "proxy",
+        "proxies",
+        "follow_redirects",
+        "cert",
+        "verify",
+        "timeout",
+        "trust_env",
+    ];
+    match kind {
+        RequestKind::RequestsGet => {
+            call_shape(arguments, 1, &["url", "params"], 0, REQUESTS_COMMON)
+        }
+        RequestKind::RequestsPost => {
+            call_shape(arguments, 1, &["url", "data", "json"], 0, REQUESTS_COMMON)
+        }
+        RequestKind::RequestsPut | RequestKind::RequestsPatch => {
+            call_shape(arguments, 1, &["url", "data"], 0, REQUESTS_COMMON)
+        }
+        RequestKind::RequestsDelete => call_shape(arguments, 1, &["url"], 0, REQUESTS_COMMON),
+        RequestKind::HttpxGet | RequestKind::HttpxDelete => {
+            call_shape(arguments, 1, &["url"], 0, HTTPX_COMMON)
+        }
+        RequestKind::HttpxPost | RequestKind::HttpxPut | RequestKind::HttpxPatch => {
+            call_shape(arguments, 1, &["url"], 0, HTTPX_BODY)
+        }
+        RequestKind::UrlOpen => {
+            let keywords = match python3_minor(program) {
+                Some(0 | 1) => &[] as &[_],
+                Some(2) => &["cafile", "capath"] as &[_],
+                Some(3) => &["cafile", "capath", "cadefault"] as &[_],
+                Some(13..) => &["context"] as &[_],
+                Some(4..=12) | None => &["cafile", "capath", "cadefault", "context"] as &[_],
+            };
+            call_shape(arguments, 1, &["url", "data", "timeout"], 0, keywords)
+        }
+        RequestKind::UrlRetrieve => call_shape(
+            arguments,
+            1,
+            &["url", "filename", "reporthook", "data"],
+            0,
+            &[],
+        ),
+    }
+}
+
+fn shutil_copy_call_shape(kind: CopyKind, arguments: &Arguments, program: &str) -> CallShape {
+    if kind == CopyKind::Copytree {
+        let positional =
+            if is_python2(program) || python3_minor(program).is_some_and(|minor| minor < 2) {
+                &["src", "dst", "symlinks", "ignore"] as &[_]
+            } else if python3_minor(program).is_some_and(|minor| minor < 8) {
+                &[
+                    "src",
+                    "dst",
+                    "symlinks",
+                    "ignore",
+                    "copy_function",
+                    "ignore_dangling_symlinks",
+                ] as &[_]
+            } else {
+                &[
+                    "src",
+                    "dst",
+                    "symlinks",
+                    "ignore",
+                    "copy_function",
+                    "ignore_dangling_symlinks",
+                    "dirs_exist_ok",
+                ] as &[_]
+            };
+        call_shape(arguments, 2, positional, 0, &[])
+    } else {
+        let keywords =
+            if is_python2(program) || python3_minor(program).is_some_and(|minor| minor < 3) {
+                &[] as &[_]
+            } else {
+                &["follow_symlinks"] as &[_]
+            };
+        call_shape(arguments, 2, &["src", "dst"], 0, keywords)
+    }
+}
+
+fn is_python2(program: &str) -> bool {
+    matches!(program, "python2" | "pypy2")
+        || program.starts_with("python2.")
+        || program.starts_with("pypy2.")
+}
+
+fn python3_minor(program: &str) -> Option<u16> {
+    program
+        .strip_prefix("python3.")
+        .or_else(|| program.strip_prefix("pypy3."))
+        .and_then(|version| version.strip_suffix('t').unwrap_or(version).parse().ok())
+}
+
 fn valid_call_shape(arguments: &Arguments, max_positional: usize, keywords: &[&str]) -> bool {
-    arguments.complete
-        && arguments.positional.len() <= max_positional
-        && arguments
-            .keywords
-            .iter()
-            .all(|(name, _)| keywords.contains(&name.as_str()))
-        && keywords
-            .iter()
-            .take(arguments.positional.len())
-            .all(|parameter| !arguments.keywords.iter().any(|(name, _)| name == parameter))
+    matches!(
+        call_shape(
+            arguments,
+            0,
+            &keywords[..max_positional],
+            0,
+            &keywords[max_positional..],
+        ),
+        CallShape::Valid
+    )
 }
 
 fn valid_os_exec_shape(kind: StringKind, arguments: &Arguments) -> bool {
@@ -4669,13 +4894,11 @@ mod tests {
             ));
         }
 
-        assert!(matches!(
-            report(
-                "import subprocess\nargv=['rm']\ndef finish(parts): parts.extend(['-rf','/'])\nfinish()\nsubprocess.run(argv)"
-            )
-            .nested_executions(),
-            [NestedExecution::Command { argv, .. }] if argv == &["rm"]
-        ));
+        assert!(report(
+            "import subprocess\nargv=['rm']\ndef finish(parts): parts.extend(['-rf','/'])\nfinish()\nsubprocess.run(argv)"
+        )
+        .nested_executions()
+        .is_empty());
 
         let mut code = "items=['x']\ndef grow(values):\n".to_owned();
         for _ in 0..9 {

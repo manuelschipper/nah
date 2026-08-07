@@ -9,9 +9,13 @@ use nah_proto::{
 use serde_json::json;
 
 fn analyze(code: &str) -> LanguageAnalysis {
+    analyze_program("python3", code)
+}
+
+fn analyze_program<'a>(program: &'a str, code: &'a str) -> LanguageAnalysis {
     analyze_with_language_effects(
         InlineInput {
-            program: "python3",
+            program,
             code,
             home: "/home/dev",
             platform: Platform::Linux,
@@ -106,6 +110,167 @@ fn known_names_with_non_executable_argument_shapes_do_not_emit() {
     );
     assert!(analysis.draft().calls().is_empty());
     assert!(analysis.draft().complete());
+}
+
+#[test]
+fn definitely_invalid_known_call_shapes_stop_following_effects() {
+    for code in [
+        "import os\nos.remove()\nos.remove('/tmp/tail')",
+        "import os\nos.remove('/tmp/x', 'extra', *args)\nos.remove('/tmp/tail')",
+        "import os\nos.removedirs(path='/tmp/x')\nos.remove('/tmp/tail')",
+        "import shutil\nshutil.copyfile('/tmp/a', '/tmp/b', copy_function=None)\nshutil.rmtree('/tmp/tail')",
+        "import shutil\nshutil.copytree('/tmp/a', '/tmp/b', follow_symlinks=False)\nshutil.rmtree('/tmp/tail')",
+        "import requests\nrequests.delete('https://example.test', None)\nrequests.get('https://tail.test')",
+        "import requests\nrequests.get('https://example.test', bogus=True)\nrequests.get('https://tail.test')",
+        "import httpx\nhttpx.get('https://example.test', None)\nhttpx.get('https://tail.test')",
+        "import httpx\nhttpx.get('https://example.test', bogus=True)\nhttpx.get('https://tail.test')",
+        "import urllib.request\nurllib.request.urlopen('https://example.test', None, 1, None)\nurllib.request.urlopen('https://tail.test')",
+        "import urllib.request\nurllib.request.urlretrieve('https://example.test', None, None, None, None)\nurllib.request.urlopen('https://tail.test')",
+        "import os\np=os.getenv('HOME', None, 'extra')\nos.remove('/tmp/tail')",
+        "import os\ngetattr(os, 'remove', None, None)('/tmp/x')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').with_name('y', 'extra').unlink()\nos.remove('/tmp/tail')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis = analyze("import os\nos.remove(*args)\nos.remove('/tmp/tail')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    assert!(!analysis.draft().complete());
+
+    for (program, code) in [
+        (
+            "python3.7",
+            "import shutil\nshutil.copytree('/tmp/a', '/tmp/b', dirs_exist_ok=True)\nshutil.rmtree('/tmp/tail')",
+        ),
+        (
+            "python3.13",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', cafile=None)\nurllib.request.urlopen('https://tail.test')",
+        ),
+        (
+            "python3.2",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', cadefault=False)\nurllib.request.urlopen('https://tail.test')",
+        ),
+        (
+            "python3.3",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', context=None)\nurllib.request.urlopen('https://tail.test')",
+        ),
+        (
+            "python3.2",
+            "import shutil\nshutil.copyfile('/tmp/a', '/tmp/b', follow_symlinks=False)\nshutil.rmtree('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.remove(path='/tmp/x')\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.remove('/tmp/x', dir_fd=None)\nos.remove('/tmp/tail')",
+        ),
+    ] {
+        assert!(
+            analyze_program(program, code).draft().calls().is_empty(),
+            "{program}: {code}"
+        );
+    }
+}
+
+#[test]
+fn reviewed_keyword_and_positional_call_shapes_remain_valid() {
+    for (code, expected) in [
+        ("import os\nos.remove(path='/tmp/x')", "os.remove"),
+        ("import os\nos.removedirs(name='/tmp/a/b')", "os.removedirs"),
+        (
+            "import shutil\nshutil.copyfile('/tmp/a', '/tmp/b', follow_symlinks=False)",
+            "shutil.copyfile",
+        ),
+        (
+            "import shutil\nshutil.copytree('/tmp/a', '/tmp/b', copy_function=copy, dirs_exist_ok=True)",
+            "shutil.copytree",
+        ),
+        (
+            "import requests\nrequests.post('https://example.test', None, None, timeout=1)",
+            "requests.post",
+        ),
+        (
+            "import httpx\nhttpx.get('https://example.test', timeout=1)",
+            "httpx.get",
+        ),
+        (
+            "import httpx\nhttpx.get('https://example.test', proxies=None, cert=None)",
+            "httpx.get",
+        ),
+        (
+            "import urllib.request\nurllib.request.urlopen('https://example.test', None, 1, context=None)",
+            "urllib.request.urlopen",
+        ),
+        (
+            "import os\nos.remove(os.getenv(key='HOME') + '/x')",
+            "os.remove",
+        ),
+        (
+            "import os\ngetattr(os, 'remove', None)('/tmp/x')",
+            "os.remove",
+        ),
+        (
+            "import os\ngetattr(os, 'remove', **{})('/tmp/x')",
+            "os.remove",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/x').with_name(name='y').unlink()",
+            "pathlib.path.unlink",
+        ),
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(callable(&analysis.draft().calls()[0]), expected, "{code}");
+    }
+
+    for (program, code, expected) in [
+        (
+            "python3.8",
+            "import shutil\nshutil.copytree('/tmp/a', '/tmp/b', dirs_exist_ok=True)",
+            "shutil.copytree",
+        ),
+        (
+            "python3.12",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', cafile=None)",
+            "urllib.request.urlopen",
+        ),
+        (
+            "python3.2",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', cafile=None)",
+            "urllib.request.urlopen",
+        ),
+        (
+            "python3.3",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', cadefault=False)",
+            "urllib.request.urlopen",
+        ),
+        (
+            "python3.4",
+            "import urllib.request\nurllib.request.urlopen('https://example.test', context=None)",
+            "urllib.request.urlopen",
+        ),
+        (
+            "python3.3",
+            "import shutil\nshutil.copyfile('/tmp/a', '/tmp/b', follow_symlinks=False)",
+            "shutil.copyfile",
+        ),
+        (
+            "python3.3",
+            "import os\nos.remove(path='/tmp/x', dir_fd=None)",
+            "os.remove",
+        ),
+    ] {
+        let analysis = analyze_program(program, code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{program}: {code}");
+        assert_eq!(
+            callable(&analysis.draft().calls()[0]),
+            expected,
+            "{program}: {code}"
+        );
+    }
 }
 
 #[test]
@@ -339,6 +504,7 @@ fn definitely_invalid_local_calls_stop_following_effects() {
     for code in [
         "import os\ndef f(required): pass\nf()\nos.remove('/tmp/tail')",
         "import os\ndef f(value): pass\nf(1, 2)\nos.remove('/tmp/tail')",
+        "import os\ndef f(value): pass\nf(1, 2, *args)\nos.remove('/tmp/tail')",
         "import os\ndef f(value): pass\nf(other=1)\nos.remove('/tmp/tail')",
         "import os\ndef f(value): pass\nf(1, value=2)\nos.remove('/tmp/tail')",
     ] {
