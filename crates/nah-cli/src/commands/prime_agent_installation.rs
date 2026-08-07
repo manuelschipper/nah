@@ -271,7 +271,7 @@ const nahExecutable = {executable};
 const maxOutputBytes = 65536;
 const adapterFailureMessage = {adapter_failure_message};
 
-function decide(event, context) {{
+function decide(event, context, toolSource) {{
   return new Promise((resolve, reject) => {{
     const child = spawn(nahExecutable, ["hook", "prime-agent", "run"{failure_arg}], {{
       stdio: ["pipe", "pipe", "pipe"],
@@ -325,6 +325,8 @@ function decide(event, context) {{
       tool_name: event.toolName,
       tool_input: event.input,
       cwd: context.cwd,
+      tool_source: toolSource?.source,
+      tool_path: toolSource?.path,
     }}));
   }});
 }}
@@ -332,7 +334,8 @@ function decide(event, context) {{
 module.exports = function nahPrimeAgentExtension(prime) {{
   prime.on("tool_call", async (event, context) => {{
     try {{
-      const result = await decide(event, context);
+      const tool = prime.getAllTools().find((candidate) => candidate.name === event.toolName);
+      const result = await decide(event, context, tool?.sourceInfo);
       if (result.evaluation_failed && context.hasUI) {{
         try {{
           context.ui.notify(

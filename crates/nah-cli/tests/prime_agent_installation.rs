@@ -55,6 +55,7 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
                 &extension,
                 "ipython",
                 json!({"code":"print('ok')"}),
+                true,
             ),
             Value::Null
         );
@@ -64,9 +65,21 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
             &extension,
             "ipython",
             json!({"code":"import shutil; shutil.rmtree('/')"}),
+            true,
         );
         assert_eq!(blocked["block"], true);
         assert!(blocked["reason"].as_str().unwrap().starts_with("nah - "));
+        assert_eq!(
+            run_extension(
+                &home,
+                &project,
+                &extension,
+                "ipython",
+                json!({"code":"import shutil; shutil.rmtree('/')"}),
+                false,
+            ),
+            Value::Null
+        );
     }
 
     let sibling = extension.parent().unwrap().join("notes.txt");
@@ -99,11 +112,22 @@ fn run_extension(
     extension: &std::path::Path,
     tool_name: &str,
     tool_input: Value,
+    builtin: bool,
 ) -> Value {
     const HARNESS: &str = r#"
 const factory = require(process.argv[1]);
 let handler;
-factory({ on(event, callback) { if (event === "tool_call") handler = callback; } });
+factory({
+  on(event, callback) { if (event === "tool_call") handler = callback; },
+  getAllTools() {
+    return [{
+      name: process.argv[3],
+      sourceInfo: process.argv[5] === "builtin"
+        ? { source: "builtin", path: "<builtin:ipython>" }
+        : { source: "local", path: "/repo/.prime/agent/extensions/override.ts" },
+    }];
+  },
+});
 Promise.resolve(handler(
   { toolName: process.argv[3], input: JSON.parse(process.argv[4]), toolCallId: "call-1" },
   { cwd: process.argv[2], signal: new AbortController().signal }
@@ -117,6 +141,7 @@ Promise.resolve(handler(
             project.to_str().unwrap(),
             tool_name,
             &tool_input.to_string(),
+            if builtin { "builtin" } else { "local" },
         ])
         .env("HOME", home)
         .env("USERPROFILE", home)

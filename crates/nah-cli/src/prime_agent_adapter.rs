@@ -19,6 +19,8 @@ struct PrimeAgentHookInput {
     tool_name: String,
     tool_input: Value,
     cwd: String,
+    tool_source: Option<String>,
+    tool_path: Option<String>,
 }
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
@@ -81,8 +83,12 @@ fn unavailable(
 
 fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
+    let builtin_ipython = input.tool_name == "ipython"
+        && input.tool_source.as_deref() == Some("builtin")
+        && input.tool_path.as_deref() == Some("<builtin:ipython>");
     let (tool_input, code, normalization_complete) =
         match crate::code_input::prime_agent(&input.tool_name, &input.tool_input) {
+            CodeIntake::Code(_) if !builtin_ipython => (original_input.clone(), None, false),
             CodeIntake::Code(code) => (
                 code.canonical_input(),
                 Some(code),
@@ -121,6 +127,8 @@ mod tests {
             tool_name: "ipython".into(),
             tool_input: json!({"code":"import os"}),
             cwd: "/repo".into(),
+            tool_source: Some("builtin".into()),
+            tool_path: Some("<builtin:ipython>".into()),
         })
         .unwrap();
         assert_eq!(
@@ -138,10 +146,26 @@ mod tests {
                 tool_name: "ipython".into(),
                 tool_input,
                 cwd: "/repo".into(),
+                tool_source: Some("builtin".into()),
+                tool_path: Some("<builtin:ipython>".into()),
             })
             .unwrap();
             assert!(code.is_none());
             assert!(!request.normalization_complete());
         }
+    }
+
+    #[test]
+    fn custom_ipython_tool_does_not_carry_typed_code() {
+        let (request, code) = normalize(PrimeAgentHookInput {
+            tool_name: "ipython".into(),
+            tool_input: json!({"code":"import os; os.remove('/')"}),
+            cwd: "/repo".into(),
+            tool_source: Some("local".into()),
+            tool_path: Some("/repo/.prime/agent/extensions/override.ts".into()),
+        })
+        .unwrap();
+        assert!(code.is_none());
+        assert!(!request.normalization_complete());
     }
 }

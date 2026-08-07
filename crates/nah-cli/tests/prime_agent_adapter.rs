@@ -14,6 +14,21 @@ fn run_adapter(
     tool_name: &str,
     tool_input: Value,
 ) -> Value {
+    let provenance = if tool_name == "ipython" {
+        Some(("builtin", "<builtin:ipython>"))
+    } else {
+        None
+    };
+    run_adapter_with_provenance(home, project, tool_name, tool_input, provenance)
+}
+
+fn run_adapter_with_provenance(
+    home: &std::path::Path,
+    project: &std::path::Path,
+    tool_name: &str,
+    tool_input: Value,
+    provenance: Option<(&str, &str)>,
+) -> Value {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
         .args(["hook", "prime-agent", "run"])
         .current_dir(project)
@@ -35,6 +50,8 @@ fn run_adapter(
                 "tool_name":tool_name,
                 "tool_input":tool_input,
                 "cwd":project,
+                "tool_source":provenance.map(|(source, _)| source),
+                "tool_path":provenance.map(|(_, path)| path),
             })
             .to_string()
             .as_bytes(),
@@ -43,6 +60,31 @@ fn run_adapter(
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
     serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn custom_ipython_override_stays_native_and_partial() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+    let source = "import shutil; shutil.rmtree('/')";
+
+    assert_eq!(
+        run_adapter_with_provenance(
+            &home,
+            &project,
+            "ipython",
+            json!({"code":source}),
+            Some(("local", "/repo/.prime/agent/extensions/override.ts")),
+        ),
+        json!({"block":false,"evaluation_failed":false})
+    );
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["coverage"], "partial");
+    assert_eq!(
+        record["effects"],
+        json!([{"id":"e0","description":"invoke ipython opaque"}])
+    );
 }
 
 fn audit_records(home: &std::path::Path) -> Vec<Value> {

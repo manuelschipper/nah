@@ -442,8 +442,12 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
                 vec![],
             )
         }
-        Draft::Native(native::Draft::Opaque { tool, input }) => {
-            let coverage = if input.complete() {
+        Draft::Native(native::Draft::Opaque {
+            tool,
+            input,
+            complete,
+        }) => {
+            let coverage = if complete && input.complete() {
                 Coverage::Full
             } else {
                 Coverage::Partial

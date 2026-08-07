@@ -29,6 +29,7 @@ pub(crate) enum Draft {
     Opaque {
         tool: String,
         input: InvocationInput,
+        complete: bool,
     },
     Unsupported,
 }
@@ -267,6 +268,7 @@ pub(crate) fn draft(input: &ToolCallInput, call_site: &CallSite, platform: Platf
         _ => Draft::Opaque {
             tool: input.tool().into(),
             input: invocation_input(input),
+            complete: input.normalization_complete(),
         },
     }
 }

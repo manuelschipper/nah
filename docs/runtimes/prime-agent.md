@@ -28,13 +28,14 @@ nah installs, inspects, removes, and protects the extension there instead.
 ## Behavior
 
 The extension invokes nah without a shell before each tool executes. Exact
-`ipython` inputs shaped as `{ "code": "..." }` use the shared Python effect
-frontend in a persistent-kernel profile. Imports and bindings established in
-the current cell can prove effects. For example, an explicit `import os`
-followed by deletion of an absolute path reaches the normal filesystem guards.
-Unknown behavior widens coverage and delegates unless a proven effect blocks.
-Malformed or extended input shapes stay opaque rather than being interpreted
-as code.
+built-in `ipython` inputs shaped as `{ "code": "..." }` use the shared Python
+effect frontend in a persistent-kernel profile. The extension verifies Prime
+Agent's effective tool provenance; an extension override named `ipython` stays
+opaque. Imports and bindings established in the current cell can prove effects.
+For example, an explicit `import os` followed by deletion of an absolute path
+reaches the normal filesystem guards. Unknown behavior widens coverage and
+delegates unless a proven effect blocks. Malformed input stays opaque rather
+than being interpreted as code.
 
 Prime Agent can retain Python bindings and change the kernel working directory
 between cells, but its tool-call event does not expose that state. Bare names
@@ -73,6 +74,10 @@ A handler error natively blocks the tool, but the default nah wiring catches
 adapter failure, delegates, and requests a UI warning when Prime Agent exposes
 one. Disabled or unloaded extensions, trusted extensions that act directly,
 and changes invisible to the tool-call event remain outside nah.
+
+Prime Agent's programmatic `baseToolsOverride` can label host-supplied tools as
+built-ins. SDK runtimes using that override are outside this adapter's admitted
+CLI contract.
 
 This integration is best effort: runtime APIs and hook behavior can change.
 After upgrades, verify the latest official upstream
