@@ -2248,6 +2248,7 @@ impl Interpreter<'_> {
         };
         if self.call_stack.contains(&function.name) {
             self.complete = false;
+            self.pending_control = Some(Control::Diverge);
             return Value::Unknown;
         }
         let Some(parameters) = function.parameters.as_deref() else {

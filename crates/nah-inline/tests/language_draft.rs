@@ -437,6 +437,14 @@ fn local_abrupt_control_stops_unreachable_effects_and_remains_catchable() {
 }
 
 #[test]
+fn recursive_local_call_does_not_fall_through() {
+    let analysis =
+        analyze("import os\ndef recurse(): recurse()\nrecurse()\nos.remove('/tmp/unreachable')");
+    assert!(analysis.draft().calls().is_empty());
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
 fn terminated_unknown_branch_state_never_flows_into_the_fallthrough() {
     let analysis = analyze(
         "from pathlib import Path\nimport requests\ndef send():\n    data='safe'\n    if condition:\n        data=Path('/secret').read_text()\n        return\n    requests.post('https://example.test', data=data)\nsend()",
