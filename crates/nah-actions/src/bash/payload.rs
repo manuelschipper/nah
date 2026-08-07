@@ -186,24 +186,27 @@ impl Lowerer {
     }
 
     pub(super) fn analyze_inline_stage(&mut self, execution: VisibleExecutionState) {
-        let Some((program, code)) = self
-            .stages
-            .get(execution.stage)
-            .and_then(|stage| match &stage.invocation {
-                InvocationDraft::CodeExecution {
-                    program,
-                    code: Some(code),
-                    ..
-                } => Some((program.clone(), code.clone())),
-                InvocationDraft::Opaque { .. }
-                | InvocationDraft::Known { .. }
-                | InvocationDraft::Native { .. }
-                | InvocationDraft::CodeExecution { code: None, .. } => None,
-            })
+        let Some((program, code, argv)) =
+            self.stages
+                .get(execution.stage)
+                .and_then(|stage| match &stage.invocation {
+                    InvocationDraft::CodeExecution {
+                        program,
+                        code: Some(code),
+                        argv,
+                        ..
+                    } => Some((program.clone(), code.clone(), argv.clone())),
+                    InvocationDraft::Opaque { .. }
+                    | InvocationDraft::Known { .. }
+                    | InvocationDraft::Native { .. }
+                    | InvocationDraft::CodeExecution { code: None, .. } => None,
+                })
         else {
             return;
         };
-        self.analyze_language_stage(execution, &program, &code, true);
+        let analysis_program =
+            crate::bash_execution::inline_language_program(&program, argv.as_deref());
+        self.analyze_language_stage(execution, &analysis_program, &program, &code, true);
     }
 
     pub(super) fn analyze_direct_inline_stage(
@@ -212,13 +215,14 @@ impl Lowerer {
         program: &str,
         code: &str,
     ) {
-        self.analyze_language_stage(execution, program, code, false);
+        self.analyze_language_stage(execution, program, program, code, false);
     }
 
     fn analyze_language_stage(
         &mut self,
         execution: VisibleExecutionState,
-        program: &str,
+        analysis_program: &str,
+        evidence_program: &str,
         code: &str,
         cwd_authoritative: bool,
     ) {
@@ -226,7 +230,7 @@ impl Lowerer {
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             nah_inline::analyze_with_language_effects(
                 nah_inline::InlineInput {
-                    program,
+                    program: analysis_program,
                     code,
                     home: &self.home,
                     platform: self.platform,
@@ -269,7 +273,7 @@ impl Lowerer {
         .append(
             LanguageExecution {
                 stage: execution.stage,
-                program,
+                program: evidence_program,
                 cwd,
                 pwd,
             },

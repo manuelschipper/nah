@@ -4,7 +4,9 @@
 
 - **Exact code launcher intake** — Node, Deno, Bun, tsx, and IPython now
   classify only verified inline, stdin, and file forms. Syntax-check modes,
-  invisible package scripts, remote modules, and unknown flags stay opaque.
+  invisible package scripts, remote modules, and unknown flags stay opaque;
+  exact Deno `--ext` values select the matching JavaScript, TypeScript, or TSX
+  frontend.
 - **Python effect frontend** — inline Python now uses a maintained grammar,
   owned HIR, and bounded interpreter for constants, f-strings, aliases,
   branches, finite loops, simple functions, decoded values, and exact child

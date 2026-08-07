@@ -179,6 +179,26 @@ fn exact_ecmascript_and_ipython_launchers_share_one_source_contract() {
 }
 
 #[test]
+fn deno_eval_uses_the_exact_launcher_dialect() {
+    for (command, expected) in [
+        ("deno eval 'const value: number = 1'", Coverage::Full),
+        (
+            "deno eval --ext=ts 'const value: number = 1'",
+            Coverage::Full,
+        ),
+        (
+            "deno eval --ext=js 'const value: number = 1'",
+            Coverage::Partial,
+        ),
+        ("deno eval --ext=js 'const value = 1'", Coverage::Full),
+    ] {
+        let plan = bash_plan(command);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), expected, "{command}");
+    }
+}
+
+#[test]
 fn unverified_launcher_modes_stay_opaque() {
     for command in [
         "node '-e1+1'",

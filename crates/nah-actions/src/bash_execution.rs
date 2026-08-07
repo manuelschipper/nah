@@ -178,6 +178,47 @@ pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<Execut
     })
 }
 
+pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) -> String {
+    if normalized_execution_program(program) != "deno" {
+        return program.to_owned();
+    }
+    let Some(argv) = argv else {
+        return program.to_owned();
+    };
+    let Some(command) = argv.get(1).map(String::as_str) else {
+        return program.to_owned();
+    };
+    if !matches!(command, "eval" | "run") {
+        return program.to_owned();
+    }
+    let mut extension = "ts";
+    let mut index = 2;
+    while let Some(argument) = argv.get(index).map(String::as_str) {
+        match argument {
+            "--check" | "--no-check" | "--quiet" => index += 1,
+            "--ext" => {
+                let Some(value) = argv.get(index + 1) else {
+                    return program.to_owned();
+                };
+                extension = value;
+                index += 2;
+            }
+            _ if argument.starts_with("--ext=") => {
+                extension = &argument["--ext=".len()..];
+                index += 1;
+            }
+            _ if argument.starts_with('-') && argument != "-" => return program.to_owned(),
+            _ => break,
+        }
+    }
+    match extension {
+        "js" | "mjs" | "cjs" => "deno-js".to_owned(),
+        "jsx" | "tsx" => "deno-tsx".to_owned(),
+        "ts" | "mts" | "cts" => "deno-typescript".to_owned(),
+        _ => program.to_owned(),
+    }
+}
+
 fn inline_execution(
     arguments: &[Word],
     index: usize,
@@ -1046,4 +1087,46 @@ fn decode(program: &str, arguments: &[Word]) -> Option<(bool, bool)> {
         _ => true,
     };
     Some((operands.is_empty(), stdout_flows))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inline_language_program;
+
+    #[test]
+    fn exact_deno_argv_selects_the_source_dialect() {
+        for (argv, expected) in [
+            (&["deno", "eval", "code"][..], "deno-typescript"),
+            (&["deno", "eval", "--ext=js", "code"][..], "deno-js"),
+            (&["deno", "eval", "--ext", "tsx", "code"][..], "deno-tsx"),
+            (&["deno", "run", "--ext=mts", "-"][..], "deno-typescript"),
+        ] {
+            let argv = argv
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                inline_language_program("deno", Some(&argv)),
+                expected,
+                "{argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unproven_deno_dialect_stays_ambiguous() {
+        assert_eq!(inline_language_program("deno", None), "deno");
+        assert_eq!(
+            inline_language_program(
+                "deno",
+                Some(&[
+                    "deno".into(),
+                    "eval".into(),
+                    "--future".into(),
+                    "code".into()
+                ])
+            ),
+            "deno"
+        );
+    }
 }
