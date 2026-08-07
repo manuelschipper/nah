@@ -2070,12 +2070,14 @@ impl Interpreter<'_> {
                     return Value::Unknown;
                 }
                 let no_follow = match function {
-                    KnownFunction::OsChmod => argument(&arguments, 3, "follow_symlinks")
-                        .and_then(exact_bool)
-                        == Some(false),
-                    KnownFunction::OsChown => argument(&arguments, 4, "follow_symlinks")
-                        .and_then(exact_bool)
-                        == Some(false),
+                    KnownFunction::OsChmod => {
+                        argument(&arguments, 3, "follow_symlinks").and_then(exact_bool)
+                            == Some(false)
+                    }
+                    KnownFunction::OsChown => {
+                        argument(&arguments, 4, "follow_symlinks").and_then(exact_bool)
+                            == Some(false)
+                    }
                     KnownFunction::OsLchown => true,
                     _ => unreachable!(),
                 };
@@ -2180,12 +2182,7 @@ impl Interpreter<'_> {
                     Some("dst_dir_fd"),
                     Some("src_dir_fd"),
                 );
-                self.emit_filesystem_call(
-                    "os.link",
-                    &arguments,
-                    state,
-                    vec![source, destination],
-                );
+                self.emit_filesystem_call("os.link", &arguments, state, vec![source, destination]);
                 Value::None
             }
             KnownFunction::OsSymlink => {
@@ -2572,6 +2569,10 @@ impl Interpreter<'_> {
                 if !valid {
                     return Value::Unknown;
                 }
+                let no_follow = method == "lchmod"
+                    || method == "chmod"
+                        && argument(&arguments, 1, "follow_symlinks").and_then(exact_bool)
+                            == Some(false);
                 self.emit_filesystem_call(
                     &format!("pathlib.path.{method}"),
                     &arguments,
@@ -2587,7 +2588,7 @@ impl Interpreter<'_> {
                         )
                         .metadata_if(matches!(method, "touch" | "mkdir" | "chmod" | "lchmod"))
                         .protects_descendants_if(matches!(method, "chmod" | "lchmod"))
-                        .without_final_symlink_follow_if(method == "lchmod"),
+                        .without_final_symlink_follow_if(no_follow),
                     ],
                 );
                 Value::None

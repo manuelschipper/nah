@@ -86,18 +86,18 @@ fn direct_file_call_uses_the_frozen_native_contract() {
 
     let analysis = analyze("import os\nos.link('src', '/dst', src_dir_fd=3)");
     assert_eq!(
-        analysis.draft().calls()[0].filesystems()[0].requested(),
+        analysis.draft().calls()[0].filesystems()[1].requested(),
         Some("/dst")
     );
     assert_eq!(
-        analysis.draft().calls()[0].filesystems()[0].identity_path(),
+        analysis.draft().calls()[0].filesystems()[1].identity_path(),
         None
     );
     assert!(!analysis.draft().complete());
 
     let analysis = analyze("import os\nos.link('/src', '/dst', src_dir_fd=3)");
     assert_eq!(
-        analysis.draft().calls()[0].filesystems()[0].identity_path(),
+        analysis.draft().calls()[0].filesystems()[1].identity_path(),
         Some("/src")
     );
     assert!(analysis.draft().complete());
@@ -472,9 +472,40 @@ fn rename_and_link_calls_preserve_identity() {
     assert_eq!(calls[1].filesystems()[1].identity_path(), Some("/a"));
     assert!(calls[1].filesystems()[1].identity_requires_missing_target());
     assert!(calls[1].filesystems()[1].identity_observed());
+    assert!(calls[1].filesystems()[1].identity_follows_final_symlink());
     assert_eq!(calls[2].filesystems()[1].identity_path(), Some("/a"));
     assert_eq!(calls[3].filesystems()[1].identity_path(), Some("/a"));
     assert!(analysis.draft().complete());
+}
+
+#[test]
+fn namespace_and_no_follow_calls_preserve_final_symlinks() {
+    let analysis = analyze(
+        "import os\nfrom pathlib import Path\nos.rename('/a', '/b')\nos.symlink('/a', '/b')\nos.lchown('/a', 0, 0)\nos.chmod('/a', 0o600, follow_symlinks=False)\nos.chown('/a', 0, 0, follow_symlinks=False)\nPath('/a').lchmod(0o600)\nPath('/a').chmod(0o600, follow_symlinks=False)\nPath('/a').rename('/b')\nPath('/a').symlink_to('/b')",
+    );
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 9);
+    for filesystem in [
+        &calls[0].filesystems()[1],
+        &calls[1].filesystems()[0],
+        &calls[2].filesystems()[0],
+        &calls[3].filesystems()[0],
+        &calls[4].filesystems()[0],
+        &calls[5].filesystems()[0],
+        &calls[6].filesystems()[0],
+        &calls[7].filesystems()[1],
+        &calls[8].filesystems()[0],
+    ] {
+        assert!(!filesystem.follows_final_symlink());
+    }
+
+    let analysis = analyze("import os\nos.chmod('/a', 0o600)");
+    assert!(analysis.draft().calls()[0].filesystems()[0].follows_final_symlink());
+
+    let analysis = analyze("import os\nos.link('/a', '/b', follow_symlinks=False)");
+    let filesystems = analysis.draft().calls()[0].filesystems();
+    assert!(!filesystems[0].follows_final_symlink());
+    assert!(!filesystems[1].identity_follows_final_symlink());
 }
 
 #[test]
