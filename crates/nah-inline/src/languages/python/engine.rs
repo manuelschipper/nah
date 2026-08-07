@@ -1,0 +1,2192 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use nah_proto::ctx::Platform;
+
+use crate::{
+    Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, NestedExecution,
+    ProtectionInput,
+};
+
+use super::parser::{HirField, HirKind, HirNode};
+
+const MAX_WORK: usize = 262_144;
+const MAX_STATEMENTS: usize = 4_096;
+const MAX_CALL_DEPTH: usize = 16;
+const MAX_LOOP_ITERATIONS: usize = 64;
+const MAX_COLLECTION_ITEMS: usize = 256;
+const MAX_CELLS: usize = 1_024;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Module {
+    Base64,
+    Builtins,
+    Io,
+    Os,
+    Environment,
+    OsPath,
+    Pathlib,
+    Requests,
+    Httpx,
+    Shutil,
+    Subprocess,
+    UrllibRequest,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KnownFunction {
+    Base64Decode,
+    Compile,
+    Eval,
+    Exec,
+    Getattr,
+    Import,
+    IoFile,
+    Open,
+    OsAbspath,
+    OsChmod,
+    OsChown,
+    OsExec(StringKind),
+    OsGetenv,
+    OsLink,
+    OsMkdir,
+    OsMakedirs,
+    OsOpen,
+    OsPopen,
+    OsRealpath,
+    OsRemove,
+    OsRemovedirs,
+    OsRename,
+    OsReplace,
+    OsRmdir,
+    OsSymlink,
+    OsSystem,
+    OsTruncate,
+    Path,
+    PathHome,
+    PathJoin,
+    Request,
+    ShutilCopy(CopyKind),
+    ShutilMove,
+    ShutilRmtree,
+    ShutilWhich,
+    Subprocess(SubprocessKind),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StringKind {
+    Execl,
+    Execlp,
+    Execle,
+    Execv,
+    Execvp,
+    Execvpe,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SubprocessKind {
+    Run,
+    Call,
+    Popen,
+    CheckCall,
+    CheckOutput,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CopyKind {
+    Copy,
+    Copy2,
+    Copyfile,
+    Copytree,
+    Copymode,
+    Copystat,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Cell {
+    Sequence(Vec<Value>),
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Value {
+    Unknown,
+    None,
+    Bool(bool),
+    Int(i64),
+    String(String),
+    ImplicitString(String),
+    Bytes(Vec<u8>),
+    Cell(usize),
+    Module(Module),
+    Known(KnownFunction),
+    LocalFunction(usize),
+    Path(String),
+    PathMethod { path: String, method: String },
+    CellMethod { cell: usize, method: String },
+    StringMethod { value: String, method: String },
+    BytesMethod { value: Vec<u8>, method: String },
+    Decoded(Box<Value>),
+    DecodedMethod { value: Box<Value>, method: String },
+    Compiled(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Parameter {
+    name: String,
+    default: Option<Value>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LocalFunction {
+    name: String,
+    parameters: Vec<Parameter>,
+    body: HirNode,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct State {
+    bindings: BTreeMap<String, Value>,
+    cells: Vec<Cell>,
+    functions: Vec<LocalFunction>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        let bindings = [
+            ("eval", Value::Known(KnownFunction::Eval)),
+            ("exec", Value::Known(KnownFunction::Exec)),
+            ("compile", Value::Known(KnownFunction::Compile)),
+            ("open", Value::Known(KnownFunction::Open)),
+            ("getattr", Value::Known(KnownFunction::Getattr)),
+            ("__import__", Value::Known(KnownFunction::Import)),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+        Self {
+            bindings,
+            cells: Vec::new(),
+            functions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Budget {
+    work: usize,
+    statements: usize,
+    refusal: Option<InlineRefusal>,
+}
+
+impl Budget {
+    fn spend(&mut self) -> bool {
+        self.work += 1;
+        if self.work <= MAX_WORK {
+            true
+        } else {
+            self.refusal = Some(InlineRefusal::WorkLimit);
+            false
+        }
+    }
+
+    fn enter_statement(&mut self) -> bool {
+        self.statements += 1;
+        if self.statements <= MAX_STATEMENTS {
+            true
+        } else {
+            self.refusal = Some(InlineRefusal::WorkLimit);
+            false
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Arguments {
+    positional: Vec<Value>,
+    keywords: Vec<(String, Value)>,
+    complete: bool,
+}
+
+impl Default for Arguments {
+    fn default() -> Self {
+        Self {
+            positional: Vec::new(),
+            keywords: Vec::new(),
+            complete: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Control {
+    Next,
+    Return(Value),
+    Raise,
+    Break,
+    Continue,
+}
+
+struct Interpreter<'a> {
+    program: &'a str,
+    source: String,
+    input: InlineInput<'a>,
+    report: InlineReport,
+    budget: Budget,
+    complete: bool,
+    call_stack: Vec<String>,
+}
+
+pub(super) fn analyze(
+    program: &str,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> InlineReport {
+    let module = match super::parser::lower(input.code, program) {
+        Ok(module) if !module.opaque() => module,
+        Ok(_) => return InlineReport::default(),
+        Err(refusal) => return InlineReport::refused(refusal),
+    };
+    let mut interpreter = Interpreter {
+        program,
+        source: input.code.to_owned(),
+        input: *input,
+        report: InlineReport::default(),
+        budget: Budget::default(),
+        complete: true,
+        call_stack: Vec::with_capacity(depth),
+    };
+    let mut state = State::default();
+    interpreter.exec_block(module.root(), &mut state, depth);
+    if let Some(refusal) = interpreter.budget.refusal {
+        interpreter.report.refuse(refusal);
+    }
+    super::super::common::with_protection(interpreter.report, program, input, protection)
+}
+
+impl Interpreter<'_> {
+    fn exec_block(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        for child in node.children() {
+            if matches!(child.kind(), HirKind::Token | HirKind::Comment) {
+                continue;
+            }
+            if !self.budget.enter_statement() || !self.budget.spend() {
+                break;
+            }
+            let control = self.exec_statement(child, state, depth);
+            if control != Control::Next {
+                return control;
+            }
+        }
+        Control::Next
+    }
+
+    fn exec_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        match node.kind() {
+            HirKind::Module | HirKind::Block => self.exec_block(node, state, depth),
+            HirKind::Import => {
+                self.import(node, state);
+                Control::Next
+            }
+            HirKind::ImportFrom => {
+                self.import_from(node, state);
+                Control::Next
+            }
+            HirKind::ExpressionStatement => {
+                if let Some(expression) = named_children(node).next() {
+                    if expression.kind() == HirKind::Assignment {
+                        self.assignment(expression, state, depth);
+                    } else if expression.kind() == HirKind::AugmentedAssignment {
+                        self.augmented_assignment(expression, state, depth);
+                    } else {
+                        self.eval(expression, state, depth);
+                    }
+                }
+                Control::Next
+            }
+            HirKind::Assignment => {
+                self.assignment(node, state, depth);
+                Control::Next
+            }
+            HirKind::AugmentedAssignment => {
+                self.augmented_assignment(node, state, depth);
+                Control::Next
+            }
+            HirKind::If => self.if_statement(node, state, depth),
+            HirKind::For => self.for_statement(node, state, depth),
+            HirKind::While => self.while_statement(node, state, depth),
+            HirKind::Function => {
+                self.define_function(node, state, depth, false);
+                Control::Next
+            }
+            HirKind::DecoratedDefinition => {
+                for decorator in node
+                    .children()
+                    .iter()
+                    .filter(|child| child.kind() == HirKind::Decorator)
+                {
+                    for expression in named_children(decorator) {
+                        self.eval(expression, state, depth);
+                    }
+                }
+                if let Some(definition) = node.child(HirField::Definition) {
+                    if definition.kind() == HirKind::Function {
+                        self.define_function(definition, state, depth, true);
+                    } else {
+                        self.exec_class(definition, state, depth);
+                    }
+                }
+                Control::Next
+            }
+            HirKind::Class => {
+                self.exec_class(node, state, depth);
+                Control::Next
+            }
+            HirKind::Return => {
+                let value = named_children(node)
+                    .next()
+                    .map_or(Value::None, |value| self.eval(value, state, depth));
+                Control::Return(value)
+            }
+            HirKind::Raise => {
+                for expression in named_children(node) {
+                    self.eval(expression, state, depth);
+                }
+                Control::Raise
+            }
+            HirKind::Break => Control::Break,
+            HirKind::Continue => Control::Continue,
+            HirKind::With => self.with_statement(node, state, depth),
+            HirKind::Try => self.try_statement(node, state, depth),
+            HirKind::Exec => {
+                if let Some(source) = named_children(node).next() {
+                    let value = self.eval(source, state, depth);
+                    self.dynamic_execution(value, state, depth);
+                }
+                Control::Next
+            }
+            HirKind::Print => {
+                for expression in named_children(node) {
+                    self.eval(expression, state, depth);
+                }
+                Control::Next
+            }
+            HirKind::Pass | HirKind::Comment | HirKind::Token => Control::Next,
+            HirKind::Unsupported | HirKind::Error => {
+                self.complete = false;
+                self.eval_children(node, state, depth);
+                Control::Next
+            }
+            _ => {
+                self.eval(node, state, depth);
+                Control::Next
+            }
+        }
+    }
+
+    fn eval(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        if !self.budget.spend() {
+            return Value::Unknown;
+        }
+        match node.kind() {
+            HirKind::Identifier => state
+                .bindings
+                .get(self.text(node))
+                .cloned()
+                .unwrap_or(Value::Unknown),
+            HirKind::String => self.string(node, state, depth),
+            HirKind::ConcatenatedString => self.concatenated_string(node, state, depth),
+            HirKind::Integer => parse_integer(self.text(node)).map_or(Value::Unknown, Value::Int),
+            HirKind::Float => Value::Unknown,
+            HirKind::True => Value::Bool(true),
+            HirKind::False => Value::Bool(false),
+            HirKind::None => Value::None,
+            HirKind::List | HirKind::Tuple | HirKind::Set => self.collection(node, state, depth),
+            HirKind::Dictionary => {
+                for child in named_children(node) {
+                    if child.kind() == HirKind::Pair {
+                        if let Some(key) = child.child(HirField::Key) {
+                            self.eval(key, state, depth);
+                        }
+                        if let Some(value) = child.child(HirField::Value) {
+                            self.eval(value, state, depth);
+                        }
+                    } else {
+                        self.eval(child, state, depth);
+                    }
+                }
+                Value::Unknown
+            }
+            HirKind::ParenthesizedExpression => named_children(node)
+                .next()
+                .map_or(Value::None, |child| self.eval(child, state, depth)),
+            HirKind::Attribute => self.attribute(node, state, depth),
+            HirKind::Call => self.call(node, state, depth),
+            HirKind::BinaryOperator => self.binary(node, state, depth),
+            HirKind::BooleanOperator => self.boolean(node, state, depth),
+            HirKind::ComparisonOperator => self.comparison(node, state, depth),
+            HirKind::NotOperator => node
+                .child(HirField::Argument)
+                .or_else(|| named_children(node).next())
+                .and_then(|value| truthy(&self.eval(value, state, depth)))
+                .map_or(Value::Unknown, |value| Value::Bool(!value)),
+            HirKind::UnaryOperator => self.unary(node, state, depth),
+            HirKind::ConditionalExpression => self.conditional_expression(node, state, depth),
+            HirKind::Subscript => self.subscript(node, state, depth),
+            HirKind::Lambda => Value::Unknown,
+            HirKind::Generator => Value::Unknown,
+            HirKind::Assignment => {
+                self.assignment(node, state, depth);
+                node.child(HirField::Left)
+                    .and_then(|left| state.bindings.get(self.text(left)))
+                    .cloned()
+                    .unwrap_or(Value::Unknown)
+            }
+            HirKind::Unsupported | HirKind::Error => {
+                self.complete = false;
+                self.eval_children(node, state, depth);
+                Value::Unknown
+            }
+            _ => {
+                self.eval_children(node, state, depth);
+                Value::Unknown
+            }
+        }
+    }
+
+    fn eval_children(&mut self, node: &HirNode, state: &mut State, depth: usize) {
+        for child in named_children(node) {
+            if !matches!(
+                child.kind(),
+                HirKind::Function | HirKind::Class | HirKind::Lambda
+            ) {
+                self.eval(child, state, depth);
+            }
+        }
+    }
+
+    fn assignment(&mut self, node: &HirNode, state: &mut State, depth: usize) {
+        let Some(left) = node.child(HirField::Left) else {
+            self.complete = false;
+            return;
+        };
+        let value = node
+            .child(HirField::Right)
+            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        self.assign(left, value, state);
+    }
+
+    fn augmented_assignment(&mut self, node: &HirNode, state: &mut State, depth: usize) {
+        let Some(left) = node.child(HirField::Left) else {
+            return;
+        };
+        let current = self.eval(left, state, depth);
+        let right = node
+            .child(HirField::Right)
+            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        let operator = node
+            .child(HirField::Operator)
+            .map(|operator| self.text(operator))
+            .unwrap_or_default();
+        self.assign(left, binary_value(current, right, operator), state);
+    }
+
+    fn assign(&mut self, target: &HirNode, value: Value, state: &mut State) {
+        match target.kind() {
+            HirKind::Identifier => {
+                state.bindings.insert(self.text(target).to_owned(), value);
+            }
+            HirKind::Tuple | HirKind::List => {
+                let values = sequence_values(&value, state).map(Vec::from);
+                for (index, child) in named_children(target).enumerate() {
+                    let value = values
+                        .as_ref()
+                        .and_then(|values| values.get(index))
+                        .cloned()
+                        .unwrap_or(Value::Unknown);
+                    self.assign(child, value, state);
+                }
+            }
+            HirKind::Attribute => {
+                if let Some(object) = target.child(HirField::Object)
+                    && object.kind() == HirKind::Identifier
+                {
+                    state
+                        .bindings
+                        .insert(self.text(object).to_owned(), Value::Unknown);
+                }
+            }
+            _ => self.complete = false,
+        }
+    }
+
+    fn import(&mut self, node: &HirNode, state: &mut State) {
+        for imported in named_children(node) {
+            let (name, alias) = import_name(imported, &self.source);
+            let binding =
+                alias.unwrap_or_else(|| name.split('.').next().unwrap_or(name.as_str()).to_owned());
+            let value = module_value(&name).unwrap_or(Value::Unknown);
+            state.bindings.insert(binding, value);
+        }
+    }
+
+    fn import_from(&mut self, node: &HirNode, state: &mut State) {
+        let module = node
+            .child(HirField::ModuleName)
+            .map(|module| self.text(module).trim_matches('.'))
+            .unwrap_or_default();
+        for imported in node.children().iter().filter(|child| {
+            matches!(child.kind(), HirKind::AliasedImport | HirKind::DottedName)
+                && child.field() != Some(HirField::ModuleName)
+        }) {
+            let (name, alias) = import_name(imported, &self.source);
+            let binding = alias.unwrap_or_else(|| name.clone());
+            let value = imported_value(module, &name).unwrap_or(Value::Unknown);
+            state.bindings.insert(binding, value);
+        }
+    }
+
+    fn define_function(
+        &mut self,
+        node: &HirNode,
+        state: &mut State,
+        depth: usize,
+        decorated: bool,
+    ) {
+        let Some(name_node) = node.child(HirField::Name) else {
+            return;
+        };
+        let name = self.text(name_node).to_owned();
+        let parameters = node
+            .child(HirField::Parameters)
+            .map(|parameters| self.parameters(parameters, state, depth))
+            .unwrap_or_default();
+        if let Some(annotation) = node.child(HirField::ReturnType) {
+            self.eval(annotation, state, depth);
+        }
+        let Some(body) = node.child(HirField::Body) else {
+            state.bindings.insert(name, Value::Unknown);
+            return;
+        };
+        if decorated
+            || self.text(node).trim_start().starts_with("async ")
+            || contains_kind(body, HirKind::Unsupported, self.source.as_str(), "yield")
+        {
+            state.bindings.insert(name, Value::Unknown);
+            return;
+        }
+        let function = state.functions.len();
+        state.functions.push(LocalFunction {
+            name: name.clone(),
+            parameters,
+            body: body.clone(),
+        });
+        state.bindings.insert(name, Value::LocalFunction(function));
+    }
+
+    fn parameters(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Vec<Parameter> {
+        let mut parameters = Vec::new();
+        for child in named_children(node) {
+            match child.kind() {
+                HirKind::Identifier => parameters.push(Parameter {
+                    name: self.text(child).to_owned(),
+                    default: None,
+                }),
+                HirKind::DefaultParameter | HirKind::TypedDefaultParameter => {
+                    let Some(name) = child.child(HirField::Name) else {
+                        self.complete = false;
+                        continue;
+                    };
+                    if let Some(annotation) = child.child(HirField::Type) {
+                        self.eval(annotation, state, depth);
+                    }
+                    let default = child
+                        .child(HirField::Value)
+                        .map(|value| self.eval(value, state, depth));
+                    parameters.push(Parameter {
+                        name: self.text(name).to_owned(),
+                        default,
+                    });
+                }
+                HirKind::TypedParameter => {
+                    if let Some(name) = child.child(HirField::Name) {
+                        parameters.push(Parameter {
+                            name: self.text(name).to_owned(),
+                            default: None,
+                        });
+                    }
+                    if let Some(annotation) = child.child(HirField::Type) {
+                        self.eval(annotation, state, depth);
+                    }
+                }
+                _ => self.complete = false,
+            }
+        }
+        parameters
+    }
+
+    fn exec_class(&mut self, node: &HirNode, state: &mut State, depth: usize) {
+        for child in node.children() {
+            if matches!(child.field(), Some(HirField::Name | HirField::Body)) {
+                continue;
+            }
+            if child.kind() != HirKind::Token {
+                self.eval(child, state, depth);
+            }
+        }
+        if let Some(name) = node.child(HirField::Name) {
+            state
+                .bindings
+                .insert(self.text(name).to_owned(), Value::Unknown);
+        }
+    }
+
+    fn if_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        let condition = node
+            .child(HirField::Condition)
+            .map_or(Value::Unknown, |condition| {
+                self.eval(condition, state, depth)
+            });
+        let consequence = node.child(HirField::Consequence);
+        let alternatives = node
+            .children()
+            .iter()
+            .filter(|child| child.field() == Some(HirField::Alternative))
+            .collect::<Vec<_>>();
+        match truthy(&condition) {
+            Some(true) => {
+                consequence.map_or(Control::Next, |body| self.exec_block(body, state, depth))
+            }
+            Some(false) => self.exec_alternatives(&alternatives, state, depth),
+            None => {
+                self.complete = false;
+                let mut yes = state.clone();
+                let mut no = state.clone();
+                let yes_control = consequence
+                    .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
+                let no_control = self.exec_alternatives(&alternatives, &mut no, depth);
+                *state = join_states(yes, no);
+                if yes_control == no_control {
+                    yes_control
+                } else {
+                    Control::Next
+                }
+            }
+        }
+    }
+
+    fn exec_alternatives(
+        &mut self,
+        alternatives: &[&HirNode],
+        state: &mut State,
+        depth: usize,
+    ) -> Control {
+        let Some((alternative, rest)) = alternatives.split_first() else {
+            return Control::Next;
+        };
+        match alternative.kind() {
+            HirKind::Else => alternative
+                .child(HirField::Body)
+                .map_or(Control::Next, |body| self.exec_block(body, state, depth)),
+            HirKind::Elif => {
+                let condition = alternative
+                    .child(HirField::Condition)
+                    .map_or(Value::Unknown, |condition| {
+                        self.eval(condition, state, depth)
+                    });
+                match truthy(&condition) {
+                    Some(true) => alternative
+                        .child(HirField::Consequence)
+                        .map_or(Control::Next, |body| self.exec_block(body, state, depth)),
+                    Some(false) => self.exec_alternatives(rest, state, depth),
+                    None => {
+                        self.complete = false;
+                        let mut yes = state.clone();
+                        let mut no = state.clone();
+                        let yes_control = alternative
+                            .child(HirField::Consequence)
+                            .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
+                        let no_control = self.exec_alternatives(rest, &mut no, depth);
+                        *state = join_states(yes, no);
+                        if yes_control == no_control {
+                            yes_control
+                        } else {
+                            Control::Next
+                        }
+                    }
+                }
+            }
+            _ => Control::Next,
+        }
+    }
+
+    fn for_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        let Some(target) = node.child(HirField::Left) else {
+            return Control::Next;
+        };
+        let iterable = node
+            .child(HirField::Right)
+            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        let Some(body) = node.child(HirField::Body) else {
+            return Control::Next;
+        };
+        let values = sequence_values(&iterable, state).map(Vec::from);
+        let Some(values) = values else {
+            self.complete = false;
+            let before = state.clone();
+            self.assign(target, Value::Unknown, state);
+            let _ = self.exec_block(body, state, depth);
+            *state = join_states(before, state.clone());
+            return Control::Next;
+        };
+        for value in values.into_iter().take(MAX_LOOP_ITERATIONS) {
+            self.assign(target, value, state);
+            match self.exec_block(body, state, depth) {
+                Control::Next | Control::Continue => {}
+                Control::Break => break,
+                control => return control,
+            }
+        }
+        Control::Next
+    }
+
+    fn while_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        let condition = node
+            .child(HirField::Condition)
+            .map_or(Value::Unknown, |condition| {
+                self.eval(condition, state, depth)
+            });
+        if truthy(&condition) == Some(false) {
+            return Control::Next;
+        }
+        self.complete = false;
+        if let Some(body) = node.child(HirField::Body) {
+            let before = state.clone();
+            let control = self.exec_block(body, state, depth);
+            *state = join_states(before, state.clone());
+            if !matches!(control, Control::Next | Control::Break | Control::Continue) {
+                return control;
+            }
+        }
+        Control::Next
+    }
+
+    fn with_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        for child in node.children() {
+            if child.field() == Some(HirField::Body) {
+                continue;
+            }
+            if child.kind() != HirKind::Token {
+                self.eval(child, state, depth);
+            }
+        }
+        node.child(HirField::Body)
+            .map_or(Control::Next, |body| self.exec_block(body, state, depth))
+    }
+
+    fn try_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        self.complete = false;
+        let mut branches = Vec::new();
+        if let Some(body) = node.child(HirField::Body) {
+            let mut branch = state.clone();
+            let _ = self.exec_block(body, &mut branch, depth);
+            branches.push(branch);
+        }
+        for clause in node.children().iter().filter(|child| {
+            matches!(
+                child.kind(),
+                HirKind::Except | HirKind::Else | HirKind::Finally
+            )
+        }) {
+            let mut branch = state.clone();
+            let body = clause
+                .child(HirField::Body)
+                .or_else(|| named_children(clause).find(|child| child.kind() == HirKind::Block));
+            if let Some(body) = body {
+                let _ = self.exec_block(body, &mut branch, depth);
+            }
+            branches.push(branch);
+        }
+        if let Some(joined) = branches.into_iter().reduce(join_states) {
+            *state = joined;
+        }
+        Control::Next
+    }
+
+    fn collection(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let mut values = Vec::new();
+        for child in named_children(node) {
+            if values.len() >= MAX_COLLECTION_ITEMS {
+                self.complete = false;
+                return Value::Unknown;
+            }
+            if child.kind() == HirKind::ListSplat {
+                let spread = named_children(child)
+                    .next()
+                    .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+                if let Some(items) = sequence_values(&spread, state) {
+                    values.extend_from_slice(items);
+                } else {
+                    self.complete = false;
+                    return Value::Unknown;
+                }
+            } else {
+                values.push(self.eval(child, state, depth));
+            }
+        }
+        if state.cells.len() >= MAX_CELLS {
+            self.budget.refusal = Some(InlineRefusal::WorkLimit);
+            return Value::Unknown;
+        }
+        let cell = state.cells.len();
+        state.cells.push(Cell::Sequence(values));
+        Value::Cell(cell)
+    }
+
+    fn string(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let start = node
+            .children()
+            .iter()
+            .find(|child| child.kind() == HirKind::StringStart)
+            .map(|child| self.text(child))
+            .unwrap_or_default();
+        let prefix_end = start.find(['\'', '"']).unwrap_or(start.len());
+        let prefix = start[..prefix_end].to_ascii_lowercase();
+        let raw = prefix.contains('r');
+        let bytes = prefix.contains('b');
+        let formatted = prefix.contains('f');
+        let mut value = String::new();
+        for child in node.children() {
+            match child.kind() {
+                HirKind::StringContent => {
+                    let Some(content) = decode_string_fragment(self.text(child), raw) else {
+                        return Value::Unknown;
+                    };
+                    value.push_str(&content);
+                }
+                HirKind::Interpolation if formatted => {
+                    let Some(expression) = child.child(HirField::Expression) else {
+                        return Value::Unknown;
+                    };
+                    let interpolated = self.eval(expression, state, depth);
+                    let Some(interpolated) = display_value(&interpolated) else {
+                        return Value::Unknown;
+                    };
+                    value.push_str(&interpolated);
+                }
+                _ => {}
+            }
+        }
+        if bytes {
+            Value::Bytes(value.into_bytes())
+        } else {
+            Value::String(value)
+        }
+    }
+
+    fn concatenated_string(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let mut result = None;
+        for child in named_children(node) {
+            let next = self.eval(child, state, depth);
+            result = Some(match result {
+                None => next,
+                Some(value) => binary_value(value, next, "+"),
+            });
+        }
+        match result.unwrap_or(Value::String(String::new())) {
+            Value::String(value) => Value::ImplicitString(value),
+            value => value,
+        }
+    }
+
+    fn attribute(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let Some(object) = node.child(HirField::Object) else {
+            return Value::Unknown;
+        };
+        let Some(attribute) = node.child(HirField::Attribute) else {
+            return Value::Unknown;
+        };
+        let object = self.eval(object, state, depth);
+        let attribute = self.text(attribute);
+        match object {
+            Value::Module(module) => module_attribute(module, attribute).unwrap_or(Value::Unknown),
+            Value::Path(path) => Value::PathMethod {
+                path,
+                method: attribute.to_owned(),
+            },
+            Value::Cell(cell) => Value::CellMethod {
+                cell,
+                method: attribute.to_owned(),
+            },
+            Value::String(value) => Value::StringMethod {
+                value,
+                method: attribute.to_owned(),
+            },
+            Value::Bytes(value) => Value::BytesMethod {
+                value,
+                method: attribute.to_owned(),
+            },
+            Value::Decoded(value) => Value::DecodedMethod {
+                value,
+                method: attribute.to_owned(),
+            },
+            Value::Known(KnownFunction::Path) if attribute == "home" => {
+                Value::Known(KnownFunction::PathHome)
+            }
+            _ => Value::Unknown,
+        }
+    }
+
+    fn call(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let callable = node
+            .child(HirField::Function)
+            .map_or(Value::Unknown, |function| self.eval(function, state, depth));
+        let arguments = node
+            .child(HirField::Arguments)
+            .map_or_else(Arguments::default, |arguments| {
+                self.arguments(arguments, state, depth)
+            });
+        match callable {
+            Value::Known(function) => self.call_known(function, arguments, state, depth),
+            Value::LocalFunction(function) => self.call_local(function, arguments, state, depth),
+            Value::PathMethod { path, method } => {
+                self.call_path_method(path, &method, arguments, state)
+            }
+            Value::CellMethod { cell, method } => {
+                self.call_cell_method(cell, &method, arguments, state)
+            }
+            Value::StringMethod { value, method } => {
+                self.call_string_method(value, &method, arguments)
+            }
+            Value::BytesMethod { value, method } => {
+                self.call_bytes_method(value, &method, arguments)
+            }
+            Value::DecodedMethod { value, method } => {
+                if method == "decode"
+                    && arguments.positional.is_empty()
+                    && arguments.keywords.is_empty()
+                {
+                    Value::Decoded(value)
+                } else {
+                    Value::Unknown
+                }
+            }
+            _ => {
+                invalidate_argument_cells(&arguments, state);
+                Value::Unknown
+            }
+        }
+    }
+
+    fn arguments(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Arguments {
+        let mut arguments = Arguments::default();
+        for child in named_children(node) {
+            match child.kind() {
+                HirKind::KeywordArgument => {
+                    let Some(name) = child.child(HirField::Name) else {
+                        arguments.complete = false;
+                        continue;
+                    };
+                    let value = child
+                        .child(HirField::Value)
+                        .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+                    arguments.keywords.push((self.text(name).to_owned(), value));
+                }
+                HirKind::ListSplat => {
+                    let value = named_children(child)
+                        .next()
+                        .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+                    if let Some(values) = sequence_values(&value, state) {
+                        arguments.positional.extend_from_slice(values);
+                    } else {
+                        arguments.complete = false;
+                    }
+                }
+                HirKind::DictionarySplat => {
+                    self.eval_children(child, state, depth);
+                    arguments.complete = false;
+                }
+                _ => arguments.positional.push(self.eval(child, state, depth)),
+            }
+        }
+        arguments
+    }
+
+    fn call_known(
+        &mut self,
+        function: KnownFunction,
+        arguments: Arguments,
+        state: &mut State,
+        depth: usize,
+    ) -> Value {
+        match function {
+            KnownFunction::ShutilRmtree => {
+                if let Some(path) = one_argument(&arguments, "path").and_then(value_string) {
+                    self.add_destructive_target(path);
+                }
+                Value::None
+            }
+            KnownFunction::OsSystem | KnownFunction::OsPopen => {
+                let name = if function == KnownFunction::OsSystem {
+                    "command"
+                } else {
+                    "cmd"
+                };
+                if let Some(value) = one_argument(&arguments, name) {
+                    if decoded(value) {
+                        self.report
+                            .push(Finding::exact(FindingKind::DecodedExecution));
+                    }
+                    if let Some(code) = value_string(value)
+                        && self.input.platform != Platform::Windows
+                    {
+                        self.report.push_nested_execution(NestedExecution::Shell {
+                            program: "sh".into(),
+                            code: code.to_owned(),
+                            stdout_inherited: function == KnownFunction::OsSystem,
+                        });
+                    }
+                }
+                Value::Unknown
+            }
+            KnownFunction::OsExec(kind) => {
+                self.os_exec(kind, &arguments, state);
+                Value::None
+            }
+            KnownFunction::Subprocess(kind) => {
+                self.subprocess(kind, &arguments, state);
+                Value::Unknown
+            }
+            KnownFunction::Eval | KnownFunction::Exec => {
+                if dynamic_arguments(function, &arguments)
+                    && let Some(value) = arguments.positional.first()
+                {
+                    self.dynamic_execution(value.clone(), state, depth);
+                }
+                Value::Unknown
+            }
+            KnownFunction::Compile => {
+                if arguments.positional.len() >= 3
+                    && arguments.keywords.is_empty()
+                    && let (Some(source), Some(mode)) = (
+                        arguments.positional.first().and_then(value_string),
+                        arguments.positional.get(2).and_then(value_string),
+                    )
+                    && matches!(mode, "exec" | "eval" | "single")
+                {
+                    return Value::Compiled(source.to_owned());
+                }
+                Value::Unknown
+            }
+            KnownFunction::Base64Decode => {
+                let value = arguments
+                    .positional
+                    .first()
+                    .cloned()
+                    .unwrap_or(Value::Unknown);
+                Value::Decoded(Box::new(match value {
+                    Value::String(value) => {
+                        decode_base64(&value).map_or(Value::Unknown, Value::Bytes)
+                    }
+                    Value::Bytes(value) => std::str::from_utf8(&value)
+                        .ok()
+                        .and_then(decode_base64)
+                        .map_or(Value::Unknown, Value::Bytes),
+                    _ => Value::Unknown,
+                }))
+            }
+            KnownFunction::Path => arguments
+                .positional
+                .first()
+                .and_then(value_string)
+                .map_or(Value::Unknown, |path| Value::Path(path.to_owned())),
+            KnownFunction::PathHome => {
+                if arguments.positional.is_empty() && arguments.keywords.is_empty() {
+                    Value::Path(self.input.home.to_owned())
+                } else {
+                    Value::Unknown
+                }
+            }
+            KnownFunction::PathJoin => {
+                let parts = arguments
+                    .positional
+                    .iter()
+                    .map(value_string)
+                    .collect::<Option<Vec<_>>>();
+                parts.map_or(Value::Unknown, |parts| {
+                    Value::String(parts.into_iter().fold(String::new(), join_path))
+                })
+            }
+            KnownFunction::OsAbspath | KnownFunction::OsRealpath => arguments
+                .positional
+                .first()
+                .and_then(value_string)
+                .map_or(Value::Unknown, |path| {
+                    Value::String(expand_home(path, self.input.home))
+                }),
+            KnownFunction::OsGetenv => arguments
+                .positional
+                .first()
+                .and_then(value_string)
+                .filter(|name| *name == "HOME")
+                .map_or(Value::Unknown, |_| {
+                    Value::String(self.input.home.to_owned())
+                }),
+            KnownFunction::Getattr => {
+                if arguments.positional.len() >= 2
+                    && let Some(attribute) = arguments.positional.get(1).and_then(value_string)
+                    && let Some(value) = arguments.positional.first()
+                {
+                    return match value {
+                        Value::Module(module) => {
+                            module_attribute(*module, attribute).unwrap_or(Value::Unknown)
+                        }
+                        _ => Value::Unknown,
+                    };
+                }
+                Value::Unknown
+            }
+            KnownFunction::Import => arguments
+                .positional
+                .first()
+                .and_then(value_string)
+                .and_then(module_value)
+                .unwrap_or(Value::Unknown),
+            KnownFunction::ShutilWhich => Value::Unknown,
+            KnownFunction::Request => Value::Unknown,
+            KnownFunction::Open
+            | KnownFunction::IoFile
+            | KnownFunction::OsOpen
+            | KnownFunction::OsChmod
+            | KnownFunction::OsChown
+            | KnownFunction::OsLink
+            | KnownFunction::OsMkdir
+            | KnownFunction::OsMakedirs
+            | KnownFunction::OsRemove
+            | KnownFunction::OsRemovedirs
+            | KnownFunction::OsRename
+            | KnownFunction::OsReplace
+            | KnownFunction::OsRmdir
+            | KnownFunction::OsSymlink
+            | KnownFunction::OsTruncate
+            | KnownFunction::ShutilMove
+            | KnownFunction::ShutilCopy(_) => Value::Unknown,
+        }
+    }
+
+    fn call_local(
+        &mut self,
+        function: usize,
+        arguments: Arguments,
+        state: &mut State,
+        depth: usize,
+    ) -> Value {
+        if depth >= MAX_CALL_DEPTH {
+            self.budget.refusal = Some(InlineRefusal::RecursionLimit);
+            return Value::Unknown;
+        }
+        let Some(function) = state.functions.get(function).cloned() else {
+            return Value::Unknown;
+        };
+        if self.call_stack.contains(&function.name) || !arguments.complete {
+            self.complete = false;
+            return Value::Unknown;
+        }
+        let mut local = state.clone();
+        for name in assigned_names(&function.body, &self.source) {
+            local.bindings.insert(name, Value::Unknown);
+        }
+        for (index, parameter) in function.parameters.iter().enumerate() {
+            let value = arguments
+                .positional
+                .get(index)
+                .cloned()
+                .or_else(|| {
+                    arguments
+                        .keywords
+                        .iter()
+                        .find(|(name, _)| name == &parameter.name)
+                        .map(|(_, value)| value.clone())
+                })
+                .or_else(|| parameter.default.clone())
+                .unwrap_or(Value::Unknown);
+            local.bindings.insert(parameter.name.clone(), value);
+        }
+        let globals = global_names(&function.body, &self.source);
+        self.call_stack.push(function.name);
+        let result = match self.exec_block(&function.body, &mut local, depth + 1) {
+            Control::Return(value) => value,
+            _ => Value::None,
+        };
+        self.call_stack.pop();
+        for name in globals {
+            state.bindings.insert(name, Value::Unknown);
+        }
+        result
+    }
+
+    fn call_path_method(
+        &mut self,
+        path: String,
+        method: &str,
+        arguments: Arguments,
+        _state: &mut State,
+    ) -> Value {
+        match method {
+            "with_name" => {
+                arguments
+                    .positional
+                    .first()
+                    .and_then(value_string)
+                    .map_or(Value::Unknown, |name| {
+                        let parent = path
+                            .rsplit_once(['/', '\\'])
+                            .map_or("", |(parent, _)| parent);
+                        Value::Path(join_path(parent.to_owned(), name))
+                    })
+            }
+            "joinpath" => {
+                let mut joined = path;
+                for value in &arguments.positional {
+                    let Some(value) = value_string(value) else {
+                        return Value::Unknown;
+                    };
+                    joined = join_path(joined, value);
+                }
+                Value::Path(joined)
+            }
+            "resolve" | "absolute" | "expanduser" => {
+                Value::Path(expand_home(&path, self.input.home))
+            }
+            "read_text" | "read_bytes" => Value::Unknown,
+            "unlink" | "rmdir" | "rename" | "replace" | "write_text" | "write_bytes" | "touch"
+            | "mkdir" | "chmod" | "hardlink_to" | "link_to" | "symlink_to" => Value::None,
+            _ => Value::Unknown,
+        }
+    }
+
+    fn call_cell_method(
+        &mut self,
+        cell: usize,
+        method: &str,
+        arguments: Arguments,
+        state: &mut State,
+    ) -> Value {
+        if method == "append"
+            && arguments.positional.len() == 1
+            && let Some(Cell::Sequence(values)) = state.cells.get_mut(cell)
+        {
+            values.push(arguments.positional[0].clone());
+            return Value::None;
+        }
+        if method == "extend" && arguments.positional.len() == 1 {
+            let extension = sequence_values(&arguments.positional[0], state).map(Vec::from);
+            if let Some(Cell::Sequence(values)) = state.cells.get_mut(cell) {
+                if let Some(extension) = extension {
+                    values.extend(extension);
+                } else {
+                    state.cells[cell] = Cell::Unknown;
+                }
+                return Value::None;
+            }
+        }
+        Value::Unknown
+    }
+
+    fn call_string_method(&mut self, value: String, method: &str, arguments: Arguments) -> Value {
+        match method {
+            "encode" if arguments.positional.is_empty() => Value::Bytes(value.into_bytes()),
+            "format" => {
+                let mut formatted = value;
+                for argument in arguments.positional {
+                    let Some(display) = display_value(&argument) else {
+                        return Value::Unknown;
+                    };
+                    formatted = formatted.replacen("{}", &display, 1);
+                }
+                Value::String(formatted)
+            }
+            _ => Value::Unknown,
+        }
+    }
+
+    fn call_bytes_method(&mut self, value: Vec<u8>, method: &str, arguments: Arguments) -> Value {
+        if method == "decode" && arguments.positional.len() <= 1 {
+            String::from_utf8(value).map_or(Value::Unknown, Value::String)
+        } else {
+            Value::Unknown
+        }
+    }
+
+    fn subprocess(&mut self, kind: SubprocessKind, arguments: &Arguments, state: &State) {
+        let Some(command) = argument(arguments, 0, "args") else {
+            return;
+        };
+        let Some((shell, stdout_inherited)) = subprocess_options(kind, arguments) else {
+            return;
+        };
+        if shell && decoded(command) {
+            self.report
+                .push(Finding::exact(FindingKind::DecodedExecution));
+        }
+        if shell {
+            let code = value_string(command).map(str::to_owned).or_else(|| {
+                sequence_values(command, state)
+                    .and_then(|values| values.first())
+                    .and_then(value_string)
+                    .map(str::to_owned)
+            });
+            if let Some(code) = code
+                && self.input.platform != Platform::Windows
+            {
+                self.report.push_nested_execution(NestedExecution::Shell {
+                    program: "sh".into(),
+                    code,
+                    stdout_inherited,
+                });
+            }
+        } else if let Some(argv) = argv_value(command, state) {
+            self.report.push_nested_execution(NestedExecution::Command {
+                argv,
+                stdout_inherited,
+            });
+        }
+    }
+
+    fn os_exec(&mut self, kind: StringKind, arguments: &Arguments, state: &State) {
+        let argv = match kind {
+            StringKind::Execl | StringKind::Execlp
+                if arguments.keywords.is_empty()
+                    && arguments.positional.len() >= 2
+                    && arguments
+                        .positional
+                        .iter()
+                        .all(|value| value_string(value).is_some()) =>
+            {
+                arguments.positional[1..]
+                    .iter()
+                    .filter_map(value_string)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            }
+            StringKind::Execv | StringKind::Execvp
+                if arguments.keywords.is_empty() && arguments.positional.len() == 2 =>
+            {
+                let Some(program) = value_string(&arguments.positional[0]) else {
+                    return;
+                };
+                let Some(argv) = argv_value(&arguments.positional[1], state) else {
+                    return;
+                };
+                std::iter::once(program.to_owned())
+                    .chain(argv.into_iter().skip(1))
+                    .collect()
+            }
+            _ => return,
+        };
+        self.report.push_nested_execution(NestedExecution::Command {
+            argv,
+            stdout_inherited: true,
+        });
+    }
+
+    fn dynamic_execution(&mut self, value: Value, state: &mut State, depth: usize) {
+        let source = match value {
+            Value::String(source) | Value::Compiled(source) => source,
+            _ => return,
+        };
+        if depth >= MAX_CALL_DEPTH {
+            self.budget.refusal = Some(InlineRefusal::RecursionLimit);
+            return;
+        }
+        let module = match super::parser::lower(&source, self.program) {
+            Ok(module) if !module.opaque() => module,
+            Ok(_) => {
+                self.complete = false;
+                return;
+            }
+            Err(refusal) => {
+                self.report.refuse(refusal);
+                return;
+            }
+        };
+        let outer = std::mem::replace(&mut self.source, source);
+        let _ = self.exec_block(module.root(), state, depth + 1);
+        self.source = outer;
+    }
+
+    fn binary(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let left = node
+            .child(HirField::Left)
+            .map_or(Value::Unknown, |left| self.eval(left, state, depth));
+        let right = node
+            .child(HirField::Right)
+            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        let operator = node
+            .child(HirField::Operator)
+            .map(|operator| self.text(operator))
+            .unwrap_or_default();
+        binary_value(left, right, operator)
+    }
+
+    fn boolean(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let Some(left_node) = node.child(HirField::Left) else {
+            return Value::Unknown;
+        };
+        let left = self.eval(left_node, state, depth);
+        let operator = node
+            .child(HirField::Operator)
+            .map(|operator| self.text(operator))
+            .unwrap_or_default();
+        match (operator, truthy(&left)) {
+            ("and", Some(false)) | ("or", Some(true)) => left,
+            ("and", Some(true)) | ("or", Some(false)) => node
+                .child(HirField::Right)
+                .map_or(Value::Unknown, |right| self.eval(right, state, depth)),
+            _ => {
+                if let Some(right) = node.child(HirField::Right) {
+                    self.eval(right, state, depth);
+                }
+                Value::Unknown
+            }
+        }
+    }
+
+    fn comparison(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let left = node
+            .child(HirField::Left)
+            .map_or(Value::Unknown, |left| self.eval(left, state, depth));
+        let right = node
+            .child(HirField::Right)
+            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        let operator = node
+            .child(HirField::Operator)
+            .map(|operator| self.text(operator))
+            .unwrap_or_default();
+        match operator {
+            "==" | "is" => Value::Bool(left == right),
+            "!=" | "is not" => Value::Bool(left != right),
+            _ => Value::Unknown,
+        }
+    }
+
+    fn unary(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let value = named_children(node)
+            .find(|child| child.field() != Some(HirField::Operator))
+            .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+        let operator = node
+            .child(HirField::Operator)
+            .map(|operator| self.text(operator))
+            .unwrap_or_default();
+        match (operator, value) {
+            ("-", Value::Int(value)) => value.checked_neg().map_or(Value::Unknown, Value::Int),
+            ("+", Value::Int(value)) => Value::Int(value),
+            _ => Value::Unknown,
+        }
+    }
+
+    fn conditional_expression(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let children = named_children(node).collect::<Vec<_>>();
+        if children.len() != 3 {
+            self.eval_children(node, state, depth);
+            return Value::Unknown;
+        }
+        let condition = self.eval(children[1], state, depth);
+        match truthy(&condition) {
+            Some(true) => self.eval(children[0], state, depth),
+            Some(false) => self.eval(children[2], state, depth),
+            None => {
+                self.complete = false;
+                let yes = self.eval(children[0], state, depth);
+                let no = self.eval(children[2], state, depth);
+                if yes == no { yes } else { Value::Unknown }
+            }
+        }
+    }
+
+    fn subscript(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        let children = named_children(node).collect::<Vec<_>>();
+        if children.len() < 2 {
+            return Value::Unknown;
+        }
+        let object = self.eval(children[0], state, depth);
+        let index = self.eval(children[1], state, depth);
+        if object == Value::Module(Module::Environment)
+            && value_string(&index).is_some_and(|value| value == "HOME")
+        {
+            Value::String(self.input.home.to_owned())
+        } else {
+            Value::Unknown
+        }
+    }
+
+    fn add_destructive_target(&mut self, target: &str) {
+        let normalized = normalize_path(target, self.input.platform);
+        let root = if self.input.platform == Platform::Windows {
+            normalized.len() == 2 && normalized.ends_with(':')
+        } else {
+            normalized == "/"
+        };
+        if root {
+            self.report
+                .push(Finding::exact(FindingKind::RootDestruction));
+        }
+        if normalized == normalize_path(self.input.home, self.input.platform) {
+            self.report
+                .push(Finding::exact(FindingKind::HomeDestruction));
+        }
+    }
+
+    fn text(&self, node: &HirNode) -> &str {
+        // HIR spans were validated against this exact source before interpretation.
+        unsafe_text(&self.source, node)
+    }
+}
+
+fn named_children(node: &HirNode) -> impl Iterator<Item = &HirNode> {
+    node.children()
+        .iter()
+        .filter(|child| !matches!(child.kind(), HirKind::Token | HirKind::Comment))
+}
+
+fn unsafe_text<'a>(source: &'a str, node: &HirNode) -> &'a str {
+    source
+        .get(node.span().start()..node.span().end())
+        .unwrap_or_default()
+}
+
+fn module_value(name: &str) -> Option<Value> {
+    let module = match name {
+        "base64" => Module::Base64,
+        "builtins" | "__builtin__" => Module::Builtins,
+        "io" => Module::Io,
+        "os" => Module::Os,
+        "os.path" => Module::OsPath,
+        "pathlib" => Module::Pathlib,
+        "requests" => Module::Requests,
+        "httpx" => Module::Httpx,
+        "shutil" => Module::Shutil,
+        "subprocess" => Module::Subprocess,
+        "urllib.request" => Module::UrllibRequest,
+        _ => return None,
+    };
+    Some(Value::Module(module))
+}
+
+fn imported_value(module: &str, name: &str) -> Option<Value> {
+    let module = module_value(module)?;
+    let Value::Module(module) = module else {
+        return None;
+    };
+    module_attribute(module, name)
+}
+
+fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
+    let function = match (module, attribute) {
+        (Module::Base64, "b64decode" | "urlsafe_b64decode") => KnownFunction::Base64Decode,
+        (Module::Builtins, "eval") => KnownFunction::Eval,
+        (Module::Builtins, "exec") => KnownFunction::Exec,
+        (Module::Builtins, "compile") => KnownFunction::Compile,
+        (Module::Builtins, "open") => KnownFunction::Open,
+        (Module::Builtins, "getattr") => KnownFunction::Getattr,
+        (Module::Io, "FileIO") => KnownFunction::IoFile,
+        (Module::Os, "path") => return Some(Value::Module(Module::OsPath)),
+        (Module::Os, "environ") => return Some(Value::Module(Module::Environment)),
+        (Module::Os, "system") => KnownFunction::OsSystem,
+        (Module::Os, "popen") => KnownFunction::OsPopen,
+        (Module::Os, "execl") => KnownFunction::OsExec(StringKind::Execl),
+        (Module::Os, "execlp") => KnownFunction::OsExec(StringKind::Execlp),
+        (Module::Os, "execle") => KnownFunction::OsExec(StringKind::Execle),
+        (Module::Os, "execv") => KnownFunction::OsExec(StringKind::Execv),
+        (Module::Os, "execvp") => KnownFunction::OsExec(StringKind::Execvp),
+        (Module::Os, "execvpe") => KnownFunction::OsExec(StringKind::Execvpe),
+        (Module::Os, "remove" | "unlink") => KnownFunction::OsRemove,
+        (Module::Os, "rename") => KnownFunction::OsRename,
+        (Module::Os, "replace") => KnownFunction::OsReplace,
+        (Module::Os, "link") => KnownFunction::OsLink,
+        (Module::Os, "symlink") => KnownFunction::OsSymlink,
+        (Module::Os, "chmod") => KnownFunction::OsChmod,
+        (Module::Os, "chown" | "lchown") => KnownFunction::OsChown,
+        (Module::Os, "mkdir") => KnownFunction::OsMkdir,
+        (Module::Os, "makedirs") => KnownFunction::OsMakedirs,
+        (Module::Os, "rmdir") => KnownFunction::OsRmdir,
+        (Module::Os, "removedirs") => KnownFunction::OsRemovedirs,
+        (Module::Os, "truncate") => KnownFunction::OsTruncate,
+        (Module::Os, "open") => KnownFunction::OsOpen,
+        (Module::Os, "getenv") => KnownFunction::OsGetenv,
+        (Module::OsPath, "expanduser" | "abspath") => KnownFunction::OsAbspath,
+        (Module::OsPath, "realpath") => KnownFunction::OsRealpath,
+        (Module::OsPath, "join") => KnownFunction::PathJoin,
+        (Module::Pathlib, "Path") => KnownFunction::Path,
+        (Module::Shutil, "rmtree") => KnownFunction::ShutilRmtree,
+        (Module::Shutil, "move") => KnownFunction::ShutilMove,
+        (Module::Shutil, "copy") => KnownFunction::ShutilCopy(CopyKind::Copy),
+        (Module::Shutil, "copy2") => KnownFunction::ShutilCopy(CopyKind::Copy2),
+        (Module::Shutil, "copyfile") => KnownFunction::ShutilCopy(CopyKind::Copyfile),
+        (Module::Shutil, "copytree") => KnownFunction::ShutilCopy(CopyKind::Copytree),
+        (Module::Shutil, "copymode") => KnownFunction::ShutilCopy(CopyKind::Copymode),
+        (Module::Shutil, "copystat") => KnownFunction::ShutilCopy(CopyKind::Copystat),
+        (Module::Shutil, "which") => KnownFunction::ShutilWhich,
+        (Module::Subprocess, "run") => KnownFunction::Subprocess(SubprocessKind::Run),
+        (Module::Subprocess, "call") => KnownFunction::Subprocess(SubprocessKind::Call),
+        (Module::Subprocess, "Popen") => KnownFunction::Subprocess(SubprocessKind::Popen),
+        (Module::Subprocess, "check_call") => KnownFunction::Subprocess(SubprocessKind::CheckCall),
+        (Module::Subprocess, "check_output") => {
+            KnownFunction::Subprocess(SubprocessKind::CheckOutput)
+        }
+        (Module::Requests | Module::Httpx, "get" | "post" | "put" | "patch" | "delete")
+        | (Module::UrllibRequest, "urlopen" | "urlretrieve") => KnownFunction::Request,
+        _ => return None,
+    };
+    Some(Value::Known(function))
+}
+
+fn import_name(node: &HirNode, source: &str) -> (String, Option<String>) {
+    if node.kind() == HirKind::AliasedImport {
+        let name = node
+            .child(HirField::Name)
+            .map(|name| unsafe_text(source, name).to_owned())
+            .unwrap_or_default();
+        let alias = node
+            .child(HirField::Alias)
+            .map(|alias| unsafe_text(source, alias).to_owned());
+        (name, alias)
+    } else {
+        (unsafe_text(source, node).to_owned(), None)
+    }
+}
+
+fn sequence_values<'a>(value: &'a Value, state: &'a State) -> Option<&'a [Value]> {
+    let Value::Cell(cell) = value else {
+        return None;
+    };
+    match state.cells.get(*cell) {
+        Some(Cell::Sequence(values)) => Some(values),
+        Some(Cell::Unknown) | None => None,
+    }
+}
+
+fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
+    for cell in arguments
+        .positional
+        .iter()
+        .chain(arguments.keywords.iter().map(|(_, value)| value))
+        .filter_map(|value| match value {
+            Value::Cell(cell) => Some(*cell),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>()
+    {
+        if let Some(value) = state.cells.get_mut(cell) {
+            *value = Cell::Unknown;
+        }
+    }
+    let modules = arguments
+        .positional
+        .iter()
+        .chain(arguments.keywords.iter().map(|(_, value)| value))
+        .filter_map(|value| match value {
+            Value::Module(module) => Some(*module),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    for value in state.bindings.values_mut() {
+        if matches!(value, Value::Module(module) if modules.contains(module)) {
+            *value = Value::Unknown;
+        }
+    }
+}
+
+fn join_states(mut left: State, right: State) -> State {
+    let names = left
+        .bindings
+        .keys()
+        .chain(right.bindings.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    for name in names {
+        let value = match (left.bindings.get(&name), right.bindings.get(&name)) {
+            (Some(left), Some(right)) if left == right => left.clone(),
+            _ => Value::Unknown,
+        };
+        left.bindings.insert(name, value);
+    }
+    let cells = left.cells.len().max(right.cells.len());
+    left.cells.resize(cells, Cell::Unknown);
+    for (index, cell) in left.cells.iter_mut().enumerate() {
+        if right.cells.get(index) != Some(cell) {
+            *cell = Cell::Unknown;
+        }
+    }
+    left
+}
+
+fn assigned_names(node: &HirNode, source: &str) -> BTreeSet<String> {
+    fn visit(node: &HirNode, source: &str, names: &mut BTreeSet<String>, root: bool) {
+        if !root
+            && matches!(
+                node.kind(),
+                HirKind::Function | HirKind::Class | HirKind::Lambda
+            )
+        {
+            return;
+        }
+        if node.kind() == HirKind::Assignment
+            && let Some(left) = node.child(HirField::Left)
+        {
+            collect_targets(left, source, names);
+        }
+        if node.kind() == HirKind::Function
+            && let Some(name) = node.child(HirField::Name)
+        {
+            names.insert(unsafe_text(source, name).to_owned());
+        }
+        for child in node.children() {
+            visit(child, source, names, false);
+        }
+    }
+    fn collect_targets(node: &HirNode, source: &str, names: &mut BTreeSet<String>) {
+        if node.kind() == HirKind::Identifier {
+            names.insert(unsafe_text(source, node).to_owned());
+        } else {
+            for child in node.children() {
+                collect_targets(child, source, names);
+            }
+        }
+    }
+    let mut names = BTreeSet::new();
+    visit(node, source, &mut names, true);
+    names
+}
+
+fn global_names(node: &HirNode, source: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == HirKind::Unsupported {
+            let text = unsafe_text(source, node).trim();
+            if let Some(declared) = text.strip_prefix("global ") {
+                names.extend(
+                    declared
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+        }
+        if matches!(
+            node.kind(),
+            HirKind::Function | HirKind::Class | HirKind::Lambda
+        ) {
+            continue;
+        }
+        stack.extend(node.children());
+    }
+    names
+}
+
+fn contains_kind(node: &HirNode, kind: HirKind, source: &str, prefix: &str) -> bool {
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == kind && unsafe_text(source, node).trim_start().starts_with(prefix) {
+            return true;
+        }
+        if matches!(
+            node.kind(),
+            HirKind::Function | HirKind::Class | HirKind::Lambda
+        ) {
+            continue;
+        }
+        stack.extend(node.children());
+    }
+    false
+}
+
+fn parse_integer(value: &str) -> Option<i64> {
+    let value = value.replace('_', "");
+    if let Some(value) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        i64::from_str_radix(value, 16).ok()
+    } else if let Some(value) = value
+        .strip_prefix("0o")
+        .or_else(|| value.strip_prefix("0O"))
+    {
+        i64::from_str_radix(value, 8).ok()
+    } else if let Some(value) = value
+        .strip_prefix("0b")
+        .or_else(|| value.strip_prefix("0B"))
+    {
+        i64::from_str_radix(value, 2).ok()
+    } else {
+        value.parse().ok()
+    }
+}
+
+fn binary_value(left: Value, right: Value, operator: &str) -> Value {
+    match (left, right, operator) {
+        (Value::String(mut left), Value::String(right), "+") => {
+            left.push_str(&right);
+            Value::String(left)
+        }
+        (Value::Bytes(mut left), Value::Bytes(right), "+") => {
+            left.extend(right);
+            Value::Bytes(left)
+        }
+        (Value::Int(left), Value::Int(right), "+") => {
+            left.checked_add(right).map_or(Value::Unknown, Value::Int)
+        }
+        (Value::Int(left), Value::Int(right), "-") => {
+            left.checked_sub(right).map_or(Value::Unknown, Value::Int)
+        }
+        (Value::Int(left), Value::Int(right), "*") => {
+            left.checked_mul(right).map_or(Value::Unknown, Value::Int)
+        }
+        (Value::Path(left), Value::String(right), "/") => Value::Path(join_path(left, &right)),
+        _ => Value::Unknown,
+    }
+}
+
+fn truthy(value: &Value) -> Option<bool> {
+    match value {
+        Value::None => Some(false),
+        Value::Bool(value) => Some(*value),
+        Value::Int(value) => Some(*value != 0),
+        Value::String(value) | Value::ImplicitString(value) => Some(!value.is_empty()),
+        Value::Bytes(value) => Some(!value.is_empty()),
+        Value::Cell(_)
+        | Value::Module(_)
+        | Value::Known(_)
+        | Value::LocalFunction(_)
+        | Value::Path(_) => Some(true),
+        _ => None,
+    }
+}
+
+fn display_value(value: &Value) -> Option<String> {
+    match value {
+        Value::None => Some("None".into()),
+        Value::Bool(true) => Some("True".into()),
+        Value::Bool(false) => Some("False".into()),
+        Value::Int(value) => Some(value.to_string()),
+        Value::String(value) | Value::ImplicitString(value) | Value::Path(value) => {
+            Some(value.clone())
+        }
+        _ => None,
+    }
+}
+
+fn value_string(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(value) | Value::ImplicitString(value) | Value::Path(value) => Some(value),
+        Value::Decoded(value) => value_string(value),
+        _ => None,
+    }
+}
+
+fn decoded(value: &Value) -> bool {
+    matches!(value, Value::Decoded(_))
+}
+
+fn one_argument<'a>(arguments: &'a Arguments, keyword: &str) -> Option<&'a Value> {
+    if !arguments.complete || arguments.positional.len() + arguments.keywords.len() != 1 {
+        return None;
+    }
+    arguments.positional.first().or_else(|| {
+        arguments
+            .keywords
+            .first()
+            .filter(|(name, _)| name == keyword)
+            .map(|(_, value)| value)
+    })
+}
+
+fn argument<'a>(arguments: &'a Arguments, position: usize, keyword: &str) -> Option<&'a Value> {
+    if !arguments.complete
+        || arguments
+            .keywords
+            .iter()
+            .filter(|(name, _)| name == keyword)
+            .count()
+            > 1
+    {
+        return None;
+    }
+    arguments.positional.get(position).or_else(|| {
+        arguments
+            .keywords
+            .iter()
+            .find(|(name, _)| name == keyword)
+            .map(|(_, value)| value)
+    })
+}
+
+fn dynamic_arguments(function: KnownFunction, arguments: &Arguments) -> bool {
+    if !arguments.complete || arguments.positional.is_empty() || arguments.positional.len() > 3 {
+        return false;
+    }
+    arguments.keywords.is_empty()
+        || function == KnownFunction::Exec
+            && arguments.keywords.as_slice() == [("closure".to_owned(), Value::None)]
+}
+
+fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
+    if !arguments.complete || arguments.positional.len() > 1 {
+        return None;
+    }
+    let mut shell = false;
+    let mut stdout = kind != SubprocessKind::CheckOutput;
+    let mut seen = BTreeSet::new();
+    for (name, value) in &arguments.keywords {
+        if name == "args" {
+            continue;
+        }
+        if !seen.insert(name) {
+            return None;
+        }
+        match name.as_str() {
+            "shell" => shell = exact_bool(value)?,
+            "capture_output" if kind == SubprocessKind::Run => {
+                if exact_bool(value)? {
+                    stdout = false;
+                }
+            }
+            "check" if kind == SubprocessKind::Run => {
+                exact_bool(value)?;
+            }
+            "cwd" if kind == SubprocessKind::Popen => {
+                value_string(value)?;
+            }
+            _ => return None,
+        }
+    }
+    Some((shell, stdout))
+}
+
+fn exact_bool(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::Int(0) | Value::None => Some(false),
+        Value::Int(1) => Some(true),
+        _ => None,
+    }
+}
+
+fn argv_value(value: &Value, state: &State) -> Option<Vec<String>> {
+    sequence_values(value, state)?
+        .iter()
+        .map(|value| match value {
+            Value::String(value) | Value::Path(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn decode_string_fragment(value: &str, raw: bool) -> Option<String> {
+    if raw {
+        return Some(value.to_owned());
+    }
+    let bytes = value.as_bytes();
+    let mut output = String::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            let character = value[index..].chars().next()?;
+            output.push(character);
+            index += character.len_utf8();
+            continue;
+        }
+        index += 1;
+        let escape = *bytes.get(index)?;
+        index += 1;
+        match escape {
+            b'\\' => output.push('\\'),
+            b'\'' => output.push('\''),
+            b'"' => output.push('"'),
+            b'n' => output.push('\n'),
+            b'r' => output.push('\r'),
+            b't' => output.push('\t'),
+            b'a' => output.push('\x07'),
+            b'b' => output.push('\x08'),
+            b'f' => output.push('\x0c'),
+            b'v' => output.push('\x0b'),
+            b'\n' => {}
+            b'x' => {
+                let value = parse_hex(bytes.get(index..index + 2)?)?;
+                output.push(char::from(value as u8));
+                index += 2;
+            }
+            b'u' => {
+                let value = parse_hex(bytes.get(index..index + 4)?)?;
+                output.push(char::from_u32(value)?);
+                index += 4;
+            }
+            b'U' => {
+                let value = parse_hex(bytes.get(index..index + 8)?)?;
+                output.push(char::from_u32(value)?);
+                index += 8;
+            }
+            b'0'..=b'7' => {
+                let mut value = u32::from(escape - b'0');
+                let mut digits = 1;
+                while digits < 3
+                    && bytes
+                        .get(index)
+                        .is_some_and(|byte| matches!(byte, b'0'..=b'7'))
+                {
+                    value = value * 8 + u32::from(bytes[index] - b'0');
+                    index += 1;
+                    digits += 1;
+                }
+                output.push(char::from_u32(value)?);
+            }
+            other => {
+                output.push('\\');
+                output.push(char::from(other));
+            }
+        }
+    }
+    Some(output)
+}
+
+fn parse_hex(bytes: &[u8]) -> Option<u32> {
+    bytes.iter().try_fold(0u32, |value, byte| {
+        let digit = match byte {
+            b'0'..=b'9' => u32::from(byte - b'0'),
+            b'a'..=b'f' => u32::from(byte - b'a') + 10,
+            b'A'..=b'F' => u32::from(byte - b'A') + 10,
+            _ => return None,
+        };
+        Some(value * 16 + digit)
+    })
+}
+
+fn decode_base64(value: &str) -> Option<Vec<u8>> {
+    let mut output = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0usize;
+    for byte in value.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+        if byte == b'=' {
+            break;
+        }
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    Some(output)
+}
+
+fn join_path(mut base: String, relative: &str) -> String {
+    if base.is_empty() {
+        return relative.to_owned();
+    }
+    if !base.ends_with(['/', '\\']) {
+        base.push('/');
+    }
+    base.push_str(relative.trim_start_matches(['/', '\\']));
+    base
+}
+
+fn expand_home(path: &str, home: &str) -> String {
+    if path == "~" {
+        home.to_owned()
+    } else if let Some(relative) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        join_path(home.to_owned(), relative)
+    } else {
+        path.to_owned()
+    }
+}
+
+fn normalize_path(path: &str, platform: Platform) -> String {
+    let absolute = path.starts_with(['/', '\\']);
+    let mut components = Vec::new();
+    for component in path.split(['/', '\\']) {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components.pop();
+            }
+            component => components.push(if platform == Platform::Windows {
+                component.to_ascii_lowercase()
+            } else {
+                component.to_owned()
+            }),
+        }
+    }
+    let normalized = components.join("/");
+    if absolute && platform != Platform::Windows {
+        format!("/{normalized}")
+    } else {
+        normalized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(code: &str) -> InlineReport {
+        analyze(
+            "python3",
+            &InlineInput {
+                program: "python3",
+                code,
+                home: "/home/dev",
+                platform: Platform::Linux,
+            },
+            None,
+            0,
+        )
+    }
+
+    #[test]
+    fn constants_branches_loops_and_alias_cells_feed_known_sinks() {
+        for code in [
+            "import shutil\nbase='/'\nif True:\n    shutil.rmtree(base)",
+            "import shutil\nfor target in ['/tmp', '/']:\n    shutil.rmtree(target)",
+            "import subprocess\nargv=['rm']\nalias=argv\nalias.extend(['-rf','/'])\nsubprocess.run(argv)",
+        ] {
+            let report = report(code);
+            assert!(
+                report.contains_exact(FindingKind::RootDestruction)
+                    || !report.nested_executions().is_empty(),
+                "{code}: {report:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn f_strings_paths_and_local_functions_are_bounded_values() {
+        let report =
+            report("import os\ndef run(name):\n    os.system(f'printf {name}')\nrun('child')");
+        assert!(matches!(
+            report.nested_executions(),
+            [NestedExecution::Shell { code, .. }] if code == "printf child"
+        ));
+    }
+
+    #[test]
+    fn unknown_calls_and_rebound_owners_do_not_invent_effects() {
+        for code in [
+            "shutil.rmtree('/')",
+            "import shutil\nshutil=safe\nshutil.rmtree('/')",
+            "command=plugin.make(user)\nimport os\nos.system(command)",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+    }
+}

@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- **Python structural parser** — inline Python now uses the maintained
-  tree-sitter grammar for dialect and malformed-structure admission before
-  semantic analysis; invalid required suites produce the same bounded
-  fail-closed refusal path as other structural mismatches.
+- **Python effect frontend** — inline Python now uses a maintained grammar,
+  owned HIR, and bounded interpreter for constants, f-strings, aliases,
+  branches, finite loops, simple functions, decoded values, and exact child
+  execution. Unsupported behavior stays local, while malformed required suites
+  use the existing structural-mismatch refusal.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

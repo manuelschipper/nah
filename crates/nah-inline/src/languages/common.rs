@@ -1168,36 +1168,6 @@ pub(super) fn add_exact_shell_with_stdout(
     }
 }
 
-pub(super) fn exact_argv_argument(argument: &StaticCallArgument) -> Option<Vec<String>> {
-    exact_string_array(argument)
-        .or_else(|| exact_named_string_array(argument, &["args"]))
-        .or_else(|| exact_named_string(argument, &["args"]).map(|value| vec![value.to_owned()]))
-}
-
-pub(super) fn add_static_exec_argv_call(
-    report: &mut InlineReport,
-    arguments: &[StaticCallArgument],
-) {
-    let Some(program) = arguments.first().and_then(exact_string) else {
-        return;
-    };
-    let Some(argv) = arguments.get(1) else {
-        return;
-    };
-    let mut values = vec![program.to_owned()];
-    if let Some(array) = exact_string_array(argv) {
-        values.extend(array.into_iter().skip(1));
-    } else {
-        for argument in arguments.iter().skip(2) {
-            let Some(value) = exact_string(argument) else {
-                return;
-            };
-            values.push(value.to_owned());
-        }
-    }
-    push_nested_argv(report, values, true);
-}
-
 fn push_nested_shell(report: &mut InlineReport, program: &str, code: &str, stdout_inherited: bool) {
     if code.is_empty() || code.contains('\0') || code.len() > crate::SOURCE_LIMIT {
         return;

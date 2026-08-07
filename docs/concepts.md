@@ -17,9 +17,12 @@ redirects, then unions their possible effects into stages and data-flow edges.
 Unresolved shell state or expansion makes the stream partial.
 
 Visible inline source in Python, JavaScript, Ruby, Perl, PHP, Lua, R, Julia,
-Swift, PowerShell, or cmd stays a `code-execution` effect. A bounded pass may
-add private exact findings for built-in guards. Proven child shell source or
-argv re-enters the Bash planner and publishes its effects to all guards.
+Swift, PowerShell, or cmd stays a `code-execution` effect. Python first lowers
+through a maintained grammar into an owned HIR, then evaluates a bounded
+subset without running the code. Unknown values and unsupported constructs
+stay local to the state they can affect. Other languages currently use bounded
+signature passes. Proven child shell source or argv re-enters the Bash planner
+and publishes its effects to all guards.
 Child stdout connects only for APIs that inherit it; cwd and environment stay
 unknown unless proven. Unsupported or ambiguous code adds no finding;
 malformed or bounded-out code adds a refusal. The interpreter remains visible.

@@ -39,11 +39,17 @@ pub(crate) fn supports(program: &str) -> bool {
         )
 }
 
-pub(crate) fn python_source_status(
-    code: &str,
-    program: &str,
-) -> Result<bool, crate::InlineRefusal> {
-    python::source_status(code, program)
+pub(crate) fn analyze_python(
+    input: InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> InlineReport {
+    python::analyze(
+        &crate::normalized_program(input.program),
+        &input,
+        protection,
+        depth,
+    )
 }
 
 pub(crate) fn analyze(

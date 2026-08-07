@@ -84,12 +84,9 @@ fn analyze_at(
         return InlineReport::refused(InlineRefusal::RecursionLimit);
     }
     if is_python_interpreter(program) {
-        match languages::python_source_status(input.code, program) {
-            Ok(true) => {}
-            Ok(false) => return InlineReport::default(),
-            Err(refusal) => return InlineReport::refused(refusal),
-        }
-    } else if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
+        return languages::analyze_python(input, protection, depth);
+    }
+    if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
         return InlineReport::refused(refusal);
     }
     languages::analyze(input, protection, depth)

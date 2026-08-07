@@ -100,6 +100,7 @@ pub(super) enum HirKind {
     ListSplat,
     DictionarySplat,
     Interpolation,
+    Generator,
     FormatSpecifier,
     TypeConversion,
     Exec,
@@ -114,6 +115,7 @@ pub(super) enum HirKind {
 pub(super) enum HirField {
     Alias,
     Alternative,
+    Argument,
     Arguments,
     Attribute,
     Body,
@@ -217,7 +219,8 @@ impl HirModule {
     }
 }
 
-pub(super) fn source_status(code: &str, program: &str) -> Result<bool, InlineRefusal> {
+#[cfg(test)]
+fn source_status(code: &str, program: &str) -> Result<bool, InlineRefusal> {
     lower(code, program).map(|module| !module.opaque())
 }
 
@@ -396,6 +399,7 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "list_splat" | "parenthesized_list_splat" => HirKind::ListSplat,
         "dictionary_splat" => HirKind::DictionarySplat,
         "interpolation" => HirKind::Interpolation,
+        "generator_expression" => HirKind::Generator,
         "format_specifier" => HirKind::FormatSpecifier,
         "type_conversion" => HirKind::TypeConversion,
         "exec_statement" => HirKind::Exec,
@@ -410,6 +414,7 @@ fn hir_field(field: &str) -> Option<HirField> {
     match field {
         "alias" => Some(HirField::Alias),
         "alternative" => Some(HirField::Alternative),
+        "argument" => Some(HirField::Argument),
         "arguments" => Some(HirField::Arguments),
         "attribute" => Some(HirField::Attribute),
         "body" => Some(HirField::Body),

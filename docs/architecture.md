@@ -75,8 +75,8 @@ host; finalization consumes bound facts supplied by `nah-observe`.
 
 - Bash interpretation: `nah-parse`, then `nah-actions/src/bash/` or the
   matching `bash_*.rs` analyzer.
-- Inline interpreter signatures: `nah-inline/src/languages/`; shared call/state
-  parsing lives in `common.rs`, dormant-callable masking in `deferred.rs`, exact
+- Python interpretation: `nah-inline/src/languages/python/{parser,engine}.rs`;
+  other inline signatures remain under `nah-inline/src/languages/`. Exact
   children re-enter `nah-actions`, and private findings reach `nah-policy`.
 - Native tool shapes: the runtime adapter, `nah-actions/src/native.rs`, and
   `codex_patch.rs` for `apply_patch`.
