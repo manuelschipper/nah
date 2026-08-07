@@ -237,6 +237,32 @@ fn class_body_abrupt_control_does_not_fall_through() {
 }
 
 #[test]
+fn finally_preserves_abrupt_control_and_skips_divergent_paths() {
+    let analysis = analyze(
+        "import os\ndef finish():\n    try: return\n    finally: os.remove('/tmp/finally')\n    os.remove('/tmp/function-tail')\nfinish()",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/finally")
+    );
+
+    let analysis = analyze(
+        "import os\ntry:\n    raise RuntimeError()\nfinally:\n    os.remove('/tmp/finally')\nos.remove('/tmp/tail')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/finally")
+    );
+
+    let analysis = analyze(
+        "import os\ntry:\n    while True: pass\nfinally:\n    os.remove('/tmp/finally')\nos.remove('/tmp/tail')",
+    );
+    assert!(analysis.draft().calls().is_empty());
+}
+
+#[test]
 fn dynamic_code_keeps_mode_isolation_and_defining_source_identity() {
     assert!(
         analyze("eval(\"import os; os.remove('/tmp/x')\")")

@@ -1177,10 +1177,11 @@ impl Interpreter<'_> {
         {
             control = self.exec_block(body, state, depth);
         }
-        if let Some(finally) = node
-            .children()
-            .iter()
-            .find(|child| child.kind() == HirKind::Finally)
+        if control != Control::Diverge
+            && let Some(finally) = node
+                .children()
+                .iter()
+                .find(|child| child.kind() == HirKind::Finally)
             && let Some(body) = finally
                 .child(HirField::Body)
                 .or_else(|| named_children(finally).find(|child| child.kind() == HirKind::Block))
