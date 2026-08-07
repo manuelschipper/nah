@@ -6,6 +6,7 @@ use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationEffect, Na
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
+    PathKind, PathObservation,
 };
 use support::{Change, absolute, bash_plan, bash_plan_with_self_protection, facts, observe};
 
@@ -672,6 +673,7 @@ fn new_hardlinks_from_self_protected_paths_are_structural() {
         "cp -l /home/test/.kiro/hooks/nah.json /tmp/alias",
         "cp -al /home/test/.kiro/hooks/nah.json /tmp/alias",
         r#"perl -e 'link "/home/test/.kiro/hooks/nah.json", "/tmp/alias"'"#,
+        r#"python -c 'import os; os.link("/home/test/.kiro/hooks/nah.json", target)'"#,
     ] {
         let plan = bash_plan_with_self_protection(source, self_protection.clone());
         let observation = observe(plan.observation_request(), "echo");
@@ -693,6 +695,99 @@ fn new_hardlinks_from_self_protected_paths_are_structural() {
         let (stream, report) = finalize_with_inline(plan, observation);
         assert!(
             !structurally_protected(&stream, &report),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn python_hardlinks_use_observed_source_identity() {
+    let protected = "/home/test/.kiro/hooks/nah.json";
+    let self_protection = SelfProtectionProjection::new(vec![absolute(protected)]);
+    for (follow, expected) in [("", true), (", follow_symlinks=False", false)] {
+        let source =
+            format!(r#"python -c 'import os; os.link("/tmp/source-link", "/tmp/alias"{follow})'"#);
+        let plan = bash_plan_with_self_protection(&source, self_protection.clone());
+        let observation = Observation::new(
+            SchemaVersion::V1,
+            plan.observation_request().request_id(),
+            facts(plan.observation_request(), "echo", Change::None)
+                .into_iter()
+                .map(|fact| match fact.query() {
+                    ObservationQuery::Path { requested, .. } if requested == "/tmp/source-link" => {
+                        ObservationFact::new(
+                            fact.query().clone(),
+                            ObservationValue::Path {
+                                observed: Observed::Ok {
+                                    value: PathObservation::new(
+                                        absolute("/tmp/source-link"),
+                                        Some(absolute(protected)),
+                                        PathKind::Symlink,
+                                    )
+                                    .with_target_kind(PathKind::File),
+                                },
+                            },
+                        )
+                        .unwrap()
+                    }
+                    _ => fact,
+                })
+                .collect(),
+        )
+        .unwrap();
+        let (stream, report) = finalize_with_inline(plan, observation);
+        assert_eq!(
+            structurally_protected(&stream, &report),
+            expected,
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn python_namespace_replacement_does_not_follow_destination_symlinks() {
+    let protected = "/home/test/.kiro/hooks/nah.json";
+    let self_protection = SelfProtectionProjection::new(vec![absolute(protected)]);
+    for (destination, realpath, expected) in [
+        ("/tmp/alias", protected, false),
+        (protected, "/tmp/ordinary", true),
+    ] {
+        let source =
+            format!(r#"python -c 'import os; os.replace("/tmp/source", "{destination}")'"#);
+        let plan = bash_plan_with_self_protection(&source, self_protection.clone());
+        let observation = Observation::new(
+            SchemaVersion::V1,
+            plan.observation_request().request_id(),
+            facts(plan.observation_request(), "echo", Change::None)
+                .into_iter()
+                .map(|fact| match fact.query() {
+                    ObservationQuery::Path { requested, .. } if requested == destination => {
+                        ObservationFact::new(
+                            fact.query().clone(),
+                            ObservationValue::Path {
+                                observed: Observed::Ok {
+                                    value: PathObservation::new(
+                                        absolute(destination),
+                                        Some(absolute(realpath)),
+                                        PathKind::Symlink,
+                                    )
+                                    .with_target_kind(PathKind::File),
+                                },
+                            },
+                        )
+                        .unwrap()
+                    }
+                    _ => fact,
+                })
+                .collect(),
+        )
+        .unwrap();
+        let (stream, report) = finalize_with_inline(plan, observation);
+        assert_eq!(
+            structurally_protected(&stream, &report),
+            expected,
             "{source}: {:?}",
             stream.effects()
         );

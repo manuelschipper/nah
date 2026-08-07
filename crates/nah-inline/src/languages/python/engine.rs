@@ -2047,7 +2047,8 @@ impl Interpreter<'_> {
                             false,
                         )
                         .identity(identity, false)
-                        .protects_descendants(),
+                        .protects_descendants()
+                        .without_final_symlink_follow_if(function != KnownFunction::ShutilMove),
                     ],
                 );
                 Value::None
@@ -2067,6 +2068,9 @@ impl Interpreter<'_> {
                 let identity = argument(&arguments, 0, "src")
                     .and_then(value_string)
                     .map(str::to_owned);
+                let follows_symlinks = argument(&arguments, 4, "follow_symlinks")
+                    .and_then(exact_bool)
+                    .unwrap_or(true);
                 self.emit_filesystem_call(
                     "os.link",
                     &arguments,
@@ -2074,12 +2078,25 @@ impl Interpreter<'_> {
                     vec![
                         filesystem_argument(
                             &arguments,
+                            0,
+                            "src",
+                            FilesystemOperation::Write,
+                            false,
+                        )
+                        .metadata()
+                        .without_final_symlink_follow_if(!follows_symlinks),
+                        filesystem_argument(
+                            &arguments,
                             1,
                             "dst",
                             FilesystemOperation::Write,
                             false,
                         )
-                        .identity(identity, true),
+                        .observed_identity(
+                            identity,
+                            true,
+                            follows_symlinks,
+                        ),
                     ],
                 );
                 Value::None
@@ -2107,7 +2124,8 @@ impl Interpreter<'_> {
                             FilesystemOperation::Write,
                             false,
                         )
-                        .metadata(),
+                        .metadata()
+                        .without_final_symlink_follow(),
                     ],
                 );
                 Value::None
@@ -2396,7 +2414,8 @@ impl Interpreter<'_> {
                                     .unwrap_or(false),
                         )
                         .metadata_if(matches!(method, "touch" | "mkdir" | "chmod" | "lchmod"))
-                        .protects_descendants_if(matches!(method, "chmod" | "lchmod")),
+                        .protects_descendants_if(matches!(method, "chmod" | "lchmod"))
+                        .without_final_symlink_follow_if(method == "lchmod"),
                     ],
                 );
                 Value::None
@@ -2444,7 +2463,8 @@ impl Interpreter<'_> {
                         ),
                         LanguageFilesystem::new(target.clone(), FilesystemOperation::Write, false)
                             .identity(Some(path), false)
-                            .protects_descendants(),
+                            .protects_descendants()
+                            .without_final_symlink_follow(),
                     ],
                 );
                 target.map_or(Value::Unknown, Value::Path)
@@ -2469,8 +2489,14 @@ impl Interpreter<'_> {
                     &arguments,
                     state,
                     vec![
+                        LanguageFilesystem::new(
+                            identity.clone(),
+                            FilesystemOperation::Write,
+                            false,
+                        )
+                        .metadata(),
                         LanguageFilesystem::new(destination, FilesystemOperation::Write, false)
-                            .identity(identity, true),
+                            .observed_identity(identity, true, true),
                     ],
                 );
                 Value::None
@@ -2487,7 +2513,8 @@ impl Interpreter<'_> {
                     state,
                     vec![
                         LanguageFilesystem::new(Some(path), FilesystemOperation::Write, false)
-                            .metadata(),
+                            .metadata()
+                            .without_final_symlink_follow(),
                     ],
                 );
                 Value::None

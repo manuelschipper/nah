@@ -164,7 +164,10 @@ pub struct LanguageFilesystem {
     content_access: bool,
     identity: Option<String>,
     identity_requires_missing_target: bool,
+    identity_observed: bool,
+    identity_follows_final_symlink: bool,
     protects_descendants: bool,
+    follows_final_symlink: bool,
 }
 
 impl LanguageFilesystem {
@@ -180,7 +183,10 @@ impl LanguageFilesystem {
             content_access: true,
             identity: None,
             identity_requires_missing_target: false,
+            identity_observed: false,
+            identity_follows_final_symlink: false,
             protects_descendants: false,
+            follows_final_symlink: true,
         }
     }
 
@@ -204,9 +210,24 @@ impl LanguageFilesystem {
         self
     }
 
+    pub(crate) fn observed_identity(
+        mut self,
+        identity: Option<String>,
+        requires_missing: bool,
+        follows_final_symlink: bool,
+    ) -> Self {
+        self.identity = identity;
+        self.identity_requires_missing_target = requires_missing;
+        self.identity_observed = self.identity.is_some();
+        self.identity_follows_final_symlink = follows_final_symlink;
+        self
+    }
+
     pub(crate) fn without_identity(mut self) -> Self {
         self.identity = None;
         self.identity_requires_missing_target = false;
+        self.identity_observed = false;
+        self.identity_follows_final_symlink = false;
         self
     }
 
@@ -218,6 +239,19 @@ impl LanguageFilesystem {
     pub(crate) fn protects_descendants_if(self, protects: bool) -> Self {
         if protects {
             self.protects_descendants()
+        } else {
+            self
+        }
+    }
+
+    pub(crate) fn without_final_symlink_follow(mut self) -> Self {
+        self.follows_final_symlink = false;
+        self
+    }
+
+    pub(crate) fn without_final_symlink_follow_if(self, no_follow: bool) -> Self {
+        if no_follow {
+            self.without_final_symlink_follow()
         } else {
             self
         }
@@ -247,8 +281,20 @@ impl LanguageFilesystem {
         self.identity_requires_missing_target
     }
 
+    pub const fn identity_observed(&self) -> bool {
+        self.identity_observed
+    }
+
+    pub const fn identity_follows_final_symlink(&self) -> bool {
+        self.identity_follows_final_symlink
+    }
+
     pub const fn descendant_protection(&self) -> bool {
         self.protects_descendants
+    }
+
+    pub const fn follows_final_symlink(&self) -> bool {
+        self.follows_final_symlink
     }
 }
 

@@ -737,7 +737,10 @@ fn observed_target<'a>(
     filesystem: &FilesystemDraft,
     path: &'a PathObservation,
 ) -> &'a AbsolutePath {
-    if filesystem.operation == FilesystemOperation::Delete && path.kind() == PathKind::Symlink {
+    if path.kind() == PathKind::Symlink
+        && (!filesystem.follows_final_symlink
+            || filesystem.operation == FilesystemOperation::Delete)
+    {
         path.resolved()
     } else {
         observed_target_path(path)

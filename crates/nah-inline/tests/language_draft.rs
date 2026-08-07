@@ -176,9 +176,12 @@ fn move_and_link_calls_preserve_identity() {
     );
     assert_eq!(calls[0].filesystems()[1].identity_path(), Some("/a"));
     assert!(!calls[0].filesystems()[1].identity_requires_missing_target());
-    assert_eq!(calls[1].filesystems().len(), 1);
-    assert_eq!(calls[1].filesystems()[0].identity_path(), Some("/a"));
-    assert!(calls[1].filesystems()[0].identity_requires_missing_target());
+    assert_eq!(calls[1].filesystems().len(), 2);
+    assert_eq!(calls[1].filesystems()[0].requested(), Some("/a"));
+    assert!(!calls[1].filesystems()[0].content_access());
+    assert_eq!(calls[1].filesystems()[1].identity_path(), Some("/a"));
+    assert!(calls[1].filesystems()[1].identity_requires_missing_target());
+    assert!(calls[1].filesystems()[1].identity_observed());
     assert_eq!(calls[2].filesystems()[1].identity_path(), Some("/a"));
     assert!(analysis.draft().complete());
 }

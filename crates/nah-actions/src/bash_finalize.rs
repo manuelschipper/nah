@@ -48,6 +48,23 @@ pub(crate) fn finalize(
         .iter_mut()
         .flat_map(|stage| &mut stage.filesystems)
     {
+        if let Some(key) = filesystem.identity_key.as_deref() {
+            match observed_path(observation, key) {
+                Some(Ok(path)) if path.kind() != PathKind::Missing => {
+                    let identity = if filesystem.identity_follows_final_symlink {
+                        path.realpath().unwrap_or_else(|| path.resolved())
+                    } else {
+                        path.resolved()
+                    };
+                    filesystem.identity = Some(identity.as_str().to_owned());
+                }
+                _ => {
+                    filesystem.identity = None;
+                    filesystem.identity_requirements.clear();
+                    complete = false;
+                }
+            }
+        }
         if filesystem.identity.is_some()
             && !filesystem.identity_requirements.iter().all(|key| {
                 matches!(
@@ -191,9 +208,9 @@ pub(crate) fn finalize(
                         }
                     }
                 }
-                let target = if filesystem.operation
-                    == nah_proto::action::FilesystemOperation::Delete
-                    && path.kind() == PathKind::Symlink
+                let target = if path.kind() == PathKind::Symlink
+                    && (!filesystem.follows_final_symlink
+                        || filesystem.operation == nah_proto::action::FilesystemOperation::Delete)
                     || filesystem.recursive
                         && filesystem.symlink_traversal
                             == nah_proto::observation::SymlinkTraversal::None
@@ -528,7 +545,9 @@ fn observed_effect_target<'a>(
     filesystem: &FilesystemDraft,
     path: &'a nah_proto::observation::PathObservation,
 ) -> &'a AbsolutePath {
-    if filesystem.operation == FilesystemOperation::Delete && path.kind() == PathKind::Symlink
+    if path.kind() == PathKind::Symlink
+        && (!filesystem.follows_final_symlink
+            || filesystem.operation == FilesystemOperation::Delete)
         || filesystem.recursive
             && filesystem.symlink_traversal == nah_proto::observation::SymlinkTraversal::None
             && path.kind() == PathKind::Symlink

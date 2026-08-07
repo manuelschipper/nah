@@ -293,6 +293,25 @@ impl Lowerer {
                 if filesystem.identity_path().is_some() && identity.is_none() {
                     self.complete = false;
                 }
+                let identity_key = if filesystem.identity_observed() {
+                    identity.as_ref().map(|identity| {
+                        let key = format!(
+                            "language-{:04}-identity-{call_ordinal:04}-{filesystem_ordinal:02}",
+                            execution.stage
+                        );
+                        debug_assert!(!self.queries.iter().any(|query| query.key() == key));
+                        self.queries.push(ObservationQuery::Path {
+                            key: key.clone(),
+                            requested: identity.clone(),
+                            cwd_key: crate::CWD_KEY.into(),
+                            inspect_descendants: false,
+                            symlink_traversal: SymlinkTraversal::None,
+                        });
+                        key
+                    })
+                } else {
+                    None
+                };
                 let identity_requirements =
                     if identity.is_some() && filesystem.identity_requires_missing_target() {
                         key.clone().into_iter().collect()
@@ -311,8 +330,11 @@ impl Lowerer {
                     unresolved_selection,
                     content_access: filesystem.content_access(),
                     identity,
+                    identity_key,
+                    identity_follows_final_symlink: filesystem.identity_follows_final_symlink(),
                     identity_requirements,
                     protects_descendants: filesystem.descendant_protection(),
+                    follows_final_symlink: filesystem.follows_final_symlink(),
                     read_if_existing_file: false,
                     pattern: false,
                 });

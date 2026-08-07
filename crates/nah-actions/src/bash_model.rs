@@ -147,10 +147,15 @@ pub(crate) struct FilesystemDraft {
     // A same-call link or move can make this path refer to another known path
     // even though the pre-call filesystem observation cannot see that identity.
     pub(crate) identity: Option<String>,
+    pub(crate) identity_key: Option<String>,
+    pub(crate) identity_follows_final_symlink: bool,
     pub(crate) identity_requirements: Vec<String>,
     // Namespace or access-control mutations can affect protected descendants
     // without claiming recursive content access in the public effect.
     pub(crate) protects_descendants: bool,
+    // Namespace and no-follow metadata operations mutate a final symlink
+    // itself rather than the object it names.
+    pub(crate) follows_final_symlink: bool,
     // `git add <path>` reads an existing file, stages a missing path as a
     // deletion, and remains incomplete for directories or links.
     pub(crate) read_if_existing_file: bool,
