@@ -1,6 +1,6 @@
 use nah_inline::{
-    InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, ProtectionInput,
-    analyze_with_language_effects,
+    InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, NestedExecution,
+    ProtectionInput, analyze_with_language_effects,
 };
 use nah_proto::{
     action::{FilesystemOperation, InvocationInput},
@@ -379,4 +379,56 @@ fn possible_cwd_mutation_only_widens_later_relative_targets() {
         analysis.draft().calls()[0].filesystems()[0].requested(),
         Some("/tmp/cache")
     );
+}
+
+#[test]
+fn local_abrupt_control_stops_unreachable_effects_and_remains_catchable() {
+    for code in [
+        "import os\ndef stop(): raise RuntimeError()\nstop()\nos.remove('/tmp/x')",
+        "import os\ndef stop():\n    while True: pass\nstop()\nos.remove('/tmp/x')",
+        "import os\ndef stop(): raise RuntimeError()\nwrapper(stop(), os.remove('/tmp/x'))",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis = analyze(
+        "import os\ndef stop(): raise RuntimeError()\ntry:\n    stop()\nexcept:\n    os.remove('/tmp/caught')\nos.remove('/tmp/tail')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 2);
+    assert_eq!(
+        analysis
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["os.remove", "os.remove"]
+    );
+
+    let analysis = analyze(
+        "import os\nvalue='safe'\ndef stop(): raise RuntimeError()\ntry:\n    value=stop()\nexcept:\n    pass\nos.system(value)",
+    );
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { code, .. }] if code == "safe"
+    ));
+
+    let analysis =
+        analyze("import os\nos.execl('/bin/true', 'true')\nos.remove('/tmp/unreachable')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.execl");
+}
+
+#[test]
+fn terminated_unknown_branch_state_never_flows_into_the_fallthrough() {
+    let analysis = analyze(
+        "from pathlib import Path\nimport requests\ndef send():\n    data='safe'\n    if condition:\n        data=Path('/secret').read_text()\n        return\n    requests.post('https://example.test', data=data)\nsend()",
+    );
+    assert_eq!(analysis.draft().calls().len(), 2);
+    assert_eq!(
+        callable(&analysis.draft().calls()[0]),
+        "pathlib.path.read_text"
+    );
+    assert_eq!(callable(&analysis.draft().calls()[1]), "requests.post");
+    assert!(analysis.draft().flows().is_empty());
 }

@@ -305,6 +305,7 @@ struct Interpreter<'a> {
     conditional_depth: usize,
     execution_dominators: Vec<usize>,
     call_stack: Vec<String>,
+    pending_control: Option<Control>,
 }
 
 pub(super) fn analyze(
@@ -331,6 +332,7 @@ pub(super) fn analyze(
         conditional_depth: 0,
         execution_dominators: Vec::new(),
         call_stack: Vec::with_capacity(depth),
+        pending_control: None,
     };
     let mut state = State::default();
     interpreter.exec_block(module.root(), &mut state, depth);
@@ -348,6 +350,9 @@ pub(super) fn analyze(
 
 impl Interpreter<'_> {
     fn exec_block(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        if let Some(control) = &self.pending_control {
+            return control.clone();
+        }
         for child in node.children() {
             if matches!(child.kind(), HirKind::Token | HirKind::Comment) {
                 continue;
@@ -364,7 +369,7 @@ impl Interpreter<'_> {
     }
 
     fn exec_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
-        match node.kind() {
+        let control = match node.kind() {
             HirKind::Module | HirKind::Block => self.exec_block(node, state, depth),
             HirKind::Import => {
                 self.import(node, state);
@@ -462,10 +467,14 @@ impl Interpreter<'_> {
                 self.eval(node, state, depth);
                 Control::Next
             }
-        }
+        };
+        self.pending_control.take().unwrap_or(control)
     }
 
     fn eval(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        if self.pending_control.is_some() {
+            return Value::Unknown;
+        }
         if !self.budget.spend() {
             return Value::Unknown;
         }
@@ -561,6 +570,9 @@ impl Interpreter<'_> {
         let value = node
             .child(HirField::Right)
             .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        if self.pending_control.is_some() {
+            return;
+        }
         self.assign(left, value, state);
     }
 
@@ -572,6 +584,9 @@ impl Interpreter<'_> {
         let right = node
             .child(HirField::Right)
             .map_or(Value::Unknown, |right| self.eval(right, state, depth));
+        if self.pending_control.is_some() {
+            return;
+        }
         let operator = node
             .child(HirField::Operator)
             .map(|operator| self.text(operator))
@@ -686,6 +701,9 @@ impl Interpreter<'_> {
             .and_then(|parameters| self.parameters(parameters, state, depth));
         if let Some(annotation) = node.child(HirField::ReturnType) {
             self.eval(annotation, state, depth);
+        }
+        if self.pending_control.is_some() {
+            return;
         }
         let Some(body) = node.child(HirField::Body) else {
             state.bindings.insert(name, Value::Unknown);
@@ -827,12 +845,9 @@ impl Interpreter<'_> {
                 let no_control = self.exec_alternatives(&alternatives, &mut no, depth);
                 self.conditional_depth -= 1;
                 self.execution_dominators = dominators;
-                *state = join_states(yes, no);
-                if yes_control == no_control {
-                    yes_control
-                } else {
-                    Control::Next
-                }
+                let (joined, control) = merge_branch_states(yes, yes_control, no, no_control);
+                *state = joined;
+                control
             }
         }
     }
@@ -874,12 +889,10 @@ impl Interpreter<'_> {
                         let no_control = self.exec_alternatives(rest, &mut no, depth);
                         self.conditional_depth -= 1;
                         self.execution_dominators = dominators;
-                        *state = join_states(yes, no);
-                        if yes_control == no_control {
-                            yes_control
-                        } else {
-                            Control::Next
-                        }
+                        let (joined, control) =
+                            merge_branch_states(yes, yes_control, no, no_control);
+                        *state = joined;
+                        control
                     }
                 }
             }
@@ -1254,11 +1267,17 @@ impl Interpreter<'_> {
         let callable = node
             .child(HirField::Function)
             .map_or(Value::Unknown, |function| self.eval(function, state, depth));
+        if self.pending_control.is_some() {
+            return Value::Unknown;
+        }
         let arguments = node
             .child(HirField::Arguments)
             .map_or_else(Arguments::default, |arguments| {
                 self.arguments(arguments, state, depth)
             });
+        if self.pending_control.is_some() {
+            return Value::Unknown;
+        }
         match callable {
             Value::Known(function) => self.call_known(function, arguments, state, depth),
             Value::LocalFunction(function) => self.call_local(function, arguments, state, depth),
@@ -1432,6 +1451,7 @@ impl Interpreter<'_> {
                     None,
                 );
                 self.os_exec(kind, &arguments, state);
+                self.pending_control = Some(Control::Raise);
                 Value::None
             }
             KnownFunction::Subprocess(kind) => {
@@ -1966,8 +1986,9 @@ impl Interpreter<'_> {
         }
         self.call_stack.push(function.name);
         let outer_source = std::mem::replace(&mut self.source, function.source);
-        let result = match self.exec_block(&function.body, &mut local, depth + 1) {
-            Control::Return(value) => value,
+        let control = self.exec_block(&function.body, &mut local, depth + 1);
+        let result = match &control {
+            Control::Return(value) => value.clone(),
             _ => Value::None,
         };
         self.source = outer_source;
@@ -1978,6 +1999,9 @@ impl Interpreter<'_> {
         state.relative_cwd_known &= local.relative_cwd_known;
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
+        }
+        if matches!(control, Control::Raise | Control::Diverge) {
+            self.pending_control = Some(control);
         }
         result
     }
@@ -3130,6 +3154,43 @@ fn join_states(mut left: State, right: State) -> State {
         }
     }
     left
+}
+
+fn merge_branch_states(
+    yes: State,
+    yes_control: Control,
+    no: State,
+    no_control: Control,
+) -> (State, Control) {
+    if yes_control == Control::Next {
+        return if no_control == Control::Next {
+            (join_states(yes, no), Control::Next)
+        } else {
+            (yes, Control::Next)
+        };
+    }
+    if no_control == Control::Next {
+        return (no, Control::Next);
+    }
+    if yes_control == no_control {
+        return (join_states(yes, no), yes_control);
+    }
+    match (yes_control, no_control) {
+        (Control::Return(yes_value), Control::Return(no_value)) => (
+            join_states(yes, no),
+            Control::Return(join_values(yes_value, no_value)),
+        ),
+        (Control::Return(value), _) => (yes, Control::Return(value)),
+        (_, Control::Return(value)) => (no, Control::Return(value)),
+        (Control::Raise, _) => (yes, Control::Raise),
+        (_, Control::Raise) => (no, Control::Raise),
+        (Control::Break, _) => (join_states(yes, no), Control::Break),
+        (_, Control::Break) => (join_states(yes, no), Control::Break),
+        (Control::Continue, _) => (join_states(yes, no), Control::Continue),
+        (_, Control::Continue) => (join_states(yes, no), Control::Continue),
+        (Control::Diverge, Control::Diverge) => (join_states(yes, no), Control::Diverge),
+        (Control::Next, _) | (_, Control::Next) => unreachable!(),
+    }
 }
 
 fn values_match(
@@ -4315,6 +4376,7 @@ mod tests {
             conditional_depth: 0,
             execution_dominators: Vec::new(),
             call_stack: Vec::new(),
+            pending_control: None,
         };
         interpreter.dynamic_execution(
             Value::String("#".repeat(crate::SOURCE_LIMIT + 1)),

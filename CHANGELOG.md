@@ -9,7 +9,9 @@
   owned HIR, and bounded interpreter for constants, f-strings, aliases,
   branches, finite loops, simple functions, decoded values, and exact child
   execution. Unsupported behavior stays local, while malformed required suites
-  use the existing structural-mismatch refusal.
+  use the existing structural-mismatch refusal. Raised or non-returning local
+  calls and terminated branch state no longer leak effects into unreachable
+  code.
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
