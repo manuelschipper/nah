@@ -15,6 +15,8 @@ const MAX_CALL_DEPTH: usize = 16;
 const MAX_LOOP_ITERATIONS: usize = 64;
 const MAX_COLLECTION_ITEMS: usize = 256;
 const MAX_CELLS: usize = 1_024;
+const MAX_VALUE_BYTES: usize = crate::SOURCE_LIMIT;
+const MAX_DYNAMIC_SOURCE_BYTES: usize = crate::SOURCE_LIMIT;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Module {
@@ -177,6 +179,7 @@ impl Default for State {
 struct Budget {
     work: usize,
     statements: usize,
+    dynamic_source_bytes: usize,
     refusal: Option<InlineRefusal>,
 }
 
@@ -199,6 +202,33 @@ impl Budget {
             self.refusal = Some(InlineRefusal::WorkLimit);
             false
         }
+    }
+
+    fn admit_value_bytes(&mut self, bytes: Option<usize>) -> bool {
+        if bytes.is_some_and(|bytes| bytes <= MAX_VALUE_BYTES) {
+            true
+        } else {
+            self.refuse_work();
+            false
+        }
+    }
+
+    fn enter_dynamic_source(&mut self, bytes: usize) -> bool {
+        if let Some(bytes) = self
+            .dynamic_source_bytes
+            .checked_add(bytes)
+            .filter(|bytes| *bytes <= MAX_DYNAMIC_SOURCE_BYTES)
+        {
+            self.dynamic_source_bytes = bytes;
+            true
+        } else {
+            self.refuse_work();
+            false
+        }
+    }
+
+    fn refuse_work(&mut self) {
+        self.refusal.get_or_insert(InlineRefusal::WorkLimit);
     }
 }
 
@@ -488,8 +518,10 @@ impl Interpreter<'_> {
         let operator = node
             .child(HirField::Operator)
             .map(|operator| self.text(operator))
-            .unwrap_or_default();
-        self.assign(left, binary_value(current, right, operator), state);
+            .unwrap_or_default()
+            .to_owned();
+        let value = binary_value(current, right, &operator, &mut self.budget);
+        self.assign(left, value, state);
     }
 
     fn assign(&mut self, target: &HirNode, value: Value, state: &mut State) {
@@ -879,9 +911,11 @@ impl Interpreter<'_> {
 
     fn collection(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
         let mut values = Vec::new();
+        let mut bytes = 0usize;
         for child in named_children(node) {
             if values.len() >= MAX_COLLECTION_ITEMS {
                 self.complete = false;
+                self.budget.refuse_work();
                 return Value::Unknown;
             }
             if child.kind() == HirKind::ListSplat {
@@ -889,13 +923,38 @@ impl Interpreter<'_> {
                     .next()
                     .map_or(Value::Unknown, |value| self.eval(value, state, depth));
                 if let Some(items) = sequence_values(&spread, state) {
+                    if items.len() > MAX_COLLECTION_ITEMS - values.len() {
+                        self.complete = false;
+                        self.budget.refuse_work();
+                        return Value::Unknown;
+                    }
+                    let item_bytes = values_bytes(items);
+                    let Some(total_bytes) = item_bytes.and_then(|item_bytes| {
+                        bytes
+                            .checked_add(item_bytes)
+                            .filter(|bytes| *bytes <= MAX_VALUE_BYTES)
+                    }) else {
+                        self.budget.refuse_work();
+                        return Value::Unknown;
+                    };
                     values.extend_from_slice(items);
+                    bytes = total_bytes;
                 } else {
                     self.complete = false;
                     return Value::Unknown;
                 }
             } else {
-                values.push(self.eval(child, state, depth));
+                let value = self.eval(child, state, depth);
+                let Some(total_bytes) = value_bytes(&value).and_then(|value_bytes| {
+                    bytes
+                        .checked_add(value_bytes)
+                        .filter(|bytes| *bytes <= MAX_VALUE_BYTES)
+                }) else {
+                    self.budget.refuse_work();
+                    return Value::Unknown;
+                };
+                values.push(value);
+                bytes = total_bytes;
             }
         }
         if state.cells.len() >= MAX_CELLS {
@@ -926,7 +985,9 @@ impl Interpreter<'_> {
                     let Some(content) = decode_string_fragment(self.text(child), raw) else {
                         return Value::Unknown;
                     };
-                    value.push_str(&content);
+                    if !bounded_push_str(&mut value, &content, &mut self.budget) {
+                        return Value::Unknown;
+                    }
                 }
                 HirKind::Interpolation if formatted => {
                     let Some(expression) = child.child(HirField::Expression) else {
@@ -936,7 +997,9 @@ impl Interpreter<'_> {
                     let Some(interpolated) = display_value(&interpolated) else {
                         return Value::Unknown;
                     };
-                    value.push_str(&interpolated);
+                    if !bounded_push_str(&mut value, &interpolated, &mut self.budget) {
+                        return Value::Unknown;
+                    }
                 }
                 _ => {}
             }
@@ -954,7 +1017,7 @@ impl Interpreter<'_> {
             let next = self.eval(child, state, depth);
             result = Some(match result {
                 None => next,
-                Some(value) => binary_value(value, next, "+"),
+                Some(value) => binary_value(value, next, "+", &mut self.budget),
             });
         }
         match result.unwrap_or(Value::String(String::new())) {
@@ -972,7 +1035,7 @@ impl Interpreter<'_> {
         };
         let object = self.eval(object, state, depth);
         let attribute = self.text(attribute);
-        match object {
+        let value = match object {
             Value::Module(module) => module_attribute(module, attribute).unwrap_or(Value::Unknown),
             Value::Path(path) => Value::PathMethod {
                 path,
@@ -998,6 +1061,11 @@ impl Interpreter<'_> {
                 Value::Known(KnownFunction::PathHome)
             }
             _ => Value::Unknown,
+        };
+        if self.budget.admit_value_bytes(value_bytes(&value)) {
+            value
+        } else {
+            Value::Unknown
         }
     }
 
@@ -1104,11 +1172,7 @@ impl Interpreter<'_> {
                     if let Some(code) = value_string(value)
                         && self.input.platform != Platform::Windows
                     {
-                        self.report.push_nested_execution(NestedExecution::Shell {
-                            program: "sh".into(),
-                            code: code.to_owned(),
-                            stdout_inherited: function == KnownFunction::OsSystem,
-                        });
+                        self.push_shell(code, function == KnownFunction::OsSystem);
                     }
                 }
                 Value::Unknown
@@ -1163,46 +1227,50 @@ impl Interpreter<'_> {
                 .positional
                 .first()
                 .and_then(value_string)
-                .map_or(Value::Unknown, |path| Value::Path(path.to_owned())),
+                .and_then(|path| bounded_owned(path, &mut self.budget))
+                .map_or(Value::Unknown, Value::Path),
             KnownFunction::PathHome => {
                 if arguments.positional.is_empty() && arguments.keywords.is_empty() {
-                    Value::Path(self.input.home.to_owned())
+                    bounded_owned(self.input.home, &mut self.budget)
+                        .map_or(Value::Unknown, Value::Path)
                 } else {
                     Value::Unknown
                 }
             }
             KnownFunction::PathJoin => {
-                let parts = arguments
-                    .positional
-                    .iter()
-                    .map(value_string)
-                    .collect::<Option<Vec<_>>>();
-                parts.map_or(Value::Unknown, |parts| {
-                    Value::String(parts.into_iter().fold(String::new(), join_path))
-                })
+                let mut joined = String::new();
+                for part in &arguments.positional {
+                    let Some(part) = value_string(part) else {
+                        return Value::Unknown;
+                    };
+                    let Some(value) = join_path(joined, part, &mut self.budget) else {
+                        return Value::Unknown;
+                    };
+                    joined = value;
+                }
+                Value::String(joined)
             }
             KnownFunction::OsExpanduser => arguments
                 .positional
                 .first()
                 .and_then(value_string)
-                .map_or(Value::Unknown, |path| {
-                    Value::String(expand_home(path, self.input.home))
-                }),
+                .and_then(|path| expand_home(path, self.input.home, &mut self.budget))
+                .map_or(Value::Unknown, Value::String),
             KnownFunction::OsAbspath => arguments
                 .positional
                 .first()
                 .and_then(value_string)
                 .filter(|path| is_absolute(path, self.input.platform))
-                .map_or(Value::Unknown, |path| Value::String(path.to_owned())),
+                .and_then(|path| bounded_owned(path, &mut self.budget))
+                .map_or(Value::Unknown, Value::String),
             KnownFunction::OsRealpath => Value::Unknown,
             KnownFunction::OsGetenv => arguments
                 .positional
                 .first()
                 .and_then(value_string)
                 .filter(|name| *name == "HOME")
-                .map_or(Value::Unknown, |_| {
-                    Value::String(self.input.home.to_owned())
-                }),
+                .and_then(|_| bounded_owned(self.input.home, &mut self.budget))
+                .map_or(Value::Unknown, Value::String),
             KnownFunction::Getattr => {
                 if arguments.positional.len() >= 2
                     && let Some(attribute) = arguments.positional.get(1).and_then(value_string)
@@ -1313,7 +1381,8 @@ impl Interpreter<'_> {
                         let parent = path
                             .rsplit_once(['/', '\\'])
                             .map_or("", |(parent, _)| parent);
-                        Value::Path(join_path(parent.to_owned(), name))
+                        join_path(parent.to_owned(), name, &mut self.budget)
+                            .map_or(Value::Unknown, Value::Path)
                     })
             }
             "joinpath" => {
@@ -1322,11 +1391,15 @@ impl Interpreter<'_> {
                     let Some(value) = value_string(value) else {
                         return Value::Unknown;
                     };
-                    joined = join_path(joined, value);
+                    let Some(value) = join_path(joined, value, &mut self.budget) else {
+                        return Value::Unknown;
+                    };
+                    joined = value;
                 }
                 Value::Path(joined)
             }
-            "expanduser" => Value::Path(expand_home(&path, self.input.home)),
+            "expanduser" => expand_home(&path, self.input.home, &mut self.budget)
+                .map_or(Value::Unknown, Value::Path),
             "resolve" | "absolute" => Value::Unknown,
             "read_text" | "read_bytes" => Value::Unknown,
             "unlink" | "rmdir" | "rename" | "replace" | "write_text" | "write_bytes" | "touch"
@@ -1344,18 +1417,51 @@ impl Interpreter<'_> {
     ) -> Value {
         if method == "append"
             && arguments.positional.len() == 1
-            && let Some(Cell::Sequence(values)) = state.cells.get_mut(cell)
+            && let Some(value) = state.cells.get_mut(cell)
         {
-            values.push(arguments.positional[0].clone());
+            match value {
+                Cell::Sequence(values) => {
+                    let bytes = values_bytes(values).and_then(|bytes| {
+                        value_bytes(&arguments.positional[0])
+                            .and_then(|added| bytes.checked_add(added))
+                    });
+                    if values.len() < MAX_COLLECTION_ITEMS && self.budget.admit_value_bytes(bytes) {
+                        values.push(arguments.positional[0].clone());
+                    } else {
+                        *value = Cell::Unknown;
+                        self.budget.refuse_work();
+                    }
+                }
+                Cell::Unknown => {}
+            }
             return Value::None;
         }
         if method == "extend" && arguments.positional.len() == 1 {
             let extension = sequence_values(&arguments.positional[0], state).map(Vec::from);
-            if let Some(Cell::Sequence(values)) = state.cells.get_mut(cell) {
-                if let Some(extension) = extension {
-                    values.extend(extension);
-                } else {
-                    state.cells[cell] = Cell::Unknown;
+            if let Some(value) = state.cells.get_mut(cell) {
+                match extension {
+                    Some(extension) => match value {
+                        Cell::Sequence(values) => {
+                            let items = values.len().checked_add(extension.len());
+                            let bytes = values_bytes(values).and_then(|bytes| {
+                                values_bytes(&extension).and_then(|added| bytes.checked_add(added))
+                            });
+                            if items.is_some_and(|items| items <= MAX_COLLECTION_ITEMS)
+                                && self.budget.admit_value_bytes(bytes)
+                            {
+                                values.extend(extension);
+                            } else {
+                                *value = Cell::Unknown;
+                                self.budget.refuse_work();
+                            }
+                        }
+                        Cell::Unknown => {}
+                    },
+                    None => {
+                        if matches!(value, Cell::Sequence(_)) {
+                            *value = Cell::Unknown;
+                        }
+                    }
                 }
                 return Value::None;
             }
@@ -1372,6 +1478,17 @@ impl Interpreter<'_> {
                     let Some(display) = display_value(&argument) else {
                         return Value::Unknown;
                     };
+                    if !formatted.contains("{}") {
+                        continue;
+                    }
+                    if !self.budget.admit_value_bytes(
+                        formatted
+                            .len()
+                            .checked_sub(2)
+                            .and_then(|bytes| bytes.checked_add(display.len())),
+                    ) {
+                        return Value::Unknown;
+                    }
                     formatted = formatted.replacen("{}", &display, 1);
                 }
                 Value::String(formatted)
@@ -1400,26 +1517,18 @@ impl Interpreter<'_> {
                 .push(Finding::exact(FindingKind::DecodedExecution));
         }
         if shell {
-            let code = value_string(command).map(str::to_owned).or_else(|| {
+            let code = value_string(command).or_else(|| {
                 sequence_values(command, state)
                     .and_then(|values| values.first())
                     .and_then(value_string)
-                    .map(str::to_owned)
             });
             if let Some(code) = code
                 && self.input.platform != Platform::Windows
             {
-                self.report.push_nested_execution(NestedExecution::Shell {
-                    program: "sh".into(),
-                    code,
-                    stdout_inherited,
-                });
+                self.push_shell(code, stdout_inherited);
             }
-        } else if let Some(argv) = argv_value(command, state) {
-            self.report.push_nested_execution(NestedExecution::Command {
-                argv,
-                stdout_inherited,
-            });
+        } else if let Some(argv) = argv_value(command, state, &mut self.budget) {
+            self.push_command(argv, stdout_inherited);
         }
     }
 
@@ -1433,18 +1542,12 @@ impl Interpreter<'_> {
                         .iter()
                         .all(|value| value_string(value).is_some()) =>
             {
-                std::iter::once(
-                    value_string(&arguments.positional[0])
-                        .expect("the guarded arguments are exact strings")
-                        .to_owned(),
-                )
-                .chain(
-                    arguments.positional[2..]
-                        .iter()
-                        .filter_map(value_string)
-                        .map(str::to_owned),
-                )
-                .collect::<Vec<_>>()
+                let values = std::iter::once(value_string(&arguments.positional[0]))
+                    .chain(arguments.positional[2..].iter().map(value_string));
+                let Some(argv) = bounded_strings(values, &mut self.budget) else {
+                    return;
+                };
+                argv
             }
             StringKind::Execv | StringKind::Execvp
                 if arguments.keywords.is_empty() && arguments.positional.len() == 2 =>
@@ -1452,7 +1555,8 @@ impl Interpreter<'_> {
                 let Some(program) = value_string(&arguments.positional[0]) else {
                     return;
                 };
-                let Some(argv) = argv_value(&arguments.positional[1], state) else {
+                let Some(argv) = argv_value(&arguments.positional[1], state, &mut self.budget)
+                else {
                     return;
                 };
                 if argv.is_empty() {
@@ -1464,9 +1568,31 @@ impl Interpreter<'_> {
             }
             _ => return,
         };
+        self.push_command(argv, true);
+    }
+
+    fn push_shell(&mut self, code: &str, stdout_inherited: bool) {
+        if !self.budget.admit_value_bytes(Some(code.len())) {
+            return;
+        }
+        self.report.push_nested_execution(NestedExecution::Shell {
+            program: "sh".into(),
+            code: code.to_owned(),
+            stdout_inherited,
+        });
+    }
+
+    fn push_command(&mut self, argv: Vec<String>, stdout_inherited: bool) {
+        let bytes = argv
+            .iter()
+            .try_fold(0usize, |bytes, value| bytes.checked_add(value.len()));
+        if argv.len() > MAX_COLLECTION_ITEMS || !self.budget.admit_value_bytes(bytes) {
+            self.budget.refuse_work();
+            return;
+        }
         self.report.push_nested_execution(NestedExecution::Command {
             argv,
-            stdout_inherited: true,
+            stdout_inherited,
         });
     }
 
@@ -1475,6 +1601,13 @@ impl Interpreter<'_> {
             Value::String(source) | Value::Compiled(source) => source,
             _ => return,
         };
+        if source.len() > crate::SOURCE_LIMIT {
+            self.report.refuse(InlineRefusal::SourceLimit);
+            return;
+        }
+        if !self.budget.enter_dynamic_source(source.len()) {
+            return;
+        }
         if depth >= MAX_CALL_DEPTH {
             self.budget.refusal = Some(InlineRefusal::RecursionLimit);
             return;
@@ -1505,8 +1638,9 @@ impl Interpreter<'_> {
         let operator = node
             .child(HirField::Operator)
             .map(|operator| self.text(operator))
-            .unwrap_or_default();
-        binary_value(left, right, operator)
+            .unwrap_or_default()
+            .to_owned();
+        binary_value(left, right, &operator, &mut self.budget)
     }
 
     fn boolean(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
@@ -1769,6 +1903,38 @@ fn sequence_values<'a>(value: &'a Value, state: &'a State) -> Option<&'a [Value]
     }
 }
 
+fn value_bytes(value: &Value) -> Option<usize> {
+    match value {
+        Value::String(value)
+        | Value::ImplicitString(value)
+        | Value::Path(value)
+        | Value::Compiled(value) => Some(value.len()),
+        Value::Bytes(value) => Some(value.len()),
+        Value::PathMethod { path, method } => path.len().checked_add(method.len()),
+        Value::CellMethod { method, .. } => Some(method.len()),
+        Value::StringMethod { value, method } => value.len().checked_add(method.len()),
+        Value::BytesMethod { value, method } => value.len().checked_add(method.len()),
+        Value::Decoded(value) => value_bytes(value),
+        Value::DecodedMethod { value, method } => {
+            value_bytes(value).and_then(|bytes| bytes.checked_add(method.len()))
+        }
+        Value::Unknown
+        | Value::None
+        | Value::Bool(_)
+        | Value::Int(_)
+        | Value::Cell(_)
+        | Value::Module(_)
+        | Value::Known(_)
+        | Value::LocalFunction(_) => Some(0),
+    }
+}
+
+fn values_bytes(values: &[Value]) -> Option<usize> {
+    values.iter().try_fold(0usize, |bytes, value| {
+        value_bytes(value).and_then(|value| bytes.checked_add(value))
+    })
+}
+
 fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
     for cell in arguments
         .positional
@@ -1928,15 +2094,22 @@ fn parse_integer(value: &str) -> Option<i64> {
     }
 }
 
-fn binary_value(left: Value, right: Value, operator: &str) -> Value {
+fn binary_value(left: Value, right: Value, operator: &str, budget: &mut Budget) -> Value {
     match (left, right, operator) {
         (Value::String(mut left), Value::String(right), "+") => {
-            left.push_str(&right);
-            Value::String(left)
+            if bounded_push_str(&mut left, &right, budget) {
+                Value::String(left)
+            } else {
+                Value::Unknown
+            }
         }
         (Value::Bytes(mut left), Value::Bytes(right), "+") => {
-            left.extend(right);
-            Value::Bytes(left)
+            if budget.admit_value_bytes(left.len().checked_add(right.len())) {
+                left.extend(right);
+                Value::Bytes(left)
+            } else {
+                Value::Unknown
+            }
         }
         (Value::Int(left), Value::Int(right), "+") => {
             left.checked_add(right).map_or(Value::Unknown, Value::Int)
@@ -1947,7 +2120,9 @@ fn binary_value(left: Value, right: Value, operator: &str) -> Value {
         (Value::Int(left), Value::Int(right), "*") => {
             left.checked_mul(right).map_or(Value::Unknown, Value::Int)
         }
-        (Value::Path(left), Value::String(right), "/") => Value::Path(join_path(left, &right)),
+        (Value::Path(left), Value::String(right), "/") => {
+            join_path(left, &right, budget).map_or(Value::Unknown, Value::Path)
+        }
         _ => Value::Unknown,
     }
 }
@@ -2134,14 +2309,40 @@ fn exact_bool(value: &Value) -> Option<bool> {
     }
 }
 
-fn argv_value(value: &Value, state: &State) -> Option<Vec<String>> {
-    sequence_values(value, state)?
-        .iter()
-        .map(|value| match value {
-            Value::String(value) | Value::Path(value) => Some(value.clone()),
+fn argv_value(value: &Value, state: &State, budget: &mut Budget) -> Option<Vec<String>> {
+    bounded_argv_values(sequence_values(value, state)?, budget)
+}
+
+fn bounded_argv_values(values: &[Value], budget: &mut Budget) -> Option<Vec<String>> {
+    bounded_strings(
+        values.iter().map(|value| match value {
+            Value::String(value) | Value::Path(value) => Some(value.as_str()),
             _ => None,
-        })
-        .collect()
+        }),
+        budget,
+    )
+}
+
+fn bounded_strings<'a>(
+    values: impl IntoIterator<Item = Option<&'a str>>,
+    budget: &mut Budget,
+) -> Option<Vec<String>> {
+    let mut output = Vec::new();
+    let mut bytes = 0usize;
+    for value in values {
+        let value = value?;
+        if output.len() >= MAX_COLLECTION_ITEMS {
+            budget.refuse_work();
+            return None;
+        }
+        let next_bytes = bytes.checked_add(value.len());
+        if !budget.admit_value_bytes(next_bytes) {
+            return None;
+        }
+        bytes = next_bytes.expect("the byte total was admitted");
+        output.push(value.to_owned());
+    }
+    Some(output)
 }
 
 fn decode_string_fragment(value: &str, raw: bool) -> Option<String> {
@@ -2250,24 +2451,47 @@ fn decode_base64(value: &str) -> Option<Vec<u8>> {
     Some(output)
 }
 
-fn join_path(mut base: String, relative: &str) -> String {
+fn bounded_owned(value: &str, budget: &mut Budget) -> Option<String> {
+    budget
+        .admit_value_bytes(Some(value.len()))
+        .then(|| value.to_owned())
+}
+
+fn bounded_push_str(output: &mut String, value: &str, budget: &mut Budget) -> bool {
+    if !budget.admit_value_bytes(output.len().checked_add(value.len())) {
+        return false;
+    }
+    output.push_str(value);
+    true
+}
+
+fn join_path(mut base: String, relative: &str, budget: &mut Budget) -> Option<String> {
     if base.is_empty() {
-        return relative.to_owned();
+        return bounded_owned(relative, budget);
+    }
+    let separator = usize::from(!base.ends_with(['/', '\\']));
+    let relative = relative.trim_start_matches(['/', '\\']);
+    if !budget.admit_value_bytes(
+        base.len()
+            .checked_add(separator)
+            .and_then(|bytes| bytes.checked_add(relative.len())),
+    ) {
+        return None;
     }
     if !base.ends_with(['/', '\\']) {
         base.push('/');
     }
-    base.push_str(relative.trim_start_matches(['/', '\\']));
-    base
+    base.push_str(relative);
+    Some(base)
 }
 
-fn expand_home(path: &str, home: &str) -> String {
+fn expand_home(path: &str, home: &str, budget: &mut Budget) -> Option<String> {
     if path == "~" {
-        home.to_owned()
+        bounded_owned(home, budget)
     } else if let Some(relative) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
-        join_path(home.to_owned(), relative)
+        join_path(home.to_owned(), relative, budget)
     } else {
-        path.to_owned()
+        bounded_owned(path, budget)
     }
 }
 
@@ -2324,6 +2548,12 @@ mod tests {
             None,
             0,
         )
+    }
+
+    fn assert_work_limit(report: &InlineReport) {
+        assert!(report.findings().is_empty(), "{report:?}");
+        assert!(report.nested_executions().is_empty(), "{report:?}");
+        assert_eq!(report.refusals(), [InlineRefusal::WorkLimit]);
     }
 
     #[test]
@@ -2443,5 +2673,82 @@ mod tests {
         ] {
             assert_eq!(report(code), InlineReport::default(), "{code}");
         }
+    }
+
+    #[test]
+    fn exponential_string_bytes_and_dynamic_source_are_bounded() {
+        for initial in ["value='x'\n", "value=b'x'\n"] {
+            let mut code = initial.to_owned();
+            for _ in 0..21 {
+                code.push_str("value=value+value\n");
+            }
+            assert_work_limit(&report(&code));
+        }
+
+        let mut code = "source='#x\\n'\n".to_owned();
+        for _ in 0..19 {
+            code.push_str("source=source+source\n");
+        }
+        code.push_str("exec(source)");
+        assert_work_limit(&report(&code));
+    }
+
+    #[test]
+    fn collection_mutation_and_splats_respect_the_item_cap() {
+        let mut appends = "items=[]\n".to_owned();
+        for _ in 0..=MAX_COLLECTION_ITEMS {
+            appends.push_str("items.append('x')\n");
+        }
+        assert_work_limit(&report(&appends));
+
+        let mut extension = "items=['x']\n".to_owned();
+        for _ in 0..9 {
+            extension.push_str("items.extend(items)\n");
+        }
+        assert_work_limit(&report(&extension));
+
+        let first = std::iter::repeat_n("'x'", 200)
+            .collect::<Vec<_>>()
+            .join(",");
+        let second = std::iter::repeat_n("'x'", 100)
+            .collect::<Vec<_>>()
+            .join(",");
+        let splat = format!("first=[{first}]\nsecond=[{second}]\ncombined=[*first,*second]");
+        assert_work_limit(&report(&splat));
+    }
+
+    #[test]
+    fn dynamic_source_and_nested_value_bytes_are_checked_before_use() {
+        let input = InlineInput {
+            program: "python3",
+            code: "",
+            home: "/home/dev",
+            platform: Platform::Linux,
+        };
+        let mut interpreter = Interpreter {
+            program: "python3",
+            source: String::new(),
+            input,
+            report: InlineReport::default(),
+            budget: Budget::default(),
+            complete: true,
+            call_stack: Vec::new(),
+        };
+        interpreter.dynamic_execution(
+            Value::String("#".repeat(crate::SOURCE_LIMIT + 1)),
+            &mut State::default(),
+            0,
+        );
+        assert_eq!(interpreter.report.refusals(), [InlineRefusal::SourceLimit]);
+
+        let large = "x".repeat(MAX_VALUE_BYTES / 2 + 1);
+        let mut budget = Budget::default();
+        assert!(join_path(large.clone(), &large, &mut budget).is_none());
+        assert_eq!(budget.refusal, Some(InlineRefusal::WorkLimit));
+
+        let values = [Value::String(large.clone()), Value::String(large)];
+        let mut budget = Budget::default();
+        assert!(bounded_strings(values.iter().map(value_string), &mut budget).is_none());
+        assert_eq!(budget.refusal, Some(InlineRefusal::WorkLimit));
     }
 }
