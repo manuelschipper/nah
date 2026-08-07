@@ -1534,7 +1534,7 @@ mod tests {
         for (program, code) in [
             (
                 "python3",
-                "eval(\"import shutil; \" + \"shutil.rmtree('/')\")",
+                "exec(\"import shutil; \" + \"shutil.rmtree('/')\")",
             ),
             (
                 "node",

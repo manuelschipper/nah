@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use nah_proto::ctx::Platform;
 
@@ -105,6 +108,13 @@ enum CopyKind {
     Copystat,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CodeMode {
+    Eval,
+    Exec,
+    Single,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Cell {
     Sequence(Vec<Value>),
@@ -120,6 +130,7 @@ enum Value {
     String(String),
     ImplicitString(String),
     Bytes(Vec<u8>),
+    EmptyDictionary,
     Cell(usize),
     Module(Module),
     Known(KnownFunction),
@@ -131,7 +142,7 @@ enum Value {
     BytesMethod { value: Vec<u8>, method: String },
     Decoded(Box<Value>),
     DecodedMethod { value: Box<Value>, method: String },
-    Compiled(String),
+    Compiled { source: String, mode: CodeMode },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,6 +156,7 @@ struct LocalFunction {
     name: String,
     parameters: Vec<Parameter>,
     body: HirNode,
+    source: Arc<str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -261,7 +273,7 @@ enum Control {
 
 struct Interpreter<'a> {
     program: &'a str,
-    source: String,
+    source: Arc<str>,
     input: InlineInput<'a>,
     report: InlineReport,
     budget: Budget,
@@ -282,7 +294,7 @@ pub(super) fn analyze(
     };
     let mut interpreter = Interpreter {
         program,
-        source: input.code.to_owned(),
+        source: Arc::from(input.code),
         input: *input,
         report: InlineReport::default(),
         budget: Budget::default(),
@@ -394,7 +406,7 @@ impl Interpreter<'_> {
             HirKind::Exec => {
                 if let Some(source) = named_children(node).next() {
                     let value = self.eval(source, state, depth);
-                    self.dynamic_execution(value, state, depth);
+                    self.dynamic_execution(value, CodeMode::Exec, state, depth);
                 }
                 Control::Next
             }
@@ -435,7 +447,9 @@ impl Interpreter<'_> {
             HirKind::None => Value::None,
             HirKind::List | HirKind::Tuple | HirKind::Set => self.collection(node, state, depth),
             HirKind::Dictionary => {
+                let mut empty = true;
                 for child in named_children(node) {
+                    empty = false;
                     if child.kind() == HirKind::Pair {
                         if let Some(key) = child.child(HirField::Key) {
                             self.eval(key, state, depth);
@@ -447,7 +461,11 @@ impl Interpreter<'_> {
                         self.eval(child, state, depth);
                     }
                 }
-                Value::Unknown
+                if empty {
+                    Value::EmptyDictionary
+                } else {
+                    Value::Unknown
+                }
             }
             HirKind::ParenthesizedExpression => named_children(node)
                 .next()
@@ -608,7 +626,7 @@ impl Interpreter<'_> {
         };
         if decorated
             || self.text(node).trim_start().starts_with("async ")
-            || contains_kind(body, HirKind::Unsupported, self.source.as_str(), "yield")
+            || contains_kind(body, HirKind::Unsupported, self.source.as_ref(), "yield")
         {
             state.bindings.insert(name, Value::Unknown);
             return;
@@ -618,6 +636,7 @@ impl Interpreter<'_> {
             name: name.clone(),
             parameters,
             body: body.clone(),
+            source: Arc::clone(&self.source),
         });
         state.bindings.insert(name, Value::LocalFunction(function));
     }
@@ -1186,23 +1205,35 @@ impl Interpreter<'_> {
                 Value::Unknown
             }
             KnownFunction::Eval | KnownFunction::Exec => {
-                if dynamic_arguments(function, &arguments)
+                if let Some(isolated) = dynamic_arguments(function, &arguments)
                     && let Some(value) = arguments.positional.first()
                 {
-                    self.dynamic_execution(value.clone(), state, depth);
+                    let mode = if function == KnownFunction::Eval {
+                        CodeMode::Eval
+                    } else {
+                        CodeMode::Exec
+                    };
+                    if isolated {
+                        self.dynamic_execution(value.clone(), mode, &mut State::default(), depth);
+                    } else {
+                        self.dynamic_execution(value.clone(), mode, state, depth);
+                    }
                 }
                 Value::Unknown
             }
             KnownFunction::Compile => {
-                if arguments.positional.len() >= 3
+                if arguments.complete
+                    && arguments.positional.len() == 3
                     && arguments.keywords.is_empty()
+                    && arguments.positional.get(1).and_then(value_string).is_some()
                     && let (Some(source), Some(mode)) = (
                         arguments.positional.first().and_then(value_string),
                         arguments.positional.get(2).and_then(value_string),
                     )
-                    && matches!(mode, "exec" | "eval" | "single")
+                    && let Some(mode) = code_mode(mode)
+                    && let Some(source) = bounded_owned(source, &mut self.budget)
                 {
-                    return Value::Compiled(source.to_owned());
+                    return Value::Compiled { source, mode };
                 }
                 Value::Unknown
             }
@@ -1332,7 +1363,7 @@ impl Interpreter<'_> {
             return Value::Unknown;
         }
         let mut local = state.clone();
-        for name in assigned_names(&function.body, &self.source) {
+        for name in assigned_names(&function.body, &function.source) {
             local.bindings.insert(name, Value::Unknown);
         }
         for (index, parameter) in function.parameters.iter().enumerate() {
@@ -1351,12 +1382,14 @@ impl Interpreter<'_> {
                 .unwrap_or(Value::Unknown);
             local.bindings.insert(parameter.name.clone(), value);
         }
-        let globals = global_names(&function.body, &self.source);
+        let globals = global_names(&function.body, &function.source);
         self.call_stack.push(function.name);
+        let outer_source = std::mem::replace(&mut self.source, function.source);
         let result = match self.exec_block(&function.body, &mut local, depth + 1) {
             Control::Return(value) => value,
             _ => Value::None,
         };
+        self.source = outer_source;
         self.call_stack.pop();
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
@@ -1596,9 +1629,16 @@ impl Interpreter<'_> {
         });
     }
 
-    fn dynamic_execution(&mut self, value: Value, state: &mut State, depth: usize) {
-        let source = match value {
-            Value::String(source) | Value::Compiled(source) => source,
+    fn dynamic_execution(
+        &mut self,
+        value: Value,
+        string_mode: CodeMode,
+        state: &mut State,
+        depth: usize,
+    ) {
+        let (source, mode) = match value {
+            Value::String(source) => (source, string_mode),
+            Value::Compiled { source, mode } => (source, mode),
             _ => return,
         };
         if source.len() > crate::SOURCE_LIMIT {
@@ -1623,8 +1663,38 @@ impl Interpreter<'_> {
                 return;
             }
         };
-        let outer = std::mem::replace(&mut self.source, source);
-        let _ = self.exec_block(module.root(), state, depth + 1);
+        let mut statements = named_children(module.root());
+        let first = statements.next();
+        if matches!(mode, CodeMode::Eval | CodeMode::Single) && statements.next().is_some() {
+            self.complete = false;
+            return;
+        }
+        if mode == CodeMode::Single && first.is_none() {
+            self.complete = false;
+            return;
+        }
+        let expression = if mode == CodeMode::Eval {
+            let Some(statement) = first.filter(|node| node.kind() == HirKind::ExpressionStatement)
+            else {
+                self.complete = false;
+                return;
+            };
+            let mut expressions = named_children(statement);
+            let expression = expressions.next();
+            if expression.is_none() || expressions.next().is_some() {
+                self.complete = false;
+                return;
+            }
+            expression
+        } else {
+            None
+        };
+        let outer = std::mem::replace(&mut self.source, Arc::from(source));
+        if let Some(expression) = expression {
+            self.eval(expression, state, depth + 1);
+        } else if mode != CodeMode::Single || first.is_some() {
+            let _ = self.exec_block(module.root(), state, depth + 1);
+        }
         self.source = outer;
     }
 
@@ -1905,10 +1975,10 @@ fn sequence_values<'a>(value: &'a Value, state: &'a State) -> Option<&'a [Value]
 
 fn value_bytes(value: &Value) -> Option<usize> {
     match value {
-        Value::String(value)
-        | Value::ImplicitString(value)
-        | Value::Path(value)
-        | Value::Compiled(value) => Some(value.len()),
+        Value::String(value) | Value::ImplicitString(value) | Value::Path(value) => {
+            Some(value.len())
+        }
+        Value::Compiled { source, .. } => Some(source.len()),
         Value::Bytes(value) => Some(value.len()),
         Value::PathMethod { path, method } => path.len().checked_add(method.len()),
         Value::CellMethod { method, .. } => Some(method.len()),
@@ -1922,6 +1992,7 @@ fn value_bytes(value: &Value) -> Option<usize> {
         | Value::None
         | Value::Bool(_)
         | Value::Int(_)
+        | Value::EmptyDictionary
         | Value::Cell(_)
         | Value::Module(_)
         | Value::Known(_)
@@ -2191,6 +2262,7 @@ fn truthy(value: &Value) -> Option<bool> {
         Value::Int(value) => Some(*value != 0),
         Value::String(value) | Value::ImplicitString(value) => Some(!value.is_empty()),
         Value::Bytes(value) => Some(!value.is_empty()),
+        Value::EmptyDictionary => Some(false),
         Value::Cell(_)
         | Value::Module(_)
         | Value::Known(_)
@@ -2258,13 +2330,29 @@ fn argument<'a>(arguments: &'a Arguments, position: usize, keyword: &str) -> Opt
     })
 }
 
-fn dynamic_arguments(function: KnownFunction, arguments: &Arguments) -> bool {
-    if !arguments.complete || arguments.positional.is_empty() || arguments.positional.len() > 3 {
-        return false;
+fn dynamic_arguments(function: KnownFunction, arguments: &Arguments) -> Option<bool> {
+    if !arguments.complete
+        || arguments.positional.is_empty()
+        || arguments.positional.len() > 3
+        || !arguments.positional[1..]
+            .iter()
+            .all(|value| *value == Value::EmptyDictionary)
+        || !(arguments.keywords.is_empty()
+            || function == KnownFunction::Exec
+                && arguments.keywords.as_slice() == [("closure".to_owned(), Value::None)])
+    {
+        return None;
     }
-    arguments.keywords.is_empty()
-        || function == KnownFunction::Exec
-            && arguments.keywords.as_slice() == [("closure".to_owned(), Value::None)]
+    Some(arguments.positional.len() > 1)
+}
+
+fn code_mode(value: &str) -> Option<CodeMode> {
+    match value {
+        "eval" => Some(CodeMode::Eval),
+        "exec" => Some(CodeMode::Exec),
+        "single" => Some(CodeMode::Single),
+        _ => None,
+    }
 }
 
 fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
@@ -2676,6 +2764,37 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_code_preserves_parse_mode_and_source_identity() {
+        assert_eq!(
+            report("eval(\"import shutil; shutil.rmtree('/')\")"),
+            InlineReport::default()
+        );
+        for code in [
+            "import shutil\neval(\"shutil.rmtree('/')\")",
+            "exec(\"import shutil; shutil.rmtree('/')\")",
+            "eval(compile(\"import shutil; shutil.rmtree('/')\", '<x>', 'exec'))",
+            "source=\"import shutil\\ndef run():\\n    shutil.rmtree('/')\"\nexec(source)\nrun()",
+        ] {
+            assert!(
+                report(code).contains_exact(FindingKind::RootDestruction),
+                "{code}"
+            );
+        }
+        assert_eq!(
+            report("compile(\"import shutil; shutil.rmtree('/')\", '<x>', 'exec')"),
+            InlineReport::default()
+        );
+        assert_eq!(
+            report("eval(\"shutil.rmtree('/')\", 3)"),
+            InlineReport::default()
+        );
+        assert_eq!(
+            report("exec(\"import shutil\", {}, {})\nshutil.rmtree('/')"),
+            InlineReport::default()
+        );
+    }
+
+    #[test]
     fn exponential_string_bytes_and_dynamic_source_are_bounded() {
         for initial in ["value='x'\n", "value=b'x'\n"] {
             let mut code = initial.to_owned();
@@ -2727,7 +2846,7 @@ mod tests {
         };
         let mut interpreter = Interpreter {
             program: "python3",
-            source: String::new(),
+            source: Arc::from(""),
             input,
             report: InlineReport::default(),
             budget: Budget::default(),
@@ -2736,6 +2855,7 @@ mod tests {
         };
         interpreter.dynamic_execution(
             Value::String("#".repeat(crate::SOURCE_LIMIT + 1)),
+            CodeMode::Exec,
             &mut State::default(),
             0,
         );

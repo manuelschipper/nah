@@ -20,8 +20,8 @@
 {"id":"os-execl-distinct-argv0","program":"python3","code":"import os; os.execl('/bin/echo', 'rm', '-rf', '/')","expected":{"findings":[],"nested_executions":[{"kind":"command","argv":["/bin/echo","-rf","/"],"stdout_inherited":true}],"refusals":[]}}
 {"id":"abspath-does-not-expand-home","program":"python3","code":"import os, shutil; shutil.rmtree(os.path.abspath('~'))","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"expanduser-expands-home","program":"python3","code":"import os, shutil; shutil.rmtree(os.path.expanduser('~'))","expected":{"findings":["home-destruction:exact"],"nested_executions":[],"refusals":[]}}
-{"id":"literal-eval","program":"python3","code":"eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
-{"id":"concatenated-eval","program":"python3","code":"eval(\"import shutil; \" + \"shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"literal-exec","program":"python3","code":"exec(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"concatenated-exec","program":"python3","code":"exec(\"import shutil; \" + \"shutil.rmtree('/')\")","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"rebound-eval","program":"python3","code":"eval = print; eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"decoded-shell","program":"python3","code":"import base64, os; os.system(base64.b64decode(payload).decode())","expected":{"findings":["decoded-execution:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"call-before-import","program":"python3","code":"shutil.rmtree('/'); import shutil","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
@@ -59,4 +59,5 @@
 {"id":"definition-default-effect","program":"python3","code":"import shutil\ndef safe(value=shutil.rmtree('/')):\n    pass","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"unrelated-unknown-call-is-local","program":"python3","code":"import shutil; plugin.make(value); shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"bound-decoded-shell","program":"python3","code":"import base64, os; decoded=base64.b64decode(payload); os.system(decoded.decode())","expected":{"findings":["decoded-execution:exact"],"nested_executions":[],"refusals":[]}}
-{"id":"bound-dynamic-source","program":"python3","code":"source=\"import shutil; shutil.rmtree('/')\"; eval(source)","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"bound-dynamic-source","program":"python3","code":"source=\"import shutil; shutil.rmtree('/')\"; exec(source)","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"eval-rejects-statement-suite","program":"python3","code":"eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
