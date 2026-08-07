@@ -10,7 +10,10 @@ use crate::{
     LanguageCallKind, LanguageDraft, LanguageFilesystem, NestedExecution, ProtectionInput,
 };
 
-use super::parser::{HirField, HirKind, HirNode};
+use super::{
+    InitialState,
+    parser::{HirField, HirKind, HirNode},
+};
 
 const MAX_WORK: usize = 262_144;
 const MAX_STATEMENTS: usize = 4_096;
@@ -329,6 +332,7 @@ struct Interpreter<'a> {
     execution_dominators: Vec<usize>,
     call_stack: Vec<String>,
     pending_control: Option<Control>,
+    initial_state: InitialState,
 }
 
 pub(super) fn analyze(
@@ -336,6 +340,7 @@ pub(super) fn analyze(
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
+    initial_state: InitialState,
 ) -> LanguageAnalysis {
     let module = match super::parser::lower(input.code, program) {
         Ok(module) if !module.opaque() => module,
@@ -348,7 +353,8 @@ pub(super) fn analyze(
         program,
         source: Arc::from(input.code),
         input: *input,
-        ipython_bash: protection.is_some_and(proves_ipython_bash),
+        ipython_bash: matches!(initial_state, InitialState::Fresh)
+            && protection.is_some_and(proves_ipython_bash),
         report: InlineReport::default(),
         budget: Budget::default(),
         complete: true,
@@ -357,9 +363,19 @@ pub(super) fn analyze(
         execution_dominators: Vec::new(),
         call_stack: Vec::with_capacity(depth),
         pending_control: None,
+        initial_state,
     };
-    let mut state = State::default();
-    if crate::is_ipython_interpreter(program) {
+    let mut state = match initial_state {
+        InitialState::Fresh => State::default(),
+        InitialState::Persistent => State {
+            bindings: BTreeMap::new(),
+            cells: Vec::new(),
+            functions: Vec::new(),
+            invalid_modules: BTreeSet::new(),
+            relative_cwd_known: false,
+        },
+    };
+    if matches!(initial_state, InitialState::Fresh) && crate::is_ipython_interpreter(program) {
         state.bindings.insert(
             "get_ipython".to_owned(),
             Value::Known(KnownFunction::GetIpython),
@@ -1438,6 +1454,11 @@ impl Interpreter<'_> {
             });
         if self.pending_control.is_some() {
             return Value::Unknown;
+        }
+        if matches!(self.initial_state, InitialState::Persistent)
+            && matches!(&callable, Value::Unknown)
+        {
+            self.draft.set_partial();
         }
         match callable {
             Value::Known(function) => self.call_known(function, arguments, state, depth),
@@ -5059,6 +5080,7 @@ mod tests {
             },
             None,
             0,
+            InitialState::Fresh,
         )
         .into_report()
     }
@@ -5408,6 +5430,7 @@ mod tests {
             execution_dominators: Vec::new(),
             call_stack: Vec::new(),
             pending_control: None,
+            initial_state: InitialState::Fresh,
         };
         interpreter.dynamic_execution(
             Value::String("#".repeat(crate::SOURCE_LIMIT + 1)),

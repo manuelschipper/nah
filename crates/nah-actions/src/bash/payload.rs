@@ -206,7 +206,7 @@ impl Lowerer {
         };
         let analysis_program =
             crate::bash_execution::inline_language_program(&program, argv.as_deref());
-        self.analyze_language_stage(execution, &analysis_program, &program, &code, true);
+        self.analyze_language_stage(execution, &analysis_program, &program, &code, true, false);
     }
 
     pub(super) fn analyze_direct_inline_stage(
@@ -214,8 +214,9 @@ impl Lowerer {
         execution: VisibleExecutionState,
         program: &str,
         code: &str,
+        persistent_ipython: bool,
     ) {
-        self.analyze_language_stage(execution, program, program, code, false);
+        self.analyze_language_stage(execution, program, program, code, false, persistent_ipython);
     }
 
     fn analyze_language_stage(
@@ -225,28 +226,37 @@ impl Lowerer {
         evidence_program: &str,
         code: &str,
         cwd_authoritative: bool,
+        persistent_ipython: bool,
     ) {
-        let environment = inline_environment(&execution);
+        let environment = if persistent_ipython {
+            Vec::new()
+        } else {
+            inline_environment(&execution)
+        };
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            nah_inline::analyze_with_language_effects(
-                nah_inline::InlineInput {
-                    program: analysis_program,
-                    code,
-                    home: &self.home,
-                    platform: self.platform,
-                },
-                nah_inline::ProtectionInput {
-                    critical_paths: &self.critical_paths,
-                    ambient_variables: &environment,
-                },
-            )
+            let input = nah_inline::InlineInput {
+                program: analysis_program,
+                code,
+                home: &self.home,
+                platform: self.platform,
+            };
+            let protection = nah_inline::ProtectionInput {
+                critical_paths: &self.critical_paths,
+                ambient_variables: &environment,
+            };
+            if persistent_ipython {
+                nah_inline::analyze_persistent_ipython_with_language_effects(input, protection)
+            } else {
+                nah_inline::analyze_with_language_effects(input, protection)
+            }
         }));
         let Ok(analysis) = report else {
             self.inline_failed = true;
             return;
         };
         let (report, language_draft) = analysis.into_parts();
-        if requires_ipython_shell(&language_draft)
+        if !persistent_ipython
+            && requires_ipython_shell(&language_draft)
             && !execution
                 .state
                 .variables

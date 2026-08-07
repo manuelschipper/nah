@@ -1,6 +1,7 @@
 use nah_inline::{
     Evidence, FindingKind, InlineInput, LanguageAnalysis, LanguageCallKind, NestedExecution,
-    ProtectionInput, analyze, analyze_with_language_effects,
+    ProtectionInput, analyze, analyze_persistent_ipython_with_language_effects,
+    analyze_with_language_effects,
 };
 use nah_proto::action::InvocationInput;
 use nah_proto::ctx::Platform;
@@ -43,6 +44,24 @@ fn language_analysis_with_shell(code: &str, shell: Option<&str>) -> LanguageAnal
         ProtectionInput {
             critical_paths: &[],
             ambient_variables: &ambient_variables,
+        },
+    )
+}
+
+fn persistent_language_analysis(code: &str) -> LanguageAnalysis {
+    analyze_persistent_ipython_with_language_effects(
+        InlineInput {
+            program: "ipython",
+            code,
+            home: "/home/dev",
+            platform: Platform::Linux,
+        },
+        ProtectionInput {
+            critical_paths: &[],
+            ambient_variables: &[(
+                "SHELL".to_owned(),
+                nah_inline::EnvironmentValue::Static("/bin/bash".to_owned()),
+            )],
         },
     )
 }
@@ -239,6 +258,42 @@ fn get_ipython_ownership_is_exact_until_the_object_escapes_or_is_mutated() {
         assert!(analysis.draft().calls().is_empty(), "{source}");
         assert!(analysis.report().nested_executions().is_empty(), "{source}");
     }
+}
+
+#[test]
+fn persistent_kernel_state_requires_current_cell_ownership() {
+    for source in [
+        "open('/tmp/prior-builtin', 'w')",
+        "get_ipython().system('rm -rf /tmp/prior-shell')",
+        "prior_callable()",
+        "prior_object.method()",
+        "!rm -rf /tmp/prior-shell",
+        "from IPython import get_ipython\n!rm -rf /tmp/current-import-shell",
+        "from IPython import get_ipython\n!!rm -rf /tmp/current-import-shell",
+        "%%bash\nrm -rf /tmp/rewritten-cell",
+    ] {
+        let analysis = persistent_language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.report().nested_executions().is_empty(), "{source}");
+    }
+
+    for source in [
+        "import os\nos.remove('/tmp/current-import')",
+        "from builtins import open\nopen('/tmp/current-builtin', 'w')",
+    ] {
+        let analysis = persistent_language_analysis(source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.draft().calls(),
+            [call] if call.kind() == LanguageCallKind::DirectFile
+                && call.filesystems()[0].requested().is_some_and(|path| path.starts_with("/tmp/"))
+        ));
+    }
+
+    let analysis = persistent_language_analysis("def current():\n    return 1\ncurrent()");
+    assert!(analysis.draft().complete());
+    assert!(analysis.draft().calls().is_empty());
 }
 
 #[test]

@@ -230,6 +230,70 @@ pub(crate) fn visible_language_draft(
     nah_inline::InlineReport,
     bool,
 ) {
+    visible_language_draft_with_profile(
+        outer_program,
+        language,
+        source,
+        input,
+        requested_cwd,
+        home,
+        platform,
+        ambient_variables,
+        critical_paths,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn visible_ipython_draft(
+    outer_program: &str,
+    source: &str,
+    input: InvocationInput,
+    requested_cwd: &AbsolutePath,
+    home: &AbsolutePath,
+    platform: Platform,
+    ambient_variables: &[(String, VariableValue)],
+    critical_paths: &[AbsolutePath],
+) -> (
+    Draft,
+    Draft,
+    Vec<ObservationQuery>,
+    nah_inline::InlineReport,
+    bool,
+) {
+    visible_language_draft_with_profile(
+        outer_program,
+        "ipython",
+        source,
+        input,
+        requested_cwd,
+        home,
+        platform,
+        ambient_variables,
+        critical_paths,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn visible_language_draft_with_profile(
+    outer_program: &str,
+    interpreter: &str,
+    source: &str,
+    input: InvocationInput,
+    requested_cwd: &AbsolutePath,
+    home: &AbsolutePath,
+    platform: Platform,
+    ambient_variables: &[(String, VariableValue)],
+    critical_paths: &[AbsolutePath],
+    persistent_ipython: bool,
+) -> (
+    Draft,
+    Draft,
+    Vec<ObservationQuery>,
+    nah_inline::InlineReport,
+    bool,
+) {
     let complete = input.complete();
     let mut lowerer = Lowerer::new(
         complete,
@@ -242,7 +306,7 @@ pub(crate) fn visible_language_draft(
     lowerer.stages.push(StageDraft {
         invocation: InvocationDraft::CodeExecution {
             program: outer_program.to_owned(),
-            interpreter: Some(language.to_owned()),
+            interpreter: Some(interpreter.to_owned()),
             source: SemanticCode::INTERPRETER_INLINE,
             code: Some(source.to_owned()),
             input: Some(input),
@@ -279,8 +343,9 @@ pub(crate) fn visible_language_draft(
             state,
             ambient_variables: lowerer.ambient_variables.clone(),
         },
-        language,
+        interpreter,
         source,
+        persistent_ipython,
     );
     lowerer.finish()
 }

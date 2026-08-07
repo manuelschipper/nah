@@ -25,12 +25,43 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
+    analyze_with_state(
+        program,
+        input,
+        protection,
+        depth,
+        super::python::InitialState::Fresh,
+    )
+}
+
+pub(super) fn analyze_persistent(
+    program: &str,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> LanguageAnalysis {
+    analyze_with_state(
+        program,
+        input,
+        protection,
+        depth,
+        super::python::InitialState::Persistent,
+    )
+}
+
+fn analyze_with_state(
+    program: &str,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+    initial_state: super::python::InitialState,
+) -> LanguageAnalysis {
     let prepared = match prepare(input.code) {
         Ok(prepared) => prepared,
         Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
     match prepared {
-        Prepared::Python(code) => super::python::analyze_language(
+        Prepared::Python(code) => super::python::analyze_language_with_state(
             program,
             &InlineInput {
                 code: code.as_ref(),
@@ -38,6 +69,7 @@ pub(super) fn analyze(
             },
             protection,
             depth,
+            initial_state,
         ),
         Prepared::Shell {
             program: shell_program,
@@ -53,7 +85,7 @@ pub(super) fn analyze(
             {
                 return opaque_analysis();
             }
-            super::python::analyze_language(
+            super::python::analyze_language_with_state(
                 program,
                 &InlineInput {
                     code: &transformed,
@@ -61,6 +93,7 @@ pub(super) fn analyze(
                 },
                 protection,
                 depth,
+                initial_state,
             )
         }
         Prepared::Opaque => opaque_analysis(),

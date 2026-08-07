@@ -80,6 +80,7 @@ pub enum VisibleCode<'a> {
     Python { source: &'a str },
     JavaScript { source: &'a str },
     TypeScript { source: &'a str },
+    Ipython { source: &'a str },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,24 +235,38 @@ fn plan_with_ambient_variables(
             )
         }
         AnalysisInput::VisibleCode(visible, input) => {
-            let (language, source) = match visible {
-                VisibleCode::Python { source } => ("python", source),
-                VisibleCode::JavaScript { source } => ("javascript", source),
-                VisibleCode::TypeScript { source } => ("typescript", source),
-            };
             let invocation_input = native::invocation_input(input);
+            let (language, source, persistent_ipython) = match visible {
+                VisibleCode::Python { source } => ("python", source, false),
+                VisibleCode::JavaScript { source } => ("javascript", source, false),
+                VisibleCode::TypeScript { source } => ("typescript", source, false),
+                VisibleCode::Ipython { source } => ("ipython", source, true),
+            };
             let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
-                bash::visible_language_draft(
-                    input.tool(),
-                    language,
-                    source,
-                    invocation_input,
-                    call_site.requested_cwd(),
-                    ctx.home(),
-                    ctx.platform(),
-                    ambient_variables,
-                    self_protection.protected_paths(),
-                );
+                if persistent_ipython {
+                    bash::visible_ipython_draft(
+                        input.tool(),
+                        source,
+                        invocation_input,
+                        call_site.requested_cwd(),
+                        ctx.home(),
+                        ctx.platform(),
+                        ambient_variables,
+                        self_protection.protected_paths(),
+                    )
+                } else {
+                    bash::visible_language_draft(
+                        input.tool(),
+                        language,
+                        source,
+                        invocation_input,
+                        call_site.requested_cwd(),
+                        ctx.home(),
+                        ctx.platform(),
+                        ambient_variables,
+                        self_protection.protected_paths(),
+                    )
+                };
             draft.complete &= input.normalization_complete();
             coverage_draft.complete &= input.normalization_complete();
             queries.extend(path_queries);

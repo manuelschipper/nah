@@ -68,6 +68,19 @@ pub(crate) fn analyze_ipython(
     )
 }
 
+pub(crate) fn analyze_persistent_ipython(
+    input: InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> LanguageAnalysis {
+    ipython::analyze_persistent(
+        &crate::normalized_program(input.program),
+        &input,
+        protection,
+        depth,
+    )
+}
+
 pub(crate) fn analyze(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,

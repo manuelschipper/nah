@@ -3,6 +3,12 @@ use crate::{InlineInput, InlineReport, LanguageAnalysis, ProtectionInput};
 mod engine;
 mod parser;
 
+#[derive(Clone, Copy)]
+pub(super) enum InitialState {
+    Fresh,
+    Persistent,
+}
+
 pub(super) fn analyze(
     program: &str,
     input: &InlineInput<'_>,
@@ -18,5 +24,15 @@ pub(super) fn analyze_language(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    engine::analyze(program, input, protection, depth)
+    analyze_language_with_state(program, input, protection, depth, InitialState::Fresh)
+}
+
+pub(super) fn analyze_language_with_state(
+    program: &str,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+    initial_state: InitialState,
+) -> LanguageAnalysis {
+    engine::analyze(program, input, protection, depth, initial_state)
 }

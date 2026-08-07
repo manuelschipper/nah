@@ -68,6 +68,20 @@ pub fn analyze_with_language_effects(
     analyze_language_at(input, Some(&protection), 0)
 }
 
+pub fn analyze_persistent_ipython_with_language_effects(
+    input: InlineInput<'_>,
+    protection: ProtectionInput<'_>,
+) -> LanguageAnalysis {
+    let program = normalized_program(input.program);
+    if !is_ipython_interpreter(&program) {
+        return LanguageAnalysis::default();
+    }
+    if input.code.len() > SOURCE_LIMIT {
+        return LanguageAnalysis::refused(InlineRefusal::SourceLimit);
+    }
+    languages::analyze_persistent_ipython(input, Some(&protection), 0)
+}
+
 fn analyze_at(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
