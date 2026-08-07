@@ -2,8 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use nah_inline::{EnvironmentValue, NestedExecution};
+use nah_inline::{EnvironmentValue, LanguageDraft, NestedExecution};
 use nah_parse::{Statement, Syntax, Word};
+use nah_proto::action::InvocationInput;
 
 use super::positionals::syntax_sets_positionals;
 use super::{
@@ -25,6 +26,18 @@ fn is_return_statement(statement: &Statement) -> bool {
             ..
         } if name == "return" && name_substitutions.is_empty()
     )
+}
+
+fn requires_ipython_shell(draft: &LanguageDraft) -> bool {
+    draft.calls().iter().any(|call| {
+        let InvocationInput::Native { value, .. } = call.input() else {
+            return false;
+        };
+        matches!(
+            value.get("callable").and_then(|value| value.as_str()),
+            Some("ipython.system" | "ipython.getoutput")
+        )
+    })
 }
 
 impl Lowerer {
@@ -229,6 +242,15 @@ impl Lowerer {
             return;
         };
         let (report, language_draft) = analysis.into_parts();
+        if requires_ipython_shell(&language_draft)
+            && !execution
+                .state
+                .variables
+                .iter()
+                .any(|binding| binding.name == "SHELL")
+        {
+            self.env_key("SHELL");
+        }
         let nested = report.nested_executions().to_vec();
         self.inline_report.extend(report);
         let (cwd, pwd) = if cwd_authoritative {

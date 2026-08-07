@@ -10,7 +10,7 @@ use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationFailure, ObservationQuery,
     ObservationRequest, ObservationValue, Observed,
 };
-use support::{Change, absolute, ctx, facts};
+use support::{Change, absolute, bash_plan, ctx, facts};
 
 #[derive(Clone, Copy, Debug)]
 enum EnvValue {
@@ -116,6 +116,54 @@ fn has_critical_mutation(stream: &nah_proto::action::ActionStream) -> bool {
             } if operation.as_str() == "critical-mutation"
         )
     })
+}
+
+#[test]
+fn ipython_shell_escapes_observe_bash_before_nested_lowering() {
+    let source = "ipython -c '!rm -rf /'";
+    let initial = bash_plan(source);
+    assert!(
+        initial
+            .observation_request()
+            .queries()
+            .iter()
+            .any(|query| matches!(query, ObservationQuery::Env { name, .. } if name == "SHELL"))
+    );
+
+    let values = [("SHELL", EnvValue::Value("/bin/bash"))];
+    let plan = ambient_plan(source, &values);
+    let stream = finalize(
+        plan.clone(),
+        full_observation(plan.observation_request(), &values),
+    );
+    assert!(has_root_delete(&stream));
+
+    let values = [("SHELL", EnvValue::Value("/bin/zsh"))];
+    let plan = ambient_plan(source, &values);
+    let stream = finalize(
+        plan.clone(),
+        full_observation(plan.observation_request(), &values),
+    );
+    assert_eq!(stream.coverage(), Coverage::Partial);
+    assert!(!has_root_delete(&stream));
+}
+
+#[test]
+fn explicit_ipython_bash_cell_does_not_observe_the_ambient_shell() {
+    let source = "ipython -c '%%bash\nrm -rf /'";
+    let plan = bash_plan(source);
+    assert!(
+        !plan
+            .observation_request()
+            .queries()
+            .iter()
+            .any(|query| matches!(query, ObservationQuery::Env { name, .. } if name == "SHELL"))
+    );
+    let stream = finalize(
+        plan.clone(),
+        support::observe(plan.observation_request(), "echo"),
+    );
+    assert!(has_root_delete(&stream));
 }
 
 #[test]
