@@ -11,6 +11,20 @@ use nah_proto::observation::{
 };
 use support::{Change, absolute, bash_plan, facts, observe};
 
+fn code_execution(source: &str) -> Option<(String, Option<String>)> {
+    let plan = bash_plan(source);
+    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+    stream
+        .effects()
+        .iter()
+        .find_map(|effect| match effect.kind() {
+            EffectKind::Invocation {
+                invocation: InvocationEffect::CodeExecution { source, code, .. },
+            } => Some((source.as_str().to_owned(), code.clone())),
+            _ => None,
+        })
+}
+
 #[test]
 fn invocation_evidence_preserves_exact_static_argv_and_inline_code() {
     let cases = [
@@ -91,6 +105,105 @@ fn invocation_evidence_preserves_exact_static_argv_and_inline_code() {
             invocation: InvocationEffect::CodeExecution { source, code: Some(actual), .. }
         } if source == &SemanticCode::INTERPRETER_INLINE && actual == code
     ));
+}
+
+#[test]
+fn exact_ecmascript_and_ipython_launchers_share_one_source_contract() {
+    for (command, expected_source, expected_code) in [
+        ("node -e '1+1'", "interpreter-inline", Some("1+1")),
+        ("node --eval='1+1'", "interpreter-inline", Some("1+1")),
+        ("node -p '1+1'", "interpreter-inline", Some("1+1")),
+        ("node --print '1+1'", "interpreter-inline", Some("1+1")),
+        ("deno eval '1+1'", "interpreter-inline", Some("1+1")),
+        (
+            "deno eval --ext=ts '1+1'",
+            "interpreter-inline",
+            Some("1+1"),
+        ),
+        ("deno eval --check '1+1'", "interpreter-inline", Some("1+1")),
+        ("bun -e '1+1'", "interpreter-inline", Some("1+1")),
+        ("bun '-e1+1'", "interpreter-inline", Some("1+1")),
+        ("bun '--print=1+1'", "interpreter-inline", Some("1+1")),
+        ("bun exec 'echo hi'", "shell-inline", Some("echo hi")),
+        ("tsx -e '1+1'", "interpreter-inline", Some("1+1")),
+        ("tsx '--eval=1+1'", "interpreter-inline", Some("1+1")),
+        ("tsx '--print=1+1'", "interpreter-inline", Some("1+1")),
+        ("ipython -c '1+1'", "interpreter-inline", Some("1+1")),
+        ("ipython '-c=1+1'", "interpreter-inline", Some("1+1")),
+    ] {
+        assert_eq!(
+            code_execution(command),
+            Some((expected_source.to_owned(), expected_code.map(str::to_owned))),
+            "{command}"
+        );
+    }
+
+    for command in [
+        "node",
+        "node -",
+        "node --",
+        "node -- -",
+        "deno run -",
+        "deno run --quiet -",
+        "bun -",
+        "bun run -",
+        "tsx",
+        "tsx -",
+        "ipython",
+    ] {
+        assert_eq!(
+            code_execution(command),
+            Some(("interpreter-stdin".to_owned(), None)),
+            "{command}"
+        );
+    }
+
+    for command in [
+        "node app.js",
+        "node -- app.js",
+        "deno run app.ts",
+        "deno run --no-check app.ts",
+        "bun app.ts",
+        "bun run ./app.ts",
+        "tsx app.ts",
+        "ipython job.py",
+        "ipython notebook.ipy",
+        "ipython -",
+    ] {
+        assert_eq!(
+            code_execution(command),
+            Some(("interpreter-file".to_owned(), None)),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn unverified_launcher_modes_stay_opaque() {
+    for command in [
+        "node '-e1+1'",
+        "node '-p1+1'",
+        "node '--print=1+1'",
+        "node --run test",
+        "node -c app.js",
+        "node --check app.js",
+        "deno eval",
+        "deno eval --allow-read '1+1'",
+        "deno eval --ext=unknown '1+1'",
+        "deno task build",
+        "deno run https://example.test/app.ts",
+        "bun",
+        "bun run -e",
+        "bun run dev",
+        "tsx '-e1+1'",
+        "tsx '-p1+1'",
+        "tsx watch app.ts",
+        "ipython -m package",
+        "ipython -i job.py",
+        "ipython --TerminalIPythonApp.exec_lines=x",
+    ] {
+        assert_eq!(code_execution(command), None, "{command}");
+    }
 }
 
 #[test]

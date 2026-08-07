@@ -154,6 +154,15 @@ pub(crate) fn lower(
 }
 
 pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<ExecutionSpec> {
+    let lower = normalized_execution_program(program);
+    match lower.as_str() {
+        "node" | "nodejs" => return node_execution(arguments),
+        "deno" => return deno_execution(arguments),
+        "bun" => return bun_execution(arguments),
+        "tsx" => return tsx_execution(arguments),
+        "ipython" | "ipython3" => return ipython_execution(arguments),
+        _ => {}
+    }
     let source = execution_source(program, arguments)?;
     Some(ExecutionSpec {
         code: execution_code(program, arguments, source.as_str()),
@@ -167,6 +176,207 @@ pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<Execut
         transformed_operand_index: execution_operand_index(program, arguments, source.as_str()),
         source,
     })
+}
+
+fn inline_execution(
+    arguments: &[Word],
+    index: usize,
+    source: SemanticCode,
+    attached: Option<String>,
+) -> Option<ExecutionSpec> {
+    arguments.get(index)?;
+    Some(ExecutionSpec {
+        source,
+        code: attached.or_else(|| static_argument(&arguments[index])),
+        file_operand_index: None,
+        transformed_operand_index: Some(index),
+    })
+}
+
+fn stdin_execution() -> ExecutionSpec {
+    ExecutionSpec {
+        source: SemanticCode::INTERPRETER_STDIN,
+        code: None,
+        file_operand_index: None,
+        transformed_operand_index: None,
+    }
+}
+
+fn file_execution(arguments: &[Word], index: usize) -> Option<ExecutionSpec> {
+    let argument = arguments.get(index)?;
+    let transformed_operand_index = (!exact_process_substitution(argument)
+        && descriptor_reference_path(argument.raw()).is_none())
+    .then_some(index);
+    Some(ExecutionSpec {
+        source: SemanticCode::INTERPRETER_FILE,
+        code: None,
+        file_operand_index: Some(index),
+        transformed_operand_index,
+    })
+}
+
+fn node_execution(arguments: &[Word]) -> Option<ExecutionSpec> {
+    let Some(first) = arguments.first() else {
+        return Some(stdin_execution());
+    };
+    let first = static_argument(first)?;
+    match first.as_str() {
+        "-e" | "--eval" | "-p" | "--print" => {
+            inline_execution(arguments, 1, SemanticCode::INTERPRETER_INLINE, None)
+        }
+        "-" => Some(stdin_execution()),
+        "--" => match arguments.get(1).and_then(static_argument).as_deref() {
+            None | Some("-") => Some(stdin_execution()),
+            Some(_) => file_execution(arguments, 1),
+        },
+        "-c" | "--check" => None,
+        _ if first.starts_with("--eval=") => inline_execution(
+            arguments,
+            0,
+            SemanticCode::INTERPRETER_INLINE,
+            first.strip_prefix("--eval=").map(str::to_owned),
+        ),
+        _ if first.starts_with('-') => None,
+        _ => file_execution(arguments, 0),
+    }
+}
+
+fn deno_execution(arguments: &[Word]) -> Option<ExecutionSpec> {
+    let command = arguments.first().and_then(static_argument)?;
+    match command.as_str() {
+        "eval" => {
+            let index = deno_operand_index(arguments, 1)?;
+            inline_execution(arguments, index, SemanticCode::INTERPRETER_INLINE, None)
+        }
+        "run" => {
+            let index = deno_operand_index(arguments, 1)?;
+            let operand = arguments.get(index).and_then(static_argument)?;
+            if operand == "-" {
+                Some(stdin_execution())
+            } else if remote_module(&operand) {
+                None
+            } else {
+                file_execution(arguments, index)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn deno_operand_index(arguments: &[Word], mut index: usize) -> Option<usize> {
+    loop {
+        let option = arguments.get(index).and_then(static_argument)?;
+        match option.as_str() {
+            "-" => return Some(index),
+            "--check" | "--no-check" | "--quiet" => index += 1,
+            "--ext" => {
+                let extension = arguments.get(index + 1).and_then(static_argument)?;
+                deno_extension(&extension).then_some(())?;
+                index += 2;
+            }
+            _ if option.strip_prefix("--ext=").is_some_and(deno_extension) => {
+                index += 1;
+            }
+            _ if option.starts_with('-') => return None,
+            _ => return Some(index),
+        }
+    }
+}
+
+fn deno_extension(value: &str) -> bool {
+    matches!(
+        value,
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts"
+    )
+}
+
+fn bun_execution(arguments: &[Word]) -> Option<ExecutionSpec> {
+    let first = arguments.first().and_then(static_argument)?;
+    match first.as_str() {
+        "-e" | "--eval" | "-p" | "--print" => {
+            inline_execution(arguments, 1, SemanticCode::INTERPRETER_INLINE, None)
+        }
+        "-" => Some(stdin_execution()),
+        "exec" => inline_execution(arguments, 1, SemanticCode::SHELL_INLINE, None),
+        "run" => {
+            let operand = arguments.get(1).and_then(static_argument)?;
+            if operand == "-" {
+                Some(stdin_execution())
+            } else if explicit_script_path(&operand) {
+                file_execution(arguments, 1)
+            } else {
+                None
+            }
+        }
+        _ if first.starts_with("--eval=") || first.starts_with("--print=") => {
+            let code = first.split_once('=').map(|(_, code)| code.to_owned());
+            inline_execution(arguments, 0, SemanticCode::INTERPRETER_INLINE, code)
+        }
+        _ if first.starts_with("-e") || first.starts_with("-p") => inline_execution(
+            arguments,
+            0,
+            SemanticCode::INTERPRETER_INLINE,
+            Some(first[2..].to_owned()),
+        ),
+        _ if first.starts_with('-') => None,
+        _ if explicit_script_path(&first) => file_execution(arguments, 0),
+        _ => None,
+    }
+}
+
+fn tsx_execution(arguments: &[Word]) -> Option<ExecutionSpec> {
+    let Some(first) = arguments.first() else {
+        return Some(stdin_execution());
+    };
+    let first = static_argument(first)?;
+    match first.as_str() {
+        "-e" | "--eval" | "-p" | "--print" => {
+            inline_execution(arguments, 1, SemanticCode::INTERPRETER_INLINE, None)
+        }
+        "-" => Some(stdin_execution()),
+        _ if first.starts_with("--eval=") || first.starts_with("--print=") => {
+            let code = first.split_once('=').map(|(_, code)| code.to_owned());
+            inline_execution(arguments, 0, SemanticCode::INTERPRETER_INLINE, code)
+        }
+        "watch" => None,
+        _ if first.starts_with('-') => None,
+        _ => file_execution(arguments, 0),
+    }
+}
+
+fn ipython_execution(arguments: &[Word]) -> Option<ExecutionSpec> {
+    let Some(first) = arguments.first() else {
+        return Some(stdin_execution());
+    };
+    let first = static_argument(first)?;
+    match first.as_str() {
+        "-c" => inline_execution(arguments, 1, SemanticCode::INTERPRETER_INLINE, None),
+        _ if first.starts_with("-c=") => inline_execution(
+            arguments,
+            0,
+            SemanticCode::INTERPRETER_INLINE,
+            first.strip_prefix("-c=").map(str::to_owned),
+        ),
+        _ if first.ends_with(".py") || first.ends_with(".ipy") || first == "-" => {
+            file_execution(arguments, 0)
+        }
+        _ => None,
+    }
+}
+
+fn remote_module(value: &str) -> bool {
+    value.contains("://")
+        || ["npm:", "jsr:", "data:"]
+            .iter()
+            .any(|prefix| value.starts_with(prefix))
+}
+
+fn explicit_script_path(value: &str) -> bool {
+    value.starts_with(['.', '/', '\\'])
+        || value.contains(['/', '\\'])
+        || [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]
+            .iter()
+            .any(|suffix| value.ends_with(suffix))
 }
 
 fn execution_source(program: &str, arguments: &[Word]) -> Option<SemanticCode> {
@@ -192,17 +402,7 @@ fn execution_source(program: &str, arguments: &[Word]) -> Option<SemanticCode> {
     let lower_program = normalized_execution_program(program);
     if matches!(
         lower_program.as_str(),
-        "node"
-            | "nodejs"
-            | "ruby"
-            | "php"
-            | "lua"
-            | "R"
-            | "Rscript"
-            | "r"
-            | "rscript"
-            | "julia"
-            | "swift"
+        "ruby" | "php" | "lua" | "R" | "Rscript" | "r" | "rscript" | "julia" | "swift"
     ) || is_python_interpreter(&lower_program)
         || is_perl_interpreter(&lower_program)
     {
@@ -256,14 +456,6 @@ fn execution_code(program: &str, arguments: &[Word], source: &str) -> Option<Str
     if is_perl_interpreter(&lower) {
         return inline_option_code(&values, "-e", perl_attached_code)
             .or_else(|| inline_option_code(&values, "-E", perl_attached_code));
-    }
-    if matches!(lower.as_str(), "node" | "nodejs") {
-        return simple_inline_option(
-            &values,
-            &["-e", "--eval", "-p", "--print"],
-            &["--eval=", "--print="],
-        )
-        .map(|(_, code)| code);
     }
     if lower == "ruby" {
         return simple_inline_option(&values, &["-e"], &["-e"]).map(|(_, code)| code);
@@ -552,11 +744,6 @@ fn execution_operand_index(program: &str, arguments: &[Word], source: &str) -> O
         .map(static_argument)
         .collect::<Option<Vec<_>>>()?;
     let inline = match lower.as_str() {
-        "node" | "nodejs" => simple_inline_option(
-            &values,
-            &["-e", "--eval", "-p", "--print"],
-            &["--eval=", "--print="],
-        ),
         "ruby" => simple_inline_option(&values, &["-e"], &["-e"]),
         "php" => simple_inline_option(&values, &["-r"], &["-r"]),
         "r" | "rscript" => simple_inline_option(&values, &["-e"], &["-e"]),
