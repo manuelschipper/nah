@@ -866,6 +866,8 @@ name = "nah-inline"
 version = "1.2.0"
 dependencies = [
  "nah-proto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
