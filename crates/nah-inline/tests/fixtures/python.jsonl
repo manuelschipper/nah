@@ -61,3 +61,9 @@
 {"id":"bound-decoded-shell","program":"python3","code":"import base64, os; decoded=base64.b64decode(payload); os.system(decoded.decode())","expected":{"findings":["decoded-execution:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"bound-dynamic-source","program":"python3","code":"source=\"import shutil; shutil.rmtree('/')\"; exec(source)","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"eval-rejects-statement-suite","program":"python3","code":"eval(\"import shutil; shutil.rmtree('/')\")","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"empty-list-is-false","program":"python3","code":"import shutil\nif []:\n    shutil.rmtree('/')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"subscript-mutation-invalidates-argv","program":"python3","code":"import subprocess\nargv=['rm','-rf','/']\nargv[0]='echo'\nsubprocess.run(argv)","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"module-alias-mutation-invalidates-owner","program":"python3","code":"import os\napi=os\nos.system=safe\napi.system('rm -rf /')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"f-string-conversion-is-not-plain-display","program":"python3","code":"import shutil\ntarget='/'\nshutil.rmtree(f'{target!r}')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"class-body-executes","program":"python3","code":"import shutil\nclass Config:\n    shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
+{"id":"inactive-except-body-is-inert","program":"python3","code":"import shutil\ntry:\n    pass\nexcept:\n    shutil.rmtree('/')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}

@@ -475,11 +475,13 @@ impl Interpreter<'_> {
             HirKind::BinaryOperator => self.binary(node, state, depth),
             HirKind::BooleanOperator => self.boolean(node, state, depth),
             HirKind::ComparisonOperator => self.comparison(node, state, depth),
-            HirKind::NotOperator => node
-                .child(HirField::Argument)
-                .or_else(|| named_children(node).next())
-                .and_then(|value| truthy(&self.eval(value, state, depth)))
-                .map_or(Value::Unknown, |value| Value::Bool(!value)),
+            HirKind::NotOperator => {
+                let value = node
+                    .child(HirField::Argument)
+                    .or_else(|| named_children(node).next())
+                    .map_or(Value::Unknown, |value| self.eval(value, state, depth));
+                truthy(&value, state).map_or(Value::Unknown, |value| Value::Bool(!value))
+            }
             HirKind::UnaryOperator => self.unary(node, state, depth),
             HirKind::ConditionalExpression => self.conditional_expression(node, state, depth),
             HirKind::Subscript => self.subscript(node, state, depth),
@@ -558,17 +560,46 @@ impl Interpreter<'_> {
                     self.assign(child, value, state);
                 }
             }
-            HirKind::Attribute => {
-                if let Some(object) = target.child(HirField::Object)
-                    && object.kind() == HirKind::Identifier
-                {
-                    state
-                        .bindings
-                        .insert(self.text(object).to_owned(), Value::Unknown);
-                }
-            }
+            HirKind::Attribute => target
+                .child(HirField::Object)
+                .into_iter()
+                .for_each(|object| self.invalidate_mutation_target(object, state)),
+            HirKind::Subscript => named_children(target)
+                .next()
+                .into_iter()
+                .for_each(|object| self.invalidate_mutation_target(object, state)),
             _ => self.complete = false,
         }
+    }
+
+    fn invalidate_mutation_target(&mut self, target: &HirNode, state: &mut State) {
+        let mut root = target;
+        while root.kind() != HirKind::Identifier {
+            let Some(child) = named_children(root).next() else {
+                self.complete = false;
+                return;
+            };
+            root = child;
+        }
+        let name = self.text(root).to_owned();
+        match state.bindings.get(&name).cloned() {
+            Some(Value::Cell(cell)) => {
+                if let Some(value) = state.cells.get_mut(cell) {
+                    *value = Cell::Unknown;
+                }
+            }
+            Some(Value::Module(_)) => {
+                for value in state.bindings.values_mut() {
+                    if matches!(value, Value::Module(_)) {
+                        *value = Value::Unknown;
+                    }
+                }
+            }
+            _ => {
+                state.bindings.insert(name, Value::Unknown);
+            }
+        }
+        self.complete = false;
     }
 
     fn import(&mut self, node: &HirNode, state: &mut State) {
@@ -691,6 +722,13 @@ impl Interpreter<'_> {
                 self.eval(child, state, depth);
             }
         }
+        if let Some(body) = node.child(HirField::Body) {
+            let mut class_state = state.clone();
+            if self.exec_block(body, &mut class_state, depth) != Control::Next {
+                self.complete = false;
+            }
+            state.cells = class_state.cells;
+        }
         if let Some(name) = node.child(HirField::Name) {
             state
                 .bindings
@@ -710,7 +748,7 @@ impl Interpreter<'_> {
             .iter()
             .filter(|child| child.field() == Some(HirField::Alternative))
             .collect::<Vec<_>>();
-        match truthy(&condition) {
+        match truthy(&condition, state) {
             Some(true) => {
                 consequence.map_or(Control::Next, |body| self.exec_block(body, state, depth))
             }
@@ -751,7 +789,7 @@ impl Interpreter<'_> {
                     .map_or(Value::Unknown, |condition| {
                         self.eval(condition, state, depth)
                     });
-                match truthy(&condition) {
+                match truthy(&condition, state) {
                     Some(true) => alternative
                         .child(HirField::Consequence)
                         .map_or(Control::Next, |body| self.exec_block(body, state, depth)),
@@ -839,7 +877,7 @@ impl Interpreter<'_> {
         };
         for _ in 0..MAX_LOOP_ITERATIONS {
             let value = self.eval(condition, state, depth);
-            match truthy(&value) {
+            match truthy(&value, state) {
                 Some(false) => return self.exec_loop_else(node, state, depth),
                 Some(true) => {
                     let before = state.clone();
@@ -900,32 +938,54 @@ impl Interpreter<'_> {
     }
 
     fn try_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
-        self.complete = false;
-        let mut branches = Vec::new();
-        if let Some(body) = node.child(HirField::Body) {
-            let mut branch = state.clone();
-            let _ = self.exec_block(body, &mut branch, depth);
-            branches.push(branch);
-        }
-        for clause in node.children().iter().filter(|child| {
-            matches!(
-                child.kind(),
-                HirKind::Except | HirKind::Else | HirKind::Finally
-            )
-        }) {
-            let mut branch = state.clone();
-            let body = clause
-                .child(HirField::Body)
-                .or_else(|| named_children(clause).find(|child| child.kind() == HirKind::Block));
-            if let Some(body) = body {
-                let _ = self.exec_block(body, &mut branch, depth);
+        let mut control = node
+            .child(HirField::Body)
+            .map_or(Control::Next, |body| self.exec_block(body, state, depth));
+        if control == Control::Raise {
+            let mut bare_handler = None;
+            for clause in node
+                .children()
+                .iter()
+                .filter(|child| child.kind() == HirKind::Except)
+            {
+                let mut children = named_children(clause);
+                let first = children.next();
+                if first.is_some_and(|child| child.kind() == HirKind::Block)
+                    && children.next().is_none()
+                {
+                    bare_handler = first;
+                } else {
+                    self.complete = false;
+                }
             }
-            branches.push(branch);
+            if let Some(body) = bare_handler {
+                control = self.exec_block(body, state, depth);
+            }
+        } else if control == Control::Next
+            && let Some(alternative) = node
+                .children()
+                .iter()
+                .find(|child| child.kind() == HirKind::Else)
+            && let Some(body) = alternative.child(HirField::Body).or_else(|| {
+                named_children(alternative).find(|child| child.kind() == HirKind::Block)
+            })
+        {
+            control = self.exec_block(body, state, depth);
         }
-        if let Some(joined) = branches.into_iter().reduce(join_states) {
-            *state = joined;
+        if let Some(finally) = node
+            .children()
+            .iter()
+            .find(|child| child.kind() == HirKind::Finally)
+            && let Some(body) = finally
+                .child(HirField::Body)
+                .or_else(|| named_children(finally).find(|child| child.kind() == HirKind::Block))
+        {
+            let final_control = self.exec_block(body, state, depth);
+            if final_control != Control::Next {
+                control = final_control;
+            }
         }
-        Control::Next
+        control
     }
 
     fn collection(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
@@ -1013,6 +1073,12 @@ impl Interpreter<'_> {
                         return Value::Unknown;
                     };
                     let interpolated = self.eval(expression, state, depth);
+                    if child.child(HirField::TypeConversion).is_some()
+                        || child.child(HirField::FormatSpecifier).is_some()
+                    {
+                        self.complete = false;
+                        return Value::Unknown;
+                    }
                     let Some(interpolated) = display_value(&interpolated) else {
                         return Value::Unknown;
                     };
@@ -1499,6 +1565,10 @@ impl Interpreter<'_> {
                 return Value::None;
             }
         }
+        if let Some(value) = state.cells.get_mut(cell) {
+            *value = Cell::Unknown;
+        }
+        self.complete = false;
         Value::Unknown
     }
 
@@ -1722,7 +1792,7 @@ impl Interpreter<'_> {
             .child(HirField::Operator)
             .map(|operator| self.text(operator))
             .unwrap_or_default();
-        match (operator, truthy(&left)) {
+        match (operator, truthy(&left, state)) {
             ("and", Some(false)) | ("or", Some(true)) => left,
             ("and", Some(true)) | ("or", Some(false)) => node
                 .child(HirField::Right)
@@ -1796,7 +1866,7 @@ impl Interpreter<'_> {
             return Value::Unknown;
         }
         let condition = self.eval(children[1], state, depth);
-        match truthy(&condition) {
+        match truthy(&condition, state) {
             Some(true) => self.eval(children[0], state, depth),
             Some(false) => self.eval(children[2], state, depth),
             None => {
@@ -2255,7 +2325,7 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> Option<bool> {
     }
 }
 
-fn truthy(value: &Value) -> Option<bool> {
+fn truthy(value: &Value, state: &State) -> Option<bool> {
     match value {
         Value::None => Some(false),
         Value::Bool(value) => Some(*value),
@@ -2263,11 +2333,11 @@ fn truthy(value: &Value) -> Option<bool> {
         Value::String(value) | Value::ImplicitString(value) => Some(!value.is_empty()),
         Value::Bytes(value) => Some(!value.is_empty()),
         Value::EmptyDictionary => Some(false),
-        Value::Cell(_)
-        | Value::Module(_)
-        | Value::Known(_)
-        | Value::LocalFunction(_)
-        | Value::Path(_) => Some(true),
+        Value::Cell(cell) => match state.cells.get(*cell) {
+            Some(Cell::Sequence(values)) => Some(!values.is_empty()),
+            Some(Cell::Unknown) | None => None,
+        },
+        Value::Module(_) | Value::Known(_) | Value::LocalFunction(_) | Value::Path(_) => Some(true),
         _ => None,
     }
 }
@@ -2792,6 +2862,32 @@ mod tests {
             report("exec(\"import shutil\", {}, {})\nshutil.rmtree('/')"),
             InlineReport::default()
         );
+    }
+
+    #[test]
+    fn reachability_and_mutation_do_not_reuse_stale_exact_values() {
+        for code in [
+            "import shutil\nif []:\n    shutil.rmtree('/')",
+            "import subprocess\nargv=['rm','-rf','/']\nargv[0]='echo'\nsubprocess.run(argv)",
+            "import subprocess\nargv=['rm','-rf','/']\nargv.clear()\nsubprocess.run(argv)",
+            "import os\napi=os\nos.system=safe\napi.system('rm -rf /')",
+            "import shutil\ntarget='/'\nshutil.rmtree(f'{target!r}')",
+            "import shutil\ntry:\n    pass\nexcept:\n    shutil.rmtree('/')",
+            "import shutil\ntry:\n    raise RuntimeError()\nelse:\n    shutil.rmtree('/')",
+            "import shutil\ndef safe():\n    try:\n        return\n    finally:\n        pass\n    shutil.rmtree('/')\nsafe()",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+        for code in [
+            "import shutil\nclass Config:\n    shutil.rmtree('/')",
+            "import shutil\ntry:\n    pass\nfinally:\n    shutil.rmtree('/')",
+            "import shutil\ntry:\n    raise RuntimeError()\nexcept:\n    shutil.rmtree('/')",
+        ] {
+            assert!(
+                report(code).contains_exact(FindingKind::RootDestruction),
+                "{code}"
+            );
+        }
     }
 
     #[test]
