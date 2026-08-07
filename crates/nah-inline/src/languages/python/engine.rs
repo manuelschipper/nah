@@ -154,7 +154,7 @@ struct Parameter {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct LocalFunction {
     name: String,
-    parameters: Vec<Parameter>,
+    parameters: Option<Vec<Parameter>>,
     body: HirNode,
     source: Arc<str>,
 }
@@ -646,8 +646,7 @@ impl Interpreter<'_> {
         let name = self.text(name_node).to_owned();
         let parameters = node
             .child(HirField::Parameters)
-            .map(|parameters| self.parameters(parameters, state, depth))
-            .unwrap_or_default();
+            .and_then(|parameters| self.parameters(parameters, state, depth));
         if let Some(annotation) = node.child(HirField::ReturnType) {
             self.eval(annotation, state, depth);
         }
@@ -672,8 +671,14 @@ impl Interpreter<'_> {
         state.bindings.insert(name, Value::LocalFunction(function));
     }
 
-    fn parameters(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Vec<Parameter> {
+    fn parameters(
+        &mut self,
+        node: &HirNode,
+        state: &mut State,
+        depth: usize,
+    ) -> Option<Vec<Parameter>> {
         let mut parameters = Vec::new();
+        let mut complete = true;
         for child in named_children(node) {
             match child.kind() {
                 HirKind::Identifier => parameters.push(Parameter {
@@ -681,36 +686,55 @@ impl Interpreter<'_> {
                     default: None,
                 }),
                 HirKind::DefaultParameter | HirKind::TypedDefaultParameter => {
-                    let Some(name) = child.child(HirField::Name) else {
-                        self.complete = false;
-                        continue;
-                    };
                     if let Some(annotation) = child.child(HirField::Type) {
                         self.eval(annotation, state, depth);
                     }
                     let default = child
                         .child(HirField::Value)
                         .map(|value| self.eval(value, state, depth));
-                    parameters.push(Parameter {
-                        name: self.text(name).to_owned(),
-                        default,
-                    });
+                    if let Some(name) = child
+                        .child(HirField::Name)
+                        .filter(|name| name.kind() == HirKind::Identifier)
+                    {
+                        parameters.push(Parameter {
+                            name: self.text(name).to_owned(),
+                            default,
+                        });
+                    } else {
+                        complete = false;
+                    }
                 }
                 HirKind::TypedParameter => {
-                    if let Some(name) = child.child(HirField::Name) {
+                    if let Some(name) = child.child(HirField::Name).or_else(|| {
+                        named_children(child).find(|node| node.kind() == HirKind::Identifier)
+                    }) {
                         parameters.push(Parameter {
                             name: self.text(name).to_owned(),
                             default: None,
                         });
+                    } else {
+                        complete = false;
                     }
                     if let Some(annotation) = child.child(HirField::Type) {
                         self.eval(annotation, state, depth);
                     }
                 }
-                _ => self.complete = false,
+                _ => complete = false,
             }
         }
-        parameters
+        let mut names = BTreeSet::new();
+        if parameters
+            .iter()
+            .any(|parameter| !names.insert(parameter.name.as_str()))
+        {
+            complete = false;
+        }
+        if complete {
+            Some(parameters)
+        } else {
+            self.complete = false;
+            None
+        }
     }
 
     fn exec_class(&mut self, node: &HirNode, state: &mut State, depth: usize) {
@@ -1424,29 +1448,24 @@ impl Interpreter<'_> {
         let Some(function) = state.functions.get(function).cloned() else {
             return Value::Unknown;
         };
-        if self.call_stack.contains(&function.name) || !arguments.complete {
+        if self.call_stack.contains(&function.name) {
             self.complete = false;
             return Value::Unknown;
         }
+        let Some(parameters) = function.parameters.as_deref() else {
+            self.complete = false;
+            return Value::Unknown;
+        };
+        let Some(bindings) = bind_arguments(parameters, &arguments) else {
+            self.complete = false;
+            return Value::Unknown;
+        };
         let mut local = state.clone();
         for name in assigned_names(&function.body, &function.source) {
             local.bindings.insert(name, Value::Unknown);
         }
-        for (index, parameter) in function.parameters.iter().enumerate() {
-            let value = arguments
-                .positional
-                .get(index)
-                .cloned()
-                .or_else(|| {
-                    arguments
-                        .keywords
-                        .iter()
-                        .find(|(name, _)| name == &parameter.name)
-                        .map(|(_, value)| value.clone())
-                })
-                .or_else(|| parameter.default.clone())
-                .unwrap_or(Value::Unknown);
-            local.bindings.insert(parameter.name.clone(), value);
+        for (name, value) in bindings {
+            local.bindings.insert(name, value);
         }
         let globals = global_names(&function.body, &function.source);
         self.call_stack.push(function.name);
@@ -2074,6 +2093,41 @@ fn values_bytes(values: &[Value]) -> Option<usize> {
     values.iter().try_fold(0usize, |bytes, value| {
         value_bytes(value).and_then(|value| bytes.checked_add(value))
     })
+}
+
+fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> Option<Vec<(String, Value)>> {
+    if !arguments.complete || arguments.positional.len() > parameters.len() {
+        return None;
+    }
+    let mut values = vec![None; parameters.len()];
+    for (index, value) in arguments.positional.iter().enumerate() {
+        values[index] = Some(value.clone());
+    }
+    let positions = parameters
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| (parameter.name.as_str(), index))
+        .collect::<BTreeMap<_, _>>();
+    let mut keywords = BTreeSet::new();
+    for (name, value) in &arguments.keywords {
+        if !keywords.insert(name.as_str()) {
+            return None;
+        }
+        let index = *positions.get(name.as_str())?;
+        if values[index].is_some() {
+            return None;
+        }
+        values[index] = Some(value.clone());
+    }
+    parameters
+        .iter()
+        .zip(values)
+        .map(|(parameter, value)| {
+            value
+                .or_else(|| parameter.default.clone())
+                .map(|value| (parameter.name.clone(), value))
+        })
+        .collect()
 }
 
 fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
@@ -2738,6 +2792,31 @@ mod tests {
             report.nested_executions(),
             [NestedExecution::Shell { code, .. }] if code == "printf child"
         ));
+    }
+
+    #[test]
+    fn local_functions_execute_only_after_exact_argument_binding() {
+        for code in [
+            "import shutil\ndef danger(required):\n    shutil.rmtree('/')\ndanger()",
+            "import shutil\ndef danger(value):\n    shutil.rmtree('/')\ndanger(1, 2)",
+            "import shutil\ndef danger(value):\n    shutil.rmtree('/')\ndanger(other=1)",
+            "import shutil\ndef danger(value):\n    shutil.rmtree('/')\ndanger(1, value=2)",
+            "import shutil\ndef danger(*values):\n    shutil.rmtree('/')\ndanger()",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+
+        for code in [
+            "import shutil\ndef danger(path='/'): shutil.rmtree(path)\ndanger()",
+            "import shutil\ndef danger(path): shutil.rmtree(path)\ndanger(path='/')",
+            "import shutil\ndef danger(path: str): shutil.rmtree(path)\ndanger('/')",
+            "import shutil\ndef invoke(callback, target): callback(target)\nalias=invoke\nalias(shutil.rmtree, '/')",
+        ] {
+            assert!(
+                report(code).contains_exact(FindingKind::RootDestruction),
+                "{code}"
+            );
+        }
     }
 
     #[test]
