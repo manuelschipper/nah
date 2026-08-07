@@ -58,11 +58,6 @@ pub(crate) fn analyze(
     depth: usize,
 ) -> InlineReport {
     let program = normalized_program(input.program);
-    let analysis_program = if matches!(program.as_str(), "deno" | "bun") {
-        "node"
-    } else {
-        &program
-    };
     if is_python_interpreter(&program) {
         python::analyze(&program, &input, protection, depth)
     } else if common::protection::is_perl_interpreter(&program) {
@@ -70,7 +65,7 @@ pub(crate) fn analyze(
     } else {
         match program.as_str() {
             "node" | "nodejs" => javascript::analyze(&program, &input, protection, depth),
-            "deno" | "bun" => javascript::analyze(analysis_program, &input, protection, depth),
+            "deno" | "bun" => InlineReport::default(),
             "ruby" => ruby::analyze(&program, &input, protection),
             "php" => php::analyze(&program, &input, protection),
             "lua" | "luajit" => lua::analyze(&program, &input, protection),

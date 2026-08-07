@@ -69,11 +69,7 @@ fn analyze_at(
     depth: usize,
 ) -> InlineReport {
     let program = normalized_program(input.program);
-    let program = if matches!(program.as_str(), "deno" | "bun") {
-        "node"
-    } else {
-        &program
-    };
+    let program = program.as_str();
     if !languages::supports(program) {
         return InlineReport::default();
     }
@@ -834,6 +830,14 @@ mod tests {
             report("node", "const target = 'unterminated"),
             InlineRefusal::StructureIncomplete,
         );
+    }
+
+    #[test]
+    fn deno_and_bun_do_not_inherit_node_ownership() {
+        let code = "require('node:fs').rmSync('/', {recursive:true})";
+        for program in ["deno", "bun"] {
+            assert_eq!(report(program, code), InlineReport::default(), "{program}");
+        }
     }
 
     #[test]
