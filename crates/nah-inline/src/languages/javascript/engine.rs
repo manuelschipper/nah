@@ -97,6 +97,7 @@ enum Value {
     Module(Module),
     Known(KnownFunction),
     Function(Arc<LocalFunction>),
+    Accessor,
     Require,
     Eval,
     ObjectBuiltin,
@@ -1091,6 +1092,13 @@ impl<'a> Interpreter<'a> {
                         self.eval(object, state, call_depth)
                     });
                 let property = self.member_name(node, state, call_depth);
+                if matches!(
+                    (&object, property.as_deref()),
+                    (Value::Object(properties), Some(property))
+                        if properties.get(property) == Some(&Value::Accessor)
+                ) {
+                    self.complete = false;
+                }
                 match (&object, property.as_deref()) {
                     (Value::Module(module), Some(property)) => {
                         if let Some(member) = module_member(*module, property) {
@@ -1125,8 +1133,8 @@ impl<'a> Interpreter<'a> {
                 for child in named_children(node) {
                     match child.kind() {
                         HirKind::ShorthandPropertyIdentifier => {
-                            let property = self.text(child);
-                            let selected = property_value(&value, property, state);
+                            let property = self.text(child).to_owned();
+                            let selected = self.read_property(&value, &property, state);
                             self.assign_pattern(child, selected, state, mode, call_depth);
                         }
                         HirKind::Pair => {
@@ -1134,7 +1142,7 @@ impl<'a> Interpreter<'a> {
                                 .child(HirField::Key)
                                 .and_then(|key| self.property_name(key, state, call_depth));
                             let selected = property.as_deref().map_or(Value::Unknown, |property| {
-                                property_value(&value, property, state)
+                                self.read_property(&value, property, state)
                             });
                             if let Some(target) = child.child(HirField::Value) {
                                 self.assign_pattern(target, selected, state, mode, call_depth);
@@ -1202,6 +1210,10 @@ impl<'a> Interpreter<'a> {
             Value::Object(properties) => {
                 let value = properties.get(&property).cloned();
                 match value {
+                    Some(Value::Accessor) => {
+                        self.complete = false;
+                        Value::UnknownReceiver(Box::new(Value::Object(properties)))
+                    }
                     Some(value) if value != Value::Unknown => value,
                     _ => Value::UnknownReceiver(Box::new(Value::Object(properties))),
                 }
@@ -1441,6 +1453,7 @@ impl<'a> Interpreter<'a> {
     ) -> Value {
         match function {
             KnownFunction::DefineProperty => {
+                self.complete = false;
                 if let Some(Value::Module(module)) = arguments.values.first() {
                     if arguments.complete
                         && arguments.values.len() == 3
@@ -1764,7 +1777,12 @@ impl<'a> Interpreter<'a> {
                     else {
                         return Value::Unknown;
                     };
-                    (name, Value::Unknown)
+                    let value = if self.method_is_accessor(child) {
+                        Value::Accessor
+                    } else {
+                        Value::Unknown
+                    };
+                    (name, value)
                 }
                 HirKind::SpreadElement => {
                     let spread = named_children(child)
@@ -1773,7 +1791,11 @@ impl<'a> Interpreter<'a> {
                     let Value::Object(spread) = spread else {
                         return Value::Unknown;
                     };
-                    for (name, value) in spread {
+                    for (name, mut value) in spread {
+                        if value == Value::Accessor {
+                            self.complete = false;
+                            value = Value::Unknown;
+                        }
                         properties.insert(name, value);
                     }
                     continue;
@@ -1923,6 +1945,23 @@ impl<'a> Interpreter<'a> {
     fn type_only_export(&self, node: &HirNode) -> bool {
         self.text(node).trim_start().starts_with("export type ")
             || named_children(node).all(|child| child.kind() == HirKind::TypeOnly)
+    }
+
+    fn read_property(&mut self, value: &Value, property: &str, state: &State) -> Value {
+        let selected = property_value(value, property, state);
+        if selected == Value::Accessor {
+            self.complete = false;
+            Value::Unknown
+        } else {
+            selected
+        }
+    }
+
+    fn method_is_accessor(&self, node: &HirNode) -> bool {
+        node.child(HirField::Kind)
+            .is_some_and(|kind| matches!(self.text(kind), "get" | "set"))
+            || self.text(node).trim_start().starts_with("get ")
+            || self.text(node).trim_start().starts_with("set ")
     }
 
     fn text(&self, node: &HirNode) -> &str {
@@ -2619,6 +2658,7 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
         | Value::Module(_)
         | Value::Known(_)
         | Value::Function(_)
+        | Value::Accessor
         | Value::Require
         | Value::Eval
         | Value::ObjectBuiltin
@@ -2690,6 +2730,7 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::Module(_)
         | Value::Known(_)
         | Value::Function(_)
+        | Value::Accessor
         | Value::Require
         | Value::Eval
         | Value::ObjectBuiltin
@@ -3009,6 +3050,12 @@ mod tests {
         })
     }
 
+    fn assert_inert(code: &str) {
+        let analysis = analysis(code);
+        assert_eq!(analysis.report(), &InlineReport::default(), "{code}");
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+    }
+
     #[test]
     fn require_imports_and_exact_values_reach_owned_sinks() {
         assert!(root(
@@ -3043,7 +3090,7 @@ mod tests {
             format!("builder({dangerous:?})"),
             format!("new Function({dangerous:?})()"),
         ] {
-            assert_eq!(report(&code), InlineReport::default(), "{code}");
+            assert_inert(&code);
         }
     }
 
@@ -3056,7 +3103,7 @@ mod tests {
             "try { throw 1 } catch (require) { require('fs').rmSync('/', {recursive:true}) }",
             "const fs=require('fs'); function make(){const fs=safe; return ()=>fs.rmSync('/', {recursive:true})} make()()",
         ] {
-            assert_eq!(report(code), InlineReport::default(), "{code}");
+            assert_inert(code);
         }
     }
 
@@ -3077,7 +3124,7 @@ mod tests {
             "eval('require=safe'); require('fs').rmSync('/', {recursive:true})",
             "eval(\"require('fs').rmSync=safe\"); require('fs').rmSync('/', {recursive:true})",
         ] {
-            assert_eq!(report(code), InlineReport::default(), "{code}");
+            assert!(!root(code), "{code}");
         }
         assert!(
             report("const args=['-rf','/']; args.push('safe'); require('child_process').spawn('rm', args)")
@@ -3094,7 +3141,7 @@ mod tests {
             "true || require('fs').rmSync('/', {recursive:true})",
             "while (true) {} require('fs').rmSync('/', {recursive:true})",
         ] {
-            assert_eq!(report(code), InlineReport::default(), "{code}");
+            assert_inert(code);
         }
         assert!(root("false || require('fs').rmSync('/', {recursive:true})"));
     }
@@ -3120,7 +3167,7 @@ mod tests {
             format!("class Hidden {{ static run() {{ {dangerous} }} }}"),
             format!("const broken = ; {dangerous}"),
         ] {
-            assert_eq!(report(&code), InlineReport::default(), "{code}");
+            assert_inert(&code);
         }
     }
 }

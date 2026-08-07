@@ -259,6 +259,19 @@ fn javascript_functions_resolve_lexical_instead_of_caller_scopes() {
 }
 
 #[test]
+fn javascript_accessor_execution_is_an_explicit_barrier() {
+    for code in [
+        "const fs=require('fs'); const value={get path(){fs.rmSync('/', {recursive:true}); return '/'}}; value.path",
+        "const fs=require('fs'), value={}; Object.defineProperty(value, 'path', {get(){fs.rmSync('/', {recursive:true})}}); value.path",
+        "const fs=require('fs'); const value={get path(){fs.rmSync('/', {recursive:true}); return '/'}}; const {path}=value",
+        "const fs=require('fs'); const value={get path(){fs.rmSync('/', {recursive:true}); return '/'}}; const copy={...value}",
+    ] {
+        let analysis = analyze_program("node", code);
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+}
+
+#[test]
 fn javascript_eval_merges_canonical_calls_without_legacy_findings() {
     let analysis = analyze_program("node", "eval(\"require('fs').rmSync('/tmp/cache')\")");
     assert_eq!(analysis.draft().calls().len(), 1);

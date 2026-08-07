@@ -39,6 +39,9 @@
 - **Lexical JavaScript helpers** — inline helper functions now resolve captured
   bindings instead of caller-local shadows, preventing both fabricated and
   missed effects when a call occurs inside a nested block.
+- **JavaScript accessor barriers** — accessed object-literal getters and
+  descriptor mutations now make coverage partial instead of silently treating
+  potentially effectful property access as inert.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 
