@@ -70,3 +70,5 @@
 {"id":"top-level-return-invalidates-unit","program":"python3","code":"import shutil; shutil.rmtree('/'); return","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"loop-else-break-invalidates-unit","program":"python3","code":"import shutil\nwhile False:\n    pass\nelse:\n    break\nshutil.rmtree('/')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"top-level-await-invalidates-unit","program":"python3","code":"import shutil\nawait task\nshutil.rmtree('/')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"duplicate-parameter-invalidates-default","program":"python3","code":"import shutil\ndef value(arg=shutil.rmtree('/'), arg=1):\n    pass","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"duplicate-keyword-invalidates-call","program":"python3","code":"import shutil\nvalue(arg=shutil.rmtree('/'), arg=1)","expected":{"findings":[],"nested_executions":[],"refusals":[]}}

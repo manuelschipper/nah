@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{collections::BTreeSet, ops::Range};
 
 use tree_sitter::{Node, ParseOptions, Parser};
 
@@ -18,7 +18,6 @@ enum Dialect {
 
 #[derive(Clone, Copy, Default)]
 struct SyntaxContext {
-    function_depth: usize,
     function_body: bool,
     async_body: bool,
     loops: usize,
@@ -309,7 +308,9 @@ fn early_error(node: Node<'_>, context: SyntaxContext, code: &str) -> bool {
     match node.kind() {
         "return_statement" | "yield" => !context.function_body,
         "break_statement" | "continue_statement" => context.loops == 0,
-        "nonlocal_statement" => context.function_depth == 0,
+        "nonlocal_statement" => true,
+        "parameters" => duplicate_parameter(node, code),
+        "argument_list" => duplicate_keyword(node, code),
         "await" => !context.async_body,
         "for_statement" | "with_statement" if direct_token(node, code, "async") => {
             !context.async_body
@@ -325,7 +326,6 @@ impl SyntaxContext {
         }
         match parent.kind() {
             "function_definition" => Self {
-                function_depth: self.function_depth + 1,
                 function_body: true,
                 async_body: direct_token(parent, code, "async"),
                 loops: 0,
@@ -334,7 +334,6 @@ impl SyntaxContext {
                 function_body: false,
                 async_body: false,
                 loops: 0,
-                ..self
             },
             "for_statement" | "while_statement" => Self {
                 loops: self.loops + 1,
@@ -343,6 +342,38 @@ impl SyntaxContext {
             _ => self,
         }
     }
+}
+
+fn duplicate_parameter(node: Node<'_>, code: &str) -> bool {
+    let mut names = BTreeSet::new();
+    let mut cursor = node.walk();
+    for parameter in node.named_children(&mut cursor) {
+        let name = match parameter.kind() {
+            "identifier" => Some(parameter),
+            "default_parameter" | "typed_parameter" | "typed_default_parameter" => {
+                parameter.child_by_field_name("name")
+            }
+            "list_splat" | "dictionary_splat" => {
+                parameter.named_children(&mut parameter.walk()).next()
+            }
+            _ => None,
+        };
+        if let Some(name) = name
+            && !names.insert(node_text(name, code))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn duplicate_keyword(node: Node<'_>, code: &str) -> bool {
+    let mut names = BTreeSet::new();
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|argument| argument.kind() == "keyword_argument")
+        .filter_map(|argument| argument.child_by_field_name("name"))
+        .any(|name| !names.insert(node_text(name, code)))
 }
 
 fn incompatible_dialect_node(node: Node<'_>, code: &str, dialect: Dialect) -> bool {
@@ -770,8 +801,11 @@ mod tests {
             "yield 1\nimport shutil; shutil.rmtree('/')",
             "await task\nimport shutil; shutil.rmtree('/')",
             "nonlocal value\nimport shutil; shutil.rmtree('/')",
+            "def value():\n    nonlocal missing\n    return 1",
             "for value in []:\n    pass\nelse:\n    break",
             "async for value in values:\n    pass",
+            "import shutil\ndef value(arg=shutil.rmtree('/'), arg=1):\n    pass",
+            "import shutil\nvalue(arg=shutil.rmtree('/'), arg=1)",
         ] {
             assert_eq!(source_status(code, "python3"), Ok(false), "{code}");
         }
