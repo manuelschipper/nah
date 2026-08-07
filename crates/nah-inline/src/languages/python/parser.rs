@@ -736,7 +736,7 @@ fn dialect(program: &str) -> Dialect {
         || program.starts_with("pypy2.")
     {
         Dialect::Python2
-    } else if matches!(program, "python3" | "pypy3") {
+    } else if matches!(program, "python3" | "pypy3" | "ipython" | "ipython3") {
         Dialect::Python3 { minor: None }
     } else if let Some(version) = program
         .strip_prefix("python3.")

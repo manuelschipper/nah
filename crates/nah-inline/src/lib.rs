@@ -92,6 +92,9 @@ fn analyze_language_at(
     if depth >= 16 {
         return LanguageAnalysis::refused(InlineRefusal::RecursionLimit);
     }
+    if is_ipython_interpreter(program) {
+        return languages::analyze_ipython(input, protection, depth);
+    }
     if is_python_interpreter(program) {
         return languages::analyze_python(input, protection, depth);
     }
@@ -124,7 +127,14 @@ pub(crate) fn is_python_interpreter(program: &str) -> bool {
     is_normalized_python_interpreter(&program)
 }
 
+pub(crate) fn is_ipython_interpreter(program: &str) -> bool {
+    matches!(normalized_program(program).as_str(), "ipython" | "ipython3")
+}
+
 fn is_normalized_python_interpreter(program: &str) -> bool {
+    if matches!(program, "ipython" | "ipython3") {
+        return true;
+    }
     if matches!(
         program,
         "py" | "python" | "python2" | "python3" | "pypy" | "pypy2" | "pypy3"
@@ -185,6 +195,18 @@ mod tests {
             assert!(
                 report(program, code).contains_exact(FindingKind::RootDestruction),
                 "{program}: {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn ipython_names_use_the_python_frontend() {
+        for program in ["ipython", "ipython3", "/usr/bin/IPython3"] {
+            assert!(supports(program), "{program}");
+            assert!(
+                report(program, "import shutil; shutil.rmtree('/')")
+                    .contains_exact(FindingKind::RootDestruction),
+                "{program}"
             );
         }
     }

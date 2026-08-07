@@ -1,5 +1,6 @@
 mod common;
 mod deferred;
+mod ipython;
 mod javascript;
 mod julia;
 mod lua;
@@ -13,7 +14,7 @@ mod swift;
 
 use crate::{
     InlineInput, InlineReport, LanguageAnalysis, LanguageDraft, ProtectionInput,
-    is_python_interpreter, normalized_program,
+    is_ipython_interpreter, is_python_interpreter, normalized_program,
 };
 
 pub(crate) fn supports(program: &str) -> bool {
@@ -53,13 +54,28 @@ pub(crate) fn analyze_python(
     )
 }
 
+pub(crate) fn analyze_ipython(
+    input: InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> LanguageAnalysis {
+    ipython::analyze(
+        &crate::normalized_program(input.program),
+        &input,
+        protection,
+        depth,
+    )
+}
+
 pub(crate) fn analyze(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
     let program = normalized_program(input.program);
-    if is_python_interpreter(&program) {
+    if is_ipython_interpreter(&program) {
+        ipython::analyze(&program, &input, protection, depth)
+    } else if is_python_interpreter(&program) {
         python::analyze(&program, &input, protection, depth)
     } else if common::protection::is_perl_interpreter(&program) {
         perl::analyze("perl", &input, protection)
@@ -87,6 +103,9 @@ pub(crate) fn analyze_language(
     depth: usize,
 ) -> LanguageAnalysis {
     let program = normalized_program(input.program);
+    if is_ipython_interpreter(&program) {
+        return ipython::analyze(&program, &input, protection, depth);
+    }
     if is_python_interpreter(&program) {
         return python::analyze_language(&program, &input, protection, depth);
     }
