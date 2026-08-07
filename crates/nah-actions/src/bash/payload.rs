@@ -280,6 +280,25 @@ impl Lowerer {
                         (None, None, String::new(), true)
                     }
                 };
+                let identity = filesystem.identity_path().and_then(|identity| {
+                    resolve_from_cwd(
+                        known_cwd(&execution.state),
+                        current_pwd(&execution.state),
+                        identity,
+                        &self.home,
+                        self.platform,
+                        false,
+                    )
+                });
+                if filesystem.identity_path().is_some() && identity.is_none() {
+                    self.complete = false;
+                }
+                let identity_requirements =
+                    if identity.is_some() && filesystem.identity_requires_missing_target() {
+                        key.clone().into_iter().collect()
+                    } else {
+                        Vec::new()
+                    };
                 filesystems.push(FilesystemDraft {
                     key,
                     descendant_key,
@@ -291,8 +310,9 @@ impl Lowerer {
                     network_bound: false,
                     unresolved_selection,
                     content_access: filesystem.content_access(),
-                    identity: None,
-                    identity_requirements: Vec::new(),
+                    identity,
+                    identity_requirements,
+                    protects_descendants: filesystem.descendant_protection(),
                     read_if_existing_file: false,
                     pattern: false,
                 });

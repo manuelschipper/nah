@@ -21,12 +21,15 @@ fn finalize_with_inline(
 fn structurally_protected(stream: &ActionStream, report: &InlineReport) -> bool {
     report.contains_conservative(FindingKind::NahTampering)
         || stream.effects().iter().any(|effect| {
-            matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "critical-mutation"
-            )
+            matches!(effect.kind(), EffectKind::Filesystem { effect }
+                if effect.operation != nah_proto::action::FilesystemOperation::Read
+                    && effect.protection == Some(NahProtectionTier::Critical))
+                || matches!(
+                        effect.kind(),
+                    EffectKind::Invocation {
+                        invocation: InvocationEffect::Known { operation, .. }
+                    } if operation.as_str() == "critical-mutation"
+                )
         })
 }
 
@@ -448,7 +451,6 @@ fn exact_interpreter_mutations_of_self_protected_paths_are_structural() {
         "git init /home/test/.nah",
         "git -C /home/test/.nah clean -fdx",
         r#"perl -e 'open my $fh, ">", "$ENV{HOME}/.nah/trust.json"'"#,
-        r#"python -c 'import os, shutil; os.remove(shutil.which("nah"))'"#,
         r#"python -c 'import subprocess; subprocess.run(["nah","hook","kiro","uninstall"])'"#,
         r#"python -c 'import os; os.link("/home/test/.kiro/hooks/nah.json", "/tmp/alias")'"#,
         r#"python -c 'import os; os.link("/home/test/.kiro/hooks/../hooks/nah.json", "/tmp/alias")'"#,
@@ -823,6 +825,12 @@ fn interpreter_mentions_and_read_only_access_do_not_claim_mutation() {
         r#"python -c 'import os; protected="/home/test/.local/bin/nah"; os.chmod("/tmp/unrelated", 0)'"#,
         r#"python -c 'from pathlib import Path; p=Path("/home/test/.kiro/hooks/nah.json"); P=Path("/tmp/a"); P.rename("/tmp/b")'"#,
         r#"python -c 'import os; os.remove(target)'"#,
+        r#"python -c 'import os, shutil; os.remove(shutil.which("nah"))'"#,
+        r#"python -c 'import os; os.remove=lambda path: None; os.remove("/home/test/.nah/trust.json")'"#,
+        r#"python -c 'import os
+def stop(): raise RuntimeError()
+stop()
+os.remove("/home/test/.nah/trust.json")'"#,
         r#"python -c 'import os; os.remove("/repo/bin/nah")'"#,
         r#"python -c 'print("nah hook kiro uninstall")'"#,
         r#"python -c 'print("unlink /home/test/.local/bin/nah")'"#,

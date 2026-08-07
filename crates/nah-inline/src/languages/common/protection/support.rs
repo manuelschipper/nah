@@ -21,27 +21,6 @@ pub(in crate::languages) fn is_perl_interpreter(program: &str) -> bool {
     })
 }
 
-pub(super) fn protected_access_control_operation(
-    program: &str,
-    arguments: &[String],
-    _cwd: Option<&str>,
-    home: &str,
-    critical_paths: &[AbsolutePath],
-    platform: Platform,
-) -> Option<&'static str> {
-    let program = normalized_program(program);
-    if !matches!(program.as_str(), "chmod" | "chown" | "chgrp" | "setfacl") {
-        return None;
-    }
-    arguments
-        .iter()
-        .rev()
-        .find(|word| !word.starts_with('-'))
-        .and_then(|word| resolve_from_cwd(None, None, word, home, platform, true))
-        .is_some_and(|target| protected_path_ancestor(&target, home, critical_paths, platform))
-        .then_some("critical-mutation")
-}
-
 pub(super) fn environment_operation(
     program: &str,
     _words: &[String],
@@ -258,104 +237,6 @@ pub(super) fn protected_path(
             .any(|candidate| path == lexical_normalized_path(candidate.as_str(), platform))
 }
 
-pub(super) fn protected_path_ancestor(
-    path: &str,
-    home: &str,
-    critical_paths: &[AbsolutePath],
-    platform: Platform,
-) -> bool {
-    let path = lexical_normalized_path(path, platform);
-    let home = lexical_normalized_path(home, platform);
-    if path == home {
-        return false;
-    }
-    let ancestor_of = |candidate: &str| {
-        let candidate = lexical_normalized_path(candidate, platform);
-        path != candidate && path_contains(&path, &candidate)
-    };
-    if path_contains(&home, &path)
-        && [
-            format!("{home}/.nah"),
-            format!("{home}/.local/bin/nah"),
-            format!("{home}/.cargo/bin/nah"),
-        ]
-        .iter()
-        .map(String::as_str)
-        .chain(critical_paths.iter().map(AbsolutePath::as_str))
-        .any(&ancestor_of)
-    {
-        return true;
-    }
-    path.split('/')
-        .filter(|component| !component.is_empty())
-        .count()
-        > 1
-        && critical_paths
-            .iter()
-            .map(AbsolutePath::as_str)
-            .any(ancestor_of)
-}
-
-pub(super) fn resolve_from_cwd(
-    cwd: Option<&str>,
-    pwd: Option<&str>,
-    target: &str,
-    home: &str,
-    platform: Platform,
-    expand_tilde: bool,
-) -> Option<String> {
-    if expand_tilde && target == "~+" {
-        return pwd.map(str::to_owned);
-    }
-    if expand_tilde
-        && let Some(relative) = target
-            .strip_prefix("~+/")
-            .or_else(|| target.strip_prefix("~+\\"))
-    {
-        return pwd.map(|pwd| join(pwd, relative, platform));
-    }
-    if expand_tilde && target == "~" {
-        return Some(home.to_owned());
-    }
-    if expand_tilde
-        && let Some(relative) = target
-            .strip_prefix("~/")
-            .or_else(|| target.strip_prefix("~\\"))
-    {
-        return Some(join(home, relative, platform));
-    }
-    if is_absolute(target, platform) {
-        return Some(target.to_owned());
-    }
-    cwd.map(|cwd| join(cwd, target, platform))
-}
-
-fn join(base: &str, relative: &str, platform: Platform) -> String {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    format!(
-        "{}{separator}{}",
-        base.trim_end_matches(['/', '\\']),
-        relative.trim_start_matches(['/', '\\'])
-    )
-}
-
-fn is_absolute(path: &str, platform: Platform) -> bool {
-    if platform == Platform::Windows {
-        path.starts_with(['/', '\\'])
-            || path.as_bytes().get(1) == Some(&b':')
-                && path
-                    .as_bytes()
-                    .get(2)
-                    .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
-    } else {
-        path.starts_with('/')
-    }
-}
-
 fn same_lexical_path(left: &str, right: &str, platform: Platform) -> bool {
     lexical_normalized_path(left, platform) == lexical_normalized_path(right, platform)
 }
@@ -384,51 +265,9 @@ fn lexical_normalized_path(path: &str, platform: Platform) -> String {
     }
 }
 
-fn path_contains(parent: &str, child: &str) -> bool {
-    child == parent
-        || child
-            .strip_prefix(parent)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-}
-
 fn has_projected_path(critical_paths: &[AbsolutePath], suffix: &str, platform: Platform) -> bool {
     let suffix = lexical_normalized_path(suffix, platform);
     critical_paths.iter().any(|path| {
         lexical_normalized_path(path.as_str(), platform).ends_with(&format!("/{suffix}"))
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn protected_runtime_wiring_ancestors_are_recognized() {
-        let protected =
-            AbsolutePath::new(Platform::Linux, "/home/test/.kiro/hooks/nah.json").unwrap();
-        assert!(protected_path_ancestor(
-            "/home/test/.kiro/hooks",
-            "/home/test",
-            &[protected],
-            Platform::Linux,
-        ));
-    }
-
-    #[test]
-    fn literal_access_control_arguments_reach_ancestor_protection() {
-        let protected =
-            AbsolutePath::new(Platform::Linux, "/home/test/.kiro/hooks/nah.json").unwrap();
-        let arguments = ["000".to_owned(), "/home/test/.kiro/hooks".to_owned()];
-        assert_eq!(
-            protected_access_control_operation(
-                "chmod",
-                &arguments,
-                None,
-                "/home/test",
-                &[protected],
-                Platform::Linux,
-            ),
-            Some("critical-mutation")
-        );
-    }
 }

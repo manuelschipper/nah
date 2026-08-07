@@ -162,6 +162,9 @@ pub struct LanguageFilesystem {
     operation: FilesystemOperation,
     recursive: bool,
     content_access: bool,
+    identity: Option<String>,
+    identity_requires_missing_target: bool,
+    protects_descendants: bool,
 }
 
 impl LanguageFilesystem {
@@ -175,6 +178,9 @@ impl LanguageFilesystem {
             operation,
             recursive,
             content_access: true,
+            identity: None,
+            identity_requires_missing_target: false,
+            protects_descendants: false,
         }
     }
 
@@ -192,6 +198,31 @@ impl LanguageFilesystem {
         self
     }
 
+    pub(crate) fn identity(mut self, identity: Option<String>, requires_missing: bool) -> Self {
+        self.identity = identity;
+        self.identity_requires_missing_target = requires_missing;
+        self
+    }
+
+    pub(crate) fn without_identity(mut self) -> Self {
+        self.identity = None;
+        self.identity_requires_missing_target = false;
+        self
+    }
+
+    pub(crate) fn protects_descendants(mut self) -> Self {
+        self.protects_descendants = true;
+        self
+    }
+
+    pub(crate) fn protects_descendants_if(self, protects: bool) -> Self {
+        if protects {
+            self.protects_descendants()
+        } else {
+            self
+        }
+    }
+
     pub fn requested(&self) -> Option<&str> {
         self.requested.as_deref()
     }
@@ -206,6 +237,18 @@ impl LanguageFilesystem {
 
     pub const fn content_access(&self) -> bool {
         self.content_access
+    }
+
+    pub fn identity_path(&self) -> Option<&str> {
+        self.identity.as_deref()
+    }
+
+    pub const fn identity_requires_missing_target(&self) -> bool {
+        self.identity_requires_missing_target
+    }
+
+    pub const fn descendant_protection(&self) -> bool {
+        self.protects_descendants
     }
 }
 

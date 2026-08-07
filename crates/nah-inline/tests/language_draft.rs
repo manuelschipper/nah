@@ -159,11 +159,28 @@ fn read_provenance_flows_to_file_and_network_consumers() {
 }
 
 #[test]
-fn move_and_link_identity_calls_remain_deferred() {
+fn move_and_link_calls_preserve_identity() {
     let analysis = analyze(
         "import os, shutil\nos.rename('/a', '/b')\nos.link('/a', '/b')\nshutil.move('/a', '/b')",
     );
-    assert!(analysis.draft().calls().is_empty());
+    let calls = analysis.draft().calls();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].filesystems().len(), 2);
+    assert_eq!(
+        calls[0].filesystems()[0].operation(),
+        FilesystemOperation::Delete
+    );
+    assert_eq!(
+        calls[0].filesystems()[1].operation(),
+        FilesystemOperation::Write
+    );
+    assert_eq!(calls[0].filesystems()[1].identity_path(), Some("/a"));
+    assert!(!calls[0].filesystems()[1].identity_requires_missing_target());
+    assert_eq!(calls[1].filesystems().len(), 1);
+    assert_eq!(calls[1].filesystems()[0].identity_path(), Some("/a"));
+    assert!(calls[1].filesystems()[0].identity_requires_missing_target());
+    assert_eq!(calls[2].filesystems()[1].identity_path(), Some("/a"));
+    assert!(analysis.draft().complete());
 }
 
 #[test]

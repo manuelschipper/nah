@@ -54,7 +54,9 @@ pub(super) fn with_protection(
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
 ) -> InlineReport {
-    if let Some(protection) = protection {
+    if let Some(protection) = protection
+        && !crate::is_python_interpreter(program)
+    {
         report.extend(protection::analyze(
             program,
             input.code,

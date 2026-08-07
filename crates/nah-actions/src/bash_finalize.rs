@@ -897,7 +897,7 @@ fn classify_filesystem(
     } else {
         nah_proto::action::Sensitivity::None
     };
-    let direct_protection = classify_protection(
+    let mut direct_protection = classify_protection(
         filesystem.operation,
         target,
         target,
@@ -908,6 +908,22 @@ fn classify_filesystem(
         platform,
         pattern,
     );
+    if filesystem.protects_descendants {
+        direct_protection = strongest_protection(
+            direct_protection,
+            classify_protection(
+                FilesystemOperation::Delete,
+                target,
+                target,
+                roots,
+                trusted_roots,
+                home,
+                critical_paths,
+                platform,
+                pattern,
+            ),
+        );
+    }
     let identity_protection = identity
         .filter(|_| filesystem.operation == FilesystemOperation::Write)
         .and_then(|identity| {

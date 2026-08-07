@@ -1324,7 +1324,13 @@ impl Interpreter<'_> {
         let attribute = self.text(attribute);
         let value = match object {
             Value::Module(module) => {
-                module_attribute(module, attribute).unwrap_or(Value::ModuleMethod(module))
+                if module == Module::Os
+                    && let Some(value) = os_open_flag(attribute, self.input.platform)
+                {
+                    Value::Int(value)
+                } else {
+                    module_attribute(module, attribute).unwrap_or(Value::ModuleMethod(module))
+                }
             }
             Value::Path(path) => Value::PathMethod {
                 path,
@@ -1983,19 +1989,167 @@ impl Interpreter<'_> {
                             FilesystemOperation::Write,
                             false,
                         )
+                        .metadata()
+                        .protects_descendants(),
+                    ],
+                );
+                Value::None
+            }
+            KnownFunction::OsRename | KnownFunction::OsReplace | KnownFunction::ShutilMove => {
+                let (callable, max_positional, keywords) = match function {
+                    KnownFunction::OsRename => (
+                        "os.rename",
+                        2,
+                        &["src", "dst", "src_dir_fd", "dst_dir_fd"] as &[_],
+                    ),
+                    KnownFunction::OsReplace => (
+                        "os.replace",
+                        2,
+                        &["src", "dst", "src_dir_fd", "dst_dir_fd"] as &[_],
+                    ),
+                    KnownFunction::ShutilMove => {
+                        ("shutil.move", 3, &["src", "dst", "copy_function"] as &[_])
+                    }
+                    _ => unreachable!(),
+                };
+                if !valid_call_shape(&arguments, max_positional, keywords)
+                    || required_argument(&arguments, 0, "src").is_none()
+                    || required_argument(&arguments, 1, "dst").is_none()
+                    || !possible_path_argument(&arguments, 0, "src")
+                    || !possible_path_argument(&arguments, 1, "dst")
+                {
+                    return Value::Unknown;
+                }
+                let identity = argument(&arguments, 0, "src")
+                    .and_then(value_string)
+                    .map(str::to_owned);
+                self.emit_filesystem_call(
+                    callable,
+                    &arguments,
+                    state,
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            "src",
+                            FilesystemOperation::Delete,
+                            false,
+                        ),
+                        filesystem_argument(
+                            &arguments,
+                            1,
+                            "dst",
+                            FilesystemOperation::Write,
+                            false,
+                        )
+                        .identity(identity, false)
+                        .protects_descendants(),
+                    ],
+                );
+                Value::None
+            }
+            KnownFunction::OsLink => {
+                if !valid_call_shape(
+                    &arguments,
+                    2,
+                    &["src", "dst", "src_dir_fd", "dst_dir_fd", "follow_symlinks"],
+                ) || required_argument(&arguments, 0, "src").is_none()
+                    || required_argument(&arguments, 1, "dst").is_none()
+                    || !possible_path_argument(&arguments, 0, "src")
+                    || !possible_path_argument(&arguments, 1, "dst")
+                {
+                    return Value::Unknown;
+                }
+                let identity = argument(&arguments, 0, "src")
+                    .and_then(value_string)
+                    .map(str::to_owned);
+                self.emit_filesystem_call(
+                    "os.link",
+                    &arguments,
+                    state,
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            1,
+                            "dst",
+                            FilesystemOperation::Write,
+                            false,
+                        )
+                        .identity(identity, true),
+                    ],
+                );
+                Value::None
+            }
+            KnownFunction::OsSymlink => {
+                if !valid_call_shape(
+                    &arguments,
+                    3,
+                    &["src", "dst", "target_is_directory", "dir_fd"],
+                ) || required_argument(&arguments, 0, "src").is_none()
+                    || required_argument(&arguments, 1, "dst").is_none()
+                    || !possible_path_argument(&arguments, 1, "dst")
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    "os.symlink",
+                    &arguments,
+                    state,
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            1,
+                            "dst",
+                            FilesystemOperation::Write,
+                            false,
+                        )
                         .metadata(),
                     ],
                 );
                 Value::None
             }
-            KnownFunction::OsOpen
-            | KnownFunction::OsLink
-            | KnownFunction::OsRename
-            | KnownFunction::OsReplace
-            | KnownFunction::OsSymlink
-            | KnownFunction::ShutilMove => {
-                self.draft.set_partial();
-                Value::Unknown
+            KnownFunction::OsOpen => {
+                if !valid_call_shape(&arguments, 3, &["path", "flags", "mode", "dir_fd"])
+                    || required_argument(&arguments, 0, "path").is_none()
+                    || required_argument(&arguments, 1, "flags").is_none()
+                    || !possible_path_argument(&arguments, 0, "path")
+                {
+                    return Value::Unknown;
+                }
+                let Some(Value::Int(flags)) = argument(&arguments, 1, "flags") else {
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                };
+                let access = flags & 3;
+                if access == 3 {
+                    return Value::Unknown;
+                }
+                let mut filesystems = Vec::new();
+                if matches!(access, 0 | 2) {
+                    filesystems.push(filesystem_argument(
+                        &arguments,
+                        0,
+                        "path",
+                        FilesystemOperation::Read,
+                        false,
+                    ));
+                }
+                if matches!(access, 1 | 2)
+                    || flags & os_open_mutation_flags(self.input.platform) != 0
+                {
+                    filesystems.push(filesystem_argument(
+                        &arguments,
+                        0,
+                        "path",
+                        FilesystemOperation::Write,
+                        false,
+                    ));
+                }
+                if filesystems.is_empty() {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call("os.open", &arguments, state, filesystems)
+                    .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
         }
     }
@@ -2026,22 +2180,32 @@ impl Interpreter<'_> {
         filesystems: Vec<LanguageFilesystem>,
         endpoint: Option<String>,
     ) -> Option<usize> {
+        let mut unresolved_filesystem = false;
         let filesystems = filesystems
             .into_iter()
-            .map(|filesystem| {
+            .map(|mut filesystem| {
                 if !state.relative_cwd_known
                     && filesystem
                         .requested()
                         .is_some_and(|path| !is_absolute(path, self.input.platform))
                 {
-                    filesystem.without_requested()
-                } else {
-                    filesystem
+                    filesystem = filesystem.without_requested();
+                    unresolved_filesystem = true;
                 }
+                if !state.relative_cwd_known
+                    && filesystem
+                        .identity_path()
+                        .is_some_and(|path| !is_absolute(path, self.input.platform))
+                {
+                    filesystem = filesystem.without_identity();
+                    unresolved_filesystem = true;
+                }
+                filesystem
             })
             .collect::<Vec<_>>();
         let input = language_call_input(callable, arguments, state);
         if !input.complete()
+            || unresolved_filesystem
             || filesystems
                 .iter()
                 .any(|filesystem| filesystem.requested().is_none())
@@ -2226,7 +2390,8 @@ impl Interpreter<'_> {
                                     .and_then(exact_bool)
                                     .unwrap_or(false),
                         )
-                        .metadata_if(matches!(method, "touch" | "mkdir" | "chmod" | "lchmod")),
+                        .metadata_if(matches!(method, "touch" | "mkdir" | "chmod" | "lchmod"))
+                        .protects_descendants_if(matches!(method, "chmod" | "lchmod")),
                     ],
                 );
                 Value::None
@@ -2252,8 +2417,74 @@ impl Interpreter<'_> {
                 );
                 Value::None
             }
-            "rename" | "replace" | "hardlink_to" | "link_to" | "symlink_to" => {
-                self.draft.set_partial();
+            "rename" | "replace" => {
+                if !valid_call_shape(&arguments, 1, &["target"])
+                    || required_argument(&arguments, 0, "target").is_none()
+                    || !possible_path_argument(&arguments, 0, "target")
+                {
+                    return Value::Unknown;
+                }
+                let target = argument(&arguments, 0, "target")
+                    .and_then(value_string)
+                    .map(str::to_owned);
+                self.emit_filesystem_call(
+                    &format!("pathlib.path.{method}"),
+                    &arguments,
+                    state,
+                    vec![
+                        LanguageFilesystem::new(
+                            Some(path.clone()),
+                            FilesystemOperation::Delete,
+                            false,
+                        ),
+                        LanguageFilesystem::new(target.clone(), FilesystemOperation::Write, false)
+                            .identity(Some(path), false)
+                            .protects_descendants(),
+                    ],
+                );
+                target.map_or(Value::Unknown, Value::Path)
+            }
+            "hardlink_to" | "link_to" => {
+                if !valid_call_shape(&arguments, 1, &["target"])
+                    || required_argument(&arguments, 0, "target").is_none()
+                    || !possible_path_argument(&arguments, 0, "target")
+                {
+                    return Value::Unknown;
+                }
+                let target = argument(&arguments, 0, "target")
+                    .and_then(value_string)
+                    .map(str::to_owned);
+                let (destination, identity) = if method == "hardlink_to" {
+                    (Some(path), target)
+                } else {
+                    (target, Some(path))
+                };
+                self.emit_filesystem_call(
+                    &format!("pathlib.path.{method}"),
+                    &arguments,
+                    state,
+                    vec![
+                        LanguageFilesystem::new(destination, FilesystemOperation::Write, false)
+                            .identity(identity, true),
+                    ],
+                );
+                Value::None
+            }
+            "symlink_to" => {
+                if !valid_call_shape(&arguments, 2, &["target", "target_is_directory"])
+                    || required_argument(&arguments, 0, "target").is_none()
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    "pathlib.path.symlink_to",
+                    &arguments,
+                    state,
+                    vec![
+                        LanguageFilesystem::new(Some(path), FilesystemOperation::Write, false)
+                            .metadata(),
+                    ],
+                );
                 Value::None
             }
             _ => Value::Unknown,
@@ -2735,6 +2966,37 @@ fn module_value(name: &str) -> Option<Value> {
         _ => return None,
     };
     Some(Value::Module(module))
+}
+
+fn os_open_flag(name: &str, platform: Platform) -> Option<i64> {
+    let value = match (platform, name) {
+        (_, "O_RDONLY") => 0,
+        (_, "O_WRONLY") => 1,
+        (_, "O_RDWR") => 2,
+        (Platform::Linux, "O_APPEND") => 1_024,
+        (Platform::Linux, "O_CREAT") => 64,
+        (Platform::Linux, "O_EXCL") => 128,
+        (Platform::Linux, "O_TRUNC") => 512,
+        (Platform::Macos, "O_APPEND") => 8,
+        (Platform::Macos, "O_CREAT") => 512,
+        (Platform::Macos, "O_EXCL") => 2_048,
+        (Platform::Macos, "O_TRUNC") => 1_024,
+        (Platform::Windows, "O_APPEND") => 8,
+        (Platform::Windows, "O_CREAT") => 256,
+        (Platform::Windows, "O_EXCL") => 1_024,
+        (Platform::Windows, "O_TRUNC") => 512,
+        (Platform::Windows, "O_BINARY") => 32_768,
+        (Platform::Windows, "O_TEXT") => 16_384,
+        _ => return None,
+    };
+    Some(value)
+}
+
+fn os_open_mutation_flags(platform: Platform) -> i64 {
+    ["O_APPEND", "O_CREAT", "O_TRUNC"]
+        .into_iter()
+        .filter_map(|name| os_open_flag(name, platform))
+        .fold(0, |flags, flag| flags | flag)
 }
 
 fn imported_value(module: &str, name: &str) -> Option<Value> {
@@ -3602,6 +3864,7 @@ fn binary_value(left: Value, right: Value, operator: &str, budget: &mut Budget) 
         (Value::Int(left), Value::Int(right), "*") => {
             left.checked_mul(right).map_or(Value::Unknown, Value::Int)
         }
+        (Value::Int(left), Value::Int(right), "|") => Value::Int(left | right),
         (Value::Path(left), Value::String(right), "/") => {
             join_path(left, &right, budget).map_or(Value::Unknown, Value::Path)
         }

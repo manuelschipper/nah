@@ -47,6 +47,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     content_access: true,
                     identity: None,
                     identity_requirements: Vec::new(),
+                    protects_descendants: false,
                     read_if_existing_file: false,
                     pattern: false,
                 }],

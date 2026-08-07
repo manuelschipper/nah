@@ -17,7 +17,11 @@
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
   guards. Unresolved values make coverage partial; unowned calls add no effect,
-  and possible working-directory changes no longer misresolve relative paths.
+  possible working-directory changes no longer misresolve relative paths, and
+  self-protection now follows the same owned calls instead of a separate source
+  scanner. Rename, hardlink, and access-control effects retain protected path
+  identity; unreachable, rebound, and unresolved `which()` targets do not
+  block.
 - **JavaScript effect frontend** — inline JavaScript now lowers into owned HIR
   and a bounded interpreter for CommonJS and ES imports, constants, scopes,
   helpers, branches, loops, exact eval, filesystem calls, and child processes.

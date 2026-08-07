@@ -898,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn many_protected_path_bindings_remain_bounded_without_a_mutation() {
+    fn many_inert_protected_path_bindings_add_no_scanner_refusal() {
         let code = (0..2_000)
             .map(|index| format!("p{index}=Path('/home/dev/.nah/x')"))
             .collect::<Vec<_>>()
@@ -916,7 +916,9 @@ mod tests {
                 ambient_variables: &[],
             },
         );
-        assert_only_refusal(report, InlineRefusal::WorkLimit);
+        assert!(report.findings().is_empty());
+        assert!(report.nested_executions().is_empty());
+        assert!(report.refusals().is_empty());
     }
 
     #[test]

@@ -86,6 +86,7 @@ pub(super) fn unresolved_read(requested: &str) -> FilesystemDraft {
         content_access: true,
         identity: None,
         identity_requirements: Vec::new(),
+        protects_descendants: false,
         read_if_existing_file: false,
         pattern: false,
     }
@@ -630,6 +631,7 @@ impl Lowerer {
             content_access: true,
             identity: None,
             identity_requirements: Vec::new(),
+            protects_descendants: false,
             read_if_existing_file,
             pattern,
         });
