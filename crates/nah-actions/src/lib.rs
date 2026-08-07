@@ -54,6 +54,7 @@ mod bash_targets;
 mod bash_transforms;
 mod bash_wrappers;
 mod codex_patch;
+mod language;
 mod native;
 mod paths;
 #[cfg(test)]
