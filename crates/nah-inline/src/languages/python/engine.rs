@@ -1478,6 +1478,9 @@ impl Interpreter<'_> {
         };
         self.source = outer_source;
         self.call_stack.pop();
+        for (cell, local_cell) in state.cells.iter_mut().zip(local.cells) {
+            *cell = local_cell;
+        }
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
         }
@@ -1536,6 +1539,8 @@ impl Interpreter<'_> {
         state: &mut State,
     ) -> Value {
         if method == "append"
+            && arguments.complete
+            && arguments.keywords.is_empty()
             && arguments.positional.len() == 1
             && let Some(value) = state.cells.get_mut(cell)
         {
@@ -1556,7 +1561,11 @@ impl Interpreter<'_> {
             }
             return Value::None;
         }
-        if method == "extend" && arguments.positional.len() == 1 {
+        if method == "extend"
+            && arguments.complete
+            && arguments.keywords.is_empty()
+            && arguments.positional.len() == 1
+        {
             let extension = sequence_values(&arguments.positional[0], state).map(Vec::from);
             if let Some(value) = state.cells.get_mut(cell) {
                 match extension {
@@ -2944,6 +2953,35 @@ mod tests {
             )
             .contains_exact(FindingKind::RootDestruction)
         );
+    }
+
+    #[test]
+    fn local_calls_propagate_mutations_to_shared_cells() {
+        for code in [
+            "import subprocess\nargv=['rm']\nalias=argv\ndef finish(parts): parts.extend(['-rf','/'])\nfinish(alias)\nsubprocess.run(argv)",
+            "import subprocess\nargv=['rm']\nalias=argv\ndef finish(parts): parts.extend(['-rf','/'])\nfinish(parts=alias)\nsubprocess.run(argv)",
+            "import subprocess\nargv=['rm']\nalias=argv\ndef finish(): alias.extend(['-rf','/'])\nfinish()\nsubprocess.run(argv)",
+        ] {
+            assert!(matches!(
+                report(code).nested_executions(),
+                [NestedExecution::Command { argv, .. }] if argv == &["rm", "-rf", "/"]
+            ));
+        }
+
+        assert!(matches!(
+            report(
+                "import subprocess\nargv=['rm']\ndef finish(parts): parts.extend(['-rf','/'])\nfinish()\nsubprocess.run(argv)"
+            )
+            .nested_executions(),
+            [NestedExecution::Command { argv, .. }] if argv == &["rm"]
+        ));
+
+        let mut code = "items=['x']\ndef grow(values):\n".to_owned();
+        for _ in 0..9 {
+            code.push_str("    values.extend(values)\n");
+        }
+        code.push_str("grow(items)");
+        assert_work_limit(&report(&code));
     }
 
     #[test]
