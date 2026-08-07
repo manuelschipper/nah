@@ -83,139 +83,7 @@ pub(crate) fn finalize(
             {
                 complete = false;
             }
-            let invocation = match stage.invocation {
-                InvocationDraft::Opaque {
-                    program,
-                    words,
-                    argv,
-                } => {
-                    let program = match program {
-                        ProgramDraft::Static(program) => Some(program),
-                        ProgramDraft::Env { key } => match observed_env(observation, &key)? {
-                            Ok(EnvObservation::Value { text }) => Some(text.clone()),
-                            Ok(EnvObservation::Unset) | Err(_) => {
-                                complete = false;
-                                None
-                            }
-                        },
-                        ProgramDraft::Unresolved => {
-                            complete = false;
-                            None
-                        }
-                    };
-                    match program {
-                        Some(program) => {
-                            let raw_arguments = words.get(1..).unwrap_or_default();
-                            let operation = match observed_arguments(observation, raw_arguments) {
-                                Some(arguments) => self_protection_operation(&program, &arguments)
-                                    .or_else(|| {
-                                        raw_arguments
-                                            .iter()
-                                            .any(|word| contains_unquoted_pattern(word))
-                                            .then(|| {
-                                                potential_operation_for_words(
-                                                    &program,
-                                                    raw_arguments,
-                                                )
-                                            })
-                                            .flatten()
-                                    }),
-                                None => potential_operation_for_words(&program, raw_arguments),
-                            };
-                            let unresolved_words = words.clone();
-                            let input = bounded_shell_input(&program, words, argv);
-                            if !input.complete() {
-                                complete = false;
-                            }
-                            let invocation = match operation {
-                                Some(operation) => {
-                                    EffectKind::known_with_input(&program, operation, input)
-                                }
-                                None => EffectKind::opaque_with_input(&program, input),
-                            };
-                            match invocation {
-                                Ok(invocation) => invocation,
-                                Err(_) => {
-                                    complete = false;
-                                    unresolved_invocation(unresolved_words)
-                                }
-                            }
-                        }
-                        None => unresolved_invocation(words),
-                    }
-                }
-                InvocationDraft::Known {
-                    program,
-                    operation,
-                    words,
-                    argv,
-                } => {
-                    let unresolved_words = words.clone();
-                    let input = bounded_shell_input(&program, words, argv);
-                    if !input.complete() {
-                        complete = false;
-                    }
-                    match EffectKind::known_with_input(&program, operation.as_str(), input) {
-                        Ok(invocation) => invocation,
-                        Err(_) => {
-                            complete = false;
-                            unresolved_invocation(unresolved_words)
-                        }
-                    }
-                }
-                InvocationDraft::CodeExecution {
-                    program,
-                    interpreter,
-                    source,
-                    mut code,
-                    words,
-                    argv,
-                } => {
-                    let unresolved_words = words.clone();
-                    let potential_mutation = (source == SemanticCode::SHELL_PATTERN)
-                        .then(|| {
-                            words.first().and_then(|program| {
-                                potential_mutation_for_words(
-                                    program,
-                                    words.get(1..).unwrap_or_default(),
-                                )
-                            })
-                        })
-                        .flatten();
-                    let mut input = bounded_shell_input(&program, words, argv);
-                    if code.as_ref().is_some_and(|code| {
-                        evidence_size(&input).saturating_add(code.len()) > INVOCATION_EVIDENCE_CAP
-                    }) {
-                        code = None;
-                        input = InvocationInput::shell(&program, vec![program.clone()], None);
-                    }
-                    if !input.complete()
-                        || source.as_str().ends_with("-inline") && code.is_none()
-                        || source == SemanticCode::ENCODED_COMMAND && code.is_none()
-                    {
-                        complete = false;
-                    }
-                    let invocation = match potential_mutation {
-                        Some((recognized_program, operation)) => {
-                            EffectKind::known_with_input(recognized_program, operation, input)
-                        }
-                        None => EffectKind::code_execution_with_input(
-                            &program,
-                            interpreter.as_deref(),
-                            source.as_str(),
-                            code,
-                            input,
-                        ),
-                    };
-                    match invocation {
-                        Ok(invocation) => invocation,
-                        Err(_) => {
-                            complete = false;
-                            unresolved_invocation(unresolved_words)
-                        }
-                    }
-                }
-            };
+            let invocation = finalize_invocation(stage.invocation, observation, &mut complete)?;
             let invocation = match invocation_cwd {
                 Some(cwd) => invocation.with_invocation_cwd(cwd),
                 None => invocation,
@@ -448,6 +316,137 @@ pub(crate) fn finalize(
         .map(|(from, to)| FlowOrdinals::new(from, to))
         .collect();
     Some((complete, stages, flows))
+}
+
+fn finalize_invocation(
+    invocation: InvocationDraft,
+    observation: &Observation,
+    complete: &mut bool,
+) -> Option<EffectKind> {
+    Some(match invocation {
+        InvocationDraft::Opaque {
+            program,
+            words,
+            argv,
+        } => {
+            let program = match program {
+                ProgramDraft::Static(program) => Some(program),
+                ProgramDraft::Env { key } => match observed_env(observation, &key)? {
+                    Ok(EnvObservation::Value { text }) => Some(text.clone()),
+                    Ok(EnvObservation::Unset) | Err(_) => {
+                        *complete = false;
+                        None
+                    }
+                },
+                ProgramDraft::Unresolved => {
+                    *complete = false;
+                    None
+                }
+            };
+            match program {
+                Some(program) => {
+                    let raw_arguments = words.get(1..).unwrap_or_default();
+                    let operation = match observed_arguments(observation, raw_arguments) {
+                        Some(arguments) => {
+                            self_protection_operation(&program, &arguments).or_else(|| {
+                                raw_arguments
+                                    .iter()
+                                    .any(|word| contains_unquoted_pattern(word))
+                                    .then(|| potential_operation_for_words(&program, raw_arguments))
+                                    .flatten()
+                            })
+                        }
+                        None => potential_operation_for_words(&program, raw_arguments),
+                    };
+                    let unresolved_words = words.clone();
+                    let input = bounded_shell_input(&program, words, argv);
+                    if !input.complete() {
+                        *complete = false;
+                    }
+                    let invocation = match operation {
+                        Some(operation) => EffectKind::known_with_input(&program, operation, input),
+                        None => EffectKind::opaque_with_input(&program, input),
+                    };
+                    match invocation {
+                        Ok(invocation) => invocation,
+                        Err(_) => {
+                            *complete = false;
+                            unresolved_invocation(unresolved_words)
+                        }
+                    }
+                }
+                None => unresolved_invocation(words),
+            }
+        }
+        InvocationDraft::Known {
+            program,
+            operation,
+            words,
+            argv,
+        } => {
+            let unresolved_words = words.clone();
+            let input = bounded_shell_input(&program, words, argv);
+            if !input.complete() {
+                *complete = false;
+            }
+            match EffectKind::known_with_input(&program, operation.as_str(), input) {
+                Ok(invocation) => invocation,
+                Err(_) => {
+                    *complete = false;
+                    unresolved_invocation(unresolved_words)
+                }
+            }
+        }
+        InvocationDraft::CodeExecution {
+            program,
+            interpreter,
+            source,
+            mut code,
+            words,
+            argv,
+        } => {
+            let unresolved_words = words.clone();
+            let potential_mutation = (source == SemanticCode::SHELL_PATTERN)
+                .then(|| {
+                    words.first().and_then(|program| {
+                        potential_mutation_for_words(program, words.get(1..).unwrap_or_default())
+                    })
+                })
+                .flatten();
+            let mut input = bounded_shell_input(&program, words, argv);
+            if code.as_ref().is_some_and(|code| {
+                evidence_size(&input).saturating_add(code.len()) > INVOCATION_EVIDENCE_CAP
+            }) {
+                code = None;
+                input = InvocationInput::shell(&program, vec![program.clone()], None);
+            }
+            if !input.complete()
+                || source.as_str().ends_with("-inline") && code.is_none()
+                || source == SemanticCode::ENCODED_COMMAND && code.is_none()
+            {
+                *complete = false;
+            }
+            let invocation = match potential_mutation {
+                Some((recognized_program, operation)) => {
+                    EffectKind::known_with_input(recognized_program, operation, input)
+                }
+                None => EffectKind::code_execution_with_input(
+                    &program,
+                    interpreter.as_deref(),
+                    source.as_str(),
+                    code,
+                    input,
+                ),
+            };
+            match invocation {
+                Ok(invocation) => invocation,
+                Err(_) => {
+                    *complete = false;
+                    unresolved_invocation(unresolved_words)
+                }
+            }
+        }
+    })
 }
 
 fn add_observed_identity_flows(
