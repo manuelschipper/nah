@@ -7,7 +7,7 @@ use super::{AssignmentUpdate, CommandContext, Lowered, Lowerer};
 use crate::bash_child_startup::env_requires_refusal;
 use crate::bash_content::substitution_output;
 use crate::bash_descriptors::RedirectProvenance;
-use crate::bash_execution::{execution_operand_index, execution_source};
+use crate::bash_execution::execution_spec;
 use crate::bash_filesystem::terminal_program_help;
 use crate::bash_git_config::{AliasAnalysis, alias_analysis};
 use crate::bash_invocation::static_argv;
@@ -41,10 +41,9 @@ fn unresolved_execution_operand(
     if builtin_target && program == "trap" {
         return transformed(usize::from(arguments.first().map(Word::raw) == Some("--")));
     }
-    let Some(source) = execution_source(program, arguments) else {
-        return false;
-    };
-    execution_operand_index(program, arguments, source.as_str()).is_some_and(transformed)
+    execution_spec(program, arguments)
+        .and_then(|execution| execution.transformed_operand_index)
+        .is_some_and(transformed)
 }
 
 pub(super) struct PreparedCommand<'a> {

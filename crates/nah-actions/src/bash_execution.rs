@@ -23,6 +23,13 @@ pub(crate) struct Lowering {
     pub(crate) descriptor_code: Option<String>,
 }
 
+pub(crate) struct ExecutionSpec {
+    pub(crate) source: SemanticCode,
+    pub(crate) code: Option<String>,
+    pub(crate) file_operand_index: Option<usize>,
+    pub(crate) transformed_operand_index: Option<usize>,
+}
+
 pub(crate) fn lower(
     program: &str,
     arguments: &[Word],
@@ -79,13 +86,15 @@ pub(crate) fn lower(
             descriptor_code: None,
         });
     }
-    let source = execution_source(program, arguments)?;
-    let file_source =
-        source == SemanticCode::SHELL_FILE || source == SemanticCode::INTERPRETER_FILE;
-    let stdin_source =
-        source == SemanticCode::SHELL_STDIN || source == SemanticCode::INTERPRETER_STDIN;
-    let file_argument = execution_file_argument(program, arguments, source.as_str());
-    let target = execution_file(program, arguments, source.as_str());
+    let execution = execution_spec(program, arguments)?;
+    let file_source = execution.source == SemanticCode::SHELL_FILE
+        || execution.source == SemanticCode::INTERPRETER_FILE;
+    let stdin_source = execution.source == SemanticCode::SHELL_STDIN
+        || execution.source == SemanticCode::INTERPRETER_STDIN;
+    let operand = execution
+        .file_operand_index
+        .and_then(|index| arguments.get(index));
+    let target = operand.and_then(file_argument);
     let descriptor = target
         .as_deref()
         .and_then(|target| {
@@ -95,7 +104,7 @@ pub(crate) fn lower(
         .or_else(|| {
             (file_source
                 && target.is_none()
-                && !file_argument
+                && !operand
                     .is_some_and(|argument| arbitrary_process_descriptor_path(argument.raw())))
             .then(|| descriptors.possible_facts().ok())
             .flatten()
@@ -144,7 +153,23 @@ pub(crate) fn lower(
     })
 }
 
-pub(crate) fn execution_source(program: &str, arguments: &[Word]) -> Option<SemanticCode> {
+pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<ExecutionSpec> {
+    let source = execution_source(program, arguments)?;
+    Some(ExecutionSpec {
+        code: execution_code(program, arguments, source.as_str()),
+        file_operand_index: execution_file_argument(program, arguments, source.as_str()).and_then(
+            |argument| {
+                arguments
+                    .iter()
+                    .position(|candidate| std::ptr::eq(candidate, argument))
+            },
+        ),
+        transformed_operand_index: execution_operand_index(program, arguments, source.as_str()),
+        source,
+    })
+}
+
+fn execution_source(program: &str, arguments: &[Word]) -> Option<SemanticCode> {
     if matches!(program, "." | "source") {
         return arguments.first().map(|argument| {
             if static_argument(argument)
@@ -205,7 +230,7 @@ pub(crate) fn execution_source(program: &str, arguments: &[Word]) -> Option<Sema
     None
 }
 
-pub(crate) fn execution_code(program: &str, arguments: &[Word], source: &str) -> Option<String> {
+fn execution_code(program: &str, arguments: &[Word], source: &str) -> Option<String> {
     if !matches!(
         source,
         "shell-inline" | "interpreter-inline" | "encoded-command"
@@ -436,11 +461,7 @@ fn normalized_execution_program(program: &str) -> String {
         .to_owned()
 }
 
-pub(crate) fn execution_operand_index(
-    program: &str,
-    arguments: &[Word],
-    source: &str,
-) -> Option<usize> {
+fn execution_operand_index(program: &str, arguments: &[Word], source: &str) -> Option<usize> {
     if source.ends_with("-file") {
         let argument = execution_file_argument(program, arguments, source)?;
         if exact_process_substitution(argument)
@@ -660,10 +681,6 @@ fn base64_argument(argument: &str) -> bool {
             .bytes()
             .skip_while(|byte| *byte != b'=')
             .all(|byte| byte == b'=')
-}
-
-fn execution_file(program: &str, arguments: &[Word], source: &str) -> Option<String> {
-    execution_file_argument(program, arguments, source).and_then(file_argument)
 }
 
 fn execution_file_argument<'a>(
