@@ -238,6 +238,27 @@ fn javascript_unknown_branches_and_cwd_changes_remain_explicit() {
 }
 
 #[test]
+fn javascript_functions_resolve_lexical_instead_of_caller_scopes() {
+    let safe_closure = analyze_program(
+        "node",
+        "const fs={rmSync:(path, options)=>{}}; function clean(){fs.rmSync('/', {recursive:true})} {const fs=require('fs'); clean()}",
+    );
+    assert!(safe_closure.draft().calls().is_empty());
+    assert!(safe_closure.draft().complete());
+
+    let owned_closure = analyze_program(
+        "node",
+        "const fs=require('fs'); function clean(){fs.rmSync('/', {recursive:true})} {const fs={rmSync:(path, options)=>{}}; clean()}",
+    );
+    assert_eq!(owned_closure.draft().calls().len(), 1);
+    assert_eq!(
+        owned_closure.draft().calls()[0].filesystems()[0].requested(),
+        Some("/")
+    );
+    assert!(owned_closure.draft().complete());
+}
+
+#[test]
 fn javascript_eval_merges_canonical_calls_without_legacy_findings() {
     let analysis = analyze_program("node", "eval(\"require('fs').rmSync('/tmp/cache')\")");
     assert_eq!(analysis.draft().calls().len(), 1);

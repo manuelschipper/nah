@@ -80,7 +80,7 @@ struct LocalFunction {
     parameters: Option<Vec<String>>,
     body: HirNode,
     expression_body: bool,
-    required_scope_depth: usize,
+    captured_scopes: Vec<usize>,
     source_identity: usize,
 }
 
@@ -108,16 +108,30 @@ enum Value {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Scope {
+    id: usize,
     bindings: BTreeMap<String, Value>,
     function: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 struct State {
     scopes: Vec<Scope>,
+    scope_chain: Vec<usize>,
+    next_scope_id: usize,
     owned_members: BTreeSet<(Module, Member)>,
     relative_cwd_known: bool,
 }
+
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        self.scopes == other.scopes
+            && self.scope_chain == other.scope_chain
+            && self.owned_members == other.owned_members
+            && self.relative_cwd_known == other.relative_cwd_known
+    }
+}
+
+impl Eq for State {}
 
 impl State {
     fn new(ownership: RuntimeOwnership) -> Self {
@@ -169,30 +183,45 @@ impl State {
         }
         Self {
             scopes: vec![Scope {
+                id: 0,
                 bindings,
                 function: true,
             }],
+            scope_chain: vec![0],
+            next_scope_id: 1,
             owned_members,
             relative_cwd_known: true,
         }
     }
     fn get(&self, name: &str) -> Value {
-        self.scopes
+        self.scope_chain
             .iter()
             .rev()
+            .filter_map(|id| self.scopes.iter().find(|scope| scope.id == *id))
             .find_map(|scope| scope.bindings.get(name))
             .cloned()
             .unwrap_or(Value::Unknown)
     }
 
     fn declare(&mut self, name: &str, value: Value) {
-        if let Some(scope) = self.scopes.last_mut() {
+        let Some(id) = self.scope_chain.last().copied() else {
+            return;
+        };
+        if let Some(scope) = self.scopes.iter_mut().find(|scope| scope.id == id) {
             scope.bindings.insert(name.to_owned(), value);
         }
     }
 
     fn predeclare_var(&mut self, name: &str) {
-        if let Some(scope) = self.scopes.iter_mut().rev().find(|scope| scope.function) {
+        let target = self.scope_chain.iter().rev().find_map(|id| {
+            self.scopes
+                .iter()
+                .find(|scope| scope.id == *id && scope.function)
+                .map(|scope| scope.id)
+        });
+        if let Some(scope) =
+            target.and_then(|id| self.scopes.iter_mut().find(|scope| scope.id == id))
+        {
             let binding = scope
                 .bindings
                 .entry(name.to_owned())
@@ -207,27 +236,40 @@ impl State {
     }
 
     fn assign(&mut self, name: &str, value: Value) {
-        if let Some(scope) = self
-            .scopes
-            .iter_mut()
-            .rev()
-            .find(|scope| scope.bindings.contains_key(name))
+        let target = self.scope_chain.iter().rev().find_map(|id| {
+            self.scopes
+                .iter()
+                .find(|scope| scope.id == *id && scope.bindings.contains_key(name))
+                .map(|scope| scope.id)
+        });
+        if let Some(scope) =
+            target.and_then(|id| self.scopes.iter_mut().find(|scope| scope.id == id))
         {
             scope.bindings.insert(name.to_owned(), value);
-        } else if let Some(scope) = self.scopes.first_mut() {
+        } else if let Some(id) = self.scope_chain.first().copied()
+            && let Some(scope) = self.scopes.iter_mut().find(|scope| scope.id == id)
+        {
             scope.bindings.insert(name.to_owned(), value);
         }
     }
 
     fn push_scope(&mut self, function: bool) {
+        let id = self.next_scope_id;
+        self.next_scope_id += 1;
         self.scopes.push(Scope {
+            id,
             bindings: BTreeMap::new(),
             function,
         });
+        self.scope_chain.push(id);
     }
 
     fn pop_scope(&mut self) {
-        self.scopes.pop();
+        if let Some(id) = self.scope_chain.pop()
+            && let Some(index) = self.scopes.iter().position(|scope| scope.id == id)
+        {
+            self.scopes.remove(index);
+        }
     }
 
     fn invalidate_module(&mut self, module: Module) {
@@ -1551,7 +1593,11 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
             return Value::Unknown;
         }
-        if state.scopes.len() < function.required_scope_depth {
+        if function
+            .captured_scopes
+            .iter()
+            .any(|id| !state.scopes.iter().any(|scope| scope.id == *id))
+        {
             self.complete = false;
             return Value::Unknown;
         }
@@ -1567,6 +1613,8 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
             return Value::Unknown;
         }
+        let caller_chain =
+            std::mem::replace(&mut state.scope_chain, function.captured_scopes.clone());
         state.push_scope(true);
         for (name, value) in parameters.iter().zip(arguments.values) {
             state.declare(name, value);
@@ -1584,6 +1632,7 @@ impl<'a> Interpreter<'a> {
             }
         };
         state.pop_scope();
+        state.scope_chain = caller_chain;
         value
     }
 
@@ -1596,7 +1645,7 @@ impl<'a> Interpreter<'a> {
         Some(Value::Function(Arc::new(LocalFunction {
             parameters,
             expression_body: body.kind() != HirKind::StatementBlock,
-            required_scope_depth: state.scopes.len(),
+            captured_scopes: state.scope_chain.clone(),
             source_identity: self.source.as_ptr() as usize,
             body,
         })))
@@ -2678,12 +2727,13 @@ fn join_values(left: Value, right: Value) -> Value {
 }
 
 fn join_states(mut left: State, right: State) -> State {
-    if left.scopes.len() != right.scopes.len() {
+    if left.scopes.len() != right.scopes.len() || left.scope_chain != right.scope_chain {
         return State {
             scopes: left
                 .scopes
                 .into_iter()
                 .map(|scope| Scope {
+                    id: scope.id,
                     function: scope.function,
                     bindings: scope
                         .bindings
@@ -2692,6 +2742,8 @@ fn join_states(mut left: State, right: State) -> State {
                         .collect(),
                 })
                 .collect(),
+            scope_chain: left.scope_chain,
+            next_scope_id: left.next_scope_id.max(right.next_scope_id),
             owned_members: left
                 .owned_members
                 .intersection(&right.owned_members)
@@ -2730,6 +2782,7 @@ fn join_states(mut left: State, right: State) -> State {
         .copied()
         .collect();
     left.relative_cwd_known &= right.relative_cwd_known;
+    left.next_scope_id = left.next_scope_id.max(right.next_scope_id);
     left
 }
 

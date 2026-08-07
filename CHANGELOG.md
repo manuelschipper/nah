@@ -36,6 +36,9 @@
   ActionStream effects; unowned Deno, Bun, and direct-tool profiles do not
   inherit Node APIs, while rebinding and unsupported behavior stay explicit
   instead of fabricating effects.
+- **Lexical JavaScript helpers** — inline helper functions now resolve captured
+  bindings instead of caller-local shadows, preventing both fabricated and
+  missed effects when a call occurs inside a nested block.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 
