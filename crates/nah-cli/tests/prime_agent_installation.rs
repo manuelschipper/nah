@@ -36,7 +36,7 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
     let installed = nah(&home, &["hook", "prime-agent", "install"], None);
     assert!(installed.status.success(), "{installed:?}");
     assert!(String::from_utf8_lossy(&installed.stdout).contains("/reload"));
-    let extension = home.join(".prime/agent/extensions/nah/index.js");
+    let extension = home.join(".prime/agent/extensions/nah.js");
     let first_bytes = std::fs::read(&extension).unwrap();
     let source = String::from_utf8(first_bytes.clone()).unwrap();
     assert!(source.starts_with("// Managed by nah."));
@@ -136,9 +136,9 @@ fn custom_agent_directory_is_used_and_relative_values_are_rejected() {
 
     let installed = nah(&home, &["hook", "prime-agent", "install"], Some(&agent_dir));
     assert!(installed.status.success(), "{installed:?}");
-    let extension = agent_dir.join("extensions/nah/index.js");
+    let extension = agent_dir.join("extensions/nah.js");
     assert!(extension.exists());
-    assert!(!home.join(".prime/agent/extensions/nah/index.js").exists());
+    assert!(!home.join(".prime/agent/extensions/nah.js").exists());
 
     let status = nah(&home, &["hook", "prime-agent", "status"], Some(&agent_dir));
     assert!(status.status.success(), "{status:?}");
@@ -157,10 +157,36 @@ fn custom_agent_directory_is_used_and_relative_values_are_rejected() {
 }
 
 #[test]
+fn direct_extension_file_is_not_shadowed_by_a_same_named_directory() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let shadow = home.join(".prime/agent/extensions/nah/index.ts");
+    std::fs::create_dir_all(shadow.parent().unwrap()).unwrap();
+    std::fs::write(&shadow, "export default () => {};\n").unwrap();
+
+    let installed = nah(&home, &["hook", "prime-agent", "install"], None);
+    assert!(installed.status.success(), "{installed:?}");
+    let extension = home.join(".prime/agent/extensions/nah.js");
+    assert!(extension.exists());
+
+    let status = nah(&home, &["hook", "prime-agent", "status"], None);
+    assert!(status.status.success(), "{status:?}");
+    assert!(String::from_utf8_lossy(&status.stdout).contains("wiring current"));
+
+    let uninstalled = nah(&home, &["hook", "prime-agent", "uninstall"], None);
+    assert!(uninstalled.status.success(), "{uninstalled:?}");
+    assert!(!extension.exists());
+    assert_eq!(
+        std::fs::read_to_string(shadow).unwrap(),
+        "export default () => {};\n"
+    );
+}
+
+#[test]
 fn fail_closed_wiring_blocks_adapter_unavailability_in_the_extension() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
-    let extension = home.join(".prime/agent/extensions/nah/index.js");
+    let extension = home.join(".prime/agent/extensions/nah.js");
 
     let installed = nah(&home, &["hook", "prime-agent", "install"], None);
     assert!(installed.status.success(), "{installed:?}");
@@ -186,7 +212,7 @@ fn fail_closed_wiring_blocks_adapter_unavailability_in_the_extension() {
 fn install_and_uninstall_refuse_an_unowned_extension() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
-    let extension = home.join(".prime/agent/extensions/nah/index.js");
+    let extension = home.join(".prime/agent/extensions/nah.js");
     std::fs::create_dir_all(extension.parent().unwrap()).unwrap();
     std::fs::write(&extension, "module.exports = () => {};\n").unwrap();
 

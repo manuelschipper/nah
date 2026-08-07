@@ -21,7 +21,7 @@ nah hook prime-agent uninstall
 ```
 
 The installer writes one dependency-free extension at
-`~/.prime/agent/extensions/nah/index.js`. If
+`~/.prime/agent/extensions/nah.js`. If
 `PRIME_AGENT_CODING_AGENT_DIR` selects an absolute or `~/` agent directory,
 nah installs, inspects, removes, and protects the extension there instead.
 

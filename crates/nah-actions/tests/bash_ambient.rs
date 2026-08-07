@@ -185,7 +185,7 @@ fn active_custom_runtime_home_is_the_bypass_baseline() {
             "PRIME_AGENT_CODING_AGENT_DIR",
             "/home/test/custom-prime",
             "prime-agent",
-            "/home/test/custom-prime/extensions/nah/index.js",
+            "/home/test/custom-prime/extensions/nah.js",
         ),
     ] {
         let values = [(name, EnvValue::Value(active))];

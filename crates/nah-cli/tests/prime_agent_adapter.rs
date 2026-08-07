@@ -119,7 +119,7 @@ fn destructive_and_self_protection_effects_block() {
     );
     assert_eq!(root["block"], true);
 
-    let extension = home.join(".prime/agent/extensions/nah/index.js");
+    let extension = home.join(".prime/agent/extensions/nah.js");
     let source = format!("import os; os.remove({:?})", extension.to_str().unwrap());
     let protected = run_adapter(&home, &project, "ipython", json!({"code":source}));
     assert_eq!(protected["block"], true);

@@ -50,7 +50,7 @@ pub(super) fn environment_operation(
     let active_selector = match program.as_str() {
         "hermes" => has_projected_path(critical_paths, "config.yaml", platform),
         "kiro-cli" => has_projected_path(critical_paths, "hooks/nah.json", platform),
-        "prime-agent" => has_projected_path(critical_paths, "extensions/nah/index.js", platform),
+        "prime-agent" => has_projected_path(critical_paths, "extensions/nah.js", platform),
         _ => false,
     };
     let baseline = |name: &str| {

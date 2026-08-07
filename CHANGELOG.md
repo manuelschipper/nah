@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Prime Agent adapter** — `nah hook prime-agent install` wires the global
+- **Prime Agent adapter** — `nah hook prime-agent install` wires a direct global
   tool-call extension and routes exact `ipython` cells through persistent-state
   Python effect analysis. Proven absolute effects reach normal guards, while
   prior kernel state, relative kernel paths, and pre-rewrite shell syntax stay

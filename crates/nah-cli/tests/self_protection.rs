@@ -158,7 +158,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         home.join("Documents/Cline/Hooks/PreToolUse"),
         home.join(".openclaw/extensions/nah/index.js"),
         home.join(".pi/agent/extensions/nah/index.js"),
-        home.join(".prime/agent/extensions/nah/index.js"),
+        home.join(".prime/agent/extensions/nah.js"),
         home.join(".config/opencode/plugins/nah.js"),
         home.join(".config/amp/plugins/nah.ts"),
         repo.join(".github/hooks/nah.json"),

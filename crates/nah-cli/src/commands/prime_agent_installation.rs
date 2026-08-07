@@ -149,19 +149,6 @@ fn uninstall_extension(home: &AbsolutePath, agent_dir: &AbsolutePath) -> Result<
                 .map_err(|_| "prime-agent-extension-remove-failed".to_owned())?;
             if let Some(parent) = paths.extension.parent() {
                 sync_parent(parent)?;
-                match std::fs::remove_dir(parent) {
-                    Ok(()) => {
-                        if let Some(extensions) = parent.parent() {
-                            sync_parent(extensions)?;
-                        }
-                    }
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::DirectoryNotEmpty | std::io::ErrorKind::NotFound
-                        ) => {}
-                    Err(_) => return Err("prime-agent-extension-remove-failed".into()),
-                }
             }
         }
         Ok(_) => return Err("prime-agent-extension-not-owned".into()),
@@ -180,7 +167,7 @@ struct PrimeAgentHookPaths {
 impl PrimeAgentHookPaths {
     fn new(home: &AbsolutePath, agent_dir: &AbsolutePath) -> Self {
         Self {
-            extension: PathBuf::from(agent_dir.as_str()).join("extensions/nah/index.js"),
+            extension: PathBuf::from(agent_dir.as_str()).join("extensions/nah.js"),
             lock: PathBuf::from(home.as_str()).join(".nah/prime-agent-hook.lock"),
         }
     }
