@@ -694,18 +694,6 @@ fn parse_exact_literal(tokens: &[StaticToken], index: &mut usize) -> bool {
     }
 }
 
-pub(super) fn exact_code(argument: &StaticCallArgument) -> Option<String> {
-    if let Some(value) = exact_string(argument) {
-        return Some(value.to_owned());
-    }
-    let tokens = static_tokens(argument, &argument.outside)?;
-    let mut index = 0usize;
-    parse_static_expression(&tokens, &mut index)
-        .then_some(())
-        .filter(|_| index == tokens.len())
-        .map(|_| argument.strings.concat())
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum StaticToken {
     Literal,
@@ -714,7 +702,6 @@ enum StaticToken {
     OpenBracket,
     CloseBracket,
     Comma,
-    Plus,
 }
 
 fn static_tokens(argument: &StaticCallArgument, expression: &str) -> Option<Vec<StaticToken>> {
@@ -756,44 +743,11 @@ fn static_tokens(argument: &StaticCallArgument, expression: &str) -> Option<Vec<
             b'[' => tokens.push(StaticToken::OpenBracket),
             b']' => tokens.push(StaticToken::CloseBracket),
             b',' => tokens.push(StaticToken::Comma),
-            b'+' => tokens.push(StaticToken::Plus),
             _ => return None,
         }
         index += 1;
     }
     (marker == markers.len()).then_some(tokens)
-}
-
-fn parse_static_expression(tokens: &[StaticToken], index: &mut usize) -> bool {
-    if !parse_static_term(tokens, index) {
-        return false;
-    }
-    while tokens.get(*index) == Some(&StaticToken::Plus) {
-        *index += 1;
-        if !parse_static_term(tokens, index) {
-            return false;
-        }
-    }
-    true
-}
-
-fn parse_static_term(tokens: &[StaticToken], index: &mut usize) -> bool {
-    match tokens.get(*index) {
-        Some(StaticToken::Literal) => {
-            *index += 1;
-            true
-        }
-        Some(StaticToken::OpenParen) => {
-            *index += 1;
-            parse_static_expression(tokens, index)
-                && tokens.get(*index) == Some(&StaticToken::CloseParen)
-                && {
-                    *index += 1;
-                    true
-                }
-        }
-        _ => false,
-    }
 }
 
 pub(super) fn update_static_binding(
@@ -988,14 +942,6 @@ pub(super) fn shadowed(code: &str, program: &str, expected: &str) -> bool {
             return false;
         }
         assigned_target(source) == Some(expected.as_str())
-    })
-}
-
-pub(super) fn member_assigned(source: &str, receiver: &str, member: &str) -> bool {
-    let target = format!("{receiver}.{member}");
-    source.match_indices(&target).any(|(index, _)| {
-        let rest = source[index + target.len()..].trim_start();
-        rest.starts_with('=') && !rest.starts_with("==")
     })
 }
 
