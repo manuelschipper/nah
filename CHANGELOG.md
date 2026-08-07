@@ -18,6 +18,11 @@
   observations, sensitivity, and data-flow edges for built-in and custom
   guards. Unresolved values make coverage partial; unowned calls add no effect,
   and possible working-directory changes no longer misresolve relative paths.
+- **JavaScript effect frontend** — inline JavaScript now lowers into owned HIR
+  and a bounded interpreter for CommonJS and ES imports, constants, scopes,
+  helpers, branches, loops, exact eval, filesystem calls, and child processes.
+  Rebinding, escaped closures, mutable aliases, and unsupported behavior widen
+  locally instead of fabricating effects.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 
