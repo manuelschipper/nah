@@ -9,7 +9,9 @@ publish.workspace = true
 [dependencies]
 nah-proto = { path = "../nah-proto" }
 tree-sitter = "=0.25.10"
+tree-sitter-javascript = "=0.25.0"
 tree-sitter-python = "=0.25.0"
+tree-sitter-typescript = "=0.23.2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

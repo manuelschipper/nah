@@ -110,6 +110,36 @@ fn parser_allows_only_the_reviewed_tree_sitter_dependencies() {
 }
 
 #[test]
+fn inline_allows_only_the_reviewed_tree_sitter_dependencies() {
+    let allowed = PackageDeps {
+        name: "nah-inline".into(),
+        normal_deps: vec![
+            "tree-sitter".into(),
+            "tree-sitter-javascript".into(),
+            "tree-sitter-python".into(),
+            "tree-sitter-typescript".into(),
+        ],
+        build_deps: Vec::new(),
+        dev_deps: Vec::new(),
+        source_paths: Vec::new(),
+        build_scripts: Vec::new(),
+    };
+    assert!(pure_dependency_violations(&[allowed]).is_empty());
+
+    let forbidden = PackageDeps {
+        name: "nah-inline".into(),
+        normal_deps: vec!["swc_ecma_parser".into()],
+        build_deps: Vec::new(),
+        dev_deps: Vec::new(),
+        source_paths: Vec::new(),
+        build_scripts: Vec::new(),
+    };
+    let violations = pure_dependency_violations(&[forbidden]);
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].contains("swc_ecma_parser"));
+}
+
+#[test]
 fn composition_roots_reject_forbidden_edges() {
     let packages = vec![
         PackageDeps {
