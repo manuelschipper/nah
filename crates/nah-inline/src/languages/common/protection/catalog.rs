@@ -95,67 +95,6 @@ pub(super) fn mutation_action(
             ]) || (contains_bare_calls(&["sysopen"])
                 && contains_any(&["o_wronly", "o_rdwr", "o_append", "o_creat", "o_trunc"]))
         }
-        "node" | "nodejs" => {
-            contains_calls(&[
-                ".remove",
-                ".unlink",
-                ".unlinksync",
-                ".rename",
-                ".renamesync",
-                ".rm",
-                ".rmsync",
-                ".writefile",
-                ".writefilesync",
-                ".appendfile",
-                ".appendfilesync",
-                ".createwritestream",
-                ".link",
-                ".linksync",
-                ".symlink",
-                ".symlinksync",
-                ".truncate",
-                ".truncatesync",
-                ".chmod",
-                ".chmodsync",
-                ".chown",
-                ".chownsync",
-                ".mkdir",
-                ".mkdirsync",
-                "child_process.exec",
-                "child_process.spawn",
-            ]) || contains_bare_calls(&[
-                "remove",
-                "unlink",
-                "unlinksync",
-                "rename",
-                "renamesync",
-                "rm",
-                "rmsync",
-                "writefile",
-                "writefilesync",
-                "appendfile",
-                "appendfilesync",
-                "createwritestream",
-                "link",
-                "linksync",
-                "symlink",
-                "symlinksync",
-                "truncate",
-                "truncatesync",
-                "chmod",
-                "chmodsync",
-                "chown",
-                "chownsync",
-                "mkdir",
-                "mkdirsync",
-            ]) || ((contains_calls(&[".open", ".opensync"])
-                || contains_bare_calls(&["open", "opensync"]))
-                && write_mode(strings))
-                || strings
-                    .iter()
-                    .any(|value| matches!(value.as_str(), "child_process" | "node:child_process"))
-                    && contains_calls(&[".exec", ".execfile", ".fork", ".spawn"])
-        }
         "ruby" => {
             contains_calls(&[
                 "file.delete",

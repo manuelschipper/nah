@@ -426,12 +426,7 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
     };
     let module = match parsed {
         Ok(module) if module.executable() => module,
-        Ok(_) => {
-            if let Err(refusal) = crate::syntax::structurally_bounded(input.code, "node") {
-                return LanguageAnalysis::refused(refusal);
-            }
-            return LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial());
-        }
+        Ok(_) => return LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial()),
         Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
     debug_assert!(module.coverage().iter().all(|covered| {

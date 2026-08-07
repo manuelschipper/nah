@@ -210,6 +210,20 @@ fn javascript_profiles_preserve_source_context_and_deno_ambiguity() {
 }
 
 #[test]
+fn malformed_javascript_is_partial_without_legacy_scanner_refusals() {
+    for code in [
+        "const target = ; require('fs').rmSync('/tmp/cache')",
+        "require('fs').rmSync('/tmp/cache')]",
+        "const target = 'unterminated",
+    ] {
+        let analysis = analyze_program("node", code);
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+        assert!(analysis.report().refusals().is_empty(), "{code}");
+    }
+}
+
+#[test]
 fn javascript_unknown_branches_and_cwd_changes_remain_explicit() {
     let analysis = analyze_program(
         "node",

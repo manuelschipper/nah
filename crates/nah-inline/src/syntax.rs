@@ -16,7 +16,7 @@ fn starts_line_comment(bytes: &[u8], index: usize, program: &str) -> bool {
     }
     if bytes[index] == b'/'
         && bytes.get(index + 1) == Some(&b'/')
-        && matches!(program, "node" | "nodejs" | "php" | "swift")
+        && matches!(program, "php" | "swift")
     {
         return true;
     }
@@ -35,7 +35,7 @@ fn fixed_block_comment(
     index: usize,
     program: &str,
 ) -> Option<(&'static [u8], &'static [u8], bool)> {
-    if matches!(program, "node" | "nodejs" | "php" | "swift") && bytes[index..].starts_with(b"/*") {
+    if matches!(program, "php" | "swift") && bytes[index..].starts_with(b"/*") {
         return Some((b"/*", b"*/", program == "swift"));
     }
     if program == "julia" && bytes[index..].starts_with(b"#=") {
@@ -208,7 +208,7 @@ fn comment_mask(code: &str, program: &str) -> (Vec<bool>, bool) {
         }
         let candidate = bytes[index];
         if matches!(candidate, b'\'' | b'"')
-            || candidate == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby" | "php")
+            || candidate == b'`' && matches!(program, "perl" | "ruby" | "php")
         {
             quote = Some(candidate);
         }
@@ -243,7 +243,7 @@ pub fn code_segments<'a>(code: &'a str, program: &str) -> Vec<&'a str> {
         }
         let candidate = bytes[index];
         if matches!(candidate, b'\'' | b'"')
-            || candidate == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby")
+            || candidate == b'`' && matches!(program, "perl" | "ruby")
         {
             quote = Some(candidate);
             index += 1;
@@ -322,10 +322,7 @@ fn decoded_ascii_escape(
     program: &str,
 ) -> Option<(u8, usize)> {
     let quoted_escape = is_python_interpreter(program)
-        || matches!(
-            program,
-            "node" | "nodejs" | "lua" | "r" | "rscript" | "julia" | "swift"
-        )
+        || matches!(program, "lua" | "r" | "rscript" | "julia" | "swift")
         || quote == b'"' && matches!(program, "perl" | "ruby" | "php");
     if !quoted_escape || bytes.get(index) != Some(&b'\\') {
         return None;
@@ -335,7 +332,7 @@ fn decoded_ascii_escape(
         b'u' if is_python_interpreter(program)
             || matches!(
                 program,
-                "node" | "nodejs" | "ruby" | "php" | "r" | "rscript" | "julia" | "swift"
+                "ruby" | "php" | "r" | "rscript" | "julia" | "swift"
             ) =>
         {
             braced_hex_escape(bytes, index).or_else(|| fixed_hex_escape(bytes, index, 4))
@@ -415,7 +412,6 @@ fn formatted_python_string(bytes: &[u8], quote_index: usize, program: &str) -> b
 
 fn interpolation_at(bytes: &[u8], index: usize, quote: u8, program: &str) -> bool {
     match program {
-        "node" | "nodejs" | "deno" | "bun" => quote == b'`' && bytes[index..].starts_with(b"${"),
         "ruby" => {
             matches!(quote, b'"' | b'`')
                 && (bytes[index..].starts_with(b"#{")
@@ -576,7 +572,7 @@ fn lexical_code_exact_with_status(
         let quote = bytes[index];
         let quoted = (quote == b'"'
             || quote == b'\'' && !matches!(program, "cmd" | "julia" | "swift"))
-            || quote == b'`' && matches!(program, "node" | "nodejs" | "perl" | "ruby" | "php");
+            || quote == b'`' && matches!(program, "perl" | "ruby" | "php");
         if quoted {
             let raw_string = raw_python_string(bytes, index, program);
             let mut static_string = !formatted_python_string(bytes, index, program);
@@ -733,23 +729,6 @@ pub fn static_call_arguments_cased(
         }
     }
     calls
-}
-
-pub fn static_call_arguments_at(
-    outside: &str,
-    strings: &[String],
-    string_offsets: &[usize],
-    open: usize,
-) -> Option<Vec<StaticCallArgument>> {
-    let static_strings = vec![true; strings.len()];
-    static_call_arguments_at_cased(
-        outside,
-        outside,
-        strings,
-        string_offsets,
-        &static_strings,
-        open,
-    )
 }
 
 pub fn static_call_arguments_at_cased(

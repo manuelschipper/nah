@@ -867,22 +867,16 @@ mod tests {
     }
 
     #[test]
-    fn malformed_javascript_units_are_atomic() {
+    fn malformed_javascript_units_are_atomic_without_legacy_findings() {
         let dangerous = "require('child_process').execSync('rm -rf /')";
         for code in [
             format!("const target = ; {dangerous}"),
             format!("return; {dangerous}"),
+            format!("{dangerous}]"),
+            "const target = 'unterminated".to_owned(),
         ] {
             assert_eq!(report("node", &code), InlineReport::default(), "{code}");
         }
-        assert_only_refusal(
-            report("node", &format!("{dangerous}]")),
-            InlineRefusal::StructureMismatch,
-        );
-        assert_only_refusal(
-            report("node", "const target = 'unterminated"),
-            InlineRefusal::StructureIncomplete,
-        );
     }
 
     #[test]

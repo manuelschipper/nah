@@ -4,7 +4,6 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 
 use crate::syntax::{
     StaticCallArgument, code_segments, lexical_code, named_call_argument, static_call_arguments,
-    static_call_arguments_at,
 };
 use crate::{EnvironmentValue, Finding, FindingKind, InlineReport, normalized_program};
 
@@ -107,9 +106,7 @@ fn inline_critical_mutation_inner(
     }
     if !matches!(
         program.as_str(),
-        "node"
-            | "nodejs"
-            | "perl"
+        "perl"
             | "ruby"
             | "php"
             | "lua"
@@ -203,7 +200,6 @@ fn direct_code_string(program: &str, outside: &str, offset: usize) -> bool {
     };
     let before_parenthesis = before_parenthesis.trim_end();
     let names: &[&str] = match program {
-        "node" | "nodejs" => &["eval", "function"],
         "perl" | "ruby" | "php" => &["eval"],
         _ => &[],
     };
@@ -273,12 +269,6 @@ fn role_sensitive_mutation(
     let copy_calls: &[(&str, bool)] = match program {
         "perl" | "php" => &[("copy", true)],
         "julia" => &[("cp", true)],
-        "node" | "nodejs" => &[
-            (".copyfile", false),
-            (".copyfilesync", false),
-            ("copyfile", true),
-            ("copyfilesync", true),
-        ],
         "ruby" => &[("fileutils.cp", false), ("fileutils.copy", false)],
         "r" | "rscript" => &[("file.copy", false)],
         "swift" => &[(".copyitem", false)],
@@ -339,34 +329,6 @@ fn static_dispatch_mutates_protected(
             .collect::<Vec<_>>();
         inline_runtime_bypass(&values, home, critical_paths, platform, baseline_variables)
     };
-    if matches!(program, "node" | "nodejs") {
-        for selector_index in 1..strings.len() {
-            let selector = &strings[selector_index];
-            let module = strings[selector_index - 1].as_str();
-            let Some(open) =
-                node_require_selector_call_open(outside, string_offsets, selector_index, module)
-            else {
-                continue;
-            };
-            let Some(arguments) = static_call_arguments_at(outside, strings, string_offsets, open)
-            else {
-                continue;
-            };
-            if matches!(module, "fs" | "node:fs")
-                && node_fs_target_count(selector)
-                    .is_some_and(|count| mutating_arguments(&arguments, 0, count))
-                || matches!(module, "child_process" | "node:child_process")
-                    && matches!(
-                        selector.to_ascii_lowercase().as_str(),
-                        "exec" | "execfile" | "fork" | "spawn"
-                    )
-                    && runtime_arguments(&arguments, 0)
-            {
-                return true;
-            }
-        }
-    }
-
     if program == "ruby" {
         for arguments in static_call_arguments(outside, strings, string_offsets, "file.send", false)
         {
@@ -413,16 +375,6 @@ fn static_dispatch_mutates_protected(
     false
 }
 
-fn node_fs_target_count(selector: &str) -> Option<usize> {
-    match selector.to_ascii_lowercase().as_str() {
-        "unlink" | "unlinksync" | "rm" | "rmsync" | "rmdir" | "chmod" | "chmodsync" | "chown"
-        | "chownsync" | "truncate" | "truncatesync" | "writefile" | "writefilesync"
-        | "appendfile" | "appendfilesync" | "createwritestream" => Some(1),
-        "rename" | "renamesync" | "link" | "linksync" | "symlink" | "symlinksync" => Some(2),
-        _ => None,
-    }
-}
-
 fn ruby_file_target_count(selector: &str) -> Option<usize> {
     match selector {
         "delete" | "unlink" | "truncate" => Some(1),
@@ -444,48 +396,6 @@ fn direct_static_argument(argument: &StaticCallArgument) -> bool {
         byte.is_ascii_whitespace()
             || matches!(byte, b'[' | b']' | b'{' | b'}' | b'(' | b')' | b',' | b'+')
     })
-}
-
-fn node_require_selector_call_open(
-    outside: &str,
-    string_offsets: &[usize],
-    selector_index: usize,
-    module: &str,
-) -> Option<usize> {
-    if !matches!(
-        module,
-        "fs" | "node:fs" | "child_process" | "node:child_process"
-    ) {
-        return None;
-    }
-    let module_offset = *string_offsets.get(selector_index - 1)?;
-    let selector_offset = *string_offsets.get(selector_index)?;
-    let before = outside[..module_offset].trim_end();
-    let prefix = before.strip_suffix("require(")?;
-    if !word_prefix(prefix) {
-        return None;
-    }
-    let between = outside[module_offset..selector_offset]
-        .chars()
-        .filter(|character| !character.is_ascii_whitespace())
-        .collect::<String>();
-    if between != ")[" {
-        return None;
-    }
-    call_open_after_selector(outside, selector_offset, ']')
-}
-
-fn call_open_after_selector(outside: &str, selector_offset: usize, close: char) -> Option<usize> {
-    let tail = &outside[selector_offset..];
-    let close_offset =
-        selector_offset + tail.find(|character: char| !character.is_ascii_whitespace())?;
-    if outside[close_offset..].chars().next()? != close {
-        return None;
-    }
-    let after_close = close_offset + close.len_utf8();
-    let tail = &outside[after_close..];
-    let open = after_close + tail.find(|character: char| !character.is_ascii_whitespace())?;
-    (outside.as_bytes().get(open) == Some(&b'(')).then_some(open)
 }
 
 fn static_selector(argument: &StaticCallArgument) -> Option<String> {

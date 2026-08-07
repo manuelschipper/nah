@@ -236,10 +236,7 @@ pub(super) fn ordered_active_segments<'a>(
                 let segment_offset =
                     segments[index].source.as_ptr() as usize - code.as_ptr() as usize;
                 let available = definition.offset < segment_offset
-                    || matches!(
-                        program,
-                        "node" | "nodejs" | "deno" | "bun" | "php" | "perl" | "swift"
-                    );
+                    || matches!(program, "php" | "perl" | "swift");
                 let stack = scope_stacks
                     .iter()
                     .find(|(scope, _)| *scope == segments[index].scope)
@@ -319,9 +316,6 @@ pub(super) fn unmodeled_control_flow(source: &str, program: &str) -> bool {
             "if", "elif", "else", "for", "while", "try", "except", "finally", "with", "match",
             "case",
         ],
-        "node" | "nodejs" | "deno" | "bun" => {
-            &["if", "switch", "for", "while", "do", "try", "catch", "else"]
-        }
         "perl" => &["if", "unless", "for", "foreach", "while", "until", "given"],
         "ruby" => &[
             "if", "unless", "case", "for", "while", "until", "begin", "rescue", "ensure",
@@ -426,19 +420,12 @@ fn statically_inert_expression(source: &str, program: &str) -> bool {
     if crate::is_python_interpreter(program) {
         return source.starts_with("False and ");
     }
-    matches!(program, "node" | "nodejs" | "php" | "ruby" | "swift")
-        && source.starts_with("false && ")
+    matches!(program, "php" | "ruby" | "swift") && source.starts_with("false && ")
 }
 
 fn definition_exit(source: &str, program: &str) -> bool {
     let outside = lexical_language_code(source, program);
     let source = outside.trim_start();
-    if matches!(program, "node" | "nodejs" | "deno" | "bun") {
-        return source == "return"
-            || source.starts_with("return ")
-            || source == "throw"
-            || source.starts_with("throw ");
-    }
     source == "return" || source.starts_with("return ")
 }
 
@@ -448,14 +435,6 @@ pub(super) fn observe_shadow(state: &mut bool, source: &str, program: &str, expe
 
 fn definition_start(source: &str, program: &str) -> bool {
     match program {
-        "node" | "nodejs" | "deno" | "bun" => {
-            source.starts_with("function ")
-                || source.starts_with("class ")
-                || source.starts_with("if (false)")
-                || source.starts_with("if(false)")
-                || source.starts_with("while (false)")
-                || source.starts_with("while(false)")
-        }
         "perl" => source.starts_with("sub "),
         "ruby" => {
             source.starts_with("def ")
@@ -511,10 +490,6 @@ fn definition_start(source: &str, program: &str) -> bool {
 
 fn definition_name(source: &str, program: &str) -> Option<String> {
     let name = match program {
-        "node" | "nodejs" | "deno" | "bun" => source
-            .strip_prefix("function ")?
-            .split(['(', '{', ' '])
-            .next()?,
         "perl" => source.strip_prefix("sub ")?.split(['(', '{', ' ']).next()?,
         "ruby" => source.strip_prefix("def ")?.split(['(', ' ', '<']).next()?,
         "php" => source
@@ -1193,7 +1168,6 @@ pub(super) fn named_boolean(
 
 #[cfg(test)]
 mod tests {
-    use super::{DefinitionStyle, ordered_active_segments};
     use nah_proto::ctx::Platform;
 
     use crate::{FindingKind, InlineInput, InlineReport, NestedExecution, analyze};
@@ -1211,22 +1185,6 @@ mod tests {
         report.nested_executions().iter().any(|execution| {
             matches!(execution, NestedExecution::Shell { code, .. } if code.contains("curl"))
         })
-    }
-
-    #[test]
-    fn unsupported_called_helpers_invalidate_later_state() {
-        let mut report = InlineReport::default();
-        let segments = ordered_active_segments(
-            "function mutate(value) { require=value } mutate(safe); require('fs').rmSync('/', {recursive:true})",
-            "node",
-            DefinitionStyle::Braces,
-            &mut report,
-        );
-        let require = segments
-            .iter()
-            .find(|segment| segment.source.contains("rmSync"))
-            .expect("the direct call remains visible");
-        assert!(!require.state_exact);
     }
 
     #[test]

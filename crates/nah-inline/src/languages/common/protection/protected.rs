@@ -68,7 +68,6 @@ pub(super) fn protected_target(
         "path.home",
         "expanduser",
         "homedir",
-        "process.env.home",
         "env[",
         "$env{home}",
         "$env:home",
@@ -91,7 +90,6 @@ pub(super) fn protected_target(
                 "$home",
                 "$env:home",
                 "$env{home}",
-                "process.env.home",
                 "path.home()",
                 "${home}",
             ]
@@ -148,17 +146,7 @@ pub(super) fn inline_runtime_bypass(
     platform: Platform,
     baseline_variables: &[(String, EnvironmentValue)],
 ) -> bool {
-    let ignored_prefix = |value: &str| {
-        matches!(
-            value,
-            "fs" | "node:fs" | "child_process" | "node:child_process"
-        )
-    };
-    let start = strings
-        .iter()
-        .position(|value| !ignored_prefix(value))
-        .unwrap_or(strings.len());
-    let words = strings[start..]
+    let words = strings
         .iter()
         .flat_map(|value| value.split_ascii_whitespace())
         .map(|value| {

@@ -9,11 +9,6 @@ pub(super) fn mask(code: &str, program: &str) -> String {
     };
     let mut masked = code.as_bytes().to_vec();
     match program {
-        "node" | "nodejs" | "deno" | "bun" => {
-            mask_javascript_arrows(&matching, &mut masked);
-            mask_javascript_functions(&matching, &mut masked);
-            mask_javascript_methods(&matching, &mut masked);
-        }
         program if crate::is_python_interpreter(program) => {
             mask_python_generators(&matching, &mut masked);
         }
@@ -25,116 +20,6 @@ pub(super) fn mask(code: &str, program: &str) -> String {
         _ => {}
     }
     String::from_utf8(masked).unwrap_or_else(|_| code.to_owned())
-}
-
-fn mask_javascript_arrows(visible: &str, masked: &mut [u8]) {
-    let bytes = visible.as_bytes();
-    let mut cursor = 0usize;
-    while let Some(offset) = visible[cursor..].find("=>") {
-        let arrow = cursor + offset;
-        let mut body = next_non_whitespace(bytes, arrow + 2);
-        if bytes.get(body) == Some(&b'{') {
-            let end = matching_delimiter(bytes, body, b'{', b'}').unwrap_or(bytes.len());
-            if !immediately_invoked_arrow(visible, arrow, end.saturating_add(1)) {
-                mask_range(masked, body.saturating_add(1), end);
-            }
-            cursor = end.saturating_add(1).max(body + 1);
-            continue;
-        }
-        let end = expression_end(bytes, body);
-        if !immediately_invoked_arrow(visible, arrow, end) {
-            mask_range(masked, body, end);
-        }
-        body = end.max(body + 1);
-        cursor = body;
-    }
-}
-
-fn immediately_invoked_arrow(source: &str, arrow: usize, body_end: usize) -> bool {
-    let before = source[..arrow].trim_end();
-    let Some(parameters) = before.strip_suffix(')') else {
-        return false;
-    };
-    let Some(open) = parameters.rfind('(') else {
-        return false;
-    };
-    if !parameters[open + 1..].trim().is_empty() {
-        return false;
-    }
-    let wrapper = parameters[..open].trim_end();
-    let Some(prefix) = wrapper.strip_suffix('(') else {
-        return false;
-    };
-    if prefix.chars().next_back().is_some_and(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '_' | '$' | '.' | ')' | ']' | '}')
-    }) {
-        return false;
-    }
-    let compact = source[body_end..]
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect::<String>();
-    compact.trim_start_matches(')').starts_with("()")
-}
-
-fn mask_javascript_functions(visible: &str, masked: &mut [u8]) {
-    let bytes = visible.as_bytes();
-    let mut cursor = 0usize;
-    while let Some(function) = find_token(visible, "function", cursor) {
-        let mut next = next_non_whitespace(bytes, function + "function".len());
-        if bytes.get(next) == Some(&b'*') {
-            next = next_non_whitespace(bytes, next + 1);
-        }
-        let named = bytes
-            .get(next)
-            .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'));
-        let statement_start = visible[..function]
-            .rfind([';', '\n', '{', '}'])
-            .map_or(0, |index| index + 1);
-        let declaration = named && visible[statement_start..function].trim().is_empty();
-        let Some(open) = visible[next..].find('{').map(|offset| next + offset) else {
-            break;
-        };
-        let end = matching_delimiter(bytes, open, b'{', b'}').unwrap_or(bytes.len());
-        if !declaration {
-            mask_range(masked, open.saturating_add(1), end);
-        }
-        cursor = end.saturating_add(1).max(function + 1);
-    }
-}
-
-fn mask_javascript_methods(visible: &str, masked: &mut [u8]) {
-    let bytes = visible.as_bytes();
-    let mut cursor = 0usize;
-    while let Some(relative) = visible[cursor..].find('{') {
-        let open = cursor + relative;
-        let Some(close_paren) = previous_non_whitespace(bytes, open) else {
-            cursor = open + 1;
-            continue;
-        };
-        if bytes[close_paren] != b')' {
-            cursor = open + 1;
-            continue;
-        }
-        let Some(open_paren) = unmatched_open_before(bytes, close_paren, b'(', b')') else {
-            cursor = open + 1;
-            continue;
-        };
-        let statement_start = visible[..open_paren]
-            .rfind([';', '\n', '{', '}'])
-            .map_or(0, |index| index + 1);
-        let prefix = visible[statement_start..open_paren].trim_start();
-        if ["if", "for", "while", "switch", "catch", "with", "function"]
-            .iter()
-            .any(|keyword| starts_keyword(prefix, keyword))
-        {
-            cursor = open + 1;
-            continue;
-        }
-        let end = matching_delimiter(bytes, open, b'{', b'}').unwrap_or(bytes.len());
-        mask_range(masked, open + 1, end);
-        cursor = end.saturating_add(1).max(open + 1);
-    }
 }
 
 fn mask_python_generators(visible: &str, masked: &mut [u8]) {
@@ -314,12 +199,6 @@ fn starts_keyword(source: &str, keyword: &str) -> bool {
             .next()
             .is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
     })
-}
-
-fn previous_non_whitespace(bytes: &[u8], before: usize) -> Option<usize> {
-    (0..before)
-        .rev()
-        .find(|index| !bytes[*index].is_ascii_whitespace())
 }
 
 fn next_non_whitespace(bytes: &[u8], mut index: usize) -> usize {
