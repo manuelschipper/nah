@@ -1430,12 +1430,17 @@ class TestClassifyTokens:
         ) == "filesystem_read"
 
     def test_user_classify_multi_token_path(self):
-        """Path in non-first position: only first token gets basename'd."""
+        """A custom prefix cannot downgrade interpreter execution."""
         tbl = build_user_table({"testing": ["php vendor/bin/codecept run"]})
-        # 'php' has no path — stays 'php'. 'vendor/bin/codecept' is NOT first token
-        # so it stays as-is in both the table and the input.
         assert classify_tokens(
             ["php", "vendor/bin/codecept", "run"], global_table=tbl,
+        ) == "lang_exec"
+
+    def test_user_classify_preserves_path_in_nonfirst_token(self):
+        """Only the command token is basename-normalized."""
+        tbl = build_user_table({"testing": ["runner vendor/bin/codecept run"]})
+        assert classify_tokens(
+            ["runner", "vendor/bin/codecept", "run"], global_table=tbl,
         ) == "testing"
 
     def test_build_user_table_normalizes_path(self):
@@ -2936,49 +2941,55 @@ class TestGlobalOverridesFlagClassifiers:
         builtin_t = get_builtin_table("full")
         assert classify_tokens(["git", "push", "--force"], builtin_table=builtin_t) == "git_history_rewrite"
 
-    # --- V4–V10: Per-classifier override via global table ---
+    # --- V4–V10: Semantic safety floors beat global table overrides ---
 
     def test_global_overrides_find(self):
-        """Global classify entry overrides _classify_find."""
+        """A read prefix cannot downgrade find -delete."""
         global_t = build_user_table({"filesystem_read": ["find"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["find", ".", "-delete"], global_t, builtin_t) == "filesystem_read"
+        assert classify_tokens(["find", ".", "-delete"], global_t, builtin_t) == "filesystem_delete"
 
     def test_global_overrides_sed(self):
-        """Global classify entry overrides _classify_sed."""
+        """A read prefix cannot downgrade sed -i."""
         global_t = build_user_table({"filesystem_read": ["sed"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_read"
+        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_write"
 
     def test_global_overrides_tar(self):
-        """Global classify entry overrides _classify_tar."""
+        """A read prefix cannot downgrade archive creation."""
         global_t = build_user_table({"filesystem_read": ["tar"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["tar", "czf", "a.tar.gz", "."], global_t, builtin_t) == "filesystem_read"
+        assert classify_tokens(["tar", "czf", "a.tar.gz", "."], global_t, builtin_t) == "filesystem_write"
 
     def test_global_overrides_git(self):
-        """Global classify entry overrides _classify_git."""
+        """A safe prefix cannot downgrade destructive Git."""
         global_t = build_user_table({"git_safe": ["git tag"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_discard"
 
     def test_global_overrides_curl(self):
-        """Global classify entry overrides _classify_curl."""
+        """A read prefix cannot downgrade an HTTP write."""
         global_t = build_user_table({"network_outbound": ["curl"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["curl", "-d", "data", "url"], global_t, builtin_t) == "network_outbound"
+        assert classify_tokens(["curl", "-d", "data", "url"], global_t, builtin_t) == "network_write"
 
     def test_global_overrides_wget(self):
-        """Global classify entry overrides _classify_wget."""
+        """A read prefix cannot downgrade a wget POST."""
         global_t = build_user_table({"network_outbound": ["wget"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["wget", "--post-data=x", "url"], global_t, builtin_t) == "network_outbound"
+        assert classify_tokens(["wget", "--post-data=x", "url"], global_t, builtin_t) == "network_write"
 
     def test_global_overrides_httpie(self):
-        """Global classify entry overrides _classify_httpie."""
+        """A read prefix cannot downgrade an HTTPie POST."""
         global_t = build_user_table({"network_outbound": ["http"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["http", "POST", "example.com"], global_t, builtin_t) == "network_outbound"
+        assert classify_tokens(["http", "POST", "example.com"], global_t, builtin_t) == "service_write"
+
+    def test_global_action_cannot_override_nonallow_semantic_result(self):
+        """Configured policy may differ, so the semantic action must win."""
+        global_t = build_user_table({"obfuscated": ["curl"]})
+        builtin_t = get_builtin_table("full")
+        assert classify_tokens(["curl", "-d", "data", "url"], global_t, builtin_t) == "network_write"
 
     # --- V11–V13: Granularity (longest-prefix-first) ---
 
@@ -2993,49 +3004,48 @@ class TestGlobalOverridesFlagClassifiers:
         assert classify_tokens(["sed", "s/a/b/", "file"], global_t, builtin_t) == "filesystem_read"
 
     def test_partial_override_leaves_other_commands(self):
-        """Overriding git tag doesn't affect git push (flag classifier still runs)."""
+        """A partial Git prefix cannot weaken tag deletion or force push."""
         global_t = build_user_table({"git_safe": ["git tag"]})
         builtin_t = get_builtin_table("full")
-        # git tag overridden
-        assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "tag", "-d", "v1"], global_t, builtin_t) == "git_discard"
         # git push still uses flag classifier
         assert classify_tokens(["git", "push", "--force"], global_t, builtin_t) == "git_history_rewrite"
 
     def test_git_push_granularity(self):
-        """More specific 'git push --force' wins over broader 'git push'."""
+        """Semantic remote-write classification beats a safe push prefix."""
         global_t = build_user_table({
             "git_history_rewrite": ["git push --force"],
             "git_safe": ["git push"],
         })
         builtin_t = get_builtin_table("full")
         assert classify_tokens(["git", "push", "--force"], global_t, builtin_t) == "git_history_rewrite"
-        assert classify_tokens(["git", "push", "origin", "main"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "push", "origin", "main"], global_t, builtin_t) == "git_remote_write"
 
     # --- V14–V15: Git global flag stripping ---
 
     def test_git_C_stripped_for_global_lookup(self):
-        """git -C /path push --force matches global 'git push --force'."""
+        """Git global flags cannot hide a forced push."""
         global_t = build_user_table({"git_safe": ["git push --force"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["git", "-C", "/path", "push", "--force"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "-C", "/path", "push", "--force"], global_t, builtin_t) == "git_history_rewrite"
 
     def test_git_no_pager_stripped_for_global_lookup(self):
-        """git --no-pager push matches global 'git push'."""
+        """Git global flags preserve remote-write semantics."""
         global_t = build_user_table({"git_safe": ["git push"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["git", "--no-pager", "push"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "--no-pager", "push"], global_t, builtin_t) == "git_remote_write"
 
     def test_git_equals_joined_flag_stripped_for_global_lookup(self):
-        """git --git-dir=/path push matches global 'git push'."""
+        """Joined Git global flags preserve remote-write semantics."""
         global_t = build_user_table({"git_safe": ["git push"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["git", "--git-dir=/path", "push"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "--git-dir=/path", "push"], global_t, builtin_t) == "git_remote_write"
 
     def test_git_paginate_flag_stripped_for_global_lookup(self):
-        """git -P push --force matches global 'git push --force'."""
+        """Pagination flags cannot hide a forced push."""
         global_t = build_user_table({"git_safe": ["git push --force"]})
         builtin_t = get_builtin_table("full")
-        assert classify_tokens(["git", "-P", "push", "--force"], global_t, builtin_t) == "git_safe"
+        assert classify_tokens(["git", "-P", "push", "--force"], global_t, builtin_t) == "git_history_rewrite"
 
     # --- V16–V21: legacy profile:none aliases full behavior ---
 
@@ -3053,9 +3063,9 @@ class TestGlobalOverridesFlagClassifiers:
         assert classify_tokens(["git", "push", "--force"], profile="none") == "git_history_rewrite"
 
     def test_profile_none_global_still_works(self):
-        """Global table still classifies when deprecated profile:none is passed."""
+        """Deprecated profiles do not disable the semantic safety floor."""
         global_t = build_user_table({"filesystem_read": ["sed"]})
-        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, profile="none") == "filesystem_read"
+        assert classify_tokens(["sed", "-i", "s/a/b/", "file"], global_t, profile="none") == "filesystem_write"
 
     def test_profile_none_builtin_table_uses_full_behavior(self):
         """Deprecated profile:none still resolves built-in table entries."""
@@ -3070,6 +3080,61 @@ class TestGlobalOverridesFlagClassifiers:
         project_t = build_user_table({"filesystem_read": ["sed"]})
         # Project says sed → filesystem_read, but flag classifier runs first
         assert classify_tokens(["sed", "-i", "s/a/b/", "file"], None, builtin_t, project_t) == "filesystem_write"
+
+
+class TestMixedModeSafetyFloors:
+    """User prefixes cannot hide mutating flags on mixed-mode commands."""
+
+    @pytest.mark.parametrize(("prefix", "tokens", "expected"), [
+        ("yq eval", ["yq", "eval", "-i", ".foo = 1", "config.yaml"], "unknown"),
+        ("yq eval", ["yq", "eval", "-iN", ".foo = 1", "config.yaml"], "unknown"),
+        ("yq eval", ["yq", "eval", "--security-enable-system-operator", "system(\"id\")"], "unknown"),
+        ("go env", ["go", "env", "-w", "GOPROXY=https://example.test"], "unknown"),
+        ("gofmt -l", ["gofmt", "-l", "-w", "main.go"], "unknown"),
+        ("golangci-lint run", ["golangci-lint", "run", "--fix", "./..."], "unknown"),
+        ("nvidia-smi", ["nvidia-smi", "--gpu-reset"], "service_write"),
+        ("nvidia-smi", ["nvidia-smi", "-f", "report.txt"], "unknown"),
+        ("nvidia-smi", ["nvidia-smi", "--filename=report.txt"], "unknown"),
+        ("wlr-randr", ["wlr-randr", "--output", "eDP-1", "--off"], "service_write"),
+        ("swaymsg", ["swaymsg", "exit"], "service_write"),
+        ("kustomize build", ["kustomize", "build", ".", "-o", "rendered.yaml"], "unknown"),
+        ("xxd", ["xxd", "-r", "input.hex", "output.bin"], "unknown"),
+        ("openssl rsa", ["openssl", "rsa", "-in", "key.pem", "-out", "output.pem"], "unknown"),
+        ("helm get", ["helm", "get", "values", "release"], "unknown"),
+        ("talosctl support", ["talosctl", "support", "-O", "/tmp/support"], "unknown"),
+    ])
+    def test_mutating_form_beats_user_allow_prefix(self, prefix, tokens, expected):
+        global_t = build_user_table({"filesystem_read": [prefix]})
+        assert classify_tokens(tokens, global_t, _FULL) == expected
+
+    @pytest.mark.parametrize(("tokens", "expected"), [
+        (["yq", "eval", ".foo", "config.yaml"], "filesystem_read"),
+        (["go", "env", "GOPATH"], "filesystem_read"),
+        (["gofmt", "-l", "main.go"], "filesystem_read"),
+        (["golangci-lint", "run", "./..."], "filesystem_read"),
+        (["nvidia-smi"], "filesystem_read"),
+        (["nvidia-smi", "--query-gpu=name", "--format=csv"], "filesystem_read"),
+        (["wlr-randr"], "filesystem_read"),
+        (["wlr-randr", "--json"], "filesystem_read"),
+        (["wlr-randr", "--dryrun", "--output", "eDP-1", "--off"], "filesystem_read"),
+        (["swaymsg", "-t", "get_outputs"], "filesystem_read"),
+        (["swaymsg", "-r", "-t", "get_tree"], "filesystem_read"),
+        (["swaymsg", "--type=get_outputs"], "filesystem_read"),
+        (["kustomize", "build", "."], "filesystem_read"),
+        (["xxd", "input.bin"], "filesystem_read"),
+        (["openssl", "rsa", "-text", "-in", "key.pem"], "filesystem_read"),
+    ])
+    def test_read_only_forms_remain_read(self, tokens, expected):
+        assert _ct(tokens) == expected
+
+    def test_vcsh_run_recursively_classifies_git(self):
+        global_t = build_user_table({"git_write": ["vcsh run"]})
+        assert classify_tokens(
+            ["vcsh", "run", "cdot", "git", "reset", "--hard"], global_t, _FULL
+        ) == "git_discard"
+        assert classify_tokens(
+            ["vcsh", "run", "cdot", "git", "status"], global_t, _FULL
+        ) == "git_safe"
 
 
 # --- FD-018: sed classifier ---
@@ -3654,8 +3719,12 @@ class TestFindFlagClassifierShadows:
         user = [(("docker",), "container_destructive")]
         assert find_flag_classifier_shadows(user) == []
 
-    def test_multi_token_not_detected(self):
-        user = [(("curl", "-d"), "network_write")]
+    def test_multi_token_flag_prefix_detected(self):
+        user = [(("yq", "eval"), "filesystem_read")]
+        assert find_flag_classifier_shadows(user) == [("yq", "eval")]
+
+    def test_specific_safe_multi_token_prefix_not_detected(self):
+        user = [(("helm", "list"), "filesystem_read")]
         assert find_flag_classifier_shadows(user) == []
 
     def test_all_flag_cmds(self):
@@ -4182,13 +4251,13 @@ class TestFD019GlobalInstall:
         assert _ct(["yarn", "add", "something"]) == "package_install"
 
     def test_global_override_via_user_table(self):
-        """Global config can override the global-install flag classifier."""
+        """A package prefix cannot downgrade a global install."""
         global_t = build_user_table({"package_install": ["npm install"]})
         builtin_t = get_builtin_table("full")
         result = classify_tokens(
             ["npm", "install", "-g", "x"], global_t, builtin_t
         )
-        assert result == "package_install"
+        assert result == "unknown"
 
 
 _PACKAGE_ESCALATION_CASES = (

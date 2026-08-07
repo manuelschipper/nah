@@ -354,15 +354,30 @@ def _walk_ancestors(path: Path) -> list[Path]:
     return [start, *start.parents]
 
 
-def _walk_project_ancestors(path: Path) -> list[Path]:
-    """Return workspace ancestors, excluding the user's Codex home location."""
+def _account_home() -> Path | None:
+    """Return the login account's home independently of HOME overrides."""
     try:
-        user_home = Path.home().resolve()
-    except OSError:
-        user_home = Path.home()
+        import pwd
+
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (ImportError, KeyError, OSError):
+        return None
+
+
+def _walk_project_ancestors(path: Path) -> list[Path]:
+    """Return workspace ancestors without crossing a user-home boundary."""
+    homes = [Path.home()]
+    if account_home := _account_home():
+        homes.append(account_home)
+    stop_paths = set()
+    for home in homes:
+        try:
+            stop_paths.add(home.resolve())
+        except OSError:
+            stop_paths.add(home.absolute())
     out = []
     for parent in _walk_ancestors(path):
-        if parent == user_home:
+        if parent in stop_paths:
             break
         out.append(parent)
     return out

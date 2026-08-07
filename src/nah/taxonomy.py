@@ -268,7 +268,17 @@ _FLAG_CLASSIFIER_CMDS = {"find", "sed", "awk", "gawk", "mawk", "nawk",
                           "pip3", "cargo", "gem", "make", "gmake",
                           "python", "python3", "node", "ruby", "perl",
                           "bash", "sh", "dash", "zsh", "php", "tsx",
-                          "powershell", "pwsh", "cmd"}
+                          "powershell", "pwsh", "cmd",
+                          "yq", "go", "gofmt", "golangci-lint",
+                          "nvidia-smi", "wlr-randr", "swaymsg",
+                          "kustomize", "xxd", "openssl", "helm",
+                          "talosctl", "vcsh"}
+
+_FLAG_CLASSIFIER_MULTI_PREFIXES = {
+    ("yq", "eval"), ("yq", "e"), ("go", "env"), ("gofmt", "-l"),
+    ("golangci-lint", "run"), ("kustomize", "build"), ("openssl", "rsa"),
+    ("helm", "get"), ("talosctl", "support"), ("vcsh", "run"),
+}
 
 # Global-install flags that escalate to unknown (ask).
 _GLOBAL_INSTALL_FLAGS = {"-g", "--global", "--system", "--target", "--root"}
@@ -302,8 +312,11 @@ def find_flag_classifier_shadows(
     user_table: list[tuple[tuple[str, ...], str]],
 ) -> list[tuple[str, ...]]:
     """Return user prefixes that shadow a Phase 2 flag classifier."""
-    return [u_prefix for u_prefix, _ in user_table
-            if len(u_prefix) == 1 and u_prefix[0] in _FLAG_CLASSIFIER_CMDS]
+    return [
+        u_prefix for u_prefix, _ in user_table
+        if ((len(u_prefix) == 1 and u_prefix[0] in _FLAG_CLASSIFIER_CMDS)
+            or u_prefix in _FLAG_CLASSIFIER_MULTI_PREFIXES)
+    ]
 
 
 # Shell wrappers that need unwrapping.
@@ -546,6 +559,150 @@ def _prefix_match(tokens: list[str], table: list[tuple[tuple[str, ...], str]]) -
     return UNKNOWN
 
 
+def _merge_user_and_semantic(user_action: str, semantic_action: str) -> str:
+    """Keep user customization only when semantics found an allow action."""
+    if user_action == UNKNOWN:
+        return semantic_action
+    semantic_policy = _POLICIES.get(semantic_action, ASK)
+    return user_action if semantic_policy == ALLOW else semantic_action
+
+
+def _has_flag(args: list[str], *flags: str) -> bool:
+    """Return whether args contain a flag, including --flag=value forms."""
+    return any(arg == flag or arg.startswith(f"{flag}=")
+               for arg in args for flag in flags)
+
+
+def _has_short_flag_cluster(args: list[str], flag: str) -> bool:
+    """Return whether a single-dash Boolean flag appears in a short cluster."""
+    return any(
+        arg.startswith("-") and not arg.startswith("--")
+        and flag in arg[1:].split("=", 1)[0]
+        for arg in args
+    )
+
+
+def _classify_mixed_mode_command(tokens: list[str]) -> str | None:
+    """Classify local tools whose flags switch between reads and mutation."""
+    if not tokens:
+        return None
+    cmd, args = tokens[0], tokens[1:]
+
+    if cmd == "yq":
+        if (_has_short_flag_cluster(args, "i")
+                or _has_flag(
+                    args, "--inplace", "--split-exp", "--split-exp-file",
+                    "--security-enable-system-operator",
+                )):
+            return UNKNOWN
+        return FILESYSTEM_READ if "eval" in args or "e" in args else None
+    if cmd == "go" and args and args[0] == "env":
+        return UNKNOWN if _has_flag(args[1:], "-w", "-u") else FILESYSTEM_READ
+    if cmd == "gofmt":
+        return UNKNOWN if _has_flag(args, "-w") else FILESYSTEM_READ
+    if cmd == "golangci-lint" and args and args[0] == "run":
+        return UNKNOWN if _has_flag(args[1:], "--fix") else FILESYSTEM_READ
+    if cmd == "nvidia-smi":
+        if _has_flag(args, "-f", "--filename"):
+            return UNKNOWN
+        mutating = (
+            "--gpu-reset", "-r", "--persistence-mode", "-pm",
+            "--applications-clocks", "-ac", "--reset-applications-clocks", "-rac",
+            "--power-limit", "-pl", "--compute-mode", "-c",
+            "--ecc-config", "-e", "--driver-model", "-dm",
+            "--lock-gpu-clocks", "-lgc", "--reset-gpu-clocks", "-rgc",
+            "--lock-memory-clocks", "-lmc", "--reset-memory-clocks", "-rmc",
+            "--auto-boost-default", "--accounting-mode", "-am",
+        )
+        if _has_flag(args, *mutating):
+            return SERVICE_WRITE
+        read_prefixes = (
+            "--query-", "--display=", "--id=", "--format=", "--loop=",
+            "--loop-ms=",
+        )
+        read_flags = {"-q", "--query", "-L", "--list-gpus", "-h", "--help",
+                      "--version", "-B", "--list-excluded-gpus", "-u", "--unit",
+                      "-x", "--xml-format", "--dtd", "-i", "--id", "-d",
+                      "--display", "-l", "--loop", "-lms", "--loop-ms",
+                      "--format"}
+        if not args or all(arg in read_flags or arg.startswith(read_prefixes)
+                           or not arg.startswith("-") for arg in args):
+            return FILESYSTEM_READ
+        return UNKNOWN
+    if cmd == "wlr-randr":
+        if "--dryrun" in args:
+            return FILESYSTEM_READ
+        if not args or all(arg in {"--help", "--version", "--json"} for arg in args):
+            return FILESYSTEM_READ
+        return SERVICE_WRITE
+    if cmd == "swaymsg":
+        if any(arg in {"-h", "--help", "-v", "--version"} for arg in args):
+            return FILESYSTEM_READ
+        message_type = None
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg in {"-p", "--pretty", "-q", "--quiet", "-r", "--raw",
+                       "-m", "--monitor"}:
+                i += 1
+                continue
+            if arg in {"-s", "--socket"} and i + 1 < len(args):
+                i += 2
+                continue
+            if arg in {"-t", "--type"} and i + 1 < len(args):
+                message_type = args[i + 1]
+                i += 2
+                continue
+            if arg.startswith("--type="):
+                message_type = arg.split("=", 1)[1]
+            break
+        if message_type and message_type.lower().startswith("get_"):
+            return FILESYSTEM_READ
+        return SERVICE_WRITE if args else UNKNOWN
+    if cmd == "kustomize" and args and args[0] == "build":
+        return UNKNOWN if _has_flag(args[1:], "-o", "--output") else FILESYSTEM_READ
+    if cmd == "xxd":
+        operands = [arg for arg in args if not arg.startswith("-")]
+        if _has_flag(args, "-r", "--revert") or len(operands) > 1:
+            return UNKNOWN
+        return FILESYSTEM_READ
+    if cmd == "openssl":
+        if _has_flag(args, "-out"):
+            return UNKNOWN
+        if args and args[0] in {"rsa", "pkey", "ec", "x509", "req", "dhparam"}:
+            return FILESYSTEM_READ
+        return None
+    if cmd == "helm" and args and args[0] == "get":
+        return UNKNOWN
+    if cmd == "talosctl" and args and args[0] == "support":
+        return UNKNOWN
+    return None
+
+
+def _classify_vcsh(
+    tokens: list[str], *, global_table: list | None, builtin_table: list | None,
+    project_table: list | None, profile: str, trust_project: bool,
+) -> str | None:
+    """Unwrap vcsh repository commands and classify the inner Git command."""
+    if len(tokens) < 3 or tokens[0] != "vcsh":
+        return None
+    if tokens[1] == "run":
+        if len(tokens) < 5 or tokens[3] != "git":
+            return UNKNOWN
+        inner = tokens[3:]
+    elif tokens[1].startswith("-") or tokens[1] in {
+        "clone", "commit", "delete", "enter", "foreach", "help", "init",
+        "list", "pull", "push", "rename", "run", "version", "which",
+    }:
+        return None
+    else:
+        inner = ["git"] + tokens[2:]
+    return classify_tokens(
+        inner, global_table=global_table, builtin_table=builtin_table,
+        project_table=project_table, profile=profile, trust_project=trust_project,
+    )
+
+
 def classify_tokens(
     tokens: list[str],
     global_table: list | None = None,
@@ -573,12 +730,15 @@ def classify_tokens(
     if base and base != tokens[0]:
         tokens = [base] + tokens[1:]
 
-    # --- Phase 1: Global table override (trusted user config) ---
+    # --- Phase 1: Remember the global match, but do not let it bypass a
+    # non-allow semantic classification in Phase 2. ---
+    user_action = UNKNOWN
+
     # Non-git: check global table on raw tokens.
     if global_table and tokens[0] != "git":
         result = _prefix_match(tokens, global_table)
         if result != UNKNOWN:
-            return result
+            user_action = result
 
     # Git: strip global flags first, then check global table on clean tokens.
     if tokens[0] == "git":
@@ -586,7 +746,7 @@ def classify_tokens(
         if global_table:
             result = _prefix_match(tokens, global_table)
             if result != UNKNOWN:
-                return result
+                user_action = result
 
     # flux: strip kubeconfig-style global flags (-n namespace, --context, etc.)
     # first, then re-check the global table. Without this, `flux -n flux-system
@@ -596,7 +756,7 @@ def classify_tokens(
         if global_table:
             result = _prefix_match(tokens, global_table)
             if result != UNKNOWN:
-                return result
+                user_action = result
 
     # talosctl: strip global connection flags (-n nodes, -e endpoints, etc.)
     # first, then re-check the global table. Without this, `talosctl -n 1.2.3.4
@@ -606,7 +766,10 @@ def classify_tokens(
         if global_table:
             result = _prefix_match(tokens, global_table)
             if result != UNKNOWN:
-                return result
+                user_action = result
+
+    def semantic(action: str) -> str:
+        return _merge_user_and_semantic(user_action, action)
 
     # --- Phase 2: Flag classifiers (built-in opinions) ---
     action = _classify_find(
@@ -618,65 +781,80 @@ def classify_tokens(
         trust_project=trust_project,
     )
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_sed(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_awk(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_tar(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_caddy(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_ps(tokens)
     if action is not None:
+        return semantic(action)
+    action = _classify_mixed_mode_command(tokens)
+    if action is not None:
+        return semantic(action)
+    action = _classify_vcsh(
+        tokens,
+        global_table=global_table,
+        builtin_table=builtin_table,
+        project_table=project_table,
+        profile=profile,
+        trust_project=trust_project,
+    )
+    if action is not None:
+        # The outer vcsh prefix describes the wrapper, not the recursively
+        # classified Git payload. Preserve the payload's exact action type.
         return action
     if tokens[0] == "git":
         action = _classify_git(tokens)
         if action is not None:
-            return action
+            return semantic(action)
     action = _classify_kubectl(
         tokens,
         global_table=global_table,
     )
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_graphql_operation(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_json_rpc_operation(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_grpc_operation(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_websocket_operation(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_http_rest_operation(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_curl(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_wget(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_httpie(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_gh_api(tokens, profile=profile)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_glab_api(tokens, profile=profile)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_mise_activate(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_mise_exec_wrapper(
         tokens,
         global_table=global_table,
@@ -686,31 +864,31 @@ def classify_tokens(
         trust_project=trust_project,
     )
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_nah_run_claude(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_nah_run_codex(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_codex(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_codex_companion(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_global_install(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_bazel_test(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_make(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_windows_shell(tokens)
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_package_exec_wrapper(
         tokens,
         global_table=global_table,
@@ -720,10 +898,13 @@ def classify_tokens(
         trust_project=trust_project,
     )
     if action is not None:
-        return action
+        return semantic(action)
     action = _classify_script_exec(tokens)
     if action is not None:
-        return action
+        return semantic(action)
+
+    if user_action != UNKNOWN:
+        return user_action
 
     # --- Phase 3: Remaining tables (project, builtin) ---
     # Project table may override built-ins only when it does not weaken policy,
@@ -3253,6 +3434,8 @@ def validate_action_type(name: str) -> tuple[bool, list[str]]:
     all_types = list(load_type_descriptions().keys())
     if name in all_types:
         return True, []
+    if name == "git_destructive":
+        return False, [GIT_DISCARD, GIT_HISTORY_REWRITE]
     matches = difflib.get_close_matches(name, all_types, n=3, cutoff=0.5)
     return False, matches
 

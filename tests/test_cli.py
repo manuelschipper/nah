@@ -741,6 +741,16 @@ class TestCmdTypesShadowAnnotation:
         out = capsys.readouterr().out
         assert "overrides" not in out
 
+    def test_unknown_action_type_warning(self, patched_paths, global_cfg, capsys):
+        os.makedirs(os.path.dirname(global_cfg), exist_ok=True)
+        with open(global_cfg, "w") as f:
+            f.write("actions:\n  git_destructive: ask\n")
+        from nah.cli import cmd_types
+        cmd_types(argparse.Namespace())
+        out = capsys.readouterr().out
+        assert "unknown action type 'git_destructive'" in out
+        assert "did you mean git_discard, git_history_rewrite?" in out
+
 
 # --- nah test full tool support (FD-069) ---
 
@@ -1114,7 +1124,7 @@ class TestCmdTest:
             cmd_test(args)
 
     def test_config_classify_override(self, capsys):
-        """FD-076: --config classify override reclassifies command."""
+        """A transient config cannot downgrade a forced push."""
         from nah.cli import cmd_test
         args = argparse.Namespace(
             tool=None, path=None, content=None, pattern=None,
@@ -1123,7 +1133,8 @@ class TestCmdTest:
         )
         cmd_test(args)
         out = capsys.readouterr().out
-        assert "ALLOW" in out
+        assert "ASK" in out
+        assert "git_history_rewrite" in out
 
     def test_config_action_override(self, capsys):
         """FD-076: --config actions override changes policy."""

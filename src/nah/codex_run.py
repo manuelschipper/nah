@@ -13,7 +13,7 @@ from datetime import datetime
 
 from nah import hook_command
 from nah.codex_authority import CodexAuthorityError, codex_home, ensure_authority_rules
-from nah.codex_preflight import CodexPreflightError, ensure_preflight
+from nah.codex_preflight import CodexPreflightError, ensure_preflight, setup_preflight
 
 
 class CodexRunError(Exception):
@@ -371,6 +371,9 @@ def build_codex_launch(
         try:
             status = ensure_authority_rules(home=root)
             authority_rules_path = str(status.path)
+            # Approval memory can be written after a separate `nah setup`.
+            # Repair it at the last launch boundary, then verify the result.
+            setup_preflight(home=root)
             ensure_preflight(home=root)
             if headless:
                 _ensure_headless_hook_trust(env)

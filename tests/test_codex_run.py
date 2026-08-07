@@ -567,7 +567,7 @@ def test_headless_rejects_nested_unsupported_surfaces(args):
     assert "codex exec" in str(exc.value)
 
 
-def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
+def test_preflight_backs_up_and_prunes_remembered_codex_allows(tmp_path, monkeypatch):
     codex_home = tmp_path / "codex"
     rules = codex_home / "rules"
     rules.mkdir(parents=True)
@@ -577,12 +577,13 @@ def test_preflight_blocks_remembered_codex_allows(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-    with pytest.raises(CodexRunError) as exc:
-        build_codex_argv(["--help"], codex_path="/usr/bin/codex")
+    argv = build_codex_argv(["--help"], codex_path="/usr/bin/codex")
 
-    assert "approval state can bypass nah" in str(exc.value)
-    assert "default.rules" in str(exc.value)
-    assert "nah setup codex" in str(exc.value)
+    assert argv[0] == "/usr/bin/codex"
+    assert (rules / "default.rules").read_text(encoding="utf-8") == ""
+    backups = list(rules.glob("default.rules.nah-bak-*"))
+    assert len(backups) == 1
+    assert 'decision="allow"' in backups[0].read_text(encoding="utf-8")
     assert (rules / AUTHORITY_RULES_FILE).exists()
 
 

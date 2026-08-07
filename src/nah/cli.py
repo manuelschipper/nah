@@ -1622,7 +1622,7 @@ def cmd_types(args: argparse.Namespace) -> None:
     """List all action types."""
     from nah.taxonomy import (load_type_descriptions, get_policy, build_user_table,
                               get_builtin_table, find_table_shadows,
-                              find_flag_classifier_shadows)
+                              find_flag_classifier_shadows, validate_action_type)
     from nah.remember import list_rules
     from nah.config import get_config
 
@@ -1660,6 +1660,14 @@ def cmd_types(args: argparse.Namespace) -> None:
         print(f"  {name:<25} {policy:<8} {desc}")
         for note in override_notes.get(name, []):
             print(f"    \u21b3 {note}")
+
+    for scope, scope_rules in rules.items():
+        for name in scope_rules.get("actions", {}):
+            valid, matches = validate_action_type(str(name))
+            if valid:
+                continue
+            suggestion = f"; did you mean {', '.join(matches)}?" if matches else ""
+            print(f"  warning: {scope} unknown action type '{name}'{suggestion}")
 
 
 def cmd_audit_threat_model(args: argparse.Namespace) -> None:

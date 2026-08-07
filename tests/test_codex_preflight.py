@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import nah.codex_preflight as codex_preflight
+
 from nah.codex_authority import (
     AUTHORITY_RULES_MARKER,
     authority_rules_path,
@@ -27,6 +29,19 @@ def test_current_authority_rules_have_no_findings(tmp_path):
     findings = scan_preflight(home=_home(tmp_path), cwd=tmp_path)
 
     assert findings == []
+
+
+def test_explicit_home_does_not_scan_account_home_as_project(tmp_path, monkeypatch):
+    account_home = tmp_path / "account"
+    workdir = account_home / "repo"
+    workdir.mkdir(parents=True)
+    live_codex = account_home / ".codex"
+    live_codex.mkdir()
+    (live_codex / "config.toml").write_text("malformed = [\n", encoding="utf-8")
+    isolated_home = _home(tmp_path)
+    monkeypatch.setattr(codex_preflight, "_account_home", lambda: account_home)
+
+    assert scan_preflight(home=isolated_home, cwd=workdir) == []
 
 
 def test_missing_authority_rules_blocks_startup(tmp_path):

@@ -3654,6 +3654,58 @@ class TestFD017Regressions:
         assert r.stages[0].action_type == "git_safe"
 
 
+class TestMixedModeUserPrefixRegressions:
+    """Mutating flags must ask even when the project itself is writable."""
+
+    @pytest.mark.parametrize(("command", "action_type"), [
+        ("yq eval -i '.foo = 1' config.yaml", "unknown"),
+        ("yq eval -iN '.foo = 1' config.yaml", "unknown"),
+        ('yq eval --security-enable-system-operator \'system("id")\'', "unknown"),
+        ("go env -w GOPROXY=https://example.test", "unknown"),
+        ("gofmt -l -w main.go", "unknown"),
+        ("golangci-lint run --fix ./...", "unknown"),
+        ("nvidia-smi --gpu-reset", "service_write"),
+        ("nvidia-smi -f report.txt", "unknown"),
+        ("wlr-randr --output eDP-1 --off", "service_write"),
+        ("swaymsg exit", "service_write"),
+        ("kustomize build . -o rendered.yaml", "unknown"),
+        ("xxd -r input.hex output.bin", "unknown"),
+        ("openssl rsa -in key.pem -out output.pem", "unknown"),
+        ("helm get values release", "unknown"),
+        ("talosctl support -O /tmp/support", "unknown"),
+    ])
+    def test_mutating_forms_ask_inside_project(
+        self, project_root, monkeypatch, command, action_type,
+    ):
+        from nah import config
+        from nah.config import NahConfig, reset_config
+
+        reset_config()
+        config._cached_config = NahConfig(classify_global={
+            "filesystem_read": [
+                "yq eval", "go env", "gofmt -l", "golangci-lint run",
+                "nvidia-smi", "wlr-randr", "swaymsg", "kustomize build",
+                "xxd", "openssl rsa", "helm get", "talosctl support",
+            ],
+        })
+        monkeypatch.chdir(project_root)
+
+        result = classify_command(command)
+        assert result.final_decision == "ask"
+        assert result.stages[0].action_type == action_type
+
+    def test_vcsh_run_destructive_git_asks(self, project_root):
+        from nah import config
+        from nah.config import NahConfig, reset_config
+
+        reset_config()
+        config._cached_config = NahConfig(classify_global={"git_write": ["vcsh run"]})
+
+        result = classify_command("vcsh run cdot git reset --hard")
+        assert result.final_decision == "ask"
+        assert result.stages[0].action_type == "git_discard"
+
+
 class TestFD017MoreGitRegressions:
     """Additional git flag-parity regressions for remote-destructive push forms."""
 
