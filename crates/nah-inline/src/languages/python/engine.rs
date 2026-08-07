@@ -377,7 +377,6 @@ impl Interpreter<'_> {
             HirKind::Pass | HirKind::Comment | HirKind::Token => Control::Next,
             HirKind::Unsupported | HirKind::Error => {
                 self.complete = false;
-                self.eval_children(node, state, depth);
                 Control::Next
             }
             _ => {
@@ -447,7 +446,6 @@ impl Interpreter<'_> {
             }
             HirKind::Unsupported | HirKind::Error => {
                 self.complete = false;
-                self.eval_children(node, state, depth);
                 Value::Unknown
             }
             _ => {
@@ -2435,5 +2433,15 @@ mod tests {
         ));
         assert!(!report.contains_exact(FindingKind::RootDestruction));
         assert_eq!(report.refusals(), [InlineRefusal::WorkLimit]);
+    }
+
+    #[test]
+    fn unsupported_boundaries_do_not_execute_nested_calls() {
+        for code in [
+            "import shutil\n[shutil.rmtree('/') for _ in []]",
+            "import shutil\nmatch 0:\n    case 1: shutil.rmtree('/')",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
     }
 }
