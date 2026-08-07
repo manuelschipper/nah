@@ -7,6 +7,16 @@ use nah_proto::observation::ObservationQuery;
 use support::{absolute, bash_plan, observe};
 
 #[test]
+fn bash_stream_bytes_are_stable() {
+    let plan = bash_plan("echo hi > out");
+    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+    assert_eq!(
+        stream.canonical_json().unwrap(),
+        r#"{"v":1,"coverage":"full","effects":[{"id":"e0","stage":"s0","kind":{"kind":"invocation","invocation":{"kind":"known","program":"echo","operation":"local-utility","input":{"kind":"shell","words":["echo","hi"],"argv":["echo","hi"]},"cwd":"/repo"}}},{"id":"e1","stage":"s0","kind":{"kind":"filesystem","operation":"write","target":"/repo/out","scope":{"kind":"project","root":"/repo"},"sensitivity":"none","selects_root":false,"selects_home":false,"recursive":false,"pattern":false}}],"flows":[]}"#
+    );
+}
+
+#[test]
 fn redirect_only_commands_emit_a_shell_stage_without_reclassifying_compounds() {
     let plan = bash_plan("> /home/test/.nah/config");
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));

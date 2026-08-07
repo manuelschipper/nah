@@ -90,6 +90,31 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
             },
         ]
     );
+    assert_eq!(
+        serde_json::to_string(plan.observation_request()).unwrap(),
+        r#"{"v":1,"request_id":"bash-v1","queries":[{"kind":"cwd","key":"cwd","requested":"/repo"},{"kind":"path","key":"path-0","requested":"/repo/out","cwd_key":"cwd","inspect_descendants":false,"symlink_traversal":"none"},{"kind":"project-guards","key":"project-guards","roots_key":"roots"},{"kind":"roots","key":"roots","cwd_key":"cwd"}]}"#
+    );
+}
+
+#[test]
+fn bash_observation_request_preserves_legacy_environment_and_path_keys() {
+    let source = "\"$TOOL\" hi > out";
+    let syntax = nah_parse::normalize(source).unwrap();
+    let input = ToolCallInput::new(
+        SchemaVersion::V1,
+        "Bash",
+        serde_json::json!({"command":source}),
+        "/repo",
+        None,
+    )
+    .unwrap();
+    let call_site = input.call_site(Platform::Linux).unwrap();
+    let plan = plan(AnalysisInput::Bash(&syntax, &input), &ctx(), &call_site);
+
+    assert_eq!(
+        serde_json::to_string(plan.observation_request()).unwrap(),
+        r#"{"v":1,"request_id":"bash-v1","queries":[{"kind":"cwd","key":"cwd","requested":"/repo"},{"kind":"env","key":"env-0","name":"TOOL"},{"kind":"path","key":"path-0","requested":"/repo/out","cwd_key":"cwd","inspect_descendants":false,"symlink_traversal":"none"},{"kind":"project-guards","key":"project-guards","roots_key":"roots"},{"kind":"roots","key":"roots","cwd_key":"cwd"}]}"#
+    );
 }
 
 #[test]

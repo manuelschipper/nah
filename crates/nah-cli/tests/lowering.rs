@@ -12,6 +12,33 @@ use serde_json::json;
 use support::{bash_path, call, ctx, repo};
 
 #[test]
+fn core_decision_bytes_are_stable_for_delegate_and_block() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = repo(temp.path());
+    let context = ctx(temp.path());
+
+    let delegated = decide_with(
+        &call("Bash", json!({"command":"echo hello"}), &repo),
+        &context,
+        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+    );
+    assert_eq!(
+        serde_json::to_string(delegated.core()).unwrap(),
+        r#"{"verdict":"delegate","reason":"no guard blocked this call","policy_attributions":[],"coverage":"full"}"#
+    );
+
+    let blocked = decide_with(
+        &call("Bash", json!({"command":"/bin/rm -rf /"}), &repo),
+        &context,
+        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+    );
+    assert_eq!(
+        serde_json::to_string(blocked.core()).unwrap(),
+        r#"{"verdict":"block","reason":"fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change\nfs-root blocked a destructive operation on a filesystem root or system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change","policy_attributions":[{"kind":"shipped","name":"fs-home","policy_version":1},{"kind":"shipped","name":"fs-root","policy_version":1}],"coverage":"full"}"#
+    );
+}
+
+#[test]
 fn arbitrary_program_paths_are_not_recognized_as_their_bare_name() {
     let temp = tempfile::tempdir().unwrap();
     let repo = repo(temp.path());

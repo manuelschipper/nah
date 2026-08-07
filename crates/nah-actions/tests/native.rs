@@ -42,6 +42,18 @@ fn read_plan_requests_only_authoritative_call_site_facts() {
             },
         ]
     );
+    assert_eq!(
+        serde_json::to_string(plan.observation_request()).unwrap(),
+        r#"{"v":1,"request_id":"native-v1","queries":[{"kind":"cwd","key":"cwd","requested":"/authoritative"},{"kind":"project-guards","key":"project-guards","roots_key":"roots"},{"kind":"roots","key":"roots","cwd_key":"cwd"},{"kind":"path","key":"target","requested":"src/lib.rs","cwd_key":"cwd","inspect_descendants":false,"symlink_traversal":"none"}]}"#
+    );
+    let stream = finalize(
+        plan,
+        successful_observation("Read", "src/lib.rs", "/repo/src/lib.rs"),
+    );
+    assert_eq!(
+        stream.canonical_json().unwrap(),
+        r#"{"v":1,"coverage":"full","effects":[{"id":"e0","stage":"s0","kind":{"kind":"invocation","invocation":{"kind":"known","program":"Read","operation":"read","input":{"kind":"native","value":{"file_path":"src/lib.rs"},"complete":true},"cwd":"/authoritative"}}},{"id":"e1","stage":"s0","kind":{"kind":"filesystem","operation":"read","target":"/repo/src/lib.rs","scope":{"kind":"project","root":"/repo"},"sensitivity":"none","selects_root":false,"selects_home":false,"recursive":false,"pattern":false}}],"flows":[]}"#
+    );
 }
 
 #[test]
