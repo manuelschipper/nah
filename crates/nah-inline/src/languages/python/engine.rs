@@ -277,6 +277,12 @@ struct Arguments {
     complete: bool,
 }
 
+enum ArgumentBindings {
+    Bound(Vec<(String, Value)>),
+    Invalid,
+    Incomplete,
+}
+
 impl Default for Arguments {
     fn default() -> Self {
         Self {
@@ -2277,9 +2283,16 @@ impl Interpreter<'_> {
             self.complete = false;
             return Value::Unknown;
         };
-        let Some(bindings) = bind_arguments(parameters, &arguments) else {
-            self.complete = false;
-            return Value::Unknown;
+        let bindings = match bind_arguments(parameters, &arguments) {
+            ArgumentBindings::Bound(bindings) => bindings,
+            ArgumentBindings::Invalid => {
+                self.pending_control = Some(Control::Raise);
+                return Value::Unknown;
+            }
+            ArgumentBindings::Incomplete => {
+                self.complete = false;
+                return Value::Unknown;
+            }
         };
         let mut local = state.clone();
         let globals = global_names(&function.body, &function.source);
@@ -3481,9 +3494,12 @@ fn values_bytes(values: &[Value]) -> Option<usize> {
     })
 }
 
-fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> Option<Vec<(String, Value)>> {
-    if !arguments.complete || arguments.positional.len() > parameters.len() {
-        return None;
+fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> ArgumentBindings {
+    if !arguments.complete {
+        return ArgumentBindings::Incomplete;
+    }
+    if arguments.positional.len() > parameters.len() {
+        return ArgumentBindings::Invalid;
     }
     let mut values = vec![None; parameters.len()];
     for (index, value) in arguments.positional.iter().enumerate() {
@@ -3497,15 +3513,17 @@ fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> Option<Vec
     let mut keywords = BTreeSet::new();
     for (name, value) in &arguments.keywords {
         if !keywords.insert(name.as_str()) {
-            return None;
+            return ArgumentBindings::Invalid;
         }
-        let index = *positions.get(name.as_str())?;
+        let Some(index) = positions.get(name.as_str()).copied() else {
+            return ArgumentBindings::Invalid;
+        };
         if values[index].is_some() {
-            return None;
+            return ArgumentBindings::Invalid;
         }
         values[index] = Some(value.clone());
     }
-    parameters
+    let bindings = parameters
         .iter()
         .zip(values)
         .map(|(parameter, value)| {
@@ -3513,7 +3531,8 @@ fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> Option<Vec
                 .or_else(|| parameter.default.clone())
                 .map(|value| (parameter.name.clone(), value))
         })
-        .collect()
+        .collect::<Option<Vec<_>>>();
+    bindings.map_or(ArgumentBindings::Invalid, ArgumentBindings::Bound)
 }
 
 fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {

@@ -335,6 +335,23 @@ fn local_function_binding_and_branch_identity_gate_effects() {
 }
 
 #[test]
+fn definitely_invalid_local_calls_stop_following_effects() {
+    for code in [
+        "import os\ndef f(required): pass\nf()\nos.remove('/tmp/tail')",
+        "import os\ndef f(value): pass\nf(1, 2)\nos.remove('/tmp/tail')",
+        "import os\ndef f(value): pass\nf(other=1)\nos.remove('/tmp/tail')",
+        "import os\ndef f(value): pass\nf(1, value=2)\nos.remove('/tmp/tail')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis = analyze("import os\ndef f(value): pass\nf(*args)\nos.remove('/tmp/tail')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
 fn local_function_cell_mutations_reach_native_call_evidence() {
     let analysis = analyze(
         "import subprocess\nargv=['rm']\nalias=argv\ndef finish(parts): parts.extend(['-rf','/'])\nfinish(alias)\nsubprocess.run(argv)",
