@@ -57,6 +57,7 @@ enum KnownFunction {
     OsExec(StringKind),
     OsExpanduser,
     OsGetenv,
+    OsLchown,
     OsLink,
     OsMkdir,
     OsMakedirs,
@@ -1510,27 +1511,30 @@ impl Interpreter<'_> {
     ) -> Value {
         match function {
             KnownFunction::ShutilRmtree => {
-                if !valid_call_shape(
+                let keyword_only = if before_python3_minor(self.program, 3) {
+                    &[] as &[_]
+                } else if python3_minor(self.program).is_some_and(|minor| minor < 12) {
+                    &["dir_fd"] as &[_]
+                } else {
+                    &["onexc", "dir_fd"] as &[_]
+                };
+                if !self.admit_call_shape(call_shape(
                     &arguments,
-                    3,
-                    &["path", "ignore_errors", "onerror", "onexc", "dir_fd"],
-                ) || required_argument(&arguments, 0, "path").is_none()
-                    || !possible_path_argument(&arguments, 0, "path")
+                    1,
+                    &["path", "ignore_errors", "onerror"],
+                    0,
+                    keyword_only,
+                )) || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
-                self.emit_filesystem_call(
-                    "shutil.rmtree",
+                let filesystem = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "path", FilesystemOperation::Delete, true),
                     &arguments,
-                    state,
-                    vec![filesystem_argument(
-                        &arguments,
-                        0,
-                        "path",
-                        FilesystemOperation::Delete,
-                        true,
-                    )],
+                    Some("dir_fd"),
+                    None,
                 );
+                self.emit_filesystem_call("shutil.rmtree", &arguments, state, vec![filesystem]);
                 if let Some(path) = one_argument(&arguments, "path").and_then(value_string) {
                     self.add_destructive_target(path);
                 }
@@ -1872,35 +1876,23 @@ impl Interpreter<'_> {
                     KnownFunction::OsRmdir => "os.rmdir",
                     _ => unreachable!(),
                 };
-                let legacy = is_python2(self.program)
-                    || python3_minor(self.program).is_some_and(|minor| minor < 3);
-                let keyword_only = if legacy {
-                    &[] as &[_]
-                } else {
-                    &["dir_fd"] as &[_]
-                };
-                if !self.admit_call_shape(call_shape(
+                if !self.admit_call_shape(os_dir_fd_call_shape(
                     &arguments,
+                    self.program,
                     1,
                     &["path"],
-                    usize::from(legacy),
-                    keyword_only,
+                    &["dir_fd"],
                 )) || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
-                self.emit_filesystem_call(
-                    callable,
+                let filesystem = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "path", FilesystemOperation::Delete, false),
                     &arguments,
-                    state,
-                    vec![filesystem_argument(
-                        &arguments,
-                        0,
-                        "path",
-                        FilesystemOperation::Delete,
-                        false,
-                    )],
+                    Some("dir_fd"),
+                    None,
                 );
+                self.emit_filesystem_call(callable, &arguments, state, vec![filesystem]);
                 Value::None
             }
             KnownFunction::OsRemovedirs => {
@@ -1923,17 +1915,30 @@ impl Interpreter<'_> {
                 );
                 Value::None
             }
-            KnownFunction::OsMkdir | KnownFunction::OsMakedirs | KnownFunction::OsTruncate => {
+            KnownFunction::OsMkdir => {
+                if !self.admit_call_shape(os_dir_fd_call_shape(
+                    &arguments,
+                    self.program,
+                    1,
+                    &["path", "mode"],
+                    &["dir_fd"],
+                )) || !possible_path_argument(&arguments, 0, "path")
+                {
+                    return Value::Unknown;
+                }
+                let filesystem = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "path", FilesystemOperation::Write, false)
+                        .metadata(),
+                    &arguments,
+                    Some("dir_fd"),
+                    None,
+                );
+                self.emit_filesystem_call("os.mkdir", &arguments, state, vec![filesystem]);
+                Value::None
+            }
+            KnownFunction::OsMakedirs | KnownFunction::OsTruncate => {
                 let (callable, keyword, recursive, required, max_positional, keywords) =
                     match function {
-                        KnownFunction::OsMkdir => (
-                            "os.mkdir",
-                            "path",
-                            false,
-                            1,
-                            2,
-                            &["path", "mode", "dir_fd"] as &[_],
-                        ),
                         KnownFunction::OsMakedirs => (
                             "os.makedirs",
                             "name",
@@ -1985,6 +1990,10 @@ impl Interpreter<'_> {
                 {
                     return Value::Unknown;
                 }
+                if matches!(kind, CopyKind::Copy | CopyKind::Copy2) {
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                }
                 let recursive = kind == CopyKind::Copytree;
                 let metadata = matches!(kind, CopyKind::Copymode | CopyKind::Copystat);
                 self.emit_filesystem_call(
@@ -2007,74 +2016,101 @@ impl Interpreter<'_> {
                             FilesystemOperation::Write,
                             recursive,
                         )
-                        .metadata_if(metadata),
+                        .metadata_if(metadata)
+                        .protects_descendants_if(metadata),
                     ],
                 );
                 Value::Unknown
             }
-            KnownFunction::OsChmod | KnownFunction::OsChown => {
-                let (callable, required, max_positional, keywords) =
-                    if function == KnownFunction::OsChmod {
-                        (
-                            "os.chmod",
-                            2,
-                            2,
-                            &["path", "mode", "dir_fd", "follow_symlinks"] as &[_],
-                        )
-                    } else {
-                        (
-                            "os.chown",
-                            3,
-                            3,
-                            &["path", "uid", "gid", "dir_fd", "follow_symlinks"] as &[_],
-                        )
-                    };
-                if !valid_call_shape(&arguments, max_positional, keywords)
-                    || (0..required).any(|position| {
-                        required_argument(&arguments, position, keywords[position]).is_none()
-                    })
-                    || !possible_path_argument(&arguments, 0, "path")
-                {
-                    return Value::Unknown;
-                }
-                self.emit_filesystem_call(
-                    callable,
-                    &arguments,
-                    state,
-                    vec![
-                        filesystem_argument(
+            KnownFunction::OsChmod | KnownFunction::OsChown | KnownFunction::OsLchown => {
+                let (callable, shape, dir_fd) = match function {
+                    KnownFunction::OsChmod => (
+                        "os.chmod",
+                        os_dir_fd_call_shape(
                             &arguments,
-                            0,
-                            "path",
-                            FilesystemOperation::Write,
-                            false,
+                            self.program,
+                            2,
+                            &["path", "mode"],
+                            &["dir_fd", "follow_symlinks"],
+                        ),
+                        Some("dir_fd"),
+                    ),
+                    KnownFunction::OsChown => (
+                        "os.chown",
+                        os_dir_fd_call_shape(
+                            &arguments,
+                            self.program,
+                            3,
+                            &["path", "uid", "gid"],
+                            &["dir_fd", "follow_symlinks"],
+                        ),
+                        Some("dir_fd"),
+                    ),
+                    KnownFunction::OsLchown => {
+                        let positional_only = if before_python3_minor(self.program, 5) {
+                            3
+                        } else {
+                            0
+                        };
+                        (
+                            "os.lchown",
+                            call_shape(
+                                &arguments,
+                                3,
+                                &["path", "uid", "gid"],
+                                positional_only,
+                                &[],
+                            ),
+                            None,
                         )
-                        .metadata()
-                        .protects_descendants(),
-                    ],
-                );
-                Value::None
-            }
-            KnownFunction::OsRename | KnownFunction::OsReplace | KnownFunction::ShutilMove => {
-                let (callable, max_positional, keywords) = match function {
-                    KnownFunction::OsRename => (
-                        "os.rename",
-                        2,
-                        &["src", "dst", "src_dir_fd", "dst_dir_fd"] as &[_],
-                    ),
-                    KnownFunction::OsReplace => (
-                        "os.replace",
-                        2,
-                        &["src", "dst", "src_dir_fd", "dst_dir_fd"] as &[_],
-                    ),
-                    KnownFunction::ShutilMove => {
-                        ("shutil.move", 3, &["src", "dst", "copy_function"] as &[_])
                     }
                     _ => unreachable!(),
                 };
-                if !valid_call_shape(&arguments, max_positional, keywords)
-                    || required_argument(&arguments, 0, "src").is_none()
-                    || required_argument(&arguments, 1, "dst").is_none()
+                if !self.admit_call_shape(shape) || !possible_path_argument(&arguments, 0, "path") {
+                    return Value::Unknown;
+                }
+                let no_follow = match function {
+                    KnownFunction::OsChmod => argument(&arguments, 3, "follow_symlinks")
+                        .and_then(exact_bool)
+                        == Some(false),
+                    KnownFunction::OsChown => argument(&arguments, 4, "follow_symlinks")
+                        .and_then(exact_bool)
+                        == Some(false),
+                    KnownFunction::OsLchown => true,
+                    _ => unreachable!(),
+                };
+                let filesystem = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "path", FilesystemOperation::Write, false)
+                        .metadata()
+                        .protects_descendants()
+                        .without_final_symlink_follow_if(no_follow),
+                    &arguments,
+                    dir_fd,
+                    None,
+                );
+                self.emit_filesystem_call(callable, &arguments, state, vec![filesystem]);
+                Value::None
+            }
+            KnownFunction::OsRename | KnownFunction::OsReplace => {
+                let callable = match function {
+                    KnownFunction::OsRename => "os.rename",
+                    KnownFunction::OsReplace => "os.replace",
+                    _ => unreachable!(),
+                };
+                let shape = if function == KnownFunction::OsReplace
+                    && before_python3_minor(self.program, 3)
+                {
+                    CallShape::Invalid
+                } else {
+                    os_dir_fd_call_shape(
+                        &arguments,
+                        self.program,
+                        2,
+                        &["src", "dst"],
+                        &["src_dir_fd", "dst_dir_fd"],
+                    )
+                };
+                if !self.admit_call_shape(shape)
                     || !possible_path_argument(&arguments, 0, "src")
                     || !possible_path_argument(&arguments, 1, "dst")
                 {
@@ -2083,40 +2119,42 @@ impl Interpreter<'_> {
                 let identity = argument(&arguments, 0, "src")
                     .and_then(value_string)
                     .map(str::to_owned);
-                self.emit_filesystem_call(
-                    callable,
+                let source = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "src", FilesystemOperation::Delete, false),
                     &arguments,
-                    state,
-                    vec![
-                        filesystem_argument(
-                            &arguments,
-                            0,
-                            "src",
-                            FilesystemOperation::Delete,
-                            false,
-                        ),
-                        filesystem_argument(
-                            &arguments,
-                            1,
-                            "dst",
-                            FilesystemOperation::Write,
-                            false,
-                        )
+                    Some("src_dir_fd"),
+                    None,
+                );
+                let destination = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 1, "dst", FilesystemOperation::Write, false)
                         .identity(identity, false)
                         .protects_descendants()
-                        .without_final_symlink_follow_if(function != KnownFunction::ShutilMove),
-                    ],
+                        .without_final_symlink_follow(),
+                    &arguments,
+                    Some("dst_dir_fd"),
+                    Some("src_dir_fd"),
                 );
+                self.emit_filesystem_call(callable, &arguments, state, vec![source, destination]);
                 Value::None
             }
-            KnownFunction::OsLink => {
-                if !valid_call_shape(
-                    &arguments,
-                    2,
-                    &["src", "dst", "src_dir_fd", "dst_dir_fd", "follow_symlinks"],
-                ) || required_argument(&arguments, 0, "src").is_none()
-                    || required_argument(&arguments, 1, "dst").is_none()
+            KnownFunction::ShutilMove => {
+                if !self.admit_call_shape(shutil_move_call_shape(&arguments, self.program))
                     || !possible_path_argument(&arguments, 0, "src")
+                    || !possible_path_argument(&arguments, 1, "dst")
+                {
+                    return Value::Unknown;
+                }
+                self.draft.set_partial();
+                Value::Unknown
+            }
+            KnownFunction::OsLink => {
+                if !self.admit_call_shape(os_dir_fd_call_shape(
+                    &arguments,
+                    self.program,
+                    2,
+                    &["src", "dst"],
+                    &["src_dir_fd", "dst_dir_fd", "follow_symlinks"],
+                )) || !possible_path_argument(&arguments, 0, "src")
                     || !possible_path_argument(&arguments, 1, "dst")
                 {
                     return Value::Unknown;
@@ -2127,70 +2165,100 @@ impl Interpreter<'_> {
                 let follows_symlinks = argument(&arguments, 4, "follow_symlinks")
                     .and_then(exact_bool)
                     .unwrap_or(true);
+                let source = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 0, "src", FilesystemOperation::Write, false)
+                        .metadata()
+                        .without_final_symlink_follow_if(!follows_symlinks),
+                    &arguments,
+                    Some("src_dir_fd"),
+                    None,
+                );
+                let destination = self.filesystem_at_dir_fds(
+                    filesystem_argument(&arguments, 1, "dst", FilesystemOperation::Write, false)
+                        .observed_identity(identity, true, follows_symlinks),
+                    &arguments,
+                    Some("dst_dir_fd"),
+                    Some("src_dir_fd"),
+                );
                 self.emit_filesystem_call(
                     "os.link",
                     &arguments,
                     state,
-                    vec![
-                        filesystem_argument(
-                            &arguments,
-                            0,
-                            "src",
-                            FilesystemOperation::Write,
-                            false,
-                        )
-                        .metadata()
-                        .without_final_symlink_follow_if(!follows_symlinks),
-                        filesystem_argument(
-                            &arguments,
-                            1,
-                            "dst",
-                            FilesystemOperation::Write,
-                            false,
-                        )
-                        .observed_identity(
-                            identity,
-                            true,
-                            follows_symlinks,
-                        ),
-                    ],
+                    vec![source, destination],
                 );
                 Value::None
             }
             KnownFunction::OsSymlink => {
-                if !valid_call_shape(
-                    &arguments,
-                    3,
-                    &["src", "dst", "target_is_directory", "dir_fd"],
-                ) || required_argument(&arguments, 0, "src").is_none()
-                    || required_argument(&arguments, 1, "dst").is_none()
-                    || !possible_path_argument(&arguments, 1, "dst")
+                let (shape, destination_keyword, dir_fd) = if before_python3_minor(self.program, 2)
+                {
+                    (
+                        call_shape(&arguments, 2, &["src", "dst"], 2, &[]),
+                        "dst",
+                        None,
+                    )
+                } else if python3_minor(self.program) == Some(2) {
+                    if self.input.platform == Platform::Windows {
+                        (
+                            call_shape(
+                                &arguments,
+                                2,
+                                &["src", "dest", "target_is_directory"],
+                                0,
+                                &[],
+                            ),
+                            "dest",
+                            None,
+                        )
+                    } else {
+                        (
+                            call_shape(&arguments, 2, &["src", "dst"], 2, &[]),
+                            "dst",
+                            None,
+                        )
+                    }
+                } else {
+                    (
+                        call_shape(
+                            &arguments,
+                            2,
+                            &["src", "dst", "target_is_directory"],
+                            0,
+                            &["dir_fd"],
+                        ),
+                        "dst",
+                        Some("dir_fd"),
+                    )
+                };
+                if !self.admit_call_shape(shape)
+                    || !possible_path_argument(&arguments, 1, destination_keyword)
                 {
                     return Value::Unknown;
                 }
-                self.emit_filesystem_call(
-                    "os.symlink",
+                let filesystem = self.filesystem_at_dir_fds(
+                    filesystem_argument(
+                        &arguments,
+                        1,
+                        destination_keyword,
+                        FilesystemOperation::Write,
+                        false,
+                    )
+                    .metadata()
+                    .without_final_symlink_follow(),
                     &arguments,
-                    state,
-                    vec![
-                        filesystem_argument(
-                            &arguments,
-                            1,
-                            "dst",
-                            FilesystemOperation::Write,
-                            false,
-                        )
-                        .metadata()
-                        .without_final_symlink_follow(),
-                    ],
+                    dir_fd,
+                    None,
                 );
+                self.emit_filesystem_call("os.symlink", &arguments, state, vec![filesystem]);
                 Value::None
             }
             KnownFunction::OsOpen => {
-                if !valid_call_shape(&arguments, 3, &["path", "flags", "mode", "dir_fd"])
-                    || required_argument(&arguments, 0, "path").is_none()
-                    || required_argument(&arguments, 1, "flags").is_none()
-                    || !possible_path_argument(&arguments, 0, "path")
+                if !self.admit_call_shape(os_dir_fd_call_shape(
+                    &arguments,
+                    self.program,
+                    2,
+                    &["path", "flags", "mode"],
+                    &["dir_fd"],
+                )) || !possible_path_argument(&arguments, 0, "path")
                 {
                     return Value::Unknown;
                 }
@@ -2204,23 +2272,33 @@ impl Interpreter<'_> {
                 }
                 let mut filesystems = Vec::new();
                 if matches!(access, 0 | 2) {
-                    filesystems.push(filesystem_argument(
+                    filesystems.push(self.filesystem_at_dir_fds(
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            "path",
+                            FilesystemOperation::Read,
+                            false,
+                        ),
                         &arguments,
-                        0,
-                        "path",
-                        FilesystemOperation::Read,
-                        false,
+                        Some("dir_fd"),
+                        None,
                     ));
                 }
                 if matches!(access, 1 | 2)
                     || flags & os_open_mutation_flags(self.input.platform) != 0
                 {
-                    filesystems.push(filesystem_argument(
+                    filesystems.push(self.filesystem_at_dir_fds(
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            "path",
+                            FilesystemOperation::Write,
+                            false,
+                        ),
                         &arguments,
-                        0,
-                        "path",
-                        FilesystemOperation::Write,
-                        false,
+                        Some("dir_fd"),
+                        None,
                     ));
                 }
                 if filesystems.is_empty() {
@@ -2247,6 +2325,36 @@ impl Interpreter<'_> {
             filesystems,
             None,
         )
+    }
+
+    fn filesystem_at_dir_fds(
+        &mut self,
+        mut filesystem: LanguageFilesystem,
+        arguments: &Arguments,
+        requested_dir_fd: Option<&str>,
+        identity_dir_fd: Option<&str>,
+    ) -> LanguageFilesystem {
+        let mut unresolved = false;
+        if requested_dir_fd.is_some_and(|name| dir_fd_changes_base(arguments, name))
+            && filesystem
+                .requested()
+                .is_some_and(|path| !is_absolute(path, self.input.platform))
+        {
+            filesystem = filesystem.without_requested();
+            unresolved = true;
+        }
+        if identity_dir_fd.is_some_and(|name| dir_fd_changes_base(arguments, name))
+            && filesystem
+                .identity_path()
+                .is_some_and(|path| !is_absolute(path, self.input.platform))
+        {
+            filesystem = filesystem.without_identity();
+            unresolved = true;
+        }
+        if unresolved {
+            self.draft.set_partial();
+        }
+        filesystem
     }
 
     fn emit_call(
@@ -2506,8 +2614,7 @@ impl Interpreter<'_> {
                 Value::None
             }
             "rename" | "replace" => {
-                if !valid_call_shape(&arguments, 1, &["target"])
-                    || required_argument(&arguments, 0, "target").is_none()
+                if !self.admit_call_shape(call_shape(&arguments, 1, &["target"], 0, &[]))
                     || !possible_path_argument(&arguments, 0, "target")
                 {
                     return Value::Unknown;
@@ -3093,7 +3200,7 @@ fn os_open_flag(name: &str, platform: Platform) -> Option<i64> {
 }
 
 fn os_open_mutation_flags(platform: Platform) -> i64 {
-    ["O_APPEND", "O_CREAT", "O_TRUNC"]
+    ["O_CREAT", "O_TRUNC"]
         .into_iter()
         .filter_map(|name| os_open_flag(name, platform))
         .fold(0, |flags, flag| flags | flag)
@@ -3134,7 +3241,8 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Os, "link") => KnownFunction::OsLink,
         (Module::Os, "symlink") => KnownFunction::OsSymlink,
         (Module::Os, "chmod") => KnownFunction::OsChmod,
-        (Module::Os, "chown" | "lchown") => KnownFunction::OsChown,
+        (Module::Os, "chown") => KnownFunction::OsChown,
+        (Module::Os, "lchown") => KnownFunction::OsLchown,
         (Module::Os, "mkdir") => KnownFunction::OsMkdir,
         (Module::Os, "makedirs") => KnownFunction::OsMakedirs,
         (Module::Os, "rmdir") => KnownFunction::OsRmdir,
@@ -4227,6 +4335,28 @@ fn call_shape(
     CallShape::Valid
 }
 
+fn os_dir_fd_call_shape(
+    arguments: &Arguments,
+    program: &str,
+    required: usize,
+    positional: &[&str],
+    keyword_only: &[&str],
+) -> CallShape {
+    if before_python3_minor(program, 3) {
+        call_shape(arguments, required, positional, positional.len(), &[])
+    } else {
+        call_shape(arguments, required, positional, 0, keyword_only)
+    }
+}
+
+fn dir_fd_changes_base(arguments: &Arguments, keyword: &str) -> bool {
+    arguments
+        .keywords
+        .iter()
+        .find(|(name, _)| name == keyword)
+        .is_some_and(|(_, value)| *value != Value::None)
+}
+
 fn request_call_shape(kind: RequestKind, arguments: &Arguments, program: &str) -> CallShape {
     const REQUESTS_COMMON: &[&str] = &[
         "params",
@@ -4348,10 +4478,23 @@ fn shutil_copy_call_shape(kind: CopyKind, arguments: &Arguments, program: &str) 
     }
 }
 
+fn shutil_move_call_shape(arguments: &Arguments, program: &str) -> CallShape {
+    let positional = if before_python3_minor(program, 5) {
+        &["src", "dst"] as &[_]
+    } else {
+        &["src", "dst", "copy_function"] as &[_]
+    };
+    call_shape(arguments, 2, positional, 0, &[])
+}
+
 fn is_python2(program: &str) -> bool {
     matches!(program, "python2" | "pypy2")
         || program.starts_with("python2.")
         || program.starts_with("pypy2.")
+}
+
+fn before_python3_minor(program: &str, minor: u16) -> bool {
+    is_python2(program) || python3_minor(program).is_some_and(|version| version < minor)
 }
 
 fn python3_minor(program: &str) -> Option<u16> {

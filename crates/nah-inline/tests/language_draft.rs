@@ -13,12 +13,20 @@ fn analyze(code: &str) -> LanguageAnalysis {
 }
 
 fn analyze_program<'a>(program: &'a str, code: &'a str) -> LanguageAnalysis {
+    analyze_program_platform(program, code, Platform::Linux)
+}
+
+fn analyze_program_platform<'a>(
+    program: &'a str,
+    code: &'a str,
+    platform: Platform,
+) -> LanguageAnalysis {
     analyze_with_language_effects(
         InlineInput {
             program,
             code,
             home: "/home/dev",
-            platform: Platform::Linux,
+            platform,
         },
         ProtectionInput {
             critical_paths: &[],
@@ -62,6 +70,35 @@ fn direct_file_call_uses_the_frozen_native_contract() {
     assert_eq!(
         calls[0].filesystems()[0].operation(),
         FilesystemOperation::Delete
+    );
+    assert!(analysis.draft().complete());
+
+    let analysis = analyze("import os\nos.rename('src', '/dst', src_dir_fd=3)");
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[1].requested(),
+        Some("/dst")
+    );
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[1].identity_path(),
+        None
+    );
+    assert!(!analysis.draft().complete());
+
+    let analysis = analyze("import os\nos.link('src', '/dst', src_dir_fd=3)");
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/dst")
+    );
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].identity_path(),
+        None
+    );
+    assert!(!analysis.draft().complete());
+
+    let analysis = analyze("import os\nos.link('/src', '/dst', src_dir_fd=3)");
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].identity_path(),
+        Some("/src")
     );
     assert!(analysis.draft().complete());
 }
@@ -129,11 +166,28 @@ fn definitely_invalid_known_call_shapes_stop_following_effects() {
         "import os\np=os.getenv('HOME', None, 'extra')\nos.remove('/tmp/tail')",
         "import os\ngetattr(os, 'remove', None, None)('/tmp/x')\nos.remove('/tmp/tail')",
         "import os\nfrom pathlib import Path\nPath('/tmp/x').with_name('y', 'extra').unlink()\nos.remove('/tmp/tail')",
+        "import os\nos.open('/tmp/x')\nos.remove('/tmp/tail')",
+        "import os\nos.open('/tmp/x', os.O_RDONLY, 0o644, None)\nos.remove('/tmp/tail')",
+        "import os\nos.rename('/tmp/a')\nos.remove('/tmp/tail')",
+        "import os\nos.rename('/tmp/a', '/tmp/b', None)\nos.remove('/tmp/tail')",
+        "import os\nos.replace(source='/tmp/a', destination='/tmp/b')\nos.remove('/tmp/tail')",
+        "import os\nos.link('/tmp/a', '/tmp/b', False)\nos.remove('/tmp/tail')",
+        "import os\nos.symlink('/tmp/a', '/tmp/b', False, None)\nos.remove('/tmp/tail')",
+        "import os\nos.mkdir('/tmp/x', 0o755, None)\nos.remove('/tmp/tail')",
+        "import os\nos.chown('/tmp/x', 0, 0, None)\nos.remove('/tmp/tail')",
+        "import os\nos.lchown('/tmp/x', 0, 0, dir_fd=None)\nos.remove('/tmp/tail')",
+        "import shutil\nshutil.move('/tmp/a', '/tmp/b', copy, None)\nshutil.rmtree('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/a').rename('/tmp/b', None)\nos.remove('/tmp/tail')",
     ] {
         assert!(analyze(code).draft().calls().is_empty(), "{code}");
     }
 
     let analysis = analyze("import os\nos.remove(*args)\nos.remove('/tmp/tail')");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+    assert!(!analysis.draft().complete());
+
+    let analysis = analyze("import os\nos.rename(*args)\nos.remove('/tmp/tail')");
     assert_eq!(analysis.draft().calls().len(), 1);
     assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
     assert!(!analysis.draft().complete());
@@ -167,6 +221,38 @@ fn definitely_invalid_known_call_shapes_stop_following_effects() {
             "python3.2",
             "import os\nos.remove('/tmp/x', dir_fd=None)\nos.remove('/tmp/tail')",
         ),
+        (
+            "python3.2",
+            "import os\nos.rename(src='/tmp/a', dst='/tmp/b')\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.link('/tmp/a', '/tmp/b', follow_symlinks=False)\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.open(path='/tmp/x', flags=0)\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.replace('/tmp/a', '/tmp/b')\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.2",
+            "import os\nos.symlink('/tmp/a', '/tmp/b', False)\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.4",
+            "import shutil\nshutil.move('/tmp/a', '/tmp/b', copy)\nshutil.rmtree('/tmp/tail')",
+        ),
+        (
+            "python3.4",
+            "import os\nos.lchown(path='/tmp/x', uid=0, gid=0)\nos.remove('/tmp/tail')",
+        ),
+        (
+            "python3.11",
+            "import shutil\nshutil.rmtree('/tmp/a', onexc=handler)\nshutil.rmtree('/tmp/tail')",
+        ),
     ] {
         assert!(
             analyze_program(program, code).draft().calls().is_empty(),
@@ -180,6 +266,7 @@ fn reviewed_keyword_and_positional_call_shapes_remain_valid() {
     for (code, expected) in [
         ("import os\nos.remove(path='/tmp/x')", "os.remove"),
         ("import os\nos.removedirs(name='/tmp/a/b')", "os.removedirs"),
+        ("import os\nos.lchown('/tmp/x', 0, 0)", "os.lchown"),
         (
             "import shutil\nshutil.copyfile('/tmp/a', '/tmp/b', follow_symlinks=False)",
             "shutil.copyfile",
@@ -262,6 +349,36 @@ fn reviewed_keyword_and_positional_call_shapes_remain_valid() {
             "import os\nos.remove(path='/tmp/x', dir_fd=None)",
             "os.remove",
         ),
+        (
+            "python3.3",
+            "import os\nos.rename(src='/tmp/a', dst='/tmp/b', src_dir_fd=None, dst_dir_fd=None)",
+            "os.rename",
+        ),
+        (
+            "python3.3",
+            "import os\nos.link(src='/tmp/a', dst='/tmp/b', follow_symlinks=False)",
+            "os.link",
+        ),
+        (
+            "python3.3",
+            "import os\nos.open(path='/tmp/x', flags=0, dir_fd=None)",
+            "os.open",
+        ),
+        (
+            "python3.3",
+            "import os\nos.symlink(src='/tmp/a', dst='/tmp/b', target_is_directory=False, dir_fd=None)",
+            "os.symlink",
+        ),
+        (
+            "python3.12",
+            "import shutil\nshutil.rmtree('/tmp/a', onexc=handler)",
+            "shutil.rmtree",
+        ),
+        (
+            "python3.5",
+            "import os\nos.lchown(path='/tmp/x', uid=0, gid=0)",
+            "os.lchown",
+        ),
     ] {
         let analysis = analyze_program(program, code);
         assert_eq!(analysis.draft().calls().len(), 1, "{program}: {code}");
@@ -271,6 +388,14 @@ fn reviewed_keyword_and_positional_call_shapes_remain_valid() {
             "{program}: {code}"
         );
     }
+
+    let analysis = analyze_program_platform(
+        "python3.2",
+        "import os\nos.symlink(src='/tmp/a', dest='/tmp/b', target_is_directory=False)",
+        Platform::Windows,
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.symlink");
 }
 
 #[test]
@@ -324,12 +449,12 @@ fn read_provenance_flows_to_file_and_network_consumers() {
 }
 
 #[test]
-fn move_and_link_calls_preserve_identity() {
+fn rename_and_link_calls_preserve_identity() {
     let analysis = analyze(
-        "import os, shutil\nos.rename('/a', '/b')\nos.link('/a', '/b')\nshutil.move('/a', '/b')",
+        "import os\nfrom pathlib import Path\nos.rename('/a', '/b')\nos.link('/a', '/b')\nPath('/a').rename('/b')\nPath('/a').replace('/b')",
     );
     let calls = analysis.draft().calls();
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 4);
     assert_eq!(calls[0].filesystems().len(), 2);
     assert_eq!(
         calls[0].filesystems()[0].operation(),
@@ -348,7 +473,127 @@ fn move_and_link_calls_preserve_identity() {
     assert!(calls[1].filesystems()[1].identity_requires_missing_target());
     assert!(calls[1].filesystems()[1].identity_observed());
     assert_eq!(calls[2].filesystems()[1].identity_path(), Some("/a"));
+    assert_eq!(calls[3].filesystems()[1].identity_path(), Some("/a"));
     assert!(analysis.draft().complete());
+}
+
+#[test]
+fn ambiguous_directory_destinations_remain_partial() {
+    for code in [
+        "import shutil\nshutil.move('/tmp/other-tool', '/home/dev/.local/bin')",
+        "import shutil\nshutil.copy('/tmp/other-tool', '/home/dev/.local/bin')",
+        "import shutil\nshutil.copy2('/tmp/other-tool', '/home/dev/.local/bin')",
+    ] {
+        let analysis = analyze(code);
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+}
+
+#[test]
+fn dir_fd_widens_only_relative_filesystem_paths() {
+    for code in [
+        "import os\nos.remove('relative', dir_fd=3)",
+        "import os\nos.unlink('relative', dir_fd=3)",
+        "import os\nos.rmdir('relative', dir_fd=3)",
+        "import os\nos.mkdir('relative', dir_fd=3)",
+        "import os\nos.rename('src', 'dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.replace('src', 'dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.link('src', 'dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.symlink('src', 'dst', dir_fd=3)",
+        "import os\nos.open('relative', os.O_RDONLY, dir_fd=3)",
+        "import os\nos.chmod('relative', 0o600, dir_fd=3)",
+        "import os\nos.chown('relative', 0, 0, dir_fd=3)",
+        "import shutil\nshutil.rmtree('relative', dir_fd=3)",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert!(
+            analysis.draft().calls()[0]
+                .filesystems()
+                .iter()
+                .all(|filesystem| filesystem.requested().is_none()),
+            "{code}"
+        );
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    for code in [
+        "import os\nos.remove('/absolute', dir_fd=3)",
+        "import os\nos.unlink('/absolute', dir_fd=3)",
+        "import os\nos.rmdir('/absolute', dir_fd=3)",
+        "import os\nos.mkdir('/absolute', dir_fd=3)",
+        "import os\nos.rename('/src', '/dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.replace('/src', '/dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.link('/src', '/dst', src_dir_fd=3, dst_dir_fd=4)",
+        "import os\nos.symlink('/src', '/dst', dir_fd=3)",
+        "import os\nos.open('/absolute', os.O_RDONLY, dir_fd=3)",
+        "import os\nos.chmod('/absolute', 0o600, dir_fd=3)",
+        "import os\nos.chown('/absolute', 0, 0, dir_fd=3)",
+        "import shutil\nshutil.rmtree('/absolute', dir_fd=3)",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert!(
+            analysis.draft().calls()[0]
+                .filesystems()
+                .iter()
+                .all(|filesystem| filesystem.requested().is_some()),
+            "{code}"
+        );
+        assert!(analysis.draft().complete(), "{code}");
+    }
+
+    let analysis = analyze("import os\nos.rename('src', 'dst', src_dir_fd=None, dst_dir_fd=None)");
+    assert!(
+        analysis.draft().calls()[0]
+            .filesystems()
+            .iter()
+            .all(|filesystem| filesystem.requested().is_some())
+    );
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn os_open_append_uses_access_bits_for_write_effects() {
+    let analysis = analyze("import os\nos.open('/tmp/x', os.O_RDONLY | os.O_APPEND)");
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(analysis.draft().calls()[0].filesystems().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].operation(),
+        FilesystemOperation::Read
+    );
+
+    let analysis = analyze("import os\nos.open('/tmp/x', os.O_WRONLY | os.O_APPEND)");
+    assert_eq!(analysis.draft().calls()[0].filesystems().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].operation(),
+        FilesystemOperation::Write
+    );
+
+    let analysis = analyze("import os\nos.open('/tmp/x', os.O_RDONLY | os.O_CREAT)");
+    assert_eq!(analysis.draft().calls()[0].filesystems().len(), 2);
+    assert_eq!(
+        analysis.draft().calls()[0]
+            .filesystems()
+            .iter()
+            .map(|filesystem| filesystem.operation())
+            .collect::<Vec<_>>(),
+        vec![FilesystemOperation::Read, FilesystemOperation::Write]
+    );
+}
+
+#[test]
+fn metadata_copies_protect_destination_descendants_only() {
+    let analysis = analyze(
+        "import shutil\nshutil.copymode('/src', '/dst')\nshutil.copystat('/src', '/dst')\nshutil.copyfile('/src', '/dst')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 3);
+    for call in &analysis.draft().calls()[..2] {
+        assert!(!call.filesystems()[0].descendant_protection());
+        assert!(call.filesystems()[1].descendant_protection());
+    }
+    assert!(!analysis.draft().calls()[2].filesystems()[1].descendant_protection());
 }
 
 #[test]
