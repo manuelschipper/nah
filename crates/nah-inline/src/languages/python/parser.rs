@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use tree_sitter::{Node, ParseOptions, Parser};
 
 use crate::InlineRefusal;
@@ -7,14 +9,219 @@ const MAX_NODES: usize = 1_048_576;
 const MAX_DEPTH: usize = 512;
 const MAX_PARSE_CALLBACKS: usize = 16 * 1024 * 1024;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Dialect {
     Python2,
     Python3,
     Common,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct Span {
+    start: usize,
+    end: usize,
+}
+
+#[allow(dead_code)]
+impl Span {
+    pub(super) const fn start(self) -> usize {
+        self.start
+    }
+
+    pub(super) const fn end(self) -> usize {
+        self.end
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum HirKind {
+    Module,
+    Block,
+    Import,
+    ImportFrom,
+    AliasedImport,
+    DottedName,
+    ExpressionStatement,
+    Assignment,
+    AugmentedAssignment,
+    Identifier,
+    Call,
+    ArgumentList,
+    KeywordArgument,
+    Attribute,
+    String,
+    StringStart,
+    StringContent,
+    StringEnd,
+    ConcatenatedString,
+    Integer,
+    Float,
+    True,
+    False,
+    None,
+    List,
+    Tuple,
+    Set,
+    Dictionary,
+    Pair,
+    ParenthesizedExpression,
+    BinaryOperator,
+    BooleanOperator,
+    ComparisonOperator,
+    NotOperator,
+    UnaryOperator,
+    ConditionalExpression,
+    If,
+    Elif,
+    Else,
+    For,
+    While,
+    Function,
+    Parameters,
+    DefaultParameter,
+    TypedParameter,
+    TypedDefaultParameter,
+    Return,
+    Raise,
+    Pass,
+    Break,
+    Continue,
+    DecoratedDefinition,
+    Decorator,
+    Class,
+    With,
+    WithClause,
+    Try,
+    Except,
+    Finally,
+    Lambda,
+    Subscript,
+    Slice,
+    ListSplat,
+    DictionarySplat,
+    Interpolation,
+    FormatSpecifier,
+    TypeConversion,
+    Exec,
+    Print,
+    Comment,
+    Token,
+    Unsupported,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum HirField {
+    Alias,
+    Alternative,
+    Arguments,
+    Attribute,
+    Body,
+    Condition,
+    Consequence,
+    Definition,
+    Expression,
+    FormatSpecifier,
+    Function,
+    Key,
+    Left,
+    ModuleName,
+    Name,
+    Object,
+    Operator,
+    Parameters,
+    ReturnType,
+    Right,
+    Type,
+    TypeConversion,
+    TypeParameters,
+    Value,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct HirNode {
+    kind: HirKind,
+    span: Span,
+    field: Option<HirField>,
+    children: Vec<HirNode>,
+}
+
+#[allow(dead_code)]
+impl HirNode {
+    pub(super) const fn kind(&self) -> HirKind {
+        self.kind
+    }
+
+    pub(super) const fn span(&self) -> Span {
+        self.span
+    }
+
+    pub(super) const fn field(&self) -> Option<HirField> {
+        self.field
+    }
+
+    pub(super) fn children(&self) -> &[Self] {
+        &self.children
+    }
+
+    pub(super) fn child(&self, field: HirField) -> Option<&Self> {
+        self.children
+            .iter()
+            .find(|child| child.field == Some(field))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CoverageKind {
+    Supported,
+    Unsupported,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct CoverageSpan {
+    span: Span,
+    kind: CoverageKind,
+}
+
+#[allow(dead_code)]
+impl CoverageSpan {
+    pub(super) const fn span(self) -> Span {
+        self.span
+    }
+
+    pub(super) const fn kind(self) -> CoverageKind {
+        self.kind
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct HirModule {
+    root: HirNode,
+    coverage: Vec<CoverageSpan>,
+    opaque: bool,
+}
+
+#[allow(dead_code)]
+impl HirModule {
+    pub(super) const fn root(&self) -> &HirNode {
+        &self.root
+    }
+
+    pub(super) fn coverage(&self) -> &[CoverageSpan] {
+        &self.coverage
+    }
+
+    pub(super) const fn opaque(&self) -> bool {
+        self.opaque
+    }
+}
+
 pub(super) fn source_status(code: &str, program: &str) -> Result<bool, InlineRefusal> {
+    lower(code, program).map(|module| !module.opaque())
+}
+
+pub(super) fn lower(code: &str, program: &str) -> Result<HirModule, InlineRefusal> {
     let mut parser = Parser::new();
     parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -32,7 +239,18 @@ pub(super) fn source_status(code: &str, program: &str) -> Result<bool, InlineRef
             Some(ParseOptions::new().progress_callback(&mut progress)),
         )
         .ok_or(InlineRefusal::WorkLimit)?;
-    inspect(tree.root_node(), code, dialect(program))
+    let root = tree.root_node();
+    let opaque = inspect(root, code, dialect(program))?;
+    let mut nodes = 0usize;
+    let root = lower_node(root, None, 0, &mut nodes)?;
+    let mut coverage = Vec::new();
+    collect_coverage(&root, &mut coverage);
+    coverage.sort_unstable_by_key(|covered| (covered.span.start, covered.span.end));
+    Ok(HirModule {
+        root,
+        coverage,
+        opaque,
+    })
 }
 
 fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineRefusal> {
@@ -47,7 +265,10 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
         if nodes > MAX_NODES || depth > MAX_DEPTH {
             return Err(InlineRefusal::WorkLimit);
         }
-        if matches!(node.kind(), "string" | "comment") {
+        if matches!(
+            node.kind(),
+            "string" | "comment" | "string_start" | "string_content"
+        ) {
             masked_ranges.push(node.byte_range());
         }
         incompatible_dialect |= match dialect {
@@ -73,17 +294,174 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
     if let Some(refusal) = structural {
         return Err(refusal);
     }
-    if has_error || root.has_error() || incompatible_dialect {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(has_error || root.has_error() || incompatible_dialect)
 }
 
-fn delimiter_status(
-    code: &str,
-    masked_ranges: &mut [std::ops::Range<usize>],
-) -> Result<(), InlineRefusal> {
-    masked_ranges.sort_unstable_by_key(|range| range.start);
+fn lower_node(
+    node: Node<'_>,
+    field: Option<HirField>,
+    depth: usize,
+    nodes: &mut usize,
+) -> Result<HirNode, InlineRefusal> {
+    *nodes += 1;
+    if *nodes > MAX_NODES || depth > MAX_DEPTH {
+        return Err(InlineRefusal::WorkLimit);
+    }
+    let mut children = Vec::with_capacity(node.child_count());
+    for index in 0..node.child_count() {
+        let Some(child) = node.child(index) else {
+            continue;
+        };
+        let field = node.field_name_for_child(index as u32).and_then(hir_field);
+        children.push(lower_node(child, field, depth + 1, nodes)?);
+    }
+    Ok(HirNode {
+        kind: hir_kind(node),
+        span: Span {
+            start: node.start_byte(),
+            end: node.end_byte(),
+        },
+        field,
+        children,
+    })
+}
+
+fn hir_kind(node: Node<'_>) -> HirKind {
+    if node.is_error() || node.is_missing() {
+        return HirKind::Error;
+    }
+    match node.kind() {
+        "module" => HirKind::Module,
+        "block" => HirKind::Block,
+        "import_statement" => HirKind::Import,
+        "import_from_statement" | "future_import_statement" => HirKind::ImportFrom,
+        "aliased_import" => HirKind::AliasedImport,
+        "dotted_name" | "relative_import" => HirKind::DottedName,
+        "expression_statement" => HirKind::ExpressionStatement,
+        "assignment" | "named_expression" => HirKind::Assignment,
+        "augmented_assignment" => HirKind::AugmentedAssignment,
+        "identifier" => HirKind::Identifier,
+        "call" => HirKind::Call,
+        "argument_list" => HirKind::ArgumentList,
+        "keyword_argument" => HirKind::KeywordArgument,
+        "attribute" => HirKind::Attribute,
+        "string" => HirKind::String,
+        "string_start" => HirKind::StringStart,
+        "string_content" => HirKind::StringContent,
+        "string_end" => HirKind::StringEnd,
+        "concatenated_string" => HirKind::ConcatenatedString,
+        "integer" => HirKind::Integer,
+        "float" => HirKind::Float,
+        "true" => HirKind::True,
+        "false" => HirKind::False,
+        "none" => HirKind::None,
+        "list" => HirKind::List,
+        "tuple" | "expression_list" | "pattern_list" | "tuple_pattern" => HirKind::Tuple,
+        "set" => HirKind::Set,
+        "dictionary" => HirKind::Dictionary,
+        "pair" => HirKind::Pair,
+        "parenthesized_expression" => HirKind::ParenthesizedExpression,
+        "binary_operator" => HirKind::BinaryOperator,
+        "boolean_operator" => HirKind::BooleanOperator,
+        "comparison_operator" => HirKind::ComparisonOperator,
+        "not_operator" => HirKind::NotOperator,
+        "unary_operator" => HirKind::UnaryOperator,
+        "conditional_expression" => HirKind::ConditionalExpression,
+        "if_statement" => HirKind::If,
+        "elif_clause" => HirKind::Elif,
+        "else_clause" => HirKind::Else,
+        "for_statement" => HirKind::For,
+        "while_statement" => HirKind::While,
+        "function_definition" => HirKind::Function,
+        "parameters" => HirKind::Parameters,
+        "default_parameter" => HirKind::DefaultParameter,
+        "typed_parameter" => HirKind::TypedParameter,
+        "typed_default_parameter" => HirKind::TypedDefaultParameter,
+        "return_statement" => HirKind::Return,
+        "raise_statement" => HirKind::Raise,
+        "pass_statement" => HirKind::Pass,
+        "break_statement" => HirKind::Break,
+        "continue_statement" => HirKind::Continue,
+        "decorated_definition" => HirKind::DecoratedDefinition,
+        "decorator" => HirKind::Decorator,
+        "class_definition" => HirKind::Class,
+        "with_statement" => HirKind::With,
+        "with_clause" => HirKind::WithClause,
+        "try_statement" => HirKind::Try,
+        "except_clause" => HirKind::Except,
+        "finally_clause" => HirKind::Finally,
+        "lambda" => HirKind::Lambda,
+        "subscript" => HirKind::Subscript,
+        "slice" => HirKind::Slice,
+        "list_splat" | "parenthesized_list_splat" => HirKind::ListSplat,
+        "dictionary_splat" => HirKind::DictionarySplat,
+        "interpolation" => HirKind::Interpolation,
+        "format_specifier" => HirKind::FormatSpecifier,
+        "type_conversion" => HirKind::TypeConversion,
+        "exec_statement" => HirKind::Exec,
+        "print_statement" => HirKind::Print,
+        "comment" => HirKind::Comment,
+        kind if !node.is_named() && !kind.is_empty() => HirKind::Token,
+        _ => HirKind::Unsupported,
+    }
+}
+
+fn hir_field(field: &str) -> Option<HirField> {
+    match field {
+        "alias" => Some(HirField::Alias),
+        "alternative" => Some(HirField::Alternative),
+        "arguments" => Some(HirField::Arguments),
+        "attribute" => Some(HirField::Attribute),
+        "body" => Some(HirField::Body),
+        "condition" => Some(HirField::Condition),
+        "consequence" => Some(HirField::Consequence),
+        "definition" => Some(HirField::Definition),
+        "expression" => Some(HirField::Expression),
+        "format_specifier" => Some(HirField::FormatSpecifier),
+        "function" => Some(HirField::Function),
+        "key" => Some(HirField::Key),
+        "left" => Some(HirField::Left),
+        "module_name" => Some(HirField::ModuleName),
+        "name" => Some(HirField::Name),
+        "object" => Some(HirField::Object),
+        "operator" => Some(HirField::Operator),
+        "parameters" => Some(HirField::Parameters),
+        "return_type" => Some(HirField::ReturnType),
+        "right" => Some(HirField::Right),
+        "type" => Some(HirField::Type),
+        "type_conversion" => Some(HirField::TypeConversion),
+        "type_parameters" => Some(HirField::TypeParameters),
+        "value" => Some(HirField::Value),
+        _ => None,
+    }
+}
+
+fn collect_coverage(node: &HirNode, coverage: &mut Vec<CoverageSpan>) {
+    if node.kind == HirKind::Comment {
+        return;
+    }
+    let kind = match node.kind {
+        HirKind::Unsupported => Some(CoverageKind::Unsupported),
+        HirKind::Error => Some(CoverageKind::Error),
+        _ if node.children.is_empty() => Some(CoverageKind::Supported),
+        _ => None,
+    };
+    if let Some(kind) = kind {
+        if node.span.start < node.span.end {
+            coverage.push(CoverageSpan {
+                span: node.span,
+                kind,
+            });
+        }
+        return;
+    }
+    for child in &node.children {
+        collect_coverage(child, coverage);
+    }
+}
+
+fn delimiter_status(code: &str, masked_ranges: &mut [Range<usize>]) -> Result<(), InlineRefusal> {
+    masked_ranges.sort_unstable_by_key(|range| (range.start, usize::MAX - range.end));
     let mut range = 0usize;
     let mut delimiters = 0usize;
     let mut stack = Vec::new();
@@ -149,38 +527,41 @@ fn structural_error(node: Node<'_>, code: &str) -> Option<InlineRefusal> {
 }
 
 fn required_suite(node: Node<'_>) -> Option<bool> {
-    if !matches!(
-        node.kind(),
+    let field = match node.kind() {
+        "if_statement" | "elif_clause" | "case_clause" => "consequence",
         "class_definition"
-            | "function_definition"
-            | "if_statement"
-            | "for_statement"
-            | "while_statement"
-            | "with_statement"
-            | "try_statement"
-            | "match_statement"
-    ) {
-        return None;
-    }
-    let field = if node.kind() == "if_statement" {
-        "consequence"
-    } else {
-        "body"
+        | "function_definition"
+        | "for_statement"
+        | "while_statement"
+        | "with_statement"
+        | "try_statement"
+        | "match_statement"
+        | "else_clause" => "body",
+        "except_clause" | "finally_clause" => {
+            return node
+                .named_children(&mut node.walk())
+                .find(|child| child.kind() == "block")
+                .map(|body| valid_suite(node, body))
+                .or(Some(false));
+        }
+        _ => return None,
     };
     let Some(body) = node.child_by_field_name(field) else {
         return Some(false);
     };
+    Some(valid_suite(node, body))
+}
+
+fn valid_suite(node: Node<'_>, body: Node<'_>) -> bool {
     if body.kind() != "block" {
-        return Some(body.start_position().row == node.start_position().row);
+        return body.start_position().row == node.start_position().row;
     }
     let mut cursor = body.walk();
     let Some(first) = body.named_children(&mut cursor).next() else {
-        return Some(false);
+        return false;
     };
-    Some(
-        first.start_position().row == node.start_position().row
-            || first.start_position().column > node.start_position().column,
-    )
+    first.start_position().row == node.start_position().row
+        || first.start_position().column > node.start_position().column
 }
 
 fn dialect(program: &str) -> Dialect {
@@ -237,5 +618,41 @@ mod tests {
     #[test]
     fn future_or_unclassified_recovery_is_opaque() {
         assert_eq!(source_status("value = @", "python3"), Ok(false));
+    }
+
+    #[test]
+    fn lowering_owns_nodes_and_accounts_for_non_trivia_bytes() {
+        let code = "import os\n# data\ntarget = f'/tmp/{name}'\nos.remove(target)";
+        let comment = code.find("# data").unwrap()..code.find("\ntarget").unwrap();
+        let module = lower(code, "python3").unwrap();
+        assert!(!module.opaque());
+        assert_eq!(module.root().kind(), HirKind::Module);
+        assert!(module.coverage().iter().all(|covered| {
+            covered.span().start() < covered.span().end()
+                && covered.kind() == CoverageKind::Supported
+        }));
+        for (index, byte) in code.bytes().enumerate() {
+            if byte.is_ascii_whitespace() || comment.contains(&index) {
+                continue;
+            }
+            assert!(
+                module
+                    .coverage()
+                    .iter()
+                    .any(|covered| covered.span().start() <= index && index < covered.span().end())
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_nodes_are_explicit_boundaries() {
+        let module = lower("value = [x for x in items]", "python3").unwrap();
+        assert!(!module.opaque());
+        assert!(
+            module
+                .coverage()
+                .iter()
+                .any(|covered| covered.kind() == CoverageKind::Unsupported)
+        );
     }
 }
