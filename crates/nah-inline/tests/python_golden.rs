@@ -1,6 +1,6 @@
 use nah_inline::{
     Evidence, FindingKind, InlineInput, NestedExecution, ProtectionInput, analyze,
-    analyze_with_protection,
+    analyze_with_language_effects,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::Deserialize;
@@ -52,13 +52,14 @@ fn frozen_python_frontend_cases_match() {
                 .iter()
                 .map(|path| AbsolutePath::new(platform, path.clone()).unwrap())
                 .collect::<Vec<_>>();
-            analyze_with_protection(
+            analyze_with_language_effects(
                 input,
                 ProtectionInput {
                     critical_paths: &critical_paths,
                     ambient_variables: &[],
                 },
             )
+            .into_report()
         };
 
         let findings = report

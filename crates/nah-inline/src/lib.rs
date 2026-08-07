@@ -61,13 +61,6 @@ pub fn supports(program: &str) -> bool {
     languages::supports(program)
 }
 
-pub fn analyze_with_protection(
-    input: InlineInput<'_>,
-    protection: ProtectionInput<'_>,
-) -> InlineReport {
-    analyze_with_language_effects(input, protection).into_report()
-}
-
 pub fn analyze_with_language_effects(
     input: InlineInput<'_>,
     protection: ProtectionInput<'_>,
@@ -904,7 +897,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let protected = AbsolutePath::new(Platform::Linux, "/home/dev/.nah").unwrap();
-        let report = analyze_with_protection(
+        let report = analyze_with_language_effects(
             InlineInput {
                 program: "python3",
                 code: &code,
@@ -915,7 +908,8 @@ mod tests {
                 critical_paths: &[protected],
                 ambient_variables: &[],
             },
-        );
+        )
+        .into_report();
         assert!(report.findings().is_empty());
         assert!(report.nested_executions().is_empty());
         assert!(report.refusals().is_empty());
