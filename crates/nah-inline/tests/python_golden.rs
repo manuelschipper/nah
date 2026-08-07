@@ -13,6 +13,8 @@ struct Case {
     code: String,
     #[serde(default = "default_home")]
     home: String,
+    #[serde(default = "default_platform")]
+    platform: String,
     #[serde(default)]
     critical_paths: Vec<String>,
     expected: Value,
@@ -22,15 +24,25 @@ fn default_home() -> String {
     "/home/dev".into()
 }
 
+fn default_platform() -> String {
+    "linux".into()
+}
+
 #[test]
 fn frozen_python_frontend_cases_match() {
     for line in include_str!("fixtures/python.jsonl").lines() {
         let case: Case = serde_json::from_str(line).unwrap();
+        let platform = match case.platform.as_str() {
+            "linux" => Platform::Linux,
+            "macos" => Platform::Macos,
+            "windows" => Platform::Windows,
+            platform => panic!("{}: unknown platform {platform}", case.id),
+        };
         let input = InlineInput {
             program: &case.program,
             code: &case.code,
             home: &case.home,
-            platform: Platform::Linux,
+            platform,
         };
         let report = if case.critical_paths.is_empty() {
             analyze(input)
@@ -38,7 +50,7 @@ fn frozen_python_frontend_cases_match() {
             let critical_paths = case
                 .critical_paths
                 .iter()
-                .map(|path| AbsolutePath::new(Platform::Linux, path.clone()).unwrap())
+                .map(|path| AbsolutePath::new(platform, path.clone()).unwrap())
                 .collect::<Vec<_>>();
             analyze_with_protection(
                 input,
