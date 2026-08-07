@@ -14,6 +14,7 @@ pub(super) enum SyntaxProfile {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RuntimeOwnership {
     Node,
+    DenoEval,
     Unowned,
 }
 
@@ -70,6 +71,21 @@ pub(super) fn profile(program: &str) -> Option<Profile> {
         "deno-tsx" => Profile {
             syntax: SyntaxProfile::Tsx,
             ownership: RuntimeOwnership::Unowned,
+            context: SourceContext::Module,
+        },
+        "deno-eval-js" => Profile {
+            syntax: SyntaxProfile::JavaScript,
+            ownership: RuntimeOwnership::DenoEval,
+            context: SourceContext::Module,
+        },
+        "deno-eval-typescript" => Profile {
+            syntax: SyntaxProfile::TypeScript,
+            ownership: RuntimeOwnership::DenoEval,
+            context: SourceContext::Module,
+        },
+        "deno-eval-tsx" => Profile {
+            syntax: SyntaxProfile::Tsx,
+            ownership: RuntimeOwnership::DenoEval,
             context: SourceContext::Module,
         },
         "bun" => Profile {

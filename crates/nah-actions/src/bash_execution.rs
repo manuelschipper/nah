@@ -211,10 +211,15 @@ pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) ->
             _ => break,
         }
     }
+    let prefix = if command == "eval" {
+        "deno-eval"
+    } else {
+        "deno"
+    };
     match extension {
-        "js" | "mjs" | "cjs" => "deno-js".to_owned(),
-        "jsx" | "tsx" => "deno-tsx".to_owned(),
-        "ts" | "mts" | "cts" => "deno-typescript".to_owned(),
+        "js" | "mjs" | "cjs" => format!("{prefix}-js"),
+        "jsx" | "tsx" => format!("{prefix}-tsx"),
+        "ts" | "mts" | "cts" => format!("{prefix}-typescript"),
         _ => program.to_owned(),
     }
 }
@@ -1096,9 +1101,9 @@ mod tests {
     #[test]
     fn exact_deno_argv_selects_the_source_dialect() {
         for (argv, expected) in [
-            (&["deno", "eval", "code"][..], "deno-typescript"),
-            (&["deno", "eval", "--ext=js", "code"][..], "deno-js"),
-            (&["deno", "eval", "--ext", "tsx", "code"][..], "deno-tsx"),
+            (&["deno", "eval", "code"][..], "deno-eval-typescript"),
+            (&["deno", "eval", "--ext=js", "code"][..], "deno-eval-js"),
+            (&["deno", "eval", "--ext", "tsx", "code"][..], "deno-eval-tsx"),
             (&["deno", "run", "--ext=mts", "-"][..], "deno-typescript"),
         ] {
             let argv = argv

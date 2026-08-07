@@ -82,8 +82,19 @@ pub(crate) fn analyze(
         perl::analyze("perl", &input, protection)
     } else {
         match program.as_str() {
-            "node" | "nodejs" | "deno" | "deno-js" | "deno-typescript" | "deno-tsx" | "bun"
-            | "tsx" | "javascript" | "typescript" => {
+            "node"
+            | "nodejs"
+            | "deno"
+            | "deno-js"
+            | "deno-typescript"
+            | "deno-tsx"
+            | "deno-eval-js"
+            | "deno-eval-typescript"
+            | "deno-eval-tsx"
+            | "bun"
+            | "tsx"
+            | "javascript"
+            | "typescript" => {
                 javascript::analyze(&program, &input, protection, depth)
             }
             "ruby" => ruby::analyze(&program, &input, protection),
