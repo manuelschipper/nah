@@ -42,6 +42,13 @@
 - **JavaScript accessor barriers** — accessed object-literal getters and
   descriptor mutations now make coverage partial instead of silently treating
   potentially effectful property access as inert.
+- **Node filesystem overloads** — JavaScript analysis now distinguishes valid
+  modes, file descriptors, stream options, callback effects, accessor barriers,
+  and result truthiness so reviewed calls cannot disappear or claim a path that
+  Node ignores.
+- **Node promise filesystem effects** — `node:fs/promises`, `fs/promises`, and
+  `require('fs').promises` now share owned filesystem effects and rebinding
+  invalidation with the callback and synchronous APIs.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

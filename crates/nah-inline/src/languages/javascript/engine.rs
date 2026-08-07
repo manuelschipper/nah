@@ -26,6 +26,7 @@ const MAX_NATIVE_EVIDENCE_BYTES: usize = crate::SOURCE_LIMIT;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Module {
     Fs,
+    FsPromises,
     ChildProcess,
 }
 
@@ -71,7 +72,7 @@ enum Member {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KnownFunction {
     DefineProperty,
-    Fs(Member),
+    Fs(Module, Member),
     Child(Member),
 }
 
@@ -174,6 +175,20 @@ impl State {
                 (Module::Fs, Member::UnlinkSync),
                 (Module::Fs, Member::WriteFile),
                 (Module::Fs, Member::WriteFileSync),
+                (Module::FsPromises, Member::AppendFile),
+                (Module::FsPromises, Member::Chmod),
+                (Module::FsPromises, Member::Chown),
+                (Module::FsPromises, Member::CopyFile),
+                (Module::FsPromises, Member::Link),
+                (Module::FsPromises, Member::Mkdir),
+                (Module::FsPromises, Member::Open),
+                (Module::FsPromises, Member::Rename),
+                (Module::FsPromises, Member::Rmdir),
+                (Module::FsPromises, Member::Rm),
+                (Module::FsPromises, Member::Symlink),
+                (Module::FsPromises, Member::Truncate),
+                (Module::FsPromises, Member::Unlink),
+                (Module::FsPromises, Member::WriteFile),
                 (Module::ChildProcess, Member::Exec),
                 (Module::ChildProcess, Member::ExecSync),
                 (Module::ChildProcess, Member::Spawn),
@@ -274,7 +289,13 @@ impl State {
     }
 
     fn invalidate_module(&mut self, module: Module) {
-        self.owned_members.retain(|(owned, _)| *owned != module);
+        self.owned_members.retain(|(owned, _)| {
+            *owned != module
+                && !matches!(
+                    (module, *owned),
+                    (Module::Fs, Module::FsPromises) | (Module::FsPromises, Module::Fs)
+                )
+        });
     }
 
     fn widen(&mut self) {
@@ -1101,7 +1122,9 @@ impl<'a> Interpreter<'a> {
                 }
                 match (&object, property.as_deref()) {
                     (Value::Module(module), Some(property)) => {
-                        if let Some(member) = module_member(*module, property) {
+                        if *module == Module::Fs && property == "promises" {
+                            state.invalidate_module(Module::FsPromises);
+                        } else if let Some(member) = module_member(*module, property) {
                             state.owned_members.remove(&(*module, member));
                         } else {
                             state.invalidate_module(*module);
@@ -1194,12 +1217,17 @@ impl<'a> Interpreter<'a> {
             return Value::Unknown;
         };
         match object {
+            Value::Module(Module::Fs) if property == "promises" => {
+                Value::Module(Module::FsPromises)
+            }
             Value::Module(module) => module_member(module, &property).map_or(
                 Value::UnknownModuleMember(module),
                 |member| {
                     if state.owned_members.contains(&(module, member)) {
                         match module {
-                            Module::Fs => Value::Known(KnownFunction::Fs(member)),
+                            Module::Fs | Module::FsPromises => {
+                                Value::Known(KnownFunction::Fs(module, member))
+                            }
                             Module::ChildProcess => Value::Known(KnownFunction::Child(member)),
                         }
                     } else {
@@ -1258,7 +1286,7 @@ impl<'a> Interpreter<'a> {
         match callable {
             Value::Require => self.require(arguments),
             Value::Eval => self.eval_source(arguments, state),
-            Value::Known(function) => self.call_known(function, arguments, state),
+            Value::Known(function) => self.call_known(function, arguments, state, call_depth),
             Value::Function(function) => self.call_local(&function, arguments, state, call_depth),
             Value::UnknownModuleMember(module) => {
                 state.invalidate_module(module);
@@ -1450,6 +1478,7 @@ impl<'a> Interpreter<'a> {
         function: KnownFunction,
         arguments: Arguments,
         state: &mut State,
+        call_depth: usize,
     ) -> Value {
         match function {
             KnownFunction::DefineProperty => {
@@ -1469,16 +1498,23 @@ impl<'a> Interpreter<'a> {
                 }
                 Value::Unknown
             }
-            KnownFunction::Fs(member) => {
-                match summarize_fs_call(member, &arguments) {
+            KnownFunction::Fs(module, member) => {
+                match summarize_fs_call(module, member, &arguments) {
                     FsCallSummary::Effect(filesystems) => {
-                        self.emit_call(
+                        let ordinal = self.emit_call(
                             LanguageCallKind::DirectFile,
-                            fs_callable(member),
+                            fs_callable(module, member),
                             &arguments,
                             state,
                             filesystems,
                         );
+                        if fs_callback_unmodeled(module, member) {
+                            self.complete = false;
+                            self.draft.set_partial();
+                            if let Some(Value::Function(callback)) = arguments.values.last() {
+                                self.analyze_callback(callback, state, call_depth, ordinal);
+                            }
+                        }
                     }
                     FsCallSummary::Partial => {
                         self.complete = false;
@@ -1486,7 +1522,7 @@ impl<'a> Interpreter<'a> {
                     }
                     FsCallSummary::Invalid => {}
                 }
-                Value::Undefined
+                fs_return_value(module, member)
             }
             KnownFunction::Child(member) => {
                 let supported = match member {
@@ -1546,6 +1582,34 @@ impl<'a> Interpreter<'a> {
                 Value::Unknown
             }
         }
+    }
+
+    fn analyze_callback(
+        &mut self,
+        callback: &LocalFunction,
+        state: &State,
+        call_depth: usize,
+        dominator: Option<usize>,
+    ) {
+        let Some(parameters) = &callback.parameters else {
+            return;
+        };
+        let arguments = Arguments {
+            values: vec![Value::Unknown; parameters.len()],
+            complete: true,
+        };
+        let mut callback_state = state.clone();
+        let prior_conditional_depth = self.conditional_depth;
+        let prior_dominators = self.execution_dominators.clone();
+        let prior_return_value = self.return_value.clone();
+        self.conditional_depth = self.conditional_depth.saturating_add(1);
+        if let Some(dominator) = dominator {
+            self.execution_dominators.push(dominator);
+        }
+        self.call_local(callback, arguments, &mut callback_state, call_depth);
+        self.conditional_depth = prior_conditional_depth;
+        self.execution_dominators = prior_dominators;
+        self.return_value = prior_return_value;
     }
 
     fn emit_call(
@@ -1921,19 +1985,9 @@ impl<'a> Interpreter<'a> {
                         let local = specifier
                             .child(HirField::Alias)
                             .map_or(imported, |alias| self.text(alias));
-                        let value = module
-                            .and_then(|module| module_member(module, imported).map(|m| (module, m)))
-                            .and_then(|(module, member)| {
-                                state.owned_members.contains(&(module, member)).then_some(
-                                    match module {
-                                        Module::Fs => Value::Known(KnownFunction::Fs(member)),
-                                        Module::ChildProcess => {
-                                            Value::Known(KnownFunction::Child(member))
-                                        }
-                                    },
-                                )
-                            })
-                            .unwrap_or(Value::Unknown);
+                        let value = module.map_or(Value::Unknown, |module| {
+                            module_property_value(module, imported, state)
+                        });
                         state.declare(local, value);
                     }
                 }
@@ -1999,6 +2053,7 @@ fn source_mutates(node: &HirNode) -> bool {
 fn module_from_source(source: &str) -> Option<Module> {
     match source {
         "fs" | "node:fs" => Some(Module::Fs),
+        "fs/promises" | "node:fs/promises" => Some(Module::FsPromises),
         "child_process" | "node:child_process" => Some(Module::ChildProcess),
         _ => None,
     }
@@ -2006,34 +2061,34 @@ fn module_from_source(source: &str) -> Option<Module> {
 
 fn module_member(module: Module, property: &str) -> Option<Member> {
     match (module, property) {
-        (Module::Fs, "appendFile") => Some(Member::AppendFile),
+        (Module::Fs | Module::FsPromises, "appendFile") => Some(Member::AppendFile),
         (Module::Fs, "appendFileSync") => Some(Member::AppendFileSync),
-        (Module::Fs, "chmod") => Some(Member::Chmod),
+        (Module::Fs | Module::FsPromises, "chmod") => Some(Member::Chmod),
         (Module::Fs, "chmodSync") => Some(Member::ChmodSync),
-        (Module::Fs, "chown") => Some(Member::Chown),
+        (Module::Fs | Module::FsPromises, "chown") => Some(Member::Chown),
         (Module::Fs, "chownSync") => Some(Member::ChownSync),
-        (Module::Fs, "copyFile") => Some(Member::CopyFile),
+        (Module::Fs | Module::FsPromises, "copyFile") => Some(Member::CopyFile),
         (Module::Fs, "copyFileSync") => Some(Member::CopyFileSync),
         (Module::Fs, "createWriteStream") => Some(Member::CreateWriteStream),
-        (Module::Fs, "link") => Some(Member::Link),
+        (Module::Fs | Module::FsPromises, "link") => Some(Member::Link),
         (Module::Fs, "linkSync") => Some(Member::LinkSync),
-        (Module::Fs, "mkdir") => Some(Member::Mkdir),
+        (Module::Fs | Module::FsPromises, "mkdir") => Some(Member::Mkdir),
         (Module::Fs, "mkdirSync") => Some(Member::MkdirSync),
-        (Module::Fs, "open") => Some(Member::Open),
+        (Module::Fs | Module::FsPromises, "open") => Some(Member::Open),
         (Module::Fs, "openSync") => Some(Member::OpenSync),
-        (Module::Fs, "rename") => Some(Member::Rename),
+        (Module::Fs | Module::FsPromises, "rename") => Some(Member::Rename),
         (Module::Fs, "renameSync") => Some(Member::RenameSync),
-        (Module::Fs, "rmdir") => Some(Member::Rmdir),
+        (Module::Fs | Module::FsPromises, "rmdir") => Some(Member::Rmdir),
         (Module::Fs, "rmdirSync") => Some(Member::RmdirSync),
-        (Module::Fs, "rm") => Some(Member::Rm),
+        (Module::Fs | Module::FsPromises, "rm") => Some(Member::Rm),
         (Module::Fs, "rmSync") => Some(Member::RmSync),
-        (Module::Fs, "symlink") => Some(Member::Symlink),
+        (Module::Fs | Module::FsPromises, "symlink") => Some(Member::Symlink),
         (Module::Fs, "symlinkSync") => Some(Member::SymlinkSync),
-        (Module::Fs, "truncate") => Some(Member::Truncate),
+        (Module::Fs | Module::FsPromises, "truncate") => Some(Member::Truncate),
         (Module::Fs, "truncateSync") => Some(Member::TruncateSync),
-        (Module::Fs, "unlink") => Some(Member::Unlink),
+        (Module::Fs | Module::FsPromises, "unlink") => Some(Member::Unlink),
         (Module::Fs, "unlinkSync") => Some(Member::UnlinkSync),
-        (Module::Fs, "writeFile") => Some(Member::WriteFile),
+        (Module::Fs | Module::FsPromises, "writeFile") => Some(Member::WriteFile),
         (Module::Fs, "writeFileSync") => Some(Member::WriteFileSync),
         (Module::ChildProcess, "exec") => Some(Member::Exec),
         (Module::ChildProcess, "execSync") => Some(Member::ExecSync),
@@ -2045,7 +2100,26 @@ fn module_member(module: Module, property: &str) -> Option<Member> {
     }
 }
 
-fn fs_callable(member: Member) -> &'static str {
+fn fs_callable(module: Module, member: Member) -> &'static str {
+    if module == Module::FsPromises {
+        return match member {
+            Member::AppendFile => "fs.promises.appendFile",
+            Member::Chmod => "fs.promises.chmod",
+            Member::Chown => "fs.promises.chown",
+            Member::CopyFile => "fs.promises.copyFile",
+            Member::Link => "fs.promises.link",
+            Member::Mkdir => "fs.promises.mkdir",
+            Member::Open => "fs.promises.open",
+            Member::Rename => "fs.promises.rename",
+            Member::Rmdir => "fs.promises.rmdir",
+            Member::Rm => "fs.promises.rm",
+            Member::Symlink => "fs.promises.symlink",
+            Member::Truncate => "fs.promises.truncate",
+            Member::Unlink => "fs.promises.unlink",
+            Member::WriteFile => "fs.promises.writeFile",
+            _ => unreachable!(),
+        };
+    }
     match member {
         Member::AppendFile => "fs.appendFile",
         Member::AppendFileSync => "fs.appendFileSync",
@@ -2080,6 +2154,38 @@ fn fs_callable(member: Member) -> &'static str {
     }
 }
 
+fn fs_return_value(module: Module, member: Member) -> Value {
+    if module == Module::FsPromises {
+        return Value::Unknown;
+    }
+    match member {
+        Member::CreateWriteStream => Value::Object(BTreeMap::new()),
+        Member::MkdirSync | Member::OpenSync => Value::Unknown,
+        _ => Value::Undefined,
+    }
+}
+
+fn fs_callback_unmodeled(module: Module, member: Member) -> bool {
+    module == Module::Fs
+        && matches!(
+            member,
+            Member::AppendFile
+                | Member::Chmod
+                | Member::Chown
+                | Member::CopyFile
+                | Member::Link
+                | Member::Mkdir
+                | Member::Open
+                | Member::Rename
+                | Member::Rmdir
+                | Member::Rm
+                | Member::Symlink
+                | Member::Truncate
+                | Member::Unlink
+                | Member::WriteFile
+        )
+}
+
 fn child_callable(member: Member) -> &'static str {
     match member {
         Member::Exec => "child_process.exec",
@@ -2098,9 +2204,12 @@ enum FsCallSummary {
     Invalid,
 }
 
-fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
+fn summarize_fs_call(module: Module, member: Member, arguments: &Arguments) -> FsCallSummary {
     if !arguments.complete {
         return FsCallSummary::Partial;
+    }
+    if module == Module::FsPromises {
+        return summarize_fs_promise_call(member, arguments);
     }
     let values = &arguments.values;
     let path = |index, operation, recursive| {
@@ -2159,14 +2268,17 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, false)])
         }
         Member::WriteFile | Member::AppendFile => {
+            if values.get(2).is_some_and(option_has_accessor) {
+                return FsCallSummary::Partial;
+            }
             let valid = match values.as_slice() {
                 [target, data, callback] => {
-                    possible_path_argument(target)
+                    possible_file_argument(target)
                         && possible_data(data)
                         && possible_callback(callback)
                 }
                 [target, data, options, callback] => {
-                    possible_path_argument(target)
+                    possible_file_argument(target)
                         && possible_data(data)
                         && possible_write_options(options)
                         && possible_callback(callback)
@@ -2179,8 +2291,11 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
         }
         Member::WriteFileSync | Member::AppendFileSync => {
+            if values.get(2).is_some_and(option_has_accessor) {
+                return FsCallSummary::Partial;
+            }
             if !(2..=3).contains(&values.len())
-                || !possible_path(0)
+                || !values.first().is_some_and(possible_file_argument)
                 || !possible_data(&values[1])
                 || values
                     .get(2)
@@ -2191,11 +2306,41 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
         }
         Member::CreateWriteStream => {
-            if !(1..=2).contains(&values.len())
-                || !possible_path(0)
-                || values.get(1).is_some_and(|value| !possible_object(value))
-            {
+            if !possible_path(0) || !(1..=2).contains(&values.len()) {
                 return FsCallSummary::Invalid;
+            }
+            let Some(options) = values.get(1) else {
+                return FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)]);
+            };
+            match options {
+                Value::String(_) => {}
+                Value::Object(properties) => {
+                    if properties.values().any(|value| *value == Value::Accessor) {
+                        return FsCallSummary::Partial;
+                    }
+                    if properties
+                        .get("fs")
+                        .is_some_and(|value| !matches!(value, Value::Null | Value::Undefined))
+                    {
+                        return FsCallSummary::Partial;
+                    }
+                    if let Some(fd) = properties.get("fd")
+                        && !matches!(fd, Value::Null | Value::Undefined)
+                    {
+                        return match fd {
+                            Value::Number(_) | Value::Unknown => {
+                                FsCallSummary::Effect(vec![LanguageFilesystem::new(
+                                    None,
+                                    FilesystemOperation::Write,
+                                    false,
+                                )])
+                            }
+                            _ => FsCallSummary::Invalid,
+                        };
+                    }
+                }
+                Value::Unknown => return FsCallSummary::Partial,
+                _ => return FsCallSummary::Invalid,
             }
             FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
         }
@@ -2293,9 +2438,9 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
         }
         Member::Truncate => {
             let valid = match values.as_slice() {
-                [target, callback] => possible_path_argument(target) && possible_callback(callback),
+                [target, callback] => possible_file_argument(target) && possible_callback(callback),
                 [target, length, callback] => {
-                    possible_path_argument(target)
+                    possible_file_argument(target)
                         && possible_number(length)
                         && possible_callback(callback)
                 }
@@ -2308,7 +2453,7 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
         }
         Member::TruncateSync => {
             if !(1..=2).contains(&values.len())
-                || !possible_path(0)
+                || !values.first().is_some_and(possible_file_argument)
                 || values.get(1).is_some_and(|value| !possible_number(value))
             {
                 return FsCallSummary::Invalid;
@@ -2319,9 +2464,11 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             let expected = if member == Member::Chmod { 3 } else { 4 };
             if values.len() != expected
                 || !possible_path(0)
-                || values[1..expected - 1]
-                    .iter()
-                    .any(|value| !possible_number(value))
+                || (member == Member::Chmod && !possible_mode(&values[1]))
+                || (member == Member::Chown
+                    && values[1..expected - 1]
+                        .iter()
+                        .any(|value| !possible_number(value)))
                 || !possible_callback(&values[expected - 1])
             {
                 return FsCallSummary::Invalid;
@@ -2332,7 +2479,9 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             let expected = if member == Member::ChmodSync { 2 } else { 3 };
             if values.len() != expected
                 || !possible_path(0)
-                || values[1..].iter().any(|value| !possible_number(value))
+                || (member == Member::ChmodSync && !possible_mode(&values[1]))
+                || (member == Member::ChownSync
+                    && values[1..].iter().any(|value| !possible_number(value)))
             {
                 return FsCallSummary::Invalid;
             }
@@ -2348,7 +2497,7 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
                 [target, options, callback]
                     if possible_path_argument(target) && possible_callback(callback) =>
                 {
-                    match recursive_option(options) {
+                    match mkdir_recursive_option(options) {
                         OptionValue::Exact(recursive) => recursive,
                         OptionValue::Partial => return FsCallSummary::Partial,
                         OptionValue::Invalid => return FsCallSummary::Invalid,
@@ -2364,7 +2513,7 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             }
             let recursive = match values
                 .get(1)
-                .map_or(OptionValue::Exact(false), recursive_option)
+                .map_or(OptionValue::Exact(false), mkdir_recursive_option)
             {
                 OptionValue::Exact(recursive) => recursive,
                 OptionValue::Partial => return FsCallSummary::Partial,
@@ -2389,7 +2538,7 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
                 }
                 [target, flags, mode, callback]
                     if possible_path_argument(target)
-                        && possible_number(mode)
+                        && possible_mode(mode)
                         && possible_callback(callback) =>
                 {
                     let Some(flags) = value_string(flags) else {
@@ -2404,7 +2553,7 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
         Member::OpenSync => {
             if !(2..=3).contains(&values.len())
                 || !possible_path(0)
-                || values.get(2).is_some_and(|value| !possible_number(value))
+                || values.get(2).is_some_and(|value| !possible_mode(value))
             {
                 return FsCallSummary::Invalid;
             }
@@ -2414,6 +2563,164 @@ fn summarize_fs_call(member: Member, arguments: &Arguments) -> FsCallSummary {
             open_filesystems(flags, &path)
         }
         Member::Exec
+        | Member::ExecSync
+        | Member::Spawn
+        | Member::SpawnSync
+        | Member::ExecFile
+        | Member::ExecFileSync => FsCallSummary::Invalid,
+    }
+}
+
+fn summarize_fs_promise_call(member: Member, arguments: &Arguments) -> FsCallSummary {
+    let values = &arguments.values;
+    let path = |index, operation, recursive| {
+        LanguageFilesystem::new(
+            values.get(index).and_then(value_string).map(str::to_owned),
+            operation,
+            recursive,
+        )
+    };
+    let possible_path = |index| values.get(index).is_some_and(possible_path_argument);
+    match member {
+        Member::Rm | Member::Rmdir => {
+            if !possible_path(0) || !(1..=2).contains(&values.len()) {
+                return FsCallSummary::Invalid;
+            }
+            let recursive = match values
+                .get(1)
+                .map_or(OptionValue::Exact(false), recursive_option)
+            {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => return FsCallSummary::Partial,
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, recursive)])
+        }
+        Member::Unlink => {
+            if values.len() != 1 || !possible_path(0) {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Delete, false)])
+        }
+        Member::WriteFile | Member::AppendFile => {
+            if values.get(2).is_some_and(option_has_accessor) {
+                return FsCallSummary::Partial;
+            }
+            if !(2..=3).contains(&values.len())
+                || !values.first().is_some_and(possible_file_argument)
+                || !possible_data(&values[1])
+                || values
+                    .get(2)
+                    .is_some_and(|value| !possible_write_options(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::CopyFile => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || !possible_path(1)
+                || values.get(2).is_some_and(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(0, FilesystemOperation::Read, false),
+                path(1, FilesystemOperation::Write, false),
+            ])
+        }
+        Member::Rename | Member::Link => {
+            if values.len() != 2 || !possible_path(0) || !possible_path(1) {
+                return FsCallSummary::Invalid;
+            }
+            move_or_link_filesystems(member, values, &path)
+        }
+        Member::Symlink => {
+            if !(2..=3).contains(&values.len())
+                || !possible_path(0)
+                || !possible_path(1)
+                || values
+                    .get(2)
+                    .is_some_and(|value| !possible_symlink_kind(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![
+                path(1, FilesystemOperation::Write, false)
+                    .metadata()
+                    .without_final_symlink_follow(),
+            ])
+        }
+        Member::Truncate => {
+            if !(1..=2).contains(&values.len())
+                || !values.first().is_some_and(possible_file_argument)
+                || values.get(1).is_some_and(|value| !possible_number(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
+        }
+        Member::Chmod | Member::Chown => {
+            let expected = if member == Member::Chmod { 2 } else { 3 };
+            if values.len() != expected
+                || !possible_path(0)
+                || (member == Member::Chmod && !possible_mode(&values[1]))
+                || (member == Member::Chown
+                    && values[1..].iter().any(|value| !possible_number(value)))
+            {
+                return FsCallSummary::Invalid;
+            }
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false).metadata()])
+        }
+        Member::Mkdir => {
+            if !possible_path(0) || !(1..=2).contains(&values.len()) {
+                return FsCallSummary::Invalid;
+            }
+            let recursive = match values
+                .get(1)
+                .map_or(OptionValue::Exact(false), mkdir_recursive_option)
+            {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => return FsCallSummary::Partial,
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, recursive)])
+        }
+        Member::Open => {
+            if !possible_path(0)
+                || !(1..=3).contains(&values.len())
+                || values.get(2).is_some_and(|value| !possible_mode(value))
+            {
+                return FsCallSummary::Invalid;
+            }
+            let flags = match values.get(1) {
+                None => "r",
+                Some(flags) => {
+                    let Some(flags) = value_string(flags) else {
+                        return FsCallSummary::Partial;
+                    };
+                    flags
+                }
+            };
+            open_filesystems(flags, &path)
+        }
+        Member::AppendFileSync
+        | Member::ChmodSync
+        | Member::ChownSync
+        | Member::CopyFileSync
+        | Member::CreateWriteStream
+        | Member::LinkSync
+        | Member::MkdirSync
+        | Member::OpenSync
+        | Member::RenameSync
+        | Member::RmdirSync
+        | Member::RmSync
+        | Member::SymlinkSync
+        | Member::TruncateSync
+        | Member::UnlinkSync
+        | Member::WriteFileSync
+        | Member::Exec
         | Member::ExecSync
         | Member::Spawn
         | Member::SpawnSync
@@ -2472,14 +2779,27 @@ enum OptionValue {
 
 fn recursive_option(value: &Value) -> OptionValue {
     match value {
-        Value::Object(properties) => match properties.get("recursive") {
-            Some(Value::Bool(recursive)) => OptionValue::Exact(*recursive),
-            Some(Value::Unknown) => OptionValue::Partial,
-            Some(_) => OptionValue::Invalid,
-            None => OptionValue::Exact(false),
-        },
+        Value::Object(properties) => {
+            if properties.values().any(|value| *value == Value::Accessor) {
+                return OptionValue::Partial;
+            }
+            match properties.get("recursive") {
+                Some(Value::Bool(recursive)) => OptionValue::Exact(*recursive),
+                Some(Value::Unknown) => OptionValue::Partial,
+                Some(_) => OptionValue::Invalid,
+                None => OptionValue::Exact(false),
+            }
+        }
         Value::Unknown => OptionValue::Partial,
         _ => OptionValue::Invalid,
+    }
+}
+
+fn mkdir_recursive_option(value: &Value) -> OptionValue {
+    if matches!(value, Value::Number(_) | Value::String(_)) {
+        OptionValue::Exact(false)
+    } else {
+        recursive_option(value)
     }
 }
 
@@ -2491,16 +2811,20 @@ fn possible_data(value: &Value) -> bool {
     matches!(value, Value::String(_) | Value::Unknown)
 }
 
-fn possible_object(value: &Value) -> bool {
-    matches!(value, Value::Object(_) | Value::Unknown)
-}
-
 fn possible_write_options(value: &Value) -> bool {
     matches!(value, Value::String(_) | Value::Object(_) | Value::Unknown)
 }
 
 fn possible_number(value: &Value) -> bool {
     matches!(value, Value::Number(_) | Value::Unknown)
+}
+
+fn possible_mode(value: &Value) -> bool {
+    matches!(value, Value::Number(_) | Value::String(_) | Value::Unknown)
+}
+
+fn option_has_accessor(value: &Value) -> bool {
+    matches!(value, Value::Object(properties) if properties.values().any(|value| *value == Value::Accessor))
 }
 
 fn possible_symlink_kind(value: &Value) -> bool {
@@ -2513,24 +2837,33 @@ fn possible_symlink_kind(value: &Value) -> bool {
 fn property_value(value: &Value, property: &str, state: &State) -> Value {
     match value {
         Value::Object(properties) => properties.get(property).cloned().unwrap_or(Value::Unknown),
-        Value::Module(module) => {
-            module_member(*module, property).map_or(Value::Unknown, |member| {
-                if state.owned_members.contains(&(*module, member)) {
-                    match module {
-                        Module::Fs => Value::Known(KnownFunction::Fs(member)),
-                        Module::ChildProcess => Value::Known(KnownFunction::Child(member)),
-                    }
-                } else {
-                    Value::Unknown
-                }
-            })
-        }
+        Value::Module(module) => module_property_value(*module, property, state),
         _ => Value::Unknown,
     }
 }
 
+fn module_property_value(module: Module, property: &str, state: &State) -> Value {
+    if module == Module::Fs && property == "promises" {
+        return Value::Module(Module::FsPromises);
+    }
+    module_member(module, property).map_or(Value::Unknown, |member| {
+        if state.owned_members.contains(&(module, member)) {
+            match module {
+                Module::Fs | Module::FsPromises => Value::Known(KnownFunction::Fs(module, member)),
+                Module::ChildProcess => Value::Known(KnownFunction::Child(member)),
+            }
+        } else {
+            Value::Unknown
+        }
+    })
+}
+
 fn possible_path_argument(value: &Value) -> bool {
     matches!(value, Value::String(_) | Value::Unknown)
+}
+
+fn possible_file_argument(value: &Value) -> bool {
+    possible_path_argument(value) || matches!(value, Value::Number(_))
 }
 
 fn possible_scalar_argument(value: &Value) -> bool {

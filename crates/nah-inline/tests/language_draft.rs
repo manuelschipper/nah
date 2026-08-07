@@ -272,6 +272,112 @@ fn javascript_accessor_execution_is_an_explicit_barrier() {
 }
 
 #[test]
+fn javascript_fs_overloads_preserve_effect_and_return_semantics() {
+    let analysis = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.mkdirSync('/tmp/numeric-mode', 0o700); fs.mkdirSync('/tmp/string-mode', '0700'); fs.createWriteStream('/tmp/string', 'utf8'); if(fs.createWriteStream('/tmp/stream')) fs.rmSync('/', {recursive:true})",
+    );
+    assert_eq!(
+        analysis
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        [
+            "fs.mkdirSync",
+            "fs.mkdirSync",
+            "fs.createWriteStream",
+            "fs.createWriteStream",
+            "fs.rmSync",
+        ]
+    );
+    assert_eq!(
+        analysis.draft().calls()[4].filesystems()[0].requested(),
+        Some("/")
+    );
+    assert!(analysis.draft().complete());
+
+    let descriptor = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.createWriteStream('/protected', {fd:1})",
+    );
+    assert_eq!(descriptor.draft().calls().len(), 1);
+    assert_eq!(
+        descriptor.draft().calls()[0].filesystems()[0].requested(),
+        None
+    );
+    assert!(!descriptor.draft().complete());
+
+    let numeric_flags = analyze_program("node", "require('fs').openSync('/tmp/x', 0)");
+    assert!(numeric_flags.draft().calls().is_empty());
+    assert!(!numeric_flags.draft().complete());
+
+    let invalid = analyze_program("node", "require('fs').mkdirSync('/tmp/x', false)");
+    assert!(invalid.draft().calls().is_empty());
+    assert!(invalid.draft().complete());
+}
+
+#[test]
+fn javascript_fs_callbacks_and_option_accessors_are_explicitly_partial() {
+    let callback = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.writeFile('/tmp/x', 'data', () => fs.rmSync('/', {recursive:true}))",
+    );
+    assert_eq!(callback.draft().calls().len(), 2);
+    assert_eq!(callable(&callback.draft().calls()[0]), "fs.writeFile");
+    assert_eq!(callable(&callback.draft().calls()[1]), "fs.rmSync");
+    assert_eq!(callback.draft().calls()[1].execution_dominators(), &[0]);
+    assert!(!callback.draft().complete());
+
+    for code in [
+        "require('fs').rm('/tmp/x', {get recursive(){return true}}, () => {})",
+        "require('fs').writeFile('/tmp/x', 'data', {get flag(){return 'w'}}, () => {})",
+        "require('fs').createWriteStream('/tmp/x', {get fd(){return 1}})",
+        "require('fs/promises').mkdir('/tmp/x', {get mode(){return '0700'}})",
+    ] {
+        let analysis = analyze_program("node", code);
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+}
+
+#[test]
+fn javascript_fs_promises_imports_are_owned_and_rebinding_is_shared() {
+    let analysis = analyze_program(
+        "node",
+        "const direct=require('node:fs/promises'); const via=require('fs').promises; direct.rm('/tmp/a', {recursive:true}); via.unlink('/tmp/b')",
+    );
+    assert_eq!(
+        analysis
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["fs.promises.rm", "fs.promises.unlink"]
+    );
+    assert!(analysis.draft().complete());
+
+    let imported = analyze_program(
+        "node",
+        "import {writeFile} from 'node:fs/promises'; writeFile('/tmp/x', 'data')",
+    );
+    assert_eq!(
+        callable(&imported.draft().calls()[0]),
+        "fs.promises.writeFile"
+    );
+    assert!(imported.draft().complete());
+
+    let rebound = analyze_program(
+        "node",
+        "const direct=require('fs/promises'); const alias=direct; alias.rm=safe; direct.rm('/', {recursive:true})",
+    );
+    assert!(rebound.draft().calls().is_empty());
+    assert!(!rebound.draft().complete());
+}
+
+#[test]
 fn javascript_eval_merges_canonical_calls_without_legacy_findings() {
     let analysis = analyze_program("node", "eval(\"require('fs').rmSync('/tmp/cache')\")");
     assert_eq!(analysis.draft().calls().len(), 1);
