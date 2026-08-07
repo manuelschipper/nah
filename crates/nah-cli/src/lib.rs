@@ -13,6 +13,7 @@ mod args;
 mod catalog;
 mod claude_adapter;
 mod cline_adapter;
+mod code_input;
 mod codex_adapter;
 mod commands;
 mod copilot_adapter;

@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::code_input::{CodeInput, CodeIntake};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
 
@@ -20,6 +21,8 @@ struct OpenClawHookInput {
     session_id: Option<String>,
     #[serde(default)]
     tool_kind: Option<String>,
+    #[serde(default)]
+    tool_input_kind: Option<String>,
 }
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
@@ -32,7 +35,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         .map_err(|error| error.to_string())
         .and_then(normalize);
     let output = match request {
-        Ok(request) => {
+        Ok((request, _code)) => {
             match hook_adapter::decide_input(request, stderr, Runtime::OpenClaw, failure_policy) {
                 HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
                     json!({
@@ -75,22 +78,33 @@ fn unavailable(
     )
 }
 
-fn normalize(input: OpenClawHookInput) -> Result<ToolCallInput, String> {
+fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
-    let lowered = if input.tool_kind.as_deref() == Some("code_mode_exec") {
-        Ok(("OpenClawCodeModeExec", input.tool_input.clone()))
-    } else {
-        input
-            .tool_input
-            .as_object()
-            .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
-            .and_then(|object| lower(&input.tool_name, &input.tool_input, object))
+    let (lowered, code) = match crate::code_input::openclaw(
+        &input.tool_name,
+        input.tool_kind.as_deref(),
+        input.tool_input_kind.as_deref(),
+        &input.tool_input,
+    ) {
+        CodeIntake::Code(code) => (
+            Ok(("OpenClawCodeModeExec", code.canonical_input())),
+            Some(code),
+        ),
+        CodeIntake::NotCode => (
+            input
+                .tool_input
+                .as_object()
+                .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
+                .and_then(|object| lower(&input.tool_name, &input.tool_input, object)),
+            None,
+        ),
+        CodeIntake::Invalid => (Err("invalid-openclaw-tool-input".into()), None),
     };
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            input.tool_kind.as_deref() == Some("code_mode_exec")
+            code.is_some()
                 || crate::adapter_fields::complete("openclaw", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
@@ -103,6 +117,7 @@ fn normalize(input: OpenClawHookInput) -> Result<ToolCallInput, String> {
         input.session_id,
     )
     .map(|input| input.with_original_input(original_input, normalization_complete))
+    .map(|input| (input, code))
     .map_err(|error| error.to_string())
 }
 
@@ -217,8 +232,10 @@ mod tests {
             cwd: "/repo".into(),
             session_id: Some("session-1".into()),
             tool_kind: None,
+            tool_input_kind: None,
         })
         .unwrap()
+        .0
     }
 
     #[test]
@@ -252,16 +269,72 @@ mod tests {
     }
 
     #[test]
-    fn code_mode_exec_and_unknown_tools_stay_opaque() {
+    fn normalizes_verified_code_mode_for_later_analysis() {
+        let source = "await tools.read({path:'x'})";
+        let original = json!({"code":source,"command":source});
         let code = normalize(OpenClawHookInput {
             tool_name: "exec".into(),
-            tool_input: json!({"code":"await tools.read({path:'x'})"}),
+            tool_input: original.clone(),
             cwd: "/repo".into(),
             session_id: None,
             tool_kind: Some("code_mode_exec".into()),
+            tool_input_kind: Some("javascript".into()),
         })
         .unwrap();
-        assert_eq!(code.tool(), "OpenClawCodeModeExec");
+        assert_eq!(code.0.tool(), "OpenClawCodeModeExec");
+        assert_eq!(
+            code.0.input(),
+            &json!({"code":source,"language":"javascript"})
+        );
+        assert_eq!(code.0.invocation_input(), &original);
+        assert!(code.0.normalization_complete());
+        assert_eq!(
+            code.1,
+            Some(CodeInput::JavaScript {
+                source: source.into()
+            })
+        );
+    }
+
+    #[test]
+    fn code_mode_mismatches_stay_incomplete_and_never_become_bash() {
+        let source = "await tools.read({path:'x'})";
+        for (tool_kind, input_kind, input) in [
+            (
+                None,
+                Some("javascript"),
+                json!({"code":source,"command":source}),
+            ),
+            (
+                Some("code_mode_exec"),
+                None,
+                json!({"code":source,"command":source}),
+            ),
+            (
+                Some("code_mode_exec"),
+                Some("typescript"),
+                json!({"code":source,"command":source,"language":"javascript"}),
+            ),
+            (
+                Some("code_mode_exec"),
+                Some("javascript"),
+                json!({"code":source,"command":source,"futureBehavior":"execute"}),
+            ),
+        ] {
+            let call = normalize(OpenClawHookInput {
+                tool_name: "exec".into(),
+                tool_input: input.clone(),
+                cwd: "/repo".into(),
+                session_id: None,
+                tool_kind: tool_kind.map(str::to_owned),
+                tool_input_kind: input_kind.map(str::to_owned),
+            })
+            .unwrap();
+            assert_eq!(call.0.tool(), "exec");
+            assert_eq!(call.0.input(), &input);
+            assert!(!call.0.normalization_complete());
+            assert_eq!(call.1, None);
+        }
 
         let unknown = normalized("process", json!({"action":"poll","sessionId":"p1"}));
         assert_eq!(unknown.tool(), "process");
@@ -277,8 +350,10 @@ mod tests {
                 cwd: "/repo".into(),
                 session_id: None,
                 tool_kind: None,
+                tool_input_kind: None,
             })
-            .unwrap();
+            .unwrap()
+            .0;
             assert_eq!(call.tool(), "process");
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
@@ -303,8 +378,10 @@ mod tests {
                 cwd: "/repo".into(),
                 session_id: None,
                 tool_kind: None,
+                tool_input_kind: None,
             })
-            .unwrap();
+            .unwrap()
+            .0;
             assert_eq!(call.tool(), name);
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
@@ -317,6 +394,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 210);
+        assert!(implementation.lines().count() <= 225);
     }
 }

@@ -120,6 +120,7 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
             "patch",
         ],
         ("hermes", "search_files") => &["target", "pattern", "path"],
+        ("hermes", "execute_code") => &["code"],
         ("kiro", "shell" | "execute_bash" | "execute_cmd") => &["command"],
         ("openclaw", "exec") => &["command"],
         ("openclaw", "read") => &["path", "offset", "limit"],

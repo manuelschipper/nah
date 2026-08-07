@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    code_input::{CodeInput, CodeIntake},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
@@ -39,7 +40,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         Err(error) => Err(error.to_string()),
     };
     let output = match request {
-        Ok(request) => {
+        Ok((request, _code)) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Hermes, failure_policy) {
                 hook_adapter::HookOutcome::Decision(decision)
                     if decision.verdict() == Verdict::Block =>
@@ -88,12 +89,26 @@ fn unavailable(
         .map(|reason| json!({"decision":"block","reason":format!("nah - {reason}")}))
 }
 
-fn normalize(input: HermesHookInput) -> Result<ToolCallInput, String> {
+fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "pre_tool_call" {
         return Err("invalid-hermes-hook-event".into());
     }
-    let lowered = lower(&input.tool_name, &input.tool_input, input.cwd.as_str());
+    let (lowered, code) = match crate::code_input::hermes(&input.tool_name, &input.tool_input) {
+        CodeIntake::Code(code) => (
+            Ok((
+                input.tool_name.as_str(),
+                code.canonical_input(),
+                input.cwd.clone(),
+            )),
+            Some(code),
+        ),
+        CodeIntake::NotCode => (
+            lower(&input.tool_name, &input.tool_input, input.cwd.as_str()),
+            None,
+        ),
+        CodeIntake::Invalid => (Err("invalid-hermes-tool-input".into()), None),
+    };
     let (tool, tool_input, cwd, normalization_complete) = match lowered {
         Ok((tool, tool_input, cwd)) => (
             tool,
@@ -110,6 +125,7 @@ fn normalize(input: HermesHookInput) -> Result<ToolCallInput, String> {
     };
     ToolCallInput::new(SchemaVersion::V1, tool, tool_input, cwd, input.session_id)
         .map(|input| input.with_original_input(original_input, normalization_complete))
+        .map(|input| (input, code))
         .map_err(|error| error.to_string())
 }
 
@@ -236,6 +252,7 @@ mod tests {
             session_id: Some("session-1".into()),
         })
         .unwrap()
+        .0
     }
 
     #[test]
@@ -301,17 +318,59 @@ mod tests {
                 "HermesSearchFiles",
             ),
             (
-                "execute_code",
-                json!({"code":"open('.env').read()"}),
-                "execute_code",
-            ),
-            (
                 "browser_navigate",
                 json!({"url":"https://example.com"}),
                 "browser_navigate",
             ),
         ] {
             assert_eq!(normalized(name, input).tool(), expected);
+        }
+    }
+
+    #[test]
+    fn normalizes_verified_execute_code_for_later_analysis() {
+        let source = "open('.env').read()";
+        let original = json!({"code":source});
+        let code = normalize(HermesHookInput {
+            hook_event_name: "pre_tool_call".into(),
+            tool_name: "execute_code".into(),
+            tool_input: original.clone(),
+            cwd: "/repo".into(),
+            session_id: None,
+        })
+        .unwrap();
+        assert_eq!(code.0.tool(), "execute_code");
+        assert_eq!(code.0.input(), &json!({"code":source,"language":"python"}));
+        assert_eq!(code.0.invocation_input(), &original);
+        assert!(code.0.normalization_complete());
+        assert_eq!(
+            code.1,
+            Some(CodeInput::Python {
+                source: source.into()
+            })
+        );
+    }
+
+    #[test]
+    fn malformed_execute_code_stays_incomplete() {
+        for input in [
+            json!({}),
+            json!({"code":7}),
+            json!({"code":" \n"}),
+            json!({"code":"print('ok')","futureBehavior":"execute"}),
+        ] {
+            let code = normalize(HermesHookInput {
+                hook_event_name: "pre_tool_call".into(),
+                tool_name: "execute_code".into(),
+                tool_input: input.clone(),
+                cwd: "/repo".into(),
+                session_id: None,
+            })
+            .unwrap();
+            assert_eq!(code.0.tool(), "execute_code");
+            assert_eq!(code.0.input(), &input);
+            assert!(!code.0.normalization_complete());
+            assert_eq!(code.1, None);
         }
     }
 
@@ -331,7 +390,8 @@ mod tests {
                 cwd: "/repo".into(),
                 session_id: None,
             })
-            .unwrap();
+            .unwrap()
+            .0;
             assert_eq!(call.tool(), name);
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
