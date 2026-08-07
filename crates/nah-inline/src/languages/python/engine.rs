@@ -2751,12 +2751,16 @@ impl Interpreter<'_> {
             None
         };
         let outer = std::mem::replace(&mut self.source, Arc::from(source));
+        let mut control = Control::Next;
         if let Some(expression) = expression {
             self.eval(expression, state, depth + 1);
         } else if mode != CodeMode::Single || first.is_some() {
-            let _ = self.exec_block(module.root(), state, depth + 1);
+            control = self.exec_block(module.root(), state, depth + 1);
         }
         self.source = outer;
+        if control != Control::Next {
+            self.pending_control = Some(control);
+        }
     }
 
     fn binary(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {

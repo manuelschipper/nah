@@ -245,6 +245,26 @@ fn dynamic_code_keeps_mode_isolation_and_defining_source_identity() {
 }
 
 #[test]
+fn exact_dynamic_abrupt_control_does_not_fall_through() {
+    for code in [
+        "import os\nexec(\"raise RuntimeError()\")\nos.remove('/tmp/unreachable')",
+        "import os\nexec(\"while True:\\n pass\")\nos.remove('/tmp/unreachable')",
+        "import os\ndef stop(): raise RuntimeError()\neval(\"stop()\")\nos.remove('/tmp/unreachable')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis = analyze(
+        "import os\ntry:\n    exec(\"raise RuntimeError()\")\nexcept:\n    os.remove('/tmp/caught')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/caught")
+    );
+}
+
+#[test]
 fn local_function_binding_and_branch_identity_gate_effects() {
     for code in [
         "import os\ndef danger(required):\n    os.remove('/tmp/x')\ndanger()",
