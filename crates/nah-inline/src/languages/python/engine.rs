@@ -371,7 +371,24 @@ pub(super) fn analyze(
             bindings: BTreeMap::new(),
             cells: Vec::new(),
             functions: Vec::new(),
-            invalid_modules: BTreeSet::new(),
+            invalid_modules: [
+                Module::Base64,
+                Module::Builtins,
+                Module::Io,
+                Module::Ipython,
+                Module::Os,
+                Module::Environment,
+                Module::OsPath,
+                Module::Pathlib,
+                Module::Requests,
+                Module::Httpx,
+                Module::Shutil,
+                Module::Subprocess,
+                Module::Urllib,
+                Module::UrllibRequest,
+            ]
+            .into_iter()
+            .collect(),
             relative_cwd_known: false,
         },
     };

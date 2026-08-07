@@ -4,10 +4,10 @@
 
 - **Prime Agent adapter** — `nah hook prime-agent install` wires a direct global
   tool-call extension and routes exact built-in `ipython` cells through
-  persistent-state Python effect analysis. Proven absolute effects reach normal
-  guards, and additional tool fields cannot hide visible code effects. Prior
-  kernel state, relative kernel paths, and pre-rewrite shell syntax stay
-  explicitly partial instead of being guessed.
+  persistent-state Python analysis. Prior bindings, imported modules, builtins,
+  relative kernel paths, and pre-rewrite shell syntax stay explicitly partial
+  instead of being guessed; additional tool fields cannot hide the visible code
+  string.
 - **Exact code launcher intake** — Node, Deno, Bun, tsx, and IPython now
   classify only verified inline, stdin, and file forms. Syntax-check modes,
   invisible package scripts, remote modules, and unknown flags stay opaque;

@@ -278,17 +278,29 @@ fn persistent_kernel_state_requires_current_cell_ownership() {
         assert!(analysis.report().nested_executions().is_empty(), "{source}");
     }
 
-    for source in [
-        "import os\nos.remove('/tmp/current-import')",
-        "from builtins import open\nopen('/tmp/current-builtin', 'w')",
+    for (prior_cell, source) in [
+        (
+            "import os; os.remove = lambda _: None",
+            "import os\nos.remove('/')",
+        ),
+        (
+            "import os; os.path.join = lambda *_: os.remove('/tmp/hidden')",
+            "import os\nos.path.join('a', 'b')",
+        ),
+        (
+            "builtins.open = replacement",
+            "from builtins import open\nopen('/tmp/current-builtin', 'w')",
+        ),
     ] {
         let analysis = persistent_language_analysis(source);
-        assert!(analysis.draft().complete(), "{source}");
-        assert!(matches!(
-            analysis.draft().calls(),
-            [call] if call.kind() == LanguageCallKind::DirectFile
-                && call.filesystems()[0].requested().is_some_and(|path| path.starts_with("/tmp/"))
-        ));
+        assert!(
+            !analysis.draft().complete(),
+            "prior: {prior_cell}\ncurrent: {source}"
+        );
+        assert!(
+            analysis.draft().calls().is_empty(),
+            "prior: {prior_cell}\ncurrent: {source}"
+        );
     }
 
     let analysis = persistent_language_analysis("def current():\n    return 1\ncurrent()");

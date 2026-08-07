@@ -31,18 +31,18 @@ The extension invokes nah without a shell before each tool executes. Exact
 built-in `ipython` inputs shaped as `{ "code": "..." }` use the shared Python
 effect frontend in a persistent-kernel profile. The extension verifies Prime
 Agent's effective tool provenance; an extension override named `ipython` stays
-opaque. Imports and bindings established in the current cell can prove effects.
-For example, an explicit `import os` followed by deletion of an absolute path
-reaches the normal filesystem guards. Unknown behavior widens coverage and
-delegates unless a proven effect blocks. Additional fields make coverage
-partial without hiding effects in the built-in code string. A missing or
-non-string code field stays opaque.
+opaque. Current-cell constants, control flow, and local definitions are still
+analyzed, but imported modules and builtins remain unowned: earlier cells can
+replace `sys.modules`, import hooks, module attributes, and builtin callables.
+Nah therefore does not emit effects for those calls without a future kernel
+provenance contract. Additional fields make coverage partial without hiding the
+built-in code string. A missing or non-string code field stays opaque.
 
-Prime Agent can retain Python bindings and change the kernel working directory
-between cells, but its tool-call event does not expose that state. Bare names
-that could come from prior cells and relative paths therefore remain unknown.
-nah does not execute a cell or reconstruct the full Python runtime to discover
-them.
+Prime Agent can retain Python bindings, mutate imported modules and builtins,
+and change the kernel working directory between cells, but its tool-call event
+does not expose that state. Bare names, current-cell imports, and relative paths
+therefore remain unknown. nah does not execute a cell or reconstruct the full
+Python runtime to discover them.
 
 ## Shell boundary
 

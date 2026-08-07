@@ -1,9 +1,7 @@
 mod support;
 
 use nah_actions::{AnalysisInput, VisibleCode, finalize, plan};
-use nah_proto::action::{
-    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput, SemanticCode,
-};
+use nah_proto::action::{Coverage, EffectKind, InvocationEffect, InvocationInput, SemanticCode};
 use nah_proto::ctx::{Platform, SchemaVersion};
 use nah_proto::observation::ObservationQuery;
 use nah_proto::tool::ToolCallInput;
@@ -29,19 +27,15 @@ fn ipython_plan(source: &str) -> nah_actions::AnalysisPlan {
 }
 
 #[test]
-fn direct_ipython_uses_current_imports_for_exact_absolute_effects() {
+fn direct_ipython_keeps_current_imports_unowned() {
     let source = "import os; os.remove('/tmp/direct-target')";
     let plan = ipython_plan(source);
-    assert!(plan.observation_request().queries().iter().any(|query| {
-        matches!(
-            query,
-            ObservationQuery::Path { key, requested, .. }
-                if key == "language-0000-path-0000-00"
-                    && requested == "/tmp/direct-target"
-        )
+    assert!(!plan.observation_request().queries().iter().any(|query| {
+        matches!(query, ObservationQuery::Path { requested, .. } if requested == "/tmp/direct-target")
     }));
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
-    assert_eq!(stream.coverage(), Coverage::Full);
+    assert_eq!(stream.coverage(), Coverage::Partial);
+    assert_eq!(stream.effects().len(), 1);
     assert!(matches!(
         stream.effects()[0].kind(),
         EffectKind::Invocation {
@@ -59,12 +53,6 @@ fn direct_ipython_uses_current_imports_for_exact_absolute_effects() {
             && code == source
             && value == &json!({"code":source})
     ));
-    assert!(stream.effects().iter().any(|effect| matches!(
-        effect.kind(),
-        EffectKind::Filesystem { effect: filesystem }
-            if filesystem.operation == FilesystemOperation::Delete
-                && filesystem.target.as_str() == "/tmp/direct-target"
-    )));
 }
 
 #[test]
@@ -106,11 +94,5 @@ fn direct_ipython_keeps_relative_kernel_cwd_unknown() {
     }));
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     assert_eq!(stream.coverage(), Coverage::Partial);
-    assert!(stream.effects().iter().any(|effect| matches!(
-        effect.kind(),
-        EffectKind::FilesystemUnresolved {
-            operation: FilesystemOperation::Delete,
-            recursive: false,
-        }
-    )));
+    assert_eq!(stream.effects().len(), 1);
 }
