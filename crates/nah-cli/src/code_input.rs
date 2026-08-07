@@ -80,9 +80,6 @@ pub(crate) fn prime_agent(tool: &str, input: &Value) -> CodeIntake {
     let Some(object) = input.as_object() else {
         return CodeIntake::Invalid;
     };
-    if !only_fields(object, &["code"]) {
-        return CodeIntake::Invalid;
-    }
     match non_blank_string(object, "code") {
         Some(source) => CodeIntake::Code(CodeInput::Ipython { source }),
         None => CodeIntake::Invalid,
@@ -211,18 +208,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_exact_prime_agent_code_payloads() {
-        for input in [
-            json!({}),
-            json!({"code":7}),
-            json!({"code":"  \n"}),
-            json!({"code":"print('ok')","futureBehavior":"execute"}),
-        ] {
+    fn rejects_prime_agent_payloads_without_valid_code() {
+        for input in [json!({}), json!({"code":7}), json!({"code":"  \n"})] {
             assert_eq!(prime_agent("ipython", &input), CodeIntake::Invalid);
         }
         assert_eq!(
             prime_agent("custom", &json!({"code":"print('ok')"})),
             CodeIntake::NotCode
+        );
+    }
+
+    #[test]
+    fn retains_prime_agent_code_with_additional_fields() {
+        assert_eq!(
+            prime_agent(
+                "ipython",
+                &json!({"code":"print('ok')","futureBehavior":"execute"})
+            ),
+            CodeIntake::Code(CodeInput::Ipython {
+                source: "print('ok')".into()
+            })
         );
     }
 

@@ -122,8 +122,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_exact_ipython_input_carries_typed_code() {
-        let (_, code) = normalize(PrimeAgentHookInput {
+    fn builtin_ipython_input_carries_typed_code_and_tracks_completeness() {
+        let (request, code) = normalize(PrimeAgentHookInput {
             tool_name: "ipython".into(),
             tool_input: json!({"code":"import os"}),
             cwd: "/repo".into(),
@@ -137,22 +137,29 @@ mod tests {
                 source: "import os".into()
             })
         );
+        assert!(request.normalization_complete());
 
-        for tool_input in [
-            json!({"code":7}),
-            json!({"code":"import os","futureBehavior":"execute"}),
-        ] {
-            let (request, code) = normalize(PrimeAgentHookInput {
-                tool_name: "ipython".into(),
-                tool_input,
-                cwd: "/repo".into(),
-                tool_source: Some("builtin".into()),
-                tool_path: Some("<builtin:ipython>".into()),
-            })
-            .unwrap();
-            assert!(code.is_none());
-            assert!(!request.normalization_complete());
-        }
+        let (request, code) = normalize(PrimeAgentHookInput {
+            tool_name: "ipython".into(),
+            tool_input: json!({"code":"import os","futureBehavior":"execute"}),
+            cwd: "/repo".into(),
+            tool_source: Some("builtin".into()),
+            tool_path: Some("<builtin:ipython>".into()),
+        })
+        .unwrap();
+        assert!(matches!(code, Some(CodeInput::Ipython { .. })));
+        assert!(!request.normalization_complete());
+
+        let (request, code) = normalize(PrimeAgentHookInput {
+            tool_name: "ipython".into(),
+            tool_input: json!({"code":7}),
+            cwd: "/repo".into(),
+            tool_source: Some("builtin".into()),
+            tool_path: Some("<builtin:ipython>".into()),
+        })
+        .unwrap();
+        assert!(code.is_none());
+        assert!(!request.normalization_complete());
     }
 
     #[test]

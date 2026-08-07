@@ -69,6 +69,18 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
         );
         assert_eq!(blocked["block"], true);
         assert!(blocked["reason"].as_str().unwrap().starts_with("nah - "));
+        let blocked_with_extra = run_extension(
+            &home,
+            &project,
+            &extension,
+            "ipython",
+            json!({
+                "code":"import shutil; shutil.rmtree('/')",
+                "futureBehavior":"execute"
+            }),
+            true,
+        );
+        assert_eq!(blocked_with_extra["block"], true);
         assert_eq!(
             run_extension(
                 &home,

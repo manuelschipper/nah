@@ -34,8 +34,9 @@ Agent's effective tool provenance; an extension override named `ipython` stays
 opaque. Imports and bindings established in the current cell can prove effects.
 For example, an explicit `import os` followed by deletion of an absolute path
 reaches the normal filesystem guards. Unknown behavior widens coverage and
-delegates unless a proven effect blocks. Malformed input stays opaque rather
-than being interpreted as code.
+delegates unless a proven effect blocks. Additional fields make coverage
+partial without hiding effects in the built-in code string. A missing or
+non-string code field stays opaque.
 
 Prime Agent can retain Python bindings and change the kernel working directory
 between cells, but its tool-call event does not expose that state. Bare names

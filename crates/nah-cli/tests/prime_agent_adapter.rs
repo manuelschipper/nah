@@ -182,10 +182,6 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
     for (tool, input) in [
         ("ipython", json!({"code":7})),
         (
-            "ipython",
-            json!({"code":"import shutil; shutil.rmtree('/')","futureBehavior":"execute"}),
-        ),
-        (
             "custom",
             json!({"code":"import shutil; shutil.rmtree('/')"}),
         ),
@@ -199,4 +195,29 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
             json!([{"id":"e0","description":format!("invoke {tool} opaque")}])
         );
     }
+}
+
+#[test]
+fn additional_builtin_fields_keep_effects_visible_with_partial_coverage() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+    let source = "import shutil; shutil.rmtree('/')";
+
+    let decision = run_adapter(
+        &home,
+        &project,
+        "ipython",
+        json!({"code":source,"futureBehavior":"execute"}),
+    );
+    assert_eq!(decision["block"], true);
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["coverage"], "partial");
+    assert!(
+        record["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| effect["description"] == "delete /")
+    );
 }
