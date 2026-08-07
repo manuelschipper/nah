@@ -7,7 +7,8 @@
   persistent-state Python analysis. Prior bindings, imported modules, builtins,
   relative kernel paths, and pre-rewrite shell syntax stay explicitly partial
   instead of being guessed; additional tool fields cannot hide the visible code
-  string.
+  string. Custom, SDK, and future tools share an opaque identity so native-looking
+  names cannot impersonate unrelated tool schemas.
 - **Exact code launcher intake** — Node, Deno, Bun, tsx, and IPython now
   classify only verified inline, stdin, and file forms. Syntax-check modes,
   invisible package scripts, remote modules, and unknown flags stay opaque;

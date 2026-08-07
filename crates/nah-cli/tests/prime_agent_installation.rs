@@ -84,6 +84,17 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
             ),
             Value::Null
         );
+        assert_eq!(
+            run_extension(
+                &home,
+                &project,
+                &extension,
+                "Write",
+                json!({"file_path":extension,"content":"replacement"}),
+                false,
+            ),
+            Value::Null
+        );
     }
 
     let sibling = extension.parent().unwrap().join("notes.txt");

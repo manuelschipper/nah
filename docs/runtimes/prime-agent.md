@@ -31,10 +31,15 @@ The extension invokes nah without a shell before each tool executes. Exact
 built-in `ipython` inputs shaped as `{ "code": "..." }` use the shared Python
 effect frontend in a persistent-kernel profile. The extension verifies Prime
 Agent's effective tool provenance; an extension override named `ipython` stays
-opaque. Current-cell constants, control flow, and local definitions are still
-analyzed, but imported modules and builtins remain unowned: earlier cells can
-replace `sys.modules`, import hooks, module attributes, and builtin callables.
-Nah therefore does not emit effects for those calls without a future kernel
+opaque. The pinned Prime CLI registers no other built-in tool. Every custom,
+SDK, or future tool uses one Prime-specific opaque identity, including tools
+named `bash`, `Read`, `Write`, or `Edit`, so a native-looking name cannot select
+Nah's unrelated tool schemas.
+
+Current-cell constants, control flow, and local definitions are still analyzed,
+but imported modules and builtins remain unowned: earlier cells can replace
+`sys.modules`, import hooks, module attributes, and builtin callables. Nah
+therefore does not emit effects for those calls without a future kernel
 provenance contract. Additional fields make coverage partial without hiding the
 built-in code string. A missing or non-string code field stays opaque.
 
@@ -55,6 +60,11 @@ from execution. Moving Prime Agent's shell rewrite into argument preparation,
 before validation and `tool_call`, would provide an exact boundary that nah
 could safely consume.
 
+The package also exports Bash and edit tool factories, but the pinned CLI does
+not register them as base tools. SDK `baseToolsOverride` can supply arbitrary
+implementations and give them synthetic built-in provenance. Those tools remain
+opaque even when their reported path resembles `<builtin:bash>`.
+
 ## Boundaries
 
 Blocks stop the call. Every other call delegates to Prime Agent and any later
@@ -65,20 +75,18 @@ siblings execute concurrently.
 
 Prime Agent has no approval prompt behind this extension, so delegates normally
 execute unless another extension blocks them. `--no-extensions` disables the
-global hook. While active, this adapter blocks visible lifecycle commands,
-direct mutations to its nah-owned extension, child launches using
-`--no-extensions`, and launches selecting a different
-`PRIME_AGENT_CODING_AGENT_DIR`. The agent is told not to retry protected
-changes; an operator can use `nah nap` from another terminal.
+global hook. Nah's self-protection policy still applies to effects the admitted
+IPython analysis proves, but opaque tools and hidden kernel state do not produce
+guessed file or shell effects. An operator can use `nah nap` from another
+terminal.
 
 A handler error natively blocks the tool, but the default nah wiring catches
 adapter failure, delegates, and requests a UI warning when Prime Agent exposes
 one. Disabled or unloaded extensions, trusted extensions that act directly,
 and changes invisible to the tool-call event remain outside nah.
 
-Prime Agent's programmatic `baseToolsOverride` can label host-supplied tools as
-built-ins. SDK runtimes using that override are outside this adapter's admitted
-CLI contract.
+SDK runtimes using `baseToolsOverride` are outside this adapter's admitted CLI
+contract.
 
 This integration is best effort: runtime APIs and hook behavior can change.
 After upgrades, verify the latest official upstream

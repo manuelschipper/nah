@@ -63,7 +63,7 @@ fn run_adapter_with_provenance(
 }
 
 #[test]
-fn custom_ipython_override_stays_native_and_partial() {
+fn custom_ipython_override_stays_opaque_and_partial() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
@@ -83,8 +83,56 @@ fn custom_ipython_override_stays_native_and_partial() {
     assert_eq!(record["core"]["coverage"], "partial");
     assert_eq!(
         record["effects"],
-        json!([{"id":"e0","description":"invoke ipython opaque"}])
+        json!([{"id":"e0","description":"invoke prime-agent-opaque opaque"}])
     );
+}
+
+#[test]
+fn unadmitted_tools_cannot_impersonate_native_schemas() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+    let extension = home.join(".prime/agent/extensions/nah.js");
+
+    for (tool, input, provenance) in [
+        (
+            "Read",
+            json!({"file_path":extension}),
+            Some(("local", "/repo/.prime/agent/extensions/read.ts")),
+        ),
+        (
+            "Write",
+            json!({"file_path":extension,"content":"replacement"}),
+            Some(("sdk", "<sdk:Write>")),
+        ),
+        (
+            "Edit",
+            json!({
+                "file_path":extension,
+                "old_string":"old",
+                "new_string":"replacement"
+            }),
+            Some(("builtin", "<builtin:Edit>")),
+        ),
+        (
+            "bash",
+            json!({"command":"rm -rf /"}),
+            Some(("builtin", "<builtin:bash>")),
+        ),
+    ] {
+        assert_eq!(
+            run_adapter_with_provenance(&home, &project, tool, input, provenance),
+            json!({"block":false,"evaluation_failed":false}),
+            "{tool}"
+        );
+        let record = audit_records(&home).pop().unwrap();
+        assert_eq!(record["core"]["coverage"], "partial", "{tool}");
+        assert_eq!(
+            record["effects"],
+            json!([{"id":"e0","description":"invoke prime-agent-opaque opaque"}]),
+            "{tool}"
+        );
+    }
 }
 
 fn audit_records(home: &std::path::Path) -> Vec<Value> {
@@ -179,11 +227,12 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
 
-    for (tool, input) in [
-        ("ipython", json!({"code":7})),
+    for (tool, input, effect_tool) in [
+        ("ipython", json!({"code":7}), "ipython"),
         (
             "custom",
             json!({"code":"import shutil; shutil.rmtree('/')"}),
+            "prime-agent-opaque",
         ),
     ] {
         assert_eq!(
@@ -192,7 +241,7 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
         );
         assert_eq!(
             audit_records(&home).pop().unwrap()["effects"],
-            json!([{"id":"e0","description":format!("invoke {tool} opaque")}])
+            json!([{"id":"e0","description":format!("invoke {effect_tool} opaque")}])
         );
     }
 }

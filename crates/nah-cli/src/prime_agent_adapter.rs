@@ -14,6 +14,8 @@ use crate::{
     runtime::{FailurePolicy, Runtime},
 };
 
+const OPAQUE_TOOL: &str = "prime-agent-opaque";
+
 #[derive(Deserialize)]
 struct PrimeAgentHookInput {
     tool_name: String,
@@ -82,24 +84,29 @@ fn unavailable(
 }
 
 fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    let original_input = input.tool_input.clone();
     let builtin_ipython = input.tool_name == "ipython"
         && input.tool_source.as_deref() == Some("builtin")
         && input.tool_path.as_deref() == Some("<builtin:ipython>");
+    if !builtin_ipython {
+        let original = json!({
+            "tool_name":input.tool_name,
+            "tool_input":input.tool_input,
+        });
+        return ToolCallInput::new(SchemaVersion::V1, OPAQUE_TOOL, json!({}), input.cwd, None)
+            .map(|input| input.with_original_input(original, false))
+            .map(|input| (input, None))
+            .map_err(|error| error.to_string());
+    }
+
+    let original_input = input.tool_input.clone();
     let (tool_input, code, normalization_complete) =
         match crate::code_input::prime_agent(&input.tool_name, &input.tool_input) {
-            CodeIntake::Code(_) if !builtin_ipython => (original_input.clone(), None, false),
             CodeIntake::Code(code) => (
                 code.canonical_input(),
                 Some(code),
                 crate::adapter_fields::complete("prime-agent", &input.tool_name, &original_input),
             ),
-            CodeIntake::NotCode => (
-                original_input.clone(),
-                None,
-                crate::adapter_fields::complete("prime-agent", &input.tool_name, &original_input),
-            ),
-            CodeIntake::Invalid => (original_input.clone(), None, false),
+            CodeIntake::NotCode | CodeIntake::Invalid => (original_input.clone(), None, false),
         };
     ToolCallInput::new(
         SchemaVersion::V1,
@@ -163,16 +170,53 @@ mod tests {
     }
 
     #[test]
-    fn custom_ipython_tool_does_not_carry_typed_code() {
-        let (request, code) = normalize(PrimeAgentHookInput {
-            tool_name: "ipython".into(),
-            tool_input: json!({"code":"import os; os.remove('/')"}),
-            cwd: "/repo".into(),
-            tool_source: Some("local".into()),
-            tool_path: Some("/repo/.prime/agent/extensions/override.ts".into()),
-        })
-        .unwrap();
-        assert!(code.is_none());
-        assert!(!request.normalization_complete());
+    fn unadmitted_tools_share_one_opaque_identity() {
+        for (tool_name, tool_input, tool_source, tool_path) in [
+            (
+                "ipython",
+                json!({"code":"import os; os.remove('/')"}),
+                "local",
+                "/repo/.prime/agent/extensions/override.ts",
+            ),
+            (
+                "bash",
+                json!({"command":"rm -rf /"}),
+                "builtin",
+                "<builtin:bash>",
+            ),
+            (
+                "Read",
+                json!({"file_path":"/repo/secret"}),
+                "local",
+                "/repo/.prime/agent/extensions/read.ts",
+            ),
+            (
+                "Write",
+                json!({"file_path":"/repo/secret","content":"value"}),
+                "sdk",
+                "<sdk:Write>",
+            ),
+            (
+                "Edit",
+                json!({"file_path":"/repo/secret","old_string":"a","new_string":"b"}),
+                "builtin",
+                "<builtin:Edit>",
+            ),
+        ] {
+            let original = json!({"tool_name":tool_name,"tool_input":tool_input});
+            let (request, code) = normalize(PrimeAgentHookInput {
+                tool_name: tool_name.into(),
+                tool_input,
+                cwd: "/repo".into(),
+                tool_source: Some(tool_source.into()),
+                tool_path: Some(tool_path.into()),
+            })
+            .unwrap();
+            assert_eq!(request.tool(), OPAQUE_TOOL);
+            assert_eq!(request.input(), &json!({}));
+            assert_eq!(request.invocation_input(), &original);
+            assert!(code.is_none());
+            assert!(!request.normalization_complete());
+        }
     }
 }
