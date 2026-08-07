@@ -1453,20 +1453,40 @@ impl Interpreter<'_> {
     }
 
     fn comparison(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
-        let left = node
-            .child(HirField::Left)
-            .map_or(Value::Unknown, |left| self.eval(left, state, depth));
-        let right = node
-            .child(HirField::Right)
-            .map_or(Value::Unknown, |right| self.eval(right, state, depth));
-        let operator = node
-            .child(HirField::Operator)
-            .map(|operator| self.text(operator))
-            .unwrap_or_default();
-        match operator {
-            "==" | "is" => Value::Bool(left == right),
-            "!=" | "is not" => Value::Bool(left != right),
-            _ => Value::Unknown,
+        let mut left = None;
+        let mut operator = None;
+        let mut compared = false;
+        let mut unknown = false;
+        for child in node.children() {
+            if child.field() == Some(HirField::Operators) {
+                operator = Some(self.text(child).to_owned());
+                continue;
+            }
+            if matches!(child.kind(), HirKind::Token | HirKind::Comment) {
+                continue;
+            }
+            let right = self.eval(child, state, depth);
+            let Some(previous) = left.replace(right.clone()) else {
+                continue;
+            };
+            let Some(operator) = operator.take() else {
+                self.complete = false;
+                return Value::Unknown;
+            };
+            compared = true;
+            match compare_values(&previous, &right, &operator) {
+                Some(false) => return Value::Bool(false),
+                Some(true) => {}
+                None => unknown = true,
+            }
+        }
+        if !compared || operator.is_some() {
+            self.complete = false;
+            Value::Unknown
+        } else if unknown {
+            Value::Unknown
+        } else {
+            Value::Bool(true)
         }
     }
 
@@ -1849,6 +1869,63 @@ fn binary_value(left: Value, right: Value, operator: &str) -> Value {
     }
 }
 
+fn compare_values(left: &Value, right: &Value, operator: &str) -> Option<bool> {
+    let equal = match (left, right) {
+        (Value::None, Value::None) => Some(true),
+        (Value::None, Value::Bool(_) | Value::Int(_) | Value::String(_) | Value::Bytes(_))
+        | (Value::Bool(_) | Value::Int(_) | Value::String(_) | Value::Bytes(_), Value::None) => {
+            Some(false)
+        }
+        (Value::Bool(left), Value::Bool(right)) => Some(left == right),
+        (Value::Int(left), Value::Int(right)) => Some(left == right),
+        (Value::Bool(left), Value::Int(right)) | (Value::Int(right), Value::Bool(left)) => {
+            Some(i64::from(*left) == *right)
+        }
+        (Value::String(left), Value::String(right))
+        | (Value::ImplicitString(left), Value::ImplicitString(right))
+        | (Value::String(left), Value::ImplicitString(right))
+        | (Value::ImplicitString(left), Value::String(right))
+        | (Value::Path(left), Value::Path(right)) => Some(left == right),
+        (Value::Bytes(left), Value::Bytes(right)) => Some(left == right),
+        _ => None,
+    };
+    match operator {
+        "==" => equal,
+        "!=" => equal.map(|value| !value),
+        "is" => match (left, right) {
+            (Value::None, Value::None) => Some(true),
+            (Value::None, _) | (_, Value::None) => Some(false),
+            _ => None,
+        },
+        "is not" => match (left, right) {
+            (Value::None, Value::None) => Some(false),
+            (Value::None, _) | (_, Value::None) => Some(true),
+            _ => None,
+        },
+        "<" => match (left, right) {
+            (Value::Int(left), Value::Int(right)) => Some(left < right),
+            (Value::String(left), Value::String(right)) => Some(left < right),
+            _ => None,
+        },
+        "<=" => match (left, right) {
+            (Value::Int(left), Value::Int(right)) => Some(left <= right),
+            (Value::String(left), Value::String(right)) => Some(left <= right),
+            _ => None,
+        },
+        ">" => match (left, right) {
+            (Value::Int(left), Value::Int(right)) => Some(left > right),
+            (Value::String(left), Value::String(right)) => Some(left > right),
+            _ => None,
+        },
+        ">=" => match (left, right) {
+            (Value::Int(left), Value::Int(right)) => Some(left >= right),
+            (Value::String(left), Value::String(right)) => Some(left >= right),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn truthy(value: &Value) -> Option<bool> {
     match value {
         Value::None => Some(false),
@@ -2188,5 +2265,17 @@ mod tests {
         ] {
             assert_eq!(report(code), InlineReport::default(), "{code}");
         }
+    }
+
+    #[test]
+    fn comparisons_follow_operand_order_and_known_false_conditions() {
+        assert_eq!(
+            report("import shutil\nif 1 != 1:\n    shutil.rmtree('/')"),
+            InlineReport::default()
+        );
+        assert!(
+            report("import shutil\nif shutil.rmtree('/') == None:\n    pass")
+                .contains_exact(FindingKind::RootDestruction)
+        );
     }
 }
