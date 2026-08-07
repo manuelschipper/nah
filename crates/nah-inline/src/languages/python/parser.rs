@@ -16,6 +16,14 @@ enum Dialect {
     Common,
 }
 
+#[derive(Clone, Copy, Default)]
+struct SyntaxContext {
+    function_depth: usize,
+    function_body: bool,
+    async_body: bool,
+    loops: usize,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct Span {
     start: usize,
@@ -263,8 +271,8 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
     let mut incompatible_dialect = false;
     let mut structural = None;
     let mut masked_ranges = Vec::new();
-    let mut stack = vec![(root, 0usize)];
-    while let Some((node, depth)) = stack.pop() {
+    let mut stack = vec![(root, 0usize, SyntaxContext::default())];
+    while let Some((node, depth, context)) = stack.pop() {
         nodes += 1;
         if nodes > MAX_NODES || depth > MAX_DEPTH {
             return Err(InlineRefusal::WorkLimit);
@@ -280,12 +288,13 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
             has_error = true;
             structural = structural.or_else(|| structural_error(node, code));
         }
+        has_error |= early_error(node, context, code);
         if required_suite(node) == Some(false) {
             structural = Some(InlineRefusal::StructureMismatch);
         }
         for index in (0..node.child_count()).rev() {
             if let Some(child) = node.child(index) {
-                stack.push((child, depth + 1));
+                stack.push((child, depth + 1, context.for_child(node, index, code)));
             }
         }
     }
@@ -294,6 +303,46 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
         return Err(refusal);
     }
     Ok(has_error || root.has_error() || incompatible_dialect)
+}
+
+fn early_error(node: Node<'_>, context: SyntaxContext, code: &str) -> bool {
+    match node.kind() {
+        "return_statement" | "yield" => !context.function_body,
+        "break_statement" | "continue_statement" => context.loops == 0,
+        "nonlocal_statement" => context.function_depth == 0,
+        "await" => !context.async_body,
+        "for_statement" | "with_statement" if direct_token(node, code, "async") => {
+            !context.async_body
+        }
+        _ => false,
+    }
+}
+
+impl SyntaxContext {
+    fn for_child(self, parent: Node<'_>, index: usize, code: &str) -> Self {
+        if parent.field_name_for_child(index as u32) != Some("body") {
+            return self;
+        }
+        match parent.kind() {
+            "function_definition" => Self {
+                function_depth: self.function_depth + 1,
+                function_body: true,
+                async_body: direct_token(parent, code, "async"),
+                loops: 0,
+            },
+            "class_definition" => Self {
+                function_body: false,
+                async_body: false,
+                loops: 0,
+                ..self
+            },
+            "for_statement" | "while_statement" => Self {
+                loops: self.loops + 1,
+                ..self
+            },
+            _ => self,
+        }
+    }
 }
 
 fn incompatible_dialect_node(node: Node<'_>, code: &str, dialect: Dialect) -> bool {
@@ -710,6 +759,30 @@ mod tests {
             source_status("async def run():\n    pass", "python3.5"),
             Ok(true)
         );
+    }
+
+    #[test]
+    fn compile_time_control_flow_errors_make_the_unit_opaque() {
+        for code in [
+            "return\nimport shutil; shutil.rmtree('/')",
+            "break\nimport shutil; shutil.rmtree('/')",
+            "continue\nimport shutil; shutil.rmtree('/')",
+            "yield 1\nimport shutil; shutil.rmtree('/')",
+            "await task\nimport shutil; shutil.rmtree('/')",
+            "nonlocal value\nimport shutil; shutil.rmtree('/')",
+            "for value in []:\n    pass\nelse:\n    break",
+            "async for value in values:\n    pass",
+        ] {
+            assert_eq!(source_status(code, "python3"), Ok(false), "{code}");
+        }
+        for code in [
+            "def value():\n    return 1",
+            "while True:\n    break",
+            "async def value():\n    await task",
+            "def outer():\n    class Value:\n        def method(self):\n            return 1",
+        ] {
+            assert_eq!(source_status(code, "python3"), Ok(true), "{code}");
+        }
     }
 
     #[test]
