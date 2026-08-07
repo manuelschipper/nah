@@ -80,6 +80,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         "nah hook kiro uninstall",
         "nah hook openclaw uninstall",
         "nah hook pi uninstall",
+        "nah hook prime-agent uninstall",
         "nah hook opencode uninstall",
         "nah hook amp uninstall",
         "agy plugin disable nah",
@@ -114,6 +115,8 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         "XDG_CONFIG_HOME=/tmp/other opencode",
         "pi --no-extensions",
         "PI_CODING_AGENT_DIR=/tmp/other pi",
+        "prime-agent --no-extensions",
+        "PRIME_AGENT_CODING_AGENT_DIR=/tmp/other prime-agent",
     ] {
         let decision = decide(home, &repo, "Bash", json!({"command":command}));
         assert_eq!(decision.verdict(), Verdict::Block, "{command}");
@@ -155,6 +158,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         home.join("Documents/Cline/Hooks/PreToolUse"),
         home.join(".openclaw/extensions/nah/index.js"),
         home.join(".pi/agent/extensions/nah/index.js"),
+        home.join(".prime/agent/extensions/nah/index.js"),
         home.join(".config/opencode/plugins/nah.js"),
         home.join(".config/amp/plugins/nah.ts"),
         repo.join(".github/hooks/nah.json"),

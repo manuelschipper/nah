@@ -32,6 +32,7 @@ use crate::openclaw_adapter;
 use crate::opencode_adapter;
 use crate::pi_adapter;
 use crate::pipeline::{decide_live_with_self_protection, failed_delegate};
+use crate::prime_agent_adapter;
 use crate::records;
 use crate::runtime::{FailurePolicy, Runtime};
 
@@ -315,6 +316,7 @@ fn run_runtime_hook<R: Read, W: Write, E: Write>(
         Runtime::OpenClaw => openclaw_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Pi => pi_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::PrimeAgent => prime_agent_adapter::run(stdin, stdout, stderr, failure_policy),
     }
 }
 
@@ -380,7 +382,10 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     failure_policy: FailurePolicy,
     code: Option<&CodeInput>,
 ) -> DecideOutcome {
-    let code = if matches!(runtime, Some(Runtime::Hermes | Runtime::OpenClaw)) {
+    let code = if matches!(
+        runtime,
+        Some(Runtime::Hermes | Runtime::OpenClaw | Runtime::PrimeAgent)
+    ) {
         code
     } else {
         None

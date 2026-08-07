@@ -313,6 +313,7 @@ pub(crate) fn environment_operation(
     let active_selector = match program.as_str() {
         "hermes" => has_projected_path(critical_paths, "config.yaml", platform),
         "kiro-cli" => has_projected_path(critical_paths, "hooks/nah.json", platform),
+        "prime-agent" => has_projected_path(critical_paths, "extensions/nah/index.js", platform),
         _ => false,
     };
     let baseline = |name: &str| {
@@ -326,7 +327,9 @@ pub(crate) fn environment_operation(
     };
     let alternate = |name: &str, default: &str| {
         let expected = match (name, active_selector) {
-            ("HERMES_HOME" | "KIRO_HOME", true) => baseline(name).unwrap_or(default),
+            ("HERMES_HOME" | "KIRO_HOME" | "PRIME_AGENT_CODING_AGENT_DIR", true) => {
+                baseline(name).unwrap_or(default)
+            }
             _ => default,
         };
         let configured = value(name)
@@ -357,6 +360,7 @@ pub(crate) fn environment_operation(
                 || alternate("XDG_CONFIG_HOME", &home_path(".config"))
         }
         "pi" => alternate("PI_CODING_AGENT_DIR", &home_path(".pi/agent")),
+        "prime-agent" => alternate("PRIME_AGENT_CODING_AGENT_DIR", &home_path(".prime/agent")),
         _ => false,
     };
     bypass.then_some("critical-mutation")
@@ -490,6 +494,7 @@ fn runtime_launch_bypass(
         }
         "opencode" => has_option("--pure"),
         "pi" => has_option("--no-extensions"),
+        "prime-agent" => has_option("--no-extensions"),
         _ => false,
     }
 }
@@ -1168,6 +1173,7 @@ fn runtime_names() -> &'static [&'static str] {
         "openclaw",
         "opencode",
         "pi",
+        "prime-agent",
     ]
 }
 

@@ -31,6 +31,7 @@ mod openclaw_adapter;
 mod opencode_adapter;
 mod pi_adapter;
 mod pipeline;
+mod prime_agent_adapter;
 mod records;
 mod runtime;
 mod shipped_state;

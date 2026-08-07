@@ -84,6 +84,8 @@ fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
         "nah hook opencode uninstall",
         "nah hook pi install",
         "nah hook pi uninstall",
+        "nah hook prime-agent install",
+        "nah hook prime-agent uninstall",
         "amp plugins remove nah.ts",
         "amp plugins rm nah.ts --target system",
         "agy plugin disable nah",
@@ -478,6 +480,8 @@ fn exact_interpreter_mutations_of_self_protected_paths_are_structural() {
         r#"node -e 'require("child_process").spawn("pi", ["--no-extensions"])'"#,
         r#"python -c 'import subprocess; getattr(subprocess, "run")(["pi", "--no-extensions"])'"#,
         r#"node -e 'require("child_process")["spawn"]("pi", ["--no-extensions"])'"#,
+        r#"node -e 'require("child_process").spawn("prime-agent", ["--no-extensions"])'"#,
+        r#"python -c 'import subprocess; subprocess.run(["prime-agent", "--no-extensions"])'"#,
         r#"lua -e 'os.execute("claude --safe-mode")'"#,
         r#"pwsh -Command 'Start-Process "claude" -ArgumentList "--safe-mode"'"#,
         r#"pwsh -Command "Start-Process claude -ArgumentList '--safe-mode'""#,
@@ -537,6 +541,8 @@ fn runtime_launches_that_skip_active_hooks_are_structural() {
         "opencode --pure",
         "PI_CODING_AGENT_DIR=/tmp/other pi",
         "pi --no-extensions",
+        "PRIME_AGENT_CODING_AGENT_DIR=/tmp/other prime-agent",
+        "prime-agent --no-extensions",
     ] {
         let plan = bash_plan(source);
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
@@ -612,6 +618,7 @@ fn runtime_information_and_permission_modes_do_not_claim_hook_bypass() {
         "openclaw --dev --help",
         "opencode --pure --version",
         "pi --no-extensions --help",
+        "prime-agent --no-extensions --help",
         "hermes hooks rm 'nah hook hermes run' --help",
         "openclaw plugins uninstall nah --help",
         "amp plugins remove nah --version",
@@ -630,6 +637,7 @@ fn runtime_information_and_permission_modes_do_not_claim_hook_bypass() {
         r#"XDG_CONFIG_HOME="$HOME/.config" opencode"#,
         r#"XDG_CONFIG_HOME="$HOME/.config/" opencode"#,
         r#"PI_CODING_AGENT_DIR="$HOME/.pi/agent" pi"#,
+        r#"PRIME_AGENT_CODING_AGENT_DIR="$HOME/.prime/agent" prime-agent"#,
         "claude --dangerously-skip-permissions",
         "codex --yolo",
         "copilot --allow-all",

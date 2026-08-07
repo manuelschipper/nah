@@ -142,6 +142,7 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
         ("pi", "grep") => &["pattern", "path", "glob", "limit"],
         ("pi", "find") => &["pattern", "path", "limit"],
         ("pi", "ls") => &["path", "depth"],
+        ("prime-agent", "ipython") => &["code"],
         _ => return true,
     };
     only_fields(input, allowed)
@@ -201,6 +202,7 @@ mod tests {
             ("openclaw", "exec", json!({"command":"pwd"})),
             ("opencode", "bash", json!({"command":"pwd"})),
             ("pi", "bash", json!({"command":"pwd"})),
+            ("prime-agent", "ipython", json!({"code":"print('ok')"})),
         ] {
             assert!(complete(runtime, tool, &input), "{runtime}");
             let mut unknown = input;

@@ -144,6 +144,12 @@ const TOPICS: &[Topic] = &[
         4_096
     ),
     topic!(
+        "runtime-prime-agent",
+        "Install nah for Prime Agent.",
+        "../../../docs/runtimes/prime-agent.md",
+        5_120
+    ),
+    topic!(
         "security",
         "Review nah's enforcement and trust boundaries.",
         "../../../docs/security.md",

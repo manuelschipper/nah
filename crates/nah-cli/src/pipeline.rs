@@ -455,6 +455,12 @@ where
                 input,
             )
         }
+        (None, Some(CodeInput::Ipython { source })) if input.tool() == "ipython" => {
+            nah_actions::AnalysisInput::VisibleCode(
+                nah_actions::VisibleCode::Ipython { source },
+                input,
+            )
+        }
         (None, _) => nah_actions::AnalysisInput::Native(input),
     };
     let plan =

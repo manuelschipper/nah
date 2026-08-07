@@ -17,6 +17,7 @@ mod kiro_installation;
 mod openclaw_installation;
 mod opencode_installation;
 mod pi_installation;
+mod prime_agent_installation;
 mod runtime;
 mod shipped_guard;
 mod test;
@@ -70,6 +71,9 @@ pub(crate) use opencode_installation::{
     mutate_opencode_hook, opencode_hook_status, opencode_self_protection_paths,
 };
 pub(crate) use pi_installation::{mutate_pi_hook, pi_hook_status, pi_self_protection_paths};
+pub(crate) use prime_agent_installation::{
+    mutate_prime_agent_hook, prime_agent_hook_status, prime_agent_self_protection_paths,
+};
 pub(crate) use runtime::{
     RuntimeEntry, RuntimeHookStatus, RuntimeMutation, runtime_entries, runtime_entry,
     runtime_self_protection, set_runtime_configured,

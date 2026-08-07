@@ -92,6 +92,7 @@ fn only_known_nah_state_mutations_are_structural() {
         "nah hook kiro uninstall",
         "nah hook openclaw uninstall",
         "nah hook pi uninstall",
+        "nah hook prime-agent uninstall",
         "nah hook opencode uninstall",
         "nah hook amp uninstall",
         "amp plugins remove nah.ts",
@@ -126,6 +127,7 @@ fn only_known_nah_state_mutations_are_structural() {
         "openclaw --dev",
         "opencode --pure",
         "pi --no-extensions",
+        "prime-agent --no-extensions",
     ] {
         assert_eq!(
             operation_for(command),
@@ -215,6 +217,7 @@ fn only_read_only_nah_commands_are_inspections() {
         "nah hook openclaw status",
         "nah hook opencode status",
         "nah hook pi status",
+        "nah hook prime-agent status",
         "nah trust . --help",
         "nah hook codex install --help",
         "nah guard enable fs-root --help",

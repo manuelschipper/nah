@@ -43,6 +43,8 @@ pub(crate) enum Runtime {
     #[value(name = "opencode")]
     OpenCode,
     Pi,
+    #[value(name = "prime-agent")]
+    PrimeAgent,
 }
 
 impl Runtime {
@@ -63,6 +65,7 @@ impl Runtime {
             Self::OpenClaw => "openclaw",
             Self::OpenCode => "opencode",
             Self::Pi => "pi",
+            Self::PrimeAgent => "prime-agent",
         }
     }
 
@@ -82,6 +85,7 @@ impl Runtime {
             Self::OpenClaw => "OpenClaw",
             Self::OpenCode => "OpenCode",
             Self::Pi => "Pi",
+            Self::PrimeAgent => "Prime Agent",
         }
     }
 
@@ -101,6 +105,7 @@ impl Runtime {
             Self::OpenClaw => "runtime-openclaw",
             Self::OpenCode => "runtime-opencode",
             Self::Pi => "runtime-pi",
+            Self::PrimeAgent => "runtime-prime-agent",
         }
     }
 }

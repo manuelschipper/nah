@@ -26,6 +26,7 @@ fn nah(
         .env_remove("OPENCLAW_HOME")
         .env_remove("OPENCLAW_STATE_DIR")
         .env_remove("OPENCLAW_CONFIG_PATH")
+        .env_remove("PRIME_AGENT_CODING_AGENT_DIR")
         .output()
         .unwrap()
 }
@@ -47,6 +48,7 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         "openclaw",
         "opencode",
         "pi",
+        "prime-agent",
     ] {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join(".hermes")).unwrap();
@@ -109,6 +111,7 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
         "openclaw",
         "opencode",
         "pi",
+        "prime-agent",
     ] {
         let temp = tempfile::tempdir().unwrap();
         let strict = nah(temp.path(), runtime, "install", Some("--fail-closed"));

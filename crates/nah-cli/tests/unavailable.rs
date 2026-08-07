@@ -55,7 +55,8 @@ fn run_adapter_mode(
                 .env("HOME", home)
                 .env("USERPROFILE", home)
                 .env_remove("XDG_CONFIG_HOME")
-                .env_remove("HERMES_HOME");
+                .env_remove("HERMES_HOME")
+                .env_remove("PRIME_AGENT_CODING_AGENT_DIR");
         }
         None => {
             command.env_remove("HOME").env_remove("USERPROFILE");
@@ -104,7 +105,7 @@ fn assert_native_deny(runtime: &str, observed: &Value) {
             assert_eq!(observed["code"], 2, "{runtime}: {observed}");
             assert_eq!(observed["stdout"]["decision"], "block");
         }
-        "amp" | "pi" | "opencode" | "openclaw" => {
+        "amp" | "pi" | "prime-agent" | "opencode" | "openclaw" => {
             assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}")
         }
         "cline" => assert_eq!(observed["stdout"]["cancel"], true, "{runtime}: {observed}"),
@@ -215,6 +216,14 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             json!({"tool_name":"bash","tool_input":{"command":"rm -rf /"},"cwd":cwd}),
         ),
         (
+            "prime-agent",
+            json!({
+                "tool_name":"ipython",
+                "tool_input":{"code":"import shutil; shutil.rmtree('/')"},
+                "cwd":cwd
+            }),
+        ),
+        (
             "opencode",
             json!({
                 "tool_name":"bash",
@@ -280,6 +289,7 @@ fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(7),
         "cline" => payload["preToolUse"]["parameters"]["command"] = json!(7),
+        "prime-agent" => payload["tool_input"]["code"] = json!(7),
         _ => payload["tool_input"]["command"] = json!(7),
     }
     payload
@@ -289,6 +299,7 @@ fn with_command(runtime: &str, mut payload: Value, command: &str) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(command),
         "cline" => payload["preToolUse"]["parameters"]["command"] = json!(command),
+        "prime-agent" => payload["tool_input"]["code"] = json!("prior_callable()"),
         _ => payload["tool_input"]["command"] = json!(command),
     }
     payload
@@ -347,7 +358,7 @@ fn delegated(runtime: &str, evaluation_failed: bool) -> Value {
         ),
         ("kiro", true) => native(1, Value::Null),
         ("droid" | "cursor" | "devin", true) => native(0, Value::Null),
-        ("amp" | "pi" | "opencode" | "openclaw", failed) => {
+        ("amp" | "pi" | "prime-agent" | "opencode" | "openclaw", failed) => {
             native(0, json!({"block":false,"evaluation_failed":failed}))
         }
         ("cline", true) => native(
@@ -709,7 +720,7 @@ fn every_adapter_keeps_a_positive_block_when_another_guard_failed() {
                         .contains("evaluation was incomplete")
                 );
             }
-            "amp" | "pi" | "opencode" | "openclaw" => {
+            "amp" | "pi" | "prime-agent" | "opencode" | "openclaw" => {
                 assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}");
                 assert_eq!(
                     observed["stdout"]["evaluation_failed"], true,

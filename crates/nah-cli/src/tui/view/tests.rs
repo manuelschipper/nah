@@ -576,7 +576,7 @@ fn every_stamped_runtime_renders_in_its_column() {
         .map(|runtime| runtime.cli_name())
         .chain(std::iter::once("unknown"))
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 15, "{names:?}");
+    assert_eq!(names.len(), 16, "{names:?}");
 
     let mut app = App::fixture();
     app.screen = Screen::Log;

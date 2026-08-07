@@ -7,6 +7,7 @@ use nah_proto::tool::ToolCallInput;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
     Python { source: String },
+    Ipython { source: String },
     JavaScript { source: String },
     TypeScript { source: String },
 }
@@ -15,6 +16,7 @@ impl CodeInput {
     pub(crate) fn canonical_input(&self) -> Value {
         let (language, source) = match self {
             Self::Python { source } => ("python", source),
+            Self::Ipython { source } => ("ipython", source),
             Self::JavaScript { source } => ("javascript", source),
             Self::TypeScript { source } => ("typescript", source),
         };
@@ -67,6 +69,22 @@ pub(crate) fn hermes(tool: &str, input: &Value) -> CodeIntake {
     }
     match non_blank_string(object, "code") {
         Some(source) => CodeIntake::Code(CodeInput::Python { source }),
+        None => CodeIntake::Invalid,
+    }
+}
+
+pub(crate) fn prime_agent(tool: &str, input: &Value) -> CodeIntake {
+    if tool != "ipython" {
+        return CodeIntake::NotCode;
+    }
+    let Some(object) = input.as_object() else {
+        return CodeIntake::Invalid;
+    };
+    if !only_fields(object, &["code"]) {
+        return CodeIntake::Invalid;
+    }
+    match non_blank_string(object, "code") {
+        Some(source) => CodeIntake::Code(CodeInput::Ipython { source }),
         None => CodeIntake::Invalid,
     }
 }
@@ -142,6 +160,12 @@ mod tests {
             })
         );
         assert_eq!(
+            prime_agent("ipython", &json!({"code":"print('ok')"})),
+            CodeIntake::Code(CodeInput::Ipython {
+                source: "print('ok')".into()
+            })
+        );
+        assert_eq!(
             openclaw(
                 "exec",
                 Some("code_mode_exec"),
@@ -182,6 +206,22 @@ mod tests {
         }
         assert_eq!(
             hermes("terminal", &json!({"command":"pwd"})),
+            CodeIntake::NotCode
+        );
+    }
+
+    #[test]
+    fn rejects_non_exact_prime_agent_code_payloads() {
+        for input in [
+            json!({}),
+            json!({"code":7}),
+            json!({"code":"  \n"}),
+            json!({"code":"print('ok')","futureBehavior":"execute"}),
+        ] {
+            assert_eq!(prime_agent("ipython", &input), CodeIntake::Invalid);
+        }
+        assert_eq!(
+            prime_agent("custom", &json!({"code":"print('ok')"})),
             CodeIntake::NotCode
         );
     }

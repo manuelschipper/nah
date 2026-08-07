@@ -26,6 +26,7 @@ Run `nah docs runtime-<name>` for a runtime-specific guide:
 - `openclaw` — OpenClaw
 - `opencode` — OpenCode
 - `pi` — Pi
+- `prime-agent` — Prime Agent
 
 ## Shared contract
 
