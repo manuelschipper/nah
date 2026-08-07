@@ -14,7 +14,7 @@ enum Prepared<'a> {
     Python(Cow<'a, str>),
     Shell {
         program: &'static str,
-        code: &'a str,
+        code: Cow<'a, str>,
     },
     Opaque,
 }
@@ -39,18 +39,16 @@ pub(super) fn analyze(
             protection,
             depth,
         ),
-        Prepared::Shell { program, code } => {
-            let code = if code.ends_with('\n') {
-                Cow::Borrowed(code)
-            } else {
-                Cow::Owned(format!("{code}\n"))
-            };
+        Prepared::Shell {
+            program: shell_program,
+            code,
+        } => {
             let mut transformed = String::new();
             if code.contains('\0')
                 || !push_ipython_call(
                     &mut transformed,
                     "run_cell_magic",
-                    &[program, "", code.as_ref()],
+                    &[shell_program, "", code.as_ref()],
                 )
             {
                 return opaque_analysis();
@@ -171,7 +169,10 @@ fn has_dollar_expansion(command: &str) -> bool {
             next += 1;
         }
         if characters.get(next).is_some_and(|character| {
-            *character == '_' || *character == '.' || character.is_alphanumeric() || !character.is_ascii()
+            *character == '_'
+                || *character == '.'
+                || character.is_alphanumeric()
+                || !character.is_ascii()
         }) {
             return true;
         }
@@ -180,27 +181,82 @@ fn has_dollar_expansion(command: &str) -> bool {
 }
 
 fn cell_magic(code: &str) -> Option<Prepared<'_>> {
-    let mut offset = 0usize;
-    for line in code.split_inclusive('\n') {
-        let body = line.strip_suffix('\n').unwrap_or(line);
-        let body = body.strip_suffix('\r').unwrap_or(body);
-        if body.trim().is_empty() {
-            offset += line.len();
-            continue;
-        }
-        if matches!(body.trim_end(), "%%bash" | "%%sh") && body.starts_with("%%") {
-            return Some(Prepared::Shell {
-                program: if body.trim_end() == "%%bash" {
-                    "bash"
-                } else {
-                    "sh"
-                },
-                code: &code[offset + line.len()..],
-            });
-        }
-        return body.starts_with("%%").then_some(Prepared::Opaque);
+    let mut normalized = code.to_owned();
+    if !normalized.ends_with('\n') {
+        normalized.push('\n');
     }
-    None
+    let leading = normalized
+        .split_inclusive('\n')
+        .take_while(|line| line.trim().is_empty())
+        .map(str::len)
+        .sum::<usize>();
+    let cell = dedent_cell(&normalized[leading..]);
+    let first = cell.split_inclusive('\n').next()?;
+    let first_line = first
+        .strip_suffix('\n')
+        .unwrap_or(first)
+        .strip_suffix('\r')
+        .unwrap_or(first.strip_suffix('\n').unwrap_or(first));
+    if matches!(first_line.trim_end(), "%%bash" | "%%sh") && first_line.starts_with("%%") {
+        return Some(Prepared::Shell {
+            program: if first_line.trim_end() == "%%bash" {
+                "bash"
+            } else {
+                "sh"
+            },
+            code: Cow::Owned(cell[first.len()..].to_owned()),
+        });
+    }
+    first_line.starts_with("%%").then_some(Prepared::Opaque)
+}
+
+fn dedent_cell(cell: &str) -> String {
+    let indent = cell
+        .split_inclusive('\n')
+        .filter_map(|line| {
+            let body = line
+                .strip_suffix('\n')
+                .unwrap_or(line)
+                .strip_suffix('\r')
+                .unwrap_or(line.strip_suffix('\n').unwrap_or(line));
+            (!body.trim().is_empty()).then(|| {
+                body.get(
+                    ..body
+                        .bytes()
+                        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                        .count(),
+                )
+                .expect("ASCII indentation ends on a UTF-8 boundary")
+            })
+        })
+        .reduce(common_prefix)
+        .unwrap_or("");
+    let mut output = String::with_capacity(cell.len());
+    for line in cell.split_inclusive('\n') {
+        let (body, ending) = if let Some(body) = line.strip_suffix("\r\n") {
+            (body, "\r\n")
+        } else if let Some(body) = line.strip_suffix('\n') {
+            (body, "\n")
+        } else {
+            (line, "")
+        };
+        if body.trim().is_empty() {
+            output.push_str(ending);
+        } else {
+            output.push_str(body.strip_prefix(indent).unwrap_or(body));
+            output.push_str(ending);
+        }
+    }
+    output
+}
+
+fn common_prefix<'a>(left: &'a str, right: &str) -> &'a str {
+    let length = left
+        .bytes()
+        .zip(right.bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    &left[..length]
 }
 
 fn magic_line(line: &str) -> bool {

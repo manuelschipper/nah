@@ -21,6 +21,18 @@ fn default_program() -> String {
 }
 
 fn language_analysis(code: &str) -> LanguageAnalysis {
+    language_analysis_with_shell(code, Some("/bin/bash"))
+}
+
+fn language_analysis_with_shell(code: &str, shell: Option<&str>) -> LanguageAnalysis {
+    let ambient_variables = shell
+        .map(|shell| {
+            vec![(
+                "SHELL".to_owned(),
+                nah_inline::EnvironmentValue::Static(shell.to_owned()),
+            )]
+        })
+        .unwrap_or_default();
     analyze_with_language_effects(
         InlineInput {
             program: "ipython",
@@ -30,7 +42,7 @@ fn language_analysis(code: &str) -> LanguageAnalysis {
         },
         ProtectionInput {
             critical_paths: &[],
-            ambient_variables: &[],
+            ambient_variables: &ambient_variables,
         },
     )
 }
@@ -118,7 +130,7 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
             "!printf visible",
             "ipython.system",
             json!([{"kind":"string","value":"printf visible"}]),
-            "sh",
+            "bash",
             "printf visible",
             true,
         ),
@@ -126,7 +138,7 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
             "!!printf captured",
             "ipython.getoutput",
             json!([{"kind":"string","value":"printf captured"}]),
-            "sh",
+            "bash",
             "printf captured",
             false,
         ),
@@ -136,22 +148,22 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
             json!([
                 {"kind":"string","value":"bash"},
                 {"kind":"string","value":""},
-                {"kind":"string","value":"printf bash"},
+                {"kind":"string","value":"printf bash\n"},
             ]),
             "bash",
-            "printf bash",
+            "printf bash\n",
             true,
         ),
         (
-            "%%sh\nprintf sh",
+            " \n\n  %%bash\n    printf indented",
             "ipython.run_cell_magic",
             json!([
-                {"kind":"string","value":"sh"},
+                {"kind":"string","value":"bash"},
                 {"kind":"string","value":""},
-                {"kind":"string","value":"printf sh"},
+                {"kind":"string","value":"  printf indented\n"},
             ]),
-            "sh",
-            "printf sh",
+            "bash",
+            "  printf indented\n",
             true,
         ),
     ] {
@@ -189,13 +201,56 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
 }
 
 #[test]
+fn non_bash_or_unobserved_shells_keep_canonical_partial_evidence() {
+    for (source, shell) in [
+        ("!printf unknown", None),
+        ("!printf sh", Some("/bin/sh")),
+        ("!printf zsh", Some("/bin/zsh")),
+        ("%%sh\nprintf cell", Some("/bin/bash")),
+    ] {
+        let analysis = language_analysis_with_shell(source, shell);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.draft().calls(),
+            [call] if call.kind() == LanguageCallKind::EvaluatedShell
+        ));
+        assert!(analysis.report().nested_executions().is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn get_ipython_ownership_is_exact_until_the_object_escapes_or_is_mutated() {
+    let analysis = language_analysis("get_ipython().system('printf direct')");
+    assert!(analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "bash" && code == "printf direct"
+    ));
+
+    for source in [
+        "get_ipython = replacement\nget_ipython().system('rm -rf /')",
+        "del get_ipython\nget_ipython().system('rm -rf /')",
+        "get_ipython().system = replacement\nget_ipython().system('rm -rf /')",
+        "shell = get_ipython()\nshell.system('rm -rf /')",
+    ] {
+        let analysis = language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.report().nested_executions().is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn opaque_and_incomplete_forms_are_partial_without_fabricated_effects() {
     for source in [
         "target='/'\n!rm -rf {target}",
         "target='/'\n!rm -rf $target",
+        "!rm -rf / &",
         "if True:\n    !rm -rf /",
         "value = (\n!rm -rf /\n)",
         "%custom rm -rf /",
+        "# comment\n%%bash\nrm -rf /",
         "!rm -rf /\nvalue = @",
         "plugin()\n!rm -rf /",
     ] {

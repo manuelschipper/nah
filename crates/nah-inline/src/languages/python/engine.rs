@@ -320,6 +320,7 @@ struct Interpreter<'a> {
     program: &'a str,
     source: Arc<str>,
     input: InlineInput<'a>,
+    ipython_bash: bool,
     report: InlineReport,
     budget: Budget,
     complete: bool,
@@ -347,6 +348,7 @@ pub(super) fn analyze(
         program,
         source: Arc::from(input.code),
         input: *input,
+        ipython_bash: protection.is_some_and(proves_ipython_bash),
         report: InlineReport::default(),
         budget: Budget::default(),
         complete: true,
@@ -374,6 +376,17 @@ pub(super) fn analyze(
     let report =
         super::super::common::with_protection(interpreter.report, program, input, protection);
     LanguageAnalysis::new(report, interpreter.draft)
+}
+
+fn proves_ipython_bash(protection: &ProtectionInput<'_>) -> bool {
+    protection
+        .ambient_variables
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "SHELL")
+        .and_then(|(_, value)| value.as_static())
+        .and_then(|shell| shell.rsplit('/').next())
+        == Some("bash")
 }
 
 impl Interpreter<'_> {
@@ -633,6 +646,14 @@ impl Interpreter<'_> {
     fn assign(&mut self, target: &HirNode, value: Value, state: &mut State) {
         match target.kind() {
             HirKind::Identifier => {
+                if value == Value::Module(Module::Ipython) {
+                    invalidate_module(Module::Ipython, state);
+                    self.draft.set_partial();
+                    state
+                        .bindings
+                        .insert(self.text(target).to_owned(), Value::Unknown);
+                    return;
+                }
                 state.bindings.insert(self.text(target).to_owned(), value);
             }
             HirKind::Tuple | HirKind::List => {
@@ -1632,7 +1653,15 @@ impl Interpreter<'_> {
                     && super::super::ipython::exact_shell_command(code)
                     && self.input.platform != Platform::Windows
                 {
-                    self.push_shell(code, function == KnownFunction::IpythonSystem);
+                    if self.ipython_bash {
+                        self.push_shell_program(
+                            "bash",
+                            code,
+                            function == KnownFunction::IpythonSystem,
+                        );
+                    } else {
+                        self.draft.set_partial();
+                    }
                     let origin = self.emit_call(
                         LanguageCallKind::EvaluatedShell,
                         if function == KnownFunction::IpythonSystem {
@@ -5370,6 +5399,7 @@ mod tests {
             program: "python3",
             source: Arc::from(""),
             input,
+            ipython_bash: false,
             report: InlineReport::default(),
             budget: Budget::default(),
             complete: true,
