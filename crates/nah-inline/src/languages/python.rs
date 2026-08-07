@@ -12,6 +12,12 @@ use super::common::{
     state_mutation_candidate, unmodeled_control_flow, update_static_binding,
 };
 
+mod parser;
+
+pub(super) fn source_status(code: &str, program: &str) -> Result<bool, crate::InlineRefusal> {
+    parser::source_status(code, program)
+}
+
 pub(super) fn analyze(
     program: &str,
     input: &InlineInput<'_>,

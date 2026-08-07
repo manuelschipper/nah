@@ -31,7 +31,7 @@
 {"id":"versioned-python-owned-import","program":"python3.13","code":"import shutil; shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"windows-shell-child-is-not-visible","program":"python3.exe","platform":"windows","home":"C:/Users/dev","code":"import os; os.system('printf child')","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"nested-execution-order","program":"python3","code":"import os; os.system('first'); os.popen('second')","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"first","stdout_inherited":true},{"kind":"shell","program":"sh","code":"second","stdout_inherited":false}],"refusals":[]}}
-{"id":"empty-required-suite","program":"python3","code":"if True:","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"empty-required-suite","program":"python3","code":"if True:","expected":{"findings":[],"nested_executions":[],"refusals":["structure-mismatch"]}}
 {"id":"mismatched-delimiter","program":"python3","code":"import shutil; shutil.rmtree('/')]","expected":{"findings":[],"nested_executions":[],"refusals":["structure-mismatch"]}}
 {"id":"incomplete-string","program":"python3","code":"print('unterminated)","expected":{"findings":[],"nested_executions":[],"refusals":["structure-incomplete"]}}
 {"id":"protected-state-delete","program":"python3","code":"import shutil; shutil.rmtree('/home/dev/.nah')","critical_paths":["/home/dev/.nah/config.toml"],"expected":{"findings":["nah-tampering:conservative"],"nested_executions":[],"refusals":[]}}

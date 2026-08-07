@@ -83,7 +83,13 @@ fn analyze_at(
     if depth >= 16 {
         return InlineReport::refused(InlineRefusal::RecursionLimit);
     }
-    if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
+    if is_python_interpreter(program) {
+        match languages::python_source_status(input.code, program) {
+            Ok(true) => {}
+            Ok(false) => return InlineReport::default(),
+            Err(refusal) => return InlineReport::refused(refusal),
+        }
+    } else if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
         return InlineReport::refused(refusal);
     }
     languages::analyze(input, protection, depth)

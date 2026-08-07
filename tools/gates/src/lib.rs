@@ -87,6 +87,7 @@ pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
     match krate {
         "nah-proto" => Some(&["serde", "serde_json"]),
         "nah-parse" => Some(&["tree-sitter", "tree-sitter-bash"]),
+        "nah-inline" => Some(&["tree-sitter", "tree-sitter-python"]),
         krate if PURE_CRATES.contains(&krate) => Some(&[]),
         _ => None,
     }

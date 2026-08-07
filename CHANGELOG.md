@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Python structural parser** — inline Python now uses the maintained
+  tree-sitter grammar for dialect and malformed-structure admission before
+  semantic analysis; invalid required suites produce the same bounded
+  fail-closed refusal path as other structural mismatches.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 
