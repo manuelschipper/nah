@@ -226,6 +226,7 @@ enum Control {
     Raise,
     Break,
     Continue,
+    Diverge,
 }
 
 struct Interpreter<'a> {
@@ -742,40 +743,98 @@ impl Interpreter<'_> {
             self.complete = false;
             let before = state.clone();
             self.assign(target, Value::Unknown, state);
-            let _ = self.exec_block(body, state, depth);
-            *state = join_states(before, state.clone());
+            let control = self.exec_block(body, state, depth);
+            let mut zero_iterations = before;
+            let zero_control = self.exec_loop_else(node, &mut zero_iterations, depth);
+            if matches!(control, Control::Next | Control::Continue) {
+                let _ = self.exec_loop_else(node, state, depth);
+            }
+            *state = join_states(zero_iterations, state.clone());
+            if control == zero_control {
+                return control;
+            }
             return Control::Next;
         };
+        if values.len() > MAX_LOOP_ITERATIONS {
+            self.complete = false;
+            self.budget.refusal = Some(InlineRefusal::WorkLimit);
+        }
+        let complete = values.len() <= MAX_LOOP_ITERATIONS;
+        let mut broke = false;
         for value in values.into_iter().take(MAX_LOOP_ITERATIONS) {
             self.assign(target, value, state);
             match self.exec_block(body, state, depth) {
                 Control::Next | Control::Continue => {}
-                Control::Break => break,
+                Control::Break => {
+                    broke = true;
+                    break;
+                }
                 control => return control,
             }
         }
-        Control::Next
+        if complete && !broke {
+            self.exec_loop_else(node, state, depth)
+        } else {
+            Control::Next
+        }
     }
 
     fn while_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
-        let condition = node
-            .child(HirField::Condition)
-            .map_or(Value::Unknown, |condition| {
-                self.eval(condition, state, depth)
-            });
-        if truthy(&condition) == Some(false) {
+        let Some(condition) = node.child(HirField::Condition) else {
+            self.complete = false;
             return Control::Next;
-        }
-        self.complete = false;
-        if let Some(body) = node.child(HirField::Body) {
-            let before = state.clone();
-            let control = self.exec_block(body, state, depth);
-            *state = join_states(before, state.clone());
-            if !matches!(control, Control::Next | Control::Break | Control::Continue) {
-                return control;
+        };
+        let Some(body) = node.child(HirField::Body) else {
+            self.complete = false;
+            return Control::Next;
+        };
+        for _ in 0..MAX_LOOP_ITERATIONS {
+            let value = self.eval(condition, state, depth);
+            match truthy(&value) {
+                Some(false) => return self.exec_loop_else(node, state, depth),
+                Some(true) => {
+                    let before = state.clone();
+                    match self.exec_block(body, state, depth) {
+                        Control::Next | Control::Continue => {
+                            if *state == before {
+                                return Control::Diverge;
+                            }
+                        }
+                        Control::Break => return Control::Next,
+                        control => return control,
+                    }
+                }
+                None => {
+                    self.complete = false;
+                    let mut exits = state.clone();
+                    let exit_control = self.exec_loop_else(node, &mut exits, depth);
+                    let mut iterates = state.clone();
+                    let body_control = self.exec_block(body, &mut iterates, depth);
+                    *state = if matches!(
+                        body_control,
+                        Control::Return(_) | Control::Raise | Control::Diverge
+                    ) {
+                        exits
+                    } else {
+                        join_states(exits, iterates)
+                    };
+                    return if exit_control == body_control {
+                        exit_control
+                    } else {
+                        Control::Next
+                    };
+                }
             }
         }
+        self.complete = false;
+        self.budget.refusal = Some(InlineRefusal::WorkLimit);
         Control::Next
+    }
+
+    fn exec_loop_else(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
+        node.child(HirField::Alternative)
+            .and_then(|alternative| alternative.child(HirField::Body))
+            .map_or(Control::Next, |body| self.exec_block(body, state, depth))
     }
 
     fn with_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
@@ -2337,5 +2396,44 @@ mod tests {
                 .nested_executions(),
             [NestedExecution::Command { argv, .. }] if argv == &["/bin/echo", "-rf", "/"]
         ));
+    }
+
+    #[test]
+    fn loop_else_and_iteration_limits_do_not_drop_control_flow() {
+        assert!(
+            report("import shutil\nfor value in []:\n    pass\nelse:\n    shutil.rmtree('/')")
+                .contains_exact(FindingKind::RootDestruction)
+        );
+        assert_eq!(
+            report("import shutil\nfor value in [1]:\n    break\nelse:\n    shutil.rmtree('/')"),
+            InlineReport::default()
+        );
+        assert!(
+            report("import shutil\nwhile False:\n    pass\nelse:\n    shutil.rmtree('/')")
+                .contains_exact(FindingKind::RootDestruction)
+        );
+        assert_eq!(
+            report("import shutil\nwhile True:\n    break\nelse:\n    shutil.rmtree('/')"),
+            InlineReport::default()
+        );
+        assert!(
+            report("import shutil\nwhile condition:\n    break\nelse:\n    shutil.rmtree('/')")
+                .contains_exact(FindingKind::RootDestruction)
+        );
+        assert_eq!(
+            report("import shutil\nwhile True:\n    pass\nshutil.rmtree('/')"),
+            InlineReport::default()
+        );
+
+        let values = (0..64)
+            .map(|value| value.to_string())
+            .chain(std::iter::once("'/'".to_owned()))
+            .collect::<Vec<_>>()
+            .join(",");
+        let report = report(&format!(
+            "import shutil\nfor target in [{values}]:\n    shutil.rmtree(target)"
+        ));
+        assert!(!report.contains_exact(FindingKind::RootDestruction));
+        assert_eq!(report.refusals(), [InlineRefusal::WorkLimit]);
     }
 }
