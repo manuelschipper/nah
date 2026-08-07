@@ -1080,6 +1080,14 @@ pub(super) fn add_exact_shell(report: &mut InlineReport, code: &str, platform: P
     add_exact_shell_with_stdout(report, code, platform, false);
 }
 
+pub(super) fn add_exact_bash(report: &mut InlineReport, code: &str) {
+    push_nested_shell(report, "bash", code, false);
+}
+
+pub(super) fn add_exact_shell_program(report: &mut InlineReport, program: &str, code: &str) {
+    push_nested_shell(report, program, code, false);
+}
+
 pub(super) fn add_exact_shell_with_stdout(
     report: &mut InlineReport,
     code: &str,

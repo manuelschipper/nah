@@ -1525,61 +1525,54 @@ impl<'a> Interpreter<'a> {
                 fs_return_value(module, member)
             }
             KnownFunction::Child(member) => {
-                let supported = match member {
-                    Member::Exec | Member::ExecSync => {
-                        arguments.complete
-                            && arguments.values.len() == 1
-                            && arguments
-                                .values
-                                .first()
-                                .is_some_and(possible_scalar_argument)
-                    }
-                    Member::Spawn | Member::SpawnSync | Member::ExecFile | Member::ExecFileSync => {
-                        arguments.complete
-                            && (1..=2).contains(&arguments.values.len())
-                            && arguments
-                                .values
-                                .first()
-                                .is_some_and(possible_scalar_argument)
-                            && arguments.values.get(1).is_none_or(possible_argv_argument)
-                    }
-                    _ => false,
-                };
-                if !supported {
-                    return Value::Unknown;
-                }
-                self.emit_call(
-                    match member {
-                        Member::Exec | Member::ExecSync => LanguageCallKind::EvaluatedShell,
-                        Member::Spawn
-                        | Member::SpawnSync
-                        | Member::ExecFile
-                        | Member::ExecFileSync => LanguageCallKind::LocalUtility,
-                        _ => unreachable!(),
-                    },
-                    child_callable(member),
-                    &arguments,
-                    state,
-                    Vec::new(),
-                );
-                match member {
-                    Member::Exec | Member::ExecSync => {
-                        if let Some(code) = arguments.values.first().and_then(value_string) {
-                            super::super::common::add_exact_shell(
-                                &mut self.report,
-                                code,
-                                self.platform,
-                            );
+                match summarize_child_call(member, &arguments, self.platform) {
+                    ChildCallSummary::Call {
+                        kind,
+                        execution,
+                        callback,
+                        partial,
+                    } => {
+                        let ordinal = self.emit_call(
+                            kind,
+                            child_callable(member),
+                            &arguments,
+                            state,
+                            Vec::new(),
+                        );
+                        match execution {
+                            ChildExecution::Command(argv) => {
+                                super::super::common::add_exact_argv(&mut self.report, argv);
+                            }
+                            ChildExecution::Bash(code) => {
+                                super::super::common::add_exact_bash(&mut self.report, &code);
+                            }
+                            ChildExecution::OpaqueShell { program, code } => {
+                                super::super::common::add_exact_shell_program(
+                                    &mut self.report,
+                                    &program,
+                                    &code,
+                                );
+                            }
+                            ChildExecution::None => {}
                         }
-                    }
-                    Member::Spawn | Member::SpawnSync | Member::ExecFile | Member::ExecFileSync => {
-                        if let Some(argv) = child_argv(&arguments) {
-                            super::super::common::add_exact_argv(&mut self.report, argv);
+                        if let Some(index) = callback
+                            && let Some(Value::Function(callback)) = arguments.values.get(index)
+                        {
+                            self.analyze_callback(callback, state, call_depth, ordinal);
                         }
+                        if partial {
+                            self.complete = false;
+                            self.draft.set_partial();
+                        }
+                        Value::Object(BTreeMap::new())
                     }
-                    _ => unreachable!(),
+                    ChildCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        Value::Unknown
+                    }
+                    ChildCallSummary::Invalid => Value::Unknown,
                 }
-                Value::Unknown
             }
         }
     }
@@ -2198,6 +2191,425 @@ fn child_callable(member: Member) -> &'static str {
     }
 }
 
+enum ChildExecution {
+    None,
+    Command(Vec<String>),
+    Bash(String),
+    OpaqueShell { program: String, code: String },
+}
+
+enum ChildCallSummary {
+    Call {
+        kind: LanguageCallKind,
+        execution: ChildExecution,
+        callback: Option<usize>,
+        partial: bool,
+    },
+    Partial,
+    Invalid,
+}
+
+#[derive(Default)]
+struct ChildShape {
+    args: Option<usize>,
+    options: Option<usize>,
+    callback: Option<usize>,
+}
+
+enum ChildShapeError {
+    Partial,
+    Invalid,
+}
+
+#[derive(Clone, Copy)]
+enum ChildValueStatus {
+    Exact,
+    Partial,
+    Invalid,
+}
+
+#[derive(Clone, Copy)]
+enum ChildShell {
+    Argv,
+    Bash,
+    Opaque,
+}
+
+fn summarize_child_call(
+    member: Member,
+    arguments: &Arguments,
+    platform: Platform,
+) -> ChildCallSummary {
+    if !arguments.complete {
+        return ChildCallSummary::Partial;
+    }
+    let values = &arguments.values;
+    let shape = match child_shape(member, values) {
+        Ok(shape) => shape,
+        Err(ChildShapeError::Partial) => return ChildCallSummary::Partial,
+        Err(ChildShapeError::Invalid) => return ChildCallSummary::Invalid,
+    };
+    let mut partial = false;
+    for status in std::iter::once(
+        values
+            .first()
+            .map_or(ChildValueStatus::Invalid, child_command_status),
+    )
+    .chain(shape.args.map(|index| child_args_status(&values[index])))
+    .chain(
+        shape
+            .options
+            .map(|index| child_options_status(&values[index])),
+    )
+    .chain(
+        shape
+            .callback
+            .map(|index| child_callback_status(&values[index])),
+    ) {
+        match status {
+            ChildValueStatus::Exact => {}
+            ChildValueStatus::Partial => partial = true,
+            ChildValueStatus::Invalid => return ChildCallSummary::Invalid,
+        }
+    }
+    let options = shape.options.map(|index| &values[index]);
+    let (shell, context_exact, shell_partial) = match child_shell(member, options, platform) {
+        Ok(summary) => summary,
+        Err(ChildShapeError::Partial) => return ChildCallSummary::Partial,
+        Err(ChildShapeError::Invalid) => return ChildCallSummary::Invalid,
+    };
+    partial |= shell_partial || !context_exact || shape.callback.is_some();
+    let argv = child_argv(
+        values.first().unwrap(),
+        shape.args.map(|index| &values[index]),
+    );
+    if argv.is_none() {
+        partial = true;
+    }
+    let execution = if context_exact {
+        match (shell, argv) {
+            (ChildShell::Argv, Some(argv)) => ChildExecution::Command(argv),
+            (ChildShell::Bash, Some(argv)) => ChildExecution::Bash(argv.join(" ")),
+            (ChildShell::Opaque, Some(argv)) => child_opaque_shell_program(options, platform)
+                .map_or(ChildExecution::None, |program| {
+                    ChildExecution::OpaqueShell {
+                        program,
+                        code: argv.join(" "),
+                    }
+                }),
+            _ => ChildExecution::None,
+        }
+    } else {
+        ChildExecution::None
+    };
+    let kind = match shell {
+        ChildShell::Argv => LanguageCallKind::LocalUtility,
+        ChildShell::Bash | ChildShell::Opaque => LanguageCallKind::EvaluatedShell,
+    };
+    ChildCallSummary::Call {
+        kind,
+        execution,
+        callback: shape.callback,
+        partial,
+    }
+}
+
+fn child_shape(member: Member, values: &[Value]) -> Result<ChildShape, ChildShapeError> {
+    if values.is_empty() {
+        return Err(ChildShapeError::Invalid);
+    }
+    match member {
+        Member::Exec => match values.len() {
+            1 => Ok(ChildShape::default()),
+            2 => match &values[1] {
+                Value::Object(_) | Value::Null | Value::Undefined => Ok(ChildShape {
+                    options: Some(1),
+                    ..ChildShape::default()
+                }),
+                value if child_callback_shape(value) => Ok(ChildShape {
+                    callback: Some(1),
+                    ..ChildShape::default()
+                }),
+                value if unknown_value(value) => Ok(ChildShape {
+                    options: Some(1),
+                    ..ChildShape::default()
+                }),
+                _ => Err(ChildShapeError::Invalid),
+            },
+            3 => Ok(ChildShape {
+                options: Some(1),
+                callback: Some(2),
+                ..ChildShape::default()
+            }),
+            _ => Err(ChildShapeError::Invalid),
+        },
+        Member::ExecSync => match values.len() {
+            1 => Ok(ChildShape::default()),
+            2 => Ok(ChildShape {
+                options: Some(1),
+                ..ChildShape::default()
+            }),
+            _ => Err(ChildShapeError::Invalid),
+        },
+        Member::Spawn | Member::SpawnSync => match values.len() {
+            1 => Ok(ChildShape::default()),
+            2 => child_args_or_options(&values[1]),
+            3 => Ok(ChildShape {
+                args: Some(1),
+                options: Some(2),
+                ..ChildShape::default()
+            }),
+            _ => Err(ChildShapeError::Invalid),
+        },
+        Member::ExecFile => match values.len() {
+            1 => Ok(ChildShape::default()),
+            2 => child_args_options_or_callback(&values[1]),
+            3 => {
+                if child_args_shape(&values[1]) {
+                    if child_callback_shape(&values[2]) {
+                        Ok(ChildShape {
+                            args: Some(1),
+                            callback: Some(2),
+                            ..ChildShape::default()
+                        })
+                    } else {
+                        Ok(ChildShape {
+                            args: Some(1),
+                            options: Some(2),
+                            ..ChildShape::default()
+                        })
+                    }
+                } else if child_options_shape(&values[1]) {
+                    Ok(ChildShape {
+                        options: Some(1),
+                        callback: Some(2),
+                        ..ChildShape::default()
+                    })
+                } else {
+                    Err(if unknown_value(&values[1]) {
+                        ChildShapeError::Partial
+                    } else {
+                        ChildShapeError::Invalid
+                    })
+                }
+            }
+            4 => Ok(ChildShape {
+                args: Some(1),
+                options: Some(2),
+                callback: Some(3),
+            }),
+            _ => Err(ChildShapeError::Invalid),
+        },
+        Member::ExecFileSync => match values.len() {
+            1 => Ok(ChildShape::default()),
+            2 => child_args_or_options(&values[1]),
+            3 => Ok(ChildShape {
+                args: Some(1),
+                options: Some(2),
+                ..ChildShape::default()
+            }),
+            _ => Err(ChildShapeError::Invalid),
+        },
+        _ => unreachable!(),
+    }
+}
+
+fn child_args_or_options(value: &Value) -> Result<ChildShape, ChildShapeError> {
+    if child_args_shape(value) {
+        Ok(ChildShape {
+            args: Some(1),
+            ..ChildShape::default()
+        })
+    } else if child_options_shape(value) {
+        Ok(ChildShape {
+            options: Some(1),
+            ..ChildShape::default()
+        })
+    } else {
+        Err(if unknown_value(value) {
+            ChildShapeError::Partial
+        } else {
+            ChildShapeError::Invalid
+        })
+    }
+}
+
+fn child_args_options_or_callback(value: &Value) -> Result<ChildShape, ChildShapeError> {
+    if child_args_shape(value) {
+        Ok(ChildShape {
+            args: Some(1),
+            ..ChildShape::default()
+        })
+    } else if child_options_shape(value) {
+        Ok(ChildShape {
+            options: Some(1),
+            ..ChildShape::default()
+        })
+    } else if child_callback_shape(value) {
+        Ok(ChildShape {
+            callback: Some(1),
+            ..ChildShape::default()
+        })
+    } else {
+        Err(if unknown_value(value) {
+            ChildShapeError::Partial
+        } else {
+            ChildShapeError::Invalid
+        })
+    }
+}
+
+fn child_args_shape(value: &Value) -> bool {
+    matches!(value, Value::Array(_) | Value::Null | Value::Undefined)
+}
+
+fn child_options_shape(value: &Value) -> bool {
+    matches!(value, Value::Object(_) | Value::Null | Value::Undefined)
+}
+
+fn child_callback_shape(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Function(_) | Value::Known(_) | Value::Require | Value::Eval | Value::ObjectBuiltin
+    )
+}
+
+fn child_command_status(value: &Value) -> ChildValueStatus {
+    match value {
+        Value::String(value) if !value.contains('\0') => ChildValueStatus::Exact,
+        value if unknown_value(value) => ChildValueStatus::Partial,
+        _ => ChildValueStatus::Invalid,
+    }
+}
+
+fn child_args_status(value: &Value) -> ChildValueStatus {
+    match value {
+        Value::Array(values) => {
+            let mut status = ChildValueStatus::Exact;
+            for value in values {
+                match child_command_status(value) {
+                    ChildValueStatus::Exact => {}
+                    ChildValueStatus::Partial => status = ChildValueStatus::Partial,
+                    ChildValueStatus::Invalid => return ChildValueStatus::Invalid,
+                }
+            }
+            status
+        }
+        Value::Null | Value::Undefined => ChildValueStatus::Exact,
+        value if unknown_value(value) => ChildValueStatus::Partial,
+        _ => ChildValueStatus::Invalid,
+    }
+}
+
+fn child_options_status(value: &Value) -> ChildValueStatus {
+    match value {
+        Value::Object(properties) if properties.values().any(|value| *value == Value::Accessor) => {
+            ChildValueStatus::Partial
+        }
+        Value::Object(_) | Value::Null | Value::Undefined => ChildValueStatus::Exact,
+        value if unknown_value(value) => ChildValueStatus::Partial,
+        _ => ChildValueStatus::Invalid,
+    }
+}
+
+fn child_callback_status(value: &Value) -> ChildValueStatus {
+    if child_callback_shape(value) {
+        ChildValueStatus::Exact
+    } else if unknown_value(value) {
+        ChildValueStatus::Partial
+    } else {
+        ChildValueStatus::Invalid
+    }
+}
+
+fn child_shell(
+    member: Member,
+    options: Option<&Value>,
+    platform: Platform,
+) -> Result<(ChildShell, bool, bool), ChildShapeError> {
+    let always_shell = matches!(member, Member::Exec | Member::ExecSync);
+    let default = if always_shell {
+        ChildShell::Opaque
+    } else {
+        ChildShell::Argv
+    };
+    let Some(options) = options else {
+        return Ok((default, true, always_shell));
+    };
+    let properties = match options {
+        Value::Null | Value::Undefined => return Ok((default, true, always_shell)),
+        Value::Object(properties) => properties,
+        value if unknown_value(value) => {
+            return if always_shell {
+                Ok((ChildShell::Opaque, false, true))
+            } else {
+                Err(ChildShapeError::Partial)
+            };
+        }
+        _ => return Err(ChildShapeError::Invalid),
+    };
+    if properties.values().any(|value| *value == Value::Accessor) {
+        return Err(ChildShapeError::Partial);
+    }
+    let context_exact = ["cwd", "env"].iter().all(|property| {
+        properties
+            .get(*property)
+            .is_none_or(|value| matches!(value, Value::Null | Value::Undefined))
+    });
+    let Some(shell) = properties.get("shell") else {
+        return Ok((default, context_exact, always_shell));
+    };
+    if always_shell {
+        let shell = if platform != Platform::Windows && value_string(shell) == Some("/bin/bash") {
+            ChildShell::Bash
+        } else {
+            ChildShell::Opaque
+        };
+        return Ok((shell, context_exact, matches!(shell, ChildShell::Opaque)));
+    }
+    let shell = match shell {
+        Value::Bool(false) | Value::Null | Value::Undefined => ChildShell::Argv,
+        Value::String(value) if value.is_empty() => ChildShell::Argv,
+        Value::String(value) if platform != Platform::Windows && value == "/bin/bash" => {
+            ChildShell::Bash
+        }
+        Value::Bool(true) | Value::String(_) => ChildShell::Opaque,
+        value if unknown_value(value) => return Err(ChildShapeError::Partial),
+        _ => return Err(ChildShapeError::Invalid),
+    };
+    Ok((shell, context_exact, matches!(shell, ChildShell::Opaque)))
+}
+
+fn child_opaque_shell_program(options: Option<&Value>, platform: Platform) -> Option<String> {
+    if let Some(Value::Object(properties)) = options
+        && let Some(Value::String(shell)) = properties.get("shell")
+    {
+        return (!shell.is_empty()).then(|| shell.clone());
+    }
+    (platform != Platform::Windows).then(|| "sh".to_owned())
+}
+
+fn child_argv(command: &Value, args: Option<&Value>) -> Option<Vec<String>> {
+    let mut argv = vec![value_string(command)?.to_owned()];
+    match args {
+        None | Some(Value::Null | Value::Undefined) => {}
+        Some(Value::Array(values)) => {
+            for value in values {
+                argv.push(value_string(value)?.to_owned());
+            }
+        }
+        Some(_) => return None,
+    }
+    Some(argv)
+}
+
+fn unknown_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Unknown | Value::UnknownModuleMember(_) | Value::UnknownReceiver(_)
+    )
+}
+
 enum FsCallSummary {
     Effect(Vec<LanguageFilesystem>),
     Partial,
@@ -2804,7 +3216,7 @@ fn mkdir_recursive_option(value: &Value) -> OptionValue {
 }
 
 fn possible_callback(value: &Value) -> bool {
-    matches!(value, Value::Function(_) | Value::Unknown)
+    child_callback_shape(value) || unknown_value(value)
 }
 
 fn possible_data(value: &Value) -> bool {
@@ -2864,34 +3276,6 @@ fn possible_path_argument(value: &Value) -> bool {
 
 fn possible_file_argument(value: &Value) -> bool {
     possible_path_argument(value) || matches!(value, Value::Number(_))
-}
-
-fn possible_scalar_argument(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Unknown)
-}
-
-fn possible_argv_argument(value: &Value) -> bool {
-    match value {
-        Value::Array(values) => values.iter().all(possible_scalar_argument),
-        Value::Unknown => true,
-        _ => false,
-    }
-}
-
-fn child_argv(arguments: &Arguments) -> Option<Vec<String>> {
-    if !arguments.complete || !(1..=2).contains(&arguments.values.len()) {
-        return None;
-    }
-    let program = arguments.values.first().and_then(value_string)?.to_owned();
-    let mut argv = vec![program];
-    if let Some(Value::Array(values)) = arguments.values.get(1) {
-        for value in values {
-            argv.push(value_string(value)?.to_owned());
-        }
-    } else if arguments.values.len() == 2 {
-        return None;
-    }
-    Some(argv)
 }
 
 fn value_string(value: &Value) -> Option<&str> {

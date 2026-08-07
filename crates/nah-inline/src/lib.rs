@@ -553,8 +553,6 @@ mod tests {
             "import subprocess; subprocess.run(['rm', '-rf', '/'], shell=flag)",
             "import subprocess; subprocess.run(['rm', '-rf', '/'], cwd='/')",
             "require('child_process').spawn('rm', '-rf', '/')",
-            "require('child_process').spawn('rm', ['-rf', '/'], {shell:'/bin/echo'})",
-            "require('child_process').exec('rm -rf /', {shell:'/bin/echo'})",
         ] {
             let program = if code.starts_with("require") {
                 "node"
@@ -565,6 +563,16 @@ mod tests {
                 report(program, code).nested_executions().is_empty(),
                 "{program}: {code}"
             );
+        }
+        for code in [
+            "require('child_process').spawn('rm', ['-rf', '/'], {shell:'/bin/echo'})",
+            "require('child_process').exec('rm -rf /', {shell:'/bin/echo'})",
+        ] {
+            assert!(matches!(
+                report("node", code).nested_executions(),
+                [NestedExecution::Shell { program, code, .. }]
+                    if program == "/bin/echo" && code == "rm -rf /"
+            ));
         }
         assert!(has_argv(
             &report(

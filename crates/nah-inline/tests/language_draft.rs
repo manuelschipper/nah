@@ -127,7 +127,7 @@ fn javascript_node_parity_preserves_source_and_destination_semantics() {
 }
 
 #[test]
-fn javascript_child_calls_are_canonical_and_keep_nested_source_analysis() {
+fn javascript_child_calls_keep_canonical_evidence_and_shell_provenance() {
     let analysis = analyze_program(
         "node",
         "const cp=require('node:child_process'); cp.execSync('printf ok'); cp.spawn('nah', ['nap'])",
@@ -144,8 +144,189 @@ fn javascript_child_calls_are_canonical_and_keep_nested_source_analysis() {
             (LanguageCallKind::LocalUtility, "child_process.spawn"),
         ]
     );
-    assert_eq!(analysis.report().nested_executions().len(), 2);
-    assert!(analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }, NestedExecution::Command { argv, .. }]
+            if program == "sh"
+                && code == "printf ok"
+                && argv.iter().map(String::as_str).eq(["nah", "nap"])
+    ));
+    assert!(!analysis.draft().complete());
+}
+
+#[test]
+fn javascript_child_process_documented_overloads_keep_the_primary_call() {
+    for (source, expected, kind, complete) in [
+        (
+            "cp.exec('printf ok', {encoding:'utf8'}, () => {})",
+            "child_process.exec",
+            LanguageCallKind::EvaluatedShell,
+            false,
+        ),
+        (
+            "cp.execSync('printf ok', {shell:'/bin/bash'})",
+            "child_process.execSync",
+            LanguageCallKind::EvaluatedShell,
+            true,
+        ),
+        (
+            "cp.spawn('rm', {stdio:'ignore'})",
+            "child_process.spawn",
+            LanguageCallKind::LocalUtility,
+            true,
+        ),
+        (
+            "cp.spawn('rm', ['-rf', '/'], {shell:false})",
+            "child_process.spawn",
+            LanguageCallKind::LocalUtility,
+            true,
+        ),
+        (
+            "cp.spawnSync('rm', {})",
+            "child_process.spawnSync",
+            LanguageCallKind::LocalUtility,
+            true,
+        ),
+        (
+            "cp.execFile('rm', ['-rf', '/'], {}, () => {})",
+            "child_process.execFile",
+            LanguageCallKind::LocalUtility,
+            false,
+        ),
+        (
+            "cp.execFile('rm', {stdio:'ignore'}, () => {})",
+            "child_process.execFile",
+            LanguageCallKind::LocalUtility,
+            false,
+        ),
+        (
+            "cp.execFileSync('rm', ['-rf', '/'], {})",
+            "child_process.execFileSync",
+            LanguageCallKind::LocalUtility,
+            true,
+        ),
+    ] {
+        let code = format!("const cp=require('child_process'); {source}");
+        let analysis = analyze_program("node", &code);
+        assert!(
+            matches!(
+                analysis.draft().calls(),
+                [call] if callable(call) == expected && call.kind() == kind
+            ),
+            "{source}"
+        );
+        assert_eq!(analysis.draft().complete(), complete, "{source}");
+    }
+}
+
+#[test]
+fn javascript_child_shell_modes_preserve_dialect_and_context_uncertainty() {
+    let bash = analyze_program(
+        "node",
+        "require('child_process').spawn('rm', ['-rf', '/'], {shell:'/bin/bash'})",
+    );
+    assert_eq!(
+        bash.draft().calls()[0].kind(),
+        LanguageCallKind::EvaluatedShell
+    );
+    assert!(matches!(
+        bash.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "bash" && code == "rm -rf /"
+    ));
+    assert!(bash.draft().complete());
+
+    for source in [
+        "require('child_process').execSync('[[ -e / ]] && rm -rf /')",
+        "require('child_process').spawn('rm', ['-rf', '/'], {shell:true})",
+        "require('child_process').execFileSync('rm', ['-rf', '/'], {shell:'/bin/echo'})",
+    ] {
+        let analysis = analyze_program("node", source);
+        assert!(
+            matches!(
+                analysis.draft().calls(),
+                [call] if call.kind() == LanguageCallKind::EvaluatedShell
+            ),
+            "{source}"
+        );
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Shell { program, .. }] if program != "bash"
+            ),
+            "{source}"
+        );
+        assert!(!analysis.draft().complete(), "{source}");
+    }
+
+    let argv = analyze_program(
+        "node",
+        "require('child_process').spawn('rm', ['-rf', '/'], {shell:false})",
+    );
+    assert!(matches!(
+        argv.report().nested_executions(),
+        [NestedExecution::Command { argv, .. }]
+            if argv.iter().map(String::as_str).eq(["rm", "-rf", "/"])
+    ));
+    assert!(argv.draft().complete());
+
+    let cwd = analyze_program(
+        "node",
+        "require('child_process').spawn('rm', ['-rf', '.'], {cwd:'/'})",
+    );
+    assert_eq!(
+        cwd.draft().calls()[0].kind(),
+        LanguageCallKind::LocalUtility
+    );
+    assert!(cwd.report().nested_executions().is_empty());
+    assert!(!cwd.draft().complete());
+
+    let windows = analyze_program_platform(
+        "node",
+        "require('child_process').execSync('rm -rf /', {shell:'/bin/bash'})",
+        Platform::Windows,
+    );
+    assert!(matches!(
+        windows.report().nested_executions(),
+        [NestedExecution::Shell { program, .. }] if program == "/bin/bash"
+    ));
+    assert!(!windows.draft().complete());
+}
+
+#[test]
+fn javascript_child_callbacks_are_conditional_and_invalid_shapes_stay_inert() {
+    let callback = analyze_program(
+        "node",
+        "const cp=require('child_process'), fs=require('fs'); cp.execFile('true', () => fs.rmSync('/', {recursive:true}))",
+    );
+    assert_eq!(
+        callback
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["child_process.execFile", "fs.rmSync"]
+    );
+    assert_eq!(callback.draft().calls()[1].execution_dominators(), &[0]);
+    assert!(!callback.draft().complete());
+
+    for source in [
+        "require('child_process').spawn('rm', '-rf', '/')",
+        "require('child_process').execSync('printf ok', () => {})",
+        "require('child_process').execFile('rm', [], {}, 'not a callback')",
+    ] {
+        let analysis = analyze_program("node", source);
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.draft().complete(), "{source}");
+    }
+
+    let accessor = analyze_program(
+        "node",
+        "require('child_process').spawn('rm', [], {get shell(){return false}})",
+    );
+    assert!(accessor.draft().calls().is_empty());
+    assert!(!accessor.draft().complete());
 }
 
 #[test]

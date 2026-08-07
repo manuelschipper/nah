@@ -361,10 +361,16 @@ impl Lowerer {
 
         let (lowered, stdout_inherited) = match child {
             NestedExecution::Shell {
+                program,
                 code,
                 stdout_inherited,
-                ..
-            } => (self.lower_inline_shell_payload(&code), stdout_inherited),
+            } if program == "bash" => (self.lower_inline_shell_payload(&code), stdout_inherited),
+            NestedExecution::Shell {
+                stdout_inherited, ..
+            } => {
+                self.complete = false;
+                (Lowered::default(), stdout_inherited)
+            }
             NestedExecution::Command {
                 argv,
                 stdout_inherited,
@@ -406,6 +412,8 @@ impl Lowerer {
 
         let child_end = self.stages.len();
         self.inline_child_stages.extend(child_stage..child_end);
+        let child_complete = self.complete;
+        let child_analysis_refused = self.analysis_refused;
         let nested_fork_bomb = self.detected_fork_bomb && !parent_fork_bomb;
         self.state = parent_state;
         self.ambient_variables = parent_ambient_variables;
@@ -418,8 +426,8 @@ impl Lowerer {
         self.asynchronous_depth = parent_asynchronous_depth;
         self.payload_depth = parent_payload_depth;
         self.conditional_depth = parent_conditional_depth;
-        self.complete = parent_complete;
-        self.analysis_refused = parent_analysis_refused;
+        self.complete = parent_complete && child_complete;
+        self.analysis_refused = parent_analysis_refused || child_analysis_refused;
         self.detected_fork_bomb = parent_fork_bomb;
 
         let fork_bomb_stage = if child_stage < child_end {
@@ -443,13 +451,26 @@ impl Lowerer {
         if !self.enter_payload(payload.len()) {
             return Lowered::default();
         }
-        let mut lowered = Lowered::default();
-        if let Ok(syntax) = nah_parse::normalize(payload) {
-            self.detected_fork_bomb |= syntax.fork_bomb();
-            if syntax.complete() {
-                lowered = self.lower_syntax(&syntax);
+        let lowered = match nah_parse::normalize(payload) {
+            Ok(syntax) => {
+                self.detected_fork_bomb |= syntax.fork_bomb();
+                if syntax.complete() {
+                    self.lower_syntax(&syntax)
+                } else {
+                    self.complete = false;
+                    Lowered::default()
+                }
             }
-        }
+            Err(nah_parse::ParseError::ExceedsLimit(_)) => {
+                self.complete = false;
+                self.analysis_refused = true;
+                Lowered::default()
+            }
+            Err(_) => {
+                self.complete = false;
+                Lowered::default()
+            }
+        };
         self.payload_depth -= 1;
         lowered
     }

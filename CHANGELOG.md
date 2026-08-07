@@ -49,6 +49,12 @@
 - **Node promise filesystem effects** — `node:fs/promises`, `fs/promises`, and
   `require('fs').promises` now share owned filesystem effects and rebinding
   invalidation with the callback and synchronous APIs.
+- **Node child-process overloads** — JavaScript analysis now preserves valid
+  options and callbacks, joins `shell` argv with Node semantics, analyzes local
+  callback effects conditionally, and keeps invalid call shapes inert.
+- **Nested shell dialect boundary** — only explicitly proven Bash payloads enter
+  the Bash lowerer; default `sh`, Windows, custom-shell, and malformed payloads
+  retain partial coverage without fabricated Bash effects.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 
