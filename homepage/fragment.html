@@ -721,9 +721,8 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <h2 class="claim">It knows a disaster when it sees one.</h2>
         <div class="prose">
           <p>
-            That's because nah doesn't take a command at its word. It parses
-            every call into effects before anything runs and blocks calls that
-            spell disaster. A block tells the agent what was stopped and what
+            nah parses every call into effects and blocks calls that spell
+            disaster. A block tells the agent what was stopped and what
             to do instead of retrying. When no guard claims a call, nah
             delegates: your runtime decides, your permissions stay yours.
           </p>
@@ -773,22 +772,16 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="prose">
           <p>
             Step one of any hijack is switching off the alarm. nah refuses
-            every route it can see:
+            every route it can see: guard disables, trust changes, config
+            edits, hook removal, from any tool call.
+          </p>
+          <p>
+            You can, though. <code>nah nap</code> opens a ten-minute window
+            where your agent may reconfigure nah, with guards still running.
+            Only you can start it, in a real terminal.
+            <code>nah wake</code> ends it early.
           </p>
         </div>
-        <ul class="frags">
-          <li><b>not by command</b> — <code>nah guard disable</code>, trust
-              changes, config edits: refused from any tool call.</li>
-          <li><b>not by config</b> — no setting anywhere controls
-              self-protection; it's compiled into the binary.</li>
-          <li><b>not by repo</b> — a project's <code>.nah/project.toml</code>
-              can turn guards on, never off.</li>
-          <li><b>you can, though</b> — <code>nah nap</code> opens a ten-minute
-              window where your agent is allowed to configure nah for you:
-              add guards, change settings, rewire hooks. An agent can't start
-              the nap; only you can, in a real terminal. <code>nah wake</code>
-              closes it early.</li>
-        </ul>
       </section>
 
       <section id="extend">
@@ -808,8 +801,6 @@ footer .fine a{ text-decoration-color:var(--rule); }
               you go.</li>
           <li><b>trust-gated</b> — a project's guards don't run until a human
               trusts the repo, and enabling one pins its exact bytes.</li>
-          <li><b>off switch included</b> — flip any guard off, TUI or CLI;
-              those calls just go back to your runtime.</li>
         </ul>
       </section>
 
@@ -900,8 +891,8 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="rt"><span class="lg lg-pi"></span><span class="nm">pi</span></div>
       </div>
       <p class="prose" style="margin-top:1.4rem">
-        One install command each. Every adapter hooks the runtime's native path, fails
-        closed, and speaks that runtime's own deny format.
+        One install command each. Every adapter hooks the runtime's native path
+        and speaks that runtime's own deny format.
       </p>
     </section>
 
