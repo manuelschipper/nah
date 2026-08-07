@@ -354,3 +354,29 @@ fn interpreter_value_bounds_cannot_expand_native_evidence() {
     assert!(!complete);
     assert!(serde_json::to_vec(value).unwrap().len() < 1024 * 1024);
 }
+
+#[test]
+fn possible_cwd_mutation_only_widens_later_relative_targets() {
+    for code in [
+        "import os\nos.chdir('/tmp')\nos.remove('cache')",
+        "import os\nplugin()\nos.remove('cache')",
+        "import os\ndef change(): plugin()\nchange()\nos.remove('cache')",
+        "import os\nif condition: plugin()\nos.remove('cache')",
+        "import os\nexec(\"plugin()\", {})\nos.remove('cache')",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            None,
+            "{code}"
+        );
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    let analysis = analyze("import os\nplugin()\nos.remove('/tmp/cache')");
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/cache")
+    );
+}

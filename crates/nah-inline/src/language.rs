@@ -187,6 +187,11 @@ impl LanguageFilesystem {
         if metadata { self.metadata() } else { self }
     }
 
+    pub(crate) fn without_requested(mut self) -> Self {
+        self.requested = None;
+        self
+    }
+
     pub fn requested(&self) -> Option<&str> {
         self.requested.as_deref()
     }

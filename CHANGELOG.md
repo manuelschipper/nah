@@ -13,7 +13,8 @@
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
-  guards. Unresolved values make coverage partial; unowned calls add no effect.
+  guards. Unresolved values make coverage partial; unowned calls add no effect,
+  and possible working-directory changes no longer misresolve relative paths.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

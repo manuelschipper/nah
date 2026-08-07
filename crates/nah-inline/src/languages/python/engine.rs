@@ -185,6 +185,7 @@ struct State {
     bindings: BTreeMap<String, Value>,
     cells: Vec<Cell>,
     functions: Vec<LocalFunction>,
+    relative_cwd_known: bool,
 }
 
 impl Default for State {
@@ -204,6 +205,7 @@ impl Default for State {
             bindings,
             cells: Vec::new(),
             functions: Vec::new(),
+            relative_cwd_known: true,
         }
     }
 }
@@ -786,6 +788,7 @@ impl Interpreter<'_> {
             if self.exec_block(body, &mut class_state, depth) != Control::Next {
                 self.complete = false;
             }
+            state.relative_cwd_known &= class_state.relative_cwd_known;
             state.cells = class_state.cells;
         }
         if let Some(name) = node.child(HirField::Name) {
@@ -1281,9 +1284,13 @@ impl Interpreter<'_> {
                     Value::Unknown
                 }
             }
-            Value::Produced(origins) => Value::Produced(origins),
+            Value::Produced(origins) => {
+                state.relative_cwd_known = false;
+                Value::Produced(origins)
+            }
             _ => {
                 invalidate_argument_cells(&arguments, state);
+                state.relative_cwd_known = false;
                 Value::Unknown
             }
         }
@@ -1463,15 +1470,21 @@ impl Interpreter<'_> {
                 if let Some(isolated) = dynamic_arguments(function, &arguments)
                     && let Some(value) = arguments.positional.first()
                 {
+                    let exact_source = matches!(value, Value::String(_) | Value::Compiled { .. });
                     let mode = if function == KnownFunction::Eval {
                         CodeMode::Eval
                     } else {
                         CodeMode::Exec
                     };
                     if isolated {
-                        self.dynamic_execution(value.clone(), mode, &mut State::default(), depth);
+                        let mut isolated_state = State::default();
+                        self.dynamic_execution(value.clone(), mode, &mut isolated_state, depth);
+                        state.relative_cwd_known &= isolated_state.relative_cwd_known;
                     } else {
                         self.dynamic_execution(value.clone(), mode, state, depth);
+                    }
+                    if !exact_source {
+                        state.relative_cwd_known = false;
                     }
                 }
                 Value::Unknown
@@ -1873,6 +1886,20 @@ impl Interpreter<'_> {
         filesystems: Vec<LanguageFilesystem>,
         endpoint: Option<String>,
     ) -> Option<usize> {
+        let filesystems = filesystems
+            .into_iter()
+            .map(|filesystem| {
+                if !state.relative_cwd_known
+                    && filesystem
+                        .requested()
+                        .is_some_and(|path| !is_absolute(path, self.input.platform))
+                {
+                    filesystem.without_requested()
+                } else {
+                    filesystem
+                }
+            })
+            .collect::<Vec<_>>();
         let input = language_call_input(callable, arguments, state);
         if !input.complete()
             || filesystems
@@ -1948,6 +1975,7 @@ impl Interpreter<'_> {
         for (cell, local_cell) in state.cells.iter_mut().zip(local.cells) {
             *cell = local_cell;
         }
+        state.relative_cwd_known &= local.relative_cwd_known;
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
         }
@@ -3071,6 +3099,7 @@ fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
 }
 
 fn join_states(mut left: State, right: State) -> State {
+    left.relative_cwd_known &= right.relative_cwd_known;
     let names = left
         .bindings
         .keys()
