@@ -432,3 +432,59 @@ fn terminated_unknown_branch_state_never_flows_into_the_fallthrough() {
     assert_eq!(callable(&analysis.draft().calls()[1]), "requests.post");
     assert!(analysis.draft().flows().is_empty());
 }
+
+#[test]
+fn binders_and_deletion_never_reuse_stale_module_ownership() {
+    for code in [
+        "import os\nwith open('/dev/null') as os:\n    os.remove('/tmp/x')",
+        "import os\ndel os\nos.remove('/tmp/x')",
+        "import os\nmatch 1:\n    case os: pass\nos.remove('/tmp/x')",
+    ] {
+        assert!(
+            analyze(code)
+                .draft()
+                .calls()
+                .iter()
+                .all(|call| callable(call) != "os.remove"),
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn shared_module_and_environment_mutations_invalidate_exact_ownership() {
+    for code in [
+        "import os\ndef configure(): setattr(os, 'remove', lambda path: None)\nconfigure()\nos.remove('/tmp/x')",
+        "import os\ndef configure(): os.remove = harmless\nconfigure()\nos.remove('/tmp/x')",
+        "import os\nclass Configure:\n    os.remove = harmless\nos.remove('/tmp/x')",
+        "import os\nexec(\"os.remove = harmless\")\nos.remove('/tmp/x')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    for mutation in [
+        "os.environ.update({'HOME': '/tmp'})",
+        "os.environ.pop('HOME')",
+        "os.environ['HOME'] = '/tmp'",
+    ] {
+        let code =
+            format!("import os\n{mutation}\nos.remove(os.getenv('HOME') + '/.nah/trust.json')");
+        let analysis = analyze(&code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            None,
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn read_only_local_module_arguments_preserve_ownership() {
+    let analysis = analyze(
+        "import os\ndef inspect_module(module): pass\ninspect_module(os)\nos.remove('/tmp/x')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(callable(&analysis.draft().calls()[0]), "os.remove");
+}

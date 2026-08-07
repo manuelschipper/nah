@@ -11,7 +11,8 @@
   execution. Unsupported behavior stays local, while malformed required suites
   use the existing structural-mismatch refusal. Raised or non-returning local
   calls and terminated branch state no longer leak effects into unreachable
-  code.
+  code, while binders, deletion, and shared module or environment mutations no
+  longer retain stale library ownership or home paths.
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom

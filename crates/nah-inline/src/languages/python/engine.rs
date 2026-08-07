@@ -162,6 +162,7 @@ enum Value {
     BytesMethod { value: Vec<u8>, method: String },
     Decoded(Box<Value>),
     DecodedMethod { value: Box<Value>, method: String },
+    ModuleMethod(Module),
     Compiled { source: String, mode: CodeMode },
     Produced(Vec<usize>),
 }
@@ -185,6 +186,7 @@ struct State {
     bindings: BTreeMap<String, Value>,
     cells: Vec<Cell>,
     functions: Vec<LocalFunction>,
+    invalid_modules: BTreeSet<Module>,
     relative_cwd_known: bool,
 }
 
@@ -205,6 +207,7 @@ impl Default for State {
             bindings,
             cells: Vec::new(),
             functions: Vec::new(),
+            invalid_modules: BTreeSet::new(),
             relative_cwd_known: true,
         }
     }
@@ -444,6 +447,12 @@ impl Interpreter<'_> {
             HirKind::Break => Control::Break,
             HirKind::Continue => Control::Continue,
             HirKind::With => self.with_statement(node, state, depth),
+            HirKind::Delete => {
+                for target in named_children(node) {
+                    self.delete(target, state);
+                }
+                Control::Next
+            }
             HirKind::Try => self.try_statement(node, state, depth),
             HirKind::Exec => {
                 if let Some(source) = named_children(node).next() {
@@ -461,6 +470,7 @@ impl Interpreter<'_> {
             HirKind::Pass | HirKind::Comment | HirKind::Token => Control::Next,
             HirKind::Unsupported | HirKind::Error => {
                 self.complete = false;
+                self.widen_unsupported_bindings(node, state);
                 Control::Next
             }
             _ => {
@@ -542,6 +552,7 @@ impl Interpreter<'_> {
             }
             HirKind::Unsupported | HirKind::Error => {
                 self.complete = false;
+                self.widen_unsupported_bindings(node, state);
                 Value::Unknown
             }
             _ => {
@@ -625,6 +636,11 @@ impl Interpreter<'_> {
     }
 
     fn invalidate_mutation_target(&mut self, target: &HirNode, state: &mut State) {
+        if let Some(module) = owned_module_target(target, state, &self.source) {
+            invalidate_module(module, state);
+            self.complete = false;
+            return;
+        }
         let mut root = target;
         while root.kind() != HirKind::Identifier {
             let Some(child) = named_children(root).next() else {
@@ -640,18 +656,47 @@ impl Interpreter<'_> {
                     *value = Cell::Unknown;
                 }
             }
-            Some(Value::Module(_)) => {
-                for value in state.bindings.values_mut() {
-                    if matches!(value, Value::Module(_)) {
-                        *value = Value::Unknown;
-                    }
-                }
+            Some(Value::Module(module)) => {
+                invalidate_module(module, state);
             }
             _ => {
                 state.bindings.insert(name, Value::Unknown);
             }
         }
         self.complete = false;
+    }
+
+    fn delete(&mut self, target: &HirNode, state: &mut State) {
+        match target.kind() {
+            HirKind::Identifier => {
+                state
+                    .bindings
+                    .insert(self.text(target).to_owned(), Value::Unknown);
+            }
+            HirKind::Tuple | HirKind::List | HirKind::ParenthesizedExpression => {
+                for target in named_children(target) {
+                    self.delete(target, state);
+                }
+            }
+            HirKind::Attribute => target
+                .child(HirField::Object)
+                .into_iter()
+                .for_each(|object| self.invalidate_mutation_target(object, state)),
+            HirKind::Subscript => named_children(target)
+                .next()
+                .into_iter()
+                .for_each(|object| self.invalidate_mutation_target(object, state)),
+            _ => self.complete = false,
+        }
+    }
+
+    fn widen_unsupported_bindings(&mut self, node: &HirNode, state: &mut State) {
+        for name in assigned_names(node, &self.source) {
+            state.bindings.insert(name, Value::Unknown);
+        }
+        for name in capture_names(node, &self.source) {
+            state.bindings.insert(name, Value::Unknown);
+        }
     }
 
     fn import(&mut self, node: &HirNode, state: &mut State) {
@@ -663,6 +708,7 @@ impl Interpreter<'_> {
                 name.split('.').next().and_then(module_value)
             }
             .unwrap_or(Value::Unknown);
+            let value = retain_owned_module(value, state);
             let binding =
                 alias.unwrap_or_else(|| name.split('.').next().unwrap_or(name.as_str()).to_owned());
             state.bindings.insert(binding, value);
@@ -680,7 +726,13 @@ impl Interpreter<'_> {
         }) {
             let (name, alias) = import_name(imported, &self.source);
             let binding = alias.unwrap_or_else(|| name.clone());
-            let value = imported_value(module, &name).unwrap_or(Value::Unknown);
+            let value = if module_value(module).is_some_and(|value| {
+                matches!(value, Value::Module(module) if state.invalid_modules.contains(&module))
+            }) {
+                Value::Unknown
+            } else {
+                imported_value(module, &name).unwrap_or(Value::Unknown)
+            };
             state.bindings.insert(binding, value);
         }
     }
@@ -806,6 +858,7 @@ impl Interpreter<'_> {
             if self.exec_block(body, &mut class_state, depth) != Control::Next {
                 self.complete = false;
             }
+            propagate_invalid_modules(&class_state.invalid_modules, state);
             state.relative_cwd_known &= class_state.relative_cwd_known;
             state.cells = class_state.cells;
         }
@@ -1033,16 +1086,57 @@ impl Interpreter<'_> {
     }
 
     fn with_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
-        for child in node.children() {
-            if child.field() == Some(HirField::Body) {
+        for item in node
+            .children()
+            .iter()
+            .find(|child| child.kind() == HirKind::WithClause)
+            .into_iter()
+            .flat_map(named_children)
+        {
+            let Some(value) = item.child(HirField::Value) else {
+                self.complete = false;
                 continue;
+            };
+            if value.kind() == HirKind::AsPattern {
+                if let Some(context) =
+                    named_children(value).find(|child| child.field() != Some(HirField::Alias))
+                {
+                    self.eval(context, state, depth);
+                }
+                if self.pending_control.is_some() {
+                    break;
+                }
+                if let Some(alias) = value.child(HirField::Alias) {
+                    self.assign_unknown(alias, state);
+                } else {
+                    self.complete = false;
+                }
+            } else {
+                self.eval(value, state, depth);
             }
-            if child.kind() != HirKind::Token {
-                self.eval(child, state, depth);
-            }
+        }
+        if let Some(control) = self.pending_control.take() {
+            return control;
         }
         node.child(HirField::Body)
             .map_or(Control::Next, |body| self.exec_block(body, state, depth))
+    }
+
+    fn assign_unknown(&mut self, target: &HirNode, state: &mut State) {
+        if target.kind() == HirKind::Identifier {
+            state
+                .bindings
+                .insert(self.text(target).to_owned(), Value::Unknown);
+            return;
+        }
+        let mut found = false;
+        for child in named_children(target) {
+            found = true;
+            self.assign_unknown(child, state);
+        }
+        if !found {
+            self.complete = false;
+        }
     }
 
     fn try_statement(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Control {
@@ -1229,7 +1323,9 @@ impl Interpreter<'_> {
         let object = self.eval(object, state, depth);
         let attribute = self.text(attribute);
         let value = match object {
-            Value::Module(module) => module_attribute(module, attribute).unwrap_or(Value::Unknown),
+            Value::Module(module) => {
+                module_attribute(module, attribute).unwrap_or(Value::ModuleMethod(module))
+            }
             Value::Path(path) => Value::PathMethod {
                 path,
                 method: attribute.to_owned(),
@@ -1302,6 +1398,13 @@ impl Interpreter<'_> {
                 } else {
                     Value::Unknown
                 }
+            }
+            Value::ModuleMethod(module) => {
+                if module == Module::Environment {
+                    invalidate_module(module, state);
+                }
+                state.relative_cwd_known = false;
+                Value::Unknown
             }
             Value::Produced(origins) => {
                 state.relative_cwd_known = false;
@@ -1499,6 +1602,7 @@ impl Interpreter<'_> {
                     if isolated {
                         let mut isolated_state = State::default();
                         self.dynamic_execution(value.clone(), mode, &mut isolated_state, depth);
+                        propagate_invalid_modules(&isolated_state.invalid_modules, state);
                         state.relative_cwd_known &= isolated_state.relative_cwd_known;
                     } else {
                         self.dynamic_execution(value.clone(), mode, state, depth);
@@ -1557,7 +1661,10 @@ impl Interpreter<'_> {
                     .map_or(Value::Unknown, Value::Path)
             }
             KnownFunction::PathHome => {
-                if arguments.positional.is_empty() && arguments.keywords.is_empty() {
+                if arguments.positional.is_empty()
+                    && arguments.keywords.is_empty()
+                    && !state.invalid_modules.contains(&Module::Environment)
+                {
                     bounded_owned(self.input.home, &mut self.budget)
                         .map_or(Value::Unknown, Value::Path)
                 } else {
@@ -1577,12 +1684,18 @@ impl Interpreter<'_> {
                 }
                 Value::String(joined)
             }
-            KnownFunction::OsExpanduser => arguments
-                .positional
-                .first()
-                .and_then(value_string)
-                .and_then(|path| expand_home(path, self.input.home, &mut self.budget))
-                .map_or(Value::Unknown, Value::String),
+            KnownFunction::OsExpanduser => {
+                if state.invalid_modules.contains(&Module::Environment) {
+                    Value::Unknown
+                } else {
+                    arguments
+                        .positional
+                        .first()
+                        .and_then(value_string)
+                        .and_then(|path| expand_home(path, self.input.home, &mut self.budget))
+                        .map_or(Value::Unknown, Value::String)
+                }
+            }
             KnownFunction::OsAbspath => arguments
                 .positional
                 .first()
@@ -1591,13 +1704,19 @@ impl Interpreter<'_> {
                 .and_then(|path| bounded_owned(path, &mut self.budget))
                 .map_or(Value::Unknown, Value::String),
             KnownFunction::OsRealpath => Value::Unknown,
-            KnownFunction::OsGetenv => arguments
-                .positional
-                .first()
-                .and_then(value_string)
-                .filter(|name| *name == "HOME")
-                .and_then(|_| bounded_owned(self.input.home, &mut self.budget))
-                .map_or(Value::Unknown, Value::String),
+            KnownFunction::OsGetenv => {
+                if state.invalid_modules.contains(&Module::Environment) {
+                    Value::Unknown
+                } else {
+                    arguments
+                        .positional
+                        .first()
+                        .and_then(value_string)
+                        .filter(|name| *name == "HOME")
+                        .and_then(|_| bounded_owned(self.input.home, &mut self.budget))
+                        .map_or(Value::Unknown, Value::String)
+                }
+            }
             KnownFunction::Getattr => {
                 if arguments.positional.len() >= 2
                     && let Some(attribute) = arguments.positional.get(1).and_then(value_string)
@@ -1617,6 +1736,7 @@ impl Interpreter<'_> {
                 .first()
                 .and_then(value_string)
                 .and_then(module_value)
+                .map(|value| retain_owned_module(value, state))
                 .unwrap_or(Value::Unknown),
             KnownFunction::ShutilWhich => Value::Unknown,
             KnownFunction::Request(kind) => {
@@ -1996,6 +2116,7 @@ impl Interpreter<'_> {
         for (cell, local_cell) in state.cells.iter_mut().zip(local.cells) {
             *cell = local_cell;
         }
+        propagate_invalid_modules(&local.invalid_modules, state);
         state.relative_cwd_known &= local.relative_cwd_known;
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
@@ -2040,8 +2161,11 @@ impl Interpreter<'_> {
                 }
                 Value::Path(joined)
             }
-            "expanduser" => expand_home(&path, self.input.home, &mut self.budget)
-                .map_or(Value::Unknown, Value::Path),
+            "expanduser" if !state.invalid_modules.contains(&Module::Environment) => {
+                expand_home(&path, self.input.home, &mut self.budget)
+                    .map_or(Value::Unknown, Value::Path)
+            }
+            "expanduser" => Value::Unknown,
             "resolve" | "absolute" => Value::Unknown,
             "read_text" | "read_bytes" => {
                 let valid = if method == "read_text" {
@@ -2550,6 +2674,7 @@ impl Interpreter<'_> {
         let object = self.eval(children[0], state, depth);
         let index = self.eval(children[1], state, depth);
         if object == Value::Module(Module::Environment)
+            && !state.invalid_modules.contains(&Module::Environment)
             && value_string(&index).is_some_and(|value| value == "HOME")
         {
             Value::String(self.input.home.to_owned())
@@ -2918,6 +3043,7 @@ fn native_value(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) ->
         | Value::StringMethod { .. }
         | Value::BytesMethod { .. }
         | Value::DecodedMethod { .. }
+        | Value::ModuleMethod(_)
         | Value::Compiled { .. }
         | Value::Produced(_) => (native_unknown(), false),
     }
@@ -3044,6 +3170,7 @@ fn value_bytes(value: &Value) -> Option<usize> {
         | Value::EmptyDictionary
         | Value::Cell(_)
         | Value::Module(_)
+        | Value::ModuleMethod(_)
         | Value::Known(_)
         | Value::LocalFunction(_)
         | Value::Produced(_) => Some(0),
@@ -3115,14 +3242,66 @@ fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
             _ => None,
         })
         .collect::<BTreeSet<_>>();
+    for module in modules {
+        invalidate_module(module, state);
+    }
+}
+
+fn retain_owned_module(value: Value, state: &State) -> Value {
+    match value {
+        Value::Module(module) if state.invalid_modules.contains(&module) => Value::Unknown,
+        value => value,
+    }
+}
+
+fn invalidate_module(module: Module, state: &mut State) {
+    state.invalid_modules.insert(module);
     for value in state.bindings.values_mut() {
-        if matches!(value, Value::Module(module) if modules.contains(module)) {
+        if *value == Value::Module(module) {
             *value = Value::Unknown;
+        }
+    }
+    for cell in &mut state.cells {
+        if let Cell::Sequence(values) = cell {
+            for value in values {
+                if *value == Value::Module(module) {
+                    *value = Value::Unknown;
+                }
+            }
         }
     }
 }
 
+fn owned_module_target(node: &HirNode, state: &State, source: &str) -> Option<Module> {
+    match node.kind() {
+        HirKind::Identifier => match state.bindings.get(unsafe_text(source, node)) {
+            Some(Value::Module(module)) => Some(*module),
+            _ => None,
+        },
+        HirKind::Attribute => {
+            let object = owned_module_target(node.child(HirField::Object)?, state, source)?;
+            let attribute = unsafe_text(source, node.child(HirField::Attribute)?);
+            match module_attribute(object, attribute) {
+                Some(Value::Module(module)) => Some(module),
+                _ => Some(object),
+            }
+        }
+        _ => None,
+    }
+}
+
+fn propagate_invalid_modules(modules: &BTreeSet<Module>, state: &mut State) {
+    let modules = modules
+        .difference(&state.invalid_modules)
+        .copied()
+        .collect::<Vec<_>>();
+    for module in modules {
+        invalidate_module(module, state);
+    }
+}
+
 fn join_states(mut left: State, right: State) -> State {
+    left.invalid_modules.extend(&right.invalid_modules);
     left.relative_cwd_known &= right.relative_cwd_known;
     let names = left
         .bindings
@@ -3299,6 +3478,29 @@ fn assigned_names(node: &HirNode, source: &str) -> BTreeSet<String> {
     }
     let mut names = BTreeSet::new();
     visit(node, source, &mut names, true);
+    names
+}
+
+fn capture_names(node: &HirNode, source: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut stack = vec![node];
+    while let Some(node) = stack.pop() {
+        if node.kind() == HirKind::CasePattern {
+            let mut pattern = vec![node];
+            while let Some(node) = pattern.pop() {
+                if node.kind() == HirKind::Identifier {
+                    let name = unsafe_text(source, node);
+                    if name != "_" {
+                        names.insert(name.to_owned());
+                    }
+                } else {
+                    pattern.extend(node.children());
+                }
+            }
+            continue;
+        }
+        stack.extend(node.children());
+    }
     names
 }
 
