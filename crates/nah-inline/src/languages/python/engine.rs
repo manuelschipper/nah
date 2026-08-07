@@ -3,11 +3,13 @@ use std::{
     sync::Arc,
 };
 
+use nah_proto::action::{FilesystemOperation, InvocationInput};
 use nah_proto::ctx::Platform;
+use serde_json::{Map, Value as JsonValue};
 
 use crate::{
-    Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, NestedExecution,
-    ProtectionInput,
+    Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, LanguageAnalysis, LanguageCall,
+    LanguageCallKind, LanguageDraft, LanguageFilesystem, NestedExecution, ProtectionInput,
 };
 
 use super::parser::{HirField, HirKind, HirNode};
@@ -20,6 +22,9 @@ const MAX_COLLECTION_ITEMS: usize = 256;
 const MAX_CELLS: usize = 1_024;
 const MAX_VALUE_BYTES: usize = crate::SOURCE_LIMIT;
 const MAX_DYNAMIC_SOURCE_BYTES: usize = crate::SOURCE_LIMIT;
+const MAX_NATIVE_ARGUMENTS: usize = 16;
+const MAX_NATIVE_COLLECTION_ITEMS: usize = 64;
+const MAX_NATIVE_EVIDENCE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Module {
@@ -61,6 +66,7 @@ enum KnownFunction {
     OsPopen,
     OsRealpath,
     OsRemove,
+    OsUnlink,
     OsRemovedirs,
     OsRename,
     OsReplace,
@@ -71,12 +77,28 @@ enum KnownFunction {
     Path,
     PathHome,
     PathJoin,
-    Request,
+    Request(RequestKind),
     ShutilCopy(CopyKind),
     ShutilMove,
     ShutilRmtree,
     ShutilWhich,
     Subprocess(SubprocessKind),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequestKind {
+    RequestsGet,
+    RequestsPost,
+    RequestsPut,
+    RequestsPatch,
+    RequestsDelete,
+    HttpxGet,
+    HttpxPost,
+    HttpxPut,
+    HttpxPatch,
+    HttpxDelete,
+    UrlOpen,
+    UrlRetrieve,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,6 +165,7 @@ enum Value {
     Decoded(Box<Value>),
     DecodedMethod { value: Box<Value>, method: String },
     Compiled { source: String, mode: CodeMode },
+    Produced(Vec<usize>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -278,6 +301,8 @@ struct Interpreter<'a> {
     report: InlineReport,
     budget: Budget,
     complete: bool,
+    draft: LanguageDraft,
+    conditional_depth: usize,
     call_stack: Vec<String>,
 }
 
@@ -286,11 +311,13 @@ pub(super) fn analyze(
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
-) -> InlineReport {
+) -> LanguageAnalysis {
     let module = match super::parser::lower(input.code, program) {
         Ok(module) if !module.opaque() => module,
-        Ok(_) => return InlineReport::default(),
-        Err(refusal) => return InlineReport::refused(refusal),
+        Ok(_) => {
+            return LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial());
+        }
+        Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
     let mut interpreter = Interpreter {
         program,
@@ -299,14 +326,22 @@ pub(super) fn analyze(
         report: InlineReport::default(),
         budget: Budget::default(),
         complete: true,
+        draft: LanguageDraft::default(),
+        conditional_depth: 0,
         call_stack: Vec::with_capacity(depth),
     };
     let mut state = State::default();
     interpreter.exec_block(module.root(), &mut state, depth);
     if let Some(refusal) = interpreter.budget.refusal {
         interpreter.report.refuse(refusal);
+        interpreter.draft.set_partial();
     }
-    super::super::common::with_protection(interpreter.report, program, input, protection)
+    if !interpreter.complete {
+        interpreter.draft.set_partial();
+    }
+    let report =
+        super::super::common::with_protection(interpreter.report, program, input, protection);
+    LanguageAnalysis::new(report, interpreter.draft)
 }
 
 impl Interpreter<'_> {
@@ -781,9 +816,11 @@ impl Interpreter<'_> {
                 self.complete = false;
                 let mut yes = state.clone();
                 let mut no = state.clone();
+                self.conditional_depth += 1;
                 let yes_control = consequence
                     .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
                 let no_control = self.exec_alternatives(&alternatives, &mut no, depth);
+                self.conditional_depth -= 1;
                 *state = join_states(yes, no);
                 if yes_control == no_control {
                     yes_control
@@ -822,10 +859,12 @@ impl Interpreter<'_> {
                         self.complete = false;
                         let mut yes = state.clone();
                         let mut no = state.clone();
+                        self.conditional_depth += 1;
                         let yes_control = alternative
                             .child(HirField::Consequence)
                             .map_or(Control::Next, |body| self.exec_block(body, &mut yes, depth));
                         let no_control = self.exec_alternatives(rest, &mut no, depth);
+                        self.conditional_depth -= 1;
                         *state = join_states(yes, no);
                         if yes_control == no_control {
                             yes_control
@@ -854,12 +893,14 @@ impl Interpreter<'_> {
             self.complete = false;
             let before = state.clone();
             self.assign(target, Value::Unknown, state);
+            self.conditional_depth += 1;
             let control = self.exec_block(body, state, depth);
             let mut zero_iterations = before;
             let zero_control = self.exec_loop_else(node, &mut zero_iterations, depth);
             if matches!(control, Control::Next | Control::Continue) {
                 let _ = self.exec_loop_else(node, state, depth);
             }
+            self.conditional_depth -= 1;
             *state = join_states(zero_iterations, state.clone());
             if control == zero_control {
                 return control;
@@ -917,10 +958,12 @@ impl Interpreter<'_> {
                 }
                 None => {
                     self.complete = false;
+                    self.conditional_depth += 1;
                     let mut exits = state.clone();
                     let exit_control = self.exec_loop_else(node, &mut exits, depth);
                     let mut iterates = state.clone();
                     let body_control = self.exec_block(body, &mut iterates, depth);
+                    self.conditional_depth -= 1;
                     *state = if matches!(
                         body_control,
                         Control::Return(_) | Control::Raise | Control::Diverge
@@ -1169,6 +1212,7 @@ impl Interpreter<'_> {
             Value::Known(KnownFunction::Path) if attribute == "home" => {
                 Value::Known(KnownFunction::PathHome)
             }
+            Value::Produced(origins) => Value::Produced(origins),
             _ => Value::Unknown,
         };
         if self.budget.admit_value_bytes(value_bytes(&value)) {
@@ -1212,6 +1256,7 @@ impl Interpreter<'_> {
                     Value::Unknown
                 }
             }
+            Value::Produced(origins) => Value::Produced(origins),
             _ => {
                 invalidate_argument_cells(&arguments, state);
                 Value::Unknown
@@ -1231,7 +1276,15 @@ impl Interpreter<'_> {
                     let value = child
                         .child(HirField::Value)
                         .map_or(Value::Unknown, |value| self.eval(value, state, depth));
-                    arguments.keywords.push((self.text(name).to_owned(), value));
+                    let name = self.text(name).to_owned();
+                    if arguments
+                        .keywords
+                        .iter()
+                        .any(|(existing, _)| existing == &name)
+                    {
+                        arguments.complete = false;
+                    }
+                    arguments.keywords.push((name, value));
                 }
                 HirKind::ListSplat => {
                     let value = named_children(child)
@@ -1262,12 +1315,42 @@ impl Interpreter<'_> {
     ) -> Value {
         match function {
             KnownFunction::ShutilRmtree => {
+                if !valid_call_shape(
+                    &arguments,
+                    3,
+                    &["path", "ignore_errors", "onerror", "onexc", "dir_fd"],
+                ) || required_argument(&arguments, 0, "path").is_none()
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    "shutil.rmtree",
+                    &arguments,
+                    state,
+                    vec![filesystem_argument(
+                        &arguments,
+                        0,
+                        "path",
+                        FilesystemOperation::Delete,
+                        true,
+                    )],
+                );
                 if let Some(path) = one_argument(&arguments, "path").and_then(value_string) {
                     self.add_destructive_target(path);
                 }
                 Value::None
             }
             KnownFunction::OsSystem | KnownFunction::OsPopen => {
+                let valid = if function == KnownFunction::OsSystem {
+                    valid_call_shape(&arguments, 1, &["command"])
+                        && required_argument(&arguments, 0, "command").is_some()
+                } else {
+                    valid_call_shape(&arguments, 3, &["cmd", "mode", "buffering"])
+                        && required_argument(&arguments, 0, "cmd").is_some()
+                };
+                if !valid {
+                    return Value::Unknown;
+                }
                 let name = if function == KnownFunction::OsSystem {
                     "command"
                 } else {
@@ -1284,15 +1367,61 @@ impl Interpreter<'_> {
                         self.push_shell(code, function == KnownFunction::OsSystem);
                     }
                 }
-                Value::Unknown
+                self.emit_call(
+                    LanguageCallKind::EvaluatedShell,
+                    if function == KnownFunction::OsSystem {
+                        "os.system"
+                    } else {
+                        "os.popen"
+                    },
+                    &arguments,
+                    state,
+                    Vec::new(),
+                    None,
+                )
+                .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             KnownFunction::OsExec(kind) => {
+                if !valid_os_exec_shape(kind, &arguments) {
+                    return Value::Unknown;
+                }
+                let callable = os_exec_callable(kind);
+                self.emit_call(
+                    LanguageCallKind::LocalUtility,
+                    callable,
+                    &arguments,
+                    state,
+                    Vec::new(),
+                    None,
+                );
                 self.os_exec(kind, &arguments, state);
                 Value::None
             }
             KnownFunction::Subprocess(kind) => {
+                if required_argument(&arguments, 0, "args").is_none()
+                    || arguments.positional.len() > 1
+                {
+                    return Value::Unknown;
+                }
+                let origin = if let Some(shell) = subprocess_shell(&arguments) {
+                    self.emit_call(
+                        if shell {
+                            LanguageCallKind::EvaluatedShell
+                        } else {
+                            LanguageCallKind::LocalUtility
+                        },
+                        subprocess_callable(kind),
+                        &arguments,
+                        state,
+                        Vec::new(),
+                        None,
+                    )
+                } else {
+                    self.draft.set_partial();
+                    None
+                };
                 self.subprocess(kind, &arguments, state);
-                Value::Unknown
+                origin.map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             KnownFunction::Eval | KnownFunction::Exec => {
                 if let Some(isolated) = dynamic_arguments(function, &arguments)
@@ -1344,12 +1473,20 @@ impl Interpreter<'_> {
                     _ => Value::Unknown,
                 }))
             }
-            KnownFunction::Path => arguments
-                .positional
-                .first()
-                .and_then(value_string)
-                .and_then(|path| bounded_owned(path, &mut self.budget))
-                .map_or(Value::Unknown, Value::Path),
+            KnownFunction::Path => {
+                if !arguments.complete
+                    || !arguments.keywords.is_empty()
+                    || arguments.positional.len() != 1
+                {
+                    return Value::Unknown;
+                }
+                arguments
+                    .positional
+                    .first()
+                    .and_then(value_string)
+                    .and_then(|path| bounded_owned(path, &mut self.budget))
+                    .map_or(Value::Unknown, Value::Path)
+            }
             KnownFunction::PathHome => {
                 if arguments.positional.is_empty() && arguments.keywords.is_empty() {
                     bounded_owned(self.input.home, &mut self.budget)
@@ -1413,25 +1550,287 @@ impl Interpreter<'_> {
                 .and_then(module_value)
                 .unwrap_or(Value::Unknown),
             KnownFunction::ShutilWhich => Value::Unknown,
-            KnownFunction::Request => Value::Unknown,
-            KnownFunction::Open
-            | KnownFunction::IoFile
-            | KnownFunction::OsOpen
-            | KnownFunction::OsChmod
-            | KnownFunction::OsChown
-            | KnownFunction::OsLink
-            | KnownFunction::OsMkdir
-            | KnownFunction::OsMakedirs
-            | KnownFunction::OsRemove
+            KnownFunction::Request(kind) => {
+                if required_argument(&arguments, 0, request_url_keyword(kind)).is_none() {
+                    return Value::Unknown;
+                }
+                let callable = request_callable(kind);
+                let endpoint = argument(&arguments, 0, request_url_keyword(kind))
+                    .and_then(value_string)
+                    .map(str::to_owned);
+                let mut filesystems = Vec::new();
+                if kind == RequestKind::UrlRetrieve {
+                    filesystems.push(filesystem_argument(
+                        &arguments,
+                        1,
+                        "filename",
+                        FilesystemOperation::Write,
+                        false,
+                    ));
+                }
+                self.emit_call(
+                    LanguageCallKind::NetworkTransfer,
+                    callable,
+                    &arguments,
+                    state,
+                    filesystems,
+                    endpoint,
+                )
+                .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+            }
+            KnownFunction::Open | KnownFunction::IoFile => {
+                let (max_positional, keywords) = if function == KnownFunction::Open {
+                    (
+                        8,
+                        &[
+                            "file",
+                            "mode",
+                            "buffering",
+                            "encoding",
+                            "errors",
+                            "newline",
+                            "closefd",
+                            "opener",
+                        ][..],
+                    )
+                } else {
+                    (4, &["file", "mode", "closefd", "opener"][..])
+                };
+                if !valid_call_shape(&arguments, max_positional, keywords) {
+                    return Value::Unknown;
+                }
+                if required_argument(&arguments, 0, "file").is_none() {
+                    return Value::Unknown;
+                }
+                let callable = if function == KnownFunction::Open {
+                    "builtins.open"
+                } else {
+                    "io.fileio"
+                };
+                let Some(operations) = open_operations(&arguments) else {
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                };
+                if operations.is_empty() {
+                    return Value::Unknown;
+                }
+                let filesystems = operations
+                    .into_iter()
+                    .map(|operation| filesystem_argument(&arguments, 0, "file", operation, false))
+                    .collect();
+                self.emit_filesystem_call(callable, &arguments, state, filesystems)
+                    .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+            }
+            KnownFunction::OsRemove
+            | KnownFunction::OsUnlink
             | KnownFunction::OsRemovedirs
+            | KnownFunction::OsRmdir => {
+                let (callable, recursive) = match function {
+                    KnownFunction::OsRemove => ("os.remove", false),
+                    KnownFunction::OsUnlink => ("os.unlink", false),
+                    KnownFunction::OsRemovedirs => ("os.removedirs", true),
+                    KnownFunction::OsRmdir => ("os.rmdir", false),
+                    _ => unreachable!(),
+                };
+                if !valid_call_shape(&arguments, 1, &["path", "dir_fd"])
+                    || required_argument(&arguments, 0, "path").is_none()
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    callable,
+                    &arguments,
+                    state,
+                    vec![filesystem_argument(
+                        &arguments,
+                        0,
+                        "path",
+                        FilesystemOperation::Delete,
+                        recursive,
+                    )],
+                );
+                Value::None
+            }
+            KnownFunction::OsMkdir | KnownFunction::OsMakedirs | KnownFunction::OsTruncate => {
+                let (callable, keyword, recursive, required, max_positional, keywords) =
+                    match function {
+                        KnownFunction::OsMkdir => (
+                            "os.mkdir",
+                            "path",
+                            false,
+                            1,
+                            2,
+                            &["path", "mode", "dir_fd"] as &[_],
+                        ),
+                        KnownFunction::OsMakedirs => (
+                            "os.makedirs",
+                            "name",
+                            true,
+                            1,
+                            3,
+                            &["name", "mode", "exist_ok"] as &[_],
+                        ),
+                        KnownFunction::OsTruncate => (
+                            "os.truncate",
+                            "path",
+                            false,
+                            2,
+                            2,
+                            &["path", "length"] as &[_],
+                        ),
+                        _ => unreachable!(),
+                    };
+                if !valid_call_shape(&arguments, max_positional, keywords)
+                    || (0..required).any(|position| {
+                        let name = keywords[position];
+                        required_argument(&arguments, position, name).is_none()
+                    })
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    callable,
+                    &arguments,
+                    state,
+                    vec![filesystem_argument(
+                        &arguments,
+                        0,
+                        keyword,
+                        FilesystemOperation::Write,
+                        recursive,
+                    )],
+                );
+                Value::None
+            }
+            KnownFunction::ShutilCopy(kind) => {
+                if !valid_call_shape(
+                    &arguments,
+                    2,
+                    &[
+                        "src",
+                        "dst",
+                        "follow_symlinks",
+                        "copy_function",
+                        "dirs_exist_ok",
+                    ],
+                ) || required_argument(&arguments, 0, "src").is_none()
+                    || required_argument(&arguments, 1, "dst").is_none()
+                {
+                    return Value::Unknown;
+                }
+                let recursive = kind == CopyKind::Copytree;
+                self.emit_filesystem_call(
+                    shutil_copy_callable(kind),
+                    &arguments,
+                    state,
+                    vec![
+                        filesystem_argument(
+                            &arguments,
+                            0,
+                            "src",
+                            FilesystemOperation::Read,
+                            recursive,
+                        ),
+                        filesystem_argument(
+                            &arguments,
+                            1,
+                            "dst",
+                            FilesystemOperation::Write,
+                            recursive,
+                        ),
+                    ],
+                );
+                Value::Unknown
+            }
+            KnownFunction::OsChmod | KnownFunction::OsChown => {
+                let (callable, required, max_positional, keywords) =
+                    if function == KnownFunction::OsChmod {
+                        (
+                            "os.chmod",
+                            2,
+                            2,
+                            &["path", "mode", "dir_fd", "follow_symlinks"] as &[_],
+                        )
+                    } else {
+                        (
+                            "os.chown",
+                            3,
+                            3,
+                            &["path", "uid", "gid", "dir_fd", "follow_symlinks"] as &[_],
+                        )
+                    };
+                if !valid_call_shape(&arguments, max_positional, keywords)
+                    || (0..required).any(|position| {
+                        required_argument(&arguments, position, keywords[position]).is_none()
+                    })
+                {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    callable,
+                    &arguments,
+                    state,
+                    vec![filesystem_argument(
+                        &arguments,
+                        0,
+                        "path",
+                        FilesystemOperation::Write,
+                        false,
+                    )],
+                );
+                Value::None
+            }
+            KnownFunction::OsOpen
+            | KnownFunction::OsLink
             | KnownFunction::OsRename
             | KnownFunction::OsReplace
-            | KnownFunction::OsRmdir
             | KnownFunction::OsSymlink
-            | KnownFunction::OsTruncate
-            | KnownFunction::ShutilMove
-            | KnownFunction::ShutilCopy(_) => Value::Unknown,
+            | KnownFunction::ShutilMove => Value::Unknown,
         }
+    }
+
+    fn emit_filesystem_call(
+        &mut self,
+        callable: &str,
+        arguments: &Arguments,
+        state: &State,
+        filesystems: Vec<LanguageFilesystem>,
+    ) -> Option<usize> {
+        self.emit_call(
+            LanguageCallKind::DirectFile,
+            callable,
+            arguments,
+            state,
+            filesystems,
+            None,
+        )
+    }
+
+    fn emit_call(
+        &mut self,
+        kind: LanguageCallKind,
+        callable: &str,
+        arguments: &Arguments,
+        state: &State,
+        filesystems: Vec<LanguageFilesystem>,
+        endpoint: Option<String>,
+    ) -> Option<usize> {
+        let input = language_call_input(callable, arguments, state);
+        if !input.complete()
+            || filesystems
+                .iter()
+                .any(|filesystem| filesystem.requested().is_none())
+            || kind == LanguageCallKind::NetworkTransfer && endpoint.is_none()
+        {
+            self.draft.set_partial();
+        }
+        let origins = argument_origins(arguments, state);
+        let call = LanguageCall::new(kind, input, filesystems, endpoint, self.conditional_depth);
+        let ordinal = self.draft.push_call(call)?;
+        for origin in origins {
+            self.draft.push_flow(origin, ordinal);
+        }
+        Some(ordinal)
     }
 
     fn call_local(
@@ -1492,7 +1891,7 @@ impl Interpreter<'_> {
         path: String,
         method: &str,
         arguments: Arguments,
-        _state: &mut State,
+        state: &mut State,
     ) -> Value {
         match method {
             "with_name" => {
@@ -1524,9 +1923,86 @@ impl Interpreter<'_> {
             "expanduser" => expand_home(&path, self.input.home, &mut self.budget)
                 .map_or(Value::Unknown, Value::Path),
             "resolve" | "absolute" => Value::Unknown,
-            "read_text" | "read_bytes" => Value::Unknown,
-            "unlink" | "rmdir" | "rename" | "replace" | "write_text" | "write_bytes" | "touch"
-            | "mkdir" | "chmod" | "hardlink_to" | "link_to" | "symlink_to" => Value::None,
+            "read_text" | "read_bytes" => {
+                let valid = if method == "read_text" {
+                    valid_call_shape(&arguments, 3, &["encoding", "errors", "newline"])
+                } else {
+                    valid_call_shape(&arguments, 0, &[])
+                };
+                if !valid {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    &format!("pathlib.path.{method}"),
+                    &arguments,
+                    state,
+                    vec![LanguageFilesystem::new(
+                        Some(path),
+                        FilesystemOperation::Read,
+                        false,
+                    )],
+                )
+                .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+            }
+            "write_text" | "write_bytes" | "touch" | "mkdir" | "chmod" | "lchmod" => {
+                let valid = match method {
+                    "write_text" => {
+                        valid_call_shape(&arguments, 4, &["data", "encoding", "errors", "newline"])
+                            && required_argument(&arguments, 0, "data").is_some()
+                    }
+                    "write_bytes" => {
+                        valid_call_shape(&arguments, 1, &["data"])
+                            && required_argument(&arguments, 0, "data").is_some()
+                    }
+                    "touch" => valid_call_shape(&arguments, 2, &["mode", "exist_ok"]),
+                    "mkdir" => valid_call_shape(&arguments, 3, &["mode", "parents", "exist_ok"]),
+                    "chmod" => {
+                        valid_call_shape(&arguments, 1, &["mode", "follow_symlinks"])
+                            && required_argument(&arguments, 0, "mode").is_some()
+                    }
+                    "lchmod" => {
+                        valid_call_shape(&arguments, 1, &["mode"])
+                            && required_argument(&arguments, 0, "mode").is_some()
+                    }
+                    _ => unreachable!(),
+                };
+                if !valid {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    &format!("pathlib.path.{method}"),
+                    &arguments,
+                    state,
+                    vec![LanguageFilesystem::new(
+                        Some(path),
+                        FilesystemOperation::Write,
+                        method == "mkdir",
+                    )],
+                );
+                Value::None
+            }
+            "unlink" | "rmdir" => {
+                let valid = if method == "unlink" {
+                    valid_call_shape(&arguments, 1, &["missing_ok"])
+                } else {
+                    valid_call_shape(&arguments, 0, &[])
+                };
+                if !valid {
+                    return Value::Unknown;
+                }
+                self.emit_filesystem_call(
+                    &format!("pathlib.path.{method}"),
+                    &arguments,
+                    state,
+                    vec![LanguageFilesystem::new(
+                        Some(path),
+                        FilesystemOperation::Delete,
+                        false,
+                    )],
+                );
+                Value::None
+            }
+            "rename" | "replace" | "hardlink_to" | "link_to" | "symlink_to" => Value::None,
             _ => Value::Unknown,
         }
     }
@@ -1901,9 +2377,11 @@ impl Interpreter<'_> {
             Some(false) => self.eval(children[2], state, depth),
             None => {
                 self.complete = false;
+                self.conditional_depth += 1;
                 let yes = self.eval(children[0], state, depth);
                 let no = self.eval(children[2], state, depth);
-                if yes == no { yes } else { Value::Unknown }
+                self.conditional_depth -= 1;
+                join_values(yes, no)
             }
         }
     }
@@ -2006,7 +2484,8 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Os, "execv") => KnownFunction::OsExec(StringKind::Execv),
         (Module::Os, "execvp") => KnownFunction::OsExec(StringKind::Execvp),
         (Module::Os, "execvpe") => KnownFunction::OsExec(StringKind::Execvpe),
-        (Module::Os, "remove" | "unlink") => KnownFunction::OsRemove,
+        (Module::Os, "remove") => KnownFunction::OsRemove,
+        (Module::Os, "unlink") => KnownFunction::OsUnlink,
         (Module::Os, "rename") => KnownFunction::OsRename,
         (Module::Os, "replace") => KnownFunction::OsReplace,
         (Module::Os, "link") => KnownFunction::OsLink,
@@ -2041,11 +2520,318 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Subprocess, "check_output") => {
             KnownFunction::Subprocess(SubprocessKind::CheckOutput)
         }
-        (Module::Requests | Module::Httpx, "get" | "post" | "put" | "patch" | "delete")
-        | (Module::UrllibRequest, "urlopen" | "urlretrieve") => KnownFunction::Request,
+        (Module::Requests, "get") => KnownFunction::Request(RequestKind::RequestsGet),
+        (Module::Requests, "post") => KnownFunction::Request(RequestKind::RequestsPost),
+        (Module::Requests, "put") => KnownFunction::Request(RequestKind::RequestsPut),
+        (Module::Requests, "patch") => KnownFunction::Request(RequestKind::RequestsPatch),
+        (Module::Requests, "delete") => KnownFunction::Request(RequestKind::RequestsDelete),
+        (Module::Httpx, "get") => KnownFunction::Request(RequestKind::HttpxGet),
+        (Module::Httpx, "post") => KnownFunction::Request(RequestKind::HttpxPost),
+        (Module::Httpx, "put") => KnownFunction::Request(RequestKind::HttpxPut),
+        (Module::Httpx, "patch") => KnownFunction::Request(RequestKind::HttpxPatch),
+        (Module::Httpx, "delete") => KnownFunction::Request(RequestKind::HttpxDelete),
+        (Module::UrllibRequest, "urlopen") => KnownFunction::Request(RequestKind::UrlOpen),
+        (Module::UrllibRequest, "urlretrieve") => KnownFunction::Request(RequestKind::UrlRetrieve),
         _ => return None,
     };
     Some(Value::Known(function))
+}
+
+fn filesystem_argument(
+    arguments: &Arguments,
+    position: usize,
+    keyword: &str,
+    operation: FilesystemOperation,
+    recursive: bool,
+) -> LanguageFilesystem {
+    LanguageFilesystem::new(
+        argument(arguments, position, keyword)
+            .and_then(value_string)
+            .map(str::to_owned),
+        operation,
+        recursive,
+    )
+}
+
+fn os_exec_callable(kind: StringKind) -> &'static str {
+    match kind {
+        StringKind::Execl => "os.execl",
+        StringKind::Execlp => "os.execlp",
+        StringKind::Execle => "os.execle",
+        StringKind::Execv => "os.execv",
+        StringKind::Execvp => "os.execvp",
+        StringKind::Execvpe => "os.execvpe",
+    }
+}
+
+fn subprocess_callable(kind: SubprocessKind) -> &'static str {
+    match kind {
+        SubprocessKind::Run => "subprocess.run",
+        SubprocessKind::Call => "subprocess.call",
+        SubprocessKind::Popen => "subprocess.popen",
+        SubprocessKind::CheckCall => "subprocess.check_call",
+        SubprocessKind::CheckOutput => "subprocess.check_output",
+    }
+}
+
+fn request_callable(kind: RequestKind) -> &'static str {
+    match kind {
+        RequestKind::RequestsGet => "requests.get",
+        RequestKind::RequestsPost => "requests.post",
+        RequestKind::RequestsPut => "requests.put",
+        RequestKind::RequestsPatch => "requests.patch",
+        RequestKind::RequestsDelete => "requests.delete",
+        RequestKind::HttpxGet => "httpx.get",
+        RequestKind::HttpxPost => "httpx.post",
+        RequestKind::HttpxPut => "httpx.put",
+        RequestKind::HttpxPatch => "httpx.patch",
+        RequestKind::HttpxDelete => "httpx.delete",
+        RequestKind::UrlOpen => "urllib.request.urlopen",
+        RequestKind::UrlRetrieve => "urllib.request.urlretrieve",
+    }
+}
+
+fn request_url_keyword(kind: RequestKind) -> &'static str {
+    match kind {
+        RequestKind::RequestsGet
+        | RequestKind::RequestsPost
+        | RequestKind::RequestsPut
+        | RequestKind::RequestsPatch
+        | RequestKind::RequestsDelete
+        | RequestKind::HttpxGet
+        | RequestKind::HttpxPost
+        | RequestKind::HttpxPut
+        | RequestKind::HttpxPatch
+        | RequestKind::HttpxDelete => "url",
+        RequestKind::UrlOpen | RequestKind::UrlRetrieve => "url",
+    }
+}
+
+fn shutil_copy_callable(kind: CopyKind) -> &'static str {
+    match kind {
+        CopyKind::Copy => "shutil.copy",
+        CopyKind::Copy2 => "shutil.copy2",
+        CopyKind::Copyfile => "shutil.copyfile",
+        CopyKind::Copytree => "shutil.copytree",
+        CopyKind::Copymode => "shutil.copymode",
+        CopyKind::Copystat => "shutil.copystat",
+    }
+}
+
+fn open_operations(arguments: &Arguments) -> Option<Vec<FilesystemOperation>> {
+    if !arguments.complete {
+        return None;
+    }
+    let mode = arguments.positional.get(1).or_else(|| {
+        arguments
+            .keywords
+            .iter()
+            .find(|(name, _)| name == "mode")
+            .map(|(_, value)| value)
+    });
+    let mode = match mode {
+        Some(mode) => value_string(mode)?,
+        None => "r",
+    };
+    let access = mode
+        .bytes()
+        .filter(|byte| matches!(byte, b'r' | b'w' | b'a' | b'x'))
+        .collect::<Vec<_>>();
+    let valid = access.len() == 1
+        && mode
+            .bytes()
+            .all(|byte| matches!(byte, b'r' | b'w' | b'a' | b'x' | b'b' | b't' | b'+'))
+        && mode.matches('+').count() <= 1
+        && mode.matches('b').count() <= 1
+        && mode.matches('t').count() <= 1
+        && !(mode.contains('b') && mode.contains('t'));
+    if !valid {
+        return Some(Vec::new());
+    }
+    let mut operations = Vec::new();
+    if access[0] == b'r' || mode.contains('+') {
+        operations.push(FilesystemOperation::Read);
+    }
+    if access[0] != b'r' || mode.contains('+') {
+        operations.push(FilesystemOperation::Write);
+    }
+    Some(operations)
+}
+
+fn language_call_input(callable: &str, arguments: &Arguments, state: &State) -> InvocationInput {
+    let mut complete = arguments.complete;
+    let mut positional = Vec::new();
+    let mut keywords = Vec::new();
+    let represented = arguments.positional.len() + arguments.keywords.len();
+    let limit = represented.min(MAX_NATIVE_ARGUMENTS);
+    let positional_limit = arguments.positional.len().min(limit);
+    for value in arguments.positional.iter().take(positional_limit) {
+        let (value, exact) = native_value(value, state, &mut BTreeSet::new());
+        complete &= exact;
+        positional.push(value);
+    }
+    for (name, value) in arguments
+        .keywords
+        .iter()
+        .take(limit.saturating_sub(positional_limit))
+    {
+        let (value, exact) = native_value(value, state, &mut BTreeSet::new());
+        complete &= exact;
+        let mut keyword = Map::new();
+        keyword.insert("name".into(), JsonValue::String(name.clone()));
+        keyword.insert("value".into(), value);
+        keywords.push(JsonValue::Object(keyword));
+    }
+    if represented > MAX_NATIVE_ARGUMENTS {
+        complete = false;
+        if let Some(value) = keywords.last_mut() {
+            if let Some(value) = value.get_mut("value") {
+                *value = native_unknown();
+            }
+        } else if let Some(value) = positional.last_mut() {
+            *value = native_unknown();
+        }
+    }
+    let mut payload = language_call_payload(callable, positional, keywords);
+    if serde_json::to_vec(&payload).map_or(true, |bytes| bytes.len() > MAX_NATIVE_EVIDENCE_BYTES) {
+        complete = false;
+        payload = language_call_payload(callable, vec![native_unknown()], Vec::new());
+    }
+    InvocationInput::native(payload, complete)
+}
+
+fn language_call_payload(
+    callable: &str,
+    positional: Vec<JsonValue>,
+    keywords: Vec<JsonValue>,
+) -> JsonValue {
+    let mut payload = Map::new();
+    payload.insert("v".into(), JsonValue::from(1));
+    payload.insert("language".into(), JsonValue::String("python".into()));
+    payload.insert("callable".into(), JsonValue::String(callable.into()));
+    payload.insert("positional".into(), JsonValue::Array(positional));
+    payload.insert("keywords".into(), JsonValue::Array(keywords));
+    JsonValue::Object(payload)
+}
+
+fn native_value(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) -> (JsonValue, bool) {
+    match value {
+        Value::None => (native_tag("null", None), true),
+        Value::Bool(value) => (native_tag("bool", Some(JsonValue::Bool(*value))), true),
+        Value::Int(value) => (native_tag("int", Some(JsonValue::from(*value))), true),
+        Value::String(value) | Value::ImplicitString(value) => {
+            bounded_native_string("string", value)
+        }
+        Value::Bytes(value) => {
+            if value.len() > MAX_NATIVE_EVIDENCE_BYTES {
+                return (native_unknown(), false);
+            }
+            (
+                native_tag("bytes", Some(JsonValue::String(lower_hex(value)))),
+                true,
+            )
+        }
+        Value::Path(value) => bounded_native_string("path", value),
+        Value::Cell(cell) => {
+            let Some(Cell::Sequence(values)) = state.cells.get(*cell) else {
+                return (native_unknown(), false);
+            };
+            if values.len() > MAX_NATIVE_COLLECTION_ITEMS || !visiting.insert(*cell) {
+                return (native_unknown(), false);
+            }
+            let mut exact = true;
+            let items = values
+                .iter()
+                .map(|value| {
+                    let (value, item_exact) = native_value(value, state, visiting);
+                    exact &= item_exact;
+                    value
+                })
+                .collect();
+            visiting.remove(cell);
+            (native_tag("sequence", Some(JsonValue::Array(items))), exact)
+        }
+        Value::Decoded(value) => native_value(value, state, visiting),
+        Value::Unknown
+        | Value::EmptyDictionary
+        | Value::Module(_)
+        | Value::Known(_)
+        | Value::LocalFunction(_)
+        | Value::PathMethod { .. }
+        | Value::CellMethod { .. }
+        | Value::StringMethod { .. }
+        | Value::BytesMethod { .. }
+        | Value::DecodedMethod { .. }
+        | Value::Compiled { .. }
+        | Value::Produced(_) => (native_unknown(), false),
+    }
+}
+
+fn bounded_native_string(kind: &str, value: &str) -> (JsonValue, bool) {
+    if value.len() > MAX_NATIVE_EVIDENCE_BYTES {
+        (native_unknown(), false)
+    } else {
+        (
+            native_tag(kind, Some(JsonValue::String(value.to_owned()))),
+            true,
+        )
+    }
+}
+
+fn native_unknown() -> JsonValue {
+    native_tag("unknown", None)
+}
+
+fn native_tag(kind: &str, value: Option<JsonValue>) -> JsonValue {
+    let mut tagged = Map::new();
+    tagged.insert("kind".into(), JsonValue::String(kind.into()));
+    if let Some(value) = value {
+        tagged.insert("value".into(), value);
+    }
+    JsonValue::Object(tagged)
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(DIGITS[usize::from(byte >> 4)] as char);
+        encoded.push(DIGITS[usize::from(byte & 0x0f)] as char);
+    }
+    encoded
+}
+
+fn argument_origins(arguments: &Arguments, state: &State) -> BTreeSet<usize> {
+    let mut origins = BTreeSet::new();
+    for value in arguments
+        .positional
+        .iter()
+        .chain(arguments.keywords.iter().map(|(_, value)| value))
+    {
+        value_origins(value, state, &mut BTreeSet::new(), &mut origins);
+    }
+    origins
+}
+
+fn value_origins(
+    value: &Value,
+    state: &State,
+    visiting: &mut BTreeSet<usize>,
+    origins: &mut BTreeSet<usize>,
+) {
+    match value {
+        Value::Produced(values) => origins.extend(values),
+        Value::Decoded(value) => value_origins(value, state, visiting, origins),
+        Value::Cell(cell) if visiting.insert(*cell) => {
+            if let Some(Cell::Sequence(values)) = state.cells.get(*cell) {
+                for value in values {
+                    value_origins(value, state, visiting, origins);
+                }
+            }
+            visiting.remove(cell);
+        }
+        _ => {}
+    }
 }
 
 fn import_name(node: &HirNode, source: &str) -> (String, Option<String>) {
@@ -2096,7 +2882,8 @@ fn value_bytes(value: &Value) -> Option<usize> {
         | Value::Cell(_)
         | Value::Module(_)
         | Value::Known(_)
-        | Value::LocalFunction(_) => Some(0),
+        | Value::LocalFunction(_)
+        | Value::Produced(_) => Some(0),
     }
 }
 
@@ -2185,6 +2972,9 @@ fn join_states(mut left: State, right: State) -> State {
                 if values_match(left_value, right_value, &left.functions, &right.functions) =>
             {
                 left_value.clone()
+            }
+            (Some(left_value), Some(right_value)) => {
+                join_distinct_values(left_value.clone(), right_value.clone())
             }
             _ => Value::Unknown,
         };
@@ -2378,6 +3168,12 @@ fn parse_integer(value: &str) -> Option<i64> {
 }
 
 fn binary_value(left: Value, right: Value, operator: &str, budget: &mut Budget) -> Value {
+    let origins = producer_ordinals(&left)
+        .chain(producer_ordinals(&right))
+        .collect::<BTreeSet<_>>();
+    if !origins.is_empty() {
+        return Value::Produced(origins.into_iter().collect());
+    }
     match (left, right, operator) {
         (Value::String(mut left), Value::String(right), "+") => {
             if bounded_push_str(&mut left, &right, budget) {
@@ -2465,6 +3261,37 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> Option<bool> {
         },
         _ => None,
     }
+}
+
+fn join_values(left: Value, right: Value) -> Value {
+    if left == right {
+        return left;
+    }
+    join_distinct_values(left, right)
+}
+
+fn join_distinct_values(left: Value, right: Value) -> Value {
+    let origins = producer_ordinals(&left)
+        .chain(producer_ordinals(&right))
+        .collect::<BTreeSet<_>>();
+    if origins.is_empty() {
+        Value::Unknown
+    } else {
+        Value::Produced(origins.into_iter().collect())
+    }
+}
+
+fn producer_ordinals(value: &Value) -> impl Iterator<Item = usize> + '_ {
+    match value {
+        Value::Produced(origins) => origins.as_slice(),
+        Value::Decoded(value) => match value.as_ref() {
+            Value::Produced(origins) => origins.as_slice(),
+            _ => &[],
+        },
+        _ => &[],
+    }
+    .iter()
+    .copied()
 }
 
 fn truthy(value: &Value, state: &State) -> Option<bool> {
@@ -2567,6 +3394,52 @@ fn code_mode(value: &str) -> Option<CodeMode> {
     }
 }
 
+fn required_argument<'a>(
+    arguments: &'a Arguments,
+    position: usize,
+    keyword: &str,
+) -> Option<&'a Value> {
+    if !arguments.complete {
+        return None;
+    }
+    let positional = arguments.positional.get(position);
+    let mut keywords = arguments
+        .keywords
+        .iter()
+        .filter(|(name, _)| name == keyword);
+    let keyword = keywords.next().map(|(_, value)| value);
+    if keywords.next().is_some() || positional.is_some() == keyword.is_some() {
+        None
+    } else {
+        positional.or(keyword)
+    }
+}
+
+fn valid_call_shape(arguments: &Arguments, max_positional: usize, keywords: &[&str]) -> bool {
+    arguments.complete
+        && arguments.positional.len() <= max_positional
+        && arguments
+            .keywords
+            .iter()
+            .all(|(name, _)| keywords.contains(&name.as_str()))
+        && keywords
+            .iter()
+            .take(arguments.positional.len())
+            .all(|parameter| !arguments.keywords.iter().any(|(name, _)| name == parameter))
+}
+
+fn valid_os_exec_shape(kind: StringKind, arguments: &Arguments) -> bool {
+    if !arguments.complete || !arguments.keywords.is_empty() {
+        return false;
+    }
+    match kind {
+        StringKind::Execl | StringKind::Execlp => arguments.positional.len() >= 2,
+        StringKind::Execle => arguments.positional.len() >= 3,
+        StringKind::Execv | StringKind::Execvp => arguments.positional.len() == 2,
+        StringKind::Execvpe => arguments.positional.len() == 3,
+    }
+}
+
 fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
     if !arguments.complete || arguments.positional.len() > 1 {
         return None;
@@ -2598,6 +3471,24 @@ fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bo
         }
     }
     Some((shell, stdout))
+}
+
+fn subprocess_shell(arguments: &Arguments) -> Option<bool> {
+    if !arguments.complete
+        || arguments
+            .keywords
+            .iter()
+            .filter(|(name, _)| name == "shell")
+            .count()
+            > 1
+    {
+        return None;
+    }
+    arguments
+        .keywords
+        .iter()
+        .find(|(name, _)| name == "shell")
+        .map_or(Some(false), |(_, value)| exact_bool(value))
 }
 
 fn exact_bool(value: &Value) -> Option<bool> {
@@ -2848,6 +3739,7 @@ mod tests {
             None,
             0,
         )
+        .into_report()
     }
 
     fn assert_work_limit(report: &InlineReport) {
@@ -3191,6 +4083,8 @@ mod tests {
             report: InlineReport::default(),
             budget: Budget::default(),
             complete: true,
+            draft: LanguageDraft::default(),
+            conditional_depth: 0,
             call_stack: Vec::new(),
         };
         interpreter.dynamic_execution(

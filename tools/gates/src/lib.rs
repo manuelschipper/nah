@@ -88,6 +88,7 @@ pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
         "nah-proto" => Some(&["serde", "serde_json"]),
         "nah-parse" => Some(&["tree-sitter", "tree-sitter-bash"]),
         "nah-inline" => Some(&[
+            "serde_json",
             "tree-sitter",
             "tree-sitter-javascript",
             "tree-sitter-python",

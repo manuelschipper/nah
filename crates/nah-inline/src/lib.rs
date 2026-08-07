@@ -12,10 +12,15 @@
 use nah_proto::ctx::{AbsolutePath, Platform};
 
 mod finding;
+mod language;
 mod languages;
 mod syntax;
 
 pub use finding::{Evidence, Finding, FindingKind, InlineRefusal, InlineReport, NestedExecution};
+pub use language::{
+    LanguageAnalysis, LanguageCall, LanguageCallKind, LanguageDraft, LanguageFilesystem,
+    LanguageFlow,
+};
 
 const SOURCE_LIMIT: usize = 1024 * 1024;
 
@@ -60,7 +65,14 @@ pub fn analyze_with_protection(
     input: InlineInput<'_>,
     protection: ProtectionInput<'_>,
 ) -> InlineReport {
-    analyze_at(input, Some(&protection), 0)
+    analyze_with_language_effects(input, protection).into_report()
+}
+
+pub fn analyze_with_language_effects(
+    input: InlineInput<'_>,
+    protection: ProtectionInput<'_>,
+) -> LanguageAnalysis {
+    analyze_language_at(input, Some(&protection), 0)
 }
 
 fn analyze_at(
@@ -68,24 +80,32 @@ fn analyze_at(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
+    analyze_language_at(input, protection, depth).into_report()
+}
+
+fn analyze_language_at(
+    input: InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> LanguageAnalysis {
     let program = normalized_program(input.program);
     let program = program.as_str();
     if !languages::supports(program) {
-        return InlineReport::default();
+        return LanguageAnalysis::default();
     }
     if input.code.len() > SOURCE_LIMIT {
-        return InlineReport::refused(InlineRefusal::SourceLimit);
+        return LanguageAnalysis::refused(InlineRefusal::SourceLimit);
     }
     if depth >= 16 {
-        return InlineReport::refused(InlineRefusal::RecursionLimit);
+        return LanguageAnalysis::refused(InlineRefusal::RecursionLimit);
     }
     if is_python_interpreter(program) {
         return languages::analyze_python(input, protection, depth);
     }
     if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
-        return InlineReport::refused(refusal);
+        return LanguageAnalysis::refused(refusal);
     }
-    languages::analyze(input, protection, depth)
+    languages::analyze_language(input, protection, depth)
 }
 
 pub(crate) fn normalized_program(program: &str) -> String {

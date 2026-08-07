@@ -12,7 +12,8 @@ mod ruby;
 mod swift;
 
 use crate::{
-    InlineInput, InlineReport, ProtectionInput, is_python_interpreter, normalized_program,
+    InlineInput, InlineReport, LanguageAnalysis, LanguageDraft, ProtectionInput,
+    is_python_interpreter, normalized_program,
 };
 
 pub(crate) fn supports(program: &str) -> bool {
@@ -43,8 +44,8 @@ pub(crate) fn analyze_python(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
-) -> InlineReport {
-    python::analyze(
+) -> LanguageAnalysis {
+    python::analyze_language(
         &crate::normalized_program(input.program),
         &input,
         protection,
@@ -78,4 +79,16 @@ pub(crate) fn analyze(
             _ => InlineReport::default(),
         }
     }
+}
+
+pub(crate) fn analyze_language(
+    input: InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    depth: usize,
+) -> LanguageAnalysis {
+    let program = normalized_program(input.program);
+    if is_python_interpreter(&program) {
+        return python::analyze_language(&program, &input, protection, depth);
+    }
+    LanguageAnalysis::new(analyze(input, protection, depth), LanguageDraft::default())
 }
