@@ -71,6 +71,8 @@ pub(super) enum HirKind {
     IfStatement,
     ElseClause,
     WhileStatement,
+    BreakStatement,
+    ContinueStatement,
     ReturnStatement,
     ThrowStatement,
     TryStatement,
@@ -82,6 +84,8 @@ pub(super) enum HirKind {
     NamedImports,
     ImportSpecifier,
     SpreadElement,
+    ClassDeclaration,
+    EmptyStatement,
     Comment,
     Token,
     Unsupported,
@@ -108,6 +112,7 @@ pub(super) enum HirField {
     Object,
     Operator,
     Parameter,
+    Argument,
     Parameters,
     Property,
     Right,
@@ -130,10 +135,6 @@ impl HirNode {
 
     pub(super) const fn span(&self) -> Span {
         self.span
-    }
-
-    pub(super) const fn field(&self) -> Option<HirField> {
-        self.field
     }
 
     pub(super) fn children(&self) -> &[Self] {
@@ -346,10 +347,12 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "formal_parameters" => HirKind::FormalParameters,
         "identifier" => HirKind::Identifier,
         "property_identifier" => HirKind::PropertyIdentifier,
-        "shorthand_property_identifier" => HirKind::ShorthandPropertyIdentifier,
+        "shorthand_property_identifier" | "shorthand_property_identifier_pattern" => {
+            HirKind::ShorthandPropertyIdentifier
+        }
         "object_pattern" => HirKind::ObjectPattern,
         "array_pattern" => HirKind::ArrayPattern,
-        "assignment_pattern" => HirKind::AssignmentPattern,
+        "assignment_pattern" | "object_assignment_pattern" => HirKind::AssignmentPattern,
         "rest_pattern" => HirKind::RestPattern,
         "call_expression" => HirKind::CallExpression,
         "arguments" => HirKind::Arguments,
@@ -381,6 +384,8 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "if_statement" => HirKind::IfStatement,
         "else_clause" => HirKind::ElseClause,
         "while_statement" => HirKind::WhileStatement,
+        "break_statement" => HirKind::BreakStatement,
+        "continue_statement" => HirKind::ContinueStatement,
         "return_statement" => HirKind::ReturnStatement,
         "throw_statement" => HirKind::ThrowStatement,
         "try_statement" => HirKind::TryStatement,
@@ -392,6 +397,8 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "named_imports" => HirKind::NamedImports,
         "import_specifier" => HirKind::ImportSpecifier,
         "spread_element" => HirKind::SpreadElement,
+        "class_declaration" => HirKind::ClassDeclaration,
+        "empty_statement" => HirKind::EmptyStatement,
         "comment" => HirKind::Comment,
         kind if !node.is_named() && !kind.is_empty() => HirKind::Token,
         _ => HirKind::Unsupported,
@@ -418,6 +425,7 @@ fn hir_field(field: &str) -> Option<HirField> {
         "object" => Some(HirField::Object),
         "operator" => Some(HirField::Operator),
         "parameter" => Some(HirField::Parameter),
+        "argument" => Some(HirField::Argument),
         "parameters" => Some(HirField::Parameters),
         "property" => Some(HirField::Property),
         "right" => Some(HirField::Right),
