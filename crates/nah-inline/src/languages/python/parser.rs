@@ -12,7 +12,7 @@ const MAX_PARSE_CALLBACKS: usize = 16 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Dialect {
     Python2,
-    Python3,
+    Python3 { minor: Option<u16> },
     Common,
 }
 
@@ -274,12 +274,7 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
         ) {
             masked_ranges.push(node.byte_range());
         }
-        incompatible_dialect |= match dialect {
-            Dialect::Python2 => matches!(node.kind(), "match_statement" | "type_alias_statement"),
-            Dialect::Python3 | Dialect::Common => {
-                matches!(node.kind(), "print_statement" | "exec_statement")
-            }
-        };
+        incompatible_dialect |= incompatible_dialect_node(node, code, dialect);
         if node.is_error() || node.is_missing() {
             has_error = true;
             structural = structural.or_else(|| structural_error(node, code));
@@ -298,6 +293,81 @@ fn inspect(root: Node<'_>, code: &str, dialect: Dialect) -> Result<bool, InlineR
         return Err(refusal);
     }
     Ok(has_error || root.has_error() || incompatible_dialect)
+}
+
+fn incompatible_dialect_node(node: Node<'_>, code: &str, dialect: Dialect) -> bool {
+    if matches!(node.kind(), "print_statement" | "exec_statement") {
+        return dialect != Dialect::Python2;
+    }
+    let Some(required_minor) = python3_minor(node, code) else {
+        return false;
+    };
+    match dialect {
+        Dialect::Python2 | Dialect::Common => true,
+        Dialect::Python3 { minor: Some(minor) } => minor < required_minor,
+        Dialect::Python3 { minor: None } => false,
+    }
+}
+
+fn python3_minor(node: Node<'_>, code: &str) -> Option<u16> {
+    let required = match node.kind() {
+        "type_alias_statement" | "type_parameter" => 12,
+        "match_statement" | "case_clause" | "case_pattern" => 10,
+        "named_expression" | "positional_separator" => 8,
+        "interpolation" | "format_specifier" | "type_conversion" => 6,
+        "async" => 5,
+        "await" => 5,
+        "nonlocal_statement"
+        | "keyword_separator"
+        | "typed_default_parameter"
+        | "typed_parameter" => 0,
+        "list_splat" | "parenthesized_list_splat"
+            if node
+                .parent()
+                .is_some_and(|parent| matches!(parent.kind(), "list" | "set" | "tuple")) =>
+        {
+            5
+        }
+        "dictionary_splat"
+            if node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "dictionary") =>
+        {
+            5
+        }
+        "string_start" if string_prefix(node, code).contains('f') => 6,
+        "assignment" if node.child_by_field_name("type").is_some() => 6,
+        "binary_operator" if direct_token(node, code, "@") => 5,
+        "yield" if direct_token(node, code, "from") => 3,
+        "raise_statement" if direct_token(node, code, "from") => 0,
+        "except_clause" if direct_token(node, code, "*") => 11,
+        "integer" | "float" if node_text(node, code).contains('_') => 6,
+        _ => return None,
+    };
+    Some(required)
+}
+
+fn node_text<'a>(node: Node<'_>, code: &'a str) -> &'a str {
+    code.get(node.byte_range()).unwrap_or_default()
+}
+
+fn string_prefix(node: Node<'_>, code: &str) -> String {
+    node_text(node, code)
+        .chars()
+        .take_while(|character| !matches!(character, '\'' | '"'))
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+fn direct_token(node: Node<'_>, code: &str, expected: &str) -> bool {
+    (0..node.child_count()).any(|index| {
+        node.child(index).is_some_and(|child| {
+            !child.is_named()
+                && code
+                    .get(child.byte_range())
+                    .is_some_and(|text| text == expected)
+        })
+    })
 }
 
 fn lower_node(
@@ -575,11 +645,15 @@ fn dialect(program: &str) -> Dialect {
         || program.starts_with("pypy2.")
     {
         Dialect::Python2
-    } else if matches!(program, "python3" | "pypy3")
-        || program.starts_with("python3.")
-        || program.starts_with("pypy3.")
+    } else if matches!(program, "python3" | "pypy3") {
+        Dialect::Python3 { minor: None }
+    } else if let Some(version) = program
+        .strip_prefix("python3.")
+        .or_else(|| program.strip_prefix("pypy3."))
     {
-        Dialect::Python3
+        Dialect::Python3 {
+            minor: version.strip_suffix('t').unwrap_or(version).parse().ok(),
+        }
     } else {
         Dialect::Common
     }
@@ -601,6 +675,38 @@ mod tests {
         assert_eq!(
             source_status("match value:\n    case 1: pass", "python2"),
             Ok(false)
+        );
+        assert_eq!(
+            source_status("import os; os.system(f'rm -rf /')", "python2"),
+            Ok(false)
+        );
+        assert_eq!(
+            source_status("import os; os.system(f'rm -rf /')", "python"),
+            Ok(false)
+        );
+        assert_eq!(source_status("value = f'{name}'", "python3.5"), Ok(false));
+        assert_eq!(source_status("value = f'{name}'", "python3.6"), Ok(true));
+        assert_eq!(
+            source_status("match value:\n    case 1: pass", "python3.9"),
+            Ok(false)
+        );
+        assert_eq!(
+            source_status("match value:\n    case 1: pass", "python3.10"),
+            Ok(true)
+        );
+        assert_eq!(source_status("(value := 1)", "python3.7"), Ok(false));
+        assert_eq!(source_status("(value := 1)", "python3.8"), Ok(true));
+        assert_eq!(source_status("type Value = int", "python3.11"), Ok(false));
+        assert_eq!(source_status("type Value = int", "python3.12"), Ok(true));
+        assert_eq!(source_status("value = 1_000", "python3.5"), Ok(false));
+        assert_eq!(source_status("value = 1_000", "python3.6"), Ok(true));
+        assert_eq!(
+            source_status("async def run():\n    pass", "python3.4"),
+            Ok(false)
+        );
+        assert_eq!(
+            source_status("async def run():\n    pass", "python3.5"),
+            Ok(true)
         );
     }
 
