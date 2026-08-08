@@ -1805,7 +1805,9 @@ impl Interpreter<'_> {
                     self.draft.set_partial();
                     None
                 };
-                self.subprocess(kind, &arguments, state);
+                if !self.subprocess(kind, &arguments, state) {
+                    self.draft.set_partial();
+                }
                 origin.map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             KnownFunction::Eval | KnownFunction::Exec => {
@@ -2976,17 +2978,18 @@ impl Interpreter<'_> {
         }
     }
 
-    fn subprocess(&mut self, kind: SubprocessKind, arguments: &Arguments, state: &State) {
+    fn subprocess(&mut self, kind: SubprocessKind, arguments: &Arguments, state: &State) -> bool {
         let Some(command) = argument(arguments, 0, "args") else {
-            return;
+            return false;
         };
-        let Some((shell, stdout_inherited)) = subprocess_options(kind, arguments) else {
-            return;
-        };
-        if shell && decoded(command) {
+        if subprocess_shell(arguments) == Some(true) && decoded(command) {
             self.report
                 .push(Finding::exact(FindingKind::DecodedExecution));
         }
+        let Some((shell, stdout_inherited)) = subprocess_options(kind, arguments) else {
+            return false;
+        };
+        let nested_before = self.report.nested_executions().len();
         if shell {
             let code = value_string(command).or_else(|| {
                 sequence_values(command, state)
@@ -3001,6 +3004,7 @@ impl Interpreter<'_> {
         } else if let Some(argv) = argv_value(command, state, &mut self.budget) {
             self.push_command(argv, stdout_inherited);
         }
+        self.report.nested_executions().len() > nested_before
     }
 
     fn os_exec(&mut self, kind: StringKind, arguments: &Arguments, state: &State) {
@@ -4786,9 +4790,6 @@ fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bo
             }
             "check" if kind == SubprocessKind::Run => {
                 exact_bool(value)?;
-            }
-            "cwd" if kind == SubprocessKind::Popen => {
-                value_string(value)?;
             }
             _ => return None,
         }

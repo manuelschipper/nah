@@ -681,6 +681,58 @@ fn known_names_with_non_executable_argument_shapes_do_not_emit() {
 }
 
 #[test]
+fn subprocess_context_options_keep_known_calls_partial_without_nested_execution() {
+    for (code, expected, kind) in [
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','.'], cwd='/')",
+            "subprocess.run",
+            LanguageCallKind::LocalUtility,
+        ),
+        (
+            "import subprocess\nsubprocess.Popen(['rm','-rf','.'], cwd='/')",
+            "subprocess.popen",
+            LanguageCallKind::LocalUtility,
+        ),
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','.'], env={'PATH':'/bin'})",
+            "subprocess.run",
+            LanguageCallKind::LocalUtility,
+        ),
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','.'], executable='/bin/rm')",
+            "subprocess.run",
+            LanguageCallKind::LocalUtility,
+        ),
+        (
+            "import subprocess\nsubprocess.run(command)",
+            "subprocess.run",
+            LanguageCallKind::LocalUtility,
+        ),
+        (
+            "import subprocess\nsubprocess.run('rm -rf .', shell=True, cwd='/')",
+            "subprocess.run",
+            LanguageCallKind::EvaluatedShell,
+        ),
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(analysis.draft().calls(), [call] if callable(call) == expected && call.kind() == kind),
+            "{code}"
+        );
+        assert!(analysis.report().nested_executions().is_empty(), "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    let exact = analyze("import subprocess\nsubprocess.run(['rm','-rf','/'])");
+    assert!(matches!(
+        exact.report().nested_executions(),
+        [NestedExecution::Command { argv, .. }]
+            if argv.iter().map(String::as_str).eq(["rm", "-rf", "/"])
+    ));
+    assert!(exact.draft().complete());
+}
+
+#[test]
 fn definitely_invalid_known_call_shapes_stop_following_effects() {
     for code in [
         "import os\nos.remove()\nos.remove('/tmp/tail')",
