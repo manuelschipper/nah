@@ -75,6 +75,9 @@ enum KnownFunction {
     IpythonCell,
     IpythonGetoutput,
     IpythonSystem,
+    IpythonSyntaxCell,
+    IpythonSyntaxGetoutput,
+    IpythonSyntaxSystem,
     IoFile,
     Open,
     OsAbspath,
@@ -399,6 +402,7 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
     initial_state: InitialState,
+    ipython_syntax: bool,
 ) -> LanguageAnalysis {
     let module = match super::parser::lower(input.code, program) {
         Ok(module) if !module.opaque() => module,
@@ -436,6 +440,22 @@ pub(super) fn analyze(
             "get_ipython".to_owned(),
             Value::Known(KnownFunction::GetIpython),
         );
+    }
+    if ipython_syntax {
+        state.bindings.extend([
+            (
+                super::IPYTHON_CELL_INTRINSIC.to_owned(),
+                Value::Known(KnownFunction::IpythonSyntaxCell),
+            ),
+            (
+                super::IPYTHON_GETOUTPUT_INTRINSIC.to_owned(),
+                Value::Known(KnownFunction::IpythonSyntaxGetoutput),
+            ),
+            (
+                super::IPYTHON_SYSTEM_INTRINSIC.to_owned(),
+                Value::Known(KnownFunction::IpythonSyntaxSystem),
+            ),
+        ]);
     }
     interpreter.exec_block(module.root(), &mut state, depth);
     if let Some(refusal) = interpreter.budget.refusal {
@@ -1909,16 +1929,34 @@ impl Interpreter<'_> {
                 )
                 .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
-            KnownFunction::IpythonSystem | KnownFunction::IpythonGetoutput => {
-                if !self.complete || state.cwd == NestedExecutionCwd::Unknown {
+            KnownFunction::IpythonSystem
+            | KnownFunction::IpythonGetoutput
+            | KnownFunction::IpythonSyntaxSystem
+            | KnownFunction::IpythonSyntaxGetoutput => {
+                let syntactic = matches!(
+                    function,
+                    KnownFunction::IpythonSyntaxSystem | KnownFunction::IpythonSyntaxGetoutput
+                );
+                if !syntactic && (!self.complete || state.cwd == NestedExecutionCwd::Unknown) {
                     self.draft.set_partial();
                     return Value::Unknown;
                 }
+                if syntactic && state.cwd == NestedExecutionCwd::Unknown {
+                    self.draft.set_partial();
+                }
+                let stdout_inherited = matches!(
+                    function,
+                    KnownFunction::IpythonSystem | KnownFunction::IpythonSyntaxSystem
+                );
                 if arguments.complete
                     && arguments.positional.len() == 1
                     && arguments.keywords.is_empty()
                     && let Some(code) = arguments.positional.first().and_then(value_string)
-                    && super::super::ipython::exact_shell_command(code)
+                    && if syntactic {
+                        super::super::ipython::exact_prepared_shell_command(code)
+                    } else {
+                        super::super::ipython::exact_shell_command(code)
+                    }
                     && self.input.platform != Platform::Windows
                 {
                     if self.ipython_bash {
@@ -1926,14 +1964,21 @@ impl Interpreter<'_> {
                             "bash",
                             code,
                             state.cwd.clone(),
-                            function == KnownFunction::IpythonSystem,
+                            stdout_inherited,
+                        );
+                    } else if syntactic {
+                        self.push_shell_program(
+                            "sh",
+                            code,
+                            state.cwd.clone(),
+                            stdout_inherited,
                         );
                     } else {
                         self.draft.set_partial();
                     }
                     let origin = self.emit_call(
                         LanguageCallKind::EvaluatedShell,
-                        if function == KnownFunction::IpythonSystem {
+                        if stdout_inherited {
                             "ipython.system"
                         } else {
                             "ipython.getoutput"
@@ -1944,7 +1989,7 @@ impl Interpreter<'_> {
                         None,
                     );
                     state.bindings.insert("_exit_code".into(), Value::Unknown);
-                    return if function == KnownFunction::IpythonSystem {
+                    return if stdout_inherited {
                         Value::None
                     } else {
                         origin.map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
@@ -1953,10 +1998,14 @@ impl Interpreter<'_> {
                 self.draft.set_partial();
                 Value::Unknown
             }
-            KnownFunction::IpythonCell => {
-                if !self.complete || state.cwd == NestedExecutionCwd::Unknown {
+            KnownFunction::IpythonCell | KnownFunction::IpythonSyntaxCell => {
+                let syntactic = function == KnownFunction::IpythonSyntaxCell;
+                if !syntactic && (!self.complete || state.cwd == NestedExecutionCwd::Unknown) {
                     self.draft.set_partial();
                     return Value::Unknown;
+                }
+                if syntactic && state.cwd == NestedExecutionCwd::Unknown {
+                    self.draft.set_partial();
                 }
                 let program = arguments.positional.first().and_then(value_string);
                 let line = arguments.positional.get(1).and_then(value_string);
@@ -1965,11 +2014,18 @@ impl Interpreter<'_> {
                     && arguments.positional.len() == 3
                     && arguments.keywords.is_empty()
                     && matches!(program, Some("bash" | "sh"))
-                    && line == Some("")
+                    && line.is_some_and(|line| {
+                        line.is_empty()
+                            || syntactic && super::super::ipython::reviewed_bash_magic_line(line)
+                    })
                     && let (Some(program), Some(code)) = (program, code)
                     && self.input.platform != Platform::Windows
                 {
-                    self.push_shell_program(program, code, state.cwd.clone(), true);
+                    if program == "bash" || syntactic {
+                        self.push_shell_program(program, code, state.cwd.clone(), true);
+                    } else {
+                        self.draft.set_partial();
+                    }
                     self.emit_call(
                         LanguageCallKind::EvaluatedShell,
                         "ipython.run_cell_magic",
@@ -6284,6 +6340,7 @@ mod tests {
             None,
             0,
             InitialState::Fresh,
+            false,
         )
         .into_report()
     }

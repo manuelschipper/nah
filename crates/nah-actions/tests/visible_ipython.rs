@@ -76,15 +76,11 @@ fn direct_ipython_uses_current_cell_imports() {
 }
 
 #[test]
-fn persistent_names_shell_dialect_and_rewritten_cells_stay_unknown() {
+fn persistent_names_and_inherited_ipython_binding_stay_unknown() {
     for source in [
         "get_ipython().system('rm -rf /tmp/prior-shell')",
         "prior_callable()",
         "prior_object.method()",
-        "!rm -rf /tmp/prior-shell",
-        "from IPython import get_ipython\n!rm -rf /tmp/current-import-shell",
-        "from IPython import get_ipython\n!!rm -rf /tmp/current-import-shell",
-        "%%bash\nrm -rf /tmp/rewritten-cell",
     ] {
         let plan = ipython_plan(source);
         assert!(

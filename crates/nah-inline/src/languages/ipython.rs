@@ -11,10 +11,18 @@ const MAX_DEPTH: usize = 512;
 const MAX_PARSE_CALLBACKS: usize = 16 * 1024 * 1024;
 
 enum Prepared<'a> {
-    Python(Cow<'a, str>),
+    Python {
+        code: Cow<'a, str>,
+        syntax_intrinsics: bool,
+    },
     Shell {
         program: &'static str,
+        line: Cow<'a, str>,
         code: Cow<'a, str>,
+    },
+    Wrapper {
+        code: Cow<'a, str>,
+        partial: bool,
     },
     Opaque,
 }
@@ -61,31 +69,48 @@ fn analyze_with_state(
         Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
     match prepared {
-        Prepared::Python(code) => super::python::analyze_language_with_state(
-            program,
-            &InlineInput {
+        Prepared::Python {
+            code,
+            syntax_intrinsics,
+        } => {
+            let input = InlineInput {
                 code: code.as_ref(),
                 ..*input
-            },
-            protection,
-            depth,
-            initial_state,
-        ),
+            };
+            if syntax_intrinsics {
+                super::python::analyze_ipython_syntax_with_state(
+                    program,
+                    &input,
+                    protection,
+                    depth,
+                    initial_state,
+                )
+            } else {
+                super::python::analyze_language_with_state(
+                    program,
+                    &input,
+                    protection,
+                    depth,
+                    initial_state,
+                )
+            }
+        }
         Prepared::Shell {
             program: shell_program,
+            line,
             code,
         } => {
             let mut transformed = String::new();
             if code.contains('\0')
-                || !push_ipython_call(
+                || !push_literal_call(
                     &mut transformed,
-                    "run_cell_magic",
-                    &[shell_program, "", code.as_ref()],
+                    super::python::IPYTHON_CELL_INTRINSIC,
+                    &[shell_program, line.as_ref(), code.as_ref()],
                 )
             {
                 return opaque_analysis();
             }
-            super::python::analyze_language_with_state(
+            super::python::analyze_ipython_syntax_with_state(
                 program,
                 &InlineInput {
                     code: &transformed,
@@ -95,6 +120,28 @@ fn analyze_with_state(
                 depth,
                 initial_state,
             )
+        }
+        Prepared::Wrapper { code, partial } => {
+            if depth >= 16 {
+                return LanguageAnalysis::refused(InlineRefusal::RecursionLimit);
+            }
+            let analysis = analyze_with_state(
+                program,
+                &InlineInput {
+                    code: code.as_ref(),
+                    ..*input
+                },
+                protection,
+                depth + 1,
+                initial_state,
+            );
+            if partial {
+                let (report, mut draft) = analysis.into_parts();
+                draft.set_partial();
+                LanguageAnalysis::new(report, draft)
+            } else {
+                analysis
+            }
         }
         Prepared::Opaque => opaque_analysis(),
     }
@@ -114,6 +161,7 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
     let inert = inert_bytes(code)?;
     let mut transformed = String::with_capacity(code.len());
     let mut changed = false;
+    let mut syntax_intrinsics = false;
     let mut delimiters = Vec::new();
     let mut continued = false;
     let mut offset = 0usize;
@@ -132,16 +180,28 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
             return Ok(Prepared::Opaque);
         }
         if shell_escape {
-            let (method, command) = if let Some(command) = body.strip_prefix("!!") {
-                ("getoutput", command)
+            let (intrinsic, command) = if let Some(command) = body.strip_prefix("!!") {
+                (super::python::IPYTHON_GETOUTPUT_INTRINSIC, command)
             } else {
-                ("system", &body[1..])
+                (super::python::IPYTHON_SYSTEM_INTRINSIC, &body[1..])
             };
-            if !exact_shell_command(command)
-                || !push_ipython_call(&mut transformed, method, &[command])
-            {
+            if !push_interpolated_call(&mut transformed, intrinsic, command) {
                 return Ok(Prepared::Opaque);
             }
+            if has_newline {
+                transformed.push('\n');
+            }
+            changed = true;
+            syntax_intrinsics = true;
+        } else if active_marker
+            && top_level
+            && indentation == 0
+            && let Some(expression) = time_line(trimmed)
+        {
+            if expression.is_empty() || expression.starts_with('-') {
+                return Ok(Prepared::Opaque);
+            }
+            transformed.push_str(expression);
             if has_newline {
                 transformed.push('\n');
             }
@@ -159,10 +219,34 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
         offset += line.len();
     }
     if changed {
-        Ok(Prepared::Python(Cow::Owned(transformed)))
+        if syntax_intrinsics && contains_intrinsic_name(code) {
+            return Ok(Prepared::Opaque);
+        }
+        Ok(Prepared::Python {
+            code: Cow::Owned(transformed),
+            syntax_intrinsics,
+        })
     } else {
-        Ok(Prepared::Python(Cow::Borrowed(code)))
+        Ok(Prepared::Python {
+            code: Cow::Borrowed(code),
+            syntax_intrinsics: false,
+        })
     }
+}
+
+fn time_line(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("%time")?;
+    (rest.is_empty() || rest.starts_with([' ', '\t'])).then(|| rest.trim_start())
+}
+
+fn contains_intrinsic_name(code: &str) -> bool {
+    [
+        super::python::IPYTHON_CELL_INTRINSIC,
+        super::python::IPYTHON_GETOUTPUT_INTRINSIC,
+        super::python::IPYTHON_SYSTEM_INTRINSIC,
+    ]
+    .into_iter()
+    .any(|name| code.contains(name))
 }
 
 pub(super) fn exact_shell_command(command: &str) -> bool {
@@ -170,6 +254,28 @@ pub(super) fn exact_shell_command(command: &str) -> bool {
         && !command.contains(['{', '}', '\0'])
         && !has_dollar_expansion(command)
         && !command.trim_end().ends_with(['\\', '&'])
+}
+
+pub(super) fn exact_prepared_shell_command(command: &str) -> bool {
+    !unsupported_line_control(command)
+        && !command.contains('\0')
+        && !command.trim_end().ends_with(['\\', '&'])
+}
+
+pub(super) fn reviewed_bash_magic_line(line: &str) -> bool {
+    let mut short_option = false;
+    let mut arguments = line.split_ascii_whitespace();
+    let mut present = false;
+    for argument in &mut arguments {
+        present = true;
+        match argument {
+            "--no-raise-error" => {}
+            "--noprofile" | "--norc" | "--verbose" if !short_option => {}
+            "-v" | "-vx" | "-x" | "-xv" => short_option = true,
+            _ => return false,
+        }
+    }
+    present
 }
 
 fn unsupported_line_control(code: &str) -> bool {
@@ -230,17 +336,32 @@ fn cell_magic(code: &str) -> Option<Prepared<'_>> {
         .unwrap_or(first)
         .strip_suffix('\r')
         .unwrap_or(first.strip_suffix('\n').unwrap_or(first));
-    if matches!(first_line.trim_end(), "%%bash" | "%%sh") && first_line.starts_with("%%") {
-        return Some(Prepared::Shell {
-            program: if first_line.trim_end() == "%%bash" {
-                "bash"
-            } else {
-                "sh"
-            },
-            code: Cow::Owned(cell[first.len()..].to_owned()),
-        });
+    let header = first_line.strip_prefix("%%")?;
+    let name_end = header.find([' ', '\t']).unwrap_or(header.len());
+    let name = &header[..name_end];
+    let line = header[name_end..].trim();
+    let body = Cow::Owned(cell[first.len()..].to_owned());
+    match name {
+        "bash" if line.is_empty() || reviewed_bash_magic_line(line) => Some(Prepared::Shell {
+            program: "bash",
+            line: Cow::Owned(line.to_owned()),
+            code: body,
+        }),
+        "sh" if line.is_empty() => Some(Prepared::Shell {
+            program: "sh",
+            line: Cow::Borrowed(""),
+            code: body,
+        }),
+        "time" if line.is_empty() => Some(Prepared::Wrapper {
+            code: body,
+            partial: false,
+        }),
+        "capture" if line.is_empty() => Some(Prepared::Wrapper {
+            code: body,
+            partial: true,
+        }),
+        _ => Some(Prepared::Opaque),
     }
-    first_line.starts_with("%%").then_some(Prepared::Opaque)
 }
 
 fn dedent_cell(cell: &str) -> String {
@@ -303,9 +424,8 @@ fn magic_line(line: &str) -> bool {
             .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
 }
 
-fn push_ipython_call(output: &mut String, method: &str, arguments: &[&str]) -> bool {
-    output.push_str("get_ipython().");
-    output.push_str(method);
+fn push_literal_call(output: &mut String, function: &str, arguments: &[&str]) -> bool {
+    output.push_str(function);
     output.push('(');
     for (index, argument) in arguments.iter().enumerate() {
         if index > 0 {
@@ -336,6 +456,135 @@ fn push_ipython_call(output: &mut String, method: &str, arguments: &[&str]) -> b
         output.push('"');
     }
     output.push(')');
+    output.len() <= crate::SOURCE_LIMIT
+}
+
+fn push_interpolated_call(output: &mut String, function: &str, command: &str) -> bool {
+    if unsupported_line_control(command) || command.contains('\0') {
+        return false;
+    }
+    output.push_str(function);
+    output.push_str("(f\"");
+    let bytes = command.as_bytes();
+    let mut offset = 0usize;
+    let mut single_quoted = false;
+    while offset < bytes.len() {
+        match bytes[offset] {
+            b'\'' => {
+                single_quoted = !single_quoted;
+                if !push_fstring_literal(output, '\'') {
+                    return false;
+                }
+                offset += 1;
+            }
+            b'{' => {
+                if bytes.get(offset + 1) == Some(&b'{') {
+                    if !push_fstring_literal(output, '{') {
+                        return false;
+                    }
+                    offset += 2;
+                    continue;
+                }
+                let Some(end) = bytes[offset + 1..]
+                    .iter()
+                    .position(|byte| *byte == b'}')
+                    .map(|end| offset + end + 1)
+                else {
+                    return false;
+                };
+                let name = &command[offset + 1..end];
+                if !python_identifier(name) {
+                    return false;
+                }
+                output.push('{');
+                output.push_str(name);
+                output.push('}');
+                offset = end + 1;
+            }
+            b'}' => {
+                if bytes.get(offset + 1) != Some(&b'}') || !push_fstring_literal(output, '}') {
+                    return false;
+                }
+                offset += 2;
+            }
+            b'$' if !single_quoted => {
+                if bytes.get(offset + 1) == Some(&b'$') {
+                    if !push_fstring_literal(output, '$') {
+                        return false;
+                    }
+                    offset += 2;
+                    continue;
+                }
+                let start = offset + 1;
+                if bytes.get(start).is_some_and(|byte| identifier_start(*byte)) {
+                    let mut end = start + 1;
+                    while bytes
+                        .get(end)
+                        .is_some_and(|byte| identifier_continue(*byte))
+                    {
+                        end += 1;
+                    }
+                    if bytes.get(end) == Some(&b'.') {
+                        return false;
+                    }
+                    output.push('{');
+                    output.push_str(&command[start..end]);
+                    output.push('}');
+                    offset = end;
+                } else {
+                    if !push_fstring_literal(output, '$') {
+                        return false;
+                    }
+                    offset += 1;
+                }
+            }
+            _ => {
+                let Some(character) = command[offset..].chars().next() else {
+                    return false;
+                };
+                if !push_fstring_literal(output, character) {
+                    return false;
+                }
+                offset += character.len_utf8();
+            }
+        }
+    }
+    output.push_str("\")");
+    output.len() <= crate::SOURCE_LIMIT
+}
+
+fn python_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes.next().is_some_and(identifier_start) && bytes.all(identifier_continue)
+}
+
+fn identifier_start(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+fn identifier_continue(byte: u8) -> bool {
+    identifier_start(byte) || byte.is_ascii_digit()
+}
+
+fn push_fstring_literal(output: &mut String, character: char) -> bool {
+    match character {
+        '"' => output.push_str("\\\""),
+        '\\' => output.push_str("\\\\"),
+        '{' => output.push_str("{{"),
+        '}' => output.push_str("}}"),
+        '\t' => output.push_str("\\t"),
+        character if character.is_control() => {
+            let value = character as u32;
+            if value > u32::from(u8::MAX) {
+                return false;
+            }
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            output.push_str("\\x");
+            output.push(HEX[(value >> 4) as usize] as char);
+            output.push(HEX[(value & 0xf) as usize] as char);
+        }
+        character => output.push(character),
+    }
     output.len() <= crate::SOURCE_LIMIT
 }
 

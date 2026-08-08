@@ -169,7 +169,7 @@ fn builtin_ipython_uses_current_cell_import_ownership() {
 }
 
 #[test]
-fn persistent_state_and_shell_rewrites_stay_opaque() {
+fn builtin_ipython_uses_current_cell_builtin_ownership() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
@@ -189,8 +189,40 @@ fn persistent_state_and_shell_rewrites_stay_opaque() {
             {"id":"e2","description":"write /tmp/current-builtin"},
         ])
     );
+}
 
-    for source in ["!rm -rf /", "!!", "%%bash\nrm -rf /"] {
+#[test]
+fn inherited_ipython_shell_binding_stays_opaque() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+
+    let source = "get_ipython().system('rm -rf /')";
+    assert_eq!(
+        run_adapter(&home, &project, "ipython", json!({"code":source})),
+        json!({"block":false,"evaluation_failed":false})
+    );
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["coverage"], "partial");
+    assert_eq!(
+        record["effects"],
+        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
+    );
+}
+
+#[test]
+fn explicit_bash_cell_reaches_the_root_guard() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let project = repo(&home);
+
+    let source = "%%bash --noprofile\nrm -rf /";
+    assert_eq!(
+        run_adapter(&home, &project, "ipython", json!({"code":source}))["block"],
+        true
+    );
+
+    for source in ["!rm -rf {prior}", "%%bash -e\nrm -rf /"] {
         assert_eq!(
             run_adapter(&home, &project, "ipython", json!({"code":source})),
             json!({"block":false,"evaluation_failed":false}),

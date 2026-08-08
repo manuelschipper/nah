@@ -223,11 +223,11 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
 }
 
 #[test]
-fn non_bash_or_unobserved_shells_keep_canonical_partial_evidence() {
+fn direct_get_ipython_needs_an_observed_bash() {
     for (source, shell) in [
-        ("!printf unknown", None),
-        ("!printf sh", Some("/bin/sh")),
-        ("!printf zsh", Some("/bin/zsh")),
+        ("get_ipython().system('printf unknown')", None),
+        ("get_ipython().system('printf sh')", Some("/bin/sh")),
+        ("get_ipython().system('printf zsh')", Some("/bin/zsh")),
     ] {
         let analysis = language_analysis_with_shell(source, shell);
         assert!(!analysis.draft().complete(), "{source}");
@@ -376,10 +376,6 @@ fn persistent_kernel_keeps_ambient_state_and_visible_barriers_unknown() {
         "prior_callable()",
         "prior_object.method()",
         "os.remove('/tmp/prior-module')",
-        "!rm -rf /tmp/prior-shell",
-        "from IPython import get_ipython\n!rm -rf /tmp/current-import-shell",
-        "from IPython import get_ipython\n!!rm -rf /tmp/current-import-shell",
-        "%%bash\nrm -rf /tmp/rewritten-cell",
     ] {
         let analysis = persistent_language_analysis(source);
         assert!(!analysis.draft().complete(), "{source}");
@@ -412,17 +408,146 @@ fn persistent_kernel_keeps_ambient_state_and_visible_barriers_unknown() {
 }
 
 #[test]
+fn persistent_operational_syntax_does_not_depend_on_get_ipython_ownership() {
+    let analysis =
+        persistent_language_analysis("%%bash --no-raise-error --noprofile --norc -x\nrm -rf /");
+    assert!(!analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell {
+            program,
+            code,
+            stdout_inherited: true,
+            ..
+        }] if program == "bash" && code == "rm -rf /\n"
+    ));
+    assert!(matches!(
+        analysis.draft().calls(),
+        [call] if call.kind() == LanguageCallKind::EvaluatedShell
+            && native_input(call.input()).1
+    ));
+
+    for (source, stdout_inherited) in [
+        ("target='/'\n!rm -rf {target}", true),
+        ("target='/'\n!!rm -rf $target", false),
+    ] {
+        let analysis = persistent_language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.report().nested_executions(),
+            [NestedExecution::Shell {
+                program,
+                code,
+                stdout_inherited: inherited,
+                ..
+            }] if program == "sh" && code == "rm -rf /" && *inherited == stdout_inherited
+        ));
+        assert!(matches!(
+            analysis.draft().calls(),
+            [call] if call.kind() == LanguageCallKind::EvaluatedShell
+                && native_input(call.input()).1
+        ));
+    }
+
+    let analysis = persistent_language_analysis("%%sh\nrm -rf /");
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "sh" && code == "rm -rf /\n"
+    ));
+
+    let analysis = persistent_language_analysis("plugin()\n!rm -rf /");
+    assert!(!analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "sh" && code == "rm -rf /"
+    ));
+}
+
+#[test]
+fn raw_source_cannot_invoke_or_replace_preprocessing_intrinsics() {
+    for source in [
+        "__nah_ipython_system_7f19__('rm -rf /')",
+        "__nah_ipython_getoutput_7f19__('rm -rf /')",
+        "__nah_ipython_cell_7f19__('bash', '', 'rm -rf /')",
+        "__nah_ipython_system_7f19__ = replacement\n!rm -rf /",
+    ] {
+        let analysis = persistent_language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.report().nested_executions().is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn exact_current_cell_interpolation_reaches_the_observed_bash() {
+    for (source, expected, stdout_inherited) in [
+        ("target='/'\n!rm -rf {target}", "rm -rf /", true),
+        ("target='/'\n!!rm -rf $target", "rm -rf /", false),
+        ("!printf '$target'", "printf '$target'", true),
+        ("!printf $$HOME", "printf $HOME", true),
+    ] {
+        let analysis = language_analysis(source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.report().nested_executions(),
+            [NestedExecution::Shell {
+                program,
+                code,
+                stdout_inherited: inherited,
+                ..
+            }] if program == "bash" && code == expected && *inherited == stdout_inherited
+        ));
+    }
+
+    for source in ["!rm -rf {prior}", "!rm -rf $prior", "!rm -rf $prior.value"] {
+        let analysis = persistent_language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.report().nested_executions().is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn transparent_time_and_capture_cells_preserve_body_effects() {
+    for source in [
+        "%%time\n%%bash --noprofile\nrm -rf /",
+        "%%capture\n%%bash --norc\nrm -rf /",
+    ] {
+        let analysis = persistent_language_analysis(source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.report().nested_executions(),
+            [NestedExecution::Shell { program, code, .. }]
+                if program == "bash" && code == "rm -rf /\n"
+        ));
+    }
+
+    let analysis = language_analysis("%time import os; os.remove('/tmp/timed')");
+    assert!(analysis.draft().complete());
+    assert!(matches!(
+        analysis.draft().calls(),
+        [call] if call.kind() == LanguageCallKind::DirectFile
+            && call.filesystems()[0].requested() == Some("/tmp/timed")
+    ));
+}
+
+#[test]
 fn opaque_and_incomplete_forms_are_partial_without_fabricated_effects() {
     for source in [
-        "target='/'\n!rm -rf {target}",
-        "target='/'\n!rm -rf $target",
         "!rm -rf / &",
         "if True:\n    !rm -rf /",
         "value = (\n!rm -rf /\n)",
         "%custom rm -rf /",
         "# comment\n%%bash\nrm -rf /",
         "!rm -rf /\nvalue = @",
-        "plugin()\n!rm -rf /",
+        "%%bash -e\nrm -rf /",
+        "%%bash -- --noprofile\nrm -rf /",
+        "%%bash -x --noprofile\nrm -rf /",
+        "%%capture output\n%%bash\nrm -rf /",
+        "%%time\n!rm -rf /\nvalue = @",
+        "__nah_ipython_system_7f19__ = replacement\n!rm -rf /",
     ] {
         let analysis = language_analysis(source);
         assert!(analysis.draft().calls().is_empty(), "{source}");
