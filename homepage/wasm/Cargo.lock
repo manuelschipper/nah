@@ -634,6 +634,7 @@ name = "nah-inline"
 version = "1.2.0"
 dependencies = [
  "nah-proto",
+ "serde_json",
  "tree-sitter",
  "tree-sitter-javascript",
  "tree-sitter-python",
