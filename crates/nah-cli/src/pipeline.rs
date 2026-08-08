@@ -439,19 +439,19 @@ where
                 input,
             )
         }
-        (None, Some(CodeInput::JavaScript { source }))
+        (None, Some(CodeInput::OpenClawJavaScript { source, .. }))
             if input.tool() == "OpenClawCodeModeExec" =>
         {
             nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::JavaScript { source },
+                nah_actions::VisibleCode::OpenClawJavaScript { source },
                 input,
             )
         }
-        (None, Some(CodeInput::TypeScript { source }))
+        (None, Some(CodeInput::OpenClawTypeScript { source, .. }))
             if input.tool() == "OpenClawCodeModeExec" =>
         {
             nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::TypeScript { source },
+                nah_actions::VisibleCode::OpenClawTypeScript { source },
                 input,
             )
         }

@@ -199,6 +199,46 @@ fn deno_eval_uses_the_exact_launcher_dialect() {
 }
 
 #[test]
+fn deno_and_bun_route_only_reviewed_runtime_effects() {
+    for command in [
+        r#"deno eval --ext=js "Deno.remove('/repo/victim',{recursive:true})""#,
+        r#"deno eval --ext=js "new Deno.Command('rm',{args:['-rf','/repo/victim']}).spawn()""#,
+        r#"bun -e "Bun.spawnSync(['rm','-rf','/repo/victim'])""#,
+        r#"bun -e "Bun.write('/repo/victim','text')""#,
+    ] {
+        let plan = bash_plan(command);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.target.as_str() == "/repo/victim"
+            )),
+            "{command}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for command in [
+        r#"deno eval --check --ext=js "Deno.remove('/repo/victim',{recursive:true})""#,
+        r#"bun exec 'rm -rf /repo/victim'"#,
+    ] {
+        let plan = bash_plan(command);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{command}");
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.target.as_str() == "/repo/victim"
+            )),
+            "{command}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
 fn unverified_launcher_modes_stay_opaque() {
     for command in [
         "node '-e1+1'",

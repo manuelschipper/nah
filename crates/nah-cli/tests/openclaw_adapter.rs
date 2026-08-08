@@ -133,15 +133,21 @@ fn openclaw_adapter_maps_guards_and_opaque_code_mode() {
     }
 
     let source = "await tools.read({path: '.env'})";
-    let code_mode = run_hook_with_kinds(
-        home,
-        &project,
-        "exec",
-        json!({"code":source,"command":source}),
-        Some("code_mode_exec"),
-        Some("javascript"),
-    );
-    assert_eq!(code_mode["block"], false);
+    for restart_safe in [None, Some(false), Some(true)] {
+        let mut input = json!({"code":source,"command":source});
+        if let Some(restart_safe) = restart_safe {
+            input["restartSafe"] = json!(restart_safe);
+        }
+        let code_mode = run_hook_with_kinds(
+            home,
+            &project,
+            "exec",
+            input,
+            Some("code_mode_exec"),
+            Some("javascript"),
+        );
+        assert_eq!(code_mode["block"], false, "{restart_safe:?}");
+    }
 
     let missing_discriminator = run_hook_with_kinds(
         home,

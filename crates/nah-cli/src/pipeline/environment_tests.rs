@@ -233,15 +233,25 @@ fn direct_openclaw_code_uses_the_proven_language_without_node_ownership() {
         (
             "return require('fs').rmSync('/tmp/not-node')",
             "javascript",
-            CodeInput::JavaScript {
+            CodeInput::OpenClawJavaScript {
                 source: "return require('fs').rmSync('/tmp/not-node')".into(),
+                restart_safe: None,
             },
         ),
         (
             "const value: number = 1; return value",
             "typescript",
-            CodeInput::TypeScript {
+            CodeInput::OpenClawTypeScript {
                 source: "const value: number = 1; return value".into(),
+                restart_safe: None,
+            },
+        ),
+        (
+            "await tools.call('read_file',{path:'/tmp/not-direct'}); return 1",
+            "javascript",
+            CodeInput::OpenClawJavaScript {
+                source: "await tools.call('read_file',{path:'/tmp/not-direct'}); return 1".into(),
+                restart_safe: None,
             },
         ),
     ] {
@@ -267,6 +277,7 @@ fn direct_openclaw_code_uses_the_proven_language_without_node_ownership() {
                 && effect_source == &SemanticCode::INTERPRETER_INLINE
                 && actual == source
         ));
+        assert_eq!(result.action_stream().effects().len(), 1);
         assert!(!has_delete(&result, "/tmp/not-node"));
     }
 }

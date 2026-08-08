@@ -276,29 +276,36 @@ mod tests {
     #[test]
     fn normalizes_verified_code_mode_for_later_analysis() {
         let source = "await tools.read({path:'x'})";
-        let original = json!({"code":source,"command":source});
-        let code = normalize(OpenClawHookInput {
-            tool_name: "exec".into(),
-            tool_input: original.clone(),
-            cwd: "/repo".into(),
-            session_id: None,
-            tool_kind: Some("code_mode_exec".into()),
-            tool_input_kind: Some("javascript".into()),
-        })
-        .unwrap();
-        assert_eq!(code.0.tool(), "OpenClawCodeModeExec");
-        assert_eq!(
-            code.0.input(),
-            &json!({"code":source,"language":"javascript"})
-        );
-        assert_eq!(code.0.invocation_input(), &original);
-        assert!(code.0.normalization_complete());
-        assert_eq!(
-            code.1,
-            Some(CodeInput::JavaScript {
-                source: source.into()
+        for restart_safe in [None, Some(false), Some(true)] {
+            let mut original = json!({"code":source,"command":source});
+            if let Some(restart_safe) = restart_safe {
+                original["restartSafe"] = json!(restart_safe);
+            }
+            let code = normalize(OpenClawHookInput {
+                tool_name: "exec".into(),
+                tool_input: original.clone(),
+                cwd: "/repo".into(),
+                session_id: None,
+                tool_kind: Some("code_mode_exec".into()),
+                tool_input_kind: Some("javascript".into()),
             })
-        );
+            .unwrap();
+            let mut expected = json!({"code":source,"language":"javascript"});
+            if let Some(restart_safe) = restart_safe {
+                expected["restartSafe"] = json!(restart_safe);
+            }
+            assert_eq!(code.0.tool(), "OpenClawCodeModeExec");
+            assert_eq!(code.0.input(), &expected);
+            assert_eq!(code.0.invocation_input(), &original);
+            assert!(code.0.normalization_complete());
+            assert_eq!(
+                code.1,
+                Some(CodeInput::OpenClawJavaScript {
+                    source: source.into(),
+                    restart_safe,
+                })
+            );
+        }
     }
 
     #[test]
@@ -399,6 +406,6 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 225);
+        assert!(implementation.lines().count() <= 228);
     }
 }

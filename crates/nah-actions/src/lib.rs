@@ -78,8 +78,8 @@ pub enum AnalysisInput<'a> {
 #[derive(Clone, Copy)]
 pub enum VisibleCode<'a> {
     Python { source: &'a str },
-    JavaScript { source: &'a str },
-    TypeScript { source: &'a str },
+    OpenClawJavaScript { source: &'a str },
+    OpenClawTypeScript { source: &'a str },
     Ipython { source: &'a str },
 }
 
@@ -236,11 +236,15 @@ fn plan_with_ambient_variables(
         }
         AnalysisInput::VisibleCode(visible, input) => {
             let invocation_input = native::invocation_input(input);
-            let (language, source, persistent_ipython) = match visible {
-                VisibleCode::Python { source } => ("python", source, false),
-                VisibleCode::JavaScript { source } => ("javascript", source, false),
-                VisibleCode::TypeScript { source } => ("typescript", source, false),
-                VisibleCode::Ipython { source } => ("ipython", source, true),
+            let (interpreter, analysis_program, source, persistent_ipython) = match visible {
+                VisibleCode::Python { source } => ("python", "python", source, false),
+                VisibleCode::OpenClawJavaScript { source } => {
+                    ("javascript", "openclaw-javascript", source, false)
+                }
+                VisibleCode::OpenClawTypeScript { source } => {
+                    ("typescript", "openclaw-typescript", source, false)
+                }
+                VisibleCode::Ipython { source } => ("ipython", "ipython", source, true),
             };
             let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
                 if persistent_ipython {
@@ -257,7 +261,8 @@ fn plan_with_ambient_variables(
                 } else {
                     bash::visible_language_draft(
                         input.tool(),
-                        language,
+                        interpreter,
+                        analysis_program,
                         source,
                         invocation_input,
                         call_site.requested_cwd(),

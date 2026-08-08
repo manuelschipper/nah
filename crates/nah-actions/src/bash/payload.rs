@@ -40,6 +40,16 @@ fn requires_ipython_shell(draft: &LanguageDraft) -> bool {
     })
 }
 
+fn bash_shell_payload(invocation: &InvocationDraft) -> bool {
+    matches!(
+        invocation,
+        InvocationDraft::CodeExecution {
+            program, source, ..
+        } if source.as_str().starts_with("shell-")
+            && crate::bash_execution::normalized_execution_program(program) != "bun"
+    )
+}
+
 impl Lowerer {
     pub(super) fn resolve_visible_execution_at_boundary(&mut self, sink: usize) {
         let payload = self.visible_execution_payload(sink);
@@ -63,11 +73,7 @@ impl Lowerer {
             return;
         };
         self.prelowered_visible_stages.insert(sink);
-        let shell_payload = matches!(
-            &self.stages[sink].invocation,
-            InvocationDraft::CodeExecution { source, .. }
-                if source.as_str().starts_with("shell-")
-        );
+        let shell_payload = bash_shell_payload(&self.stages[sink].invocation);
         if !shell_payload {
             if let InvocationDraft::CodeExecution { code, .. } = &mut self.stages[sink].invocation {
                 *code = Some(payload);
@@ -146,11 +152,7 @@ impl Lowerer {
             }
             for (sink, payload) in payloads {
                 seen.insert(sink);
-                let shell_payload = matches!(
-                    &self.stages[sink].invocation,
-                    InvocationDraft::CodeExecution { source, .. }
-                        if source.as_str().starts_with("shell-")
-                );
+                let shell_payload = bash_shell_payload(&self.stages[sink].invocation);
                 if !shell_payload {
                     if let InvocationDraft::CodeExecution { code, .. } =
                         &mut self.stages[sink].invocation

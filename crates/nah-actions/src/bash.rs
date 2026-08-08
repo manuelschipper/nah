@@ -215,7 +215,8 @@ pub(crate) fn draft(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn visible_language_draft(
     outer_program: &str,
-    language: &str,
+    interpreter: &str,
+    analysis_program: &str,
     source: &str,
     input: InvocationInput,
     requested_cwd: &AbsolutePath,
@@ -232,7 +233,8 @@ pub(crate) fn visible_language_draft(
 ) {
     visible_language_draft_with_profile(
         outer_program,
-        language,
+        interpreter,
+        analysis_program,
         source,
         input,
         requested_cwd,
@@ -264,6 +266,7 @@ pub(crate) fn visible_ipython_draft(
     visible_language_draft_with_profile(
         outer_program,
         "ipython",
+        "ipython",
         source,
         input,
         requested_cwd,
@@ -279,6 +282,7 @@ pub(crate) fn visible_ipython_draft(
 fn visible_language_draft_with_profile(
     outer_program: &str,
     interpreter: &str,
+    analysis_program: &str,
     source: &str,
     input: InvocationInput,
     requested_cwd: &AbsolutePath,
@@ -343,7 +347,7 @@ fn visible_language_draft_with_profile(
             state,
             ambient_variables: lowerer.ambient_variables.clone(),
         },
-        interpreter,
+        analysis_program,
         source,
         persistent_ipython,
     );

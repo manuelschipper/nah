@@ -179,9 +179,14 @@ pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<Execut
 }
 
 pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) -> String {
-    if normalized_execution_program(program) != "deno" {
-        return program.to_owned();
+    match normalized_execution_program(program).as_str() {
+        "deno" => deno_inline_language_program(program, argv),
+        "bun" => bun_inline_language_program(program, argv),
+        _ => program.to_owned(),
     }
+}
+
+fn deno_inline_language_program(program: &str, argv: Option<&[String]>) -> String {
     let Some(argv) = argv else {
         return program.to_owned();
     };
@@ -192,10 +197,19 @@ pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) ->
         return program.to_owned();
     }
     let mut extension = "ts";
+    let mut checked = false;
     let mut index = 2;
     while let Some(argument) = argv.get(index).map(String::as_str) {
         match argument {
-            "--check" | "--no-check" | "--quiet" => index += 1,
+            "--check" => {
+                checked = true;
+                index += 1;
+            }
+            "--no-check" => {
+                checked = false;
+                index += 1;
+            }
+            "--quiet" => index += 1,
             "--ext" => {
                 let Some(value) = argv.get(index + 1) else {
                     return program.to_owned();
@@ -212,15 +226,67 @@ pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) ->
         }
     }
     let prefix = if command == "eval" {
-        "deno-eval"
+        if checked {
+            "deno-checked-eval"
+        } else {
+            "deno-eval"
+        }
     } else {
-        "deno"
+        "deno-run"
     };
     match extension {
         "js" | "mjs" | "cjs" => format!("{prefix}-js"),
         "jsx" | "tsx" => format!("{prefix}-tsx"),
         "ts" | "mts" | "cts" => format!("{prefix}-typescript"),
         _ => program.to_owned(),
+    }
+}
+
+fn bun_inline_language_program(program: &str, argv: Option<&[String]>) -> String {
+    let Some(argv) = argv else {
+        return program.to_owned();
+    };
+    let Some(first) = argv.get(1).map(String::as_str) else {
+        return program.to_owned();
+    };
+    match first {
+        "exec" if argv.len() >= 3 => "bun-shell".to_owned(),
+        "-e" | "--eval" | "-p" | "--print" if argv.len() >= 3 => "bun-tsx".to_owned(),
+        "-" => "bun-tsx".to_owned(),
+        "run" => argv
+            .get(2)
+            .and_then(|operand| bun_source_profile(operand))
+            .unwrap_or(program)
+            .to_owned(),
+        value if value.starts_with("--eval=") || value.starts_with("--print=") => {
+            "bun-tsx".to_owned()
+        }
+        value if (value.starts_with("-e") || value.starts_with("-p")) && value.len() > 2 => {
+            "bun-tsx".to_owned()
+        }
+        value => bun_source_profile(value).unwrap_or(program).to_owned(),
+    }
+}
+
+fn bun_source_profile(source: &str) -> Option<&'static str> {
+    let source = source.split(['?', '#']).next().unwrap_or(source);
+    if [".js", ".mjs", ".cjs"]
+        .iter()
+        .any(|extension| source.ends_with(extension))
+    {
+        Some("bun-js")
+    } else if [".ts", ".mts", ".cts"]
+        .iter()
+        .any(|extension| source.ends_with(extension))
+    {
+        Some("bun-typescript")
+    } else if [".jsx", ".tsx"]
+        .iter()
+        .any(|extension| source.ends_with(extension))
+    {
+        Some("bun-tsx")
+    } else {
+        None
     }
 }
 
@@ -686,7 +752,7 @@ fn perl_attached_code(argument: &str) -> Option<&str> {
         .filter(|code| !code.is_empty())
 }
 
-fn normalized_execution_program(program: &str) -> String {
+pub(crate) fn normalized_execution_program(program: &str) -> String {
     let program = program
         .rsplit(['/', '\\'])
         .next()
@@ -1103,8 +1169,22 @@ mod tests {
         for (argv, expected) in [
             (&["deno", "eval", "code"][..], "deno-eval-typescript"),
             (&["deno", "eval", "--ext=js", "code"][..], "deno-eval-js"),
-            (&["deno", "eval", "--ext", "tsx", "code"][..], "deno-eval-tsx"),
-            (&["deno", "run", "--ext=mts", "-"][..], "deno-typescript"),
+            (
+                &["deno", "eval", "--ext", "tsx", "code"][..],
+                "deno-eval-tsx",
+            ),
+            (
+                &["deno", "eval", "--check", "code"][..],
+                "deno-checked-eval-typescript",
+            ),
+            (
+                &["deno", "eval", "--check", "--no-check", "code"][..],
+                "deno-eval-typescript",
+            ),
+            (
+                &["deno", "run", "--ext=mts", "-"][..],
+                "deno-run-typescript",
+            ),
         ] {
             let argv = argv
                 .iter()
@@ -1132,6 +1212,29 @@ mod tests {
                 ])
             ),
             "deno"
+        );
+    }
+
+    #[test]
+    fn exact_bun_argv_selects_runtime_and_shell_profiles() {
+        for (argv, expected) in [
+            (&["bun", "-e", "code"][..], "bun-tsx"),
+            (&["bun", "exec", "rm -rf /"][..], "bun-shell"),
+            (&["bun", "script.js"][..], "bun-js"),
+            (&["bun", "run", "script.ts"][..], "bun-typescript"),
+            (&["bun", "script.tsx"][..], "bun-tsx"),
+        ] {
+            let argv = argv
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(inline_language_program("bun", Some(&argv)), expected);
+        }
+
+        assert_eq!(inline_language_program("bun", None), "bun");
+        assert_eq!(
+            inline_language_program("bun", Some(&["bun".into(), "script".into()])),
+            "bun"
         );
     }
 }

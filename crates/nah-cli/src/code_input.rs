@@ -6,21 +6,41 @@ use nah_proto::tool::ToolCallInput;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
-    Python { source: String },
-    Ipython { source: String },
-    JavaScript { source: String },
-    TypeScript { source: String },
+    Python {
+        source: String,
+    },
+    Ipython {
+        source: String,
+    },
+    OpenClawJavaScript {
+        source: String,
+        restart_safe: Option<bool>,
+    },
+    OpenClawTypeScript {
+        source: String,
+        restart_safe: Option<bool>,
+    },
 }
 
 impl CodeInput {
     pub(crate) fn canonical_input(&self) -> Value {
-        let (language, source) = match self {
-            Self::Python { source } => ("python", source),
-            Self::Ipython { source } => ("ipython", source),
-            Self::JavaScript { source } => ("javascript", source),
-            Self::TypeScript { source } => ("typescript", source),
+        let (language, source, restart_safe) = match self {
+            Self::Python { source } => ("python", source, None),
+            Self::Ipython { source } => ("ipython", source, None),
+            Self::OpenClawJavaScript {
+                source,
+                restart_safe,
+            } => ("javascript", source, *restart_safe),
+            Self::OpenClawTypeScript {
+                source,
+                restart_safe,
+            } => ("typescript", source, *restart_safe),
         };
-        json!({"code":source,"language":language})
+        let mut input = json!({"code":source,"language":language});
+        if let Some(restart_safe) = restart_safe {
+            input["restartSafe"] = Value::Bool(restart_safe);
+        }
+        input
     }
 }
 
@@ -120,13 +140,23 @@ pub(crate) fn openclaw(
     if object.get("command").and_then(Value::as_str) != Some(source.as_str()) {
         return CodeIntake::Invalid;
     }
+    let restart_safe = object.get("restartSafe").and_then(Value::as_bool);
     match (tool_input_kind, object.get("language")) {
-        (Some("javascript"), None) => CodeIntake::Code(CodeInput::JavaScript { source }),
+        (Some("javascript"), None) => CodeIntake::Code(CodeInput::OpenClawJavaScript {
+            source,
+            restart_safe,
+        }),
         (Some("javascript"), Some(Value::String(language))) if language == "javascript" => {
-            CodeIntake::Code(CodeInput::JavaScript { source })
+            CodeIntake::Code(CodeInput::OpenClawJavaScript {
+                source,
+                restart_safe,
+            })
         }
         (Some("typescript"), Some(Value::String(language))) if language == "typescript" => {
-            CodeIntake::Code(CodeInput::TypeScript { source })
+            CodeIntake::Code(CodeInput::OpenClawTypeScript {
+                source,
+                restart_safe,
+            })
         }
         _ => CodeIntake::Invalid,
     }
@@ -169,8 +199,9 @@ mod tests {
                 Some("javascript"),
                 &json!({"code":"return 1","command":"return 1"}),
             ),
-            CodeIntake::Code(CodeInput::JavaScript {
-                source: "return 1".into()
+            CodeIntake::Code(CodeInput::OpenClawJavaScript {
+                source: "return 1".into(),
+                restart_safe: None,
             })
         );
         assert_eq!(
@@ -185,8 +216,9 @@ mod tests {
                     "restartSafe":true
                 }),
             ),
-            CodeIntake::Code(CodeInput::TypeScript {
-                source: "const value: number = 1".into()
+            CodeIntake::Code(CodeInput::OpenClawTypeScript {
+                source: "const value: number = 1".into(),
+                restart_safe: Some(true),
             })
         );
     }
