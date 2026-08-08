@@ -237,8 +237,8 @@ fn all_nap_delegates_every_non_permanent_call_and_wake_restores_enforcement() {
     write_authenticated_nap(home, "all", timestamp, timestamp + 600);
 
     for command in [
-        r#"python3 -c "import os; os.system('nah nap')""#,
-        r#"python3 -c "import os; os.system('script -qec \"nah nap\" /dev/null')""#,
+        r#"python3 -c "import subprocess; subprocess.run(['bash','-c','nah nap'])""#,
+        r#"python3 -c "import subprocess; subprocess.run(['bash','-c','script -qec \"nah nap\" /dev/null'])""#,
         r#"node -e "const {spawn}=require('child_process'); spawn('nah', ['nap'])""#,
         r#"pwsh -Command "Start-Process nah -ArgumentList nap""#,
     ] {
