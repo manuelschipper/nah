@@ -116,12 +116,50 @@ enum OpenClawMember {
     CallValue,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum NodeModuleMember {
     Load,
     CreateRequire,
     Require,
     IsBuiltin,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum NodeProperty {
+    ModuleLoad,
+    ModuleCreateRequire,
+    ModuleIsBuiltin,
+    ModuleAlias,
+    ModulePrototype,
+    ModuleConstructor,
+    PrototypeRequire,
+    CommonJsRequire,
+    CommonJsConstructor,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NodeMutation {
+    Applies,
+    Ignored,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NodePropertyKind {
+    Absent,
+    Data,
+    Accessor,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NodePropertyState {
+    value: Value,
+    own: Option<bool>,
+    kind: NodePropertyKind,
+    enumerable: Option<bool>,
+    assignment: NodeMutation,
+    deletion: NodeMutation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,6 +201,7 @@ struct LocalFunction {
     body: HirNode,
     expression_body: bool,
     asynchronous: bool,
+    strict: bool,
     captured_scopes: Vec<usize>,
     source_identity: usize,
 }
@@ -171,6 +210,7 @@ struct LocalFunction {
 enum Value {
     Unknown,
     Invalid,
+    NonCallablePrimitive,
     SynchronousThrow,
     Divergent,
     Promise,
@@ -186,6 +226,7 @@ enum Value {
     Known(KnownFunction),
     Function(Arc<LocalFunction>),
     Accessor,
+    AccessorGetter(Arc<LocalFunction>),
     Require,
     Eval,
     DynamicEvalResult,
@@ -194,7 +235,11 @@ enum Value {
     ObjectBuiltin,
     Process,
     Environment,
+    CommonJsModule,
+    InheritedNodeProperty(NodeProperty),
     NodeModule,
+    LoadedModule(Module),
+    NodeModulePrototype,
     NodeModuleMember(NodeModuleMember),
     Deno,
     DenoCommandConstructor,
@@ -206,6 +251,7 @@ enum Value {
     UnknownReceiver(Box<Value>),
 }
 
+#[derive(Clone)]
 struct MemberReference {
     object: Value,
     property: Option<String>,
@@ -225,6 +271,8 @@ struct State {
     scope_chain: Vec<usize>,
     next_scope_id: usize,
     owned_members: BTreeSet<(Module, Member)>,
+    loaded_modules_intact: BTreeSet<Module>,
+    node_properties: BTreeMap<NodeProperty, NodePropertyState>,
     relative_cwd_known: bool,
     prototype_integrity_known: bool,
     runtime_globals_intact: bool,
@@ -235,6 +283,8 @@ impl PartialEq for State {
         self.scopes == other.scopes
             && self.scope_chain == other.scope_chain
             && self.owned_members == other.owned_members
+            && self.loaded_modules_intact == other.loaded_modules_intact
+            && self.node_properties == other.node_properties
             && self.relative_cwd_known == other.relative_cwd_known
             && self.prototype_integrity_known == other.prototype_integrity_known
             && self.runtime_globals_intact == other.runtime_globals_intact
@@ -254,6 +304,7 @@ impl State {
         .map(|(name, value)| (name.to_owned(), value))
         .collect::<BTreeMap<_, _>>();
         let mut owned_members = BTreeSet::new();
+        let mut loaded_modules_intact = BTreeSet::new();
         match ownership {
             RuntimeOwnership::DenoEval => {
                 bindings.insert("Deno".into(), Value::Deno);
@@ -276,6 +327,7 @@ impl State {
             RuntimeOwnership::DenoCheckedEval | RuntimeOwnership::Unowned => {}
         }
         if matches!(ownership, RuntimeOwnership::Node | RuntimeOwnership::Bun) {
+            loaded_modules_intact.extend([Module::Fs, Module::FsPromises, Module::ChildProcess]);
             owned_members.extend([
                 (Module::Fs, Member::AppendFile),
                 (Module::Fs, Member::AppendFileSync),
@@ -337,6 +389,8 @@ impl State {
             scope_chain: vec![0],
             next_scope_id: 1,
             owned_members,
+            loaded_modules_intact,
+            node_properties: default_node_properties(),
             relative_cwd_known: true,
             prototype_integrity_known: true,
             runtime_globals_intact: true,
@@ -443,10 +497,63 @@ impl State {
                     (Module::Fs, Module::FsPromises) | (Module::FsPromises, Module::Fs)
                 )
         });
+        self.invalidate_loaded_module_cache(module);
+    }
+
+    fn invalidate_loaded_module_cache(&mut self, module: Module) {
+        self.loaded_modules_intact.retain(|loaded| {
+            *loaded != module
+                && !matches!(
+                    (module, *loaded),
+                    (Module::Fs, Module::FsPromises) | (Module::FsPromises, Module::Fs)
+                )
+        });
+        for scope in &mut self.scopes {
+            for value in scope.bindings.values_mut() {
+                invalidate_loaded_module_value(value, module);
+            }
+        }
     }
 
     fn invalidate_node_module_loader(&mut self) {
         self.owned_members.clear();
+    }
+
+    fn invalidate_node_module_properties(&mut self) {
+        self.invalidate_node_module_loader();
+        self.loaded_modules_intact.clear();
+        for property in self.node_properties.values_mut() {
+            property.value = Value::Unknown;
+            property.own = None;
+            property.kind = NodePropertyKind::Unknown;
+            property.enumerable = None;
+            property.assignment = NodeMutation::Unknown;
+            property.deletion = NodeMutation::Unknown;
+        }
+    }
+
+    fn invalidate_node_module_escape(&mut self, value: &Value) {
+        match value {
+            Value::CommonJsModule | Value::NodeModule | Value::NodeModulePrototype => {
+                self.invalidate_node_module_properties();
+            }
+            Value::NodeModuleMember(member) if node_module_loader_hook(*member) => {
+                self.invalidate_node_module_loader();
+            }
+            Value::NodeModuleMember(_) => {}
+            Value::Array(values) => {
+                for value in values {
+                    self.invalidate_node_module_escape(value);
+                }
+            }
+            Value::Object(properties) => {
+                for value in properties.values() {
+                    self.invalidate_node_module_escape(value);
+                }
+            }
+            Value::UnknownReceiver(value) => self.invalidate_node_module_escape(value),
+            _ => {}
+        }
     }
 
     fn widen(&mut self) {
@@ -456,6 +563,15 @@ impl State {
             }
         }
         self.owned_members.clear();
+        self.loaded_modules_intact.clear();
+        for property in self.node_properties.values_mut() {
+            property.value = Value::Unknown;
+            property.own = None;
+            property.kind = NodePropertyKind::Unknown;
+            property.enumerable = None;
+            property.assignment = NodeMutation::Unknown;
+            property.deletion = NodeMutation::Unknown;
+        }
         self.relative_cwd_known = false;
         self.prototype_integrity_known = false;
         self.runtime_globals_intact = false;
@@ -469,8 +585,14 @@ impl State {
             Value::Module(module) | Value::UnknownModuleMember(module) => {
                 self.invalidate_module(*module);
             }
-            Value::NodeModule | Value::NodeModuleMember(_) => {
-                self.invalidate_node_module_loader();
+            Value::LoadedModule(module) => self.invalidate_loaded_module(*module),
+            Value::CommonJsModule | Value::NodeModule | Value::NodeModulePrototype => {
+                self.invalidate_node_module_properties();
+            }
+            Value::NodeModuleMember(member) => {
+                if node_module_loader_hook(*member) {
+                    self.invalidate_node_module_loader();
+                }
             }
             Value::Array(values) => {
                 for value in values {
@@ -485,12 +607,17 @@ impl State {
             Value::UnknownReceiver(value) => self.invalidate_value(value),
             _ => {}
         }
-        if matches!(value, Value::Array(_) | Value::Object(_)) {
-            for scope in &mut self.scopes {
-                for binding in scope.bindings.values_mut() {
-                    if binding == value {
-                        *binding = Value::Unknown;
-                    }
+        self.forget_container(value);
+    }
+
+    fn forget_container(&mut self, value: &Value) {
+        if !matches!(value, Value::Array(_) | Value::Object(_)) {
+            return;
+        }
+        for scope in &mut self.scopes {
+            for binding in scope.bindings.values_mut() {
+                if binding == value {
+                    *binding = Value::Unknown;
                 }
             }
         }
@@ -523,9 +650,15 @@ impl State {
         }
     }
 
+    fn invalidate_loaded_module(&mut self, module: Module) {
+        self.invalidate_module(module);
+    }
+
     fn dynamic_global(&self, ownership: RuntimeOwnership) -> Self {
         let mut state = Self::new(ownership);
         state.owned_members = self.owned_members.clone();
+        state.loaded_modules_intact = self.loaded_modules_intact.clone();
+        state.node_properties = self.node_properties.clone();
         state.relative_cwd_known = self.relative_cwd_known;
         state.prototype_integrity_known = self.prototype_integrity_known;
         state.runtime_globals_intact = self.runtime_globals_intact;
@@ -673,6 +806,7 @@ struct Interpreter<'a> {
     platform: Platform,
     depth: usize,
     profile: Profile,
+    strict: bool,
     report: InlineReport,
     draft: LanguageDraft,
     complete: bool,
@@ -715,12 +849,14 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
             CoverageKind::Unsupported | CoverageKind::Error
         ) && covered.span().end() <= input.code.len()
     }));
+    let strict = strict_directive(module.root(), input.code) || source_is_module(module.root());
     let mut interpreter = Interpreter {
         source: input.code,
         home: input.home,
         platform: input.platform,
         depth,
         profile,
+        strict,
         report: InlineReport::default(),
         draft: LanguageDraft::default(),
         complete: true,
@@ -1200,20 +1336,7 @@ impl<'a> Interpreter<'a> {
             HirKind::TernaryExpression => self.ternary(node, state, call_depth),
             HirKind::AssignmentExpression => self.assignment(node, state, call_depth),
             HirKind::AugmentedAssignmentExpression | HirKind::UpdateExpression => {
-                if let Some(left) = node
-                    .child(HirField::Left)
-                    .or_else(|| named_children(node).next())
-                    && let Some(value) = self.assign_target(left, Value::Unknown, state, call_depth)
-                {
-                    return value;
-                }
-                if let Some(right) = node.child(HirField::Right) {
-                    let value = self.eval(right, state, call_depth);
-                    if abrupt_value(&value) {
-                        return value;
-                    }
-                }
-                Value::Unknown
+                self.augmented_assignment(node, state, call_depth)
             }
             HirKind::MemberExpression | HirKind::SubscriptExpression => {
                 self.member(node, state, call_depth)
@@ -1340,11 +1463,27 @@ impl<'a> Interpreter<'a> {
                 _ => Value::Unknown,
             },
             "delete" => {
-                if let Some(argument) = node.child(HirField::Argument)
-                    && let Some(value) =
+                if let Some(argument) = node.child(HirField::Argument) {
+                    if let Some(target) = member_assignment_target(argument) {
+                        let member = match self.member_reference(target, state, call_depth) {
+                            Ok(member) => member,
+                            Err(value) => return value,
+                        };
+                        return match self.delete_member(member, state) {
+                            NodeMutation::Applies => Value::Bool(true),
+                            NodeMutation::Ignored if self.strict => Value::SynchronousThrow,
+                            NodeMutation::Ignored => Value::Bool(false),
+                            NodeMutation::Unknown => {
+                                self.complete = false;
+                                self.draft.set_partial();
+                                Value::Unknown
+                            }
+                        };
+                    } else if let Some(value) =
                         self.assign_target(argument, Value::Unknown, state, call_depth)
-                {
-                    return value;
+                    {
+                        return value;
+                    }
                 }
                 Value::Bool(true)
             }
@@ -1404,17 +1543,136 @@ impl<'a> Interpreter<'a> {
         if abrupt_value(&value) {
             return value;
         }
-        if let Some(member) = member {
-            self.assign_member(member, state);
-            if node_module_provenance(&value) {
-                state.invalidate_node_module_loader();
-            }
-        } else if let Some(left) = left
-            && let Some(value) = self.assign_target(left, value.clone(), state, call_depth)
-        {
+        if let Some(value) = self.store_assignment(member, left, value.clone(), state, call_depth) {
             return value;
         }
         value
+    }
+
+    fn store_assignment(
+        &mut self,
+        member: Option<MemberReference>,
+        left: Option<&HirNode>,
+        value: Value,
+        state: &mut State,
+        call_depth: usize,
+    ) -> Option<Value> {
+        if let Some(member) = member {
+            match self.assign_member(member, value.clone(), state) {
+                NodeMutation::Ignored if self.strict => return Some(Value::SynchronousThrow),
+                NodeMutation::Ignored => {}
+                NodeMutation::Applies => state.invalidate_node_module_escape(&value),
+                NodeMutation::Unknown => {
+                    state.invalidate_node_module_escape(&value);
+                    self.complete = false;
+                    self.draft.set_partial();
+                }
+            }
+        } else if let Some(left) = left
+            && let Some(value) = self.assign_target(left, value, state, call_depth)
+        {
+            return Some(value);
+        }
+        None
+    }
+
+    fn augmented_assignment(
+        &mut self,
+        node: &HirNode,
+        state: &mut State,
+        call_depth: usize,
+    ) -> Value {
+        let left = node
+            .child(HirField::Left)
+            .or_else(|| named_children(node).next());
+        let member = match left.and_then(member_assignment_target) {
+            Some(target) => match self.member_reference(target, state, call_depth) {
+                Ok(member) => Some(member),
+                Err(value) => return value,
+            },
+            None => None,
+        };
+        let left_value = if let Some(member) = &member {
+            self.read_member(member, state)
+        } else {
+            left.map_or(Value::Unknown, |left| self.eval(left, state, call_depth))
+        };
+        if abrupt_value(&left_value) {
+            return left_value;
+        }
+        let operator = node
+            .child(HirField::Operator)
+            .map_or("", |operator| self.text(operator));
+        if matches!(operator, "&&=" | "||=" | "??=") {
+            let assign = match operator {
+                "&&=" => truthy(&left_value),
+                "||=" => truthy(&left_value).map(|truthy| !truthy),
+                "??=" => nullish(&left_value),
+                _ => unreachable!(),
+            };
+            if assign == Some(false) {
+                return left_value;
+            }
+            let Some(right) = node.child(HirField::Right) else {
+                return Value::Unknown;
+            };
+            if assign == Some(true) {
+                let value = self.eval(right, state, call_depth);
+                if abrupt_value(&value) {
+                    return value;
+                }
+                if let Some(value) =
+                    self.store_assignment(member, left, value.clone(), state, call_depth)
+                {
+                    return value;
+                }
+                return value;
+            }
+            self.complete = false;
+            self.draft.set_partial();
+            let no = state.clone();
+            let mut yes = state.clone();
+            let saved_dominators = self.execution_dominators.clone();
+            self.conditional_depth += 1;
+            let value = self.eval(right, &mut yes, call_depth);
+            if !abrupt_value(&value)
+                && self
+                    .store_assignment(member, left, value.clone(), &mut yes, call_depth)
+                    .is_none()
+            {
+                *state = join_states(no, yes);
+                self.conditional_depth -= 1;
+                self.execution_dominators = saved_dominators;
+                return join_values(left_value, value);
+            }
+            *state = no;
+            self.conditional_depth -= 1;
+            self.execution_dominators = saved_dominators;
+            return left_value;
+        }
+        let right = node
+            .child(HirField::Right)
+            .map(|right| self.eval(right, state, call_depth));
+        if let Some(value) = &right
+            && abrupt_value(value)
+        {
+            return value.clone();
+        }
+        let replacement = Value::NonCallablePrimitive;
+        if !augmented_coercion_proven(&left_value, right.as_ref(), state) {
+            self.complete = false;
+            self.draft.set_partial();
+            if member.as_ref().is_some_and(node_loader_reference) {
+                return replacement;
+            }
+        }
+        if let Some(value) =
+            self.store_assignment(member, left, replacement.clone(), state, call_depth)
+        {
+            value
+        } else {
+            replacement
+        }
     }
 
     fn assign_target(
@@ -1439,7 +1697,7 @@ impl<'a> Interpreter<'a> {
                     Ok(member) => member,
                     Err(value) => return Some(value),
                 };
-                self.assign_member(member, state);
+                return self.store_assignment(Some(member), None, value, state, call_depth);
             }
             _ => {}
         }
@@ -1478,7 +1736,130 @@ impl<'a> Interpreter<'a> {
         })
     }
 
-    fn assign_member(&mut self, member: MemberReference, state: &mut State) {
+    fn assign_node_property(
+        &mut self,
+        property: NodeProperty,
+        replacement: Value,
+        state: &mut State,
+    ) -> NodeMutation {
+        let current = state
+            .node_properties
+            .get(&property)
+            .cloned()
+            .unwrap_or_else(unknown_node_property);
+        match current.assignment {
+            NodeMutation::Ignored => NodeMutation::Ignored,
+            NodeMutation::Applies => {
+                let creates_own = current.own == Some(false);
+                let property_state = state
+                    .node_properties
+                    .entry(property)
+                    .or_insert_with(unknown_node_property);
+                property_state.value = replacement;
+                if creates_own {
+                    property_state.own = Some(true);
+                    property_state.kind = NodePropertyKind::Data;
+                    property_state.enumerable = Some(true);
+                    property_state.deletion = NodeMutation::Applies;
+                }
+                if node_property_loader_hook(property) {
+                    state.invalidate_node_module_loader();
+                }
+                NodeMutation::Applies
+            }
+            NodeMutation::Unknown => {
+                let property_state = state
+                    .node_properties
+                    .entry(property)
+                    .or_insert_with(unknown_node_property);
+                property_state.value = join_values(current.value, replacement);
+                property_state.own = None;
+                property_state.kind = NodePropertyKind::Unknown;
+                property_state.enumerable = None;
+                property_state.assignment = NodeMutation::Unknown;
+                property_state.deletion = NodeMutation::Unknown;
+                if node_property_loader_hook(property) {
+                    state.invalidate_node_module_loader();
+                }
+                self.complete = false;
+                self.draft.set_partial();
+                NodeMutation::Unknown
+            }
+        }
+    }
+
+    fn define_node_property(
+        &mut self,
+        property: NodeProperty,
+        arguments: &Arguments,
+        state: &mut State,
+    ) {
+        let current = state
+            .node_properties
+            .get(&property)
+            .cloned()
+            .unwrap_or_else(unknown_node_property);
+        let (defined, changes_value, uncertain) =
+            defined_node_property(current, arguments.values.get(2));
+        state.node_properties.insert(property, defined);
+        if changes_value && node_property_loader_hook(property) {
+            state.invalidate_node_module_loader();
+        }
+        if uncertain {
+            self.complete = false;
+            self.draft.set_partial();
+        }
+    }
+
+    fn delete_node_property(&mut self, property: NodeProperty, state: &mut State) -> NodeMutation {
+        let current = state
+            .node_properties
+            .get(&property)
+            .cloned()
+            .unwrap_or_else(unknown_node_property);
+        if current.own == Some(false) {
+            return NodeMutation::Applies;
+        }
+        match current.deletion {
+            NodeMutation::Ignored => NodeMutation::Ignored,
+            NodeMutation::Applies => {
+                state
+                    .node_properties
+                    .insert(property, absent_node_property(property));
+                if node_property_loader_hook(property) {
+                    state.invalidate_node_module_loader();
+                }
+                NodeMutation::Applies
+            }
+            NodeMutation::Unknown => {
+                let absent = absent_node_property(property);
+                state.node_properties.insert(
+                    property,
+                    NodePropertyState {
+                        value: join_values(current.value, absent.value),
+                        own: None,
+                        kind: NodePropertyKind::Unknown,
+                        enumerable: None,
+                        assignment: NodeMutation::Unknown,
+                        deletion: NodeMutation::Unknown,
+                    },
+                );
+                if node_property_loader_hook(property) {
+                    state.invalidate_node_module_loader();
+                }
+                self.complete = false;
+                self.draft.set_partial();
+                NodeMutation::Unknown
+            }
+        }
+    }
+
+    fn assign_member(
+        &mut self,
+        member: MemberReference,
+        replacement: Value,
+        state: &mut State,
+    ) -> NodeMutation {
         if member.prototype_mutation {
             state.prototype_integrity_known = false;
             self.complete = false;
@@ -1487,27 +1868,99 @@ impl<'a> Interpreter<'a> {
         if matches!(
             (&member.object, member.property.as_deref()),
             (Value::Object(properties), Some(property))
-                if properties.get(property) == Some(&Value::Accessor)
+                if properties.get(property).is_some_and(accessor_value)
         ) {
             self.complete = false;
         }
         match (&member.object, member.property.as_deref()) {
             (Value::NodeModule, Some(property)) => {
-                if node_module_member(property).is_some_and(node_module_loader_hook) {
-                    state.invalidate_node_module_loader();
+                if let Some(property) = node_module_property(property) {
+                    self.assign_node_property(property, replacement.clone(), state)
+                } else {
+                    NodeMutation::Applies
                 }
             }
-            (Value::NodeModule, None) => state.invalidate_node_module_loader(),
+            (Value::NodeModule, None) => {
+                state.invalidate_node_module_properties();
+                NodeMutation::Unknown
+            }
+            (Value::NodeModulePrototype, Some("require")) => self.assign_node_property(
+                NodeProperty::PrototypeRequire,
+                replacement.clone(),
+                state,
+            ),
+            (Value::NodeModulePrototype, Some("constructor")) => NodeMutation::Ignored,
+            (Value::NodeModulePrototype, None) => {
+                state.invalidate_node_module_properties();
+                NodeMutation::Unknown
+            }
+            (Value::NodeModulePrototype, Some(_)) => NodeMutation::Applies,
+            (Value::CommonJsModule, Some(property @ ("constructor" | "require"))) => {
+                let property =
+                    commonjs_module_property(property).expect("reviewed CommonJS property");
+                self.assign_node_property(property, replacement.clone(), state)
+            }
+            (Value::CommonJsModule, None) => {
+                state.invalidate_node_module_properties();
+                NodeMutation::Unknown
+            }
+            (Value::CommonJsModule, Some(_)) => NodeMutation::Applies,
+            (Value::Object(properties), Some(property))
+                if properties
+                    .get(property)
+                    .is_none_or(|value| !accessor_value(value)) =>
+            {
+                state.forget_container(&member.object);
+                NodeMutation::Applies
+            }
+            (Value::Array(_), Some(_)) => {
+                state.forget_container(&member.object);
+                NodeMutation::Applies
+            }
+            (Value::LoadedModule(module), Some(_)) => {
+                state.invalidate_loaded_module(*module);
+                NodeMutation::Applies
+            }
             (Value::Module(module), Some(property)) => {
                 if *module == Module::Fs && property == "promises" {
                     state.invalidate_module(Module::FsPromises);
                 } else if let Some(known) = module_member(*module, property) {
                     state.owned_members.remove(&(*module, known));
+                    state.invalidate_loaded_module_cache(*module);
                 } else {
                     state.invalidate_module(*module);
                 }
+                NodeMutation::Applies
             }
-            _ => state.invalidate_value(&member.object),
+            _ => {
+                state.invalidate_value(&member.object);
+                NodeMutation::Unknown
+            }
+        }
+    }
+
+    fn delete_member(&mut self, member: MemberReference, state: &mut State) -> NodeMutation {
+        match (&member.object, member.property.as_deref()) {
+            (Value::NodeModule, Some(property)) => {
+                if let Some(property) = node_module_property(property) {
+                    self.delete_node_property(property, state)
+                } else {
+                    NodeMutation::Unknown
+                }
+            }
+            (Value::CommonJsModule, Some(property @ ("require" | "constructor"))) => {
+                let property =
+                    commonjs_module_property(property).expect("reviewed CommonJS property");
+                self.delete_node_property(property, state)
+            }
+            (Value::NodeModulePrototype, Some("require")) => {
+                self.delete_node_property(NodeProperty::PrototypeRequire, state)
+            }
+            (Value::NodeModulePrototype, Some("constructor")) => NodeMutation::Ignored,
+            _ => {
+                self.assign_member(member, Value::Unknown, state);
+                NodeMutation::Unknown
+            }
         }
     }
 
@@ -1634,51 +2087,59 @@ impl<'a> Interpreter<'a> {
                     return Some(value);
                 }
             }
+            HirKind::MemberExpression | HirKind::SubscriptExpression
+                if matches!(mode, BindingMode::Assign) =>
+            {
+                return self.assign_target(node, value, state, call_depth);
+            }
             _ => {}
         }
         None
     }
 
     fn member(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
-        let object = node
-            .child(HirField::Object)
-            .map_or(Value::Unknown, |object| {
-                self.eval(object, state, call_depth)
-            });
-        if abrupt_value(&object) {
-            return object;
-        }
-        let property = if let Some(property) = node.child(HirField::Property) {
-            self.text(property).to_owned()
-        } else {
-            let value = node
-                .child(HirField::Index)
-                .map_or(Value::Unknown, |index| self.eval(index, state, call_depth));
-            if abrupt_value(&value) {
-                return value;
-            }
-            let Some(property) = string_coercion(&value) else {
-                return Value::Unknown;
-            };
-            property
+        let member = match self.member_reference(node, state, call_depth) {
+            Ok(member) => member,
+            Err(value) => return value,
         };
+        self.read_member(&member, state)
+    }
+
+    fn read_member(&mut self, member: &MemberReference, state: &State) -> Value {
+        let Some(property) = member.property.as_deref() else {
+            return Value::Unknown;
+        };
+        let object = member.object.clone();
         match object {
             Value::Invalid | Value::SynchronousThrow | Value::Divergent => object,
+            Value::NonCallablePrimitive => {
+                Value::UnknownReceiver(Box::new(Value::NonCallablePrimitive))
+            }
+            Value::Undefined | Value::Null => Value::SynchronousThrow,
             Value::DynamicEvalResult => Value::DynamicEvalResult,
             Value::Module(Module::Fs) if property == "promises" => {
                 Value::Module(Module::FsPromises)
             }
             Value::NodeModule => {
-                if node_module_alias(&property) {
-                    Value::NodeModule
-                } else {
-                    node_module_member(&property).map_or(Value::Unknown, Value::NodeModuleMember)
-                }
+                node_module_property_value(property, state).unwrap_or(Value::Unknown)
             }
             Value::NodeModuleMember(member) => {
                 Value::UnknownReceiver(Box::new(Value::NodeModuleMember(member)))
             }
-            Value::Module(module) => module_member(module, &property).map_or(
+            Value::NodeModulePrototype if property == "require" => {
+                resolved_node_property(NodeProperty::PrototypeRequire, state)
+            }
+            Value::NodeModulePrototype if property == "constructor" => Value::NodeModule,
+            Value::NodeModulePrototype => {
+                Value::UnknownReceiver(Box::new(Value::NodeModulePrototype))
+            }
+            Value::CommonJsModule if matches!(property, "constructor" | "require") => {
+                commonjs_module_property(property)
+                    .map(|property| resolved_node_property(property, state))
+                    .unwrap_or(Value::Unknown)
+            }
+            Value::CommonJsModule => Value::UnknownReceiver(Box::new(Value::CommonJsModule)),
+            Value::Module(module) => module_member(module, property).map_or(
                 Value::UnknownModuleMember(module),
                 |member| {
                     if state.owned_members.contains(&(module, member)) {
@@ -1693,10 +2154,25 @@ impl<'a> Interpreter<'a> {
                     }
                 },
             ),
+            Value::LoadedModule(module) => {
+                if !state.loaded_modules_intact.contains(&module) {
+                    Value::Unknown
+                } else {
+                    module_member(module, property).map_or(
+                        Value::UnknownModuleMember(module),
+                        |member| match module {
+                            Module::Fs | Module::FsPromises => {
+                                Value::Known(KnownFunction::Fs(module, member))
+                            }
+                            Module::ChildProcess => Value::Known(KnownFunction::Child(member)),
+                        },
+                    )
+                }
+            }
             Value::Object(properties) => {
-                let value = properties.get(&property).cloned();
+                let value = properties.get(property).cloned();
                 match value {
-                    Some(Value::Accessor) => {
+                    Some(value) if accessor_value(&value) => {
                         self.complete = false;
                         Value::UnknownReceiver(Box::new(Value::Object(properties)))
                     }
@@ -1723,23 +2199,23 @@ impl<'a> Interpreter<'a> {
             Value::Process if property == "env" => Value::Environment,
             Value::Environment if property == "HOME" => Value::String(self.home.to_owned()),
             Value::Deno if property == "Command" => Value::DenoCommandConstructor,
-            Value::Deno => deno_member(&property)
+            Value::Deno => deno_member(property)
                 .map_or(Value::UnknownReceiver(Box::new(Value::Deno)), |member| {
                     Value::Known(KnownFunction::Deno(member))
                 }),
-            Value::DenoCommand(command) => deno_command_member(&property).map_or(
+            Value::DenoCommand(command) => deno_command_member(property).map_or(
                 Value::UnknownReceiver(Box::new(Value::DenoCommand(command.clone()))),
                 |member| Value::Known(KnownFunction::DenoCommand(member, command)),
             ),
-            Value::Bun => bun_member(&property)
+            Value::Bun => bun_member(property)
                 .map_or(Value::UnknownReceiver(Box::new(Value::Bun)), |member| {
                     Value::Known(KnownFunction::Bun(member))
                 }),
-            Value::BunFile(path) => bun_file_member(&property).map_or(
+            Value::BunFile(path) => bun_file_member(property).map_or(
                 Value::UnknownReceiver(Box::new(Value::BunFile(path.clone()))),
                 |member| Value::Known(KnownFunction::BunFile(member, path)),
             ),
-            Value::OpenClawTools => openclaw_member(&property).map_or(
+            Value::OpenClawTools => openclaw_member(property).map_or(
                 Value::UnknownReceiver(Box::new(Value::OpenClawTools)),
                 |member| Value::Known(KnownFunction::OpenClaw(member)),
             ),
@@ -1772,14 +2248,32 @@ impl<'a> Interpreter<'a> {
             if let Some(value) = arguments.values.iter().find(|value| abrupt_value(value)) {
                 return value.clone();
             }
-            if arguments.values.iter().any(node_module_provenance) {
-                state.invalidate_node_module_loader();
+            let selective_define_property =
+                matches!(&callable, Value::Known(KnownFunction::DefineProperty));
+            if !selective_define_property {
+                for value in &arguments.values {
+                    state.invalidate_node_module_escape(value);
+                }
             }
             match callable {
-                Value::Invalid | Value::SynchronousThrow | Value::Divergent => callable,
+                Value::Invalid => Value::SynchronousThrow,
+                Value::SynchronousThrow | Value::Divergent => callable,
                 Value::Promise | Value::RejectedPromise => Value::SynchronousThrow,
+                callable if exact_non_callable(&callable) => Value::SynchronousThrow,
                 Value::Require => self.require(arguments),
                 Value::NodeModuleMember(NodeModuleMember::IsBuiltin) => Value::Unknown,
+                Value::NodeModuleMember(
+                    member @ (NodeModuleMember::Load | NodeModuleMember::Require),
+                ) => {
+                    debug_assert!(node_module_loader_hook(member));
+                    let loaded = self.require(arguments);
+                    state.invalidate_node_module_loader();
+                    self.complete = false;
+                    match loaded {
+                        Value::Module(module) => Value::LoadedModule(module),
+                        value => value,
+                    }
+                }
                 Value::NodeModuleMember(member) => {
                     debug_assert!(node_module_loader_hook(member));
                     state.invalidate_node_module_loader();
@@ -2057,6 +2551,7 @@ impl<'a> Interpreter<'a> {
                 syntax: SyntaxProfile::JavaScript,
                 ..self.profile
             },
+            strict: strict_directive(module.root(), body),
             report: InlineReport::default(),
             draft: LanguageDraft::default(),
             complete: true,
@@ -2245,6 +2740,9 @@ impl<'a> Interpreter<'a> {
                 syntax: SyntaxProfile::JavaScript,
                 ..self.profile
             },
+            strict: self.strict
+                || strict_directive(module.root(), source)
+                || source_is_module(module.root()),
             report: InlineReport::default(),
             draft: LanguageDraft::default(),
             complete: true,
@@ -2323,36 +2821,151 @@ impl<'a> Interpreter<'a> {
         self.execution_dominators.dedup();
     }
 
+    fn materialize_property_descriptor(
+        &mut self,
+        descriptor: Value,
+        state: &mut State,
+        call_depth: usize,
+    ) -> Result<Value, Value> {
+        let Value::Object(mut properties) = descriptor else {
+            return Ok(descriptor);
+        };
+        for property in [
+            "enumerable",
+            "configurable",
+            "value",
+            "writable",
+            "get",
+            "set",
+        ] {
+            let value = match properties.get(property).cloned() {
+                Some(Value::AccessorGetter(getter)) => self.call_local(
+                    &getter,
+                    Arguments {
+                        values: Vec::new(),
+                        complete: true,
+                        assembly_branches: Vec::new(),
+                    },
+                    state,
+                    call_depth,
+                ),
+                Some(Value::Accessor) => Value::Undefined,
+                _ => continue,
+            };
+            if abrupt_value(&value) {
+                return Err(value);
+            }
+            properties.insert(property.to_owned(), value);
+        }
+        Ok(Value::Object(properties))
+    }
+
     fn call_known(
         &mut self,
         function: KnownFunction,
-        arguments: Arguments,
+        mut arguments: Arguments,
         state: &mut State,
         call_depth: usize,
         _tagged_template: bool,
     ) -> Value {
         match function {
             KnownFunction::DefineProperty => {
+                let target = arguments.values.first().cloned().unwrap_or(Value::Unknown);
+                if invalid_define_property_target(&target) {
+                    return Value::SynchronousThrow;
+                }
+                if arguments.complete
+                    && let Some(descriptor) = arguments.values.get(2).cloned()
+                {
+                    match self.materialize_property_descriptor(descriptor, state, call_depth) {
+                        Ok(descriptor) => arguments.values[2] = descriptor,
+                        Err(value) => return value,
+                    }
+                }
+                if arguments.complete
+                    && (arguments.values.len() < 3
+                        || arguments
+                            .values
+                            .get(2)
+                            .is_some_and(invalid_property_descriptor))
+                {
+                    return Value::SynchronousThrow;
+                }
+                if arguments.complete
+                    && let Some(property) = node_define_property_target(&arguments)
+                    && state.node_properties.get(&property).is_some_and(|current| {
+                        arguments.values.get(2).is_some_and(|descriptor| {
+                            invalid_node_property_redefinition(current, descriptor)
+                        })
+                    })
+                {
+                    return Value::SynchronousThrow;
+                }
+                if arguments.complete && invalid_node_prototype_constructor_definition(&arguments) {
+                    return Value::SynchronousThrow;
+                }
                 self.complete = false;
                 if arguments.values.first().is_none_or(unknown_value) {
                     state.prototype_integrity_known = false;
                 }
+                let reviewed_node_definition = arguments.complete
+                    && arguments.values.len() >= 3
+                    && node_define_property_target(&arguments).is_some();
+                if !reviewed_node_definition {
+                    for value in arguments.values.iter().skip(1) {
+                        state.invalidate_node_module_escape(value);
+                    }
+                }
                 if let Some(Value::NodeModule) = arguments.values.first() {
-                    if !arguments.complete
-                        || arguments.values.len() != 3
-                        || arguments
-                            .values
-                            .get(1)
-                            .and_then(value_string)
-                            .is_none_or(|property| {
-                                node_module_member(property).is_some_and(node_module_loader_hook)
-                            })
+                    if arguments.complete && arguments.values.len() >= 3 {
+                        if let Some(property) = arguments.values.get(1).and_then(value_string)
+                            && let Some(property) = node_module_property(property)
+                        {
+                            self.define_node_property(property, &arguments, state);
+                        } else if arguments.values.get(1).and_then(value_string).is_none() {
+                            state.invalidate_node_module_properties();
+                        }
+                    } else {
+                        state.invalidate_node_module_properties();
+                    }
+                } else if let Some(Value::NodeModulePrototype) = arguments.values.first() {
+                    if arguments.complete && arguments.values.len() >= 3 {
+                        if arguments.values.get(1).and_then(value_string) == Some("require") {
+                            self.define_node_property(
+                                NodeProperty::PrototypeRequire,
+                                &arguments,
+                                state,
+                            );
+                        } else if arguments.values.get(1).and_then(value_string).is_none() {
+                            state.invalidate_node_module_properties();
+                        }
+                    } else {
+                        state.invalidate_node_module_properties();
+                    }
+                } else if let Some(Value::CommonJsModule) = arguments.values.first() {
+                    if arguments.complete && arguments.values.len() >= 3 {
+                        if let Some(property) = arguments.values.get(1).and_then(value_string)
+                            && let Some(property) = commonjs_module_property(property)
+                        {
+                            self.define_node_property(property, &arguments, state);
+                        } else if arguments.values.get(1).and_then(value_string).is_none() {
+                            state.invalidate_node_module_properties();
+                        }
+                    } else {
+                        state.invalidate_node_module_properties();
+                    }
+                } else if let Some(Value::Object(_) | Value::Array(_)) = arguments.values.first() {
+                    if arguments.complete
+                        && arguments.values.len() >= 3
+                        && arguments.values.get(1).and_then(value_string).is_some()
                     {
-                        state.invalidate_node_module_loader();
+                        state.forget_container(&arguments.values[0]);
+                    } else {
+                        state.invalidate_value(&arguments.values[0]);
                     }
                 } else if let Some(Value::Module(module)) = arguments.values.first() {
                     if arguments.complete
-                        && arguments.values.len() == 3
+                        && arguments.values.len() >= 3
                         && let Some(property) = arguments.values.get(1).and_then(value_string)
                         && let Some(member) = module_member(*module, property)
                     {
@@ -2363,7 +2976,7 @@ impl<'a> Interpreter<'a> {
                 } else if let Some(value) = arguments.values.first() {
                     state.invalidate_value(value);
                 }
-                Value::Unknown
+                target
             }
             KnownFunction::SetPrototypeOf => {
                 self.complete = false;
@@ -2823,6 +3436,7 @@ impl<'a> Interpreter<'a> {
         }
         let caller_chain =
             std::mem::replace(&mut state.scope_chain, function.captured_scopes.clone());
+        let caller_strict = std::mem::replace(&mut self.strict, function.strict);
         state.push_scope(true);
         for (name, value) in parameters.iter().zip(arguments.values) {
             state.declare(name, value);
@@ -2842,6 +3456,7 @@ impl<'a> Interpreter<'a> {
         };
         state.pop_scope();
         state.scope_chain = caller_chain;
+        self.strict = caller_strict;
         if function.asynchronous {
             match value {
                 Value::Divergent => Value::Divergent,
@@ -2863,6 +3478,7 @@ impl<'a> Interpreter<'a> {
             parameters,
             expression_body: body.kind() != HirKind::StatementBlock,
             asynchronous: asynchronous_function_source(self.text(node)),
+            strict: self.strict || strict_directive(&body, self.source),
             captured_scopes: state.scope_chain.clone(),
             source_identity: self.source.as_ptr() as usize,
             body,
@@ -3095,10 +3711,13 @@ impl<'a> Interpreter<'a> {
                             continue;
                         }
                     };
-                    let value = if self.method_is_accessor(child) {
-                        Value::Accessor
-                    } else {
-                        Value::Unknown
+                    let value = match self.method_accessor_kind(child) {
+                        Some("get") => match self.function_value(child, state) {
+                            Some(Value::Function(function)) => Value::AccessorGetter(function),
+                            _ => Value::Unknown,
+                        },
+                        Some("set") => Value::Accessor,
+                        _ => Value::Unknown,
                     };
                     (name, value)
                 }
@@ -3112,7 +3731,7 @@ impl<'a> Interpreter<'a> {
                     match spread {
                         Value::Object(spread) => {
                             for (name, mut value) in spread {
-                                if value == Value::Accessor {
+                                if accessor_value(&value) {
                                     self.complete = false;
                                     value = Value::Unknown;
                                 }
@@ -3147,6 +3766,11 @@ impl<'a> Interpreter<'a> {
                     return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
                 }
             };
+            if value == Value::Accessor
+                && matches!(properties.get(&name), Some(Value::AccessorGetter(_)))
+            {
+                continue;
+            }
             properties.insert(name, value);
             if properties.len() > MAX_COLLECTION_ITEMS
                 || !self.budget.admit_bytes(properties_bytes(&properties))
@@ -3313,7 +3937,7 @@ impl<'a> Interpreter<'a> {
 
     fn read_property(&mut self, value: &Value, property: &str, state: &State) -> Value {
         let selected = property_value(value, property, state);
-        if selected == Value::Accessor
+        if accessor_value(&selected)
             || matches!(&selected, Value::Known(function) if direct_receiver_required(function))
         {
             self.complete = false;
@@ -3323,11 +3947,22 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn method_is_accessor(&self, node: &HirNode) -> bool {
-        node.child(HirField::Kind)
-            .is_some_and(|kind| matches!(self.text(kind), "get" | "set"))
-            || self.text(node).trim_start().starts_with("get ")
-            || self.text(node).trim_start().starts_with("set ")
+    fn method_accessor_kind(&self, node: &HirNode) -> Option<&'static str> {
+        if let Some(kind) = node.child(HirField::Kind) {
+            return match self.text(kind) {
+                "get" => Some("get"),
+                "set" => Some("set"),
+                _ => None,
+            };
+        }
+        let source = self.text(node).trim_start();
+        if source.starts_with("get ") {
+            Some("get")
+        } else if source.starts_with("set ") {
+            Some("set")
+        } else {
+            None
+        }
     }
 
     fn text(&self, node: &HirNode) -> &str {
@@ -3341,6 +3976,37 @@ fn named_children(node: &HirNode) -> impl Iterator<Item = &HirNode> {
     node.children()
         .iter()
         .filter(|child| !matches!(child.kind(), HirKind::Token | HirKind::Comment))
+}
+
+fn strict_directive(node: &HirNode, source: &str) -> bool {
+    for statement in named_children(node) {
+        if statement.kind() != HirKind::ExpressionStatement {
+            return false;
+        }
+        let mut expressions = named_children(statement);
+        let Some(expression) = expressions.next() else {
+            return false;
+        };
+        if expression.kind() != HirKind::String || expressions.next().is_some() {
+            return false;
+        }
+        let literal = source
+            .get(expression.span().start()..expression.span().end())
+            .unwrap_or_default();
+        if matches!(literal, "'use strict'" | "\"use strict\"") {
+            return true;
+        }
+    }
+    false
+}
+
+fn source_is_module(node: &HirNode) -> bool {
+    named_children(node).any(|child| {
+        matches!(
+            child.kind(),
+            HirKind::ImportStatement | HirKind::ExportStatement
+        )
+    })
 }
 
 fn asynchronous_function_source(source: &str) -> bool {
@@ -3530,29 +4196,550 @@ fn module_member(module: Module, property: &str) -> Option<Member> {
     }
 }
 
-fn node_module_member(property: &str) -> Option<NodeModuleMember> {
+fn commonjs_module_value() -> Value {
+    Value::CommonJsModule
+}
+
+fn default_node_properties() -> BTreeMap<NodeProperty, NodePropertyState> {
+    BTreeMap::from([
+        (
+            NodeProperty::ModuleLoad,
+            mutable_node_property(Value::NodeModuleMember(NodeModuleMember::Load), true, true),
+        ),
+        (
+            NodeProperty::ModuleCreateRequire,
+            mutable_node_property(
+                Value::NodeModuleMember(NodeModuleMember::CreateRequire),
+                true,
+                true,
+            ),
+        ),
+        (
+            NodeProperty::ModuleIsBuiltin,
+            mutable_node_property(
+                Value::NodeModuleMember(NodeModuleMember::IsBuiltin),
+                true,
+                true,
+            ),
+        ),
+        (
+            NodeProperty::ModuleAlias,
+            mutable_node_property(Value::NodeModule, true, true),
+        ),
+        (
+            NodeProperty::ModulePrototype,
+            mutable_node_property(Value::NodeModulePrototype, false, false),
+        ),
+        (
+            NodeProperty::ModuleConstructor,
+            inherited_node_property(
+                Value::InheritedNodeProperty(NodeProperty::ModuleConstructor),
+                NodeMutation::Applies,
+                NodePropertyKind::Data,
+                false,
+            ),
+        ),
+        (
+            NodeProperty::PrototypeRequire,
+            mutable_node_property(
+                Value::NodeModuleMember(NodeModuleMember::Require),
+                true,
+                true,
+            ),
+        ),
+        (
+            NodeProperty::CommonJsRequire,
+            inherited_node_property(
+                Value::InheritedNodeProperty(NodeProperty::CommonJsRequire),
+                NodeMutation::Applies,
+                NodePropertyKind::Data,
+                true,
+            ),
+        ),
+        (
+            NodeProperty::CommonJsConstructor,
+            inherited_node_property(
+                Value::InheritedNodeProperty(NodeProperty::CommonJsConstructor),
+                NodeMutation::Ignored,
+                NodePropertyKind::Accessor,
+                false,
+            ),
+        ),
+    ])
+}
+
+fn mutable_node_property(value: Value, configurable: bool, enumerable: bool) -> NodePropertyState {
+    NodePropertyState {
+        value,
+        own: Some(true),
+        kind: NodePropertyKind::Data,
+        enumerable: Some(enumerable),
+        assignment: NodeMutation::Applies,
+        deletion: if configurable {
+            NodeMutation::Applies
+        } else {
+            NodeMutation::Ignored
+        },
+    }
+}
+
+fn inherited_node_property(
+    value: Value,
+    assignment: NodeMutation,
+    kind: NodePropertyKind,
+    enumerable: bool,
+) -> NodePropertyState {
+    NodePropertyState {
+        value,
+        own: Some(false),
+        kind,
+        enumerable: Some(enumerable),
+        assignment,
+        deletion: NodeMutation::Ignored,
+    }
+}
+
+fn absent_node_property(property: NodeProperty) -> NodePropertyState {
     match property {
-        "_load" => Some(NodeModuleMember::Load),
-        "createRequire" => Some(NodeModuleMember::CreateRequire),
-        "require" => Some(NodeModuleMember::Require),
-        "isBuiltin" => Some(NodeModuleMember::IsBuiltin),
+        NodeProperty::ModuleConstructor
+        | NodeProperty::CommonJsRequire
+        | NodeProperty::CommonJsConstructor => default_node_properties()
+            .remove(&property)
+            .expect("reviewed Node property"),
+        _ => NodePropertyState {
+            value: Value::Undefined,
+            own: Some(false),
+            kind: NodePropertyKind::Absent,
+            enumerable: None,
+            assignment: NodeMutation::Applies,
+            deletion: NodeMutation::Ignored,
+        },
+    }
+}
+
+fn unknown_node_property() -> NodePropertyState {
+    NodePropertyState {
+        value: Value::Unknown,
+        own: None,
+        kind: NodePropertyKind::Unknown,
+        enumerable: None,
+        assignment: NodeMutation::Unknown,
+        deletion: NodeMutation::Unknown,
+    }
+}
+
+fn defined_node_property(
+    current: NodePropertyState,
+    descriptor: Option<&Value>,
+) -> (NodePropertyState, bool, bool) {
+    let Some(Value::Object(properties)) = descriptor else {
+        let replacement = descriptor
+            .and_then(property_descriptor_replacement)
+            .unwrap_or(Value::Unknown);
+        return (
+            NodePropertyState {
+                value: join_values(current.value, replacement),
+                own: None,
+                kind: NodePropertyKind::Unknown,
+                enumerable: None,
+                assignment: NodeMutation::Unknown,
+                deletion: NodeMutation::Unknown,
+            },
+            true,
+            true,
+        );
+    };
+    if current.own.is_none()
+        || current.assignment == NodeMutation::Unknown
+        || current.deletion == NodeMutation::Unknown
+    {
+        let replacement =
+            property_descriptor_replacement(descriptor.expect("reviewed property descriptor"))
+                .unwrap_or(Value::Unknown);
+        return (
+            NodePropertyState {
+                value: join_values(current.value, replacement),
+                own: None,
+                kind: NodePropertyKind::Unknown,
+                enumerable: None,
+                assignment: NodeMutation::Unknown,
+                deletion: NodeMutation::Unknown,
+            },
+            true,
+            true,
+        );
+    }
+    let creates_own = current.own == Some(false);
+    let replacement =
+        property_descriptor_replacement(descriptor.expect("reviewed property descriptor"));
+    let accessor = properties.contains_key("get") || properties.contains_key("set");
+    let data = properties.contains_key("value") || properties.contains_key("writable");
+    let kind = if accessor {
+        NodePropertyKind::Accessor
+    } else if data || creates_own {
+        NodePropertyKind::Data
+    } else {
+        current.kind
+    };
+    let changes_value = creates_own
+        || kind != current.kind
+        || replacement.as_ref().is_some_and(|replacement| {
+            unknown_value(replacement)
+                || unknown_value(&current.value)
+                || replacement != &current.value
+        });
+    let value = replacement.unwrap_or_else(|| {
+        if creates_own {
+            Value::Undefined
+        } else {
+            current.value.clone()
+        }
+    });
+    let assignment = match kind {
+        NodePropertyKind::Accessor if accessor => {
+            properties
+                .get("set")
+                .map_or(NodeMutation::Ignored, |setter| {
+                    if *setter == Value::Undefined || exact_undefined_getter(setter) {
+                        NodeMutation::Ignored
+                    } else {
+                        NodeMutation::Unknown
+                    }
+                })
+        }
+        NodePropertyKind::Accessor => current.assignment,
+        NodePropertyKind::Data if data => properties.get("writable").map_or_else(
+            || {
+                if creates_own {
+                    NodeMutation::Ignored
+                } else {
+                    current.assignment
+                }
+            },
+            node_mutation,
+        ),
+        NodePropertyKind::Data if creates_own => NodeMutation::Ignored,
+        NodePropertyKind::Data => current.assignment,
+        NodePropertyKind::Absent | NodePropertyKind::Unknown => NodeMutation::Unknown,
+    };
+    let deletion = properties.get("configurable").map_or_else(
+        || {
+            if creates_own {
+                NodeMutation::Ignored
+            } else {
+                current.deletion
+            }
+        },
+        node_mutation,
+    );
+    let enumerable = properties.get("enumerable").map_or_else(
+        || {
+            if creates_own {
+                Some(false)
+            } else {
+                current.enumerable
+            }
+        },
+        truthy,
+    );
+    let uncertain = assignment == NodeMutation::Unknown || deletion == NodeMutation::Unknown;
+    let defined = NodePropertyState {
+        value,
+        own: Some(true),
+        kind,
+        enumerable,
+        assignment,
+        deletion,
+    };
+    if node_property_redefinition_may_reject(&current, properties) {
+        (
+            join_node_property_state(current, defined),
+            changes_value,
+            true,
+        )
+    } else {
+        (defined, changes_value, uncertain)
+    }
+}
+
+fn node_mutation(value: &Value) -> NodeMutation {
+    match truthy(value) {
+        Some(true) => NodeMutation::Applies,
+        Some(false) => NodeMutation::Ignored,
+        None => NodeMutation::Unknown,
+    }
+}
+
+fn node_define_property_target(arguments: &Arguments) -> Option<NodeProperty> {
+    let property = arguments.values.get(1).and_then(value_string)?;
+    match arguments.values.first()? {
+        Value::NodeModule => node_module_property(property),
+        Value::NodeModulePrototype if property == "require" => Some(NodeProperty::PrototypeRequire),
+        Value::CommonJsModule => commonjs_module_property(property),
         _ => None,
     }
 }
 
-fn commonjs_module_value() -> Value {
-    Value::Object(BTreeMap::from([(
-        "constructor".to_owned(),
-        Value::NodeModule,
-    )]))
+fn invalid_node_prototype_constructor_definition(arguments: &Arguments) -> bool {
+    if !matches!(arguments.values.first(), Some(Value::NodeModulePrototype))
+        || arguments.values.get(1).and_then(value_string) != Some("constructor")
+    {
+        return false;
+    }
+    let Some(Value::Object(properties)) = arguments.values.get(2) else {
+        return false;
+    };
+    properties.contains_key("value")
+        || properties.contains_key("writable")
+        || properties.get("configurable").and_then(truthy) == Some(true)
+        || properties.get("enumerable").and_then(truthy) == Some(true)
+        || properties
+            .get("get")
+            .is_some_and(|value| !unknown_value(value))
+        || properties
+            .get("set")
+            .is_some_and(|value| *value != Value::Undefined)
 }
 
-fn node_module_alias(property: &str) -> bool {
-    matches!(property, "Module" | "constructor" | "prototype")
+fn invalid_node_property_redefinition(current: &NodePropertyState, descriptor: &Value) -> bool {
+    let Value::Object(properties) = descriptor else {
+        return false;
+    };
+    if current.own != Some(true) || current.deletion != NodeMutation::Ignored {
+        return false;
+    }
+    if properties.get("configurable").and_then(truthy) == Some(true) {
+        return true;
+    }
+    if let Some(enumerable) = properties.get("enumerable").and_then(truthy)
+        && current
+            .enumerable
+            .is_some_and(|current| current != enumerable)
+    {
+        return true;
+    }
+    if let Some(kind) = descriptor_property_kind(properties)
+        && matches!(
+            current.kind,
+            NodePropertyKind::Data | NodePropertyKind::Accessor
+        )
+        && kind != current.kind
+    {
+        return true;
+    }
+    if current.kind != NodePropertyKind::Data || current.assignment != NodeMutation::Ignored {
+        return false;
+    }
+    if properties.get("writable").and_then(truthy) == Some(true) {
+        return true;
+    }
+    properties.get("value").is_some_and(|value| {
+        value != &current.value && strict_equal(&current.value, value) == Some(false)
+    })
+}
+
+fn node_property_redefinition_may_reject(
+    current: &NodePropertyState,
+    properties: &BTreeMap<String, Value>,
+) -> bool {
+    if current.own != Some(true) || current.deletion != NodeMutation::Ignored {
+        return false;
+    }
+    if properties.get("enumerable").is_some_and(|value| {
+        truthy(value).is_none_or(|enumerable| current.enumerable != Some(enumerable))
+    }) || properties
+        .get("configurable")
+        .is_some_and(|value| truthy(value) != Some(false))
+    {
+        return true;
+    }
+    if let Some(kind) = descriptor_property_kind(properties) {
+        if current.kind == NodePropertyKind::Unknown {
+            return true;
+        }
+        if kind != current.kind {
+            return true;
+        }
+    }
+    if current.kind == NodePropertyKind::Accessor {
+        return properties.contains_key("get") || properties.contains_key("set");
+    }
+    current.kind == NodePropertyKind::Data
+        && current.assignment == NodeMutation::Ignored
+        && (properties
+            .get("writable")
+            .is_some_and(|value| truthy(value) != Some(false))
+            || properties.get("value").is_some_and(|value| {
+                value != &current.value && strict_equal(&current.value, value) != Some(true)
+            }))
+}
+
+fn descriptor_property_kind(properties: &BTreeMap<String, Value>) -> Option<NodePropertyKind> {
+    if properties.contains_key("get") || properties.contains_key("set") {
+        Some(NodePropertyKind::Accessor)
+    } else if properties.contains_key("value") || properties.contains_key("writable") {
+        Some(NodePropertyKind::Data)
+    } else {
+        None
+    }
+}
+
+fn node_module_property(property: &str) -> Option<NodeProperty> {
+    match property {
+        "_load" => Some(NodeProperty::ModuleLoad),
+        "createRequire" => Some(NodeProperty::ModuleCreateRequire),
+        "isBuiltin" => Some(NodeProperty::ModuleIsBuiltin),
+        "Module" => Some(NodeProperty::ModuleAlias),
+        "prototype" => Some(NodeProperty::ModulePrototype),
+        "constructor" => Some(NodeProperty::ModuleConstructor),
+        _ => None,
+    }
+}
+
+fn node_module_property_value(property: &str, state: &State) -> Option<Value> {
+    node_module_property(property).map(|property| resolved_node_property(property, state))
+}
+
+fn commonjs_module_property(property: &str) -> Option<NodeProperty> {
+    match property {
+        "require" => Some(NodeProperty::CommonJsRequire),
+        "constructor" => Some(NodeProperty::CommonJsConstructor),
+        _ => None,
+    }
+}
+
+fn resolved_node_property(property: NodeProperty, state: &State) -> Value {
+    match state
+        .node_properties
+        .get(&property)
+        .map(|property| &property.value)
+    {
+        Some(Value::InheritedNodeProperty(NodeProperty::CommonJsRequire)) => {
+            resolved_node_property(NodeProperty::PrototypeRequire, state)
+        }
+        Some(Value::InheritedNodeProperty(NodeProperty::ModuleConstructor)) => {
+            Value::FunctionConstructor
+        }
+        Some(Value::InheritedNodeProperty(NodeProperty::CommonJsConstructor)) => Value::NodeModule,
+        Some(value) => value.clone(),
+        None => Value::Unknown,
+    }
+}
+
+fn property_descriptor_replacement(descriptor: &Value) -> Option<Value> {
+    match descriptor {
+        Value::Object(properties) => {
+            if let Some(value) = properties.get("value") {
+                Some(if accessor_value(value) {
+                    Value::Unknown
+                } else {
+                    value.clone()
+                })
+            } else if let Some(getter) = properties.get("get") {
+                Some(if accessor_value(getter) {
+                    Value::Unknown
+                } else if *getter == Value::Undefined || exact_undefined_getter(getter) {
+                    Value::Undefined
+                } else {
+                    Value::Unknown
+                })
+            } else if properties.contains_key("set") {
+                Some(Value::Undefined)
+            } else {
+                None
+            }
+        }
+        value if unknown_value(value) => Some(Value::Unknown),
+        _ => None,
+    }
+}
+
+fn exact_undefined_getter(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Function(function)
+            if function.expression_body && function.body.kind() == HirKind::Undefined
+    )
+}
+
+fn invalid_define_property_target(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Undefined
+            | Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::NonCallablePrimitive
+    )
+}
+
+fn accessor_value(value: &Value) -> bool {
+    matches!(value, Value::Accessor | Value::AccessorGetter(_))
+}
+
+fn invalid_property_descriptor(value: &Value) -> bool {
+    match value {
+        Value::Undefined | Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            true
+        }
+        Value::Object(properties) => {
+            let accessor = properties.contains_key("get") || properties.contains_key("set");
+            let data = properties.contains_key("value") || properties.contains_key("writable");
+            accessor && data
+                || ["get", "set"].into_iter().any(|property| {
+                    properties.get(property).is_some_and(|value| {
+                        *value != Value::Undefined && exact_non_callable(value)
+                    })
+                })
+        }
+        _ => false,
+    }
 }
 
 fn node_module_loader_hook(member: NodeModuleMember) -> bool {
     !matches!(member, NodeModuleMember::IsBuiltin)
+}
+
+fn node_property_loader_hook(property: NodeProperty) -> bool {
+    matches!(
+        property,
+        NodeProperty::ModuleLoad
+            | NodeProperty::ModuleCreateRequire
+            | NodeProperty::PrototypeRequire
+            | NodeProperty::CommonJsRequire
+    )
+}
+
+fn node_loader_reference(member: &MemberReference) -> bool {
+    match (&member.object, member.property.as_deref()) {
+        (Value::NodeModule, Some(property)) => {
+            node_module_property(property).is_some_and(node_property_loader_hook)
+        }
+        (Value::NodeModulePrototype, Some("require"))
+        | (Value::CommonJsModule, Some("require")) => true,
+        _ => false,
+    }
+}
+
+fn augmented_coercion_proven(left: &Value, right: Option<&Value>, state: &State) -> bool {
+    let primitive = |value: &Value| {
+        matches!(
+            value,
+            Value::Undefined | Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)
+        )
+    };
+    let ordinary_object = |value: &Value| {
+        matches!(value, Value::Object(properties)
+            if state.prototype_integrity_known
+                && !properties.contains_key("valueOf")
+                && !properties.contains_key("toString"))
+    };
+    let right_proven = right.is_none_or(|right| primitive(right) || ordinary_object(right));
+    (primitive(left) && right_proven)
+        || (matches!(left, Value::NodeModuleMember(_))
+            && state.prototype_integrity_known
+            && right_proven)
 }
 
 fn deno_member(property: &str) -> Option<DenoMember> {
@@ -4081,7 +5268,7 @@ fn child_args_status(value: &Value) -> ChildValueStatus {
 
 fn child_options_status(value: &Value) -> ChildValueStatus {
     match value {
-        Value::Object(properties) if properties.values().any(|value| *value == Value::Accessor) => {
+        Value::Object(properties) if properties.values().any(accessor_value) => {
             ChildValueStatus::Partial
         }
         Value::Object(_) | Value::Null | Value::Undefined => ChildValueStatus::Exact,
@@ -4126,7 +5313,7 @@ fn child_shell(
         }
         _ => return Err(ChildShapeError::Invalid),
     };
-    if properties.values().any(|value| *value == Value::Accessor) {
+    if properties.values().any(accessor_value) {
         return Err(ChildShapeError::Partial);
     }
     let context_exact = ["cwd", "env"].iter().all(|property| {
@@ -4185,6 +5372,8 @@ fn unknown_value(value: &Value) -> bool {
     matches!(
         value,
         Value::Unknown
+            | Value::Accessor
+            | Value::AccessorGetter(_)
             | Value::DynamicEvalResult
             | Value::UnknownModuleMember(_)
             | Value::UnknownReceiver(_)
@@ -4210,20 +5399,28 @@ fn runtime_global_value(value: &Value) -> bool {
 
 fn contains_local_function(value: &Value) -> bool {
     match value {
-        Value::Function(_) => true,
+        Value::Function(_) | Value::AccessorGetter(_) => true,
         Value::Array(values) => values.iter().any(contains_local_function),
         Value::Object(properties) => properties.values().any(contains_local_function),
         _ => false,
     }
 }
 
-fn node_module_provenance(value: &Value) -> bool {
+fn invalidate_loaded_module_value(value: &mut Value, module: Module) {
     match value {
-        Value::NodeModule | Value::NodeModuleMember(_) => true,
-        Value::Array(values) => values.iter().any(node_module_provenance),
-        Value::Object(properties) => properties.values().any(node_module_provenance),
-        Value::UnknownReceiver(value) => node_module_provenance(value),
-        _ => false,
+        Value::LoadedModule(loaded) if *loaded == module => *value = Value::Unknown,
+        Value::Array(values) => {
+            for value in values {
+                invalidate_loaded_module_value(value, module);
+            }
+        }
+        Value::Object(properties) => {
+            for value in properties.values_mut() {
+                invalidate_loaded_module_value(value, module);
+            }
+        }
+        Value::UnknownReceiver(value) => invalidate_loaded_module_value(value, module),
+        _ => {}
     }
 }
 
@@ -4245,7 +5442,10 @@ fn exact_non_iterable(value: &Value) -> bool {
             | Value::ObjectBuiltin
             | Value::Process
             | Value::Environment
+            | Value::CommonJsModule
+            | Value::LoadedModule(_)
             | Value::NodeModule
+            | Value::NodeModulePrototype
             | Value::NodeModuleMember(_)
             | Value::Deno
             | Value::DenoCommandConstructor
@@ -4255,6 +5455,31 @@ fn exact_non_iterable(value: &Value) -> bool {
             | Value::OpenClawTools
             | Value::Promise
             | Value::RejectedPromise
+    )
+}
+
+fn exact_non_callable(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Undefined
+            | Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::NonCallablePrimitive
+            | Value::Array(_)
+            | Value::Object(_)
+            | Value::Module(_)
+            | Value::Process
+            | Value::Environment
+            | Value::CommonJsModule
+            | Value::LoadedModule(_)
+            | Value::NodeModulePrototype
+            | Value::Deno
+            | Value::DenoCommand(_)
+            | Value::Bun
+            | Value::BunFile(_)
+            | Value::OpenClawTools
     )
 }
 
@@ -4448,7 +5673,7 @@ fn deno_command(
         }
     }
     for (key, value) in properties {
-        if !matches!(value, Value::Accessor) {
+        if !accessor_value(value) {
             continue;
         }
         spawn = merge_execution(spawn, ExecutionCertainty::Unknown);
@@ -4924,7 +6149,7 @@ fn bun_spawn_context_property(property: &str) -> bool {
 
 fn bun_spawn_options_certainty(properties: &BTreeMap<String, Value>) -> ExecutionCertainty {
     for (property, value) in properties {
-        if matches!(value, Value::Accessor) && bun_spawn_context_property(property) {
+        if accessor_value(value) && bun_spawn_context_property(property) {
             return ExecutionCertainty::Unknown;
         }
         let certainty = match property.as_str() {
@@ -5382,7 +6607,7 @@ fn summarize_fs_call(module: Module, member: Member, arguments: &Arguments) -> F
             match options {
                 Value::String(_) => {}
                 Value::Object(properties) => {
-                    if properties.values().any(|value| *value == Value::Accessor) {
+                    if properties.values().any(accessor_value) {
                         return FsCallSummary::Partial;
                     }
                     if properties
@@ -5854,7 +7079,7 @@ enum OptionValue {
 fn recursive_option(value: &Value) -> OptionValue {
     match value {
         Value::Object(properties) => {
-            if properties.values().any(|value| *value == Value::Accessor) {
+            if properties.values().any(accessor_value) {
                 return OptionValue::Partial;
             }
             match properties.get("recursive") {
@@ -5898,7 +7123,7 @@ fn possible_mode(value: &Value) -> bool {
 }
 
 fn option_has_accessor(value: &Value) -> bool {
-    matches!(value, Value::Object(properties) if properties.values().any(|value| *value == Value::Accessor))
+    matches!(value, Value::Object(properties) if properties.values().any(accessor_value))
 }
 
 fn possible_symlink_kind(value: &Value) -> bool {
@@ -5912,9 +7137,28 @@ fn property_value(value: &Value, property: &str, state: &State) -> Value {
             .cloned()
             .unwrap_or(Value::Undefined),
         Value::Module(module) => module_property_value(*module, property, state),
-        Value::NodeModule if node_module_alias(property) => Value::NodeModule,
-        Value::NodeModule => node_module_member(property)
-            .map(Value::NodeModuleMember)
+        Value::LoadedModule(module) => {
+            if !state.loaded_modules_intact.contains(module) {
+                Value::Unknown
+            } else {
+                module_member(*module, property).map_or(
+                    Value::UnknownModuleMember(*module),
+                    |member| match module {
+                        Module::Fs | Module::FsPromises => {
+                            Value::Known(KnownFunction::Fs(*module, member))
+                        }
+                        Module::ChildProcess => Value::Known(KnownFunction::Child(member)),
+                    },
+                )
+            }
+        }
+        Value::NodeModule => node_module_property_value(property, state).unwrap_or(Value::Unknown),
+        Value::NodeModulePrototype if property == "require" => {
+            resolved_node_property(NodeProperty::PrototypeRequire, state)
+        }
+        Value::NodeModulePrototype if property == "constructor" => Value::NodeModule,
+        Value::CommonJsModule => commonjs_module_property(property)
+            .map(|property| resolved_node_property(property, state))
             .unwrap_or(Value::Unknown),
         Value::Deno if property == "Command" => Value::DenoCommandConstructor,
         Value::Deno => deno_member(property)
@@ -6053,6 +7297,7 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
             (native_object(properties), exact)
         }
         Value::Invalid
+        | Value::NonCallablePrimitive
         | Value::SynchronousThrow
         | Value::Divergent
         | Value::Promise
@@ -6064,6 +7309,7 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
         | Value::Known(_)
         | Value::Function(_)
         | Value::Accessor
+        | Value::AccessorGetter(_)
         | Value::Require
         | Value::Eval
         | Value::DynamicEvalResult
@@ -6072,7 +7318,11 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
         | Value::ObjectBuiltin
         | Value::Process
         | Value::Environment
+        | Value::CommonJsModule
+        | Value::InheritedNodeProperty(_)
         | Value::NodeModule
+        | Value::LoadedModule(_)
+        | Value::NodeModulePrototype
         | Value::NodeModuleMember(_)
         | Value::Deno
         | Value::DenoCommandConstructor
@@ -6149,6 +7399,9 @@ fn abrupt_control(value: &Value) -> Option<Control> {
 fn truthy(value: &Value) -> Option<bool> {
     match value {
         Value::Invalid
+        | Value::NonCallablePrimitive
+        | Value::Accessor
+        | Value::AccessorGetter(_)
         | Value::SynchronousThrow
         | Value::Divergent
         | Value::Unknown
@@ -6166,7 +7419,6 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::Module(_)
         | Value::Known(_)
         | Value::Function(_)
-        | Value::Accessor
         | Value::Require
         | Value::Eval
         | Value::FunctionConstructor
@@ -6174,7 +7426,11 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::ObjectBuiltin
         | Value::Process
         | Value::Environment
+        | Value::CommonJsModule
+        | Value::InheritedNodeProperty(_)
         | Value::NodeModule
+        | Value::LoadedModule(_)
+        | Value::NodeModulePrototype
         | Value::NodeModuleMember(_)
         | Value::Deno
         | Value::DenoCommandConstructor
@@ -6182,6 +7438,14 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::Bun
         | Value::BunFile(_)
         | Value::OpenClawTools => Some(true),
+    }
+}
+
+fn nullish(value: &Value) -> Option<bool> {
+    match value {
+        Value::Undefined | Value::Null => Some(true),
+        value if unknown_value(value) || abrupt_value(value) => None,
+        _ => Some(false),
     }
 }
 
@@ -6234,6 +7498,40 @@ fn join_values(left: Value, right: Value) -> Value {
     if left == right { left } else { Value::Unknown }
 }
 
+fn join_node_property_state(
+    left: NodePropertyState,
+    right: NodePropertyState,
+) -> NodePropertyState {
+    NodePropertyState {
+        value: join_values(left.value, right.value),
+        own: if left.own == right.own {
+            left.own
+        } else {
+            None
+        },
+        kind: if left.kind == right.kind {
+            left.kind
+        } else {
+            NodePropertyKind::Unknown
+        },
+        enumerable: if left.enumerable == right.enumerable {
+            left.enumerable
+        } else {
+            None
+        },
+        assignment: if left.assignment == right.assignment {
+            left.assignment
+        } else {
+            NodeMutation::Unknown
+        },
+        deletion: if left.deletion == right.deletion {
+            left.deletion
+        } else {
+            NodeMutation::Unknown
+        },
+    }
+}
+
 fn join_states(mut left: State, right: State) -> State {
     if left.scopes.len() != right.scopes.len() || left.scope_chain != right.scope_chain {
         return State {
@@ -6256,6 +7554,23 @@ fn join_states(mut left: State, right: State) -> State {
                 .owned_members
                 .intersection(&right.owned_members)
                 .copied()
+                .collect(),
+            loaded_modules_intact: left
+                .loaded_modules_intact
+                .intersection(&right.loaded_modules_intact)
+                .copied()
+                .collect(),
+            node_properties: left
+                .node_properties
+                .into_iter()
+                .map(|(property, value)| {
+                    let right = right
+                        .node_properties
+                        .get(&property)
+                        .cloned()
+                        .unwrap_or_else(unknown_node_property);
+                    (property, join_node_property_state(value, right))
+                })
                 .collect(),
             relative_cwd_known: left.relative_cwd_known && right.relative_cwd_known,
             prototype_integrity_known: left.prototype_integrity_known
@@ -6292,6 +7607,19 @@ fn join_states(mut left: State, right: State) -> State {
         .intersection(&right.owned_members)
         .copied()
         .collect();
+    left.loaded_modules_intact = left
+        .loaded_modules_intact
+        .intersection(&right.loaded_modules_intact)
+        .copied()
+        .collect();
+    for (property, value) in &mut left.node_properties {
+        let right = right
+            .node_properties
+            .get(property)
+            .cloned()
+            .unwrap_or_else(unknown_node_property);
+        *value = join_node_property_state(value.clone(), right);
+    }
     left.relative_cwd_known &= right.relative_cwd_known;
     left.prototype_integrity_known &= right.prototype_integrity_known;
     left.runtime_globals_intact &= right.runtime_globals_intact;
@@ -6650,6 +7978,7 @@ mod tests {
             "const options={recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
             "const options={recursive:true}; const alias=options; alias.recursive=false; require('fs').rmSync('/', options)",
             "const options={recursive:true}; Object.defineProperty(options, 'recursive', {value:false}); require('fs').rmSync('/', options)",
+            "const options={constructor:require('module'),recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
             "process.env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
             "const env=process.env; env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
             "eval('require=safe'); require('fs').rmSync('/', {recursive:true})",
@@ -6673,9 +8002,14 @@ mod tests {
             "const Module=require('module'); plugin(Module._load); require('fs').rmSync('/', {recursive:true})",
             "const Module=require('module'); sink.loader=Module._load; require('fs').rmSync('/', {recursive:true})",
             "const Module=require('node:module'); Module.createRequire('/tmp/plugin.js'); require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('node:module'); Module.isBuiltin=undefined; Module.isBuiltin('fs'); require('fs').rmSync('/', {recursive:true})",
             "const Module=require('node:module').Module; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
             "const Module=module.constructor; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "require('module').prototype.constructor._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "module.require=safe; require('fs').rmSync('/', {recursive:true})",
+            "Object.defineProperty(module, 'require', {value:safe}); require('fs').rmSync('/', {recursive:true})",
             "require('module').prototype.require=safe; require('fs').rmSync('/', {recursive:true})",
+            "Object.defineProperty(require('module').prototype, 'require', {value:safe}); require('fs').rmSync('/', {recursive:true})",
             "const box=[require('module')]; box[0]._load=safe; require('fs').rmSync('/', {recursive:true})",
             "const Module=require('module'); sink.loader=[Module._load]; require('fs').rmSync('/', {recursive:true})",
         ] {
@@ -6686,6 +8020,124 @@ mod tests {
                 .nested_executions()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn rebound_node_properties_do_not_reuse_stale_provenance() {
+        for code in [
+            "const {rmSync}=require('fs'); const M=require('module'); M._load=undefined; M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M.isBuiltin=undefined; M.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); module.require=undefined; module.require('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M.Module=undefined; M.Module.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); Object.defineProperty(module,'constructor',{value:undefined}); module.constructor.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',null); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{set(value){}}); M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{get:undefined}); M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); delete M._load; M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); delete M.isBuiltin; M.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); delete M.Module; M.Module.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M._load+=1; M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{get:()=>undefined}); M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M.prototype.require=undefined; module.require('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M.prototype,'require',{value:undefined}); module.require('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); delete M.prototype.require; module.require('fs'); rmSync('/',{recursive:true})",
+            "const M=require('module'); M._load('fs').rmSync=()=>{}; M._load('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'),fs=M._load('fs'); require('fs').rmSync=()=>{}; fs.rmSync('/',{recursive:true})",
+            "const M=require('module'); M._load-={}; M._load('fs').rmSync('/',{recursive:true})",
+        ] {
+            assert!(analysis(code).draft().calls().is_empty(), "{code}");
+        }
+    }
+
+    #[test]
+    fn node_property_barriers_preserve_reachable_tail_effects() {
+        for code in [
+            "const {rmSync}=require('fs'); module.constructor=undefined; module.constructor._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); delete M._load; M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{writable:false}); M._load=undefined; M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const F=require('module').constructor; F.isBuiltin=()=>true; F.isBuiltin('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M.constructor=undefined; delete M.constructor; M.constructor(''); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); M._load+=1; M._load.toString(); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); try { M._load+=null.x } catch {} M._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{configurable:false})._load('fs'); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'),M=require('module'); plugin(M); M._load=undefined; M._load('fs'); rmSync('/',{recursive:true})",
+            "const M=require('module'); module.constructor=M._load; require('fs').rmSync('/',{recursive:true})",
+        ] {
+            assert!(root(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn node_descriptor_flags_keep_exact_loader_ownership() {
+        for code in [
+            "const M=require('module'); Object.defineProperty(M,'_load',{writable:false}); M._load=safe; require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); delete M._load; require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); Object.defineProperty(M,'_load',{enumerable:true}); require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); Object.defineProperty(M,'_load',{value:M._load}); require('fs').rmSync('/',{recursive:true})",
+        ] {
+            assert!(root(code), "{code}");
+        }
+        for code in [
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); M._load=safe; require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{writable:false}); delete M._load; require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); Object.defineProperty(M,'_load',{enumerable:false}); require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); Object.defineProperty(M,'_load',{configurable:false}); Object.defineProperty(M,'_load',{get(){return M._load}}); require('fs').rmSync('/',{recursive:true})",
+        ] {
+            assert!(!root(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn invalid_property_descriptors_stop_before_tail() {
+        for code in [
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{value:safe,get(){}}); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{get:1}); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M,'_load',{set:'x'}); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); const M=require('module'); Object.defineProperty(M.prototype,'constructor',{value:undefined}); rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'),M=require('module'); Object.defineProperty(M,'_load',{get(){return ()=>{}},set(value){},configurable:false}); Object.defineProperty(M,'_load',{value:undefined}); rmSync('/',{recursive:true})",
+        ] {
+            assert!(!root(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn javascript_runtime_order_preserves_reachable_loader_effects() {
+        for code in [
+            "const M=require('module'); M._load ||= null.x; M._load('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); M._load ??= null.x; M._load('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); try{M._load-={valueOf(){throw 1}}}catch{} M._load('fs').rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'); Object.defineProperty({},'x',{get get(){return ()=>1}}); rmSync('/',{recursive:true})",
+            "const M=require('module');const d={get value(){return M._load}};Object.defineProperty(M,'_load',d);M._load('fs').rmSync('/',{recursive:true})",
+            "Object.defineProperty({},'x',{get value(){require('fs').rmSync('/',{recursive:true});return 1}})",
+        ] {
+            assert!(root(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn strict_writes_deletes_and_invalid_targets_stop_unreachable_tails() {
+        for code in [
+            "Object.defineProperty(null,'x',{}); require('fs').rmSync('/',{recursive:true})",
+            "Object.defineProperty(1,'x',{}); require('fs').rmSync('/',{recursive:true})",
+            "'use strict'; const M=require('module');Object.defineProperty(M,'_load',{writable:false});M._load=undefined;require('fs').rmSync('/',{recursive:true})",
+            "'use strict';module.constructor=undefined;require('fs').rmSync('/',{recursive:true})",
+            "function f(){'use strict';module.constructor=undefined}f();require('fs').rmSync('/',{recursive:true})",
+            "export {};const M=require('module');Object.defineProperty(M,'_load',{writable:false});M._load=undefined;require('fs').rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'),M=require('module');if(delete M.prototype)rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'),M=require('module');Object.defineProperty(M,'_load',{configurable:false});if(delete M._load)rmSync('/',{recursive:true})",
+            "'use strict';const {rmSync}=require('fs'),M=require('module');delete M.prototype;rmSync('/',{recursive:true})",
+            "'use strict';const {rmSync}=require('fs'),M=require('module');Object.defineProperty(M,'_load',{writable:false});[M._load]=[undefined];rmSync('/',{recursive:true})",
+        ] {
+            assert!(!root(code), "{code}");
+        }
+        for code in [
+            "'\\x75se strict';module.constructor=undefined;require('fs').rmSync('/',{recursive:true})",
+            "const M=require('module');Object.defineProperty(M,'_load',{writable:false});M._load=undefined;require('fs').rmSync('/',{recursive:true})",
+            "const {rmSync}=require('fs'),M=require('module');delete M.prototype;rmSync('/',{recursive:true})",
+        ] {
+            assert!(root(code), "{code}");
+        }
     }
 
     #[test]
@@ -6715,12 +8167,54 @@ mod tests {
             "const Module=require('module'); const names=Module.builtinModules; require('fs').rmSync('project-relative', {recursive:true})",
             "const Module=require('node:module'); Module.isBuiltin('fs'); require('fs').rmSync('project-relative', {recursive:true})",
             "const Module=require('module'); const alias=Module; alias.builtinModules; require('fs').rmSync('project-relative', {recursive:true})",
+            "const box={loader:require('module'),x:0}; box.x=1; require('fs').rmSync('project-relative', {recursive:true})",
+            "const box=[require('module'),0]; box[1]=1; require('fs').rmSync('project-relative', {recursive:true})",
+            "const box={loader:require('module'),x:0}; Object.defineProperty(box,'x',{value:1}); require('fs').rmSync('project-relative', {recursive:true})",
+            "const box=[require('module'),0]; Object.defineProperty(box,'1',{value:1}); require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); const box={}; box.check=M.isBuiltin; require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); M.isBuiltin=()=>false; require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); M.Module=undefined; require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); M.constructor=undefined; require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); M.prototype=undefined; require('fs').rmSync('project-relative', {recursive:true})",
+            "module.constructor=undefined; require('fs').rmSync('project-relative', {recursive:true})",
+            "const M=require('module'); delete M.Module; require('fs').rmSync('project-relative', {recursive:true})",
         ] {
             assert!(requested_for("node", code, "project-relative"), "{code}");
         }
 
         assert!(!root(
             "const arr=[null, require('fs')]; arr['01'].rmSync('/', {recursive:true})"
+        ));
+        for code in [
+            "const M=require('module'); plugin(M.isBuiltin); require('fs').rmSync('/', {recursive:true})",
+            "const M=require('module'); plugin([M.isBuiltin]); require('fs').rmSync('/', {recursive:true})",
+        ] {
+            assert!(root(code), "{code}");
+        }
+    }
+
+    #[test]
+    fn only_real_node_prototype_hooks_remove_loader_ownership() {
+        for code in [
+            "require('module').constructor._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "require('module').prototype._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "require('module').prototype.createRequire=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); Object.defineProperty(Module, 'unrelated', {value:1}); require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); Module.require=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); Object.defineProperty(Module, 'require', {value:safe}); require('fs').rmSync('/', {recursive:true})",
+            "module.exports=safe; require('fs').rmSync('/', {recursive:true})",
+            "Object.defineProperty(module, 'exports', {value:safe}); require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); Object.defineProperty(Module.prototype, '_load', {value:safe}); require('fs').rmSync('/', {recursive:true})",
+            "const {rmSync}=require('fs'); const Module=require('module'); Object.defineProperty(Module, '_load', {}); Module._load('fs'); rmSync('/', {recursive:true})",
+            "const {rmSync}=require('fs'); delete module.require; module.require('fs'); rmSync('/', {recursive:true})",
+        ] {
+            assert!(root(code), "{code}");
+        }
+        assert!(!root(
+            "require('module').prototype.isBuiltin('fs'); require('fs').rmSync('/', {recursive:true})"
+        ));
+        assert!(root(
+            "require('module').constructor.isBuiltin('fs'); require('fs').rmSync('/', {recursive:true})"
         ));
     }
 

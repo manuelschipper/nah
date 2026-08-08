@@ -22,11 +22,11 @@
   use the existing structural-mismatch refusal. Raised or non-returning local
   calls and terminated branch state no longer leak effects into unreachable
   code, while binders, deletion, and shared module or environment mutations no
-  longer retain stale library ownership or home paths. Mutation or escape of
-  `sys.modules` now removes import ownership without penalizing reviewed
-  read-only registry access. Definitely invalid integer and file-descriptor arguments
-  stop before filesystem effects instead of blocking calls that Python rejects
-  first.
+  longer retain stale library ownership or home paths. Recognized mutation or
+  escape of `sys.modules` removes later import ownership, while reviewed
+  read-only registry operations retain it. Definitely invalid integer and
+  file-descriptor arguments stop before filesystem effects instead of blocking
+  calls that Python rejects first.
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
@@ -41,11 +41,14 @@
   interpretation. Node owns reviewed filesystem and child-process APIs; Deno
   eval owns reviewed Deno filesystem and command APIs while checked eval and
   `deno run` remain unowned; Bun owns reviewed Bun APIs plus Node builtins; and
-  OpenClaw QuickJS owns only provenance-tracked tool-bridge calls. Rebinding, unsupported
-  behavior, and unresolved values remain partial or unowned instead of
-  fabricating effects. Mutation, invocation, or escape of reviewed Node loader
-  provenance (`_load`, `createRequire`, and `Module.prototype.require`) removes
-  later builtin ownership without penalizing unrelated module reads.
+  OpenClaw QuickJS owns only provenance-tracked tool-bridge calls. Rebinding,
+  unsupported behavior, and unresolved values remain partial or unowned instead
+  of fabricating effects. Mutation, invocation, or escape of the reviewed Node
+  loader hooks `Module._load`, `Module.createRequire`, and
+  `Module.prototype.require` (including CommonJS aliases) removes later built-in
+  ownership; cached export mutations do not restore it, while
+  `Module.isBuiltin` and unrelated module properties retain it. Exact strict
+  writes, deletes, and property-descriptor failures stop unreachable tails.
   JavaScript-family native evidence uses v2 so object and `undefined` values do
   not silently extend the frozen Python v1 domain.
 - **Lexical JavaScript helpers** — inline helper functions now resolve captured
