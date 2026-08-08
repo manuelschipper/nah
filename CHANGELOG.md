@@ -22,9 +22,11 @@
   use the existing structural-mismatch refusal. Raised or non-returning local
   calls and terminated branch state no longer leak effects into unreachable
   code, while binders, deletion, and shared module or environment mutations no
-  longer retain stale library ownership or home paths. Definitely invalid
-  integer and file-descriptor arguments stop before filesystem effects instead
-  of blocking calls that Python rejects first.
+  longer retain stale library ownership or home paths. Mutation or escape of
+  `sys.modules` now removes import ownership without penalizing reviewed
+  read-only registry access. Definitely invalid integer and file-descriptor arguments
+  stop before filesystem effects instead of blocking calls that Python rejects
+  first.
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
@@ -41,8 +43,11 @@
   `deno run` remain unowned; Bun owns reviewed Bun APIs plus Node builtins; and
   OpenClaw QuickJS owns only provenance-tracked tool-bridge calls. Rebinding, unsupported
   behavior, and unresolved values remain partial or unowned instead of
-  fabricating effects. JavaScript-family native evidence uses v2 so object and
-  `undefined` values do not silently extend the frozen Python v1 domain.
+  fabricating effects. Mutation, invocation, or escape of reviewed Node loader
+  provenance (`_load`, `createRequire`, and `Module.prototype.require`) removes
+  later builtin ownership without penalizing unrelated module reads.
+  JavaScript-family native evidence uses v2 so object and `undefined` values do
+  not silently extend the frozen Python v1 domain.
 - **Lexical JavaScript helpers** — inline helper functions now resolve captured
   bindings instead of caller-local shadows, preventing both fabricated and
   missed effects when a call occurs inside a nested block.

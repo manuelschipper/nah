@@ -116,6 +116,14 @@ enum OpenClawMember {
     CallValue,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NodeModuleMember {
+    Load,
+    CreateRequire,
+    Require,
+    IsBuiltin,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct DenoCommandValue {
     argv: Option<Vec<String>>,
@@ -186,6 +194,8 @@ enum Value {
     ObjectBuiltin,
     Process,
     Environment,
+    NodeModule,
+    NodeModuleMember(NodeModuleMember),
     Deno,
     DenoCommandConstructor,
     DenoCommand(DenoCommandValue),
@@ -252,6 +262,7 @@ impl State {
                 bindings.insert("Bun".into(), Value::Bun);
                 bindings.insert("$".into(), Value::Known(KnownFunction::BunShell));
                 bindings.insert("require".into(), Value::Require);
+                bindings.insert("module".into(), commonjs_module_value());
                 bindings.insert("process".into(), Value::Process);
             }
             RuntimeOwnership::OpenClaw => {
@@ -259,6 +270,7 @@ impl State {
             }
             RuntimeOwnership::Node => {
                 bindings.insert("require".into(), Value::Require);
+                bindings.insert("module".into(), commonjs_module_value());
                 bindings.insert("process".into(), Value::Process);
             }
             RuntimeOwnership::DenoCheckedEval | RuntimeOwnership::Unowned => {}
@@ -433,6 +445,10 @@ impl State {
         });
     }
 
+    fn invalidate_node_module_loader(&mut self) {
+        self.owned_members.clear();
+    }
+
     fn widen(&mut self) {
         for scope in &mut self.scopes {
             for value in scope.bindings.values_mut() {
@@ -452,6 +468,9 @@ impl State {
         match value {
             Value::Module(module) | Value::UnknownModuleMember(module) => {
                 self.invalidate_module(*module);
+            }
+            Value::NodeModule | Value::NodeModuleMember(_) => {
+                self.invalidate_node_module_loader();
             }
             Value::Array(values) => {
                 for value in values {
@@ -1387,6 +1406,9 @@ impl<'a> Interpreter<'a> {
         }
         if let Some(member) = member {
             self.assign_member(member, state);
+            if node_module_provenance(&value) {
+                state.invalidate_node_module_loader();
+            }
         } else if let Some(left) = left
             && let Some(value) = self.assign_target(left, value.clone(), state, call_depth)
         {
@@ -1470,6 +1492,12 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
         }
         match (&member.object, member.property.as_deref()) {
+            (Value::NodeModule, Some(property)) => {
+                if node_module_member(property).is_some_and(node_module_loader_hook) {
+                    state.invalidate_node_module_loader();
+                }
+            }
+            (Value::NodeModule, None) => state.invalidate_node_module_loader(),
             (Value::Module(module), Some(property)) => {
                 if *module == Module::Fs && property == "promises" {
                     state.invalidate_module(Module::FsPromises);
@@ -1629,16 +1657,26 @@ impl<'a> Interpreter<'a> {
             if abrupt_value(&value) {
                 return value;
             }
-            let Some(property) = value_string(&value) else {
+            let Some(property) = string_coercion(&value) else {
                 return Value::Unknown;
             };
-            property.to_owned()
+            property
         };
         match object {
             Value::Invalid | Value::SynchronousThrow | Value::Divergent => object,
             Value::DynamicEvalResult => Value::DynamicEvalResult,
             Value::Module(Module::Fs) if property == "promises" => {
                 Value::Module(Module::FsPromises)
+            }
+            Value::NodeModule => {
+                if node_module_alias(&property) {
+                    Value::NodeModule
+                } else {
+                    node_module_member(&property).map_or(Value::Unknown, Value::NodeModuleMember)
+                }
+            }
+            Value::NodeModuleMember(member) => {
+                Value::UnknownReceiver(Box::new(Value::NodeModuleMember(member)))
             }
             Value::Module(module) => module_member(module, &property).map_or(
                 Value::UnknownModuleMember(module),
@@ -1669,7 +1707,13 @@ impl<'a> Interpreter<'a> {
                     _ => Value::UnknownReceiver(Box::new(Value::Object(properties))),
                 }
             }
-            Value::Array(values) => Value::UnknownReceiver(Box::new(Value::Array(values))),
+            Value::Array(values) => property
+                .parse::<usize>()
+                .ok()
+                .filter(|index| index.to_string() == property)
+                .and_then(|index| values.get(index))
+                .cloned()
+                .unwrap_or_else(|| Value::UnknownReceiver(Box::new(Value::Array(values)))),
             Value::ObjectBuiltin if property == "defineProperty" => {
                 Value::Known(KnownFunction::DefineProperty)
             }
@@ -1728,10 +1772,20 @@ impl<'a> Interpreter<'a> {
             if let Some(value) = arguments.values.iter().find(|value| abrupt_value(value)) {
                 return value.clone();
             }
+            if arguments.values.iter().any(node_module_provenance) {
+                state.invalidate_node_module_loader();
+            }
             match callable {
                 Value::Invalid | Value::SynchronousThrow | Value::Divergent => callable,
                 Value::Promise | Value::RejectedPromise => Value::SynchronousThrow,
                 Value::Require => self.require(arguments),
+                Value::NodeModuleMember(NodeModuleMember::IsBuiltin) => Value::Unknown,
+                Value::NodeModuleMember(member) => {
+                    debug_assert!(node_module_loader_hook(member));
+                    state.invalidate_node_module_loader();
+                    self.complete = false;
+                    Value::Unknown
+                }
                 Value::Eval => self.eval_source(arguments, state),
                 Value::DenoCommandConstructor => Value::SynchronousThrow,
                 Value::DynamicEvalResult => {
@@ -2118,12 +2172,15 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
             return Value::Unknown;
         }
-        let value = arguments
-            .values
-            .first()
-            .and_then(value_string)
-            .and_then(module_from_source)
-            .map_or(Value::Unknown, Value::Module);
+        let value =
+            arguments
+                .values
+                .first()
+                .and_then(value_string)
+                .map_or(Value::Unknown, |source| match source {
+                    "module" | "node:module" => Value::NodeModule,
+                    source => module_from_source(source).map_or(Value::Unknown, Value::Module),
+                });
         if value == Value::Unknown {
             self.complete = false;
         }
@@ -2280,7 +2337,20 @@ impl<'a> Interpreter<'a> {
                 if arguments.values.first().is_none_or(unknown_value) {
                     state.prototype_integrity_known = false;
                 }
-                if let Some(Value::Module(module)) = arguments.values.first() {
+                if let Some(Value::NodeModule) = arguments.values.first() {
+                    if !arguments.complete
+                        || arguments.values.len() != 3
+                        || arguments
+                            .values
+                            .get(1)
+                            .and_then(value_string)
+                            .is_none_or(|property| {
+                                node_module_member(property).is_some_and(node_module_loader_hook)
+                            })
+                    {
+                        state.invalidate_node_module_loader();
+                    }
+                } else if let Some(Value::Module(module)) = arguments.values.first() {
                     if arguments.complete
                         && arguments.values.len() == 3
                         && let Some(property) = arguments.values.get(1).and_then(value_string)
@@ -3181,7 +3251,13 @@ impl<'a> Interpreter<'a> {
             .as_deref()
             .and_then(|source| self.decode_string(source))
             .as_deref()
-            .and_then(module_from_source)
+            .and_then(|source| {
+                if matches!(source, "module" | "node:module") {
+                    Some(Value::NodeModule)
+                } else {
+                    module_from_source(source).map(Value::Module)
+                }
+            })
             .filter(|_| {
                 matches!(
                     self.profile.ownership,
@@ -3198,17 +3274,11 @@ impl<'a> Interpreter<'a> {
         for child in named_children(clause) {
             match child.kind() {
                 HirKind::Identifier => {
-                    state.declare(
-                        self.text(child),
-                        module.map_or(Value::Unknown, Value::Module),
-                    );
+                    state.declare(self.text(child), module.clone().unwrap_or(Value::Unknown));
                 }
                 HirKind::NamespaceImport => {
                     if let Some(name) = named_children(child).next() {
-                        state.declare(
-                            self.text(name),
-                            module.map_or(Value::Unknown, Value::Module),
-                        );
+                        state.declare(self.text(name), module.clone().unwrap_or(Value::Unknown));
                     }
                 }
                 HirKind::NamedImports => {
@@ -3225,8 +3295,8 @@ impl<'a> Interpreter<'a> {
                         let local = specifier
                             .child(HirField::Alias)
                             .map_or(imported, |alias| self.text(alias));
-                        let value = module.map_or(Value::Unknown, |module| {
-                            module_property_value(module, imported, state)
+                        let value = module.as_ref().map_or(Value::Unknown, |module| {
+                            property_value(module, imported, state)
                         });
                         state.declare(local, value);
                     }
@@ -3458,6 +3528,31 @@ fn module_member(module: Module, property: &str) -> Option<Member> {
         (Module::ChildProcess, "execFileSync") => Some(Member::ExecFileSync),
         _ => None,
     }
+}
+
+fn node_module_member(property: &str) -> Option<NodeModuleMember> {
+    match property {
+        "_load" => Some(NodeModuleMember::Load),
+        "createRequire" => Some(NodeModuleMember::CreateRequire),
+        "require" => Some(NodeModuleMember::Require),
+        "isBuiltin" => Some(NodeModuleMember::IsBuiltin),
+        _ => None,
+    }
+}
+
+fn commonjs_module_value() -> Value {
+    Value::Object(BTreeMap::from([(
+        "constructor".to_owned(),
+        Value::NodeModule,
+    )]))
+}
+
+fn node_module_alias(property: &str) -> bool {
+    matches!(property, "Module" | "constructor" | "prototype")
+}
+
+fn node_module_loader_hook(member: NodeModuleMember) -> bool {
+    !matches!(member, NodeModuleMember::IsBuiltin)
 }
 
 fn deno_member(property: &str) -> Option<DenoMember> {
@@ -4122,6 +4217,16 @@ fn contains_local_function(value: &Value) -> bool {
     }
 }
 
+fn node_module_provenance(value: &Value) -> bool {
+    match value {
+        Value::NodeModule | Value::NodeModuleMember(_) => true,
+        Value::Array(values) => values.iter().any(node_module_provenance),
+        Value::Object(properties) => properties.values().any(node_module_provenance),
+        Value::UnknownReceiver(value) => node_module_provenance(value),
+        _ => false,
+    }
+}
+
 fn exact_non_iterable(value: &Value) -> bool {
     matches!(
         value,
@@ -4140,6 +4245,8 @@ fn exact_non_iterable(value: &Value) -> bool {
             | Value::ObjectBuiltin
             | Value::Process
             | Value::Environment
+            | Value::NodeModule
+            | Value::NodeModuleMember(_)
             | Value::Deno
             | Value::DenoCommandConstructor
             | Value::DenoCommand(_)
@@ -5805,6 +5912,10 @@ fn property_value(value: &Value, property: &str, state: &State) -> Value {
             .cloned()
             .unwrap_or(Value::Undefined),
         Value::Module(module) => module_property_value(*module, property, state),
+        Value::NodeModule if node_module_alias(property) => Value::NodeModule,
+        Value::NodeModule => node_module_member(property)
+            .map(Value::NodeModuleMember)
+            .unwrap_or(Value::Unknown),
         Value::Deno if property == "Command" => Value::DenoCommandConstructor,
         Value::Deno => deno_member(property)
             .map(|member| Value::Known(KnownFunction::Deno(member)))
@@ -5961,6 +6072,8 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
         | Value::ObjectBuiltin
         | Value::Process
         | Value::Environment
+        | Value::NodeModule
+        | Value::NodeModuleMember(_)
         | Value::Deno
         | Value::DenoCommandConstructor
         | Value::DenoCommand(_)
@@ -6061,6 +6174,8 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::ObjectBuiltin
         | Value::Process
         | Value::Environment
+        | Value::NodeModule
+        | Value::NodeModuleMember(_)
         | Value::Deno
         | Value::DenoCommandConstructor
         | Value::DenoCommand(_)
@@ -6418,12 +6533,12 @@ fn is_absolute(path: &str, platform: Platform) -> bool {
 mod tests {
     use super::*;
 
-    fn analysis(code: &str) -> LanguageAnalysis {
-        let profile = super::super::profile("node").unwrap();
+    fn analysis_for(program: &str, code: &str) -> LanguageAnalysis {
+        let profile = super::super::profile(program).unwrap();
         analyze(
             profile,
             &InlineInput {
-                program: "node",
+                program,
                 code,
                 home: "/home/dev",
                 platform: Platform::Linux,
@@ -6432,16 +6547,32 @@ mod tests {
         )
     }
 
+    fn analysis(code: &str) -> LanguageAnalysis {
+        analysis_for("node", code)
+    }
+
     fn report(code: &str) -> InlineReport {
         analysis(code).into_report()
     }
 
+    fn requested_for(program: &str, code: &str, target: &str) -> bool {
+        analysis_for(program, code)
+            .draft()
+            .calls()
+            .iter()
+            .any(|call| {
+                call.filesystems()
+                    .iter()
+                    .any(|filesystem| filesystem.requested() == Some(target))
+            })
+    }
+
+    fn root_for(program: &str, code: &str) -> bool {
+        requested_for(program, code, "/")
+    }
+
     fn root(code: &str) -> bool {
-        analysis(code).draft().calls().iter().any(|call| {
-            call.filesystems()
-                .iter()
-                .any(|filesystem| filesystem.requested() == Some("/"))
-        })
+        root_for("node", code)
     }
 
     fn assert_inert(code: &str) {
@@ -6531,6 +6662,66 @@ mod tests {
                 .nested_executions()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn direct_node_module_loader_changes_remove_module_ownership() {
+        for code in [
+            "require('module')._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('node:module'); delete Module.createRequire; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); plugin(Module._load); require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); sink.loader=Module._load; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('node:module'); Module.createRequire('/tmp/plugin.js'); require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('node:module').Module; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=module.constructor; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "require('module').prototype.require=safe; require('fs').rmSync('/', {recursive:true})",
+            "const box=[require('module')]; box[0]._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "const Module=require('module'); sink.loader=[Module._load]; require('fs').rmSync('/', {recursive:true})",
+        ] {
+            assert!(!root(code), "{code}");
+        }
+        assert!(
+            report("const Module=require('module'); Module._load('fs'); require('child_process').spawn('rm', ['-rf', '/'])")
+                .nested_executions()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn aliased_node_module_loader_changes_remove_module_ownership() {
+        for code in [
+            "const Module=require('module'); const alias=Module; alias._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "const {_load:load}=require('node:module'); load('fs'); require('fs').rmSync('/', {recursive:true})",
+            "const {Module}=require('node:module'); Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+            "import {createRequire as makeRequire} from 'node:module'; makeRequire('/tmp/plugin.js'); require('fs').rmSync('/', {recursive:true})",
+            "import {Module} from 'node:module'; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+        ] {
+            assert!(!root(code), "{code}");
+        }
+        assert!(!root_for(
+            "bun-js",
+            "const Module=require('node:module'); const alias=Module; alias._load=safe; require('fs').rmSync('/', {recursive:true})",
+        ));
+        assert!(!root_for(
+            "tsx",
+            "import {Module} from 'node:module'; Module._load=safe; require('fs').rmSync('/', {recursive:true})",
+        ));
+    }
+
+    #[test]
+    fn unrelated_node_module_reads_preserve_module_ownership() {
+        for code in [
+            "const Module=require('module'); const names=Module.builtinModules; require('fs').rmSync('project-relative', {recursive:true})",
+            "const Module=require('node:module'); Module.isBuiltin('fs'); require('fs').rmSync('project-relative', {recursive:true})",
+            "const Module=require('module'); const alias=Module; alias.builtinModules; require('fs').rmSync('project-relative', {recursive:true})",
+        ] {
+            assert!(requested_for("node", code, "project-relative"), "{code}");
+        }
+
+        assert!(!root(
+            "const arr=[null, require('fs')]; arr['01'].rmSync('/', {recursive:true})"
+        ));
     }
 
     #[test]

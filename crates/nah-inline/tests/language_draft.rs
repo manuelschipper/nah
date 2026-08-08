@@ -1659,6 +1659,66 @@ fn shared_module_and_environment_mutations_invalidate_exact_ownership() {
 }
 
 #[test]
+fn import_registry_barriers_are_partial_without_widening_host_state() {
+    let analysis =
+        analyze("import sys\nsys.modules.clear(1)\nopen('/home/dev/.nah/trust.json', 'w')");
+    assert!(analysis.draft().calls().is_empty());
+
+    let analysis = analyze(
+        "import sys\ntry:\n    sys.modules.clear(1)\nexcept:\n    open('/tmp/caught', 'w')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/caught")
+    );
+
+    for mutation in [
+        "sys.modules['shutil'] = replacement",
+        "setattr(sys, 'modules', {})",
+        "sys.__dict__['modules'] = {}",
+        "registry = sys.modules\nregistry |= {}",
+        "box = [sys.modules]\nbox[0]['shutil'] = replacement",
+        "registry = sys.__dict__['modules']\nregistry['shutil'] = replacement",
+        "sys.modules.clear()",
+        "consume(sys.modules)",
+    ] {
+        let code =
+            format!("import sys\n{mutation}\nimport shutil\nshutil.rmtree('/tmp/protected')");
+        let analysis = analyze(&code);
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    for read in [
+        "sys.modules['sys']",
+        "sys.modules.get('shutil')",
+        "sys.modules.keys()",
+        "sys.modules.values()",
+        "sys.modules.items()",
+    ] {
+        let code = format!("import sys\n{read}\nimport shutil\nshutil.rmtree('project-relative')");
+        let analysis = analyze(&code);
+        assert!(analysis.draft().complete(), "{code}");
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some("project-relative"),
+            "{code}"
+        );
+    }
+
+    let analysis = analyze(
+        "import os, sys\nenv = os.environ\nsys.modules.clear()\nopen(env['HOME'] + '/.nah/trust.json', 'w')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/home/dev/.nah/trust.json")
+    );
+}
+
+#[test]
 fn read_only_local_module_arguments_preserve_ownership() {
     let analysis = analyze(
         "import os\ndef inspect_module(module): pass\ninspect_module(os)\nos.remove('/tmp/x')",

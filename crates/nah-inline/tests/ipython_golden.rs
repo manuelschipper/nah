@@ -247,6 +247,25 @@ fn get_ipython_ownership_is_exact_until_the_object_escapes_or_is_mutated() {
             if program == "bash" && code == "printf direct"
     ));
 
+    for mutation in [
+        "sys.modules.clear()",
+        "sys.modules['shutil'] = replacement",
+        "setattr(sys, 'modules', {})",
+        "sys.__dict__['modules'] = {}",
+        "registry = sys.modules\nregistry |= {}",
+        "box = [sys.modules]\nbox[0]['shutil'] = replacement",
+        "registry = sys.__dict__['modules']\nregistry['shutil'] = replacement",
+    ] {
+        let source = format!("import sys\n{mutation}\nget_ipython().system('printf host-owned')");
+        let analysis = language_analysis(&source);
+        assert!(matches!(
+            analysis.report().nested_executions(),
+            [NestedExecution::Shell { program, code, .. }]
+                if program == "bash" && code == "printf host-owned"
+        ));
+        assert!(!analysis.draft().complete());
+    }
+
     for source in [
         "get_ipython = replacement\nget_ipython().system('rm -rf /')",
         "del get_ipython\nget_ipython().system('rm -rf /')",

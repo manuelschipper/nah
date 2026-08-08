@@ -41,9 +41,26 @@ enum Module {
     Httpx,
     Shutil,
     Subprocess,
+    Sys,
     Urllib,
     UrllibRequest,
 }
+
+const IMPORT_OWNED_MODULES: &[Module] = &[
+    Module::Base64,
+    Module::Builtins,
+    Module::Io,
+    Module::Os,
+    Module::OsPath,
+    Module::Pathlib,
+    Module::Requests,
+    Module::Httpx,
+    Module::Shutil,
+    Module::Subprocess,
+    Module::Sys,
+    Module::Urllib,
+    Module::UrllibRequest,
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KnownFunction {
@@ -85,11 +102,35 @@ enum KnownFunction {
     PathHome,
     PathJoin,
     Request(RequestKind),
+    Setattr,
     ShutilCopy(CopyKind),
     ShutilMove,
     ShutilRmtree,
     ShutilWhich,
     Subprocess(SubprocessKind),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ImportRegistryRead {
+    Contains,
+    Copy,
+    Get,
+    GetItem,
+    Items,
+    Keys,
+    Values,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ImportRegistryMutation {
+    Clear,
+    DelItem,
+    Ior,
+    Pop,
+    PopItem,
+    SetDefault,
+    SetItem,
+    Update,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -160,6 +201,9 @@ enum Value {
     ImplicitString(String),
     Bytes(Vec<u8>),
     EmptyDictionary,
+    ImportRegistry,
+    ImportRegistryMutator(ImportRegistryMutation),
+    ImportRegistryRead(ImportRegistryRead),
     Cell(usize),
     Module(Module),
     Known(KnownFunction),
@@ -207,6 +251,7 @@ impl Default for State {
             ("compile", Value::Known(KnownFunction::Compile)),
             ("open", Value::Known(KnownFunction::Open)),
             ("getattr", Value::Known(KnownFunction::Getattr)),
+            ("setattr", Value::Known(KnownFunction::Setattr)),
             ("__import__", Value::Known(KnownFunction::Import)),
         ]
         .into_iter()
@@ -371,24 +416,11 @@ pub(super) fn analyze(
             bindings: BTreeMap::new(),
             cells: Vec::new(),
             functions: Vec::new(),
-            invalid_modules: [
-                Module::Base64,
-                Module::Builtins,
-                Module::Io,
-                Module::Ipython,
-                Module::Os,
-                Module::Environment,
-                Module::OsPath,
-                Module::Pathlib,
-                Module::Requests,
-                Module::Httpx,
-                Module::Shutil,
-                Module::Subprocess,
-                Module::Urllib,
-                Module::UrllibRequest,
-            ]
-            .into_iter()
-            .collect(),
+            invalid_modules: IMPORT_OWNED_MODULES
+                .iter()
+                .copied()
+                .chain([Module::Ipython, Module::Environment])
+                .collect(),
             relative_cwd_known: false,
         },
     };
@@ -660,6 +692,7 @@ impl Interpreter<'_> {
         let Some(left) = node.child(HirField::Left) else {
             return;
         };
+        let mutates_import_registry = is_import_registry(left, state, &self.source);
         let current = self.eval(left, state, depth);
         let right = node
             .child(HirField::Right)
@@ -672,6 +705,10 @@ impl Interpreter<'_> {
             .map(|operator| self.text(operator))
             .unwrap_or_default()
             .to_owned();
+        if mutates_import_registry {
+            invalidate_import_ownership(state);
+            self.draft.set_partial();
+        }
         let value = binary_value(current, right, &operator, &mut self.budget);
         self.assign(left, value, state);
     }
@@ -700,19 +737,36 @@ impl Interpreter<'_> {
                     self.assign(child, value, state);
                 }
             }
-            HirKind::Attribute => target
-                .child(HirField::Object)
-                .into_iter()
-                .for_each(|object| self.invalidate_mutation_target(object, state)),
-            HirKind::Subscript => named_children(target)
-                .next()
-                .into_iter()
-                .for_each(|object| self.invalidate_mutation_target(object, state)),
+            HirKind::Attribute => {
+                if is_import_registry_attribute(target, state, &self.source) {
+                    invalidate_import_ownership(state);
+                    self.draft.set_partial();
+                } else {
+                    target
+                        .child(HirField::Object)
+                        .into_iter()
+                        .for_each(|object| self.invalidate_mutation_target(object, state));
+                }
+            }
+            HirKind::Subscript => self.invalidate_mutation_target(target, state),
             _ => self.complete = false,
         }
     }
 
     fn invalidate_mutation_target(&mut self, target: &HirNode, state: &mut State) {
+        if is_import_registry(target, state, &self.source) {
+            invalidate_import_ownership(state);
+            self.draft.set_partial();
+            return;
+        }
+        if target.kind() == HirKind::Subscript {
+            if let Some(object) = named_children(target).next() {
+                self.invalidate_mutation_target(object, state);
+            } else {
+                self.complete = false;
+            }
+            return;
+        }
         if let Some(module) = owned_module_target(target, state, &self.source) {
             invalidate_module(module, state);
             self.complete = false;
@@ -755,14 +809,18 @@ impl Interpreter<'_> {
                     self.delete(target, state);
                 }
             }
-            HirKind::Attribute => target
-                .child(HirField::Object)
-                .into_iter()
-                .for_each(|object| self.invalidate_mutation_target(object, state)),
-            HirKind::Subscript => named_children(target)
-                .next()
-                .into_iter()
-                .for_each(|object| self.invalidate_mutation_target(object, state)),
+            HirKind::Attribute => {
+                if is_import_registry_attribute(target, state, &self.source) {
+                    invalidate_import_ownership(state);
+                    self.draft.set_partial();
+                } else {
+                    target
+                        .child(HirField::Object)
+                        .into_iter()
+                        .for_each(|object| self.invalidate_mutation_target(object, state));
+                }
+            }
+            HirKind::Subscript => self.invalidate_mutation_target(target, state),
             _ => self.complete = false,
         }
     }
@@ -1435,6 +1493,10 @@ impl Interpreter<'_> {
                 value,
                 method: attribute.to_owned(),
             },
+            Value::ImportRegistry => import_registry_mutation(attribute)
+                .map(Value::ImportRegistryMutator)
+                .or_else(|| import_registry_read(attribute).map(Value::ImportRegistryRead))
+                .unwrap_or(Value::Unknown),
             Value::Known(KnownFunction::Path) if attribute == "home" => {
                 Value::Known(KnownFunction::PathHome)
             }
@@ -1502,6 +1564,20 @@ impl Interpreter<'_> {
                     Value::Unknown
                 }
             }
+            Value::ImportRegistryMutator(mutation) => {
+                let shape = import_registry_mutation_shape(mutation, &arguments);
+                if shape == CallShape::Invalid {
+                    self.pending_control = Some(Control::Raise);
+                    return Value::Unknown;
+                }
+                invalidate_import_ownership(state);
+                self.draft.set_partial();
+                Value::Unknown
+            }
+            Value::ImportRegistryRead(read) => {
+                self.admit_call_shape(import_registry_read_shape(read, &arguments));
+                Value::Unknown
+            }
             Value::ModuleMethod(module) => {
                 if module == Module::Environment {
                     invalidate_module(module, state);
@@ -1517,7 +1593,9 @@ impl Interpreter<'_> {
                 Value::Produced(origins)
             }
             _ => {
-                invalidate_argument_cells(&arguments, state);
+                if invalidate_argument_cells(&arguments, state) {
+                    self.draft.set_partial();
+                }
                 if ipython_target {
                     self.draft.set_partial();
                 }
@@ -1976,6 +2054,40 @@ impl Interpreter<'_> {
                     };
                 }
                 Value::Unknown
+            }
+            KnownFunction::Setattr => {
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    3,
+                    &["object", "name", "value"],
+                    3,
+                    &[],
+                )) {
+                    return Value::Unknown;
+                }
+                let target = &arguments.positional[0];
+                let name = &arguments.positional[1];
+                match (target, name) {
+                    (
+                        Value::Module(Module::Sys),
+                        Value::String(name) | Value::ImplicitString(name),
+                    ) if name == "modules" => {
+                        invalidate_import_ownership(state);
+                        self.draft.set_partial();
+                    }
+                    (Value::Module(Module::Sys), Value::Unknown | Value::Produced(_)) => {
+                        invalidate_import_ownership(state);
+                        self.draft.set_partial();
+                    }
+                    (Value::Module(module), Value::String(_) | Value::ImplicitString(_)) => {
+                        invalidate_module(*module, state);
+                        self.complete = false;
+                    }
+                    (_, Value::Unknown | Value::Produced(_)) => self.complete = false,
+                    (_, Value::String(_) | Value::ImplicitString(_)) => self.complete = false,
+                    _ => self.pending_control = Some(Control::Raise),
+                }
+                Value::None
             }
             KnownFunction::Import => arguments
                 .positional
@@ -3349,6 +3461,9 @@ impl Interpreter<'_> {
     }
 
     fn subscript(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
+        if is_import_registry_value(node, state, &self.source) {
+            return Value::ImportRegistry;
+        }
         let children = named_children(node).collect::<Vec<_>>();
         if children.len() < 2 {
             return Value::Unknown;
@@ -3412,6 +3527,7 @@ fn module_value(name: &str) -> Option<Value> {
         "httpx" => Module::Httpx,
         "shutil" => Module::Shutil,
         "subprocess" => Module::Subprocess,
+        "sys" => Module::Sys,
         "urllib" => Module::Urllib,
         "urllib.request" => Module::UrllibRequest,
         _ => return None,
@@ -3466,10 +3582,12 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Builtins, "compile") => KnownFunction::Compile,
         (Module::Builtins, "open") => KnownFunction::Open,
         (Module::Builtins, "getattr") => KnownFunction::Getattr,
+        (Module::Builtins, "setattr") => KnownFunction::Setattr,
         (Module::Ipython, "system") => KnownFunction::IpythonSystem,
         (Module::Ipython, "getoutput") => KnownFunction::IpythonGetoutput,
         (Module::Ipython, "run_cell_magic") => KnownFunction::IpythonCell,
         (Module::Io, "FileIO") => KnownFunction::IoFile,
+        (Module::Sys, "modules") => return Some(Value::ImportRegistry),
         (Module::Urllib, "request") => return Some(Value::Module(Module::UrllibRequest)),
         (Module::Os, "path") => return Some(Value::Module(Module::OsPath)),
         (Module::Os, "environ") => return Some(Value::Module(Module::Environment)),
@@ -3533,6 +3651,73 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         _ => return None,
     };
     Some(Value::Known(function))
+}
+
+fn import_registry_mutation(attribute: &str) -> Option<ImportRegistryMutation> {
+    match attribute {
+        "clear" => Some(ImportRegistryMutation::Clear),
+        "__delitem__" => Some(ImportRegistryMutation::DelItem),
+        "__ior__" => Some(ImportRegistryMutation::Ior),
+        "pop" => Some(ImportRegistryMutation::Pop),
+        "popitem" => Some(ImportRegistryMutation::PopItem),
+        "setdefault" => Some(ImportRegistryMutation::SetDefault),
+        "__setitem__" => Some(ImportRegistryMutation::SetItem),
+        "update" => Some(ImportRegistryMutation::Update),
+        _ => None,
+    }
+}
+
+fn import_registry_mutation_shape(
+    mutation: ImportRegistryMutation,
+    arguments: &Arguments,
+) -> CallShape {
+    match mutation {
+        ImportRegistryMutation::Clear | ImportRegistryMutation::PopItem => {
+            call_shape(arguments, 0, &[], 0, &[])
+        }
+        ImportRegistryMutation::DelItem | ImportRegistryMutation::Ior => {
+            call_shape(arguments, 1, &["value"], 1, &[])
+        }
+        ImportRegistryMutation::Pop | ImportRegistryMutation::SetDefault => {
+            call_shape(arguments, 1, &["key", "default"], 2, &[])
+        }
+        ImportRegistryMutation::SetItem => call_shape(arguments, 2, &["key", "value"], 2, &[]),
+        ImportRegistryMutation::Update => {
+            if arguments.positional.len() > 1 {
+                CallShape::Invalid
+            } else if arguments.complete {
+                CallShape::Valid
+            } else {
+                CallShape::Incomplete
+            }
+        }
+    }
+}
+
+fn import_registry_read(attribute: &str) -> Option<ImportRegistryRead> {
+    match attribute {
+        "__contains__" => Some(ImportRegistryRead::Contains),
+        "copy" => Some(ImportRegistryRead::Copy),
+        "get" => Some(ImportRegistryRead::Get),
+        "__getitem__" => Some(ImportRegistryRead::GetItem),
+        "items" => Some(ImportRegistryRead::Items),
+        "keys" => Some(ImportRegistryRead::Keys),
+        "values" => Some(ImportRegistryRead::Values),
+        _ => None,
+    }
+}
+
+fn import_registry_read_shape(read: ImportRegistryRead, arguments: &Arguments) -> CallShape {
+    match read {
+        ImportRegistryRead::Contains | ImportRegistryRead::GetItem => {
+            call_shape(arguments, 1, &["key"], 1, &[])
+        }
+        ImportRegistryRead::Get => call_shape(arguments, 1, &["key", "default"], 2, &[]),
+        ImportRegistryRead::Copy
+        | ImportRegistryRead::Items
+        | ImportRegistryRead::Keys
+        | ImportRegistryRead::Values => call_shape(arguments, 0, &[], 0, &[]),
+    }
 }
 
 fn filesystem_argument(
@@ -3752,6 +3937,9 @@ fn native_value(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) ->
         Value::Decoded(value) => native_value(value, state, visiting),
         Value::Unknown
         | Value::EmptyDictionary
+        | Value::ImportRegistry
+        | Value::ImportRegistryMutator(_)
+        | Value::ImportRegistryRead(_)
         | Value::Module(_)
         | Value::Known(_)
         | Value::LocalFunction(_)
@@ -3885,6 +4073,9 @@ fn value_bytes(value: &Value) -> Option<usize> {
         | Value::Bool(_)
         | Value::Int(_)
         | Value::EmptyDictionary
+        | Value::ImportRegistry
+        | Value::ImportRegistryMutator(_)
+        | Value::ImportRegistryRead(_)
         | Value::Cell(_)
         | Value::Module(_)
         | Value::ModuleMethod(_)
@@ -3941,7 +4132,15 @@ fn bind_arguments(parameters: &[Parameter], arguments: &Arguments) -> ArgumentBi
     bindings.map_or(ArgumentBindings::Invalid, ArgumentBindings::Bound)
 }
 
-fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
+fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) -> bool {
+    let contains_registry = arguments
+        .positional
+        .iter()
+        .chain(arguments.keywords.iter().map(|(_, value)| value))
+        .any(|value| contains_import_registry(value, state, &mut BTreeSet::new()));
+    if contains_registry {
+        invalidate_import_ownership(state);
+    }
     for cell in arguments
         .positional
         .iter()
@@ -3968,6 +4167,7 @@ fn invalidate_argument_cells(arguments: &Arguments, state: &mut State) {
     for module in modules {
         invalidate_module(module, state);
     }
+    contains_registry
 }
 
 fn retain_owned_module(value: Value, state: &State) -> Value {
@@ -3995,6 +4195,116 @@ fn invalidate_module(module: Module, state: &mut State) {
     }
 }
 
+fn invalidate_import_ownership(state: &mut State) {
+    for module in IMPORT_OWNED_MODULES {
+        if *module == Module::Builtins {
+            state.invalid_modules.insert(*module);
+        } else {
+            invalidate_module(*module, state);
+        }
+    }
+    scrub_import_registry_markers(state);
+}
+
+fn scrub_import_registry_markers(state: &mut State) {
+    fn scrub(value: &mut Value) {
+        if matches!(
+            value,
+            Value::ImportRegistry | Value::ImportRegistryMutator(_) | Value::ImportRegistryRead(_)
+        ) {
+            *value = Value::Unknown;
+        }
+    }
+
+    state.bindings.values_mut().for_each(scrub);
+    for cell in &mut state.cells {
+        if let Cell::Sequence(values) = cell {
+            values.iter_mut().for_each(scrub);
+        }
+    }
+    for function in &mut state.functions {
+        if let Some(parameters) = &mut function.parameters {
+            for parameter in parameters {
+                if let Some(default) = &mut parameter.default {
+                    scrub(default);
+                }
+            }
+        }
+    }
+}
+
+fn contains_import_registry(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) -> bool {
+    match value {
+        Value::ImportRegistry | Value::ImportRegistryMutator(_) | Value::ImportRegistryRead(_) => {
+            true
+        }
+        Value::Cell(cell) if visiting.insert(*cell) => {
+            let contains = match state.cells.get(*cell) {
+                Some(Cell::Sequence(values)) => values
+                    .iter()
+                    .any(|value| contains_import_registry(value, state, visiting)),
+                Some(Cell::Unknown) | None => false,
+            };
+            visiting.remove(cell);
+            contains
+        }
+        _ => false,
+    }
+}
+
+fn is_import_registry(node: &HirNode, state: &State, source: &str) -> bool {
+    match node.kind() {
+        HirKind::Identifier | HirKind::Attribute => is_import_registry_value(node, state, source),
+        HirKind::Subscript => named_children(node).next().is_some_and(|object| {
+            is_import_registry_value(object, state, source)
+                || is_sys_module_dictionary(object, state, source)
+        }),
+        _ => false,
+    }
+}
+
+fn is_import_registry_value(node: &HirNode, state: &State, source: &str) -> bool {
+    match node.kind() {
+        HirKind::Identifier => state
+            .bindings
+            .get(unsafe_text(source, node))
+            .is_some_and(|value| contains_import_registry(value, state, &mut BTreeSet::new())),
+        HirKind::Attribute => is_import_registry_attribute(node, state, source),
+        HirKind::Subscript => named_children(node).next().is_some_and(|object| {
+            is_sys_module_dictionary(object, state, source)
+                || object.kind() == HirKind::Identifier
+                    && state
+                        .bindings
+                        .get(unsafe_text(source, object))
+                        .is_some_and(|value| {
+                            matches!(value, Value::Cell(_))
+                                && contains_import_registry(value, state, &mut BTreeSet::new())
+                        })
+        }),
+        _ => false,
+    }
+}
+
+fn is_sys_module_dictionary(node: &HirNode, state: &State, source: &str) -> bool {
+    node.kind() == HirKind::Attribute
+        && node
+            .child(HirField::Attribute)
+            .is_some_and(|attribute| unsafe_text(source, attribute) == "__dict__")
+        && node
+            .child(HirField::Object)
+            .and_then(|object| owned_module_target(object, state, source))
+            == Some(Module::Sys)
+}
+
+fn is_import_registry_attribute(node: &HirNode, state: &State, source: &str) -> bool {
+    node.child(HirField::Attribute)
+        .is_some_and(|attribute| unsafe_text(source, attribute) == "modules")
+        && node
+            .child(HirField::Object)
+            .and_then(|object| owned_module_target(object, state, source))
+            == Some(Module::Sys)
+}
+
 fn owned_module_target(node: &HirNode, state: &State, source: &str) -> Option<Module> {
     match node.kind() {
         HirKind::Identifier => match state.bindings.get(unsafe_text(source, node)) {
@@ -4019,7 +4329,17 @@ fn propagate_invalid_modules(modules: &BTreeSet<Module>, state: &mut State) {
         .copied()
         .collect::<Vec<_>>();
     for module in modules {
-        invalidate_module(module, state);
+        if module == Module::Builtins {
+            state.invalid_modules.insert(module);
+        } else {
+            invalidate_module(module, state);
+        }
+    }
+    if IMPORT_OWNED_MODULES
+        .iter()
+        .all(|module| state.invalid_modules.contains(module))
+    {
+        scrub_import_registry_markers(state);
     }
 }
 
@@ -5312,6 +5632,39 @@ mod tests {
             "command=plugin.make(user)\nimport os\nos.system(command)",
         ] {
             assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+    }
+
+    #[test]
+    fn sys_modules_mutation_and_escape_remove_import_ownership() {
+        for code in [
+            "import sys\nsys.modules['shutil'] = replacement\nimport shutil\nshutil.rmtree('/')",
+            "import sys as runtime\nregistry = runtime.modules\nregistry['shutil'] = replacement\nimport shutil\nshutil.rmtree('/')",
+            "from sys import modules as registry\ndel registry['shutil']\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nmutate = sys.modules.clear\nmutate()\nimport shutil\nshutil.rmtree('/')",
+            "from sys import modules\nmodules.update({})\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nconsume(sys.modules)\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nsetattr(sys, 'modules', {})\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nsys.__dict__['modules'] = {}\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nregistry = sys.modules\nregistry |= {}\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nbox = [sys.modules]\nbox[0]['shutil'] = replacement\nimport shutil\nshutil.rmtree('/')",
+            "import sys\nregistry = sys.__dict__['modules']\nregistry['shutil'] = replacement\nimport shutil\nshutil.rmtree('/')",
+        ] {
+            assert_eq!(report(code), InlineReport::default(), "{code}");
+        }
+    }
+
+    #[test]
+    fn read_only_sys_modules_access_keeps_import_ownership() {
+        for code in [
+            "import sys\nsys.modules['sys']\nimport shutil\nshutil.rmtree('/')",
+            "import sys as runtime\nruntime.modules.get('shutil')\nimport shutil\nshutil.rmtree('/')",
+            "from sys import modules as registry\nregistry.keys()\nimport shutil\nshutil.rmtree('/')",
+        ] {
+            assert!(
+                report(code).contains_exact(FindingKind::RootDestruction),
+                "{code}"
+            );
         }
     }
 
