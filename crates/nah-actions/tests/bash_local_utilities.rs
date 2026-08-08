@@ -207,3 +207,67 @@ fn local_utility_lowering_fails_closed_at_option_and_word_boundaries() {
                 && effect.sensitivity == Sensitivity::EnvironmentSecret)
     }));
 }
+
+#[test]
+fn complete_credential_searches_replace_the_local_utility_operation() {
+    for source in [
+        "grep -r AKIA /home/test",
+        "grep -ri akia /home/test",
+        "grep -r -e TODO -e ghp_ /home/test",
+        "rg --no-config AKIA /home/test",
+        "rg --no-config -i xoxb- /home/test",
+        "rg --no-config --smart-case akia /home/test",
+        "/usr/bin/grep -r github_pat_ /home/test",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Full, "{source}");
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation.as_str() == "credential-search"
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn incomplete_or_non_disclosing_searches_remain_local_utilities() {
+    for source in [
+        "grep -r TODO /home/test",
+        "grep -r password /home/test",
+        "grep -r akia /home/test",
+        "grep -r -f patterns /home/test",
+        "grep -rl AKIA /home/test",
+        "grep -rL AKIA /home/test",
+        "grep -rc AKIA /home/test",
+        "grep -rq AKIA /home/test",
+        "grep -rs AKIA /home/test",
+        "grep -rv AKIA /home/test",
+        "grep -ro AKIA /home/test",
+        "rg AKIA /home/test",
+        "rg --no-config -f patterns /home/test",
+        "rg --no-config --files",
+        "rg --no-config --type-list",
+        "rg --no-config --replace value AKIA /home/test",
+        "rg --no-config --files-without-match AKIA /home/test",
+        "rg --no-config -o AKIA /home/test",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            !stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation.as_str() == "credential-search"
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}

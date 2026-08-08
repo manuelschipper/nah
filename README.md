@@ -45,7 +45,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 | `exec-network-shell` | Recognized netcat and socat code attachments. |
 | `secrets-env` | Reads of `.env` files and sensitive basenames. |
 | `secrets-keys` | Reads or writes of private-key and credential-store paths. |
-| `exfil-pipe` | A visible flow from a sensitive read to a network stage. |
+| `exfil-pipe` | A visible flow from a sensitive source to a network stage. |
 | `fs-root` | Deletion or recursive permission changes selecting filesystem or system roots. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
@@ -69,6 +69,10 @@ not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or
 written, data moving off the machine, environment access, and process behavior.
+For Bash, sensitive sources include protected-file reads, exact environment
+dumps, and credential-indicator searches over sensitive or root scopes.
+`rg` requires `--no-config`; pattern files, output-suppressing modes, arbitrary
+environment names, and option-bearing mail sends remain outside this model.
 
 Every decision ends in one of two verdicts:
 

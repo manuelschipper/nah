@@ -293,6 +293,14 @@
           "kind": "missing",
           "requested": "/workspace/outside/carrier/3",
           "resolved": "/workspace/outside/carrier/3"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "descendants": []
         }
       ],
       "roots": [

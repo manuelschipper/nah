@@ -12,6 +12,7 @@ use super::command_preparation::PreparedCommand;
 use super::command_resources::CommandResources;
 use super::{AssignmentUpdate, Lowered, Lowerer};
 use crate::bash_descriptors::{DescriptorRedirectPlan, shell_attached_to_dev_socket};
+use crate::bash_environment_disclosure::operation as environment_disclosure_operation;
 use crate::bash_flow::redirects_stdin;
 use crate::bash_git::command_operation as git_command_operation;
 use crate::bash_invocation::invocation;
@@ -269,6 +270,11 @@ impl Lowerer {
         } else {
             None
         };
+        let environment_disclosure = if let ProgramDraft::Static(program) = &program {
+            environment_disclosure_operation(program, &local_arguments, !assignments.is_empty())
+        } else {
+            None
+        };
         let network_shell_redirect = matches!(&program, ProgramDraft::Static(program)
             if shell_attached_to_dev_socket(program, &local_arguments, &network_endpoints));
         let CommandResources {
@@ -297,6 +303,10 @@ impl Lowerer {
             execution,
             direct_execution,
         } = classifications;
+        let local_operation = local_utility
+            .as_ref()
+            .filter(|lowering| lowering.complete)
+            .and_then(|lowering| lowering.operation);
         let mut invocation = invocation(
             &program,
             lexical_program.as_deref(),
@@ -305,7 +315,7 @@ impl Lowerer {
             argv,
             local_utility
                 .as_ref()
-                .is_some_and(|lowering| lowering.complete),
+                .is_some_and(|lowering| lowering.complete && lowering.operation.is_none()),
             nah_mutation
                 .or_else(|| {
                     project
@@ -318,6 +328,8 @@ impl Lowerer {
                         .filter(|lowering| lowering.complete)
                         .map(|lowering| lowering.operation)
                 })
+                .or(environment_disclosure)
+                .or(local_operation)
                 .or_else(|| execution.as_ref().and_then(|lowering| lowering.operation))
                 .or(network_shell_redirect.then_some("network-shell"))
                 .or(nah_inspection),
@@ -328,7 +340,7 @@ impl Lowerer {
                         Substitution::Command { .. } | Substitution::Backtick { .. }
                     )
                 }),
-            direct_execution,
+            direct_execution && environment_disclosure.is_none() && local_operation.is_none(),
             pattern_program,
         );
         if let Some(descriptor_code) = execution

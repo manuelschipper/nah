@@ -28,6 +28,7 @@ mod bash_descendants;
 mod bash_descriptor_paths;
 mod bash_descriptor_state;
 mod bash_descriptors;
+mod bash_environment_disclosure;
 mod bash_executable_identity;
 mod bash_execution;
 mod bash_filesystem;

@@ -31,6 +31,7 @@ pub(crate) fn lower(
         "curl" => curl(arguments),
         "wget" => wget(arguments),
         "http" | "https" => httpie(arguments),
+        "mail" | "mailx" | "s-nail" => mail(arguments),
         "nc" | "netcat" | "ncat" => netcat(arguments),
         "socat" => bash_socat::socat(arguments, descriptors, variables).map(|lowering| Lowering {
             complete: lowering.complete,
@@ -62,6 +63,49 @@ pub(crate) fn lower(
         "rsync" => rsync(arguments),
         _ => None,
     }
+}
+
+fn mail(arguments: &[Word]) -> Option<Lowering> {
+    let [recipient] = arguments else {
+        return None;
+    };
+    let recipient = static_word(recipient.raw(), recipient.substitutions().is_empty())?;
+    valid_mail_recipient(&recipient).then(|| Lowering {
+        complete: true,
+        filesystems: Vec::new(),
+        stdin_flows: true,
+        stdout_flows: false,
+        network: true,
+        network_endpoints: Vec::new(),
+        descriptor_sources: Vec::new(),
+        descriptor_sinks: Vec::new(),
+    })
+}
+
+fn valid_mail_recipient(recipient: &str) -> bool {
+    let mut parts = recipient.split('@');
+    let Some(local) = parts.next() else {
+        return false;
+    };
+    let Some(host) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_some()
+        || local.is_empty()
+        || !local.is_ascii()
+        || local.starts_with('-')
+        || !host.contains('.')
+    {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    })
 }
 
 pub(crate) fn shell_operation(

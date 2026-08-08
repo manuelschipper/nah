@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use nah_inline::{FindingKind, InlineReport};
 use nah_proto::action::{
-    ActionStream, EffectKind, FilesystemOperation, InvocationEffect, NetworkDirection,
+    ActionStream, EffectKind, FilesystemOperation, InvocationEffect, NetworkDirection, PathScope,
     SemanticCode, Sensitivity, StageId,
 };
 use nah_proto::ctx::PolicyCtx;
@@ -68,7 +68,7 @@ fn enabled(policy_ctx: &PolicyCtx, name: &str) -> bool {
 
 fn matches(name: &str, action_stream: &ActionStream) -> bool {
     match name {
-        "exfil-pipe" => connected(action_stream, sensitive_read, network_sink),
+        "exfil-pipe" => connected(action_stream, sensitive_source, network_sink),
         "exec-remote" => connected(action_stream, network_source, execution_sink),
         "exec-decoded" => {
             connected(action_stream, decoder, execution_sink) || decoded_execution(action_stream)
@@ -138,7 +138,10 @@ fn reaches(action_stream: &ActionStream, source: &StageId, sink: &StageId) -> bo
     false
 }
 
-fn sensitive_read(action_stream: &ActionStream, stage: &StageId) -> bool {
+fn sensitive_source(action_stream: &ActionStream, stage: &StageId) -> bool {
+    if stage_has_operation(action_stream, stage, &SemanticCode::ENVIRONMENT_DISCLOSURE) {
+        return true;
+    }
     let move_source = action_stream.effects().iter().any(|effect| {
         effect.stage() == stage
             && matches!(
@@ -148,6 +151,8 @@ fn sensitive_read(action_stream: &ActionStream, stage: &StageId) -> bool {
                 } if program == "mv" && operation == &SemanticCode::MOVE
             )
     });
+    let credential_search =
+        stage_has_operation(action_stream, stage, &SemanticCode::CREDENTIAL_SEARCH);
     action_stream.effects().iter().any(|effect| {
         effect.stage() == stage
             && matches!(
@@ -156,6 +161,29 @@ fn sensitive_read(action_stream: &ActionStream, stage: &StageId) -> bool {
                     if (effect.operation == FilesystemOperation::Read
                         || move_source && effect.operation == FilesystemOperation::Delete)
                         && effect.sensitivity != Sensitivity::None
+                        || credential_search
+                            && effect.operation == FilesystemOperation::Read
+                            && effect.recursive
+                            && (effect.selects_home
+                                || effect.selects_root
+                                || effect.target.as_str() == "/"
+                                || effect.scope == PathScope::System)
+            )
+    })
+}
+
+fn stage_has_operation(
+    action_stream: &ActionStream,
+    stage: &StageId,
+    expected: &SemanticCode,
+) -> bool {
+    action_stream.effects().iter().any(|effect| {
+        effect.stage() == stage
+            && matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation == expected
             )
     })
 }

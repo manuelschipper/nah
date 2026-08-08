@@ -304,10 +304,25 @@ pub(crate) fn env_overlay(program: &str, arguments: &[Word]) -> EnvOverlay {
             index += 2;
             continue;
         }
+        if matches!(argument.as_str(), "-C" | "--chdir") {
+            if arguments.get(index + 1).and_then(static_argument).is_none() {
+                overlay.complete = false;
+                break;
+            }
+            index += 2;
+            continue;
+        }
         if let Some(name) = argument.strip_prefix("--unset=") {
             overlay
                 .operations
                 .push(EnvOperation::Unset(name.to_owned()));
+            index += 1;
+            continue;
+        }
+        if argument
+            .strip_prefix("--chdir=")
+            .is_some_and(|directory| !directory.is_empty())
+        {
             index += 1;
             continue;
         }
@@ -352,12 +367,13 @@ pub(crate) fn env_requires_refusal(program: &str, arguments: &[Word]) -> bool {
         return false;
     }
     let mut index = 0;
+    let mut changes_directory = false;
     while let Some(argument) = arguments.get(index) {
         let Some(argument) = static_argument(argument) else {
             return true;
         };
         if argument == "--" {
-            return false;
+            return changes_directory && index + 1 < arguments.len();
         }
         if matches!(argument.as_str(), "-u" | "--unset") {
             if arguments.get(index + 1).and_then(static_argument).is_none() {
@@ -366,12 +382,28 @@ pub(crate) fn env_requires_refusal(program: &str, arguments: &[Word]) -> bool {
             index += 2;
             continue;
         }
+        if matches!(argument.as_str(), "-C" | "--chdir") {
+            if arguments.get(index + 1).and_then(static_argument).is_none() {
+                return true;
+            }
+            changes_directory = true;
+            index += 2;
+            continue;
+        }
+        if argument
+            .strip_prefix("--chdir=")
+            .is_some_and(|directory| !directory.is_empty())
+        {
+            changes_directory = true;
+            index += 1;
+            continue;
+        }
         if matches!(
             argument.as_str(),
             "-i" | "--ignore-environment" | "-0" | "--null" | "-v" | "--debug"
         ) || argument
             .strip_prefix("--unset=")
-            .is_some_and(|name| !name.is_empty())
+            .is_some_and(|value| !value.is_empty())
         {
             index += 1;
             continue;
@@ -382,7 +414,7 @@ pub(crate) fn env_requires_refusal(program: &str, arguments: &[Word]) -> bool {
             index += 1;
             continue;
         }
-        return argument.starts_with('-');
+        return changes_directory || argument.starts_with('-');
     }
     false
 }

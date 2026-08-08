@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Environment and credential-search exfiltration sources** — `exfil-pipe`
+  now blocks reviewed Bash environment dumps and scoped credential-indicator
+  searches when their output reaches an outbound transfer, including a strict
+  one-recipient mail form.
 - **Prime Agent adapter** — `nah hook prime-agent install` wires a direct global
   tool-call extension and routes exact built-in `ipython` cells through
   persistent-state Python analysis. Prior bindings, imported modules, builtins,
