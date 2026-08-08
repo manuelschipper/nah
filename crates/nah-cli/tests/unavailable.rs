@@ -220,7 +220,9 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             json!({
                 "tool_name":"ipython",
                 "tool_input":{"code":"import shutil; shutil.rmtree('/')"},
-                "cwd":cwd
+                "cwd":cwd,
+                "tool_source":"builtin",
+                "tool_path":"<builtin:ipython>"
             }),
         ),
         (
@@ -283,6 +285,15 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             }),
         ),
     ]
+}
+
+// Prime's hidden kernel makes import-based sinks unowned, so it has no positive
+// guard block to exercise in feedback tests.
+fn guard_blocking_danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
+    danger(project)
+        .into_iter()
+        .filter(|(runtime, _)| *runtime != "prime-agent")
+        .collect()
 }
 
 fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
@@ -652,12 +663,12 @@ fn fail_closed_uses_copilot_hybrid_deny_and_denies_missing_devin_project() {
 }
 
 #[test]
-fn every_adapter_keeps_a_positive_block_when_another_guard_failed() {
+fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
     configure_missing_guard(temp.path());
 
-    for (runtime, payload) in danger(&project) {
+    for (runtime, payload) in guard_blocking_danger(&project) {
         let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
         match runtime {
             "claude" | "codex" | "copilot" => {
@@ -794,12 +805,12 @@ fn irrelevant_lifecycle_events_emit_no_policy_response() {
 }
 
 #[test]
-fn every_adapter_block_feedback_links_its_redacted_decision() {
+fn every_guard_blocking_adapter_links_its_redacted_decision() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
     let audit = temp.path().join(".nah/audit.jsonl");
 
-    for (runtime, payload) in danger(&project) {
+    for (runtime, payload) in guard_blocking_danger(&project) {
         let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
         let records = std::fs::read_to_string(&audit).unwrap();
         let record: Value = serde_json::from_str(records.lines().last().unwrap()).unwrap();
@@ -818,7 +829,7 @@ fn every_adapter_block_feedback_links_its_redacted_decision() {
 }
 
 #[test]
-fn adapters_never_offer_why_for_an_unrecorded_decision() {
+fn guard_blocking_adapters_never_offer_why_for_an_unrecorded_decision() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
     let directory = temp.path().join(".nah");
@@ -833,7 +844,7 @@ fn adapters_never_offer_why_for_an_unrecorded_decision() {
         .unwrap();
     File::lock(&held).unwrap();
 
-    for (runtime, payload) in danger(&project) {
+    for (runtime, payload) in guard_blocking_danger(&project) {
         let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
         let feedback = observed.to_string();
         assert!(feedback.contains("id decision-"), "{runtime}: {observed}");
