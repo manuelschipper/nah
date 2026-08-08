@@ -16,7 +16,10 @@ mod language;
 mod languages;
 mod syntax;
 
-pub use finding::{Evidence, Finding, FindingKind, InlineRefusal, InlineReport, NestedExecution};
+pub use finding::{
+    Evidence, Finding, FindingKind, InlineRefusal, InlineReport, NestedExecution,
+    NestedExecutionCwd,
+};
 pub use language::{
     LanguageAnalysis, LanguageCall, LanguageCallKind, LanguageDraft, LanguageFilesystem,
     LanguageFlow,

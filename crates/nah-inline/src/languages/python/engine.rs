@@ -7,7 +7,8 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::{
     Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, LanguageAnalysis, LanguageCall,
-    LanguageCallKind, LanguageDraft, LanguageFilesystem, NestedExecution, ProtectionInput,
+    LanguageCallKind, LanguageDraft, LanguageFilesystem, NestedExecution, NestedExecutionCwd,
+    ProtectionInput,
 };
 
 use super::{
@@ -78,6 +79,7 @@ enum KnownFunction {
     Open,
     OsAbspath,
     OsChmod,
+    OsChdir,
     OsChown,
     OsExec(StringKind),
     OsExpanduser,
@@ -250,7 +252,7 @@ struct State {
     cells: Vec<Cell>,
     functions: Vec<LocalFunction>,
     invalid_modules: BTreeSet<Module>,
-    relative_cwd_known: bool,
+    cwd: NestedExecutionCwd,
 }
 
 impl Default for State {
@@ -266,7 +268,7 @@ impl Default for State {
             cells: Vec::new(),
             functions: Vec::new(),
             invalid_modules: BTreeSet::new(),
-            relative_cwd_known: true,
+            cwd: NestedExecutionCwd::Inherited,
         }
     }
 }
@@ -425,7 +427,7 @@ pub(super) fn analyze(
         InitialState::Fresh => State::default(),
         InitialState::Persistent => State {
             invalid_modules: [Module::Ipython, Module::Environment].into_iter().collect(),
-            relative_cwd_known: false,
+            cwd: NestedExecutionCwd::Unknown,
             ..State::default()
         },
     };
@@ -1000,7 +1002,7 @@ impl Interpreter<'_> {
                 self.complete = false;
             }
             propagate_invalid_modules(&class_state.invalid_modules, state);
-            state.relative_cwd_known &= class_state.relative_cwd_known;
+            state.cwd = class_state.cwd;
             state.cells = class_state.cells;
             if control != Control::Next {
                 return control;
@@ -1653,11 +1655,11 @@ impl Interpreter<'_> {
                 if module == Module::Ipython {
                     self.draft.set_partial();
                 }
-                state.relative_cwd_known = false;
+                state.cwd = NestedExecutionCwd::Unknown;
                 Value::Unknown
             }
             Value::Produced(origins) => {
-                state.relative_cwd_known = false;
+                state.cwd = NestedExecutionCwd::Unknown;
                 Value::Produced(origins)
             }
             _ => {
@@ -1667,7 +1669,7 @@ impl Interpreter<'_> {
                 if ipython_target {
                     self.draft.set_partial();
                 }
-                state.relative_cwd_known = false;
+                state.cwd = NestedExecutionCwd::Unknown;
                 Value::Unknown
             }
         }
@@ -1812,6 +1814,35 @@ impl Interpreter<'_> {
                 }
                 Value::None
             }
+            KnownFunction::OsChdir => {
+                if !self.admit_call_shape(call_shape(&arguments, 1, &["path"], 0, &[]))
+                    || !self.admit_value(nonempty_path_admission(argument(&arguments, 0, "path")))
+                {
+                    return Value::Unknown;
+                }
+                if argument(&arguments, 0, "path")
+                    .and_then(value_string)
+                    .is_some_and(|path| path.contains('\0'))
+                {
+                    self.pending_control = Some(Control::Raise);
+                    return Value::Unknown;
+                }
+                self.emit_call(
+                    LanguageCallKind::LocalUtility,
+                    "os.chdir",
+                    &arguments,
+                    state,
+                    Vec::new(),
+                    None,
+                );
+                if let Some(path) = argument(&arguments, 0, "path").and_then(value_string) {
+                    state.cwd = state.cwd.changed(path, self.input.platform);
+                } else {
+                    state.cwd = NestedExecutionCwd::Unknown;
+                    self.draft.set_partial();
+                }
+                Value::None
+            }
             KnownFunction::OsSystem => {
                 if !valid_call_shape(&arguments, 1, &["command"])
                     || required_argument(&arguments, 0, "command").is_none()
@@ -1827,7 +1858,7 @@ impl Interpreter<'_> {
                     if let Some(code) = value_string(value)
                         && self.input.platform != Platform::Windows
                     {
-                        self.push_shell(code, true);
+                        self.push_shell(code, state.cwd.clone(), true);
                     }
                 }
                 self.emit_call(
@@ -1865,7 +1896,7 @@ impl Interpreter<'_> {
                     if let Some(code) = value_string(value)
                         && self.input.platform != Platform::Windows
                     {
-                        self.push_shell(code, false);
+                        self.push_shell(code, state.cwd.clone(), false);
                     }
                 }
                 self.emit_call(
@@ -1879,7 +1910,7 @@ impl Interpreter<'_> {
                 .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             KnownFunction::IpythonSystem | KnownFunction::IpythonGetoutput => {
-                if !self.complete || !state.relative_cwd_known {
+                if !self.complete || state.cwd == NestedExecutionCwd::Unknown {
                     self.draft.set_partial();
                     return Value::Unknown;
                 }
@@ -1894,6 +1925,7 @@ impl Interpreter<'_> {
                         self.push_shell_program(
                             "bash",
                             code,
+                            state.cwd.clone(),
                             function == KnownFunction::IpythonSystem,
                         );
                     } else {
@@ -1922,7 +1954,7 @@ impl Interpreter<'_> {
                 Value::Unknown
             }
             KnownFunction::IpythonCell => {
-                if !self.complete || !state.relative_cwd_known {
+                if !self.complete || state.cwd == NestedExecutionCwd::Unknown {
                     self.draft.set_partial();
                     return Value::Unknown;
                 }
@@ -1937,11 +1969,7 @@ impl Interpreter<'_> {
                     && let (Some(program), Some(code)) = (program, code)
                     && self.input.platform != Platform::Windows
                 {
-                    if program == "bash" {
-                        self.push_shell_program(program, code, true);
-                    } else {
-                        self.draft.set_partial();
-                    }
+                    self.push_shell_program(program, code, state.cwd.clone(), true);
                     self.emit_call(
                         LanguageCallKind::EvaluatedShell,
                         "ipython.run_cell_magic",
@@ -1979,8 +2007,22 @@ impl Interpreter<'_> {
                 if required_argument(&arguments, 0, "args").is_none()
                     || arguments.positional.len() > 1
                     || !valid_subprocess_shape(&arguments)
-                    || !self.admit_index_value(argument(&arguments, 1, "bufsize"), true)
                 {
+                    return Value::Unknown;
+                }
+                match subprocess_bufsize_admission(argument(&arguments, 1, "bufsize")) {
+                    ValueAdmission::Exact => {}
+                    ValueAdmission::Possible => {
+                        self.draft.set_partial();
+                        return Value::Unknown;
+                    }
+                    ValueAdmission::Invalid => {
+                        self.pending_control = Some(Control::Raise);
+                        return Value::Unknown;
+                    }
+                }
+                if invalid_subprocess_options(kind, &arguments) {
+                    self.pending_control = Some(Control::Raise);
                     return Value::Unknown;
                 }
                 let command = required_argument(&arguments, 0, "args")
@@ -2025,12 +2067,13 @@ impl Interpreter<'_> {
                         let mut isolated_state = State::default();
                         self.dynamic_execution(value.clone(), mode, &mut isolated_state, depth);
                         propagate_invalid_modules(&isolated_state.invalid_modules, state);
-                        state.relative_cwd_known &= isolated_state.relative_cwd_known;
+                        state.cwd =
+                            compose_cwd(&state.cwd, &isolated_state.cwd, self.input.platform);
                     } else {
                         self.dynamic_execution(value.clone(), mode, state, depth);
                     }
                     if !exact_source {
-                        state.relative_cwd_known = false;
+                        state.cwd = NestedExecutionCwd::Unknown;
                     }
                 }
                 Value::Unknown
@@ -2888,21 +2931,25 @@ impl Interpreter<'_> {
         let filesystems = filesystems
             .into_iter()
             .map(|mut filesystem| {
-                if !state.relative_cwd_known
-                    && filesystem
-                        .requested()
-                        .is_some_and(|path| !is_absolute(path, self.input.platform))
+                if let Some(requested) = filesystem.requested().map(str::to_owned)
+                    && !is_absolute(&requested, self.input.platform)
                 {
-                    filesystem = filesystem.without_requested();
-                    unresolved_filesystem = true;
+                    if let Some(requested) = state.cwd.resolve(&requested, self.input.platform) {
+                        filesystem = filesystem.with_requested(requested);
+                    } else {
+                        filesystem = filesystem.without_requested();
+                        unresolved_filesystem = true;
+                    }
                 }
-                if !state.relative_cwd_known
-                    && filesystem
-                        .identity_path()
-                        .is_some_and(|path| !is_absolute(path, self.input.platform))
+                if let Some(identity) = filesystem.identity_path().map(str::to_owned)
+                    && !is_absolute(&identity, self.input.platform)
                 {
-                    filesystem = filesystem.without_identity();
-                    unresolved_filesystem = true;
+                    if let Some(identity) = state.cwd.resolve(&identity, self.input.platform) {
+                        filesystem = filesystem.with_identity(identity);
+                    } else {
+                        filesystem = filesystem.without_identity();
+                        unresolved_filesystem = true;
+                    }
                 }
                 filesystem
             })
@@ -2993,7 +3040,7 @@ impl Interpreter<'_> {
             *cell = local_cell;
         }
         propagate_invalid_modules(&local.invalid_modules, state);
-        state.relative_cwd_known &= local.relative_cwd_known;
+        state.cwd = local.cwd;
         for name in globals {
             state.bindings.insert(name, Value::Unknown);
         }
@@ -3356,7 +3403,9 @@ impl Interpreter<'_> {
             self.report
                 .push(Finding::exact(FindingKind::DecodedExecution));
         }
-        let Some((shell, stdout_inherited)) = subprocess_options(kind, arguments) else {
+        let Some((shell, stdout_inherited, cwd)) =
+            subprocess_options(kind, arguments, state, self.input.platform)
+        else {
             return false;
         };
         let nested_before = self.report.nested_executions().len();
@@ -3369,10 +3418,10 @@ impl Interpreter<'_> {
             if let Some(code) = code
                 && self.input.platform != Platform::Windows
             {
-                self.push_shell(code, stdout_inherited);
+                self.push_shell(code, cwd, stdout_inherited);
             }
         } else if let Some(argv) = argv_value(command, state, &mut self.budget) {
-            self.push_command(argv, stdout_inherited);
+            self.push_command(argv, cwd, stdout_inherited);
         }
         self.report.nested_executions().len() > nested_before
     }
@@ -3413,25 +3462,32 @@ impl Interpreter<'_> {
             }
             _ => return,
         };
-        self.push_command(argv, true);
+        self.push_command(argv, state.cwd.clone(), true);
     }
 
-    fn push_shell(&mut self, code: &str, stdout_inherited: bool) {
-        self.push_shell_program("sh", code, stdout_inherited);
+    fn push_shell(&mut self, code: &str, cwd: NestedExecutionCwd, stdout_inherited: bool) {
+        self.push_shell_program("sh", code, cwd, stdout_inherited);
     }
 
-    fn push_shell_program(&mut self, program: &str, code: &str, stdout_inherited: bool) {
+    fn push_shell_program(
+        &mut self,
+        program: &str,
+        code: &str,
+        cwd: NestedExecutionCwd,
+        stdout_inherited: bool,
+    ) {
         if !self.budget.admit_value_bytes(Some(code.len())) {
             return;
         }
         self.report.push_nested_execution(NestedExecution::Shell {
             program: program.to_owned(),
             code: code.to_owned(),
+            cwd,
             stdout_inherited,
         });
     }
 
-    fn push_command(&mut self, argv: Vec<String>, stdout_inherited: bool) {
+    fn push_command(&mut self, argv: Vec<String>, cwd: NestedExecutionCwd, stdout_inherited: bool) {
         let bytes = argv
             .iter()
             .try_fold(0usize, |bytes, value| bytes.checked_add(value.len()));
@@ -3441,6 +3497,7 @@ impl Interpreter<'_> {
         }
         self.report.push_nested_execution(NestedExecution::Command {
             argv,
+            cwd,
             stdout_inherited,
         });
     }
@@ -3830,6 +3887,7 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Os, "environ") => return Some(Value::Module(Module::Environment)),
         (Module::Os, "system") => KnownFunction::OsSystem,
         (Module::Os, "popen") => KnownFunction::OsPopen,
+        (Module::Os, "chdir") => KnownFunction::OsChdir,
         (Module::Os, "execl") => KnownFunction::OsExec(StringKind::Execl),
         (Module::Os, "execlp") => KnownFunction::OsExec(StringKind::Execlp),
         (Module::Os, "execle") => KnownFunction::OsExec(StringKind::Execle),
@@ -3866,6 +3924,9 @@ fn module_attribute(module: Module, attribute: &str) -> Option<Value> {
         (Module::Shutil, "copymode") => KnownFunction::ShutilCopy(CopyKind::Copymode),
         (Module::Shutil, "copystat") => KnownFunction::ShutilCopy(CopyKind::Copystat),
         (Module::Shutil, "which") => KnownFunction::ShutilWhich,
+        (Module::Subprocess, "PIPE") => return Some(Value::Int(-1)),
+        (Module::Subprocess, "STDOUT") => return Some(Value::Int(-2)),
+        (Module::Subprocess, "DEVNULL") => return Some(Value::Int(-3)),
         (Module::Subprocess, "run") => KnownFunction::Subprocess(SubprocessKind::Run),
         (Module::Subprocess, "call") => KnownFunction::Subprocess(SubprocessKind::Call),
         (Module::Subprocess, "Popen") => KnownFunction::Subprocess(SubprocessKind::Popen),
@@ -4745,7 +4806,9 @@ fn propagate_invalid_modules(modules: &BTreeSet<Module>, state: &mut State) {
 
 fn join_states(mut left: State, right: State) -> State {
     left.invalid_modules.extend(&right.invalid_modules);
-    left.relative_cwd_known &= right.relative_cwd_known;
+    if left.cwd != right.cwd {
+        left.cwd = NestedExecutionCwd::Unknown;
+    }
     let names = left
         .bindings
         .keys()
@@ -5773,12 +5836,29 @@ fn subprocess_command_admission(
     }
 }
 
-fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
+fn subprocess_options(
+    kind: SubprocessKind,
+    arguments: &Arguments,
+    state: &State,
+    platform: Platform,
+) -> Option<(bool, bool, NestedExecutionCwd)> {
     if !arguments.complete || arguments.positional.len() > 1 {
         return None;
     }
+    if kind == SubprocessKind::CheckOutput
+        && arguments.keywords.iter().any(|(name, _)| name == "stdout")
+    {
+        return None;
+    }
     let mut shell = false;
-    let mut stdout = kind != SubprocessKind::CheckOutput;
+    let mut cwd = state.cwd.clone();
+    let mut capture_output = false;
+    let mut input = false;
+    let mut stdin = None;
+    let mut stdout_option = None;
+    let mut stderr = None;
+    let mut text = None;
+    let mut universal_newlines = None;
     let mut seen = BTreeSet::new();
     for (name, value) in &arguments.keywords {
         if name == "args" {
@@ -5790,18 +5870,96 @@ fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bo
         match name.as_str() {
             "bufsize" => {}
             "shell" => shell = exact_bool(value)?,
-            "capture_output" if kind == SubprocessKind::Run => {
-                if exact_bool(value)? {
-                    stdout = false;
+            "cwd" => match value {
+                Value::None => {}
+                value => {
+                    let path = value_string(value)?;
+                    if path.is_empty() || path.contains('\0') {
+                        return None;
+                    }
+                    cwd = cwd.changed(path, platform);
                 }
+            },
+            "capture_output" if kind == SubprocessKind::Run => {
+                capture_output = exact_bool(value)?;
             }
-            "check" if kind == SubprocessKind::Run => {
-                exact_bool(value)?;
+            "check" if kind == SubprocessKind::Run => {}
+            "timeout" if kind != SubprocessKind::Popen => {}
+            "input" if matches!(kind, SubprocessKind::Run | SubprocessKind::CheckOutput) => {
+                input = !matches!(value, Value::None);
             }
+            "text" => text = Some(exact_bool(value)?),
+            "universal_newlines" => universal_newlines = Some(exact_bool(value)?),
+            "encoding" | "errors" if matches!(value, Value::None | Value::String(_)) => {}
+            "stdin" => stdin = Some(subprocess_stdio(value, false)?),
+            "stdout" => {
+                let fd = subprocess_stdio(value, false)?;
+                stdout_option = Some(fd);
+            }
+            "stderr" => stderr = Some(subprocess_stdio(value, true)?),
             _ => return None,
         }
     }
-    Some((shell, stdout))
+    if capture_output && (stdout_option.flatten().is_some() || stderr.flatten().is_some())
+        || input && stdin.flatten().is_some()
+        || matches!((text, universal_newlines), (Some(left), Some(right)) if left != right)
+    {
+        return None;
+    }
+    let stdout_inherited = if capture_output {
+        false
+    } else {
+        match stdout_option {
+            Some(Some(fd)) => fd == 1,
+            Some(None) => true,
+            None => kind != SubprocessKind::CheckOutput,
+        }
+    };
+    Some((shell, stdout_inherited, cwd))
+}
+
+fn subprocess_stdio(value: &Value, allow_stdout_redirect: bool) -> Option<Option<i64>> {
+    match value {
+        Value::None => Some(None),
+        Value::Bool(value) => Some(Some(i64::from(*value))),
+        Value::Int(fd)
+            if *fd >= 0 || *fd == -1 || *fd == -3 || allow_stdout_redirect && *fd == -2 =>
+        {
+            Some(Some(*fd))
+        }
+        _ => None,
+    }
+}
+
+fn subprocess_bufsize_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        None | Some(Value::None | Value::Int(_) | Value::Bool(_)) => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_)) => ValueAdmission::Possible,
+        Some(_) => ValueAdmission::Invalid,
+    }
+}
+
+fn invalid_subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> bool {
+    arguments.keywords.iter().any(|(name, value)| {
+        matches!(
+            (kind, name.as_str()),
+            (SubprocessKind::CheckOutput, "stdout")
+                | (SubprocessKind::Popen, "timeout")
+                | (
+                    SubprocessKind::Call | SubprocessKind::Popen | SubprocessKind::CheckCall,
+                    "input"
+                )
+                | (
+                    SubprocessKind::Call
+                        | SubprocessKind::Popen
+                        | SubprocessKind::CheckCall
+                        | SubprocessKind::CheckOutput,
+                    "capture_output" | "check"
+                )
+        ) || name == "cwd"
+            && value_string(value).is_some_and(|path| path.is_empty() || path.contains('\0'))
+            || matches!(name.as_str(), "stdin" | "stdout") && matches!(value, Value::Int(-2))
+    })
 }
 
 fn subprocess_shell(arguments: &Arguments) -> Option<bool> {
@@ -6071,6 +6229,18 @@ fn is_absolute(path: &str, platform: Platform) -> bool {
                     .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
     } else {
         path.starts_with('/')
+    }
+}
+
+fn compose_cwd(
+    parent: &NestedExecutionCwd,
+    child: &NestedExecutionCwd,
+    platform: Platform,
+) -> NestedExecutionCwd {
+    match child {
+        NestedExecutionCwd::Inherited => parent.clone(),
+        NestedExecutionCwd::Path(path) => parent.changed(path, platform),
+        NestedExecutionCwd::Unknown => NestedExecutionCwd::Unknown,
     }
 }
 

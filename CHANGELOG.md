@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Nested child working directories and portable `sh`** — exact `os.chdir`,
+  `process.chdir`, and Python, Node, Deno, or Bun child-process `cwd` values now
+  carry into nested command effects. Default Unix `sh` executions lower a
+  reviewed POSIX subset, while Bash-only syntax and divergent shell state stay
+  partial.
 - **Environment and credential-search exfiltration sources** — `exfil-pipe`
   now blocks reviewed Bash environment dumps and scoped credential-indicator
   searches when their output reaches an outbound transfer, including a strict

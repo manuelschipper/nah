@@ -87,6 +87,7 @@ fn frozen_python_frontend_cases_match() {
                     program,
                     code,
                     stdout_inherited,
+                    ..
                 } => json!({
                     "kind":"shell",
                     "program":program,
@@ -96,6 +97,7 @@ fn frozen_python_frontend_cases_match() {
                 NestedExecution::Command {
                     argv,
                     stdout_inherited,
+                    ..
                 } => json!({
                     "kind":"command",
                     "argv":argv,

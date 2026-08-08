@@ -1,7 +1,7 @@
 {"id":"ordinary-python","code":"import shutil; shutil.rmtree('/')","expected":{"findings":["root-destruction:exact"],"nested_executions":[],"refusals":[]}}
 {"id":"ipython3-python3-dialect","program":"ipython3","code":"import os; name='ok'; os.system(f'printf {name}')","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf ok","stdout_inherited":true}],"refusals":[]}}
 {"id":"bash-cell","code":"\n%%bash\nprintf one\nprintf two\n","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"bash","code":"printf one\nprintf two\n","stdout_inherited":true}],"refusals":[]}}
-{"id":"sh-cell","code":"%%sh   \nprintf sh","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
+{"id":"sh-cell","code":"%%sh   \nprintf sh","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"sh","code":"printf sh\n","stdout_inherited":true}],"refusals":[]}}
 {"id":"bash-cell-braces-are-shell","code":"%%bash\nprintf '%s' {one,two}","expected":{"findings":[],"nested_executions":[{"kind":"shell","program":"bash","code":"printf '%s' {one,two}\n","stdout_inherited":true}],"refusals":[]}}
 {"id":"cell-magic-arguments-opaque","code":"%%bash -x\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}
 {"id":"cell-magic-after-comment-opaque","code":"# comment\n%%bash\nrm -rf /","expected":{"findings":[],"nested_executions":[],"refusals":[]}}

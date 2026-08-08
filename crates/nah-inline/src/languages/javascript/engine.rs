@@ -7,7 +7,7 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::{
     InlineInput, InlineRefusal, InlineReport, LanguageAnalysis, LanguageCall, LanguageCallKind,
-    LanguageDraft, LanguageFilesystem,
+    LanguageDraft, LanguageFilesystem, NestedExecutionCwd,
 };
 
 use super::parser::{CoverageKind, HirField, HirKind, HirNode};
@@ -165,6 +165,7 @@ struct NodePropertyState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct DenoCommandValue {
     argv: Option<Vec<String>>,
+    cwd: NestedExecutionCwd,
     spawn: ExecutionCertainty,
     output: ExecutionCertainty,
     context_exact: bool,
@@ -193,6 +194,7 @@ enum KnownFunction {
     BunFile(BunFileMember, Option<String>),
     BunShell,
     OpenClaw(OpenClawMember),
+    ProcessChdir,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -273,7 +275,7 @@ struct State {
     owned_members: BTreeSet<(Module, Member)>,
     loaded_modules_intact: BTreeSet<Module>,
     node_properties: BTreeMap<NodeProperty, NodePropertyState>,
-    relative_cwd_known: bool,
+    cwd: NestedExecutionCwd,
     prototype_integrity_known: bool,
     runtime_globals_intact: bool,
 }
@@ -285,7 +287,7 @@ impl PartialEq for State {
             && self.owned_members == other.owned_members
             && self.loaded_modules_intact == other.loaded_modules_intact
             && self.node_properties == other.node_properties
-            && self.relative_cwd_known == other.relative_cwd_known
+            && self.cwd == other.cwd
             && self.prototype_integrity_known == other.prototype_integrity_known
             && self.runtime_globals_intact == other.runtime_globals_intact
     }
@@ -391,7 +393,7 @@ impl State {
             owned_members,
             loaded_modules_intact,
             node_properties: default_node_properties(),
-            relative_cwd_known: true,
+            cwd: NestedExecutionCwd::Inherited,
             prototype_integrity_known: true,
             runtime_globals_intact: true,
         }
@@ -572,7 +574,7 @@ impl State {
             property.assignment = NodeMutation::Unknown;
             property.deletion = NodeMutation::Unknown;
         }
-        self.relative_cwd_known = false;
+        self.cwd = NestedExecutionCwd::Unknown;
         self.prototype_integrity_known = false;
         self.runtime_globals_intact = false;
     }
@@ -659,7 +661,7 @@ impl State {
         state.owned_members = self.owned_members.clone();
         state.loaded_modules_intact = self.loaded_modules_intact.clone();
         state.node_properties = self.node_properties.clone();
-        state.relative_cwd_known = self.relative_cwd_known;
+        state.cwd.clone_from(&self.cwd);
         state.prototype_integrity_known = self.prototype_integrity_known;
         state.runtime_globals_intact = self.runtime_globals_intact;
         if !state.runtime_globals_intact {
@@ -796,6 +798,7 @@ enum RuntimeCallSummary<T> {
 
 struct BunSpawnSummary {
     argv: Option<Vec<String>>,
+    cwd: NestedExecutionCwd,
     context_exact: bool,
     stdout_inherited: bool,
 }
@@ -815,6 +818,7 @@ struct Interpreter<'a> {
     conditional_depth: usize,
     catchable_depth: usize,
     execution_dominators: Vec<usize>,
+    awaited_call: Option<usize>,
 }
 
 struct AssemblyBranch {
@@ -866,6 +870,7 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
         conditional_depth: 0,
         catchable_depth: 0,
         execution_dominators: Vec::new(),
+        awaited_call: None,
     };
     if profile.ownership == RuntimeOwnership::DenoCheckedEval {
         interpreter.complete = false;
@@ -1321,9 +1326,15 @@ impl<'a> Interpreter<'a> {
                     .map_or(Value::Unknown, |child| self.eval(child, state, call_depth))
             }
             HirKind::AwaitExpression => {
-                let value = named_children(node)
-                    .next()
-                    .map_or(Value::Unknown, |child| self.eval(child, state, call_depth));
+                let value = if let Some(child) = named_children(node).next() {
+                    let awaited_call = direct_call_identity(child);
+                    let previous = std::mem::replace(&mut self.awaited_call, awaited_call);
+                    let value = self.eval(child, state, call_depth);
+                    self.awaited_call = previous;
+                    value
+                } else {
+                    Value::Unknown
+                };
                 match value {
                     Value::RejectedPromise => Value::SynchronousThrow,
                     Value::Promise => Value::Unknown,
@@ -2206,6 +2217,7 @@ impl<'a> Interpreter<'a> {
                 Value::Known(KnownFunction::SetPrototypeOf)
             }
             Value::Process if property == "env" => Value::Environment,
+            Value::Process if property == "chdir" => Value::Known(KnownFunction::ProcessChdir),
             Value::Environment if property == "HOME" => Value::String(self.home.to_owned()),
             Value::Deno if property == "Command" => Value::DenoCommandConstructor,
             Value::Deno => deno_member(property)
@@ -2233,6 +2245,7 @@ impl<'a> Interpreter<'a> {
     }
 
     fn call(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
+        let awaited = self.awaited_call == Some(node as *const HirNode as usize);
         let function = node.child(HirField::Function);
         let direct_receiver = function.is_some_and(direct_receiver_expression);
         let tagged_template = node
@@ -2310,17 +2323,17 @@ impl<'a> Interpreter<'a> {
                     self.call_known(function, arguments, state, call_depth, tagged_template)
                 }
                 Value::Function(function) => {
-                    self.call_local(&function, arguments, state, call_depth)
+                    self.call_local(&function, arguments, state, call_depth, awaited)
                 }
                 Value::UnknownModuleMember(module) => {
                     state.invalidate_module(module);
-                    state.relative_cwd_known = false;
+                    state.cwd = NestedExecutionCwd::Unknown;
                     self.complete = false;
                     Value::Unknown
                 }
                 Value::UnknownReceiver(receiver) => {
                     state.invalidate_value(&receiver);
-                    state.relative_cwd_known = false;
+                    state.cwd = NestedExecutionCwd::Unknown;
                     self.complete = false;
                     Value::Unknown
                 }
@@ -2328,7 +2341,7 @@ impl<'a> Interpreter<'a> {
                     for value in &arguments.values {
                         state.invalidate_value(value);
                     }
-                    state.relative_cwd_known = false;
+                    state.cwd = NestedExecutionCwd::Unknown;
                     self.complete = false;
                     Value::Unknown
                 }
@@ -2360,8 +2373,12 @@ impl<'a> Interpreter<'a> {
                 return value.clone();
             }
             if constructor == Value::DenoCommandConstructor {
-                let summary =
-                    deno_command(&arguments, state.prototype_integrity_known, self.platform);
+                let summary = deno_command(
+                    &arguments,
+                    state.prototype_integrity_known,
+                    self.platform,
+                    &state.cwd,
+                );
                 return match summary {
                     RuntimeCallSummary::Effect(argv) => Value::DenoCommand(argv),
                     RuntimeCallSummary::EffectPartial(argv) => {
@@ -2423,12 +2440,13 @@ impl<'a> Interpreter<'a> {
                     | KnownFunction::DenoCommand(_, _)
                     | KnownFunction::Bun(_)
                     | KnownFunction::BunFile(_, _)
-                    | KnownFunction::OpenClaw(_) => Value::SynchronousThrow,
+                    | KnownFunction::OpenClaw(_)
+                    | KnownFunction::ProcessChdir => Value::SynchronousThrow,
                     function => {
                         for value in &arguments.values {
                             state.invalidate_value(value);
                         }
-                        state.relative_cwd_known = false;
+                        state.cwd = NestedExecutionCwd::Unknown;
                         self.complete = false;
                         let _ = function;
                         Value::Unknown
@@ -2441,7 +2459,7 @@ impl<'a> Interpreter<'a> {
             for value in &arguments.values {
                 state.invalidate_value(value);
             }
-            state.relative_cwd_known = false;
+            state.cwd = NestedExecutionCwd::Unknown;
             self.complete = false;
             Value::Unknown
         })();
@@ -2569,6 +2587,7 @@ impl<'a> Interpreter<'a> {
             conditional_depth: self.conditional_depth,
             catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
+            awaited_call: None,
         };
         let mut nested_state = state.dynamic_global(self.profile.ownership);
         nested_state.push_scope(true);
@@ -2761,6 +2780,7 @@ impl<'a> Interpreter<'a> {
             conditional_depth: self.conditional_depth,
             catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
+            awaited_call: None,
         };
         let mut nested_state = state.clone();
         nested.hoist_vars(module.root(), &mut nested_state);
@@ -2859,6 +2879,7 @@ impl<'a> Interpreter<'a> {
                     },
                     state,
                     call_depth,
+                    false,
                 ),
                 Some(Value::Accessor) => Value::Undefined,
                 _ => continue,
@@ -3032,8 +3053,33 @@ impl<'a> Interpreter<'a> {
                 }
                 fs_return_value(module, member)
             }
+            KnownFunction::ProcessChdir => {
+                if !arguments.complete || arguments.values.len() != 1 {
+                    return Value::SynchronousThrow;
+                }
+                match &arguments.values[0] {
+                    Value::String(path) if !path.is_empty() && !path.contains('\0') => {
+                        self.emit_call(
+                            LanguageCallKind::LocalUtility,
+                            "process.chdir",
+                            &arguments,
+                            state,
+                            Vec::new(),
+                        );
+                        state.cwd = state.cwd.changed(path, self.platform);
+                        Value::Undefined
+                    }
+                    value if unknown_value(value) => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        state.cwd = NestedExecutionCwd::Unknown;
+                        Value::Unknown
+                    }
+                    _ => Value::SynchronousThrow,
+                }
+            }
             KnownFunction::Child(member) => {
-                match summarize_child_call(member, &arguments, self.platform) {
+                match summarize_child_call(member, &arguments, self.platform, &state.cwd) {
                     ChildCallSummary::Call {
                         kind,
                         execution,
@@ -3048,17 +3094,30 @@ impl<'a> Interpreter<'a> {
                             Vec::new(),
                         );
                         match execution {
-                            ChildExecution::Command(argv) => {
-                                super::super::common::add_exact_argv(&mut self.report, argv);
+                            ChildExecution::Command { argv, cwd } => {
+                                super::super::common::add_exact_argv_at(
+                                    &mut self.report,
+                                    argv,
+                                    cwd,
+                                    false,
+                                );
                             }
-                            ChildExecution::Bash(code) => {
-                                super::super::common::add_exact_bash(&mut self.report, &code);
+                            ChildExecution::Bash { code, cwd } => {
+                                super::super::common::add_exact_shell_program_at(
+                                    &mut self.report,
+                                    "bash",
+                                    &code,
+                                    cwd,
+                                    false,
+                                );
                             }
-                            ChildExecution::OpaqueShell { program, code } => {
-                                super::super::common::add_exact_shell_program(
+                            ChildExecution::OpaqueShell { program, code, cwd } => {
+                                super::super::common::add_exact_shell_program_at(
                                     &mut self.report,
                                     &program,
                                     &code,
+                                    cwd,
+                                    false,
                                 );
                             }
                             ChildExecution::None => {}
@@ -3156,9 +3215,19 @@ impl<'a> Interpreter<'a> {
                             command.output_stdout_inherited
                         };
                         if stdout_inherited {
-                            super::super::common::add_exact_inherited_argv(&mut self.report, argv);
+                            super::super::common::add_exact_argv_at(
+                                &mut self.report,
+                                argv,
+                                command.cwd.clone(),
+                                true,
+                            );
                         } else {
-                            super::super::common::add_exact_argv(&mut self.report, argv);
+                            super::super::common::add_exact_argv_at(
+                                &mut self.report,
+                                argv,
+                                command.cwd.clone(),
+                                false,
+                            );
                         }
                     }
                 } else if certainty == ExecutionCertainty::Unknown {
@@ -3210,7 +3279,12 @@ impl<'a> Interpreter<'a> {
                     RuntimeCallSummary::Invalid => Value::SynchronousThrow,
                 },
                 BunMember::Spawn | BunMember::SpawnSync => {
-                    match bun_spawn_argv(&arguments, state.prototype_integrity_known) {
+                    match bun_spawn_argv(
+                        &arguments,
+                        state.prototype_integrity_known,
+                        &state.cwd,
+                        self.platform,
+                    ) {
                         RuntimeCallSummary::Effect(summary) => {
                             self.emit_call(
                                 LanguageCallKind::LocalUtility,
@@ -3222,14 +3296,12 @@ impl<'a> Interpreter<'a> {
                             if summary.context_exact
                                 && let Some(argv) = summary.argv
                             {
-                                if summary.stdout_inherited {
-                                    super::super::common::add_exact_inherited_argv(
-                                        &mut self.report,
-                                        argv,
-                                    );
-                                } else {
-                                    super::super::common::add_exact_argv(&mut self.report, argv);
-                                }
+                                super::super::common::add_exact_argv_at(
+                                    &mut self.report,
+                                    argv,
+                                    summary.cwd,
+                                    summary.stdout_inherited,
+                                );
                             } else {
                                 self.complete = false;
                                 self.draft.set_partial();
@@ -3359,7 +3431,7 @@ impl<'a> Interpreter<'a> {
         if let Some(dominator) = dominator {
             self.execution_dominators.push(dominator);
         }
-        self.call_local(callback, arguments, &mut callback_state, call_depth);
+        self.call_local(callback, arguments, &mut callback_state, call_depth, false);
         self.conditional_depth = prior_conditional_depth;
         self.execution_dominators = prior_dominators;
         self.return_value = prior_return_value;
@@ -3377,13 +3449,15 @@ impl<'a> Interpreter<'a> {
         let filesystems = filesystems
             .into_iter()
             .map(|mut filesystem| {
-                if !state.relative_cwd_known
-                    && filesystem
-                        .requested()
-                        .is_some_and(|path| !is_absolute(path, self.platform))
+                if let Some(requested) = filesystem.requested().map(str::to_owned)
+                    && !is_absolute(&requested, self.platform)
                 {
-                    filesystem = filesystem.without_requested();
-                    unresolved_filesystem = true;
+                    if let Some(requested) = state.cwd.resolve(&requested, self.platform) {
+                        filesystem = filesystem.with_requested(requested);
+                    } else {
+                        filesystem = filesystem.without_requested();
+                        unresolved_filesystem = true;
+                    }
                 }
                 filesystem
             })
@@ -3418,6 +3492,7 @@ impl<'a> Interpreter<'a> {
         arguments: Arguments,
         state: &mut State,
         call_depth: usize,
+        awaited: bool,
     ) -> Value {
         if call_depth >= MAX_CALL_DEPTH || !arguments.complete {
             self.complete = false;
@@ -3445,6 +3520,7 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
             return Value::Unknown;
         }
+        let caller_cwd = state.cwd.clone();
         let caller_chain =
             std::mem::replace(&mut state.scope_chain, function.captured_scopes.clone());
         let caller_strict = std::mem::replace(&mut self.strict, function.strict);
@@ -3468,6 +3544,10 @@ impl<'a> Interpreter<'a> {
         state.pop_scope();
         state.scope_chain = caller_chain;
         self.strict = caller_strict;
+        if function.asynchronous && !awaited && state.cwd != caller_cwd {
+            state.cwd = NestedExecutionCwd::Unknown;
+            self.complete = false;
+        }
         if function.asynchronous {
             match value {
                 Value::Divergent => Value::Divergent,
@@ -4128,6 +4208,16 @@ fn direct_receiver_expression(node: &HirNode) -> bool {
             .next()
             .is_some_and(direct_receiver_expression),
         _ => false,
+    }
+}
+
+fn direct_call_identity(node: &HirNode) -> Option<usize> {
+    match node.kind() {
+        HirKind::CallExpression => Some(node as *const HirNode as usize),
+        HirKind::ParenthesizedExpression | HirKind::TransparentExpression => {
+            named_children(node).next().and_then(direct_call_identity)
+        }
+        _ => None,
     }
 }
 
@@ -4969,9 +5059,19 @@ fn child_callable(member: Member) -> &'static str {
 
 enum ChildExecution {
     None,
-    Command(Vec<String>),
-    Bash(String),
-    OpaqueShell { program: String, code: String },
+    Command {
+        argv: Vec<String>,
+        cwd: NestedExecutionCwd,
+    },
+    Bash {
+        code: String,
+        cwd: NestedExecutionCwd,
+    },
+    OpaqueShell {
+        program: String,
+        code: String,
+        cwd: NestedExecutionCwd,
+    },
 }
 
 enum ChildCallSummary {
@@ -5008,6 +5108,7 @@ enum ChildValueStatus {
 enum ChildShell {
     Argv,
     Bash,
+    Posix,
     Opaque,
 }
 
@@ -5015,6 +5116,7 @@ fn summarize_child_call(
     member: Member,
     arguments: &Arguments,
     platform: Platform,
+    current_cwd: &NestedExecutionCwd,
 ) -> ChildCallSummary {
     if !arguments.complete {
         return ChildCallSummary::Partial;
@@ -5049,11 +5151,12 @@ fn summarize_child_call(
         }
     }
     let options = shape.options.map(|index| &values[index]);
-    let (shell, context_exact, shell_partial) = match child_shell(member, options, platform) {
-        Ok(summary) => summary,
-        Err(ChildShapeError::Partial) => return ChildCallSummary::Partial,
-        Err(ChildShapeError::Invalid) => return ChildCallSummary::Invalid,
-    };
+    let (shell, context_exact, shell_partial, cwd) =
+        match child_shell(member, options, platform, current_cwd) {
+            Ok(summary) => summary,
+            Err(ChildShapeError::Partial) => return ChildCallSummary::Partial,
+            Err(ChildShapeError::Invalid) => return ChildCallSummary::Invalid,
+        };
     partial |= shell_partial || !context_exact || shape.callback.is_some();
     let argv = child_argv(
         values.first().unwrap(),
@@ -5064,13 +5167,22 @@ fn summarize_child_call(
     }
     let execution = if context_exact {
         match (shell, argv) {
-            (ChildShell::Argv, Some(argv)) => ChildExecution::Command(argv),
-            (ChildShell::Bash, Some(argv)) => ChildExecution::Bash(argv.join(" ")),
+            (ChildShell::Argv, Some(argv)) => ChildExecution::Command { argv, cwd },
+            (ChildShell::Bash, Some(argv)) => ChildExecution::Bash {
+                code: argv.join(" "),
+                cwd,
+            },
+            (ChildShell::Posix, Some(argv)) => ChildExecution::OpaqueShell {
+                program: "sh".to_owned(),
+                code: argv.join(" "),
+                cwd,
+            },
             (ChildShell::Opaque, Some(argv)) => child_opaque_shell_program(options, platform)
                 .map_or(ChildExecution::None, |program| {
                     ChildExecution::OpaqueShell {
                         program,
                         code: argv.join(" "),
+                        cwd,
                     }
                 }),
             _ => ChildExecution::None,
@@ -5080,7 +5192,9 @@ fn summarize_child_call(
     };
     let kind = match shell {
         ChildShell::Argv => LanguageCallKind::LocalUtility,
-        ChildShell::Bash | ChildShell::Opaque => LanguageCallKind::EvaluatedShell,
+        ChildShell::Bash | ChildShell::Posix | ChildShell::Opaque => {
+            LanguageCallKind::EvaluatedShell
+        }
     };
     ChildCallSummary::Call {
         kind,
@@ -5302,22 +5416,28 @@ fn child_shell(
     member: Member,
     options: Option<&Value>,
     platform: Platform,
-) -> Result<(ChildShell, bool, bool), ChildShapeError> {
+    current_cwd: &NestedExecutionCwd,
+) -> Result<(ChildShell, bool, bool, NestedExecutionCwd), ChildShapeError> {
     let always_shell = matches!(member, Member::Exec | Member::ExecSync);
-    let default = if always_shell {
+    let default = if always_shell && platform != Platform::Windows {
+        ChildShell::Posix
+    } else if always_shell {
         ChildShell::Opaque
     } else {
         ChildShell::Argv
     };
+    let default_partial = matches!(default, ChildShell::Opaque);
     let Some(options) = options else {
-        return Ok((default, true, always_shell));
+        return Ok((default, true, default_partial, current_cwd.clone()));
     };
     let properties = match options {
-        Value::Null | Value::Undefined => return Ok((default, true, always_shell)),
+        Value::Null | Value::Undefined => {
+            return Ok((default, true, default_partial, current_cwd.clone()));
+        }
         Value::Object(properties) => properties,
         value if unknown_value(value) => {
             return if always_shell {
-                Ok((ChildShell::Opaque, false, true))
+                Ok((ChildShell::Opaque, false, true, NestedExecutionCwd::Unknown))
             } else {
                 Err(ChildShapeError::Partial)
             };
@@ -5327,21 +5447,32 @@ fn child_shell(
     if properties.values().any(accessor_value) {
         return Err(ChildShapeError::Partial);
     }
-    let context_exact = ["cwd", "env"].iter().all(|property| {
-        properties
-            .get(*property)
-            .is_none_or(|value| matches!(value, Value::Null | Value::Undefined))
-    });
+    let context_exact = properties
+        .get("env")
+        .is_none_or(|value| matches!(value, Value::Null | Value::Undefined));
+    let cwd = match properties.get("cwd") {
+        None | Some(Value::Null | Value::Undefined) => current_cwd.clone(),
+        Some(Value::String(path)) if !path.is_empty() && !path.contains('\0') => {
+            current_cwd.changed(path, platform)
+        }
+        Some(value) if unknown_value(value) => return Err(ChildShapeError::Partial),
+        Some(_) => return Err(ChildShapeError::Invalid),
+    };
     let Some(shell) = properties.get("shell") else {
-        return Ok((default, context_exact, always_shell));
+        return Ok((default, context_exact, default_partial, cwd));
     };
     if always_shell {
-        let shell = if platform != Platform::Windows && value_string(shell) == Some("/bin/bash") {
-            ChildShell::Bash
-        } else {
-            ChildShell::Opaque
+        let shell = match value_string(shell) {
+            Some("/bin/bash" | "bash") if platform != Platform::Windows => ChildShell::Bash,
+            Some("/bin/sh" | "sh") if platform != Platform::Windows => ChildShell::Posix,
+            _ => ChildShell::Opaque,
         };
-        return Ok((shell, context_exact, matches!(shell, ChildShell::Opaque)));
+        return Ok((
+            shell,
+            context_exact,
+            matches!(shell, ChildShell::Opaque),
+            cwd,
+        ));
     }
     let shell = match shell {
         Value::Bool(false) | Value::Null | Value::Undefined => ChildShell::Argv,
@@ -5349,11 +5480,22 @@ fn child_shell(
         Value::String(value) if platform != Platform::Windows && value == "/bin/bash" => {
             ChildShell::Bash
         }
+        Value::Bool(true) if platform != Platform::Windows => ChildShell::Posix,
+        Value::String(value)
+            if platform != Platform::Windows && matches!(value.as_str(), "/bin/sh" | "sh") =>
+        {
+            ChildShell::Posix
+        }
         Value::Bool(true) | Value::String(_) => ChildShell::Opaque,
         value if unknown_value(value) => return Err(ChildShapeError::Partial),
         _ => return Err(ChildShapeError::Invalid),
     };
-    Ok((shell, context_exact, matches!(shell, ChildShell::Opaque)))
+    Ok((
+        shell,
+        context_exact,
+        matches!(shell, ChildShell::Opaque),
+        cwd,
+    ))
 }
 
 fn child_opaque_shell_program(options: Option<&Value>, platform: Platform) -> Option<String> {
@@ -5508,6 +5650,7 @@ fn partialize_deno_command(
         RuntimeCallSummary::Effect(mut command)
         | RuntimeCallSummary::EffectPartial(mut command) => {
             command.argv = None;
+            command.cwd = NestedExecutionCwd::Unknown;
             command.context_exact = false;
             command.spawn_stdout_inherited = false;
             command.output_stdout_inherited = false;
@@ -5522,6 +5665,7 @@ fn deno_command(
     arguments: &Arguments,
     prototype_integrity_known: bool,
     platform: Platform,
+    current_cwd: &NestedExecutionCwd,
 ) -> RuntimeCallSummary<DenoCommandValue> {
     if !arguments.complete {
         return RuntimeCallSummary::Partial;
@@ -5534,6 +5678,7 @@ fn deno_command(
     let Some(options) = arguments.values.get(1) else {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
+            cwd: current_cwd.clone(),
             spawn: base,
             output: base,
             context_exact: true,
@@ -5546,6 +5691,7 @@ fn deno_command(
     if matches!(options, Value::Undefined) {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
+            cwd: current_cwd.clone(),
             spawn: base,
             output: base,
             context_exact: true,
@@ -5558,6 +5704,7 @@ fn deno_command(
     if matches!(options, Value::Null) {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
+            cwd: current_cwd.clone(),
             spawn: base,
             output: ExecutionCertainty::Invalid,
             context_exact: true,
@@ -5573,6 +5720,7 @@ fn deno_command(
     ) {
         let command = DenoCommandValue {
             argv,
+            cwd: current_cwd.clone(),
             spawn: base,
             output: base,
             context_exact: true,
@@ -5590,6 +5738,7 @@ fn deno_command(
     if known_object_like(options) {
         return RuntimeCallSummary::EffectPartial(DenoCommandValue {
             argv: None,
+            cwd: NestedExecutionCwd::Unknown,
             spawn: base,
             output: base,
             context_exact: false,
@@ -5602,6 +5751,7 @@ fn deno_command(
     let Value::Object(properties) = options else {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
+            cwd: NestedExecutionCwd::Unknown,
             spawn: merge_execution(base, ExecutionCertainty::Unknown),
             output: merge_execution(base, ExecutionCertainty::Unknown),
             context_exact: false,
@@ -5646,9 +5796,17 @@ fn deno_command(
             }
         }
     }
-    let context_exact = properties
-        .keys()
-        .all(|key| key == "args" || !deno_command_context_property(key, platform));
+    let cwd = match properties.get("cwd") {
+        None | Some(Value::Undefined | Value::Null) => current_cwd.clone(),
+        Some(Value::String(path)) if !path.is_empty() && !path.contains('\0') => {
+            current_cwd.changed(path, platform)
+        }
+        Some(_) => NestedExecutionCwd::Unknown,
+    };
+    let context_exact = cwd != NestedExecutionCwd::Unknown
+        && properties.keys().all(|key| {
+            matches!(key.as_str(), "args" | "cwd") || !deno_command_context_property(key, platform)
+        });
     let mut spawn = merge_execution(base, args_certainty);
     let mut output = spawn;
     let mut spawn_stdout_inherited = true;
@@ -5697,6 +5855,7 @@ fn deno_command(
     }
     let command = DenoCommandValue {
         argv,
+        cwd,
         spawn,
         output,
         context_exact,
@@ -6006,6 +6165,8 @@ fn summarize_deno_call(
 fn bun_spawn_argv(
     arguments: &Arguments,
     prototype_integrity_known: bool,
+    current_cwd: &NestedExecutionCwd,
+    platform: Platform,
 ) -> RuntimeCallSummary<BunSpawnSummary> {
     if !arguments.complete {
         return RuntimeCallSummary::Partial;
@@ -6051,19 +6212,21 @@ fn bun_spawn_argv(
                 BunStdout::Partial => return bun_spawn_command_partial(command),
                 BunStdout::Invalid => return RuntimeCallSummary::Invalid,
             };
-            let context_exact = properties
-                .keys()
-                .all(|key| key == "cmd" || !bun_spawn_context_property(key));
+            let context_exact = properties.keys().all(|key| {
+                matches!(key.as_str(), "cmd" | "cwd") || !bun_spawn_context_property(key)
+            });
+            let cwd = bun_spawn_cwd(properties, current_cwd, platform);
+            let context_exact = context_exact && cwd != NestedExecutionCwd::Unknown;
             if !prototype_integrity_known {
                 return bun_spawn_command_partial(command);
             }
-            return bun_spawn_command(command, context_exact, stdout_inherited);
+            return bun_spawn_command(command, cwd, context_exact, stdout_inherited);
         }
         value if unknown_value(value) => return RuntimeCallSummary::Partial,
         _ => return RuntimeCallSummary::Invalid,
     };
-    let (context_exact, stdout_inherited) = match options {
-        None | Some(Value::Undefined) => (true, false),
+    let (cwd, context_exact, stdout_inherited) = match options {
+        None | Some(Value::Undefined) => (current_cwd.clone(), true, false),
         Some(Value::Object(properties)) => {
             match bun_spawn_options_certainty(properties) {
                 ExecutionCertainty::Known => {}
@@ -6080,25 +6243,29 @@ fn bun_spawn_argv(
             };
             let context_exact = properties
                 .keys()
-                .all(|key| !bun_spawn_context_property(key));
+                .all(|key| key == "cwd" || !bun_spawn_context_property(key));
+            let cwd = bun_spawn_cwd(properties, current_cwd, platform);
+            let context_exact = context_exact && cwd != NestedExecutionCwd::Unknown;
             if !prototype_integrity_known {
                 return bun_spawn_command_partial(command);
             }
-            (context_exact, stdout_inherited)
+            (cwd, context_exact, stdout_inherited)
         }
         Some(
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
-        ) if prototype_integrity_known || matches!(options, Some(Value::Null)) => (true, false),
+        ) if prototype_integrity_known || matches!(options, Some(Value::Null)) => {
+            (current_cwd.clone(), true, false)
+        }
         Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
             return bun_spawn_command_partial(command);
         }
         Some(_) => return bun_spawn_command_partial(command),
     };
-    bun_spawn_command(command, context_exact, stdout_inherited)
+    bun_spawn_command(command, cwd, context_exact, stdout_inherited)
 }
 
 fn bun_spawn_command_partial(command: &[Value]) -> RuntimeCallSummary<BunSpawnSummary> {
-    match bun_spawn_command(command, false, false) {
+    match bun_spawn_command(command, NestedExecutionCwd::Unknown, false, false) {
         RuntimeCallSummary::Effect(summary) => RuntimeCallSummary::EffectPartial(summary),
         RuntimeCallSummary::EffectPartial(summary) => RuntimeCallSummary::EffectPartial(summary),
         RuntimeCallSummary::Partial => RuntimeCallSummary::Partial,
@@ -6108,6 +6275,7 @@ fn bun_spawn_command_partial(command: &[Value]) -> RuntimeCallSummary<BunSpawnSu
 
 fn bun_spawn_command(
     command: &[Value],
+    cwd: NestedExecutionCwd,
     context_exact: bool,
     stdout_inherited: bool,
 ) -> RuntimeCallSummary<BunSpawnSummary> {
@@ -6125,6 +6293,7 @@ fn bun_spawn_command(
     }
     let summary = BunSpawnSummary {
         argv: exact.then_some(argv),
+        cwd,
         context_exact,
         stdout_inherited,
     };
@@ -6132,6 +6301,20 @@ fn bun_spawn_command(
         RuntimeCallSummary::Effect(summary)
     } else {
         RuntimeCallSummary::EffectPartial(summary)
+    }
+}
+
+fn bun_spawn_cwd(
+    properties: &BTreeMap<String, Value>,
+    current_cwd: &NestedExecutionCwd,
+    platform: Platform,
+) -> NestedExecutionCwd {
+    match properties.get("cwd") {
+        None | Some(Value::Undefined | Value::Null) => current_cwd.clone(),
+        Some(Value::String(path)) if !path.is_empty() && !path.contains('\0') => {
+            current_cwd.changed(path, platform)
+        }
+        Some(_) => NestedExecutionCwd::Unknown,
     }
 }
 
@@ -7583,7 +7766,11 @@ fn join_states(mut left: State, right: State) -> State {
                     (property, join_node_property_state(value, right))
                 })
                 .collect(),
-            relative_cwd_known: left.relative_cwd_known && right.relative_cwd_known,
+            cwd: if left.cwd == right.cwd {
+                left.cwd
+            } else {
+                NestedExecutionCwd::Unknown
+            },
             prototype_integrity_known: left.prototype_integrity_known
                 && right.prototype_integrity_known,
             runtime_globals_intact: left.runtime_globals_intact && right.runtime_globals_intact,
@@ -7631,7 +7818,9 @@ fn join_states(mut left: State, right: State) -> State {
             .unwrap_or_else(unknown_node_property);
         *value = join_node_property_state(value.clone(), right);
     }
-    left.relative_cwd_known &= right.relative_cwd_known;
+    if left.cwd != right.cwd {
+        left.cwd = NestedExecutionCwd::Unknown;
+    }
     left.prototype_integrity_known &= right.prototype_integrity_known;
     left.runtime_globals_intact &= right.runtime_globals_intact;
     left.next_scope_id = left.next_scope_id.max(right.next_scope_id);

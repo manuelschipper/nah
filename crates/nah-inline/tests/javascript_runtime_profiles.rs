@@ -1,6 +1,6 @@
 use nah_inline::{
     InlineInput, LanguageAnalysis, LanguageCall, LanguageCallKind, NestedExecution,
-    ProtectionInput, analyze_with_language_effects,
+    NestedExecutionCwd, ProtectionInput, analyze_with_language_effects,
 };
 use nah_proto::{action::FilesystemOperation, ctx::Platform};
 
@@ -325,8 +325,14 @@ fn deno_command_is_lazy_and_only_exact_consumers_execute() {
         "new Deno.Command('rm', {args:['-rf', 'relative'], cwd:'/tmp'}).spawn()",
     );
     assert_eq!(changed_context.draft().calls().len(), 1);
-    assert!(changed_context.report().nested_executions().is_empty());
-    assert!(!changed_context.draft().complete());
+    assert!(matches!(
+        changed_context.report().nested_executions(),
+        [NestedExecution::Command {
+            cwd: NestedExecutionCwd::Path(cwd),
+            ..
+        }] if cwd == "/tmp"
+    ));
+    assert!(changed_context.draft().complete());
 
     let stdio_runtime_shapes = analyze(
         "deno-eval-js",
@@ -1140,8 +1146,21 @@ fn bun_lazy_values_shell_and_invalid_shapes_resist_false_positives() {
             .collect::<Vec<_>>(),
         ["Bun.spawn", "Bun.spawnSync", "Bun.file.text", "Bun.write"]
     );
-    assert!(accepted_options.report().nested_executions().is_empty());
-    assert!(!accepted_options.draft().complete());
+    assert_eq!(accepted_options.report().nested_executions().len(), 2);
+    assert!(
+        accepted_options
+            .report()
+            .nested_executions()
+            .iter()
+            .all(|execution| matches!(
+                execution,
+                NestedExecution::Command {
+                    cwd: NestedExecutionCwd::Path(cwd),
+                    ..
+                } if cwd == "/"
+            ))
+    );
+    assert!(accepted_options.draft().complete());
 
     for member in ["spawn", "spawnSync"] {
         let analysis = analyze(

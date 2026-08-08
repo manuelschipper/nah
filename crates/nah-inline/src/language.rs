@@ -204,6 +204,11 @@ impl LanguageFilesystem {
         self
     }
 
+    pub(crate) fn with_requested(mut self, requested: String) -> Self {
+        self.requested = Some(requested);
+        self
+    }
+
     pub(crate) fn identity(mut self, identity: Option<String>, requires_missing: bool) -> Self {
         self.identity = identity;
         self.identity_requires_missing_target = requires_missing;
@@ -228,6 +233,11 @@ impl LanguageFilesystem {
         self.identity_requires_missing_target = false;
         self.identity_observed = false;
         self.identity_follows_final_symlink = false;
+        self
+    }
+
+    pub(crate) fn with_identity(mut self, identity: String) -> Self {
+        self.identity = Some(identity);
         self
     }
 

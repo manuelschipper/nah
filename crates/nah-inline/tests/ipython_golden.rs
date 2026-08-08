@@ -108,6 +108,7 @@ fn frozen_ipython_frontend_cases_match() {
                     program,
                     code,
                     stdout_inherited,
+                    ..
                 } => json!({
                     "kind":"shell",
                     "program":program,
@@ -117,6 +118,7 @@ fn frozen_ipython_frontend_cases_match() {
                 NestedExecution::Command {
                     argv,
                     stdout_inherited,
+                    ..
                 } => json!({
                     "kind":"command",
                     "argv":argv,
@@ -212,6 +214,7 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
                 program: nested_program,
                 code: nested,
                 stdout_inherited: inherited,
+                ..
             }] if nested_program == program
                 && nested == code
                 && *inherited == stdout_inherited
@@ -225,7 +228,6 @@ fn non_bash_or_unobserved_shells_keep_canonical_partial_evidence() {
         ("!printf unknown", None),
         ("!printf sh", Some("/bin/sh")),
         ("!printf zsh", Some("/bin/zsh")),
-        ("%%sh\nprintf cell", Some("/bin/bash")),
     ] {
         let analysis = language_analysis_with_shell(source, shell);
         assert!(!analysis.draft().complete(), "{source}");
@@ -235,6 +237,14 @@ fn non_bash_or_unobserved_shells_keep_canonical_partial_evidence() {
         ));
         assert!(analysis.report().nested_executions().is_empty(), "{source}");
     }
+
+    let sh_cell = language_analysis_with_shell("%%sh\nprintf cell", Some("/bin/bash"));
+    assert!(sh_cell.draft().complete());
+    assert!(matches!(
+        sh_cell.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "sh" && code == "printf cell\n"
+    ));
 }
 
 #[test]

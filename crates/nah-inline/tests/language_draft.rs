@@ -1,6 +1,6 @@
 use nah_inline::{
     InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, NestedExecution,
-    ProtectionInput, analyze_with_language_effects,
+    NestedExecutionCwd, ProtectionInput, analyze_with_language_effects,
 };
 use nah_proto::{
     action::{FilesystemOperation, InvocationInput},
@@ -151,7 +151,7 @@ fn javascript_child_calls_keep_canonical_evidence_and_shell_provenance() {
                 && code == "printf ok"
                 && argv.iter().map(String::as_str).eq(["nah", "nap"])
     ));
-    assert!(!analysis.draft().complete());
+    assert!(analysis.draft().complete());
 }
 
 #[test]
@@ -236,10 +236,19 @@ fn javascript_child_shell_modes_preserve_dialect_and_context_uncertainty() {
     ));
     assert!(bash.draft().complete());
 
-    for source in [
-        "require('child_process').execSync('[[ -e / ]] && rm -rf /')",
-        "require('child_process').spawn('rm', ['-rf', '/'], {shell:true})",
-        "require('child_process').execFileSync('rm', ['-rf', '/'], {shell:'/bin/echo'})",
+    for (source, complete) in [
+        (
+            "require('child_process').execSync('[[ -e / ]] && rm -rf /')",
+            true,
+        ),
+        (
+            "require('child_process').spawn('rm', ['-rf', '/'], {shell:true})",
+            true,
+        ),
+        (
+            "require('child_process').execFileSync('rm', ['-rf', '/'], {shell:'/bin/echo'})",
+            false,
+        ),
     ] {
         let analysis = analyze_program("node", source);
         assert!(
@@ -256,7 +265,7 @@ fn javascript_child_shell_modes_preserve_dialect_and_context_uncertainty() {
             ),
             "{source}"
         );
-        assert!(!analysis.draft().complete(), "{source}");
+        assert_eq!(analysis.draft().complete(), complete, "{source}");
     }
 
     let argv = analyze_program(
@@ -278,8 +287,16 @@ fn javascript_child_shell_modes_preserve_dialect_and_context_uncertainty() {
         cwd.draft().calls()[0].kind(),
         LanguageCallKind::LocalUtility
     );
-    assert!(cwd.report().nested_executions().is_empty());
-    assert!(!cwd.draft().complete());
+    assert!(matches!(
+        cwd.report().nested_executions(),
+        [NestedExecution::Command {
+            argv,
+            cwd: NestedExecutionCwd::Path(path),
+            ..
+        }] if argv.iter().map(String::as_str).eq(["rm", "-rf", "."])
+            && path == "/"
+    ));
+    assert!(cwd.draft().complete());
 
     let windows = analyze_program_platform(
         "node",
@@ -327,6 +344,147 @@ fn javascript_child_callbacks_are_conditional_and_invalid_shapes_stay_inert() {
     );
     assert!(accessor.draft().calls().is_empty());
     assert!(!accessor.draft().complete());
+}
+
+#[test]
+fn exact_runtime_cwd_is_carried_into_nested_executions() {
+    for (program, code) in [
+        ("python3", "import os\nos.chdir('/')\nos.system('rm -rf .')"),
+        (
+            "node",
+            "process.chdir('/'); require('child_process').execSync('rm -rf .')",
+        ),
+    ] {
+        let analysis = analyze_program(program, code);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Shell {
+                    program: shell,
+                    code,
+                    cwd: NestedExecutionCwd::Path(cwd),
+                    ..
+                }] if shell == "sh" && code == "rm -rf ." && cwd == "/"
+            ),
+            "{program}: {analysis:?}"
+        );
+        assert!(analysis.draft().complete(), "{program}: {analysis:?}");
+    }
+
+    for code in [
+        "import subprocess\nsubprocess.run(['rm','-rf','.'], cwd='/', timeout=30, check=True, text=True, encoding='utf-8', errors='strict', stdin=None, stdout=None, stderr=None)",
+        "import subprocess\nsubprocess.run('rm -rf .', shell=True, cwd='/', capture_output=True)",
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Command {
+                    cwd: NestedExecutionCwd::Path(cwd),
+                    ..
+                } | NestedExecution::Shell {
+                    cwd: NestedExecutionCwd::Path(cwd),
+                    ..
+                }] if cwd == "/"
+            ),
+            "{code}: {analysis:?}"
+        );
+        assert!(analysis.draft().complete(), "{code}");
+    }
+
+    let invalid =
+        analyze("import os, subprocess\nsubprocess.run(['rm','-rf','.'], cwd='')\nos.remove('/')");
+    assert!(invalid.report().nested_executions().is_empty());
+    assert!(invalid.draft().calls().is_empty());
+    assert!(invalid.draft().complete());
+
+    for (program, code) in [
+        (
+            "python3",
+            "import subprocess\nsubprocess.run(['cmd','/c','echo'], cwd='C:work')",
+        ),
+        (
+            "node",
+            "require('child_process').spawnSync('cmd',['/c','echo'],{cwd:'C:work'})",
+        ),
+    ] {
+        let analysis = analyze_program_platform(program, code, Platform::Windows);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Command {
+                    cwd: NestedExecutionCwd::Unknown,
+                    ..
+                }]
+            ),
+            "{program}: {analysis:?}"
+        );
+    }
+}
+
+#[test]
+fn inert_subprocess_options_preserve_execution_and_stdout_contracts() {
+    for (code, inherited) in [
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','/'], stdout=None)",
+            true,
+        ),
+        (
+            "import subprocess\nsubprocess.call(['rm','-rf','/'], timeout=30)",
+            true,
+        ),
+        (
+            "import subprocess\nsubprocess.check_call(['rm','-rf','/'], timeout=30)",
+            true,
+        ),
+        (
+            "import subprocess\nsubprocess.check_output(['rm','-rf','/'], timeout=30, input=None)",
+            false,
+        ),
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','/'], capture_output=True, stdout=None)",
+            false,
+        ),
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','/'], stdout=None, capture_output=True)",
+            false,
+        ),
+        (
+            "import subprocess\nsubprocess.run(['rm','-rf','/'], stderr=subprocess.STDOUT)",
+            true,
+        ),
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Command {
+                    stdout_inherited,
+                    ..
+                }] if *stdout_inherited == inherited
+            ),
+            "{code}: {analysis:?}"
+        );
+        assert!(analysis.draft().complete(), "{code}");
+    }
+
+    for code in [
+        "import os, subprocess\nsubprocess.check_output(['rm','-rf','/'], stdout=None)\nos.remove('/')",
+        "import os, subprocess\nsubprocess.Popen(['rm','-rf','/'], timeout=30)\nos.remove('/')",
+        "import os, subprocess\nsubprocess.call(['rm','-rf','/'], input=None)\nos.remove('/')",
+        "import os, subprocess\nsubprocess.run(['rm','-rf','/'], bufsize='large')\nos.remove('/')",
+        "import os, subprocess\nsubprocess.run(['rm','-rf','/'], stdout=subprocess.STDOUT)\nos.remove('/')",
+    ] {
+        let analysis = analyze(code);
+        assert!(analysis.report().nested_executions().is_empty(), "{code}");
+        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert!(analysis.draft().complete(), "{code}");
+    }
+
+    let unknown_bufsize =
+        analyze("import subprocess\nsubprocess.run(['rm','-rf','/'], bufsize=value)");
+    assert!(unknown_bufsize.report().nested_executions().is_empty());
+    assert!(!unknown_bufsize.draft().complete());
 }
 
 #[test]
@@ -416,6 +574,22 @@ fn javascript_unknown_branches_and_cwd_changes_remain_explicit() {
     assert_eq!(calls[1].execution_dominators(), &[0]);
     assert_eq!(calls[2].filesystems()[0].requested(), None);
     assert!(!analysis.draft().complete());
+
+    let async_cwd = analyze_program(
+        "node",
+        "const {spawnSync}=require('child_process'); async function f(){await 0; process.chdir('/')} f(); spawnSync('rm',['-rf','.'])",
+    );
+    assert!(
+        matches!(
+            async_cwd.report().nested_executions(),
+            [NestedExecution::Command {
+                cwd: NestedExecutionCwd::Unknown,
+                ..
+            }]
+        ),
+        "{async_cwd:?}"
+    );
+    assert!(!async_cwd.draft().complete());
 }
 
 #[test]
@@ -681,18 +855,8 @@ fn known_names_with_non_executable_argument_shapes_do_not_emit() {
 }
 
 #[test]
-fn subprocess_context_options_keep_known_calls_partial_without_nested_execution() {
+fn uncertain_subprocess_context_keeps_known_calls_partial_without_nested_execution() {
     for (code, expected, kind) in [
-        (
-            "import subprocess\nsubprocess.run(['rm','-rf','.'], cwd='/')",
-            "subprocess.run",
-            LanguageCallKind::LocalUtility,
-        ),
-        (
-            "import subprocess\nsubprocess.Popen(['rm','-rf','.'], cwd='/')",
-            "subprocess.popen",
-            LanguageCallKind::LocalUtility,
-        ),
         (
             "import subprocess\nsubprocess.run(['rm','-rf','.'], env={'PATH':'/bin'})",
             "subprocess.run",
@@ -707,11 +871,6 @@ fn subprocess_context_options_keep_known_calls_partial_without_nested_execution(
             "import subprocess\nsubprocess.run(command)",
             "subprocess.run",
             LanguageCallKind::LocalUtility,
-        ),
-        (
-            "import subprocess\nsubprocess.run('rm -rf .', shell=True, cwd='/')",
-            "subprocess.run",
-            LanguageCallKind::EvaluatedShell,
         ),
     ] {
         let analysis = analyze(code);
@@ -1030,10 +1189,6 @@ fn unresolved_pre_effect_arguments_keep_possible_paths_partial() {
         ("open('/tmp/head', mode)", "builtins.open"),
         ("import io\nio.FileIO('/tmp/head', mode)", "io.fileio"),
         ("import os\nos.execv(program, argv)", "os.execv"),
-        (
-            "import subprocess\nsubprocess.run(argv, bufsize=bufsize)",
-            "subprocess.run",
-        ),
         ("import os\nos.symlink(source, '/tmp/link')", "os.symlink"),
         (
             "from pathlib import Path\nPath('/tmp/head').write_text(data)",
@@ -1708,8 +1863,15 @@ fn interpreter_value_bounds_cannot_expand_native_evidence() {
 
 #[test]
 fn possible_cwd_mutation_only_widens_later_relative_targets() {
+    let exact = analyze("import os\nos.chdir('/tmp')\nos.remove('cache')");
+    assert_eq!(exact.draft().calls().len(), 2);
+    assert_eq!(
+        exact.draft().calls()[1].filesystems()[0].requested(),
+        Some("/tmp/cache")
+    );
+    assert!(exact.draft().complete());
+
     for code in [
-        "import os\nos.chdir('/tmp')\nos.remove('cache')",
         "import os\nplugin()\nos.remove('cache')",
         "import os\ndef change(): plugin()\nchange()\nos.remove('cache')",
         "import os\nif condition: plugin()\nos.remove('cache')",

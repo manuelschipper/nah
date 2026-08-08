@@ -5,7 +5,10 @@ use crate::syntax::{
     code_segments, contains_call, lexical_code, lexical_code_cased, lexical_code_exact,
     static_call_arguments_cased,
 };
-use crate::{Finding, FindingKind, InlineInput, InlineReport, NestedExecution, ProtectionInput};
+use crate::{
+    Finding, FindingKind, InlineInput, InlineReport, NestedExecution, NestedExecutionCwd,
+    ProtectionInput,
+};
 
 pub(super) mod protection;
 
@@ -1046,7 +1049,13 @@ fn add_static_shell_call_with_stdout(
         .first()
         .and_then(|argument| exact_string_or_binding_named(argument, bindings, names))
     {
-        push_nested_shell(report, "sh", code, stdout_inherited);
+        push_nested_shell(
+            report,
+            "sh",
+            code,
+            NestedExecutionCwd::Inherited,
+            stdout_inherited,
+        );
     }
 }
 
@@ -1069,23 +1078,34 @@ pub(super) fn add_static_bound_shell_call(
 }
 
 pub(super) fn add_exact_argv(report: &mut InlineReport, argv: Vec<String>) {
-    push_nested_argv(report, argv, false);
+    push_nested_argv(report, argv, NestedExecutionCwd::Inherited, false);
 }
 
 pub(super) fn add_exact_inherited_argv(report: &mut InlineReport, argv: Vec<String>) {
-    push_nested_argv(report, argv, true);
+    push_nested_argv(report, argv, NestedExecutionCwd::Inherited, true);
+}
+
+pub(super) fn add_exact_argv_at(
+    report: &mut InlineReport,
+    argv: Vec<String>,
+    cwd: NestedExecutionCwd,
+    stdout_inherited: bool,
+) {
+    push_nested_argv(report, argv, cwd, stdout_inherited);
 }
 
 pub(super) fn add_exact_shell(report: &mut InlineReport, code: &str, platform: Platform) {
     add_exact_shell_with_stdout(report, code, platform, false);
 }
 
-pub(super) fn add_exact_bash(report: &mut InlineReport, code: &str) {
-    push_nested_shell(report, "bash", code, false);
-}
-
-pub(super) fn add_exact_shell_program(report: &mut InlineReport, program: &str, code: &str) {
-    push_nested_shell(report, program, code, false);
+pub(super) fn add_exact_shell_program_at(
+    report: &mut InlineReport,
+    program: &str,
+    code: &str,
+    cwd: NestedExecutionCwd,
+    stdout_inherited: bool,
+) {
+    push_nested_shell(report, program, code, cwd, stdout_inherited);
 }
 
 pub(super) fn add_exact_shell_with_stdout(
@@ -1095,22 +1115,40 @@ pub(super) fn add_exact_shell_with_stdout(
     stdout_inherited: bool,
 ) {
     if platform != Platform::Windows {
-        push_nested_shell(report, "sh", code, stdout_inherited);
+        push_nested_shell(
+            report,
+            "sh",
+            code,
+            NestedExecutionCwd::Inherited,
+            stdout_inherited,
+        );
     }
 }
 
-fn push_nested_shell(report: &mut InlineReport, program: &str, code: &str, stdout_inherited: bool) {
+fn push_nested_shell(
+    report: &mut InlineReport,
+    program: &str,
+    code: &str,
+    cwd: NestedExecutionCwd,
+    stdout_inherited: bool,
+) {
     if code.is_empty() || code.contains('\0') || code.len() > crate::SOURCE_LIMIT {
         return;
     }
     report.push_nested_execution(NestedExecution::Shell {
         program: program.to_owned(),
         code: code.to_owned(),
+        cwd,
         stdout_inherited,
     });
 }
 
-fn push_nested_argv(report: &mut InlineReport, argv: Vec<String>, stdout_inherited: bool) {
+fn push_nested_argv(
+    report: &mut InlineReport,
+    argv: Vec<String>,
+    cwd: NestedExecutionCwd,
+    stdout_inherited: bool,
+) {
     let bytes = argv.iter().map(String::len).sum::<usize>();
     if argv.first().is_none_or(String::is_empty)
         || argv.iter().any(|value| value.contains('\0'))
@@ -1120,6 +1158,7 @@ fn push_nested_argv(report: &mut InlineReport, argv: Vec<String>, stdout_inherit
     }
     report.push_nested_execution(NestedExecution::Command {
         argv,
+        cwd,
         stdout_inherited,
     });
 }

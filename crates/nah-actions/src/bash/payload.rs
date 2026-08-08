@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use nah_inline::{EnvironmentValue, LanguageDraft, NestedExecution};
-use nah_parse::{Statement, Syntax, Word};
+use nah_inline::{EnvironmentValue, LanguageDraft, NestedExecution, NestedExecutionCwd};
+use nah_parse::{Redirect, Statement, Substitution, Syntax, Word};
 use nah_proto::action::InvocationInput;
 
 use super::positionals::syntax_sets_positionals;
@@ -16,6 +16,7 @@ use crate::bash_lookup::LookupMode;
 use crate::bash_model::{InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
 use crate::bash_state::{BindingAttribute, Cwd, current_pwd, known_cwd};
 use crate::language::{LanguageDraftTarget, LanguageExecution};
+use crate::paths::resolve_from_cwd;
 
 fn is_return_statement(statement: &Statement) -> bool {
     matches!(
@@ -48,6 +49,185 @@ fn bash_shell_payload(invocation: &InvocationDraft) -> bool {
         } if source.as_str().starts_with("shell-")
             && crate::bash_execution::normalized_execution_program(program) != "bun"
     )
+}
+
+fn portable_sh_syntax(syntax: &Syntax) -> bool {
+    syntax.complete() && portable_sh_statements(syntax.statements())
+}
+
+fn portable_sh_statements(statements: &[Statement]) -> bool {
+    statements.iter().all(portable_sh_statement)
+}
+
+fn portable_sh_statement(statement: &Statement) -> bool {
+    match statement {
+        Statement::Command {
+            name,
+            name_substitutions,
+            assignments,
+            unmodeled_assignments,
+            arguments,
+            redirects,
+        } => {
+            !matches!(
+                name.as_str(),
+                "." | "[["
+                    | "alias"
+                    | "break"
+                    | "builtin"
+                    | "command"
+                    | "continue"
+                    | "coproc"
+                    | "declare"
+                    | "dirs"
+                    | "disown"
+                    | "enable"
+                    | "eval"
+                    | "exec"
+                    | "exit"
+                    | "export"
+                    | "fc"
+                    | "function"
+                    | "getopts"
+                    | "hash"
+                    | "help"
+                    | "history"
+                    | "jobs"
+                    | "let"
+                    | "local"
+                    | "logout"
+                    | "mapfile"
+                    | "popd"
+                    | "printf"
+                    | "pushd"
+                    | "read"
+                    | "readarray"
+                    | "readonly"
+                    | "return"
+                    | "select"
+                    | "set"
+                    | "shopt"
+                    | "shift"
+                    | "source"
+                    | "suspend"
+                    | "times"
+                    | "trap"
+                    | "typeset"
+                    | "umask"
+                    | "unalias"
+                    | "unset"
+                    | "wait"
+            ) && portable_sh_raw_word(name)
+                && unmodeled_assignments.is_empty()
+                && portable_sh_substitutions(name_substitutions)
+                && assignments.iter().all(|(_, word)| portable_sh_word(word))
+                && arguments.iter().all(portable_sh_word)
+                && redirects.iter().all(portable_sh_redirect)
+        }
+        Statement::Assignments {
+            bindings,
+            unmodeled,
+        } => unmodeled.is_empty() && bindings.iter().all(|(_, word)| portable_sh_word(word)),
+        Statement::Pipeline { operators, stages } => {
+            operators.iter().all(|operator| operator == "|") && portable_sh_statements(stages)
+        }
+        Statement::Chain { operators, items } => {
+            operators
+                .iter()
+                .all(|operator| matches!(operator.as_str(), "&&" | "||"))
+                && portable_sh_statements(items)
+        }
+        Statement::Redirected { body, redirects } => {
+            portable_sh_statement(body) && redirects.iter().all(portable_sh_redirect)
+        }
+        Statement::RedirectOnly { redirects, .. } => redirects.iter().all(portable_sh_redirect),
+        Statement::Subshell { .. }
+        | Statement::Group { .. }
+        | Statement::If { .. }
+        | Statement::Loop { .. }
+        | Statement::For { .. }
+        | Statement::FunctionDefinition { .. }
+        | Statement::Coprocess { .. }
+        | Statement::LoopControl { .. }
+        | Statement::Case { .. }
+        | Statement::UnmodeledStateMutation { .. }
+        | Statement::Unsupported { .. } => false,
+    }
+}
+
+fn portable_sh_word(word: &Word) -> bool {
+    portable_sh_raw_word(word.raw()) && portable_sh_substitutions(word.substitutions())
+}
+
+fn portable_sh_raw_word(raw: &str) -> bool {
+    ![
+        "$'", "$\"", "${!", "^^", ",,", "//", "<<<", "&>", "|&", ";&", "**", "@(", "?(", "*(",
+        "+(", "!(",
+    ]
+    .iter()
+    .any(|token| raw.contains(token))
+        && !bash_pwd_tilde_expansion(raw)
+        && !bracketed_parameter_expansion(raw)
+        && !raw
+            .char_indices()
+            .any(|(index, character)| character == '{' && !raw[..index].ends_with('$'))
+}
+
+fn bash_pwd_tilde_expansion(raw: &str) -> bool {
+    ["~+", "~-"].iter().any(|prefix| {
+        raw.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+    })
+}
+
+fn bracketed_parameter_expansion(raw: &str) -> bool {
+    let mut remaining = raw;
+    while let Some(start) = remaining.find("${") {
+        let value = &remaining[start + 2..];
+        let Some(end) = value.find('}') else {
+            return false;
+        };
+        if value[..end].contains('[') {
+            return true;
+        }
+        remaining = &value[end + 1..];
+    }
+    false
+}
+
+fn portable_sh_substitutions(substitutions: &[Substitution]) -> bool {
+    substitutions.iter().all(|substitution| match substitution {
+        Substitution::Command { statements } | Substitution::Backtick { statements } => {
+            !statements.iter().any(contains_redirect_only) && portable_sh_statements(statements)
+        }
+        Substitution::ProcessInput { .. } | Substitution::ProcessOutput { .. } => false,
+    })
+}
+
+fn contains_redirect_only(statement: &Statement) -> bool {
+    match statement {
+        Statement::RedirectOnly { .. } => true,
+        Statement::Pipeline { stages, .. } => stages.iter().any(contains_redirect_only),
+        Statement::Chain { items, .. } => items.iter().any(contains_redirect_only),
+        Statement::Redirected { body, .. } => contains_redirect_only(body),
+        _ => false,
+    }
+}
+
+fn portable_sh_redirect(redirect: &Redirect) -> bool {
+    matches!(
+        redirect.operator(),
+        "<" | ">" | ">>" | "<<" | "<<-" | "<&" | ">&" | "<>" | ">|"
+    ) && redirect.target().is_none_or(portable_sh_raw_word)
+        && portable_sh_substitutions(redirect.target_substitutions())
+        && portable_sh_substitutions(redirect.body_substitutions())
+}
+
+fn nested_cwd_bytes(cwd: &NestedExecutionCwd) -> usize {
+    match cwd {
+        NestedExecutionCwd::Path(path) => path.len(),
+        NestedExecutionCwd::Inherited | NestedExecutionCwd::Unknown => 0,
+    }
 }
 
 impl Lowerer {
@@ -302,10 +482,17 @@ impl Lowerer {
         const MAX_INLINE_CHILDREN: usize = 64;
         const MAX_INLINE_CHILD_BYTES: usize = crate::INVOCATION_EVIDENCE_CAP;
         let bytes = match child {
-            NestedExecution::Shell { program, code, .. } => {
-                program.len().saturating_add(code.len())
-            }
-            NestedExecution::Command { argv, .. } => argv.iter().map(String::len).sum(),
+            NestedExecution::Shell {
+                program, code, cwd, ..
+            } => program
+                .len()
+                .saturating_add(code.len())
+                .saturating_add(nested_cwd_bytes(cwd)),
+            NestedExecution::Command { argv, cwd, .. } => argv
+                .iter()
+                .map(String::len)
+                .sum::<usize>()
+                .saturating_add(nested_cwd_bytes(cwd)),
         };
         if self.inline_child_count >= MAX_INLINE_CHILDREN {
             self.inline_report
@@ -339,8 +526,23 @@ impl Lowerer {
         let parent_fork_bomb = self.detected_fork_bomb;
         let child_stage = self.stages.len();
 
+        let child_cwd = match &child {
+            NestedExecution::Shell { cwd, .. } | NestedExecution::Command { cwd, .. } => cwd,
+        };
         self.state = execution.state.clone();
-        self.state.cwd = Cwd::Unknown;
+        self.state.cwd = match child_cwd {
+            NestedExecutionCwd::Inherited => execution.state.cwd.clone(),
+            NestedExecutionCwd::Path(path) => resolve_from_cwd(
+                known_cwd(&execution.state),
+                current_pwd(&execution.state),
+                path,
+                &self.home,
+                self.platform,
+                false,
+            )
+            .map_or(Cwd::Unknown, Cwd::Known),
+            NestedExecutionCwd::Unknown => Cwd::Unknown,
+        };
         self.state.unknown_variables = true;
         for binding in &mut self.state.variables {
             if binding.readonly != BindingAttribute::Yes {
@@ -366,7 +568,20 @@ impl Lowerer {
                 program,
                 code,
                 stdout_inherited,
-            } if program == "bash" => (self.lower_inline_shell_payload(&code), stdout_inherited),
+                ..
+            } if program == "bash" => (
+                self.lower_inline_shell_payload(&code, false),
+                stdout_inherited,
+            ),
+            NestedExecution::Shell {
+                program,
+                code,
+                stdout_inherited,
+                ..
+            } if program == "sh" => (
+                self.lower_inline_shell_payload(&code, true),
+                stdout_inherited,
+            ),
             NestedExecution::Shell {
                 stdout_inherited, ..
             } => {
@@ -376,6 +591,7 @@ impl Lowerer {
             NestedExecution::Command {
                 argv,
                 stdout_inherited,
+                ..
             } => {
                 if let Some((program, arguments)) = argv.split_first() {
                     let arguments = arguments
@@ -449,14 +665,14 @@ impl Lowerer {
         }
     }
 
-    fn lower_inline_shell_payload(&mut self, payload: &str) -> Lowered {
+    fn lower_inline_shell_payload(&mut self, payload: &str, portable_only: bool) -> Lowered {
         if !self.enter_payload(payload.len()) {
             return Lowered::default();
         }
         let lowered = match nah_parse::normalize(payload) {
             Ok(syntax) => {
                 self.detected_fork_bomb |= syntax.fork_bomb();
-                if syntax.complete() {
+                if syntax.complete() && (!portable_only || portable_sh_syntax(&syntax)) {
                     self.lower_syntax(&syntax)
                 } else {
                     self.complete = false;

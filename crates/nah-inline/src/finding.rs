@@ -1,3 +1,5 @@
+use nah_proto::ctx::Platform;
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum FindingKind {
     RootDestruction,
@@ -7,14 +9,84 @@ pub enum FindingKind {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum NestedExecutionCwd {
+    Inherited,
+    Path(String),
+    Unknown,
+}
+
+impl NestedExecutionCwd {
+    pub(crate) fn changed(&self, path: &str, platform: Platform) -> Self {
+        if nested_path_is_drive_relative(path, platform) {
+            return Self::Unknown;
+        }
+        if nested_path_is_absolute(path, platform) {
+            Self::Path(path.to_owned())
+        } else {
+            self.resolve(path, platform)
+                .map_or(Self::Unknown, Self::Path)
+        }
+    }
+
+    pub(crate) fn resolve(&self, path: &str, platform: Platform) -> Option<String> {
+        if nested_path_is_drive_relative(path, platform) {
+            return None;
+        }
+        if nested_path_is_absolute(path, platform) {
+            return Some(path.to_owned());
+        }
+        match self {
+            Self::Inherited => Some(path.to_owned()),
+            Self::Path(cwd) => {
+                let separator = if platform == Platform::Windows {
+                    '\\'
+                } else {
+                    '/'
+                };
+                Some(format!(
+                    "{}{separator}{path}",
+                    cwd.trim_end_matches(['/', '\\'])
+                ))
+            }
+            Self::Unknown => None,
+        }
+    }
+}
+
+fn nested_path_is_drive_relative(path: &str, platform: Platform) -> bool {
+    let bytes = path.as_bytes();
+    platform == Platform::Windows
+        && bytes.first().is_some_and(u8::is_ascii_alphabetic)
+        && bytes.get(1) == Some(&b':')
+        && !bytes
+            .get(2)
+            .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+}
+
+fn nested_path_is_absolute(path: &str, platform: Platform) -> bool {
+    if platform == Platform::Windows {
+        path.starts_with(['/', '\\'])
+            || path.as_bytes().get(1) == Some(&b':')
+                && path
+                    .as_bytes()
+                    .get(2)
+                    .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+    } else {
+        path.starts_with('/')
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NestedExecution {
     Shell {
         program: String,
         code: String,
+        cwd: NestedExecutionCwd,
         stdout_inherited: bool,
     },
     Command {
         argv: Vec<String>,
+        cwd: NestedExecutionCwd,
         stdout_inherited: bool,
     },
 }
@@ -169,10 +241,12 @@ mod tests {
     fn report_preserves_nested_execution_order_and_repetition() {
         let first = NestedExecution::Command {
             argv: vec!["first".into()],
+            cwd: NestedExecutionCwd::Inherited,
             stdout_inherited: false,
         };
         let second = NestedExecution::Command {
             argv: vec!["second".into()],
+            cwd: NestedExecutionCwd::Inherited,
             stdout_inherited: false,
         };
         let mut report = InlineReport::default();
@@ -199,6 +273,7 @@ mod tests {
     fn nested_execution_cap_is_a_sticky_refusal() {
         let child = NestedExecution::Command {
             argv: vec!["echo".into()],
+            cwd: NestedExecutionCwd::Inherited,
             stdout_inherited: false,
         };
         let mut report = InlineReport::default();

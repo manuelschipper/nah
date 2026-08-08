@@ -39,6 +39,55 @@ fn core_decision_bytes_are_stable_for_delegate_and_block() {
 }
 
 #[test]
+fn exact_language_child_cwd_and_portable_sh_reach_root_guards() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = repo(temp.path());
+    let context = ctx(temp.path());
+
+    for command in [
+        r#"python3 -c "import os; os.system('rm -rf /')""#,
+        r#"python3 -c "import subprocess; subprocess.run(['rm','-rf','.'],cwd='/',timeout=30,check=True,text=True,encoding='utf-8',stdin=None,stdout=None,stderr=None)""#,
+        r#"node -e "process.chdir('/'); require('child_process').spawnSync('rm',['-rf','.'])""#,
+        r#"deno eval --ext=js "new Deno.Command('rm',{args:['-rf','.'],cwd:'/'}).spawn()""#,
+        r#"bun -e "Bun.spawnSync(['rm','-rf','.'],{cwd:'/'})""#,
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "fs-root"),
+            "{command}"
+        );
+    }
+
+    for unsupported in [
+        r#"python3 -c "import os; os.system('set -o pipefail; rm -rf /')""#,
+        r#"node -e "require('child_process').execSync('[[ -e / ]] && rm -rf /')""#,
+        r#"python3 -c "import os; os.system(\"builtin eval 'rm -rf /'\")""#,
+        r#"python3 -c 'import os; os.system("printf -v TOOL %s rm; \"$TOOL\" -rf /")'"#,
+        r#"python3 -c 'import os; os.system("TOOL=rm; \"${TOOL[0]}\" -rf /")'"#,
+        r#"python3 -c 'import os; os.system("cd /; rm -rf ~+")'"#,
+        r#"python3 -c 'import os; os.system("TOOL=$(</tmp/tool); \"$TOOL\" -rf /")'"#,
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":unsupported}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{unsupported}");
+        assert_eq!(result.core().coverage(), Coverage::Partial, "{unsupported}");
+    }
+}
+
+#[test]
 fn arbitrary_program_paths_are_not_recognized_as_their_bare_name() {
     let temp = tempfile::tempdir().unwrap();
     let repo = repo(temp.path());
