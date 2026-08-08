@@ -50,7 +50,7 @@ fn javascript_direct_file_call_uses_canonical_effects_only() {
         native(&calls[0]),
         (
             &json!({
-                "v": 1,
+                "v": 2,
                 "language": "javascript",
                 "callable": "fs.rmSync",
                 "positional": [

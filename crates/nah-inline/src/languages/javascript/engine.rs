@@ -5895,7 +5895,8 @@ fn language_call_payload(
         SyntaxProfile::Ambiguous => unreachable!(),
     };
     let mut payload = Map::new();
-    payload.insert("v".into(), JsonValue::from(1));
+    // JavaScript v2 adds object and undefined values without changing frozen v1.
+    payload.insert("v".into(), JsonValue::from(2));
     payload.insert("language".into(), JsonValue::String(language.into()));
     payload.insert("callable".into(), JsonValue::String(callable.into()));
     payload.insert("positional".into(), JsonValue::Array(positional));
