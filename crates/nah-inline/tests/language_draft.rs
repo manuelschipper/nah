@@ -345,7 +345,7 @@ fn javascript_rebinding_and_unowned_hosts_never_invent_node_effects() {
         ),
         ("typescript", "await tools.remove('/protected')"),
         ("bun", "Bun.spawn(['rm', '-rf', '/'])"),
-        ("deno-typescript", "await Deno.remove('/protected')"),
+        ("deno-run-typescript", "await Deno.remove('/protected')"),
     ] {
         let analysis = analyze_program(program, code);
         assert!(analysis.draft().calls().is_empty(), "{program}");
@@ -383,7 +383,7 @@ fn javascript_profiles_preserve_source_context_and_deno_ambiguity() {
     assert!(!deno.draft().complete());
 
     let typed = analyze_program(
-        "deno-typescript",
+        "deno-run-typescript",
         "type Job = { value: number }; const value: number = 1",
     );
     assert!(typed.draft().calls().is_empty());

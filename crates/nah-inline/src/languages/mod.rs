@@ -98,18 +98,25 @@ pub(crate) fn analyze(
             "node"
             | "nodejs"
             | "deno"
-            | "deno-js"
-            | "deno-typescript"
-            | "deno-tsx"
+            | "bun"
+            | "deno-run-js"
+            | "deno-run-typescript"
+            | "deno-run-tsx"
             | "deno-eval-js"
             | "deno-eval-typescript"
             | "deno-eval-tsx"
-            | "bun"
+            | "deno-checked-eval-js"
+            | "deno-checked-eval-typescript"
+            | "deno-checked-eval-tsx"
+            | "bun-js"
+            | "bun-typescript"
+            | "bun-tsx"
+            | "bun-shell"
             | "tsx"
             | "javascript"
-            | "typescript" => {
-                javascript::analyze(&program, &input, protection, depth)
-            }
+            | "typescript"
+            | "openclaw-javascript"
+            | "openclaw-typescript" => javascript::analyze(&program, &input, protection, depth),
             "ruby" => ruby::analyze(&program, &input, protection),
             "php" => php::analyze(&program, &input, protection),
             "lua" | "luajit" => lua::analyze(&program, &input, protection),

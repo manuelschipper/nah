@@ -15,6 +15,9 @@ pub(super) enum SyntaxProfile {
 pub(super) enum RuntimeOwnership {
     Node,
     DenoEval,
+    DenoCheckedEval,
+    Bun,
+    OpenClaw,
     Unowned,
 }
 
@@ -58,17 +61,22 @@ pub(super) fn profile(program: &str) -> Option<Profile> {
             ownership: RuntimeOwnership::Unowned,
             context: SourceContext::Module,
         },
-        "deno-js" => Profile {
+        "bun" => Profile {
+            syntax: SyntaxProfile::Ambiguous,
+            ownership: RuntimeOwnership::Unowned,
+            context: SourceContext::Module,
+        },
+        "deno-run-js" => Profile {
             syntax: SyntaxProfile::JavaScript,
             ownership: RuntimeOwnership::Unowned,
             context: SourceContext::Module,
         },
-        "deno-typescript" => Profile {
+        "deno-run-typescript" => Profile {
             syntax: SyntaxProfile::TypeScript,
             ownership: RuntimeOwnership::Unowned,
             context: SourceContext::Module,
         },
-        "deno-tsx" => Profile {
+        "deno-run-tsx" => Profile {
             syntax: SyntaxProfile::Tsx,
             ownership: RuntimeOwnership::Unowned,
             context: SourceContext::Module,
@@ -88,10 +96,50 @@ pub(super) fn profile(program: &str) -> Option<Profile> {
             ownership: RuntimeOwnership::DenoEval,
             context: SourceContext::Module,
         },
-        "bun" => Profile {
+        "deno-checked-eval-js" => Profile {
+            syntax: SyntaxProfile::JavaScript,
+            ownership: RuntimeOwnership::DenoCheckedEval,
+            context: SourceContext::Module,
+        },
+        "deno-checked-eval-typescript" => Profile {
+            syntax: SyntaxProfile::TypeScript,
+            ownership: RuntimeOwnership::DenoCheckedEval,
+            context: SourceContext::Module,
+        },
+        "deno-checked-eval-tsx" => Profile {
             syntax: SyntaxProfile::Tsx,
+            ownership: RuntimeOwnership::DenoCheckedEval,
+            context: SourceContext::Module,
+        },
+        "bun-js" => Profile {
+            syntax: SyntaxProfile::JavaScript,
+            ownership: RuntimeOwnership::Bun,
+            context: SourceContext::Module,
+        },
+        "bun-typescript" => Profile {
+            syntax: SyntaxProfile::TypeScript,
+            ownership: RuntimeOwnership::Bun,
+            context: SourceContext::Module,
+        },
+        "bun-tsx" => Profile {
+            syntax: SyntaxProfile::Tsx,
+            ownership: RuntimeOwnership::Bun,
+            context: SourceContext::Module,
+        },
+        "bun-shell" => Profile {
+            syntax: SyntaxProfile::Ambiguous,
             ownership: RuntimeOwnership::Unowned,
             context: SourceContext::Module,
+        },
+        "openclaw-javascript" => Profile {
+            syntax: SyntaxProfile::JavaScript,
+            ownership: RuntimeOwnership::OpenClaw,
+            context: SourceContext::FunctionBody,
+        },
+        "openclaw-typescript" => Profile {
+            syntax: SyntaxProfile::TypeScript,
+            ownership: RuntimeOwnership::OpenClaw,
+            context: SourceContext::FunctionBody,
         },
         _ => return None,
     };

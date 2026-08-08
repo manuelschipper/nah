@@ -71,10 +71,82 @@ enum Member {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DenoMember {
+    Remove,
+    RemoveSync,
+    Mkdir,
+    MkdirSync,
+    ReadFile,
+    ReadFileSync,
+    ReadTextFile,
+    ReadTextFileSync,
+    WriteFile,
+    WriteFileSync,
+    WriteTextFile,
+    WriteTextFileSync,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DenoCommandMember {
+    Spawn,
+    Output,
+    OutputSync,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BunMember {
+    Spawn,
+    SpawnSync,
+    File,
+    Write,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BunFileMember {
+    Text,
+    Json,
+    ArrayBuffer,
+    Bytes,
+    Delete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OpenClawMember {
+    Call,
+    CallValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DenoCommandValue {
+    argv: Option<Vec<String>>,
+    spawn: ExecutionCertainty,
+    output: ExecutionCertainty,
+    context_exact: bool,
+    spawn_stdout_inherited: bool,
+    output_stdout_inherited: bool,
+    spawn_throws_after_effect: bool,
+    output_throws_after_effect: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExecutionCertainty {
+    Known,
+    Unknown,
+    Invalid,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum KnownFunction {
     DefineProperty,
+    SetPrototypeOf,
     Fs(Module, Member),
     Child(Member),
+    Deno(DenoMember),
+    DenoCommand(DenoCommandMember, DenoCommandValue),
+    Bun(BunMember),
+    BunFile(BunFileMember, Option<String>),
+    BunShell,
+    OpenClaw(OpenClawMember),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -82,6 +154,7 @@ struct LocalFunction {
     parameters: Option<Vec<String>>,
     body: HirNode,
     expression_body: bool,
+    asynchronous: bool,
     captured_scopes: Vec<usize>,
     source_identity: usize,
 }
@@ -89,6 +162,11 @@ struct LocalFunction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Value {
     Unknown,
+    Invalid,
+    SynchronousThrow,
+    Divergent,
+    Promise,
+    RejectedPromise,
     Undefined,
     Null,
     Bool(bool),
@@ -102,11 +180,26 @@ enum Value {
     Accessor,
     Require,
     Eval,
+    DynamicEvalResult,
+    FunctionConstructor,
+    DynamicFunction(Option<String>),
     ObjectBuiltin,
     Process,
     Environment,
+    Deno,
+    DenoCommandConstructor,
+    DenoCommand(DenoCommandValue),
+    Bun,
+    BunFile(Option<String>),
+    OpenClawTools,
     UnknownModuleMember(Module),
     UnknownReceiver(Box<Value>),
+}
+
+struct MemberReference {
+    object: Value,
+    property: Option<String>,
+    prototype_mutation: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,6 +216,8 @@ struct State {
     next_scope_id: usize,
     owned_members: BTreeSet<(Module, Member)>,
     relative_cwd_known: bool,
+    prototype_integrity_known: bool,
+    runtime_globals_intact: bool,
 }
 
 impl PartialEq for State {
@@ -131,6 +226,8 @@ impl PartialEq for State {
             && self.scope_chain == other.scope_chain
             && self.owned_members == other.owned_members
             && self.relative_cwd_known == other.relative_cwd_known
+            && self.prototype_integrity_known == other.prototype_integrity_known
+            && self.runtime_globals_intact == other.runtime_globals_intact
     }
 }
 
@@ -138,14 +235,35 @@ impl Eq for State {}
 
 impl State {
     fn new(ownership: RuntimeOwnership) -> Self {
-        let mut bindings = [("eval", Value::Eval), ("Object", Value::ObjectBuiltin)]
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<BTreeMap<_, _>>();
+        let mut bindings = [
+            ("eval", Value::Eval),
+            ("Function", Value::FunctionConstructor),
+            ("Object", Value::ObjectBuiltin),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<BTreeMap<_, _>>();
         let mut owned_members = BTreeSet::new();
-        if ownership == RuntimeOwnership::Node {
-            bindings.insert("require".into(), Value::Require);
-            bindings.insert("process".into(), Value::Process);
+        match ownership {
+            RuntimeOwnership::DenoEval => {
+                bindings.insert("Deno".into(), Value::Deno);
+            }
+            RuntimeOwnership::Bun => {
+                bindings.insert("Bun".into(), Value::Bun);
+                bindings.insert("$".into(), Value::Known(KnownFunction::BunShell));
+                bindings.insert("require".into(), Value::Require);
+                bindings.insert("process".into(), Value::Process);
+            }
+            RuntimeOwnership::OpenClaw => {
+                bindings.insert("tools".into(), Value::OpenClawTools);
+            }
+            RuntimeOwnership::Node => {
+                bindings.insert("require".into(), Value::Require);
+                bindings.insert("process".into(), Value::Process);
+            }
+            RuntimeOwnership::DenoCheckedEval | RuntimeOwnership::Unowned => {}
+        }
+        if matches!(ownership, RuntimeOwnership::Node | RuntimeOwnership::Bun) {
             owned_members.extend([
                 (Module::Fs, Member::AppendFile),
                 (Module::Fs, Member::AppendFileSync),
@@ -208,6 +326,8 @@ impl State {
             next_scope_id: 1,
             owned_members,
             relative_cwd_known: true,
+            prototype_integrity_known: true,
+            runtime_globals_intact: true,
         }
     }
     fn get(&self, name: &str) -> Value {
@@ -245,7 +365,16 @@ impl State {
                 .or_insert(Value::Unknown);
             if matches!(
                 binding,
-                Value::Require | Value::Eval | Value::ObjectBuiltin | Value::Process
+                Value::Require
+                    | Value::Eval
+                    | Value::FunctionConstructor
+                    | Value::ObjectBuiltin
+                    | Value::Process
+                    | Value::Deno
+                    | Value::DenoCommandConstructor
+                    | Value::Bun
+                    | Value::OpenClawTools
+                    | Value::Known(KnownFunction::BunShell)
             ) {
                 *binding = Value::Unknown;
             }
@@ -262,6 +391,11 @@ impl State {
         if let Some(scope) =
             target.and_then(|id| self.scopes.iter_mut().find(|scope| scope.id == id))
         {
+            if Some(scope.id) == self.scope_chain.first().copied()
+                && scope.bindings.get(name).is_some_and(runtime_global_value)
+            {
+                self.runtime_globals_intact = false;
+            }
             scope.bindings.insert(name.to_owned(), value);
         } else if let Some(id) = self.scope_chain.first().copied()
             && let Some(scope) = self.scopes.iter_mut().find(|scope| scope.id == id)
@@ -307,9 +441,14 @@ impl State {
         }
         self.owned_members.clear();
         self.relative_cwd_known = false;
+        self.prototype_integrity_known = false;
+        self.runtime_globals_intact = false;
     }
 
     fn invalidate_value(&mut self, value: &Value) {
+        if runtime_global_value(value) {
+            self.runtime_globals_intact = false;
+        }
         match value {
             Value::Module(module) | Value::UnknownModuleMember(module) => {
                 self.invalidate_module(*module);
@@ -336,15 +475,52 @@ impl State {
                 }
             }
         }
-        if matches!(value, Value::Process | Value::Environment) {
+        if matches!(
+            value,
+            Value::Process
+                | Value::Environment
+                | Value::Deno
+                | Value::DenoCommandConstructor
+                | Value::DenoCommand(_)
+                | Value::Bun
+                | Value::BunFile(_)
+                | Value::OpenClawTools
+        ) {
             for scope in &mut self.scopes {
                 for binding in scope.bindings.values_mut() {
-                    if matches!(binding, Value::Process | Value::Environment) {
+                    if binding == value
+                        || matches!(
+                            (value, &*binding),
+                            (
+                                Value::Process | Value::Environment,
+                                Value::Process | Value::Environment
+                            )
+                        )
+                    {
                         *binding = Value::Unknown;
                     }
                 }
             }
         }
+    }
+
+    fn dynamic_global(&self, ownership: RuntimeOwnership) -> Self {
+        let mut state = Self::new(ownership);
+        state.owned_members = self.owned_members.clone();
+        state.relative_cwd_known = self.relative_cwd_known;
+        state.prototype_integrity_known = self.prototype_integrity_known;
+        state.runtime_globals_intact = self.runtime_globals_intact;
+        if !state.runtime_globals_intact {
+            state.owned_members.clear();
+            for scope in &mut state.scopes {
+                for value in scope.bindings.values_mut() {
+                    if runtime_global_value(value) {
+                        *value = Value::Unknown;
+                    }
+                }
+            }
+        }
+        state
     }
 }
 
@@ -456,6 +632,20 @@ enum BindingMode {
 struct Arguments {
     values: Vec<Value>,
     complete: bool,
+    assembly_branches: Vec<AssemblyBranch>,
+}
+
+enum RuntimeCallSummary<T> {
+    Effect(T),
+    EffectPartial(T),
+    Partial,
+    Invalid,
+}
+
+struct BunSpawnSummary {
+    argv: Option<Vec<String>>,
+    context_exact: bool,
+    stdout_inherited: bool,
 }
 
 struct Interpreter<'a> {
@@ -469,6 +659,12 @@ struct Interpreter<'a> {
     complete: bool,
     budget: Budget,
     return_value: Value,
+    conditional_depth: usize,
+    execution_dominators: Vec<usize>,
+}
+
+struct AssemblyBranch {
+    state: State,
     conditional_depth: usize,
     execution_dominators: Vec<usize>,
 }
@@ -514,6 +710,10 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
         conditional_depth: 0,
         execution_dominators: Vec::new(),
     };
+    if profile.ownership == RuntimeOwnership::DenoCheckedEval {
+        interpreter.complete = false;
+        interpreter.draft.set_partial();
+    }
     let mut state = State::new(profile.ownership);
     interpreter.hoist_vars(module.root(), &mut state);
     interpreter.exec_sequence(module.root(), &mut state, false, 0);
@@ -528,6 +728,35 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
 }
 
 impl<'a> Interpreter<'a> {
+    fn start_assembly_branch(&mut self, state: &State, branches: &mut Vec<AssemblyBranch>) {
+        self.complete = false;
+        self.draft.set_partial();
+        branches.push(AssemblyBranch {
+            state: state.clone(),
+            conditional_depth: self.conditional_depth,
+            execution_dominators: self.execution_dominators.clone(),
+        });
+        self.conditional_depth = self.conditional_depth.saturating_add(1);
+    }
+
+    fn finish_assembly_branches(
+        &mut self,
+        state: &mut State,
+        branches: &mut Vec<AssemblyBranch>,
+        value: Value,
+    ) -> Value {
+        self.close_assembly_branches(state, branches);
+        value
+    }
+
+    fn close_assembly_branches(&mut self, state: &mut State, branches: &mut Vec<AssemblyBranch>) {
+        while let Some(branch) = branches.pop() {
+            self.conditional_depth = branch.conditional_depth;
+            self.execution_dominators = branch.execution_dominators;
+            *state = join_states(branch.state, state.clone());
+        }
+    }
+
     fn exec_sequence(
         &mut self,
         node: &HirNode,
@@ -655,13 +884,15 @@ impl<'a> Interpreter<'a> {
             HirKind::StatementBlock => self.exec_sequence(node, state, true, call_depth),
             HirKind::ExpressionStatement => {
                 if let Some(expression) = named_children(node).next() {
-                    self.eval(expression, state, call_depth);
+                    let value = self.eval(expression, state, call_depth);
+                    if let Some(control) = abrupt_control(&value) {
+                        return control;
+                    }
                 }
                 Control::Next
             }
             HirKind::LexicalDeclaration | HirKind::VariableDeclaration => {
-                self.declaration(node, state, call_depth);
-                Control::Next
+                self.declaration(node, state, call_depth)
             }
             HirKind::FunctionDeclaration | HirKind::ImportStatement | HirKind::TypeOnly => {
                 Control::Next
@@ -689,11 +920,14 @@ impl<'a> Interpreter<'a> {
                     .map_or(Value::Undefined, |value| {
                         self.eval(value, state, call_depth)
                     });
-                Control::Return
+                abrupt_control(&self.return_value).unwrap_or(Control::Return)
             }
             HirKind::ThrowStatement => {
                 if let Some(value) = named_children(node).next() {
-                    self.eval(value, state, call_depth);
+                    let value = self.eval(value, state, call_depth);
+                    if value == Value::Divergent {
+                        return Control::Diverge;
+                    }
                 }
                 Control::Throw
             }
@@ -705,13 +939,13 @@ impl<'a> Interpreter<'a> {
                 Control::Next
             }
             _ => {
-                self.eval(node, state, call_depth);
-                Control::Next
+                let value = self.eval(node, state, call_depth);
+                abrupt_control(&value).unwrap_or(Control::Next)
             }
         }
     }
 
-    fn declaration(&mut self, node: &HirNode, state: &mut State, call_depth: usize) {
+    fn declaration(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Control {
         for declarator in
             named_children(node).filter(|child| child.kind() == HirKind::VariableDeclarator)
         {
@@ -720,15 +954,21 @@ impl<'a> Interpreter<'a> {
                 .map_or(Value::Undefined, |value| {
                     self.eval(value, state, call_depth)
                 });
+            if let Some(control) = abrupt_control(&value) {
+                return control;
+            }
             if let Some(pattern) = declarator.child(HirField::Name) {
                 let mode = if node.kind() == HirKind::VariableDeclaration {
                     BindingMode::Var
                 } else {
                     BindingMode::Lexical
                 };
-                self.assign_pattern(pattern, value, state, mode, call_depth);
+                if let Some(value) = self.assign_pattern(pattern, value, state, mode, call_depth) {
+                    return abrupt_control(&value).unwrap_or(Control::Throw);
+                }
             }
         }
+        Control::Next
     }
 
     fn if_statement(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Control {
@@ -737,6 +977,9 @@ impl<'a> Interpreter<'a> {
             .map_or(Value::Unknown, |condition| {
                 self.eval(condition, state, call_depth)
             });
+        if let Some(control) = abrupt_control(&condition) {
+            return control;
+        }
         let consequence = node.child(HirField::Consequence);
         let alternative = node
             .child(HirField::Alternative)
@@ -796,6 +1039,9 @@ impl<'a> Interpreter<'a> {
                 .map_or(Value::Unknown, |condition| {
                     self.eval(condition, state, call_depth)
                 });
+            if let Some(control) = abrupt_control(&condition) {
+                return control;
+            }
             match truthy(&condition) {
                 Some(false) => return Control::Next,
                 Some(true) => {
@@ -834,11 +1080,14 @@ impl<'a> Interpreter<'a> {
         let mut control = node.child(HirField::Body).map_or(Control::Next, |body| {
             self.exec_sequence(body, state, true, call_depth)
         });
+        if control == Control::Diverge {
+            return control;
+        }
         if control == Control::Throw
             && let Some(handler) = node.child(HirField::Handler)
         {
             state.push_scope(false);
-            if let Some(parameter) = handler.child(HirField::Parameter) {
+            let parameter_control = handler.child(HirField::Parameter).and_then(|parameter| {
                 self.predeclare_pattern(parameter, state, false);
                 self.assign_pattern(
                     parameter,
@@ -846,12 +1095,20 @@ impl<'a> Interpreter<'a> {
                     state,
                     BindingMode::Lexical,
                     call_depth,
-                );
-            }
-            control = handler.child(HirField::Body).map_or(Control::Next, |body| {
-                self.exec_sequence(body, state, false, call_depth)
+                )
+                .and_then(|value| abrupt_control(&value))
             });
+            if let Some(parameter_control) = parameter_control {
+                control = parameter_control;
+            } else {
+                control = handler.child(HirField::Body).map_or(Control::Next, |body| {
+                    self.exec_sequence(body, state, false, call_depth)
+                });
+            }
             state.pop_scope();
+        }
+        if control == Control::Diverge {
+            return control;
         }
         if let Some(finalizer) = node.child(HirField::Finalizer)
             && let Some(body) = finalizer.child(HirField::Body)
@@ -894,15 +1151,28 @@ impl<'a> Interpreter<'a> {
             HirKind::FunctionExpression | HirKind::ArrowFunction => {
                 self.function_value(node, state).unwrap_or(Value::Unknown)
             }
-            HirKind::ParenthesizedExpression
-            | HirKind::TransparentExpression
-            | HirKind::AwaitExpression => named_children(node)
-                .next()
-                .map_or(Value::Unknown, |child| self.eval(child, state, call_depth)),
+            HirKind::ParenthesizedExpression | HirKind::TransparentExpression => {
+                named_children(node)
+                    .next()
+                    .map_or(Value::Unknown, |child| self.eval(child, state, call_depth))
+            }
+            HirKind::AwaitExpression => {
+                let value = named_children(node)
+                    .next()
+                    .map_or(Value::Unknown, |child| self.eval(child, state, call_depth));
+                match value {
+                    Value::RejectedPromise => Value::SynchronousThrow,
+                    Value::Promise => Value::Unknown,
+                    value => value,
+                }
+            }
             HirKind::SequenceExpression => {
                 let mut value = Value::Undefined;
                 for child in named_children(node) {
                     value = self.eval(child, state, call_depth);
+                    if abrupt_value(&value) {
+                        return value;
+                    }
                 }
                 value
             }
@@ -914,11 +1184,15 @@ impl<'a> Interpreter<'a> {
                 if let Some(left) = node
                     .child(HirField::Left)
                     .or_else(|| named_children(node).next())
+                    && let Some(value) = self.assign_target(left, Value::Unknown, state, call_depth)
                 {
-                    self.assign_target(left, Value::Unknown, state, call_depth);
+                    return value;
                 }
                 if let Some(right) = node.child(HirField::Right) {
-                    self.eval(right, state, call_depth);
+                    let value = self.eval(right, state, call_depth);
+                    if abrupt_value(&value) {
+                        return value;
+                    }
                 }
                 Value::Unknown
             }
@@ -926,6 +1200,7 @@ impl<'a> Interpreter<'a> {
                 self.member(node, state, call_depth)
             }
             HirKind::CallExpression => self.call(node, state, call_depth),
+            HirKind::NewExpression => self.construct(node, state, call_depth),
             HirKind::ComputedPropertyName | HirKind::TemplateSubstitution => named_children(node)
                 .next()
                 .map_or(Value::Unknown, |child| self.eval(child, state, call_depth)),
@@ -953,6 +1228,9 @@ impl<'a> Interpreter<'a> {
             .child(HirField::Operator)
             .map_or_else(String::new, |operator| self.text(operator).to_owned());
         let left = self.eval(left_node, state, call_depth);
+        if abrupt_value(&left) {
+            return left;
+        }
         match operator.as_str() {
             "&&" => match truthy(&left) {
                 Some(false) => left,
@@ -1001,6 +1279,9 @@ impl<'a> Interpreter<'a> {
             },
             _ => {
                 let right = self.eval(right_node, state, call_depth);
+                if abrupt_value(&right) {
+                    return right;
+                }
                 match operator.as_str() {
                     "+" => self.add_values(left, right),
                     "===" => strict_equal(&left, &right).map_or(Value::Unknown, Value::Bool),
@@ -1025,6 +1306,9 @@ impl<'a> Interpreter<'a> {
             .child(HirField::Argument)
             .or_else(|| named_children(node).next())
             .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
+        if abrupt_value(&argument) {
+            return argument;
+        }
         match operator.as_str() {
             "!" => truthy(&argument).map_or(Value::Unknown, |value| Value::Bool(!value)),
             "void" => Value::Undefined,
@@ -1037,8 +1321,11 @@ impl<'a> Interpreter<'a> {
                 _ => Value::Unknown,
             },
             "delete" => {
-                if let Some(argument) = node.child(HirField::Argument) {
-                    self.assign_target(argument, Value::Unknown, state, call_depth);
+                if let Some(argument) = node.child(HirField::Argument)
+                    && let Some(value) =
+                        self.assign_target(argument, Value::Unknown, state, call_depth)
+                {
+                    return value;
                 }
                 Value::Bool(true)
             }
@@ -1050,6 +1337,9 @@ impl<'a> Interpreter<'a> {
         let condition = node
             .child(HirField::Condition)
             .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
+        if abrupt_value(&condition) {
+            return condition;
+        }
         let consequence = node.child(HirField::Consequence);
         let alternative = node.child(HirField::Alternative);
         match truthy(&condition) {
@@ -1081,11 +1371,26 @@ impl<'a> Interpreter<'a> {
     }
 
     fn assignment(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
+        let left = node.child(HirField::Left);
+        let member = match left.and_then(member_assignment_target) {
+            Some(target) => match self.member_reference(target, state, call_depth) {
+                Ok(member) => Some(member),
+                Err(value) => return value,
+            },
+            None => None,
+        };
         let value = node
             .child(HirField::Right)
             .map_or(Value::Unknown, |right| self.eval(right, state, call_depth));
-        if let Some(left) = node.child(HirField::Left) {
-            self.assign_target(left, value.clone(), state, call_depth);
+        if abrupt_value(&value) {
+            return value;
+        }
+        if let Some(member) = member {
+            self.assign_member(member, state);
+        } else if let Some(left) = left
+            && let Some(value) = self.assign_target(left, value.clone(), state, call_depth)
+        {
+            return value;
         }
         value
     }
@@ -1096,45 +1401,85 @@ impl<'a> Interpreter<'a> {
         value: Value,
         state: &mut State,
         call_depth: usize,
-    ) {
+    ) -> Option<Value> {
         match node.kind() {
             HirKind::Identifier => state.assign(self.text(node), value),
             HirKind::ObjectPattern | HirKind::ArrayPattern => {
-                self.assign_pattern(node, value, state, BindingMode::Assign, call_depth);
+                return self.assign_pattern(node, value, state, BindingMode::Assign, call_depth);
             }
             HirKind::ParenthesizedExpression => {
                 if let Some(target) = named_children(node).next() {
-                    self.assign_target(target, value, state, call_depth);
+                    return self.assign_target(target, value, state, call_depth);
                 }
             }
             HirKind::MemberExpression | HirKind::SubscriptExpression => {
-                let object = node
-                    .child(HirField::Object)
-                    .map_or(Value::Unknown, |object| {
-                        self.eval(object, state, call_depth)
-                    });
-                let property = self.member_name(node, state, call_depth);
-                if matches!(
-                    (&object, property.as_deref()),
-                    (Value::Object(properties), Some(property))
-                        if properties.get(property) == Some(&Value::Accessor)
-                ) {
-                    self.complete = false;
-                }
-                match (&object, property.as_deref()) {
-                    (Value::Module(module), Some(property)) => {
-                        if *module == Module::Fs && property == "promises" {
-                            state.invalidate_module(Module::FsPromises);
-                        } else if let Some(member) = module_member(*module, property) {
-                            state.owned_members.remove(&(*module, member));
-                        } else {
-                            state.invalidate_module(*module);
-                        }
-                    }
-                    _ => state.invalidate_value(&object),
-                }
+                let member = match self.member_reference(node, state, call_depth) {
+                    Ok(member) => member,
+                    Err(value) => return Some(value),
+                };
+                self.assign_member(member, state);
             }
             _ => {}
+        }
+        None
+    }
+
+    fn member_reference(
+        &mut self,
+        node: &HirNode,
+        state: &mut State,
+        call_depth: usize,
+    ) -> Result<MemberReference, Value> {
+        let object = node
+            .child(HirField::Object)
+            .map_or(Value::Unknown, |object| {
+                self.eval(object, state, call_depth)
+            });
+        if abrupt_value(&object) {
+            return Err(object);
+        }
+        let property = if let Some(property) = node.child(HirField::Property) {
+            Some(self.text(property).to_owned())
+        } else {
+            let value = node
+                .child(HirField::Index)
+                .map_or(Value::Unknown, |index| self.eval(index, state, call_depth));
+            if abrupt_value(&value) {
+                return Err(value);
+            }
+            string_coercion(&value)
+        };
+        Ok(MemberReference {
+            object,
+            property,
+            prototype_mutation: prototype_mutation_target(self.text(node)),
+        })
+    }
+
+    fn assign_member(&mut self, member: MemberReference, state: &mut State) {
+        if member.prototype_mutation {
+            state.prototype_integrity_known = false;
+            self.complete = false;
+            self.draft.set_partial();
+        }
+        if matches!(
+            (&member.object, member.property.as_deref()),
+            (Value::Object(properties), Some(property))
+                if properties.get(property) == Some(&Value::Accessor)
+        ) {
+            self.complete = false;
+        }
+        match (&member.object, member.property.as_deref()) {
+            (Value::Module(module), Some(property)) => {
+                if *module == Module::Fs && property == "promises" {
+                    state.invalidate_module(Module::FsPromises);
+                } else if let Some(known) = module_member(*module, property) {
+                    state.owned_members.remove(&(*module, known));
+                } else {
+                    state.invalidate_module(*module);
+                }
+            }
+            _ => state.invalidate_value(&member.object),
         }
     }
 
@@ -1145,7 +1490,7 @@ impl<'a> Interpreter<'a> {
         state: &mut State,
         mode: BindingMode,
         call_depth: usize,
-    ) {
+    ) -> Option<Value> {
         match node.kind() {
             HirKind::Identifier | HirKind::ShorthandPropertyIdentifier => match mode {
                 BindingMode::Assign | BindingMode::Var => {
@@ -1154,22 +1499,54 @@ impl<'a> Interpreter<'a> {
                 BindingMode::Lexical => state.declare(self.text(node), value),
             },
             HirKind::ObjectPattern => {
+                if abrupt_value(&value) {
+                    return Some(value);
+                }
+                if matches!(value, Value::Undefined | Value::Null) {
+                    return Some(Value::SynchronousThrow);
+                }
                 for child in named_children(node) {
                     match child.kind() {
                         HirKind::ShorthandPropertyIdentifier => {
                             let property = self.text(child).to_owned();
                             let selected = self.read_property(&value, &property, state);
-                            self.assign_pattern(child, selected, state, mode, call_depth);
+                            if let Some(value) =
+                                self.assign_pattern(child, selected, state, mode, call_depth)
+                            {
+                                return Some(value);
+                            }
                         }
                         HirKind::Pair => {
-                            let property = child
-                                .child(HirField::Key)
-                                .and_then(|key| self.property_name(key, state, call_depth));
+                            let property = match child.child(HirField::Key) {
+                                Some(key) => {
+                                    match self.object_property_name(key, state, call_depth) {
+                                        Ok(property) => property,
+                                        Err(value) => return Some(value),
+                                    }
+                                }
+                                None => None,
+                            };
                             let selected = property.as_deref().map_or(Value::Unknown, |property| {
                                 self.read_property(&value, property, state)
                             });
-                            if let Some(target) = child.child(HirField::Value) {
-                                self.assign_pattern(target, selected, state, mode, call_depth);
+                            if let Some(target) = child.child(HirField::Value)
+                                && let Some(value) =
+                                    self.assign_pattern(target, selected, state, mode, call_depth)
+                            {
+                                return Some(value);
+                            }
+                        }
+                        HirKind::AssignmentPattern => {
+                            let property = child
+                                .child(HirField::Left)
+                                .map(|target| self.text(target).to_owned());
+                            let selected = property.as_deref().map_or(Value::Unknown, |property| {
+                                self.read_property(&value, property, state)
+                            });
+                            if let Some(value) =
+                                self.assign_pattern(child, selected, state, mode, call_depth)
+                            {
+                                return Some(value);
                             }
                         }
                         _ => {
@@ -1179,13 +1556,29 @@ impl<'a> Interpreter<'a> {
                 }
             }
             HirKind::ArrayPattern => {
-                let values = match value {
-                    Value::Array(values) => values,
-                    _ => Vec::new(),
+                let values = match &value {
+                    Value::Array(values) => Some(values.clone()),
+                    Value::String(value) => Some(
+                        value
+                            .chars()
+                            .map(|value| Value::String(value.to_string()))
+                            .collect(),
+                    ),
+                    value if exact_non_iterable(value) => {
+                        return Some(Value::SynchronousThrow);
+                    }
+                    Value::SynchronousThrow | Value::Divergent => return Some(value),
+                    _ => None,
                 };
                 for (index, child) in named_children(node).enumerate() {
-                    let selected = values.get(index).cloned().unwrap_or(Value::Unknown);
-                    self.assign_pattern(child, selected, state, mode, call_depth);
+                    let selected = values.as_ref().map_or(Value::Unknown, |values| {
+                        values.get(index).cloned().unwrap_or(Value::Undefined)
+                    });
+                    if let Some(value) =
+                        self.assign_pattern(child, selected, state, mode, call_depth)
+                    {
+                        return Some(value);
+                    }
                 }
             }
             HirKind::AssignmentPattern => {
@@ -1196,16 +1589,26 @@ impl<'a> Interpreter<'a> {
                     } else {
                         value
                     };
-                    self.assign_pattern(target, value, state, mode, call_depth);
+                    if abrupt_value(&value) {
+                        return Some(value);
+                    }
+                    if let Some(value) = self.assign_pattern(target, value, state, mode, call_depth)
+                    {
+                        return Some(value);
+                    }
                 }
             }
             HirKind::RestPattern => {
-                if let Some(target) = named_children(node).next() {
-                    self.assign_pattern(target, Value::Unknown, state, mode, call_depth);
+                if let Some(target) = named_children(node).next()
+                    && let Some(value) =
+                        self.assign_pattern(target, Value::Unknown, state, mode, call_depth)
+                {
+                    return Some(value);
                 }
             }
             _ => {}
         }
+        None
     }
 
     fn member(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
@@ -1214,10 +1617,26 @@ impl<'a> Interpreter<'a> {
             .map_or(Value::Unknown, |object| {
                 self.eval(object, state, call_depth)
             });
-        let Some(property) = self.member_name(node, state, call_depth) else {
-            return Value::Unknown;
+        if abrupt_value(&object) {
+            return object;
+        }
+        let property = if let Some(property) = node.child(HirField::Property) {
+            self.text(property).to_owned()
+        } else {
+            let value = node
+                .child(HirField::Index)
+                .map_or(Value::Unknown, |index| self.eval(index, state, call_depth));
+            if abrupt_value(&value) {
+                return value;
+            }
+            let Some(property) = value_string(&value) else {
+                return Value::Unknown;
+            };
+            property.to_owned()
         };
         match object {
+            Value::Invalid | Value::SynchronousThrow | Value::Divergent => object,
+            Value::DynamicEvalResult => Value::DynamicEvalResult,
             Value::Module(Module::Fs) if property == "promises" => {
                 Value::Module(Module::FsPromises)
             }
@@ -1243,6 +1662,9 @@ impl<'a> Interpreter<'a> {
                         self.complete = false;
                         Value::UnknownReceiver(Box::new(Value::Object(properties)))
                     }
+                    Some(Value::Known(function)) if direct_receiver_required(&function) => {
+                        Value::UnknownReceiver(Box::new(Value::Object(properties)))
+                    }
                     Some(value) if value != Value::Unknown => value,
                     _ => Value::UnknownReceiver(Box::new(Value::Object(properties))),
                 }
@@ -1251,64 +1673,381 @@ impl<'a> Interpreter<'a> {
             Value::ObjectBuiltin if property == "defineProperty" => {
                 Value::Known(KnownFunction::DefineProperty)
             }
+            Value::ObjectBuiltin if property == "setPrototypeOf" => {
+                Value::Known(KnownFunction::SetPrototypeOf)
+            }
             Value::Process if property == "env" => Value::Environment,
             Value::Environment if property == "HOME" => Value::String(self.home.to_owned()),
+            Value::Deno if property == "Command" => Value::DenoCommandConstructor,
+            Value::Deno => deno_member(&property)
+                .map_or(Value::UnknownReceiver(Box::new(Value::Deno)), |member| {
+                    Value::Known(KnownFunction::Deno(member))
+                }),
+            Value::DenoCommand(command) => deno_command_member(&property).map_or(
+                Value::UnknownReceiver(Box::new(Value::DenoCommand(command.clone()))),
+                |member| Value::Known(KnownFunction::DenoCommand(member, command)),
+            ),
+            Value::Bun => bun_member(&property)
+                .map_or(Value::UnknownReceiver(Box::new(Value::Bun)), |member| {
+                    Value::Known(KnownFunction::Bun(member))
+                }),
+            Value::BunFile(path) => bun_file_member(&property).map_or(
+                Value::UnknownReceiver(Box::new(Value::BunFile(path.clone()))),
+                |member| Value::Known(KnownFunction::BunFile(member, path)),
+            ),
+            Value::OpenClawTools => openclaw_member(&property).map_or(
+                Value::UnknownReceiver(Box::new(Value::OpenClawTools)),
+                |member| Value::Known(KnownFunction::OpenClaw(member)),
+            ),
             _ => Value::Unknown,
         }
     }
 
-    fn member_name(
-        &mut self,
-        node: &HirNode,
-        state: &mut State,
-        call_depth: usize,
-    ) -> Option<String> {
-        if let Some(property) = node.child(HirField::Property) {
-            return Some(self.text(property).to_owned());
-        }
-        node.child(HirField::Index)
-            .map(|index| self.eval(index, state, call_depth))
-            .and_then(|value| value_string(&value).map(str::to_owned))
-    }
-
     fn call(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
-        let callable = node
-            .child(HirField::Function)
-            .map_or(Value::Unknown, |function| {
-                self.eval(function, state, call_depth)
-            });
-        let arguments = node.child(HirField::Arguments).map_or_else(
+        let function = node.child(HirField::Function);
+        let direct_receiver = function.is_some_and(direct_receiver_expression);
+        let tagged_template = node
+            .child(HirField::Arguments)
+            .is_some_and(|arguments| arguments.kind() == HirKind::TemplateString);
+        let callable = function.map_or(Value::Unknown, |function| {
+            self.eval(function, state, call_depth)
+        });
+        if abrupt_value(&callable) {
+            return callable;
+        }
+        let mut arguments = node.child(HirField::Arguments).map_or_else(
             || Arguments {
                 values: Vec::new(),
                 complete: false,
+                assembly_branches: Vec::new(),
             },
             |arguments| self.arguments(arguments, state, call_depth),
         );
-        match callable {
-            Value::Require => self.require(arguments),
-            Value::Eval => self.eval_source(arguments, state),
-            Value::Known(function) => self.call_known(function, arguments, state, call_depth),
-            Value::Function(function) => self.call_local(&function, arguments, state, call_depth),
-            Value::UnknownModuleMember(module) => {
-                state.invalidate_module(module);
-                state.relative_cwd_known = false;
-                self.complete = false;
-                Value::Unknown
+        let mut branches = std::mem::take(&mut arguments.assembly_branches);
+        let value = (|| {
+            if let Some(value) = arguments.values.iter().find(|value| abrupt_value(value)) {
+                return value.clone();
             }
-            Value::UnknownReceiver(receiver) => {
-                state.invalidate_value(&receiver);
-                state.relative_cwd_known = false;
-                self.complete = false;
-                Value::Unknown
-            }
-            _ => {
-                for value in &arguments.values {
-                    state.invalidate_value(value);
+            match callable {
+                Value::Invalid | Value::SynchronousThrow | Value::Divergent => callable,
+                Value::Promise | Value::RejectedPromise => Value::SynchronousThrow,
+                Value::Require => self.require(arguments),
+                Value::Eval => self.eval_source(arguments, state),
+                Value::DenoCommandConstructor => Value::SynchronousThrow,
+                Value::DynamicEvalResult => {
+                    self.complete = false;
+                    self.draft.set_partial();
+                    state.widen();
+                    Value::Unknown
                 }
-                state.relative_cwd_known = false;
-                self.complete = false;
-                Value::Unknown
+                Value::FunctionConstructor => self.dynamic_function(arguments, state),
+                Value::DynamicFunction(body) => {
+                    self.call_dynamic_function(body.as_deref(), arguments, state)
+                }
+                Value::Known(function)
+                    if direct_receiver_required(&function) && !direct_receiver =>
+                {
+                    Value::SynchronousThrow
+                }
+                Value::Known(function) => {
+                    self.call_known(function, arguments, state, call_depth, tagged_template)
+                }
+                Value::Function(function) => {
+                    self.call_local(&function, arguments, state, call_depth)
+                }
+                Value::UnknownModuleMember(module) => {
+                    state.invalidate_module(module);
+                    state.relative_cwd_known = false;
+                    self.complete = false;
+                    Value::Unknown
+                }
+                Value::UnknownReceiver(receiver) => {
+                    state.invalidate_value(&receiver);
+                    state.relative_cwd_known = false;
+                    self.complete = false;
+                    Value::Unknown
+                }
+                _ => {
+                    for value in &arguments.values {
+                        state.invalidate_value(value);
+                    }
+                    state.relative_cwd_known = false;
+                    self.complete = false;
+                    Value::Unknown
+                }
             }
+        })();
+        self.close_assembly_branches(state, &mut branches);
+        value
+    }
+
+    fn construct(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
+        let constructor_node = node.child(HirField::Constructor);
+        let constructor = constructor_node.map_or(Value::Unknown, |constructor| {
+            self.eval(constructor, state, call_depth)
+        });
+        if abrupt_value(&constructor) {
+            return constructor;
+        }
+        let mut arguments = node.child(HirField::Arguments).map_or_else(
+            || Arguments {
+                values: Vec::new(),
+                complete: false,
+                assembly_branches: Vec::new(),
+            },
+            |arguments| self.arguments(arguments, state, call_depth),
+        );
+        let mut branches = std::mem::take(&mut arguments.assembly_branches);
+        let value = (|| {
+            if let Some(value) = arguments.values.iter().find(|value| abrupt_value(value)) {
+                return value.clone();
+            }
+            if constructor == Value::DenoCommandConstructor {
+                let summary =
+                    deno_command(&arguments, state.prototype_integrity_known, self.platform);
+                return match summary {
+                    RuntimeCallSummary::Effect(argv) => Value::DenoCommand(argv),
+                    RuntimeCallSummary::EffectPartial(argv) => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        Value::DenoCommand(argv)
+                    }
+                    RuntimeCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        Value::Unknown
+                    }
+                    RuntimeCallSummary::Invalid => Value::Invalid,
+                };
+            }
+            if constructor == Value::Invalid {
+                return Value::Invalid;
+            }
+            if constructor == Value::DynamicEvalResult {
+                self.complete = false;
+                self.draft.set_partial();
+                state.widen();
+                return Value::Unknown;
+            }
+            if constructor == Value::FunctionConstructor {
+                return self.dynamic_function(arguments, state);
+            }
+            if let Value::DynamicFunction(body) = constructor {
+                let value = self.call_dynamic_function(body.as_deref(), arguments, state);
+                return if abrupt_value(&value) {
+                    value
+                } else {
+                    Value::Object(BTreeMap::new())
+                };
+            }
+            if let Value::Known(function) = constructor {
+                return match function {
+                    KnownFunction::Deno(member) if deno_member_constructible(member) => {
+                        let value = self.call_known(
+                            KnownFunction::Deno(member),
+                            arguments,
+                            state,
+                            call_depth,
+                            false,
+                        );
+                        if abrupt_value(&value) || member == DenoMember::WriteTextFile {
+                            value
+                        } else {
+                            Value::Object(BTreeMap::new())
+                        }
+                    }
+                    KnownFunction::BunShell => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        state.widen();
+                        Value::Unknown
+                    }
+                    KnownFunction::Deno(_)
+                    | KnownFunction::DenoCommand(_, _)
+                    | KnownFunction::Bun(_)
+                    | KnownFunction::BunFile(_, _)
+                    | KnownFunction::OpenClaw(_) => Value::SynchronousThrow,
+                    function => {
+                        for value in &arguments.values {
+                            state.invalidate_value(value);
+                        }
+                        state.relative_cwd_known = false;
+                        self.complete = false;
+                        let _ = function;
+                        Value::Unknown
+                    }
+                };
+            }
+            if matches!(constructor, Value::Promise | Value::RejectedPromise) {
+                return Value::SynchronousThrow;
+            }
+            for value in &arguments.values {
+                state.invalidate_value(value);
+            }
+            state.relative_cwd_known = false;
+            self.complete = false;
+            Value::Unknown
+        })();
+        self.close_assembly_branches(state, &mut branches);
+        value
+    }
+
+    fn dynamic_function(&mut self, arguments: Arguments, state: &mut State) -> Value {
+        if !arguments.complete {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::DynamicFunction(None);
+        }
+        let Some(values) = arguments
+            .values
+            .iter()
+            .map(string_coercion)
+            .collect::<Option<Vec<_>>>()
+        else {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::DynamicFunction(None);
+        };
+        let (parameters, body) = values
+            .split_last()
+            .map_or((&[][..], ""), |(body, parameters)| {
+                (parameters, body.as_str())
+            });
+        let Some(parameter_bytes) = parameters.iter().try_fold(0usize, |bytes, parameter| {
+            bytes.checked_add(parameter.len())?.checked_add(1)
+        }) else {
+            self.budget.refuse();
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::DynamicFunction(None);
+        };
+        let Some(source_bytes) = parameter_bytes.checked_add(body.len()) else {
+            self.budget.refuse();
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::DynamicFunction(None);
+        };
+        if !self.budget.enter_dynamic_source(source_bytes) {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::DynamicFunction(None);
+        }
+        match super::parser::javascript_dynamic_function(parameters, body) {
+            Ok(true) => {
+                let body = parameters.is_empty().then(|| body.to_owned());
+                Value::DynamicFunction(body)
+            }
+            Ok(false)
+            | Err(InlineRefusal::StructureIncomplete | InlineRefusal::StructureMismatch) => {
+                Value::SynchronousThrow
+            }
+            Err(refusal) => {
+                self.report.refuse(refusal);
+                self.complete = false;
+                self.draft.set_partial();
+                state.widen();
+                Value::DynamicFunction(None)
+            }
+        }
+    }
+
+    fn call_dynamic_function(
+        &mut self,
+        body: Option<&str>,
+        arguments: Arguments,
+        state: &mut State,
+    ) -> Value {
+        let Some(body) = body else {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::Unknown;
+        };
+        if !arguments.complete || !self.budget.enter_dynamic_source(body.len()) {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::Unknown;
+        }
+        if self.depth + 1 >= 16 {
+            self.report.refuse(InlineRefusal::RecursionLimit);
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            return Value::Unknown;
+        }
+        let module = match super::parser::javascript_function_body(body) {
+            Ok(module) if module.executable() => module,
+            Ok(_) | Err(InlineRefusal::StructureIncomplete | InlineRefusal::StructureMismatch) => {
+                return Value::SynchronousThrow;
+            }
+            Err(refusal) => {
+                self.report.refuse(refusal);
+                self.complete = false;
+                self.draft.set_partial();
+                state.widen();
+                return Value::Unknown;
+            }
+        };
+        let mut nested = Interpreter {
+            source: body,
+            home: self.home,
+            platform: self.platform,
+            depth: self.depth + 1,
+            profile: Profile {
+                syntax: SyntaxProfile::JavaScript,
+                ..self.profile
+            },
+            report: InlineReport::default(),
+            draft: LanguageDraft::default(),
+            complete: true,
+            budget: Budget::default(),
+            return_value: Value::Undefined,
+            conditional_depth: self.conditional_depth,
+            execution_dominators: Vec::new(),
+        };
+        let mut nested_state = state.dynamic_global(self.profile.ownership);
+        nested_state.push_scope(true);
+        nested.hoist_vars(module.root(), &mut nested_state);
+        let control = nested.exec_sequence(module.root(), &mut nested_state, false, 0);
+        nested_state.pop_scope();
+        let failed = nested.budget.refusal.is_some();
+        if let Some(refusal) = nested.budget.refusal {
+            nested.report.refuse(refusal);
+            nested.draft.set_partial();
+        }
+        if !nested.complete {
+            nested.draft.set_partial();
+        }
+        let return_value = nested.return_value.clone();
+        self.report.extend(nested.report);
+        self.merge_nested_draft(&nested.draft, &nested.execution_dominators);
+        self.complete &= nested.complete;
+        self.budget.absorb(nested.budget);
+        if source_mutates(module.root()) || failed || !nested.complete {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+        }
+        let value = match control {
+            Control::Next => Value::Undefined,
+            Control::Return => return_value,
+            Control::Throw => Value::SynchronousThrow,
+            Control::Diverge => Value::Divergent,
+            Control::Break | Control::Continue => Value::SynchronousThrow,
+        };
+        if contains_local_function(&value) {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
+            Value::Unknown
+        } else {
+            value
         }
     }
 
@@ -1316,21 +2055,49 @@ impl<'a> Interpreter<'a> {
         let mut arguments = Arguments {
             values: Vec::new(),
             complete: !delimited_has_hole(node, self.source),
+            assembly_branches: Vec::new(),
         };
+        let mut branches = Vec::new();
         for child in named_children(node) {
             if child.kind() == HirKind::SpreadElement {
                 let value = named_children(child)
                     .next()
                     .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
-                if let Value::Array(values) = value
-                    && arguments.values.len() + values.len() <= MAX_COLLECTION_ITEMS
-                {
-                    arguments.values.extend(values);
-                } else {
-                    arguments.complete = false;
+                if abrupt_value(&value) {
+                    arguments.values.push(value);
+                    break;
+                }
+                if exact_non_iterable(&value) {
+                    arguments.values.push(Value::SynchronousThrow);
+                    break;
+                }
+                match value {
+                    Value::Array(values)
+                        if arguments.values.len() + values.len() <= MAX_COLLECTION_ITEMS =>
+                    {
+                        arguments.values.extend(values);
+                    }
+                    Value::String(value)
+                        if arguments.values.len() + value.chars().count()
+                            <= MAX_COLLECTION_ITEMS =>
+                    {
+                        arguments
+                            .values
+                            .extend(value.chars().map(|value| Value::String(value.to_string())));
+                    }
+                    Value::Array(_) | Value::String(_) => arguments.complete = false,
+                    _ => {
+                        arguments.complete = false;
+                        self.start_assembly_branch(state, &mut branches);
+                    }
                 }
             } else {
-                arguments.values.push(self.eval(child, state, call_depth));
+                let value = self.eval(child, state, call_depth);
+                let abrupt = abrupt_value(&value);
+                arguments.values.push(value);
+                if abrupt {
+                    break;
+                }
             }
             if arguments.values.len() > MAX_COLLECTION_ITEMS {
                 arguments.complete = false;
@@ -1342,6 +2109,7 @@ impl<'a> Interpreter<'a> {
         if !arguments.complete {
             self.complete = false;
         }
+        arguments.assembly_branches = branches;
         arguments
     }
 
@@ -1363,13 +2131,29 @@ impl<'a> Interpreter<'a> {
     }
 
     fn eval_source(&mut self, arguments: Arguments, state: &mut State) -> Value {
-        if !arguments.complete || arguments.values.len() != 1 {
+        if !arguments.complete {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
             return Value::Unknown;
         }
-        let Some(source) = arguments.values.first().and_then(value_string) else {
-            return Value::Unknown;
+        let Some(value) = arguments.values.first() else {
+            return Value::Undefined;
+        };
+        let source = match value {
+            Value::String(source) => source,
+            Value::Unknown | Value::UnknownModuleMember(_) | Value::UnknownReceiver(_) => {
+                self.complete = false;
+                self.draft.set_partial();
+                state.widen();
+                return Value::Unknown;
+            }
+            value => return value.clone(),
         };
         if !self.budget.enter_dynamic_source(source.len()) {
+            self.complete = false;
+            self.draft.set_partial();
+            state.widen();
             return Value::Unknown;
         }
         if self.depth + 1 >= 16 {
@@ -1379,11 +2163,13 @@ impl<'a> Interpreter<'a> {
             return Value::Unknown;
         }
         let module = match super::parser::javascript(source) {
+            Ok(module) if module.executable() && named_children(module.root()).next().is_none() => {
+                return Value::Undefined;
+            }
             Ok(module) if module.executable() => module,
-            Ok(_) => {
-                self.complete = false;
-                state.widen();
-                return Value::Unknown;
+            Ok(_) => return Value::SynchronousThrow,
+            Err(InlineRefusal::StructureIncomplete | InlineRefusal::StructureMismatch) => {
+                return Value::SynchronousThrow;
             }
             Err(refusal) => {
                 self.report.refuse(refusal);
@@ -1412,7 +2198,7 @@ impl<'a> Interpreter<'a> {
         };
         let mut nested_state = state.clone();
         nested.hoist_vars(module.root(), &mut nested_state);
-        nested.exec_sequence(module.root(), &mut nested_state, false, 0);
+        let nested_control = nested.exec_sequence(module.root(), &mut nested_state, false, 0);
         let failed = nested.budget.refusal.is_some();
         if let Some(refusal) = nested.budget.refusal {
             nested.report.refuse(refusal);
@@ -1430,7 +2216,13 @@ impl<'a> Interpreter<'a> {
         } else {
             *state = nested_state;
         }
-        Value::Unknown
+        match nested_control {
+            Control::Next => Value::DynamicEvalResult,
+            Control::Throw | Control::Return | Control::Break | Control::Continue => {
+                Value::SynchronousThrow
+            }
+            Control::Diverge => Value::Divergent,
+        }
     }
 
     fn merge_nested_draft(&mut self, nested: &LanguageDraft, nested_dominators: &[usize]) {
@@ -1480,10 +2272,14 @@ impl<'a> Interpreter<'a> {
         arguments: Arguments,
         state: &mut State,
         call_depth: usize,
+        _tagged_template: bool,
     ) -> Value {
         match function {
             KnownFunction::DefineProperty => {
                 self.complete = false;
+                if arguments.values.first().is_none_or(unknown_value) {
+                    state.prototype_integrity_known = false;
+                }
                 if let Some(Value::Module(module)) = arguments.values.first() {
                     if arguments.complete
                         && arguments.values.len() == 3
@@ -1498,6 +2294,12 @@ impl<'a> Interpreter<'a> {
                     state.invalidate_value(value);
                 }
                 Value::Unknown
+            }
+            KnownFunction::SetPrototypeOf => {
+                self.complete = false;
+                self.draft.set_partial();
+                state.prototype_integrity_known = false;
+                arguments.values.first().cloned().unwrap_or(Value::Unknown)
             }
             KnownFunction::Fs(module, member) => {
                 match summarize_fs_call(module, member, &arguments) {
@@ -1516,6 +2318,17 @@ impl<'a> Interpreter<'a> {
                                 self.analyze_callback(callback, state, call_depth, ordinal);
                             }
                         }
+                    }
+                    FsCallSummary::EffectPartial(filesystems) => {
+                        self.emit_call(
+                            LanguageCallKind::DirectFile,
+                            fs_callable(module, member),
+                            &arguments,
+                            state,
+                            filesystems,
+                        );
+                        self.complete = false;
+                        self.draft.set_partial();
                     }
                     FsCallSummary::Partial => {
                         self.complete = false;
@@ -1575,6 +2388,257 @@ impl<'a> Interpreter<'a> {
                     ChildCallSummary::Invalid => Value::Unknown,
                 }
             }
+            KnownFunction::Deno(member) => {
+                let summary =
+                    summarize_deno_call(member, &arguments, state.prototype_integrity_known);
+                match summary {
+                    FsCallSummary::Effect(filesystems) => {
+                        self.emit_call(
+                            LanguageCallKind::DirectFile,
+                            deno_callable(member),
+                            &arguments,
+                            state,
+                            filesystems,
+                        );
+                    }
+                    FsCallSummary::EffectPartial(filesystems) => {
+                        self.emit_call(
+                            LanguageCallKind::DirectFile,
+                            deno_callable(member),
+                            &arguments,
+                            state,
+                            filesystems,
+                        );
+                        self.complete = false;
+                        self.draft.set_partial();
+                    }
+                    FsCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                    }
+                    FsCallSummary::Invalid if deno_member_synchronous(member) => {
+                        return Value::SynchronousThrow;
+                    }
+                    FsCallSummary::Invalid => return Value::RejectedPromise,
+                }
+                if deno_member_synchronous(member) {
+                    Value::Unknown
+                } else {
+                    Value::Promise
+                }
+            }
+            KnownFunction::DenoCommand(member, command) => {
+                if !arguments.complete {
+                    self.complete = false;
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                }
+                let evidence = Arguments {
+                    values: vec![command.argv.as_ref().map_or(Value::Unknown, |argv| {
+                        Value::Array(argv.iter().cloned().map(Value::String).collect())
+                    })],
+                    complete: true,
+                    assembly_branches: Vec::new(),
+                };
+                let certainty = if member == DenoCommandMember::Spawn {
+                    command.spawn
+                } else {
+                    command.output
+                };
+                if certainty == ExecutionCertainty::Known {
+                    self.emit_call(
+                        LanguageCallKind::LocalUtility,
+                        deno_command_callable(member),
+                        &evidence,
+                        state,
+                        Vec::new(),
+                    );
+                    if command.context_exact
+                        && let Some(argv) = command.argv.clone()
+                    {
+                        let stdout_inherited = if member == DenoCommandMember::Spawn {
+                            command.spawn_stdout_inherited
+                        } else {
+                            command.output_stdout_inherited
+                        };
+                        if stdout_inherited {
+                            super::super::common::add_exact_inherited_argv(&mut self.report, argv);
+                        } else {
+                            super::super::common::add_exact_argv(&mut self.report, argv);
+                        }
+                    }
+                } else if certainty == ExecutionCertainty::Unknown {
+                    self.emit_call(
+                        LanguageCallKind::LocalUtility,
+                        deno_command_callable(member),
+                        &evidence,
+                        state,
+                        Vec::new(),
+                    );
+                    self.complete = false;
+                    self.draft.set_partial();
+                } else {
+                    return Value::SynchronousThrow;
+                }
+                if certainty == ExecutionCertainty::Known
+                    && (!command.context_exact || command.argv.is_none())
+                {
+                    self.complete = false;
+                    self.draft.set_partial();
+                }
+                let throws_after_effect = match member {
+                    DenoCommandMember::Spawn => command.spawn_throws_after_effect,
+                    DenoCommandMember::Output => command.output_throws_after_effect,
+                    DenoCommandMember::OutputSync => false,
+                };
+                if throws_after_effect {
+                    return Value::SynchronousThrow;
+                }
+                if member == DenoCommandMember::Output {
+                    Value::Promise
+                } else {
+                    Value::Object(BTreeMap::new())
+                }
+            }
+            KnownFunction::Bun(member) => match member {
+                BunMember::File => match bun_file(&arguments, state.prototype_integrity_known) {
+                    RuntimeCallSummary::Effect(path) => Value::BunFile(path),
+                    RuntimeCallSummary::EffectPartial(path) => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        Value::BunFile(path)
+                    }
+                    RuntimeCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        Value::Unknown
+                    }
+                    RuntimeCallSummary::Invalid => Value::SynchronousThrow,
+                },
+                BunMember::Spawn | BunMember::SpawnSync => {
+                    match bun_spawn_argv(&arguments, state.prototype_integrity_known) {
+                        RuntimeCallSummary::Effect(summary) => {
+                            self.emit_call(
+                                LanguageCallKind::LocalUtility,
+                                bun_callable(member),
+                                &arguments,
+                                state,
+                                Vec::new(),
+                            );
+                            if summary.context_exact
+                                && let Some(argv) = summary.argv
+                            {
+                                if summary.stdout_inherited {
+                                    super::super::common::add_exact_inherited_argv(
+                                        &mut self.report,
+                                        argv,
+                                    );
+                                } else {
+                                    super::super::common::add_exact_argv(&mut self.report, argv);
+                                }
+                            } else {
+                                self.complete = false;
+                                self.draft.set_partial();
+                            }
+                            Value::Object(BTreeMap::new())
+                        }
+                        RuntimeCallSummary::EffectPartial(_summary) => {
+                            self.emit_call(
+                                LanguageCallKind::LocalUtility,
+                                bun_callable(member),
+                                &arguments,
+                                state,
+                                Vec::new(),
+                            );
+                            self.complete = false;
+                            self.draft.set_partial();
+                            Value::Object(BTreeMap::new())
+                        }
+                        RuntimeCallSummary::Partial => {
+                            self.emit_call(
+                                LanguageCallKind::LocalUtility,
+                                bun_callable(member),
+                                &arguments,
+                                state,
+                                Vec::new(),
+                            );
+                            self.complete = false;
+                            self.draft.set_partial();
+                            Value::Object(BTreeMap::new())
+                        }
+                        RuntimeCallSummary::Invalid => Value::SynchronousThrow,
+                    }
+                }
+                BunMember::Write => {
+                    match summarize_bun_write(&arguments, state.prototype_integrity_known) {
+                        FsCallSummary::Effect(filesystems) => {
+                            self.emit_call(
+                                LanguageCallKind::DirectFile,
+                                bun_callable(member),
+                                &arguments,
+                                state,
+                                filesystems,
+                            );
+                            Value::Promise
+                        }
+                        FsCallSummary::EffectPartial(filesystems) => {
+                            self.emit_call(
+                                LanguageCallKind::DirectFile,
+                                bun_callable(member),
+                                &arguments,
+                                state,
+                                filesystems,
+                            );
+                            self.complete = false;
+                            self.draft.set_partial();
+                            Value::Promise
+                        }
+                        FsCallSummary::Partial => {
+                            self.complete = false;
+                            self.draft.set_partial();
+                            Value::Promise
+                        }
+                        FsCallSummary::Invalid => Value::SynchronousThrow,
+                    }
+                }
+            },
+            KnownFunction::BunFile(member, path) => {
+                if !arguments.complete {
+                    self.complete = false;
+                    self.draft.set_partial();
+                    return Value::Unknown;
+                }
+                let operation = if member == BunFileMember::Delete {
+                    FilesystemOperation::Delete
+                } else {
+                    FilesystemOperation::Read
+                };
+                self.emit_call(
+                    LanguageCallKind::DirectFile,
+                    bun_file_callable(member),
+                    &arguments,
+                    state,
+                    vec![LanguageFilesystem::new(path, operation, false)],
+                );
+                Value::Promise
+            }
+            KnownFunction::BunShell => {
+                self.complete = false;
+                self.draft.set_partial();
+                Value::Promise
+            }
+            KnownFunction::OpenClaw(member) => match summarize_openclaw_call(&arguments) {
+                RuntimeCallSummary::Partial => {
+                    let _ = member;
+                    self.complete = false;
+                    self.draft.set_partial();
+                    Value::Promise
+                }
+                RuntimeCallSummary::Effect(()) | RuntimeCallSummary::EffectPartial(()) => {
+                    Value::Promise
+                }
+                RuntimeCallSummary::Invalid => Value::RejectedPromise,
+            },
         }
     }
 
@@ -1591,6 +2655,7 @@ impl<'a> Interpreter<'a> {
         let arguments = Arguments {
             values: vec![Value::Unknown; parameters.len()],
             complete: true,
+            assembly_branches: Vec::new(),
         };
         let mut callback_state = state.clone();
         let prior_conditional_depth = self.conditional_depth;
@@ -1674,6 +2739,8 @@ impl<'a> Interpreter<'a> {
         }
         if function.source_identity != self.source.as_ptr() as usize {
             self.complete = false;
+            self.draft.set_partial();
+            state.widen();
             return Value::Unknown;
         }
         let Some(parameters) = &function.parameters else {
@@ -1696,15 +2763,24 @@ impl<'a> Interpreter<'a> {
             self.eval(&function.body, state, call_depth + 1)
         } else {
             let control = self.exec_sequence(&function.body, state, false, call_depth + 1);
-            if control == Control::Return {
-                self.return_value.clone()
-            } else {
-                Value::Undefined
+            match control {
+                Control::Return => self.return_value.clone(),
+                Control::Throw => Value::SynchronousThrow,
+                Control::Diverge => Value::Divergent,
+                Control::Next | Control::Break | Control::Continue => Value::Undefined,
             }
         };
         state.pop_scope();
         state.scope_chain = caller_chain;
-        value
+        if function.asynchronous {
+            match value {
+                Value::Divergent => Value::Divergent,
+                Value::SynchronousThrow | Value::RejectedPromise => Value::RejectedPromise,
+                _ => Value::Promise,
+            }
+        } else {
+            value
+        }
     }
 
     fn function_value(&mut self, node: &HirNode, state: &State) -> Option<Value> {
@@ -1716,6 +2792,7 @@ impl<'a> Interpreter<'a> {
         Some(Value::Function(Arc::new(LocalFunction {
             parameters,
             expression_body: body.kind() != HirKind::StatementBlock,
+            asynchronous: asynchronous_function_source(self.text(node)),
             captured_scopes: state.scope_chain.clone(),
             source_identity: self.source.as_ptr() as usize,
             body,
@@ -1752,75 +2829,180 @@ impl<'a> Interpreter<'a> {
 
     fn template(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
         let mut value = String::new();
+        let mut exact = true;
+        let mut branches = Vec::new();
         for child in node.children() {
             let part = match child.kind() {
                 HirKind::StringFragment => Some(self.text(child).to_owned()),
                 HirKind::EscapeSequence => decode_escape(self.text(child)),
-                HirKind::TemplateSubstitution => named_children(child)
-                    .next()
-                    .map(|expression| self.eval(expression, state, call_depth))
-                    .and_then(|value| string_coercion(&value)),
+                HirKind::TemplateSubstitution => {
+                    let value = named_children(child)
+                        .next()
+                        .map_or(Value::Unknown, |expression| {
+                            self.eval(expression, state, call_depth)
+                        });
+                    if abrupt_value(&value) {
+                        return self.finish_assembly_branches(state, &mut branches, value);
+                    }
+                    match string_coercion(&value) {
+                        Some(value) => Some(value),
+                        None => {
+                            exact = false;
+                            self.start_assembly_branch(state, &mut branches);
+                            continue;
+                        }
+                    }
+                }
                 HirKind::Token | HirKind::Comment => continue,
                 _ => None,
             };
             let Some(part) = part else {
-                return Value::Unknown;
+                self.complete = false;
+                self.draft.set_partial();
+                exact = false;
+                continue;
             };
+            if !exact {
+                continue;
+            }
             let Some(bytes) = value.len().checked_add(part.len()) else {
                 self.budget.refuse();
-                return Value::Unknown;
+                return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
             };
             if !self.budget.admit_bytes(Some(bytes)) {
-                return Value::Unknown;
+                return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
             }
             value.push_str(&part);
         }
-        Value::String(value)
+        let value = if exact {
+            Value::String(value)
+        } else {
+            Value::Unknown
+        };
+        self.finish_assembly_branches(state, &mut branches, value)
     }
 
     fn array(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
-        if delimited_has_hole(node, self.source) {
-            return Value::Unknown;
-        }
         let mut values = Vec::new();
+        let mut exact = true;
+        let mut branches = Vec::new();
+        let mut cursor = node.span().start().saturating_add(1);
+        let mut has_element = false;
         for child in named_children(node) {
+            let holes = delimited_holes(self.source, cursor, child.span().start(), has_element);
+            match holes {
+                Some(holes) => values.extend((0..holes).map(|_| Value::Undefined)),
+                None => {
+                    self.complete = false;
+                    self.draft.set_partial();
+                    exact = false;
+                }
+            }
             if child.kind() == HirKind::SpreadElement {
                 let spread = named_children(child)
                     .next()
                     .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
-                let Value::Array(spread) = spread else {
-                    return Value::Unknown;
-                };
-                values.extend(spread);
+                if abrupt_value(&spread) {
+                    return self.finish_assembly_branches(state, &mut branches, spread);
+                }
+                if exact_non_iterable(&spread) {
+                    return self.finish_assembly_branches(
+                        state,
+                        &mut branches,
+                        Value::SynchronousThrow,
+                    );
+                }
+                match spread {
+                    Value::Array(spread) => values.extend(spread),
+                    Value::String(spread) => {
+                        values.extend(spread.chars().map(|value| Value::String(value.to_string())));
+                    }
+                    _ => {
+                        exact = false;
+                        self.start_assembly_branch(state, &mut branches);
+                    }
+                }
             } else {
-                values.push(self.eval(child, state, call_depth));
+                let value = self.eval(child, state, call_depth);
+                if abrupt_value(&value) {
+                    return self.finish_assembly_branches(state, &mut branches, value);
+                }
+                values.push(value);
             }
+            has_element = true;
+            cursor = child.span().end();
             if values.len() > MAX_COLLECTION_ITEMS
                 || !self.budget.admit_bytes(values_bytes(&values))
             {
-                return Value::Unknown;
+                return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
             }
         }
-        Value::Array(values)
+        let trailing_end = node.span().end().saturating_sub(1);
+        match delimited_holes(self.source, cursor, trailing_end, has_element) {
+            Some(holes) => values.extend((0..holes).map(|_| Value::Undefined)),
+            None => {
+                self.complete = false;
+                self.draft.set_partial();
+                exact = false;
+            }
+        }
+        let value = if values.len() > MAX_COLLECTION_ITEMS
+            || !self.budget.admit_bytes(values_bytes(&values))
+        {
+            Value::Unknown
+        } else if exact {
+            Value::Array(values)
+        } else {
+            Value::Unknown
+        };
+        self.finish_assembly_branches(state, &mut branches, value)
     }
 
     fn object(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Value {
         let mut properties = BTreeMap::new();
+        let mut prototype_unknown = false;
+        let mut exact = true;
+        let mut branches = Vec::new();
         for child in named_children(node) {
             let (name, value) = match child.kind() {
                 HirKind::Pair => {
-                    let Some(name) = child
-                        .child(HirField::Key)
-                        .and_then(|key| self.property_name(key, state, call_depth))
-                    else {
-                        if let Some(value) = child.child(HirField::Value) {
-                            self.eval(value, state, call_depth);
+                    let key = child.child(HirField::Key);
+                    let name = key.map_or(Ok(None), |key| {
+                        self.object_property_name(key, state, call_depth)
+                    });
+                    let name = match name {
+                        Err(value) => {
+                            return self.finish_assembly_branches(state, &mut branches, value);
                         }
-                        return Value::Unknown;
+                        Ok(Some(name)) => name,
+                        Ok(None) => {
+                            exact = false;
+                            self.start_assembly_branch(state, &mut branches);
+                            if let Some(value) = child.child(HirField::Value) {
+                                let value = self.eval(value, state, call_depth);
+                                if abrupt_value(&value) {
+                                    return self.finish_assembly_branches(
+                                        state,
+                                        &mut branches,
+                                        value,
+                                    );
+                                }
+                            }
+                            continue;
+                        }
                     };
                     let value = child
                         .child(HirField::Value)
                         .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
+                    if abrupt_value(&value) {
+                        return self.finish_assembly_branches(state, &mut branches, value);
+                    }
+                    if name == "__proto__"
+                        && key.is_some_and(|key| key.kind() != HirKind::ComputedPropertyName)
+                    {
+                        prototype_unknown = true;
+                        continue;
+                    }
                     (name, value)
                 }
                 HirKind::ShorthandPropertyIdentifier => {
@@ -1829,11 +3011,19 @@ impl<'a> Interpreter<'a> {
                     (name, value)
                 }
                 HirKind::MethodDefinition => {
-                    let Some(name) = child
-                        .child(HirField::Name)
-                        .and_then(|name| self.property_name(name, state, call_depth))
-                    else {
-                        return Value::Unknown;
+                    let name = child.child(HirField::Name).map_or(Ok(None), |name| {
+                        self.object_property_name(name, state, call_depth)
+                    });
+                    let name = match name {
+                        Err(value) => {
+                            return self.finish_assembly_branches(state, &mut branches, value);
+                        }
+                        Ok(Some(name)) => name,
+                        Ok(None) => {
+                            exact = false;
+                            self.start_assembly_branch(state, &mut branches);
+                            continue;
+                        }
                     };
                     let value = if self.method_is_accessor(child) {
                         Value::Accessor
@@ -1846,28 +3036,79 @@ impl<'a> Interpreter<'a> {
                     let spread = named_children(child)
                         .next()
                         .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
-                    let Value::Object(spread) = spread else {
-                        return Value::Unknown;
-                    };
-                    for (name, mut value) in spread {
-                        if value == Value::Accessor {
-                            self.complete = false;
-                            value = Value::Unknown;
+                    if abrupt_value(&spread) {
+                        return self.finish_assembly_branches(state, &mut branches, spread);
+                    }
+                    match spread {
+                        Value::Object(spread) => {
+                            for (name, mut value) in spread {
+                                if value == Value::Accessor {
+                                    self.complete = false;
+                                    value = Value::Unknown;
+                                }
+                                properties.insert(name, value);
+                            }
                         }
-                        properties.insert(name, value);
+                        Value::Array(spread) => {
+                            for (index, value) in spread.into_iter().enumerate() {
+                                properties.insert(index.to_string(), value);
+                            }
+                        }
+                        Value::String(spread) => {
+                            for (index, value) in spread.chars().enumerate() {
+                                properties
+                                    .insert(index.to_string(), Value::String(value.to_string()));
+                            }
+                        }
+                        Value::Undefined | Value::Null | Value::Bool(_) | Value::Number(_) => {}
+                        _ => {
+                            exact = false;
+                            self.start_assembly_branch(state, &mut branches);
+                        }
+                    }
+                    if properties.len() > MAX_COLLECTION_ITEMS
+                        || !self.budget.admit_bytes(properties_bytes(&properties))
+                    {
+                        return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
                     }
                     continue;
                 }
-                _ => return Value::Unknown,
+                _ => {
+                    return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
+                }
             };
-            if properties.insert(name, value).is_some()
-                || properties.len() > MAX_COLLECTION_ITEMS
+            properties.insert(name, value);
+            if properties.len() > MAX_COLLECTION_ITEMS
                 || !self.budget.admit_bytes(properties_bytes(&properties))
             {
-                return Value::Unknown;
+                return self.finish_assembly_branches(state, &mut branches, Value::Unknown);
             }
         }
-        Value::Object(properties)
+        let value = if prototype_unknown || !exact {
+            Value::Unknown
+        } else {
+            Value::Object(properties)
+        };
+        self.finish_assembly_branches(state, &mut branches, value)
+    }
+
+    fn object_property_name(
+        &mut self,
+        node: &HirNode,
+        state: &mut State,
+        call_depth: usize,
+    ) -> Result<Option<String>, Value> {
+        if node.kind() != HirKind::ComputedPropertyName {
+            return Ok(self.property_name(node, state, call_depth));
+        }
+        let value = named_children(node)
+            .next()
+            .map_or(Value::Unknown, |value| self.eval(value, state, call_depth));
+        if abrupt_value(&value) {
+            Err(value)
+        } else {
+            Ok(string_coercion(&value))
+        }
     }
 
     fn property_name(
@@ -1941,7 +3182,12 @@ impl<'a> Interpreter<'a> {
             .and_then(|source| self.decode_string(source))
             .as_deref()
             .and_then(module_from_source)
-            .filter(|_| self.profile.ownership == RuntimeOwnership::Node);
+            .filter(|_| {
+                matches!(
+                    self.profile.ownership,
+                    RuntimeOwnership::Node | RuntimeOwnership::Bun
+                )
+            });
         if module.is_none() {
             self.complete = false;
         }
@@ -1997,7 +3243,9 @@ impl<'a> Interpreter<'a> {
 
     fn read_property(&mut self, value: &Value, property: &str, state: &State) -> Value {
         let selected = property_value(value, property, state);
-        if selected == Value::Accessor {
+        if selected == Value::Accessor
+            || matches!(&selected, Value::Known(function) if direct_receiver_required(function))
+        {
             self.complete = false;
             Value::Unknown
         } else {
@@ -2023,6 +3271,124 @@ fn named_children(node: &HirNode) -> impl Iterator<Item = &HirNode> {
     node.children()
         .iter()
         .filter(|child| !matches!(child.kind(), HirKind::Token | HirKind::Comment))
+}
+
+fn asynchronous_function_source(source: &str) -> bool {
+    let Some(rest) = source.trim_start().strip_prefix("async") else {
+        return false;
+    };
+    match rest.chars().next() {
+        Some('(' | '<') => true,
+        Some(character) if character.is_whitespace() => !rest.trim_start().starts_with("=>"),
+        _ => false,
+    }
+}
+
+fn member_assignment_target(node: &HirNode) -> Option<&HirNode> {
+    match node.kind() {
+        HirKind::MemberExpression | HirKind::SubscriptExpression => Some(node),
+        HirKind::ParenthesizedExpression | HirKind::TransparentExpression => named_children(node)
+            .next()
+            .and_then(member_assignment_target),
+        _ => None,
+    }
+}
+
+fn prototype_mutation_target(source: &str) -> bool {
+    let compact = source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    let builtin_prototype = [
+        "Object", "Number", "Boolean", "String", "Function", "Array", "Promise",
+    ]
+    .iter()
+    .any(|root| {
+        [
+            format!("{root}.prototype"),
+            format!("{root}['prototype']"),
+            format!("{root}[\"prototype\"]"),
+        ]
+        .iter()
+        .any(|prefix| {
+            compact.strip_prefix(prefix).is_some_and(|suffix| {
+                suffix.is_empty() || suffix.starts_with('.') || suffix.starts_with('[')
+            })
+        })
+    });
+    if builtin_prototype {
+        return true;
+    }
+    let Some(segments) = simple_member_segments(&compact) else {
+        return false;
+    };
+    segments.iter().any(|segment| segment == "__proto__")
+}
+
+fn simple_member_segments(source: &str) -> Option<Vec<String>> {
+    let bytes = source.as_bytes();
+    let mut cursor = 0;
+    let mut segments = Vec::new();
+    while cursor < bytes.len() {
+        if !segments.is_empty() {
+            match bytes[cursor] {
+                b'.' => cursor += 1,
+                b'[' => {
+                    cursor += 1;
+                    let quote = *bytes.get(cursor)?;
+                    if !matches!(quote, b'\'' | b'"') {
+                        return None;
+                    }
+                    cursor += 1;
+                    let start = cursor;
+                    while bytes.get(cursor).is_some_and(|byte| *byte != quote) {
+                        if bytes[cursor] == b'\\' {
+                            return None;
+                        }
+                        cursor += 1;
+                    }
+                    let segment = source.get(start..cursor)?.to_owned();
+                    cursor += 1;
+                    if bytes.get(cursor) != Some(&b']') {
+                        return None;
+                    }
+                    cursor += 1;
+                    segments.push(segment);
+                    continue;
+                }
+                _ => return None,
+            }
+        }
+        let start = cursor;
+        while bytes
+            .get(cursor)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+        {
+            cursor += 1;
+        }
+        if cursor == start {
+            return None;
+        }
+        segments.push(source.get(start..cursor)?.to_owned());
+    }
+    Some(segments)
+}
+
+fn direct_receiver_expression(node: &HirNode) -> bool {
+    match node.kind() {
+        HirKind::MemberExpression | HirKind::SubscriptExpression => true,
+        HirKind::ParenthesizedExpression | HirKind::TransparentExpression => named_children(node)
+            .next()
+            .is_some_and(direct_receiver_expression),
+        _ => false,
+    }
+}
+
+fn direct_receiver_required(function: &KnownFunction) -> bool {
+    matches!(
+        function,
+        KnownFunction::DenoCommand(_, _) | KnownFunction::BunFile(_, _)
+    )
 }
 
 fn source_mutates(node: &HirNode) -> bool {
@@ -2091,6 +3457,122 @@ fn module_member(module: Module, property: &str) -> Option<Member> {
         (Module::ChildProcess, "execFile") => Some(Member::ExecFile),
         (Module::ChildProcess, "execFileSync") => Some(Member::ExecFileSync),
         _ => None,
+    }
+}
+
+fn deno_member(property: &str) -> Option<DenoMember> {
+    match property {
+        "remove" => Some(DenoMember::Remove),
+        "removeSync" => Some(DenoMember::RemoveSync),
+        "mkdir" => Some(DenoMember::Mkdir),
+        "mkdirSync" => Some(DenoMember::MkdirSync),
+        "readFile" => Some(DenoMember::ReadFile),
+        "readFileSync" => Some(DenoMember::ReadFileSync),
+        "readTextFile" => Some(DenoMember::ReadTextFile),
+        "readTextFileSync" => Some(DenoMember::ReadTextFileSync),
+        "writeFile" => Some(DenoMember::WriteFile),
+        "writeFileSync" => Some(DenoMember::WriteFileSync),
+        "writeTextFile" => Some(DenoMember::WriteTextFile),
+        "writeTextFileSync" => Some(DenoMember::WriteTextFileSync),
+        _ => None,
+    }
+}
+
+fn deno_command_member(property: &str) -> Option<DenoCommandMember> {
+    match property {
+        "spawn" => Some(DenoCommandMember::Spawn),
+        "output" => Some(DenoCommandMember::Output),
+        "outputSync" => Some(DenoCommandMember::OutputSync),
+        _ => None,
+    }
+}
+
+fn bun_member(property: &str) -> Option<BunMember> {
+    match property {
+        "spawn" => Some(BunMember::Spawn),
+        "spawnSync" => Some(BunMember::SpawnSync),
+        "file" => Some(BunMember::File),
+        "write" => Some(BunMember::Write),
+        _ => None,
+    }
+}
+
+fn bun_file_member(property: &str) -> Option<BunFileMember> {
+    match property {
+        "text" => Some(BunFileMember::Text),
+        "json" => Some(BunFileMember::Json),
+        "arrayBuffer" => Some(BunFileMember::ArrayBuffer),
+        "bytes" => Some(BunFileMember::Bytes),
+        "delete" => Some(BunFileMember::Delete),
+        _ => None,
+    }
+}
+
+fn openclaw_member(property: &str) -> Option<OpenClawMember> {
+    match property {
+        "call" => Some(OpenClawMember::Call),
+        "callValue" => Some(OpenClawMember::CallValue),
+        _ => None,
+    }
+}
+
+fn deno_callable(member: DenoMember) -> &'static str {
+    match member {
+        DenoMember::Remove => "Deno.remove",
+        DenoMember::RemoveSync => "Deno.removeSync",
+        DenoMember::Mkdir => "Deno.mkdir",
+        DenoMember::MkdirSync => "Deno.mkdirSync",
+        DenoMember::ReadFile => "Deno.readFile",
+        DenoMember::ReadFileSync => "Deno.readFileSync",
+        DenoMember::ReadTextFile => "Deno.readTextFile",
+        DenoMember::ReadTextFileSync => "Deno.readTextFileSync",
+        DenoMember::WriteFile => "Deno.writeFile",
+        DenoMember::WriteFileSync => "Deno.writeFileSync",
+        DenoMember::WriteTextFile => "Deno.writeTextFile",
+        DenoMember::WriteTextFileSync => "Deno.writeTextFileSync",
+    }
+}
+
+fn deno_member_synchronous(member: DenoMember) -> bool {
+    matches!(
+        member,
+        DenoMember::RemoveSync
+            | DenoMember::MkdirSync
+            | DenoMember::ReadFileSync
+            | DenoMember::ReadTextFileSync
+            | DenoMember::WriteFileSync
+            | DenoMember::WriteTextFileSync
+    )
+}
+
+fn deno_member_constructible(member: DenoMember) -> bool {
+    deno_member_synchronous(member) || member == DenoMember::WriteTextFile
+}
+
+fn deno_command_callable(member: DenoCommandMember) -> &'static str {
+    match member {
+        DenoCommandMember::Spawn => "Deno.Command.spawn",
+        DenoCommandMember::Output => "Deno.Command.output",
+        DenoCommandMember::OutputSync => "Deno.Command.outputSync",
+    }
+}
+
+fn bun_callable(member: BunMember) -> &'static str {
+    match member {
+        BunMember::Spawn => "Bun.spawn",
+        BunMember::SpawnSync => "Bun.spawnSync",
+        BunMember::File => "Bun.file",
+        BunMember::Write => "Bun.write",
+    }
+}
+
+fn bun_file_callable(member: BunFileMember) -> &'static str {
+    match member {
+        BunFileMember::Text => "Bun.file.text",
+        BunFileMember::Json => "Bun.file.json",
+        BunFileMember::ArrayBuffer => "Bun.file.arrayBuffer",
+        BunFileMember::Bytes => "Bun.file.bytes",
+        BunFileMember::Delete => "Bun.file.delete",
     }
 }
 
@@ -2607,14 +4089,1079 @@ fn child_argv(command: &Value, args: Option<&Value>) -> Option<Vec<String>> {
 fn unknown_value(value: &Value) -> bool {
     matches!(
         value,
-        Value::Unknown | Value::UnknownModuleMember(_) | Value::UnknownReceiver(_)
+        Value::Unknown
+            | Value::DynamicEvalResult
+            | Value::UnknownModuleMember(_)
+            | Value::UnknownReceiver(_)
+    )
+}
+
+fn runtime_global_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Require
+            | Value::Eval
+            | Value::FunctionConstructor
+            | Value::ObjectBuiltin
+            | Value::Process
+            | Value::Environment
+            | Value::Deno
+            | Value::DenoCommandConstructor
+            | Value::Bun
+            | Value::OpenClawTools
+            | Value::Known(KnownFunction::BunShell)
+    )
+}
+
+fn contains_local_function(value: &Value) -> bool {
+    match value {
+        Value::Function(_) => true,
+        Value::Array(values) => values.iter().any(contains_local_function),
+        Value::Object(properties) => properties.values().any(contains_local_function),
+        _ => false,
+    }
+}
+
+fn exact_non_iterable(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Undefined
+            | Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::Object(_)
+            | Value::Module(_)
+            | Value::Known(_)
+            | Value::Function(_)
+            | Value::Require
+            | Value::Eval
+            | Value::FunctionConstructor
+            | Value::DynamicFunction(_)
+            | Value::ObjectBuiltin
+            | Value::Process
+            | Value::Environment
+            | Value::Deno
+            | Value::DenoCommandConstructor
+            | Value::DenoCommand(_)
+            | Value::Bun
+            | Value::BunFile(_)
+            | Value::OpenClawTools
+            | Value::Promise
+            | Value::RejectedPromise
     )
 }
 
 enum FsCallSummary {
     Effect(Vec<LanguageFilesystem>),
+    EffectPartial(Vec<LanguageFilesystem>),
     Partial,
     Invalid,
+}
+
+fn partialize_deno_command(
+    summary: RuntimeCallSummary<DenoCommandValue>,
+) -> RuntimeCallSummary<DenoCommandValue> {
+    match summary {
+        RuntimeCallSummary::Effect(mut command)
+        | RuntimeCallSummary::EffectPartial(mut command) => {
+            command.argv = None;
+            command.context_exact = false;
+            command.spawn_stdout_inherited = false;
+            command.output_stdout_inherited = false;
+            RuntimeCallSummary::EffectPartial(command)
+        }
+        RuntimeCallSummary::Partial => RuntimeCallSummary::Partial,
+        RuntimeCallSummary::Invalid => RuntimeCallSummary::Invalid,
+    }
+}
+
+fn deno_command(
+    arguments: &Arguments,
+    prototype_integrity_known: bool,
+    platform: Platform,
+) -> RuntimeCallSummary<DenoCommandValue> {
+    if !arguments.complete {
+        return RuntimeCallSummary::Partial;
+    }
+    let (mut argv, base) = match arguments.values.first() {
+        Some(Value::String(program)) => (Some(vec![program.clone()]), ExecutionCertainty::Known),
+        Some(value) if unknown_value(value) => (None, ExecutionCertainty::Unknown),
+        Some(_) | None => (None, ExecutionCertainty::Invalid),
+    };
+    let Some(options) = arguments.values.get(1) else {
+        return RuntimeCallSummary::Effect(DenoCommandValue {
+            argv,
+            spawn: base,
+            output: base,
+            context_exact: true,
+            spawn_stdout_inherited: true,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        });
+    };
+    if matches!(options, Value::Undefined) {
+        return RuntimeCallSummary::Effect(DenoCommandValue {
+            argv,
+            spawn: base,
+            output: base,
+            context_exact: true,
+            spawn_stdout_inherited: true,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        });
+    }
+    if matches!(options, Value::Null) {
+        return RuntimeCallSummary::Effect(DenoCommandValue {
+            argv,
+            spawn: base,
+            output: ExecutionCertainty::Invalid,
+            context_exact: true,
+            spawn_stdout_inherited: true,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        });
+    }
+    if matches!(
+        options,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)
+    ) {
+        let command = DenoCommandValue {
+            argv,
+            spawn: base,
+            output: base,
+            context_exact: true,
+            spawn_stdout_inherited: true,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        };
+        return if prototype_integrity_known {
+            RuntimeCallSummary::Effect(command)
+        } else {
+            partialize_deno_command(RuntimeCallSummary::Effect(command))
+        };
+    }
+    if known_object_like(options) {
+        return RuntimeCallSummary::EffectPartial(DenoCommandValue {
+            argv: None,
+            spawn: base,
+            output: base,
+            context_exact: false,
+            spawn_stdout_inherited: false,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        });
+    }
+    let Value::Object(properties) = options else {
+        return RuntimeCallSummary::Effect(DenoCommandValue {
+            argv,
+            spawn: merge_execution(base, ExecutionCertainty::Unknown),
+            output: merge_execution(base, ExecutionCertainty::Unknown),
+            context_exact: false,
+            spawn_stdout_inherited: false,
+            output_stdout_inherited: false,
+            spawn_throws_after_effect: false,
+            output_throws_after_effect: false,
+        });
+    };
+    let mut args_certainty = ExecutionCertainty::Known;
+    if let Some(args) = properties.get("args") {
+        match args {
+            Value::Undefined => {}
+            Value::Array(values) => {
+                if let Some(exact_argv) = &mut argv {
+                    for value in values {
+                        let Some(value) = string_coercion(value) else {
+                            args_certainty = ExecutionCertainty::Unknown;
+                            break;
+                        };
+                        exact_argv.push(value);
+                    }
+                }
+                if args_certainty != ExecutionCertainty::Known {
+                    argv = None;
+                }
+            }
+            Value::String(value) if value.is_ascii() => {
+                if let Some(exact_argv) = &mut argv {
+                    exact_argv.extend(value.bytes().map(|byte| char::from(byte).to_string()));
+                }
+            }
+            Value::Bool(_) | Value::Number(_) => {}
+            Value::Object(values) if !values.contains_key("length") => {}
+            Value::Null => {
+                argv = None;
+                args_certainty = ExecutionCertainty::Invalid;
+            }
+            _ => {
+                argv = None;
+                args_certainty = ExecutionCertainty::Unknown;
+            }
+        }
+    }
+    let context_exact = properties
+        .keys()
+        .all(|key| key == "args" || !deno_command_context_property(key, platform));
+    let mut spawn = merge_execution(base, args_certainty);
+    let mut output = spawn;
+    let mut spawn_stdout_inherited = true;
+    let mut output_stdout_inherited = false;
+    let mut spawn_throws_after_effect = false;
+    let mut output_throws_after_effect = false;
+    for (key, value) in properties {
+        if matches!(key.as_str(), "stdin" | "stdout" | "stderr") {
+            spawn = merge_execution(spawn, deno_spawn_stdio_certainty(value));
+            output = merge_execution(output, deno_output_stdio_certainty(value));
+        }
+        if key == "stdout" {
+            spawn_stdout_inherited = matches!(value, Value::Undefined | Value::Null)
+                || matches!(value, Value::String(stdout) if stdout == "inherit")
+                || matches!(value, Value::Number(1));
+            output_stdout_inherited = matches!(value, Value::String(stdout) if stdout == "inherit")
+                || matches!(value, Value::Number(1));
+        }
+        if let Some(certainty) = deno_context_certainty(key, value, platform) {
+            spawn = merge_execution(spawn, certainty);
+            output = merge_execution(output, certainty);
+        }
+        if key == "signal" {
+            match value {
+                Value::Undefined => {}
+                Value::Null => output_throws_after_effect = true,
+                value if unknown_value(value) || matches!(value, Value::Accessor) => {}
+                _ => {
+                    spawn_throws_after_effect = true;
+                    output_throws_after_effect = true;
+                }
+            }
+        }
+    }
+    for (key, value) in properties {
+        if !matches!(value, Value::Accessor) {
+            continue;
+        }
+        spawn = merge_execution(spawn, ExecutionCertainty::Unknown);
+        if key != "args" && deno_command_option_property(key, platform) {
+            output = merge_execution(output, ExecutionCertainty::Unknown);
+        }
+    }
+    if matches!(properties.get("stdin"), Some(Value::String(stdin)) if stdin == "piped") {
+        output = ExecutionCertainty::Invalid;
+    }
+    let command = DenoCommandValue {
+        argv,
+        spawn,
+        output,
+        context_exact,
+        spawn_stdout_inherited,
+        output_stdout_inherited,
+        spawn_throws_after_effect,
+        output_throws_after_effect,
+    };
+    if !prototype_integrity_known
+        && deno_command_option_names()
+            .iter()
+            .filter(|property| deno_command_option_property(property, platform))
+            .any(|property| !properties.contains_key(*property))
+    {
+        partialize_deno_command(RuntimeCallSummary::Effect(command))
+    } else {
+        RuntimeCallSummary::Effect(command)
+    }
+}
+
+fn known_object_like(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Module(_)
+            | Value::Known(_)
+            | Value::Function(_)
+            | Value::Require
+            | Value::Eval
+            | Value::FunctionConstructor
+            | Value::DynamicFunction(_)
+            | Value::ObjectBuiltin
+            | Value::Process
+            | Value::Environment
+            | Value::Deno
+            | Value::DenoCommandConstructor
+            | Value::DenoCommand(_)
+            | Value::Bun
+            | Value::BunFile(_)
+            | Value::OpenClawTools
+            | Value::Promise
+            | Value::RejectedPromise
+    )
+}
+
+fn merge_execution(left: ExecutionCertainty, right: ExecutionCertainty) -> ExecutionCertainty {
+    match (left, right) {
+        (ExecutionCertainty::Invalid, _) | (_, ExecutionCertainty::Invalid) => {
+            ExecutionCertainty::Invalid
+        }
+        (ExecutionCertainty::Unknown, _) | (_, ExecutionCertainty::Unknown) => {
+            ExecutionCertainty::Unknown
+        }
+        (ExecutionCertainty::Known, ExecutionCertainty::Known) => ExecutionCertainty::Known,
+    }
+}
+
+fn deno_command_context_property(property: &str, platform: Platform) -> bool {
+    matches!(property, "cwd" | "clearEnv" | "env")
+        || (property == "windowsRawArguments" && platform == Platform::Windows)
+}
+
+fn deno_command_option_property(property: &str, platform: Platform) -> bool {
+    deno_command_option_names().contains(&property)
+        && !matches!(
+            (property, platform),
+            ("windowsRawArguments", Platform::Linux | Platform::Macos)
+                | ("uid" | "gid", Platform::Windows)
+        )
+}
+
+fn deno_command_option_names() -> &'static [&'static str] {
+    &[
+        "args",
+        "cwd",
+        "clearEnv",
+        "env",
+        "uid",
+        "gid",
+        "signal",
+        "stdin",
+        "stdout",
+        "stderr",
+        "windowsRawArguments",
+    ]
+}
+
+fn deno_spawn_stdio_certainty(value: &Value) -> ExecutionCertainty {
+    match value {
+        Value::Undefined | Value::Null => ExecutionCertainty::Known,
+        Value::String(value) if matches!(value.as_str(), "inherit" | "piped" | "null") => {
+            ExecutionCertainty::Known
+        }
+        Value::Number(fd) if (0..=2).contains(fd) => ExecutionCertainty::Known,
+        Value::Number(fd) if (3..=i64::from(i32::MAX)).contains(fd) => ExecutionCertainty::Unknown,
+        value if unknown_value(value) || *value == Value::Accessor => ExecutionCertainty::Unknown,
+        _ => ExecutionCertainty::Invalid,
+    }
+}
+
+fn deno_output_stdio_certainty(value: &Value) -> ExecutionCertainty {
+    match value {
+        Value::Undefined => ExecutionCertainty::Known,
+        Value::String(value) if matches!(value.as_str(), "inherit" | "piped" | "null") => {
+            ExecutionCertainty::Known
+        }
+        Value::Number(fd) if (0..=2).contains(fd) => ExecutionCertainty::Known,
+        Value::Number(fd) if (3..=i64::from(i32::MAX)).contains(fd) => ExecutionCertainty::Unknown,
+        value if unknown_value(value) || *value == Value::Accessor => ExecutionCertainty::Unknown,
+        _ => ExecutionCertainty::Invalid,
+    }
+}
+
+fn deno_context_certainty(
+    property: &str,
+    value: &Value,
+    platform: Platform,
+) -> Option<ExecutionCertainty> {
+    let certainty = match property {
+        "clearEnv" => match value {
+            Value::Undefined | Value::Bool(_) => ExecutionCertainty::Known,
+            value if unknown_value(value) || *value == Value::Accessor => {
+                ExecutionCertainty::Unknown
+            }
+            _ => ExecutionCertainty::Invalid,
+        },
+        "windowsRawArguments" if platform == Platform::Windows => match value {
+            Value::Undefined | Value::Bool(_) => ExecutionCertainty::Known,
+            value if unknown_value(value) || *value == Value::Accessor => {
+                ExecutionCertainty::Unknown
+            }
+            _ => ExecutionCertainty::Invalid,
+        },
+        "windowsRawArguments" => return None,
+        "uid" | "gid" if platform != Platform::Windows => match value {
+            Value::Undefined | Value::Null => ExecutionCertainty::Known,
+            Value::Number(value) if valid_u32(*value) => ExecutionCertainty::Known,
+            value if unknown_value(value) || *value == Value::Accessor => {
+                ExecutionCertainty::Unknown
+            }
+            _ => ExecutionCertainty::Invalid,
+        },
+        "uid" | "gid" => return None,
+        "env" => deno_env_certainty(value),
+        "cwd" => match value {
+            Value::Undefined | Value::Null | Value::String(_) => ExecutionCertainty::Known,
+            value if unknown_value(value) || *value == Value::Accessor => {
+                ExecutionCertainty::Unknown
+            }
+            _ => ExecutionCertainty::Invalid,
+        },
+        _ => return None,
+    };
+    Some(certainty)
+}
+
+fn deno_env_certainty(value: &Value) -> ExecutionCertainty {
+    let values = match value {
+        Value::Undefined | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            return ExecutionCertainty::Known;
+        }
+        Value::Null => return ExecutionCertainty::Invalid,
+        Value::Object(properties) => properties.values().collect::<Vec<_>>(),
+        Value::Array(values) => values.iter().collect(),
+        value if unknown_value(value) || *value == Value::Accessor => {
+            return ExecutionCertainty::Unknown;
+        }
+        _ => return ExecutionCertainty::Unknown,
+    };
+    if values.iter().all(|value| matches!(value, Value::String(_))) {
+        ExecutionCertainty::Known
+    } else if values
+        .iter()
+        .any(|value| unknown_value(value) || matches!(value, Value::Accessor))
+    {
+        ExecutionCertainty::Unknown
+    } else {
+        ExecutionCertainty::Invalid
+    }
+}
+
+fn summarize_deno_call(
+    member: DenoMember,
+    arguments: &Arguments,
+    prototype_integrity_known: bool,
+) -> FsCallSummary {
+    if !arguments.complete {
+        return FsCallSummary::Partial;
+    }
+    let values = &arguments.values;
+    let Some(target) = values.first() else {
+        return FsCallSummary::Invalid;
+    };
+    if !possible_path_argument(target) {
+        return FsCallSummary::Invalid;
+    }
+    let path = || values.first().and_then(value_string).map(str::to_owned);
+    // Deno's JavaScript wrappers ignore extra arguments. Only values read by
+    // the wrapper can prevent the filesystem operation.
+    match member {
+        DenoMember::Remove | DenoMember::RemoveSync => {
+            let recursive = match values.get(1).map_or(OptionValue::Exact(false), |value| {
+                deno_remove_options(value, prototype_integrity_known)
+            }) {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => {
+                    return FsCallSummary::EffectPartial(vec![LanguageFilesystem::new(
+                        path(),
+                        FilesystemOperation::Delete,
+                        true,
+                    )]);
+                }
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Delete,
+                recursive,
+            )])
+        }
+        DenoMember::Mkdir | DenoMember::MkdirSync => {
+            let recursive = match values.get(1).map_or(OptionValue::Exact(false), |value| {
+                deno_mkdir_options(value, prototype_integrity_known)
+            }) {
+                OptionValue::Exact(recursive) => recursive,
+                OptionValue::Partial => {
+                    return FsCallSummary::EffectPartial(vec![LanguageFilesystem::new(
+                        path(),
+                        FilesystemOperation::Write,
+                        true,
+                    )]);
+                }
+                OptionValue::Invalid => return FsCallSummary::Invalid,
+            };
+            FsCallSummary::Effect(vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Write,
+                recursive,
+            )])
+        }
+        DenoMember::ReadFile | DenoMember::ReadTextFile => {
+            let filesystems = vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Read,
+                false,
+            )];
+            match values.get(1).map_or(ShapeValue::Exact, |value| {
+                deno_read_options(value, prototype_integrity_known)
+            }) {
+                ShapeValue::Exact => FsCallSummary::Effect(filesystems),
+                ShapeValue::Partial => FsCallSummary::EffectPartial(filesystems),
+                ShapeValue::Invalid => FsCallSummary::Invalid,
+            }
+        }
+        DenoMember::ReadFileSync | DenoMember::ReadTextFileSync => {
+            FsCallSummary::Effect(vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Read,
+                false,
+            )])
+        }
+        DenoMember::WriteFile | DenoMember::WriteFileSync => {
+            let Some(data) = values.get(1) else {
+                return FsCallSummary::Invalid;
+            };
+            if matches!(data, Value::String(_)) {
+                return FsCallSummary::Invalid;
+            }
+            if !unknown_value(data) {
+                return FsCallSummary::Invalid;
+            }
+            let filesystems = vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Write,
+                false,
+            )];
+            let synchronous = member == DenoMember::WriteFileSync;
+            match values.get(2).map_or(ShapeValue::Exact, |value| {
+                deno_write_options(value, synchronous, prototype_integrity_known)
+            }) {
+                ShapeValue::Exact => FsCallSummary::EffectPartial(filesystems),
+                ShapeValue::Partial => FsCallSummary::EffectPartial(filesystems),
+                ShapeValue::Invalid => FsCallSummary::Invalid,
+            }
+        }
+        DenoMember::WriteTextFile | DenoMember::WriteTextFileSync => {
+            let data = values.get(1).unwrap_or(&Value::Undefined);
+            let partial = string_coercion(data).is_none();
+            let filesystems = vec![LanguageFilesystem::new(
+                path(),
+                FilesystemOperation::Write,
+                false,
+            )];
+            let synchronous = member == DenoMember::WriteTextFileSync;
+            match values.get(2).map_or(ShapeValue::Exact, |value| {
+                deno_write_options(value, synchronous, prototype_integrity_known)
+            }) {
+                ShapeValue::Exact if !partial => FsCallSummary::Effect(filesystems),
+                ShapeValue::Exact | ShapeValue::Partial => {
+                    FsCallSummary::EffectPartial(filesystems)
+                }
+                ShapeValue::Invalid => FsCallSummary::Invalid,
+            }
+        }
+    }
+}
+
+fn bun_spawn_argv(
+    arguments: &Arguments,
+    prototype_integrity_known: bool,
+) -> RuntimeCallSummary<BunSpawnSummary> {
+    if !arguments.complete {
+        return RuntimeCallSummary::Partial;
+    }
+    let Some(first) = arguments.values.first() else {
+        return RuntimeCallSummary::Invalid;
+    };
+    let (command, options) = match first {
+        Value::Array(command) => (command, arguments.values.get(1)),
+        Value::Object(properties) => {
+            let Some(command) = properties.get("cmd") else {
+                return if prototype_integrity_known {
+                    RuntimeCallSummary::Invalid
+                } else {
+                    RuntimeCallSummary::Partial
+                };
+            };
+            match bun_spawn_options_certainty(properties) {
+                ExecutionCertainty::Known => {}
+                ExecutionCertainty::Unknown => return RuntimeCallSummary::Partial,
+                ExecutionCertainty::Invalid => return RuntimeCallSummary::Invalid,
+            }
+            let string_command;
+            let command = match command {
+                Value::Array(command) => command,
+                Value::String(command) => {
+                    string_command = command
+                        .chars()
+                        .map(|value| Value::String(value.to_string()))
+                        .collect::<Vec<_>>();
+                    &string_command
+                }
+                command if unknown_value(command) || matches!(command, Value::Accessor) => {
+                    return RuntimeCallSummary::Partial;
+                }
+                _ => return RuntimeCallSummary::Invalid,
+            };
+            let stdout_inherited = match properties
+                .get("stdout")
+                .map_or(BunStdout::Exact(false), bun_stdout)
+            {
+                BunStdout::Exact(inherited) => inherited,
+                BunStdout::Partial => return bun_spawn_command_partial(command),
+                BunStdout::Invalid => return RuntimeCallSummary::Invalid,
+            };
+            let context_exact = properties
+                .keys()
+                .all(|key| key == "cmd" || !bun_spawn_context_property(key));
+            if !prototype_integrity_known {
+                return bun_spawn_command_partial(command);
+            }
+            return bun_spawn_command(command, context_exact, stdout_inherited);
+        }
+        value if unknown_value(value) => return RuntimeCallSummary::Partial,
+        _ => return RuntimeCallSummary::Invalid,
+    };
+    let (context_exact, stdout_inherited) = match options {
+        None | Some(Value::Undefined) => (true, false),
+        Some(Value::Object(properties)) => {
+            match bun_spawn_options_certainty(properties) {
+                ExecutionCertainty::Known => {}
+                ExecutionCertainty::Unknown => return bun_spawn_command_partial(command),
+                ExecutionCertainty::Invalid => return RuntimeCallSummary::Invalid,
+            }
+            let stdout_inherited = match properties
+                .get("stdout")
+                .map_or(BunStdout::Exact(false), bun_stdout)
+            {
+                BunStdout::Exact(inherited) => inherited,
+                BunStdout::Partial => return bun_spawn_command_partial(command),
+                BunStdout::Invalid => return RuntimeCallSummary::Invalid,
+            };
+            let context_exact = properties
+                .keys()
+                .all(|key| !bun_spawn_context_property(key));
+            if !prototype_integrity_known {
+                return bun_spawn_command_partial(command);
+            }
+            (context_exact, stdout_inherited)
+        }
+        Some(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
+        ) if prototype_integrity_known || matches!(options, Some(Value::Null)) => (true, false),
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
+            return bun_spawn_command_partial(command);
+        }
+        Some(_) => return bun_spawn_command_partial(command),
+    };
+    bun_spawn_command(command, context_exact, stdout_inherited)
+}
+
+fn bun_spawn_command_partial(command: &[Value]) -> RuntimeCallSummary<BunSpawnSummary> {
+    match bun_spawn_command(command, false, false) {
+        RuntimeCallSummary::Effect(summary) => RuntimeCallSummary::EffectPartial(summary),
+        RuntimeCallSummary::EffectPartial(summary) => RuntimeCallSummary::EffectPartial(summary),
+        RuntimeCallSummary::Partial => RuntimeCallSummary::Partial,
+        RuntimeCallSummary::Invalid => RuntimeCallSummary::Invalid,
+    }
+}
+
+fn bun_spawn_command(
+    command: &[Value],
+    context_exact: bool,
+    stdout_inherited: bool,
+) -> RuntimeCallSummary<BunSpawnSummary> {
+    if command.is_empty() {
+        return RuntimeCallSummary::Invalid;
+    }
+    let mut argv = Vec::with_capacity(command.len());
+    let mut exact = true;
+    for value in command {
+        if let Some(value) = string_coercion(value) {
+            argv.push(value);
+        } else {
+            exact = false;
+        }
+    }
+    let summary = BunSpawnSummary {
+        argv: exact.then_some(argv),
+        context_exact,
+        stdout_inherited,
+    };
+    if exact {
+        RuntimeCallSummary::Effect(summary)
+    } else {
+        RuntimeCallSummary::EffectPartial(summary)
+    }
+}
+
+fn bun_spawn_context_property(property: &str) -> bool {
+    matches!(
+        property,
+        "cwd"
+            | "env"
+            | "stdin"
+            | "stderr"
+            | "stdio"
+            | "onExit"
+            | "ipc"
+            | "serialization"
+            | "windowsHide"
+            | "windowsVerbatimArguments"
+            | "argv0"
+            | "signal"
+            | "timeout"
+            | "killSignal"
+            | "detached"
+            | "lazy"
+            | "terminal"
+    )
+}
+
+fn bun_spawn_options_certainty(properties: &BTreeMap<String, Value>) -> ExecutionCertainty {
+    for (property, value) in properties {
+        if matches!(value, Value::Accessor) && bun_spawn_context_property(property) {
+            return ExecutionCertainty::Unknown;
+        }
+        let certainty = match property.as_str() {
+            "env" => match value {
+                Value::Undefined | Value::Null | Value::Object(_) | Value::Array(_) => {
+                    ExecutionCertainty::Known
+                }
+                value if unknown_value(value) => ExecutionCertainty::Unknown,
+                _ => ExecutionCertainty::Invalid,
+            },
+            "stdin" | "stderr" => match value {
+                Value::Bool(_) => ExecutionCertainty::Invalid,
+                value if unknown_value(value) => ExecutionCertainty::Unknown,
+                _ => ExecutionCertainty::Known,
+            },
+            "timeout" => match value {
+                Value::Undefined | Value::Null => ExecutionCertainty::Known,
+                Value::Number(value) if *value >= 0 => ExecutionCertainty::Known,
+                value if unknown_value(value) => ExecutionCertainty::Unknown,
+                _ => ExecutionCertainty::Invalid,
+            },
+            "cwd" if matches!(value, Value::Bool(_)) => ExecutionCertainty::Unknown,
+            _ => ExecutionCertainty::Known,
+        };
+        if certainty != ExecutionCertainty::Known {
+            return certainty;
+        }
+    }
+    ExecutionCertainty::Known
+}
+
+enum BunStdout {
+    Exact(bool),
+    Partial,
+    Invalid,
+}
+
+fn bun_stdout(value: &Value) -> BunStdout {
+    match value {
+        Value::Undefined | Value::Null | Value::BunFile(_) => BunStdout::Exact(false),
+        Value::String(value) if value == "inherit" => BunStdout::Exact(true),
+        Value::String(value) if matches!(value.as_str(), "pipe" | "ignore") => {
+            BunStdout::Exact(false)
+        }
+        Value::Number(1) => BunStdout::Exact(true),
+        Value::Number(2) => BunStdout::Exact(false),
+        Value::Number(fd) if (3..=i64::from(i32::MAX)).contains(fd) => BunStdout::Partial,
+        value if unknown_value(value) || *value == Value::Accessor => BunStdout::Partial,
+        _ => BunStdout::Invalid,
+    }
+}
+
+fn deno_remove_options(value: &Value, prototype_integrity_known: bool) -> OptionValue {
+    match value {
+        Value::Undefined => OptionValue::Exact(false),
+        Value::Null => OptionValue::Invalid,
+        Value::Object(properties) => match properties.get("recursive") {
+            None if prototype_integrity_known => OptionValue::Exact(false),
+            None => OptionValue::Partial,
+            Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+                OptionValue::Partial
+            }
+            // Deno.remove applies JavaScript truthiness before the native op.
+            Some(value) => truthy(value)
+                .map(OptionValue::Exact)
+                .unwrap_or(OptionValue::Partial),
+        },
+        value if unknown_value(value) => OptionValue::Partial,
+        _ if prototype_integrity_known => OptionValue::Exact(false),
+        _ => OptionValue::Partial,
+    }
+}
+
+fn deno_mkdir_options(value: &Value, prototype_integrity_known: bool) -> OptionValue {
+    let properties = match value {
+        Value::Undefined | Value::Null => return OptionValue::Exact(false),
+        Value::Object(properties) => properties,
+        value if unknown_value(value) => return OptionValue::Partial,
+        _ if prototype_integrity_known => return OptionValue::Exact(false),
+        _ => return OptionValue::Partial,
+    };
+    match properties.get("mode") {
+        None | Some(Value::Undefined | Value::Null) => {}
+        Some(Value::Number(mode)) if valid_u32(*mode) => {}
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            return OptionValue::Partial;
+        }
+        Some(_) => return OptionValue::Invalid,
+    }
+    let recursive = match properties.get("recursive") {
+        None | Some(Value::Undefined | Value::Null) => OptionValue::Exact(false),
+        Some(Value::Bool(recursive)) => OptionValue::Exact(*recursive),
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            OptionValue::Partial
+        }
+        Some(_) => OptionValue::Invalid,
+    };
+    if !prototype_integrity_known
+        && (!properties.contains_key("mode") || !properties.contains_key("recursive"))
+    {
+        OptionValue::Partial
+    } else {
+        recursive
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ShapeValue {
+    Exact,
+    Partial,
+    Invalid,
+}
+
+fn deno_read_options(value: &Value, prototype_integrity_known: bool) -> ShapeValue {
+    match value {
+        Value::Object(properties) => match properties.get("signal") {
+            None if !prototype_integrity_known => ShapeValue::Partial,
+            None | Some(Value::Undefined | Value::Null) => ShapeValue::Exact,
+            Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+                ShapeValue::Partial
+            }
+            Some(signal) => match truthy(signal) {
+                Some(false) => ShapeValue::Exact,
+                Some(true) => ShapeValue::Invalid,
+                None => ShapeValue::Partial,
+            },
+        },
+        Value::Undefined | Value::Null => ShapeValue::Exact,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) if prototype_integrity_known => {
+            ShapeValue::Exact
+        }
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => ShapeValue::Partial,
+        value if unknown_value(value) => ShapeValue::Partial,
+        _ => ShapeValue::Partial,
+    }
+}
+
+fn deno_write_options(
+    value: &Value,
+    synchronous: bool,
+    prototype_integrity_known: bool,
+) -> ShapeValue {
+    let properties = match value {
+        Value::Undefined => {
+            return ShapeValue::Exact;
+        }
+        Value::Bool(_) | Value::Number(_) | Value::String(_) if prototype_integrity_known => {
+            return ShapeValue::Exact;
+        }
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => return ShapeValue::Partial,
+        Value::Null => return ShapeValue::Invalid,
+        Value::Object(properties) => properties,
+        value if unknown_value(value) => return ShapeValue::Partial,
+        _ => return ShapeValue::Partial,
+    };
+    match properties.get("signal") {
+        None | Some(Value::Undefined | Value::Null) => {}
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            return ShapeValue::Partial;
+        }
+        Some(_) if synchronous => return ShapeValue::Invalid,
+        Some(signal) => match truthy(signal) {
+            Some(false) => {}
+            Some(true) => return ShapeValue::Invalid,
+            None => return ShapeValue::Partial,
+        },
+    }
+    match properties.get("mode") {
+        None | Some(Value::Undefined | Value::Null) => {}
+        Some(Value::Number(mode)) if valid_u32(*mode) => {}
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            return ShapeValue::Partial;
+        }
+        Some(_) => return ShapeValue::Invalid,
+    }
+    for property in ["append", "create", "createNew"] {
+        match properties.get(property) {
+            None | Some(Value::Undefined | Value::Null | Value::Bool(_)) => {}
+            Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+                return ShapeValue::Partial;
+            }
+            Some(_) => return ShapeValue::Invalid,
+        }
+    }
+    if !prototype_integrity_known
+        && ["signal", "mode", "append", "create", "createNew"]
+            .iter()
+            .any(|property| !properties.contains_key(*property))
+    {
+        ShapeValue::Partial
+    } else {
+        ShapeValue::Exact
+    }
+}
+
+fn valid_u32(value: i64) -> bool {
+    (0..=i64::from(u32::MAX)).contains(&value)
+}
+
+fn bun_file(
+    arguments: &Arguments,
+    prototype_integrity_known: bool,
+) -> RuntimeCallSummary<Option<String>> {
+    if !arguments.complete {
+        return RuntimeCallSummary::Partial;
+    }
+    let Some(path) = arguments.values.first() else {
+        return RuntimeCallSummary::Invalid;
+    };
+    let mut partial = false;
+    match arguments.values.get(1) {
+        None | Some(Value::Undefined | Value::Null) => {}
+        Some(Value::Object(properties)) => match properties.get("type") {
+            None if !prototype_integrity_known => partial = true,
+            None
+            | Some(
+                Value::Undefined
+                | Value::Null
+                | Value::Bool(_)
+                | Value::Number(_)
+                | Value::String(_)
+                | Value::Array(_)
+                | Value::Object(_),
+            ) => {}
+            Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+                partial = true;
+            }
+            Some(_) => {}
+        },
+        Some(value) if unknown_value(value) => partial = true,
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_))
+            if !prototype_integrity_known =>
+        {
+            partial = true;
+        }
+        Some(_) if !prototype_integrity_known => partial = true,
+        Some(_) => {}
+    }
+    let path = match path {
+        Value::String(path) => Some(path.clone()),
+        Value::Number(fd) if (0..=i32::MAX.into()).contains(fd) => None,
+        value if unknown_value(value) => None,
+        _ => return RuntimeCallSummary::Invalid,
+    };
+    if partial {
+        RuntimeCallSummary::EffectPartial(path)
+    } else {
+        RuntimeCallSummary::Effect(path)
+    }
+}
+
+fn summarize_openclaw_call(arguments: &Arguments) -> RuntimeCallSummary<()> {
+    if !arguments.complete {
+        return RuntimeCallSummary::Partial;
+    }
+    let valid_target = match arguments.values.first() {
+        Some(Value::String(target)) => !target.trim().is_empty(),
+        Some(value) if unknown_value(value) => true,
+        _ => false,
+    };
+    if !valid_target {
+        return RuntimeCallSummary::Invalid;
+    }
+    RuntimeCallSummary::Partial
+}
+
+fn summarize_bun_write(arguments: &Arguments, prototype_integrity_known: bool) -> FsCallSummary {
+    if !arguments.complete {
+        return FsCallSummary::Partial;
+    }
+    let [destination, source, ..] = arguments.values.as_slice() else {
+        return FsCallSummary::Invalid;
+    };
+    let destination = match destination {
+        Value::String(path) => Some(path.clone()),
+        Value::BunFile(path) => path.clone(),
+        Value::Number(fd) if (0..=i64::from(i32::MAX)).contains(fd) => None,
+        value if unknown_value(value) => None,
+        _ => return FsCallSummary::Invalid,
+    };
+    let source_partial = match source {
+        Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::BunFile(_) => false,
+        Value::Object(_) | Value::Array(_) => true,
+        value if unknown_value(value) => true,
+        value if known_object_like(value) => true,
+        _ => return FsCallSummary::Invalid,
+    };
+    let mut filesystems = vec![LanguageFilesystem::new(
+        destination,
+        FilesystemOperation::Write,
+        false,
+    )];
+    if let Value::BunFile(source) = source {
+        filesystems.push(LanguageFilesystem::new(
+            source.clone(),
+            FilesystemOperation::Read,
+            false,
+        ));
+    }
+    let options = arguments.values.get(2).map_or(ShapeValue::Exact, |value| {
+        bun_write_options(value, prototype_integrity_known)
+    });
+    if options == ShapeValue::Invalid {
+        return FsCallSummary::Invalid;
+    }
+    if source_partial || options == ShapeValue::Partial {
+        FsCallSummary::EffectPartial(filesystems)
+    } else {
+        FsCallSummary::Effect(filesystems)
+    }
+}
+
+fn bun_write_options(value: &Value, prototype_integrity_known: bool) -> ShapeValue {
+    let properties = match value {
+        Value::Undefined | Value::Null => return ShapeValue::Exact,
+        Value::Array(_) if prototype_integrity_known => return ShapeValue::Exact,
+        Value::Array(_) => return ShapeValue::Partial,
+        Value::Object(properties) => properties,
+        value if unknown_value(value) => return ShapeValue::Partial,
+        value if known_object_like(value) => return ShapeValue::Partial,
+        _ => return ShapeValue::Invalid,
+    };
+    match properties.get("mode") {
+        None | Some(Value::Undefined | Value::Null) => {}
+        Some(Value::Number(mode)) if (0..=0o777).contains(mode) => {}
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            return ShapeValue::Partial;
+        }
+        Some(_) => return ShapeValue::Invalid,
+    }
+    match properties.get("createPath") {
+        None | Some(Value::Undefined | Value::Null | Value::Bool(_)) => {}
+        Some(value) if unknown_value(value) || matches!(value, Value::Accessor) => {
+            return ShapeValue::Partial;
+        }
+        Some(_) => return ShapeValue::Invalid,
+    }
+    if !prototype_integrity_known
+        && (!properties.contains_key("mode") || !properties.contains_key("createPath"))
+    {
+        ShapeValue::Partial
+    } else {
+        ShapeValue::Exact
+    }
 }
 
 fn summarize_fs_call(module: Module, member: Member, arguments: &Arguments) -> FsCallSummary {
@@ -2741,8 +5288,15 @@ fn summarize_fs_call(module: Module, member: Member, arguments: &Arguments) -> F
                         && !matches!(fd, Value::Null | Value::Undefined)
                     {
                         return match fd {
-                            Value::Number(_) | Value::Unknown => {
+                            Value::Number(_) => {
                                 FsCallSummary::Effect(vec![LanguageFilesystem::new(
+                                    None,
+                                    FilesystemOperation::Write,
+                                    false,
+                                )])
+                            }
+                            value if unknown_value(value) => {
+                                FsCallSummary::EffectPartial(vec![LanguageFilesystem::new(
                                     None,
                                     FilesystemOperation::Write,
                                     false,
@@ -2752,7 +5306,7 @@ fn summarize_fs_call(module: Module, member: Member, arguments: &Arguments) -> F
                         };
                     }
                 }
-                Value::Unknown => return FsCallSummary::Partial,
+                value if unknown_value(value) => return FsCallSummary::Partial,
                 _ => return FsCallSummary::Invalid,
             }
             FsCallSummary::Effect(vec![path(0, FilesystemOperation::Write, false)])
@@ -3198,12 +5752,12 @@ fn recursive_option(value: &Value) -> OptionValue {
             }
             match properties.get("recursive") {
                 Some(Value::Bool(recursive)) => OptionValue::Exact(*recursive),
-                Some(Value::Unknown) => OptionValue::Partial,
+                Some(value) if unknown_value(value) => OptionValue::Partial,
                 Some(_) => OptionValue::Invalid,
                 None => OptionValue::Exact(false),
             }
         }
-        Value::Unknown => OptionValue::Partial,
+        value if unknown_value(value) => OptionValue::Partial,
         _ => OptionValue::Invalid,
     }
 }
@@ -3221,19 +5775,19 @@ fn possible_callback(value: &Value) -> bool {
 }
 
 fn possible_data(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Unknown)
+    matches!(value, Value::String(_)) || unknown_value(value)
 }
 
 fn possible_write_options(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Object(_) | Value::Unknown)
+    matches!(value, Value::String(_) | Value::Object(_)) || unknown_value(value)
 }
 
 fn possible_number(value: &Value) -> bool {
-    matches!(value, Value::Number(_) | Value::Unknown)
+    matches!(value, Value::Number(_)) || unknown_value(value)
 }
 
 fn possible_mode(value: &Value) -> bool {
-    matches!(value, Value::Number(_) | Value::String(_) | Value::Unknown)
+    matches!(value, Value::Number(_) | Value::String(_)) || unknown_value(value)
 }
 
 fn option_has_accessor(value: &Value) -> bool {
@@ -3241,16 +5795,32 @@ fn option_has_accessor(value: &Value) -> bool {
 }
 
 fn possible_symlink_kind(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::String(_) | Value::Undefined | Value::Null | Value::Unknown
-    )
+    matches!(value, Value::String(_) | Value::Undefined | Value::Null) || unknown_value(value)
 }
 
 fn property_value(value: &Value, property: &str, state: &State) -> Value {
     match value {
-        Value::Object(properties) => properties.get(property).cloned().unwrap_or(Value::Unknown),
+        Value::Object(properties) => properties
+            .get(property)
+            .cloned()
+            .unwrap_or(Value::Undefined),
         Value::Module(module) => module_property_value(*module, property, state),
+        Value::Deno if property == "Command" => Value::DenoCommandConstructor,
+        Value::Deno => deno_member(property)
+            .map(|member| Value::Known(KnownFunction::Deno(member)))
+            .unwrap_or(Value::Unknown),
+        Value::DenoCommand(command) => deno_command_member(property)
+            .map(|member| Value::Known(KnownFunction::DenoCommand(member, command.clone())))
+            .unwrap_or(Value::Unknown),
+        Value::Bun => bun_member(property)
+            .map(|member| Value::Known(KnownFunction::Bun(member)))
+            .unwrap_or(Value::Unknown),
+        Value::BunFile(path) => bun_file_member(property)
+            .map(|member| Value::Known(KnownFunction::BunFile(member, path.clone())))
+            .unwrap_or(Value::Unknown),
+        Value::OpenClawTools => openclaw_member(property)
+            .map(|member| Value::Known(KnownFunction::OpenClaw(member)))
+            .unwrap_or(Value::Unknown),
         _ => Value::Unknown,
     }
 }
@@ -3272,7 +5842,7 @@ fn module_property_value(module: Module, property: &str, state: &State) -> Value
 }
 
 fn possible_path_argument(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Unknown)
+    matches!(value, Value::String(_)) || unknown_value(value)
 }
 
 fn possible_file_argument(value: &Value) -> bool {
@@ -3370,7 +5940,12 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
                 .collect();
             (native_object(properties), exact)
         }
-        Value::Unknown
+        Value::Invalid
+        | Value::SynchronousThrow
+        | Value::Divergent
+        | Value::Promise
+        | Value::RejectedPromise
+        | Value::Unknown
         | Value::Array(_)
         | Value::Object(_)
         | Value::Module(_)
@@ -3379,9 +5954,18 @@ fn native_value(value: &Value, depth: usize) -> (JsonValue, bool) {
         | Value::Accessor
         | Value::Require
         | Value::Eval
+        | Value::DynamicEvalResult
+        | Value::FunctionConstructor
+        | Value::DynamicFunction(_)
         | Value::ObjectBuiltin
         | Value::Process
         | Value::Environment
+        | Value::Deno
+        | Value::DenoCommandConstructor
+        | Value::DenoCommand(_)
+        | Value::Bun
+        | Value::BunFile(_)
+        | Value::OpenClawTools
         | Value::UnknownModuleMember(_)
         | Value::UnknownReceiver(_) => (native_unknown(), false),
     }
@@ -3436,14 +6020,34 @@ fn string_coercion(value: &Value) -> Option<String> {
     }
 }
 
+fn abrupt_value(value: &Value) -> bool {
+    matches!(value, Value::SynchronousThrow | Value::Divergent)
+}
+
+fn abrupt_control(value: &Value) -> Option<Control> {
+    match value {
+        Value::SynchronousThrow => Some(Control::Throw),
+        Value::Divergent => Some(Control::Diverge),
+        _ => None,
+    }
+}
+
 fn truthy(value: &Value) -> Option<bool> {
     match value {
-        Value::Unknown | Value::UnknownModuleMember(_) | Value::UnknownReceiver(_) => None,
+        Value::Invalid
+        | Value::SynchronousThrow
+        | Value::Divergent
+        | Value::Unknown
+        | Value::DynamicEvalResult
+        | Value::UnknownModuleMember(_)
+        | Value::UnknownReceiver(_) => None,
         Value::Undefined | Value::Null => Some(false),
         Value::Bool(value) => Some(*value),
         Value::Number(value) => Some(*value != 0),
         Value::String(value) => Some(!value.is_empty()),
-        Value::Array(_)
+        Value::Promise
+        | Value::RejectedPromise
+        | Value::Array(_)
         | Value::Object(_)
         | Value::Module(_)
         | Value::Known(_)
@@ -3451,9 +6055,17 @@ fn truthy(value: &Value) -> Option<bool> {
         | Value::Accessor
         | Value::Require
         | Value::Eval
+        | Value::FunctionConstructor
+        | Value::DynamicFunction(_)
         | Value::ObjectBuiltin
         | Value::Process
-        | Value::Environment => Some(true),
+        | Value::Environment
+        | Value::Deno
+        | Value::DenoCommandConstructor
+        | Value::DenoCommand(_)
+        | Value::Bun
+        | Value::BunFile(_)
+        | Value::OpenClawTools => Some(true),
     }
 }
 
@@ -3463,9 +6075,30 @@ fn strict_equal(left: &Value, right: &Value) -> Option<bool> {
         (Value::Bool(left), Value::Bool(right)) => Some(left == right),
         (Value::Number(left), Value::Number(right)) => Some(left == right),
         (Value::String(left), Value::String(right)) => Some(left == right),
-        (Value::Unknown, _) | (_, Value::Unknown) => None,
-        _ => Some(false),
+        (left, right) if uncertain_identity(left) || uncertain_identity(right) => None,
+        (left, right) if primitive_value(left) || primitive_value(right) => Some(false),
+        _ => None,
     }
+}
+
+fn primitive_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Undefined | Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)
+    )
+}
+
+fn uncertain_identity(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Unknown
+            | Value::DynamicEvalResult
+            | Value::Invalid
+            | Value::SynchronousThrow
+            | Value::Divergent
+            | Value::UnknownModuleMember(_)
+            | Value::UnknownReceiver(_)
+    )
 }
 
 fn loose_equal(left: &Value, right: &Value) -> Option<bool> {
@@ -3476,7 +6109,7 @@ fn loose_equal(left: &Value, right: &Value) -> Option<bool> {
         | (Value::Bool(_), Value::Bool(_))
         | (Value::Number(_), Value::Number(_))
         | (Value::String(_), Value::String(_)) => strict_equal(left, right),
-        (Value::Unknown, _) | (_, Value::Unknown) => None,
+        (left, right) if unknown_value(left) || unknown_value(right) => None,
         _ => None,
     }
 }
@@ -3509,6 +6142,9 @@ fn join_states(mut left: State, right: State) -> State {
                 .copied()
                 .collect(),
             relative_cwd_known: left.relative_cwd_known && right.relative_cwd_known,
+            prototype_integrity_known: left.prototype_integrity_known
+                && right.prototype_integrity_known,
+            runtime_globals_intact: left.runtime_globals_intact && right.runtime_globals_intact,
         };
     }
     for (left_scope, right_scope) in left.scopes.iter_mut().zip(right.scopes) {
@@ -3541,6 +6177,8 @@ fn join_states(mut left: State, right: State) -> State {
         .copied()
         .collect();
     left.relative_cwd_known &= right.relative_cwd_known;
+    left.prototype_integrity_known &= right.prototype_integrity_known;
+    left.runtime_globals_intact &= right.runtime_globals_intact;
     left.next_scope_id = left.next_scope_id.max(right.next_scope_id);
     left
 }
@@ -3727,6 +6365,43 @@ fn delimited_has_hole(node: &HirNode, source: &str) -> bool {
     false
 }
 
+fn delimited_holes(source: &str, start: usize, end: usize, follows_element: bool) -> Option<usize> {
+    let mut characters = source.get(start..end)?.chars().peekable();
+    let mut commas = 0usize;
+    while let Some(character) = characters.next() {
+        match character {
+            ',' => commas += 1,
+            character if character.is_whitespace() => {}
+            '/' => match characters.next()? {
+                '/' => {
+                    for character in characters.by_ref() {
+                        if matches!(character, '\n' | '\r') {
+                            break;
+                        }
+                    }
+                }
+                '*' => {
+                    let mut previous = '\0';
+                    let mut closed = false;
+                    for character in characters.by_ref() {
+                        if previous == '*' && character == '/' {
+                            closed = true;
+                            break;
+                        }
+                        previous = character;
+                    }
+                    if !closed {
+                        return None;
+                    }
+                }
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    Some(commas.saturating_sub(usize::from(follows_element)))
+}
+
 fn is_absolute(path: &str, platform: Platform) -> bool {
     path.starts_with('/')
         || platform == Platform::Windows
@@ -3799,17 +6474,23 @@ mod tests {
     }
 
     #[test]
-    fn dormant_code_getters_builders_and_dynamic_constructors_are_inert() {
+    fn dormant_code_getters_builders_and_dynamic_construction_are_inert() {
         let dangerous = "require('child_process').execSync('rm -rf /')";
         for code in [
             format!("function dormant(){{{dangerous}}}"),
             format!("setTimeout(()=>{dangerous}, 0)"),
             format!("const value={{get danger(){{{dangerous}}}}}"),
             format!("builder({dangerous:?})"),
-            format!("new Function({dangerous:?})()"),
+            format!("new Function({dangerous:?})"),
         ] {
             assert_inert(&code);
         }
+        assert_eq!(
+            report(&format!("new Function({dangerous:?})()"))
+                .nested_executions()
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -42,6 +42,7 @@ pub(super) enum HirKind {
     AssignmentPattern,
     RestPattern,
     CallExpression,
+    NewExpression,
     Arguments,
     MemberExpression,
     SubscriptExpression,
@@ -222,6 +223,15 @@ pub(super) fn javascript_function_body(code: &str) -> Result<HirModule, InlineRe
     )
 }
 
+pub(super) fn javascript_dynamic_function(
+    parameters: &[String],
+    body: &str,
+) -> Result<bool, InlineRefusal> {
+    let parameters = parameters.join(",");
+    let source = format!("function anonymous({parameters}\n) {{\n{body}\n}}");
+    javascript(&source).map(|module| module.executable())
+}
+
 pub(super) fn typescript(code: &str) -> Result<HirModule, InlineRefusal> {
     parse(
         code,
@@ -396,6 +406,7 @@ fn hir_kind(node: Node<'_>) -> HirKind {
         "assignment_pattern" | "object_assignment_pattern" => HirKind::AssignmentPattern,
         "rest_pattern" => HirKind::RestPattern,
         "call_expression" => HirKind::CallExpression,
+        "new_expression" => HirKind::NewExpression,
         "arguments" => HirKind::Arguments,
         "member_expression" => HirKind::MemberExpression,
         "subscript_expression" => HirKind::SubscriptExpression,
