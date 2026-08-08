@@ -35,36 +35,34 @@ no other built-in tool. Every custom, SDK, or future tool uses one Prime-specifi
 opaque identity, including tools named `bash`, `Read`, `Write`, or `Edit`, so a
 native-looking name cannot select Nah's unrelated tool schemas.
 
-Current-cell constants, control flow, local definitions, reviewed builtins, and
-reviewed imports are analyzed with normal Python semantics. A visible rebind,
-module mutation, builtin mutation, import-table mutation, or escape removes the
-affected ownership. Hidden changes from earlier cells do not erase definite
-current-cell evidence. Additional fields make coverage partial without hiding
-the built-in code string. A missing or non-string code field stays opaque.
+Current-cell constants, control flow, definitions, reviewed builtins, and
+imports use normal Python semantics. Visible rebinding, mutation, or escape
+removes affected ownership. Earlier hidden changes do not erase definite
+current-cell evidence. Extra fields make coverage partial; missing or
+non-string code stays opaque.
 
-Prime Agent can retain Python bindings and change the kernel working directory
-between cells, but its tool-call event does not expose that state. Prior
-arbitrary names, imported callables not re-established in the current cell,
-the cross-cell heap, and the kernel working directory therefore remain unknown.
-Absolute paths remain actionable; relative paths stay unresolved. nah does not
-execute a cell or reconstruct the full Python runtime to discover hidden state.
+The tool-call event omits prior bindings, heap state, and kernel cwd. Imports
+not re-established in the current cell and relative paths therefore stay
+unknown; absolute paths remain actionable. nah does not execute the cell to
+discover hidden state.
 
 ## Shell boundary
 
-At Prime Agent commit `b817a089`, the `tool_call` hook receives raw IPython
-code before the runtime applies configured shell settings. Nah owns IPython's
+At Prime Agent commit `b817a089`, `tool_call` receives raw IPython before
+configured shell settings apply. Nah owns IPython's
 syntactic boundary: `!`, `!!`, `%%bash`, and `%%sh` lower to shell effects
 without trusting spoofable runtime method names. Exact simple `$name` and
 `{name}` interpolation is resolved from current-cell values; unresolved
 interpolation makes the affected shell execution partial. `%%capture`, `%time`,
 and `%%time` preserve effects from the code they execute; `%%capture` contains
-the body's stdout instead of exposing it to the surrounding cell.
+IPython-routed output; inherited child stdout remains visible. Bare escapes use
+the hook process's observed `SHELL`; unsupported shells stay partial.
 
 The visible body of a Bash or sh cell is analyzed. Prime Agent's configured
-`commandPrefix`, final shell-path rewrite, and kernel environment are not
-present in the hook input and remain outside the adapter contract. IPython
-state-changing or file-loading forms such as `%cd`, `%run`, and `%%writefile`
-also remain outside the current effect contract.
+`commandPrefix`, final shell-path rewrite, and prior in-kernel environment
+mutations are not present in the hook input and remain outside the adapter
+contract. IPython state-changing or file-loading forms such as `%cd`, `%run`,
+and `%%writefile` also remain outside the current effect contract.
 
 The package also exports Bash and edit tool factories, but the pinned CLI does
 not register them as base tools. SDK `baseToolsOverride` can supply arbitrary

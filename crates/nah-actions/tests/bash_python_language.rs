@@ -181,19 +181,22 @@ fn unowned_property_names_do_not_add_language_stages() {
 }
 
 #[test]
-fn possible_python_cwd_mutation_never_reuses_the_outer_cwd() {
+fn exact_python_cwd_mutation_resolves_from_the_changed_directory() {
     let plan = bash_plan(r#"python3 -c "import os; os.chdir('/tmp'); os.remove('cache')""#);
-    assert!(!plan.observation_request().queries().iter().any(|query| {
-        matches!(query, ObservationQuery::Path { key, .. } if key.starts_with("language-"))
+    assert!(plan.observation_request().queries().iter().any(|query| {
+        matches!(
+            query,
+            ObservationQuery::Path { key, requested, .. }
+                if key.starts_with("language-") && requested == "/tmp/cache"
+        )
     }));
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
-    assert_eq!(stream.coverage(), Coverage::Partial);
+    assert_eq!(stream.coverage(), Coverage::Full);
     assert!(stream.effects().iter().any(|effect| matches!(
         effect.kind(),
-        EffectKind::FilesystemUnresolved {
-            operation: FilesystemOperation::Delete,
-            recursive: false,
-        }
+        EffectKind::Filesystem { effect }
+            if effect.operation == FilesystemOperation::Delete
+                && effect.target.as_str() == "/tmp/cache"
     )));
     assert!(!stream.effects().iter().any(|effect| matches!(
         effect.kind(),

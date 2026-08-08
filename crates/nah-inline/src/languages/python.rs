@@ -28,7 +28,14 @@ pub(super) fn analyze_language(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    analyze_language_with_state(program, input, protection, depth, InitialState::Fresh)
+    analyze_language_with_state(
+        program,
+        input,
+        protection,
+        depth,
+        InitialState::Fresh,
+        false,
+    )
 }
 
 pub(super) fn analyze_language_with_state(
@@ -37,8 +44,17 @@ pub(super) fn analyze_language_with_state(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
     initial_state: InitialState,
+    capture_ipython_output: bool,
 ) -> LanguageAnalysis {
-    engine::analyze(program, input, protection, depth, initial_state, false)
+    engine::analyze(
+        program,
+        input,
+        protection,
+        depth,
+        initial_state,
+        false,
+        capture_ipython_output,
+    )
 }
 
 pub(super) fn analyze_ipython_syntax_with_state(
@@ -47,6 +63,15 @@ pub(super) fn analyze_ipython_syntax_with_state(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
     initial_state: InitialState,
+    capture_ipython_output: bool,
 ) -> LanguageAnalysis {
-    engine::analyze(program, input, protection, depth, initial_state, true)
+    engine::analyze(
+        program,
+        input,
+        protection,
+        depth,
+        initial_state,
+        true,
+        capture_ipython_output,
+    )
 }

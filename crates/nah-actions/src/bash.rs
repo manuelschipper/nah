@@ -12,7 +12,7 @@ use crate::bash_descriptor_state::{DescriptorFacts, SymbolicDescriptorId};
 use crate::bash_flow::{add_artifact_flows, add_artifact_identities};
 use crate::bash_lookup::{AliasSnapshot, LookupMode};
 use crate::bash_model::{
-    Draft, InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue,
+    ChildCwdDraft, Draft, InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue,
 };
 use crate::bash_state::{
     BindingAttribute, Cwd, FunctionBody, PositionalValue, ShellState, known_cwd, merge_states,
@@ -72,6 +72,7 @@ struct Lowerer {
     visible_stdin: Option<VisibleStdin>,
     visible_execution_states: Vec<VisibleExecutionState>,
     inline_child_stages: BTreeSet<usize>,
+    inline_child_cwds: Vec<ChildCwdDraft>,
     inline_report: nah_inline::InlineReport,
     inline_failed: bool,
     inline_child_count: usize,
@@ -318,6 +319,7 @@ fn visible_language_draft_with_profile(
             argv: None,
         },
         invocation_cwd: None,
+        child_cwd_keys: Vec::new(),
         filesystems: Vec::new(),
         git_operations: Vec::new(),
         git_project_scoped: false,
@@ -394,6 +396,7 @@ impl Lowerer {
             visible_stdin: None,
             visible_execution_states: Vec::new(),
             inline_child_stages: BTreeSet::new(),
+            inline_child_cwds: Vec::new(),
             inline_report: nah_inline::InlineReport::default(),
             inline_failed: false,
             inline_child_count: 0,
@@ -444,6 +447,7 @@ impl Lowerer {
         let draft = Draft {
             complete: self.complete,
             analysis_refused: self.analysis_refused,
+            child_cwds: self.inline_child_cwds,
             stages: self.stages,
             flows: self.flows,
         };
@@ -486,6 +490,7 @@ impl Lowerer {
         Draft {
             complete: self.complete,
             analysis_refused: self.analysis_refused,
+            child_cwds: self.inline_child_cwds.clone(),
             stages,
             flows,
         }
@@ -533,6 +538,7 @@ impl Lowerer {
                 argv: None,
             },
             invocation_cwd: known_cwd(&self.state).map(str::to_owned),
+            child_cwd_keys: Vec::new(),
             filesystems: Vec::new(),
             git_operations: Vec::new(),
             git_project_scoped: false,
@@ -559,6 +565,7 @@ impl Lowerer {
                 argv: None,
             },
             invocation_cwd: known_cwd(&self.state).map(str::to_owned),
+            child_cwd_keys: Vec::new(),
             filesystems: Vec::new(),
             git_operations: Vec::new(),
             git_project_scoped: false,

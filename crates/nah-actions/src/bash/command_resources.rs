@@ -18,6 +18,7 @@ use crate::bash_symlinks::{
     has_dynamic_content_selection, has_unresolved_selection, pattern_symlink_traversal,
     pattern_targets, recursive_symlink_traversal,
 };
+use crate::paths::cwd_relative;
 use crate::shell_word::static_word;
 
 pub(super) struct CommandResources {
@@ -126,6 +127,7 @@ impl Lowerer {
                     &requested,
                     FilesystemOperation::Read,
                     false,
+                    cwd_relative(target, self.platform),
                     &mut filesystem_drafts,
                 );
             }
@@ -137,6 +139,7 @@ impl Lowerer {
                     &requested,
                     FilesystemOperation::Write,
                     false,
+                    cwd_relative(target, self.platform),
                     &mut filesystem_drafts,
                 );
                 if let Some(filesystem) = filesystem_drafts.last_mut() {
@@ -151,6 +154,7 @@ impl Lowerer {
                     &requested,
                     FilesystemOperation::Delete,
                     false,
+                    cwd_relative(target, self.platform),
                     &mut filesystem_drafts,
                 );
                 if git_command_guard == Some(SemanticCode::CLEAN_FORCE.as_str())
@@ -163,7 +167,11 @@ impl Lowerer {
                 let Some(requested) = self.resolve_requested(target) else {
                     continue;
                 };
-                self.add_existing_file(&requested, &mut filesystem_drafts);
+                self.add_existing_file(
+                    &requested,
+                    cwd_relative(target, self.platform),
+                    &mut filesystem_drafts,
+                );
             }
         }
         if git_environment_override {

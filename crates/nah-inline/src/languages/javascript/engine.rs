@@ -72,6 +72,7 @@ enum Member {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DenoMember {
+    Chdir,
     Remove,
     RemoveSync,
     Mkdir,
@@ -173,6 +174,13 @@ struct DenoCommandValue {
     output_stdout_inherited: bool,
     spawn_throws_after_effect: bool,
     output_throws_after_effect: bool,
+    source: Option<Box<DenoCommandSource>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DenoCommandSource {
+    program: Value,
+    options: Option<Value>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -652,6 +660,14 @@ impl State {
         }
     }
 
+    fn replace_mutated_container(&mut self, original: &Value, replacement: &Value) {
+        for scope in &mut self.scopes {
+            for binding in scope.bindings.values_mut() {
+                replace_mutated_container_value(binding, original, replacement, true);
+            }
+        }
+    }
+
     fn invalidate_loaded_module(&mut self, module: Module) {
         self.invalidate_module(module);
     }
@@ -675,6 +691,46 @@ impl State {
             }
         }
         state
+    }
+}
+
+fn replace_mutated_container_value(
+    value: &mut Value,
+    original: &Value,
+    replacement: &Value,
+    direct_binding: bool,
+) {
+    if value == original {
+        if direct_binding {
+            *value = Value::Unknown;
+        } else {
+            value.clone_from(replacement);
+        }
+        return;
+    }
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                replace_mutated_container_value(value, original, replacement, false);
+            }
+        }
+        Value::Object(properties) => {
+            for value in properties.values_mut() {
+                replace_mutated_container_value(value, original, replacement, false);
+            }
+        }
+        Value::DenoCommand(command) => {
+            if let Some(source) = command.source.as_mut() {
+                replace_mutated_container_value(&mut source.program, original, replacement, false);
+                if let Some(options) = &mut source.options {
+                    replace_mutated_container_value(options, original, replacement, false);
+                }
+            }
+        }
+        Value::UnknownReceiver(value) => {
+            replace_mutated_container_value(value, original, replacement, false);
+        }
+        _ => {}
     }
 }
 
@@ -819,12 +875,18 @@ struct Interpreter<'a> {
     catchable_depth: usize,
     execution_dominators: Vec<usize>,
     awaited_call: Option<usize>,
+    async_frames: Vec<AsyncFrame>,
 }
 
 struct AssemblyBranch {
     state: State,
     conditional_depth: usize,
     execution_dominators: Vec<usize>,
+}
+
+struct AsyncFrame {
+    deferred: bool,
+    prefix: Option<State>,
 }
 
 pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -> LanguageAnalysis {
@@ -871,6 +933,7 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
         catchable_depth: 0,
         execution_dominators: Vec::new(),
         awaited_call: None,
+        async_frames: Vec::new(),
     };
     if profile.ownership == RuntimeOwnership::DenoCheckedEval {
         interpreter.complete = false;
@@ -1335,6 +1398,17 @@ impl<'a> Interpreter<'a> {
                 } else {
                     Value::Unknown
                 };
+                if let Some(frame) = self.async_frames.last_mut()
+                    && frame.deferred
+                    && frame.prefix.is_none()
+                {
+                    let mut prefix = state.clone();
+                    if self.conditional_depth > 0 {
+                        prefix.cwd = NestedExecutionCwd::Unknown;
+                        self.complete = false;
+                    }
+                    frame.prefix = Some(prefix);
+                }
                 match value {
                     Value::RejectedPromise => Value::SynchronousThrow,
                     Value::Promise => Value::Unknown,
@@ -1930,11 +2004,27 @@ impl<'a> Interpreter<'a> {
                     .get(property)
                     .is_none_or(|value| !accessor_value(value)) =>
             {
-                state.forget_container(&member.object);
+                let mut properties = properties.clone();
+                properties.insert(property.to_owned(), replacement);
+                state.replace_mutated_container(&member.object, &Value::Object(properties));
                 NodeMutation::Applies
             }
-            (Value::Array(_), Some(_)) => {
-                state.forget_container(&member.object);
+            (Value::Array(values), Some(property)) => {
+                let Some(index) = property
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|index| *index < MAX_COLLECTION_ITEMS && *index <= values.len())
+                else {
+                    state.forget_container(&member.object);
+                    return NodeMutation::Unknown;
+                };
+                let mut values = values.clone();
+                if index == values.len() {
+                    values.push(replacement);
+                } else {
+                    values[index] = replacement;
+                }
+                state.replace_mutated_container(&member.object, &Value::Array(values));
                 NodeMutation::Applies
             }
             (Value::LoadedModule(module), Some(_)) => {
@@ -1961,6 +2051,26 @@ impl<'a> Interpreter<'a> {
 
     fn delete_member(&mut self, member: MemberReference, state: &mut State) -> NodeMutation {
         match (&member.object, member.property.as_deref()) {
+            (Value::Object(properties), Some(property)) => {
+                let mut properties = properties.clone();
+                properties.remove(property);
+                state.replace_mutated_container(&member.object, &Value::Object(properties));
+                NodeMutation::Applies
+            }
+            (Value::Array(values), Some(property)) => {
+                let Some(index) = property
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|index| *index < values.len())
+                else {
+                    state.forget_container(&member.object);
+                    return NodeMutation::Unknown;
+                };
+                let mut values = values.clone();
+                values[index] = Value::Undefined;
+                state.replace_mutated_container(&member.object, &Value::Array(values));
+                NodeMutation::Applies
+            }
             (Value::NodeModule, Some(property)) => {
                 if let Some(property) = node_module_property(property) {
                     self.delete_node_property(property, state)
@@ -2373,12 +2483,9 @@ impl<'a> Interpreter<'a> {
                 return value.clone();
             }
             if constructor == Value::DenoCommandConstructor {
-                let summary = deno_command(
-                    &arguments,
-                    state.prototype_integrity_known,
-                    self.platform,
-                    &state.cwd,
-                );
+                let summary =
+                    deno_command(&arguments, state.prototype_integrity_known, self.platform);
+                let summary = attach_deno_command_source(summary, &arguments);
                 return match summary {
                     RuntimeCallSummary::Effect(argv) => Value::DenoCommand(argv),
                     RuntimeCallSummary::EffectPartial(argv) => {
@@ -2588,6 +2695,7 @@ impl<'a> Interpreter<'a> {
             catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
             awaited_call: None,
+            async_frames: Vec::new(),
         };
         let mut nested_state = state.dynamic_global(self.profile.ownership);
         nested_state.push_scope(true);
@@ -2781,6 +2889,7 @@ impl<'a> Interpreter<'a> {
             catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
             awaited_call: None,
+            async_frames: Vec::new(),
         };
         let mut nested_state = state.clone();
         nested.hoist_vars(module.root(), &mut nested_state);
@@ -3141,6 +3250,31 @@ impl<'a> Interpreter<'a> {
                     ChildCallSummary::Invalid => Value::Unknown,
                 }
             }
+            KnownFunction::Deno(DenoMember::Chdir) => {
+                if !arguments.complete || arguments.values.len() != 1 {
+                    return Value::SynchronousThrow;
+                }
+                match &arguments.values[0] {
+                    Value::String(path) if !path.is_empty() && !path.contains('\0') => {
+                        self.emit_call(
+                            LanguageCallKind::LocalUtility,
+                            "Deno.chdir",
+                            &arguments,
+                            state,
+                            Vec::new(),
+                        );
+                        state.cwd = state.cwd.changed(path, self.platform);
+                        Value::Undefined
+                    }
+                    value if unknown_value(value) => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        state.cwd = NestedExecutionCwd::Unknown;
+                        Value::Unknown
+                    }
+                    _ => Value::SynchronousThrow,
+                }
+            }
             KnownFunction::Deno(member) => {
                 let summary =
                     summarize_deno_call(member, &arguments, state.prototype_integrity_known);
@@ -3186,6 +3320,30 @@ impl<'a> Interpreter<'a> {
                     self.draft.set_partial();
                     return Value::Unknown;
                 }
+                let command = match refresh_deno_command(
+                    command,
+                    state.prototype_integrity_known,
+                    self.platform,
+                ) {
+                    RuntimeCallSummary::Effect(command) => command,
+                    RuntimeCallSummary::EffectPartial(command) => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        command
+                    }
+                    RuntimeCallSummary::Partial => {
+                        self.complete = false;
+                        self.draft.set_partial();
+                        return Value::Unknown;
+                    }
+                    RuntimeCallSummary::Invalid => return Value::SynchronousThrow,
+                };
+                let cwd = match &command.cwd {
+                    NestedExecutionCwd::Inherited => state.cwd.clone(),
+                    NestedExecutionCwd::Path(path) => state.cwd.changed(path, self.platform),
+                    NestedExecutionCwd::Unknown => NestedExecutionCwd::Unknown,
+                };
+                let context_exact = command.context_exact && cwd != NestedExecutionCwd::Unknown;
                 let evidence = Arguments {
                     values: vec![command.argv.as_ref().map_or(Value::Unknown, |argv| {
                         Value::Array(argv.iter().cloned().map(Value::String).collect())
@@ -3206,9 +3364,7 @@ impl<'a> Interpreter<'a> {
                         state,
                         Vec::new(),
                     );
-                    if command.context_exact
-                        && let Some(argv) = command.argv.clone()
-                    {
+                    if context_exact && let Some(argv) = command.argv.clone() {
                         let stdout_inherited = if member == DenoCommandMember::Spawn {
                             command.spawn_stdout_inherited
                         } else {
@@ -3218,14 +3374,14 @@ impl<'a> Interpreter<'a> {
                             super::super::common::add_exact_argv_at(
                                 &mut self.report,
                                 argv,
-                                command.cwd.clone(),
+                                cwd.clone(),
                                 true,
                             );
                         } else {
                             super::super::common::add_exact_argv_at(
                                 &mut self.report,
                                 argv,
-                                command.cwd.clone(),
+                                cwd.clone(),
                                 false,
                             );
                         }
@@ -3244,7 +3400,7 @@ impl<'a> Interpreter<'a> {
                     return Value::SynchronousThrow;
                 }
                 if certainty == ExecutionCertainty::Known
-                    && (!command.context_exact || command.argv.is_none())
+                    && (!context_exact || command.argv.is_none())
                 {
                     self.complete = false;
                     self.draft.set_partial();
@@ -3520,7 +3676,6 @@ impl<'a> Interpreter<'a> {
             self.complete = false;
             return Value::Unknown;
         }
-        let caller_cwd = state.cwd.clone();
         let caller_chain =
             std::mem::replace(&mut state.scope_chain, function.captured_scopes.clone());
         let caller_strict = std::mem::replace(&mut self.strict, function.strict);
@@ -3530,6 +3685,10 @@ impl<'a> Interpreter<'a> {
         }
         self.hoist_vars(&function.body, state);
         self.return_value = Value::Undefined;
+        self.async_frames.push(AsyncFrame {
+            deferred: function.asynchronous && !awaited,
+            prefix: None,
+        });
         let value = if function.expression_body {
             self.eval(&function.body, state, call_depth + 1)
         } else {
@@ -3541,13 +3700,21 @@ impl<'a> Interpreter<'a> {
                 Control::Next | Control::Break | Control::Continue => Value::Undefined,
             }
         };
-        state.pop_scope();
-        state.scope_chain = caller_chain;
-        self.strict = caller_strict;
-        if function.asynchronous && !awaited && state.cwd != caller_cwd {
-            state.cwd = NestedExecutionCwd::Unknown;
-            self.complete = false;
+        let async_frame = self
+            .async_frames
+            .pop()
+            .expect("local function execution has an async frame");
+        if let Some(mut prefix) = async_frame.prefix {
+            prefix
+                .scopes
+                .retain(|scope| caller_chain.contains(&scope.id));
+            prefix.scope_chain.clone_from(&caller_chain);
+            *state = prefix;
+        } else {
+            state.pop_scope();
+            state.scope_chain.clone_from(&caller_chain);
         }
+        self.strict = caller_strict;
         if function.asynchronous {
             match value {
                 Value::Divergent => Value::Divergent,
@@ -3568,7 +3735,7 @@ impl<'a> Interpreter<'a> {
         Some(Value::Function(Arc::new(LocalFunction {
             parameters,
             expression_body: body.kind() != HirKind::StatementBlock,
-            asynchronous: asynchronous_function_source(self.text(node)),
+            asynchronous: asynchronous_function(node, self.source),
             strict: self.strict || strict_directive(&body, self.source),
             captured_scopes: state.scope_chain.clone(),
             source_identity: self.source.as_ptr() as usize,
@@ -3808,7 +3975,7 @@ impl<'a> Interpreter<'a> {
                             _ => Value::Unknown,
                         },
                         Some("set") => Value::Accessor,
-                        _ => Value::Unknown,
+                        _ => self.function_value(child, state).unwrap_or(Value::Unknown),
                     };
                     (name, value)
                 }
@@ -4100,15 +4267,13 @@ fn source_is_module(node: &HirNode) -> bool {
     })
 }
 
-fn asynchronous_function_source(source: &str) -> bool {
-    let Some(rest) = source.trim_start().strip_prefix("async") else {
-        return false;
-    };
-    match rest.chars().next() {
-        Some('(' | '<') => true,
-        Some(character) if character.is_whitespace() => !rest.trim_start().starts_with("=>"),
-        _ => false,
-    }
+fn asynchronous_function(node: &HirNode, source: &str) -> bool {
+    node.children().iter().any(|child| {
+        child.kind() == HirKind::Token
+            && source
+                .get(child.span().start()..child.span().end())
+                .is_some_and(|token| token == "async")
+    })
 }
 
 fn member_assignment_target(node: &HirNode) -> Option<&HirNode> {
@@ -4845,6 +5010,7 @@ fn augmented_coercion_proven(left: &Value, right: Option<&Value>, state: &State)
 
 fn deno_member(property: &str) -> Option<DenoMember> {
     match property {
+        "chdir" => Some(DenoMember::Chdir),
         "remove" => Some(DenoMember::Remove),
         "removeSync" => Some(DenoMember::RemoveSync),
         "mkdir" => Some(DenoMember::Mkdir),
@@ -4901,6 +5067,7 @@ fn openclaw_member(property: &str) -> Option<OpenClawMember> {
 
 fn deno_callable(member: DenoMember) -> &'static str {
     match member {
+        DenoMember::Chdir => "Deno.chdir",
         DenoMember::Remove => "Deno.remove",
         DenoMember::RemoveSync => "Deno.removeSync",
         DenoMember::Mkdir => "Deno.mkdir",
@@ -4919,7 +5086,8 @@ fn deno_callable(member: DenoMember) -> &'static str {
 fn deno_member_synchronous(member: DenoMember) -> bool {
     matches!(
         member,
-        DenoMember::RemoveSync
+        DenoMember::Chdir
+            | DenoMember::RemoveSync
             | DenoMember::MkdirSync
             | DenoMember::ReadFileSync
             | DenoMember::ReadTextFileSync
@@ -4929,7 +5097,8 @@ fn deno_member_synchronous(member: DenoMember) -> bool {
 }
 
 fn deno_member_constructible(member: DenoMember) -> bool {
-    deno_member_synchronous(member) || member == DenoMember::WriteTextFile
+    member != DenoMember::Chdir
+        && (deno_member_synchronous(member) || member == DenoMember::WriteTextFile)
 }
 
 fn deno_command_callable(member: DenoCommandMember) -> &'static str {
@@ -5643,6 +5812,53 @@ enum FsCallSummary {
     Invalid,
 }
 
+fn attach_deno_command_source(
+    summary: RuntimeCallSummary<DenoCommandValue>,
+    arguments: &Arguments,
+) -> RuntimeCallSummary<DenoCommandValue> {
+    let source = DenoCommandSource {
+        program: arguments
+            .values
+            .first()
+            .cloned()
+            .unwrap_or(Value::Undefined),
+        options: arguments.values.get(1).cloned(),
+    };
+    match summary {
+        RuntimeCallSummary::Effect(mut command) => {
+            command.source = Some(Box::new(source));
+            RuntimeCallSummary::Effect(command)
+        }
+        RuntimeCallSummary::EffectPartial(mut command) => {
+            command.source = Some(Box::new(source));
+            RuntimeCallSummary::EffectPartial(command)
+        }
+        RuntimeCallSummary::Partial => RuntimeCallSummary::Partial,
+        RuntimeCallSummary::Invalid => RuntimeCallSummary::Invalid,
+    }
+}
+
+fn refresh_deno_command(
+    command: DenoCommandValue,
+    prototype_integrity_known: bool,
+    platform: Platform,
+) -> RuntimeCallSummary<DenoCommandValue> {
+    let Some(source) = command.source.as_deref() else {
+        return RuntimeCallSummary::Effect(command);
+    };
+    let mut values = vec![source.program.clone()];
+    values.extend(source.options.clone());
+    let arguments = Arguments {
+        values,
+        complete: true,
+        assembly_branches: Vec::new(),
+    };
+    attach_deno_command_source(
+        deno_command(&arguments, prototype_integrity_known, platform),
+        &arguments,
+    )
+}
+
 fn partialize_deno_command(
     summary: RuntimeCallSummary<DenoCommandValue>,
 ) -> RuntimeCallSummary<DenoCommandValue> {
@@ -5665,7 +5881,6 @@ fn deno_command(
     arguments: &Arguments,
     prototype_integrity_known: bool,
     platform: Platform,
-    current_cwd: &NestedExecutionCwd,
 ) -> RuntimeCallSummary<DenoCommandValue> {
     if !arguments.complete {
         return RuntimeCallSummary::Partial;
@@ -5678,7 +5893,7 @@ fn deno_command(
     let Some(options) = arguments.values.get(1) else {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
-            cwd: current_cwd.clone(),
+            cwd: NestedExecutionCwd::Inherited,
             spawn: base,
             output: base,
             context_exact: true,
@@ -5686,12 +5901,13 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         });
     };
     if matches!(options, Value::Undefined) {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
-            cwd: current_cwd.clone(),
+            cwd: NestedExecutionCwd::Inherited,
             spawn: base,
             output: base,
             context_exact: true,
@@ -5699,12 +5915,13 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         });
     }
     if matches!(options, Value::Null) {
         return RuntimeCallSummary::Effect(DenoCommandValue {
             argv,
-            cwd: current_cwd.clone(),
+            cwd: NestedExecutionCwd::Inherited,
             spawn: base,
             output: ExecutionCertainty::Invalid,
             context_exact: true,
@@ -5712,6 +5929,7 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         });
     }
     if matches!(
@@ -5720,7 +5938,7 @@ fn deno_command(
     ) {
         let command = DenoCommandValue {
             argv,
-            cwd: current_cwd.clone(),
+            cwd: NestedExecutionCwd::Inherited,
             spawn: base,
             output: base,
             context_exact: true,
@@ -5728,6 +5946,7 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         };
         return if prototype_integrity_known {
             RuntimeCallSummary::Effect(command)
@@ -5746,6 +5965,7 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         });
     }
     let Value::Object(properties) = options else {
@@ -5759,6 +5979,7 @@ fn deno_command(
             output_stdout_inherited: false,
             spawn_throws_after_effect: false,
             output_throws_after_effect: false,
+            source: None,
         });
     };
     let mut args_certainty = ExecutionCertainty::Known;
@@ -5797,9 +6018,9 @@ fn deno_command(
         }
     }
     let cwd = match properties.get("cwd") {
-        None | Some(Value::Undefined | Value::Null) => current_cwd.clone(),
+        None | Some(Value::Undefined | Value::Null) => NestedExecutionCwd::Inherited,
         Some(Value::String(path)) if !path.is_empty() && !path.contains('\0') => {
-            current_cwd.changed(path, platform)
+            NestedExecutionCwd::Path(path.clone())
         }
         Some(_) => NestedExecutionCwd::Unknown,
     };
@@ -5863,6 +6084,7 @@ fn deno_command(
         output_stdout_inherited,
         spawn_throws_after_effect,
         output_throws_after_effect,
+        source: None,
     };
     if !prototype_integrity_known
         && deno_command_option_names()
@@ -6055,6 +6277,7 @@ fn summarize_deno_call(
     // Deno's JavaScript wrappers ignore extra arguments. Only values read by
     // the wrapper can prevent the filesystem operation.
     match member {
+        DenoMember::Chdir => FsCallSummary::Invalid,
         DenoMember::Remove | DenoMember::RemoveSync => {
             let recursive = match values.get(1).map_or(OptionValue::Exact(false), |value| {
                 deno_remove_options(value, prototype_integrity_known)
@@ -8128,6 +8351,7 @@ mod tests {
                 .nested_executions(),
             [crate::NestedExecution::Command {
                 argv: vec!["nah".into(), "nap".into()],
+                cwd: crate::NestedExecutionCwd::Inherited,
                 stdout_inherited: false,
             }]
         );

@@ -9,10 +9,12 @@ use nah_proto::observation::{
     EnvObservation, Observation, ObservationFailure, ObservationQuery, ObservationValue, Observed,
     PathKind, Root,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::INVOCATION_EVIDENCE_CAP;
-use crate::bash_model::{Draft, FilesystemDraft, InvocationDraft, ProgramDraft, StageDraft};
+use crate::bash_model::{
+    ChildCwdDraft, Draft, FilesystemDraft, InvocationDraft, ProgramDraft, StageDraft,
+};
 use crate::bash_self_protection::{
     operation_for_values as self_protection_operation, potential_mutation_for_words,
     potential_operation_for_words,
@@ -35,8 +37,9 @@ pub(crate) fn finalize(
 ) -> Option<(bool, Vec<Vec<EffectKind>>, Vec<FlowOrdinals>)> {
     let mut complete = draft.complete;
     let analysis_refused = draft.analysis_refused;
-    let mut draft_stages = draft.stages;
-    let mut draft_flows = draft.flows;
+    let child_cwds = child_cwd_statuses(&draft.child_cwds, observation, &mut complete)?;
+    let (mut draft_stages, mut draft_flows) =
+        active_child_stages(draft.stages, draft.flows, &child_cwds, platform);
     complete &= crate::bash_executable_identity::reclassify(
         &mut draft_stages,
         observation,
@@ -87,6 +90,7 @@ pub(crate) fn finalize(
         .into_iter()
         .map(|mut stage| {
             let conditional_execution = stage.conditional_depth > 0;
+            let child_cwd_keys = stage.child_cwd_keys.clone();
             let invocation_cwd = stage
                 .invocation_cwd
                 .map(|cwd| AbsolutePath::new(platform, cwd))
@@ -208,7 +212,20 @@ pub(crate) fn finalize(
                         }
                     }
                 }
-                let target = if path.kind() == PathKind::Symlink
+                let target = if let Some(canonical) = filesystem
+                    .cwd_relative
+                    .then(|| {
+                        canonical_child_cwd_target(
+                            &filesystem.requested,
+                            &child_cwd_keys,
+                            &child_cwds,
+                            platform,
+                        )
+                    })
+                    .flatten()
+                {
+                    AbsolutePath::new(platform, canonical).ok()?
+                } else if path.kind() == PathKind::Symlink
                     && (!filesystem.follows_final_symlink
                         || filesystem.operation == nah_proto::action::FilesystemOperation::Delete)
                     || filesystem.recursive
@@ -344,6 +361,216 @@ pub(crate) fn finalize(
         .map(|(from, to)| FlowOrdinals::new(from, to))
         .collect();
     Some((complete, stages, flows))
+}
+
+#[derive(Clone)]
+enum ChildCwdStatus {
+    Active {
+        requested: String,
+        canonical: String,
+    },
+    Inactive,
+    Unobserved,
+}
+
+fn child_cwd_statuses(
+    drafts: &[ChildCwdDraft],
+    observation: &Observation,
+    complete: &mut bool,
+) -> Option<BTreeMap<String, ChildCwdStatus>> {
+    let mut statuses = BTreeMap::new();
+    for draft in drafts {
+        let status = match observed_path(observation, &draft.key)? {
+            Ok(path)
+                if path.kind() == PathKind::Directory
+                    || path.kind() == PathKind::Symlink
+                        && path.target_kind() == Some(PathKind::Directory) =>
+            {
+                match path.realpath() {
+                    Some(canonical) => ChildCwdStatus::Active {
+                        requested: draft.requested.clone(),
+                        canonical: canonical.as_str().to_owned(),
+                    },
+                    None => {
+                        *complete = false;
+                        ChildCwdStatus::Unobserved
+                    }
+                }
+            }
+            Ok(_) => ChildCwdStatus::Inactive,
+            Err(_) => {
+                *complete = false;
+                ChildCwdStatus::Unobserved
+            }
+        };
+        statuses.insert(draft.key.clone(), status);
+    }
+    Some(statuses)
+}
+
+fn active_child_stages(
+    stages: Vec<StageDraft>,
+    flows: Vec<(usize, usize)>,
+    child_cwds: &BTreeMap<String, ChildCwdStatus>,
+    platform: Platform,
+) -> (Vec<StageDraft>, Vec<(usize, usize)>) {
+    let mut old_to_new = vec![None; stages.len()];
+    let mut active = Vec::new();
+    for (old, mut stage) in stages.into_iter().enumerate() {
+        if stage
+            .child_cwd_keys
+            .iter()
+            .any(|key| matches!(child_cwds.get(key), Some(ChildCwdStatus::Inactive)))
+        {
+            continue;
+        }
+        rebase_child_stage(&mut stage, child_cwds, platform);
+        old_to_new[old] = Some(active.len());
+        active.push(stage);
+    }
+    for stage in &mut active {
+        stage.execution_dominators = stage
+            .execution_dominators
+            .iter()
+            .filter_map(|old| old_to_new.get(*old).copied().flatten())
+            .collect();
+    }
+    let flows = flows
+        .into_iter()
+        .filter_map(|(from, to)| {
+            Some((
+                old_to_new.get(from).copied().flatten()?,
+                old_to_new.get(to).copied().flatten()?,
+            ))
+        })
+        .collect();
+    (active, flows)
+}
+
+fn rebase_child_stage(
+    stage: &mut StageDraft,
+    child_cwds: &BTreeMap<String, ChildCwdStatus>,
+    platform: Platform,
+) {
+    if stage
+        .child_cwd_keys
+        .iter()
+        .any(|key| matches!(child_cwds.get(key), Some(ChildCwdStatus::Unobserved)))
+    {
+        stage.invocation_cwd = None;
+        for filesystem in &mut stage.filesystems {
+            if filesystem.key.is_none() {
+                filesystem.requested.clear();
+                filesystem.unresolved_selection = true;
+            }
+            if filesystem.identity_key.is_none() {
+                filesystem.identity = None;
+            }
+        }
+        stage.fifo_creations.clear();
+        stage.content_writes.clear();
+        return;
+    }
+    let rebase = |path: &str| {
+        stage
+            .child_cwd_keys
+            .iter()
+            .rev()
+            .filter_map(|key| child_cwds.get(key))
+            .find_map(|status| match status {
+                ChildCwdStatus::Active {
+                    requested,
+                    canonical,
+                } => rebase_child_path(path, requested, canonical, platform),
+                ChildCwdStatus::Inactive | ChildCwdStatus::Unobserved => None,
+            })
+            .unwrap_or_else(|| path.to_owned())
+    };
+    stage.invocation_cwd = stage.invocation_cwd.as_deref().map(&rebase);
+    for filesystem in &mut stage.filesystems {
+        if filesystem.key.is_none() {
+            filesystem.requested = rebase(&filesystem.requested);
+        }
+        if filesystem.identity_key.is_none() {
+            filesystem.identity = filesystem.identity.as_deref().map(&rebase);
+        }
+    }
+    for path in &mut stage.fifo_creations {
+        *path = rebase(path);
+    }
+    for path in &mut stage.content_writes {
+        *path = rebase(path);
+    }
+}
+
+fn canonical_child_cwd_target(
+    path: &str,
+    keys: &[String],
+    child_cwds: &BTreeMap<String, ChildCwdStatus>,
+    platform: Platform,
+) -> Option<String> {
+    keys.iter()
+        .rev()
+        .filter_map(|key| child_cwds.get(key))
+        .find_map(|status| match status {
+            ChildCwdStatus::Active {
+                requested,
+                canonical,
+            } if rebase_child_path(path, requested, canonical, platform).as_deref()
+                == Some(canonical.as_str()) =>
+            {
+                Some(canonical.clone())
+            }
+            ChildCwdStatus::Active { .. }
+            | ChildCwdStatus::Inactive
+            | ChildCwdStatus::Unobserved => None,
+        })
+}
+
+fn rebase_child_path(
+    path: &str,
+    requested: &str,
+    canonical: &str,
+    platform: Platform,
+) -> Option<String> {
+    let normalize = |value: &str| {
+        let value = if platform == Platform::Windows {
+            value.replace('\\', "/")
+        } else {
+            value.to_owned()
+        };
+        let trimmed = value.trim_end_matches('/');
+        if trimmed.is_empty() && value.starts_with('/') {
+            "/".to_owned()
+        } else if platform == Platform::Windows
+            && trimmed.len() == 2
+            && trimmed.as_bytes().get(1) == Some(&b':')
+        {
+            format!("{trimmed}/")
+        } else {
+            trimmed.to_owned()
+        }
+    };
+    let path = normalize(path);
+    let requested = normalize(requested);
+    let compare = |value: &str| {
+        if platform == Platform::Windows {
+            value.to_ascii_lowercase()
+        } else {
+            value.to_owned()
+        }
+    };
+    let compared_path = compare(&path);
+    let compared_requested = compare(&requested);
+    if compared_path == compared_requested {
+        return Some(canonical.to_owned());
+    }
+    let prefix = format!("{}/", requested.trim_end_matches('/'));
+    let compared_prefix = compare(&prefix);
+    let suffix = compared_path
+        .strip_prefix(&compared_prefix)
+        .map(|_| &path[prefix.len()..])?;
+    Some(join(canonical, suffix, platform))
 }
 
 fn finalize_invocation(

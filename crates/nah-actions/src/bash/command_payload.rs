@@ -75,6 +75,7 @@ impl Lowerer {
                     visible_stdin: None,
                     visible_execution_states: Vec::new(),
                     inline_child_stages: BTreeSet::new(),
+                    inline_child_cwds: Vec::new(),
                     inline_report: nah_inline::InlineReport::default(),
                     inline_failed: false,
                     inline_child_count: 0,

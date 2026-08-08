@@ -39,6 +39,7 @@ pub(super) fn analyze(
         protection,
         depth,
         super::python::InitialState::Fresh,
+        false,
     )
 }
 
@@ -54,6 +55,7 @@ pub(super) fn analyze_persistent(
         protection,
         depth,
         super::python::InitialState::Persistent,
+        false,
     )
 }
 
@@ -63,6 +65,7 @@ fn analyze_with_state(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
     initial_state: super::python::InitialState,
+    capture_ipython_output: bool,
 ) -> LanguageAnalysis {
     let prepared = match prepare(input.code) {
         Ok(prepared) => prepared,
@@ -84,6 +87,7 @@ fn analyze_with_state(
                     protection,
                     depth,
                     initial_state,
+                    capture_ipython_output,
                 )
             } else {
                 super::python::analyze_language_with_state(
@@ -92,6 +96,7 @@ fn analyze_with_state(
                     protection,
                     depth,
                     initial_state,
+                    capture_ipython_output,
                 )
             }
         }
@@ -119,6 +124,7 @@ fn analyze_with_state(
                 protection,
                 depth,
                 initial_state,
+                capture_ipython_output,
             )
         }
         Prepared::Wrapper { code, partial } => {
@@ -134,10 +140,10 @@ fn analyze_with_state(
                 protection,
                 depth + 1,
                 initial_state,
+                capture_ipython_output || partial,
             );
             if partial {
-                let (mut report, mut draft) = analysis.into_parts();
-                report.suppress_nested_stdout();
+                let (report, mut draft) = analysis.into_parts();
                 draft.set_partial();
                 LanguageAnalysis::new(report, draft)
             } else {
@@ -159,7 +165,7 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
     if let Some(prepared) = cell_magic(code) {
         return Ok(prepared);
     }
-    let inert = inert_bytes(code)?;
+    let (inert, contains_intrinsic) = inert_bytes(code)?;
     let mut transformed = String::with_capacity(code.len());
     let mut changed = false;
     let mut syntax_intrinsics = false;
@@ -202,7 +208,27 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
             if expression.is_empty() || expression.starts_with('-') {
                 return Ok(Prepared::Opaque);
             }
-            transformed.push_str(expression);
+            if let Some(command) = expression.strip_prefix("!!") {
+                if !push_interpolated_call(
+                    &mut transformed,
+                    super::python::IPYTHON_GETOUTPUT_INTRINSIC,
+                    command,
+                ) {
+                    return Ok(Prepared::Opaque);
+                }
+                syntax_intrinsics = true;
+            } else if let Some(command) = expression.strip_prefix('!') {
+                if !push_interpolated_call(
+                    &mut transformed,
+                    super::python::IPYTHON_SYSTEM_INTRINSIC,
+                    command,
+                ) {
+                    return Ok(Prepared::Opaque);
+                }
+                syntax_intrinsics = true;
+            } else {
+                transformed.push_str(expression);
+            }
             if has_newline {
                 transformed.push('\n');
             }
@@ -220,7 +246,7 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
         offset += line.len();
     }
     if changed {
-        if syntax_intrinsics && contains_intrinsic_name(code) {
+        if syntax_intrinsics && contains_intrinsic {
             return Ok(Prepared::Opaque);
         }
         Ok(Prepared::Python {
@@ -238,16 +264,6 @@ fn prepare(code: &str) -> Result<Prepared<'_>, InlineRefusal> {
 fn time_line(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("%time")?;
     (rest.is_empty() || rest.starts_with([' ', '\t'])).then(|| rest.trim_start())
-}
-
-fn contains_intrinsic_name(code: &str) -> bool {
-    [
-        super::python::IPYTHON_CELL_INTRINSIC,
-        super::python::IPYTHON_GETOUTPUT_INTRINSIC,
-        super::python::IPYTHON_SYSTEM_INTRINSIC,
-    ]
-    .into_iter()
-    .any(|name| code.contains(name))
 }
 
 pub(super) fn exact_shell_command(command: &str) -> bool {
@@ -614,7 +630,7 @@ fn scan_structure(line: &str, offset: usize, inert: &[bool], delimiters: &mut Ve
     last == Some(b'\\')
 }
 
-fn inert_bytes(code: &str) -> Result<Vec<bool>, InlineRefusal> {
+fn inert_bytes(code: &str) -> Result<(Vec<bool>, bool), InlineRefusal> {
     let mut parser = Parser::new();
     parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -632,11 +648,12 @@ fn inert_bytes(code: &str) -> Result<Vec<bool>, InlineRefusal> {
             Some(ParseOptions::new().progress_callback(&mut progress)),
         )
         .ok_or(InlineRefusal::WorkLimit)?;
-    mark_inert(tree.root_node(), code.len())
+    mark_inert(tree.root_node(), code)
 }
 
-fn mark_inert(root: Node<'_>, source_len: usize) -> Result<Vec<bool>, InlineRefusal> {
-    let mut inert = vec![false; source_len];
+fn mark_inert(root: Node<'_>, source: &str) -> Result<(Vec<bool>, bool), InlineRefusal> {
+    let mut inert = vec![false; source.len()];
+    let mut contains_intrinsic = false;
     let mut nodes = 0usize;
     let mut stack = vec![(root, 0usize)];
     while let Some((node, depth)) = stack.pop() {
@@ -644,9 +661,18 @@ fn mark_inert(root: Node<'_>, source_len: usize) -> Result<Vec<bool>, InlineRefu
         if nodes > MAX_NODES || depth > MAX_DEPTH {
             return Err(InlineRefusal::WorkLimit);
         }
+        if node.kind() == "identifier"
+            && matches!(
+                &source[node.byte_range()],
+                super::python::IPYTHON_CELL_INTRINSIC
+                    | super::python::IPYTHON_GETOUTPUT_INTRINSIC
+                    | super::python::IPYTHON_SYSTEM_INTRINSIC
+            )
+        {
+            contains_intrinsic = true;
+        }
         if matches!(node.kind(), "string" | "comment") {
             inert[node.byte_range()].fill(true);
-            continue;
         }
         for index in (0..node.child_count()).rev() {
             if let Some(child) = node.child(index) {
@@ -654,5 +680,5 @@ fn mark_inert(root: Node<'_>, source_len: usize) -> Result<Vec<bool>, InlineRefu
             }
         }
     }
-    Ok(inert)
+    Ok((inert, contains_intrinsic))
 }

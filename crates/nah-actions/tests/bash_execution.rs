@@ -7,7 +7,7 @@ use nah_proto::action::{
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationFailure, ObservationQuery,
-    ObservationValue, Observed,
+    ObservationValue, Observed, PathKind, PathObservation,
 };
 use support::{Change, absolute, bash_plan, facts, observe};
 
@@ -23,6 +23,79 @@ fn code_execution(source: &str) -> Option<(String, Option<String>)> {
             } => Some((source.as_str().to_owned(), code.clone())),
             _ => None,
         })
+}
+
+#[derive(Clone, Copy)]
+enum ChildCwdFact<'a> {
+    Path {
+        resolved: &'a str,
+        realpath: &'a str,
+        kind: PathKind,
+        target_kind: Option<PathKind>,
+    },
+    Error,
+}
+
+fn observe_child_cwd(plan: &nah_actions::AnalysisPlan, child_cwd: ChildCwdFact<'_>) -> Observation {
+    Observation::new(
+        SchemaVersion::V1,
+        plan.observation_request().request_id(),
+        facts(plan.observation_request(), "echo", Change::None)
+            .into_iter()
+            .map(|fact| {
+                if !matches!(
+                    fact.query(),
+                    ObservationQuery::Path { key, .. } if key.starts_with("inline-child-cwd-")
+                ) {
+                    return fact;
+                }
+                let observed = match child_cwd {
+                    ChildCwdFact::Path {
+                        resolved,
+                        realpath,
+                        kind,
+                        target_kind,
+                    } => {
+                        let mut path = PathObservation::new(
+                            absolute(resolved),
+                            Some(absolute(realpath)),
+                            kind,
+                        );
+                        if let Some(target_kind) = target_kind {
+                            path = path.with_target_kind(target_kind);
+                        }
+                        Observed::Ok { value: path }
+                    }
+                    ChildCwdFact::Error => Observed::Error {
+                        error: ObservationFailure::PermissionDenied,
+                    },
+                };
+                ObservationFact::new(fact.query().clone(), ObservationValue::Path { observed })
+                    .unwrap()
+            })
+            .collect(),
+    )
+    .unwrap()
+}
+
+fn has_delete_target(stream: &nah_proto::action::ActionStream, target: &str) -> bool {
+    stream.effects().iter().any(|effect| {
+        matches!(
+            effect.kind(),
+            EffectKind::Filesystem { effect }
+                if effect.operation == FilesystemOperation::Delete
+                    && effect.target.as_str() == target
+        )
+    })
+}
+
+fn has_invocation(stream: &nah_proto::action::ActionStream, program: &str) -> bool {
+    stream.effects().iter().any(|effect| {
+        matches!(
+            effect.kind(),
+            EffectKind::Invocation { invocation } if invocation.program() == program
+        )
+    })
 }
 
 #[test]
@@ -239,6 +312,112 @@ fn deno_and_bun_route_only_reviewed_runtime_effects() {
 }
 
 #[test]
+fn explicit_child_cwd_uses_the_observed_canonical_directory() {
+    for source in [
+        r#"node -e "require('child_process').spawnSync('rm',['-rf','.'],{cwd:'/.'})""#,
+        r#"node -e "require('child_process').spawnSync('rm',['-rf','.'],{cwd:'/tmp/..'})""#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Full, "{source}");
+        assert!(
+            has_delete_target(&stream, "/"),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(stream.effects().iter().any(|effect| matches!(
+            effect.kind(),
+            EffectKind::Invocation { invocation }
+                if invocation.program() == "rm"
+                    && invocation.cwd().is_some_and(|cwd| cwd.as_str() == "/")
+        )));
+    }
+
+    let source =
+        r#"node -e "require('child_process').spawnSync('rm',['-rf','.'],{cwd:'/cwd-link'})""#;
+    let plan = bash_plan(source);
+    let observation = observe_child_cwd(
+        &plan,
+        ChildCwdFact::Path {
+            resolved: "/cwd-link",
+            realpath: "/",
+            kind: PathKind::Symlink,
+            target_kind: Some(PathKind::Directory),
+        },
+    );
+    let stream = finalize(plan, observation);
+    assert_eq!(stream.coverage(), Coverage::Full);
+    assert!(has_delete_target(&stream, "/"), "{:?}", stream.effects());
+
+    let source = r#"node -e "require('child_process').spawnSync('rm',['-rf','/cwd-link'],{cwd:'/cwd-link'})""#;
+    let plan = bash_plan(source);
+    let observation = observe_child_cwd(
+        &plan,
+        ChildCwdFact::Path {
+            resolved: "/cwd-link",
+            realpath: "/",
+            kind: PathKind::Symlink,
+            target_kind: Some(PathKind::Directory),
+        },
+    );
+    let stream = finalize(plan, observation);
+    assert_eq!(stream.coverage(), Coverage::Full);
+    assert!(
+        has_delete_target(&stream, "/cwd-link"),
+        "{:?}",
+        stream.effects()
+    );
+    assert!(!has_delete_target(&stream, "/"), "{:?}", stream.effects());
+}
+
+#[test]
+fn nonexistent_or_nondirectory_child_cwd_drops_only_child_stages() {
+    let source =
+        r#"node -e "require('child_process').spawnSync('rm',['-rf','/'],{cwd:'/inactive'})""#;
+    for kind in [PathKind::Missing, PathKind::File] {
+        let plan = bash_plan(source);
+        let observation = observe_child_cwd(
+            &plan,
+            ChildCwdFact::Path {
+                resolved: "/inactive",
+                realpath: "/inactive",
+                kind,
+                target_kind: None,
+            },
+        );
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Full, "{kind:?}");
+        assert!(
+            !has_invocation(&stream, "rm"),
+            "{kind:?}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            !has_delete_target(&stream, "/"),
+            "{kind:?}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            has_invocation(&stream, "node"),
+            "{kind:?}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn child_cwd_observation_error_retains_possible_effects_as_partial() {
+    let source =
+        r#"node -e "require('child_process').spawnSync('rm',['-rf','/'],{cwd:'/unobserved'})""#;
+    let plan = bash_plan(source);
+    let observation = observe_child_cwd(&plan, ChildCwdFact::Error);
+    let stream = finalize(plan, observation);
+    assert_eq!(stream.coverage(), Coverage::Partial);
+    assert!(has_invocation(&stream, "rm"), "{:?}", stream.effects());
+    assert!(has_delete_target(&stream, "/"), "{:?}", stream.effects());
+}
+
+#[test]
 fn unverified_launcher_modes_stay_opaque() {
     for command in [
         "node '-e1+1'",
@@ -312,6 +491,11 @@ fn nested_inline_shells_lower_bash_and_the_reviewed_portable_sh_subset() {
         );
     }
 
+    let safe_echo = r#"python3 -c "import os; os.system('echo hello')""#;
+    let plan = bash_plan(safe_echo);
+    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+    assert_eq!(stream.coverage(), Coverage::Full);
+
     for unsupported in [
         r#"node -e "require('child_process').execSync('[[ -e /repo/victim ]] && rm -rf /repo/victim')""#,
         r#"python3 -c "import os; os.system('set -o pipefail; rm -rf /repo/victim')""#,
@@ -320,6 +504,12 @@ fn nested_inline_shells_lower_bash_and_the_reviewed_portable_sh_subset() {
         r#"python3 -c 'import os; os.system("hash -p /bin/rm wipe; wipe -rf /repo/victim")'"#,
         r#"python3 -c 'import os; os.system("TOOL=rm; \"${TOOL[0]}\" -rf /repo/victim")'"#,
         r#"python3 -c 'import os; os.system("cd /repo; rm -rf ~+/victim")'"#,
+        r#"python3 -c 'import os; os.system("rm -rf /repo/victim >& victim")'"#,
+        r#"python3 -c 'import os; os.system("rm -rf /repo/victim 2>&$fd")'"#,
+        r#"python3 -c 'import os; os.system("rm -rf /repo/victim {fd}>/tmp/log")'"#,
+        r#"python3 -c 'import os; os.system("rm -rf /repo/victim >/dev/tcp/example.test/80")'"#,
+        r#"python3 -c 'import os; os.system("rm -rf /repo/victim >/dev/udp/example.test/53")'"#,
+        r#"python3 -c 'import os; os.system(r"echo '\''\0162m -rf /repo/victim'\'' | sh")'"#,
     ] {
         let plan = bash_plan(unsupported);
         assert!(!plan.observation_request().queries().iter().any(|query| {

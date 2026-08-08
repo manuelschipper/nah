@@ -6,7 +6,7 @@ use nah_proto::ctx::Platform;
 use nah_proto::observation::{ObservationQuery, SymlinkTraversal};
 
 use crate::bash_model::{FilesystemDraft, InvocationDraft, StageDraft, StdoutDraft};
-use crate::paths::resolve_from_cwd;
+use crate::paths::{cwd_relative, resolve_from_cwd};
 
 pub(crate) struct LanguageExecution<'a> {
     pub(crate) stage: usize,
@@ -35,6 +35,7 @@ impl LanguageDraftTarget<'_> {
         let outer_payload_depth = outer.payload_depth;
         let outer_conditional_depth = outer.conditional_depth;
         let outer_dominators = outer.execution_dominators.clone();
+        let outer_child_cwd_keys = outer.child_cwd_keys.clone();
         for (call_ordinal, call) in draft.calls().iter().enumerate() {
             let mut filesystems = Vec::new();
             for (filesystem_ordinal, filesystem) in call.filesystems().iter().enumerate() {
@@ -118,6 +119,9 @@ impl LanguageDraftTarget<'_> {
                     key,
                     descendant_key,
                     requested,
+                    cwd_relative: filesystem
+                        .requested()
+                        .is_some_and(|requested| cwd_relative(requested, self.platform)),
                     operation: filesystem.operation(),
                     git_guard: None,
                     recursive: filesystem.recursive(),
@@ -167,6 +171,7 @@ impl LanguageDraftTarget<'_> {
                     input: call.input().clone(),
                 },
                 invocation_cwd: execution.cwd.map(str::to_owned),
+                child_cwd_keys: outer_child_cwd_keys.clone(),
                 filesystems,
                 git_operations: Vec::new(),
                 git_project_scoped: false,

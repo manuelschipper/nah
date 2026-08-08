@@ -20,23 +20,20 @@ JavaScript/TypeScript/TSX use maintained grammars, owned HIRs, and bounded
 interpretation; IPython preprocesses magics. Nah recovers
 constants and effects without running code. Unknowns widen only affected state.
 
-Profiles own only proven globals: Node APIs; Deno `eval` filesystem/command APIs;
-Bun plus Node APIs; and provenance-tracked OpenClaw QuickJS
-`tools.call`/`callValue` references. Prime Agent owns reviewed Python builtins
-and reviewed imports established in the current cell, then removes ownership
-when visible code invalidates it. Prior arbitrary bindings and hidden kernel
-heap state remain unknown. Deno checked eval and `run` lack proven permissions,
-generic JavaScript owns none, and rebinding removes ownership.
+Profiles own only proven Node, Deno, Bun, OpenClaw QuickJS, or Prime current-cell
+APIs. Rebinding or visible mutation removes ownership; hidden state stays
+unknown. Generic JavaScript owns none.
 
-Exact child argv is nested. Its working directory is inherited, an exact path,
-or unknown; exact child `cwd` and visible directory changes resolve relative
-paths without claiming that the directory exists. Hidden cross-cell cwd remains
-unknown. Only proven Bash source enters full Bash lowering. A reviewed portable
-sh subset is lowered for `sh`; Bash-specific divergences, Windows or custom
-shells, Bun's `$`, and `bun exec` stay partial. Reviewed call shapes preserve
-inert options and callbacks; accessors or custom coercion make the call partial.
-Sinks are omitted only when proven to throw first. The interpreter remains
-visible.
+Exact child argv and cwd are nested. Observed aliases canonicalize; missing or
+non-directory cwd prevents the child.
+Unawaited JavaScript applies state only through its first `await`;
+`Deno.Command` reads options and cwd when consumed.
+
+Only proven Bash enters full Bash lowering. `sh` gets a reviewed portable
+subset; dialect-sensitive state, `echo`, redirects, Windows or custom shells,
+Bun's `$`, and `bun exec` stay partial. Accessors or custom coercion make
+calls partial. Sinks vanish only when proven to throw first. Code
+execution remains visible.
 
 ## Verdicts and failures
 

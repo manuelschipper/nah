@@ -649,6 +649,7 @@ mod tests {
                 argv: Some(vec!["test".into()]),
             },
             invocation_cwd: Some("/repo".into()),
+            child_cwd_keys: Vec::new(),
             filesystems: Vec::new(),
             git_operations: Vec::new(),
             git_project_scoped: false,

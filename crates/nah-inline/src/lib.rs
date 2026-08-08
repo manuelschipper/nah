@@ -554,7 +554,6 @@ mod tests {
             "import subprocess; subprocess.run('rm', '-rf', '/')",
             "import subprocess; subprocess.run('rm', ['-rf', '/'])",
             "import subprocess; subprocess.run(['rm', '-rf', '/'], shell=flag)",
-            "import subprocess; subprocess.run(['rm', '-rf', '/'], cwd='/')",
             "require('child_process').spawn('rm', '-rf', '/')",
         ] {
             let program = if code.starts_with("require") {
@@ -567,6 +566,18 @@ mod tests {
                 "{program}: {code}"
             );
         }
+        assert!(matches!(
+            report(
+                "python3",
+                "import subprocess; subprocess.run(['rm', '-rf', '/'], cwd='/')"
+            )
+            .nested_executions(),
+            [NestedExecution::Command {
+                argv,
+                cwd: NestedExecutionCwd::Path(cwd),
+                ..
+            }] if argv == &["rm", "-rf", "/"] && cwd == "/"
+        ));
         for code in [
             "require('child_process').spawn('rm', ['-rf', '/'], {shell:'/bin/echo'})",
             "require('child_process').exec('rm -rf /', {shell:'/bin/echo'})",

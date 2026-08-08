@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use nah_inline::{EnvironmentValue, LanguageDraft, NestedExecution, NestedExecutionCwd};
 use nah_parse::{Redirect, Statement, Substitution, Syntax, Word};
 use nah_proto::action::InvocationInput;
+use nah_proto::ctx::Platform;
+use nah_proto::observation::{ObservationQuery, SymlinkTraversal};
 
 use super::positionals::syntax_sets_positionals;
 use super::{
@@ -13,10 +15,11 @@ use super::{
 };
 use crate::bash_flow::add_artifact_flows;
 use crate::bash_lookup::LookupMode;
-use crate::bash_model::{InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
+use crate::bash_model::{ChildCwdDraft, InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
 use crate::bash_state::{BindingAttribute, Cwd, current_pwd, known_cwd};
 use crate::language::{LanguageDraftTarget, LanguageExecution};
 use crate::paths::resolve_from_cwd;
+use crate::shell_word::static_word;
 
 fn is_return_statement(statement: &Statement) -> bool {
     matches!(
@@ -118,6 +121,7 @@ fn portable_sh_statement(statement: &Statement) -> bool {
                     | "unset"
                     | "wait"
             ) && portable_sh_raw_word(name)
+                && (name != "echo" || portable_sh_echo_arguments(arguments))
                 && unmodeled_assignments.is_empty()
                 && portable_sh_substitutions(name_substitutions)
                 && assignments.iter().all(|(_, word)| portable_sh_word(word))
@@ -153,6 +157,17 @@ fn portable_sh_statement(statement: &Statement) -> bool {
         | Statement::UnmodeledStateMutation { .. }
         | Statement::Unsupported { .. } => false,
     }
+}
+
+fn portable_sh_echo_arguments(arguments: &[Word]) -> bool {
+    let values = arguments
+        .iter()
+        .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
+        .collect::<Option<Vec<_>>>();
+    values.is_some_and(|values| {
+        values.first().is_none_or(|first| !first.starts_with('-'))
+            && values.iter().all(|value| !value.contains('\\'))
+    })
 }
 
 fn portable_sh_word(word: &Word) -> bool {
@@ -215,10 +230,24 @@ fn contains_redirect_only(statement: &Statement) -> bool {
 }
 
 fn portable_sh_redirect(redirect: &Redirect) -> bool {
-    matches!(
-        redirect.operator(),
-        "<" | ">" | ">>" | "<<" | "<<-" | "<&" | ">&" | "<>" | ">|"
-    ) && redirect.target().is_none_or(portable_sh_raw_word)
+    redirect
+        .fd()
+        .is_none_or(|fd| !fd.is_empty() && fd.bytes().all(|byte| byte.is_ascii_digit()))
+        && matches!(
+            redirect.operator(),
+            "<" | ">" | ">>" | "<<" | "<<-" | "<&" | ">&" | "<>" | ">|"
+        )
+        && match redirect.operator() {
+            "<&" | ">&" => redirect.target().is_some_and(|target| {
+                (target == "-" || target.bytes().all(|byte| byte.is_ascii_digit()))
+                    && redirect.target_substitutions().is_empty()
+            }),
+            _ => redirect.target().is_none_or(|target| {
+                portable_sh_raw_word(target)
+                    && !target.contains("/dev/tcp/")
+                    && !target.contains("/dev/udp/")
+            }),
+        }
         && portable_sh_substitutions(redirect.target_substitutions())
         && portable_sh_substitutions(redirect.body_substitutions())
 }
@@ -228,6 +257,33 @@ fn nested_cwd_bytes(cwd: &NestedExecutionCwd) -> usize {
         NestedExecutionCwd::Path(path) => path.len(),
         NestedExecutionCwd::Inherited | NestedExecutionCwd::Unknown => 0,
     }
+}
+
+fn resolve_nested_child_cwd(
+    cwd: Option<&str>,
+    pwd: Option<&str>,
+    path: &str,
+    home: &str,
+    platform: Platform,
+) -> Option<String> {
+    if platform == Platform::Windows
+        && path
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+        && !path
+            .as_bytes()
+            .get(1)
+            .is_some_and(|byte| matches!(byte, b'/' | b'\\'))
+    {
+        let cwd = cwd?;
+        let bytes = cwd.as_bytes();
+        if bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':') {
+            return Some(format!("{}{}", &cwd[..2], path.replace('/', "\\")));
+        }
+        return None;
+    }
+    resolve_from_cwd(cwd, pwd, path, home, platform, false)
 }
 
 impl Lowerer {
@@ -410,11 +466,7 @@ impl Lowerer {
         cwd_authoritative: bool,
         persistent_ipython: bool,
     ) {
-        let environment = if persistent_ipython {
-            Vec::new()
-        } else {
-            inline_environment(&execution)
-        };
+        let environment = inline_environment(&execution);
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let input = nah_inline::InlineInput {
                 program: analysis_program,
@@ -437,8 +489,7 @@ impl Lowerer {
             return;
         };
         let (report, language_draft) = analysis.into_parts();
-        if !persistent_ipython
-            && requires_ipython_shell(&language_draft)
+        if requires_ipython_shell(&language_draft)
             && !execution
                 .state
                 .variables
@@ -529,18 +580,34 @@ impl Lowerer {
         let child_cwd = match &child {
             NestedExecution::Shell { cwd, .. } | NestedExecution::Command { cwd, .. } => cwd,
         };
+        let mut child_cwd_keys = self.stages[execution.stage].child_cwd_keys.clone();
         self.state = execution.state.clone();
         self.state.cwd = match child_cwd {
             NestedExecutionCwd::Inherited => execution.state.cwd.clone(),
-            NestedExecutionCwd::Path(path) => resolve_from_cwd(
+            NestedExecutionCwd::Path(path) => resolve_nested_child_cwd(
                 known_cwd(&execution.state),
                 current_pwd(&execution.state),
                 path,
                 &self.home,
                 self.platform,
-                false,
             )
-            .map_or(Cwd::Unknown, Cwd::Known),
+            .map_or(Cwd::Unknown, |requested| {
+                let key = format!("inline-child-cwd-{:04}", self.inline_child_cwds.len());
+                debug_assert!(!self.queries.iter().any(|query| query.key() == key));
+                self.queries.push(ObservationQuery::Path {
+                    key: key.clone(),
+                    requested: requested.clone(),
+                    cwd_key: crate::CWD_KEY.into(),
+                    inspect_descendants: false,
+                    symlink_traversal: SymlinkTraversal::None,
+                });
+                self.inline_child_cwds.push(ChildCwdDraft {
+                    key: key.clone(),
+                    requested: requested.clone(),
+                });
+                child_cwd_keys.push(key);
+                Cwd::Known(requested)
+            }),
             NestedExecutionCwd::Unknown => Cwd::Unknown,
         };
         self.state.unknown_variables = true;
@@ -629,6 +696,15 @@ impl Lowerer {
         }
 
         let child_end = self.stages.len();
+        for stage in &mut self.stages[child_stage..child_end] {
+            let mut keys = child_cwd_keys.clone();
+            for key in &stage.child_cwd_keys {
+                if !keys.contains(key) {
+                    keys.push(key.clone());
+                }
+            }
+            stage.child_cwd_keys = keys;
+        }
         self.inline_child_stages.extend(child_stage..child_end);
         let child_complete = self.complete;
         let child_analysis_refused = self.analysis_refused;
@@ -866,5 +942,35 @@ fn inline_environment_value(value: &VariableValue) -> EnvironmentValue {
         VariableValue::Unset => EnvironmentValue::Unset,
         VariableValue::Static(value) => EnvironmentValue::Static(value.clone()),
         VariableValue::Unknown => EnvironmentValue::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_nested_child_cwd;
+    use nah_proto::ctx::Platform;
+
+    #[test]
+    fn windows_root_relative_child_cwd_uses_the_current_drive() {
+        assert_eq!(
+            resolve_nested_child_cwd(
+                Some(r"C:\repo"),
+                Some(r"C:\repo"),
+                r"\",
+                r"C:\Users\test",
+                Platform::Windows,
+            ),
+            Some(r"C:\".to_owned())
+        );
+        assert_eq!(
+            resolve_nested_child_cwd(
+                Some(r"C:\repo"),
+                Some(r"C:\repo"),
+                "/Windows",
+                r"C:\Users\test",
+                Platform::Windows,
+            ),
+            Some(r"C:\Windows".to_owned())
+        );
     }
 }

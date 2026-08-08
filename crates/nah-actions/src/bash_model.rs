@@ -68,14 +68,22 @@ pub(crate) enum StdoutDraft {
 pub(crate) struct Draft {
     pub(crate) complete: bool,
     pub(crate) analysis_refused: bool,
+    pub(crate) child_cwds: Vec<ChildCwdDraft>,
     pub(crate) stages: Vec<StageDraft>,
     pub(crate) flows: Vec<(usize, usize)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ChildCwdDraft {
+    pub(crate) key: String,
+    pub(crate) requested: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StageDraft {
     pub(crate) invocation: InvocationDraft,
     pub(crate) invocation_cwd: Option<String>,
+    pub(crate) child_cwd_keys: Vec<String>,
     pub(crate) filesystems: Vec<FilesystemDraft>,
     pub(crate) git_operations: Vec<SemanticCode>,
     pub(crate) git_project_scoped: bool,
@@ -134,6 +142,7 @@ pub(crate) struct FilesystemDraft {
     // without changing the lexical target reported by the effect.
     pub(crate) descendant_key: Option<String>,
     pub(crate) requested: String,
+    pub(crate) cwd_relative: bool,
     pub(crate) operation: FilesystemOperation,
     // A Git guard is emitted only if this exact projected mutation resolves
     // to the project root. Redirects and other same-stage effects stay untagged.

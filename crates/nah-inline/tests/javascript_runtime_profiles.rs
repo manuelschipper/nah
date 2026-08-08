@@ -403,6 +403,69 @@ fn deno_command_is_lazy_and_only_exact_consumers_execute() {
 }
 
 #[test]
+fn deno_command_reads_mutable_options_and_cwd_when_consumed() {
+    for (code, expected_argv, expected_cwd) in [
+        (
+            "const o={args:['-rf','.'],cwd:'.'}; const c=new Deno.Command('rm',o); o.cwd='/'; c.spawn()",
+            &["rm", "-rf", "."][..],
+            NestedExecutionCwd::Path("/".into()),
+        ),
+        (
+            "const o={args:['-rf','.'],cwd:'/'}; const c=new Deno.Command('rm',o); o.cwd='.'; c.spawn()",
+            &["rm", "-rf", "."][..],
+            NestedExecutionCwd::Path(".".into()),
+        ),
+        (
+            "const o={args:['safe'],cwd:'.'}; const c=new Deno.Command('rm',o); o.args=['-rf','/']; c.spawn()",
+            &["rm", "-rf", "/"][..],
+            NestedExecutionCwd::Path(".".into()),
+        ),
+        (
+            "const o={args:['safe'],cwd:'.'}; const c=new Deno.Command('rm',o); o.args[0]='-rf'; o.args[1]='/'; c.spawn()",
+            &["rm", "-rf", "/"][..],
+            NestedExecutionCwd::Path(".".into()),
+        ),
+        (
+            "const o={args:['-rf','.'],cwd:'.'}; const alias=o; const c=new Deno.Command('rm',o); alias.cwd='/'; c.spawn()",
+            &["rm", "-rf", "."][..],
+            NestedExecutionCwd::Path("/".into()),
+        ),
+        (
+            "const o={args:['-rf','.'],cwd:'/'}; const c=new Deno.Command('rm',o); delete o.cwd; c.spawn()",
+            &["rm", "-rf", "."][..],
+            NestedExecutionCwd::Inherited,
+        ),
+    ] {
+        let analysis = analyze("deno-eval-js", code);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Command { argv, cwd, .. }]
+                    if argv.iter().map(String::as_str).eq(expected_argv.iter().copied())
+                        && cwd == &expected_cwd
+            ),
+            "{code}: {analysis:?}"
+        );
+        assert!(analysis.draft().complete(), "{code}: {analysis:?}");
+    }
+
+    let changed_process_cwd = analyze(
+        "deno-eval-js",
+        "const c=new Deno.Command('find',{args:['.','-delete'],cwd:'.'}); Deno.chdir('/'); c.spawn()",
+    );
+    assert!(
+        matches!(
+            changed_process_cwd.report().nested_executions(),
+            [NestedExecution::Command { argv, cwd, .. }]
+                if argv.iter().map(String::as_str).eq(["find", ".", "-delete"])
+                    && cwd == &NestedExecutionCwd::Path("/.".into())
+        ),
+        "{changed_process_cwd:?}"
+    );
+    assert!(changed_process_cwd.draft().complete());
+}
+
+#[test]
 fn runtime_function_constructibility_matches_the_host() {
     let constructible_deno = analyze(
         "deno-eval-js",

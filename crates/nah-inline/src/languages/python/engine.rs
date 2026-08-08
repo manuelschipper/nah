@@ -6,9 +6,9 @@ use nah_proto::ctx::Platform;
 use serde_json::{Map, Value as JsonValue};
 
 use crate::{
-    Finding, FindingKind, InlineInput, InlineRefusal, InlineReport, LanguageAnalysis, LanguageCall,
-    LanguageCallKind, LanguageDraft, LanguageFilesystem, NestedExecution, NestedExecutionCwd,
-    ProtectionInput,
+    EnvironmentValue, Finding, FindingKind, InlineInput, InlineRefusal, InlineReport,
+    LanguageAnalysis, LanguageCall, LanguageCallKind, LanguageDraft, LanguageFilesystem,
+    NestedExecution, NestedExecutionCwd, ProtectionInput,
 };
 
 use super::{
@@ -113,6 +113,13 @@ enum KnownFunction {
     ShutilRmtree,
     ShutilWhich,
     Subprocess(SubprocessKind),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IpythonShell {
+    Bash,
+    Sh,
+    Unknown,
 }
 
 const OWNED_BUILTINS: &[(&str, KnownFunction)] = &[
@@ -256,6 +263,7 @@ struct State {
     functions: Vec<LocalFunction>,
     invalid_modules: BTreeSet<Module>,
     cwd: NestedExecutionCwd,
+    ipython_shell: IpythonShell,
 }
 
 impl Default for State {
@@ -272,6 +280,7 @@ impl Default for State {
             functions: Vec::new(),
             invalid_modules: BTreeSet::new(),
             cwd: NestedExecutionCwd::Inherited,
+            ipython_shell: IpythonShell::Unknown,
         }
     }
 }
@@ -383,8 +392,8 @@ enum Control {
 struct Interpreter<'a> {
     program: &'a str,
     source: Arc<str>,
+    root_source: Arc<str>,
     input: InlineInput<'a>,
-    ipython_bash: bool,
     report: InlineReport,
     budget: Budget,
     complete: bool,
@@ -394,6 +403,8 @@ struct Interpreter<'a> {
     call_stack: Vec<String>,
     pending_control: Option<Control>,
     initial_state: InitialState,
+    ipython_syntax: bool,
+    ipython_capture: bool,
 }
 
 pub(super) fn analyze(
@@ -403,6 +414,7 @@ pub(super) fn analyze(
     depth: usize,
     initial_state: InitialState,
     ipython_syntax: bool,
+    ipython_capture: bool,
 ) -> LanguageAnalysis {
     let module = match super::parser::lower(input.code, program) {
         Ok(module) if !module.opaque() => module,
@@ -411,12 +423,12 @@ pub(super) fn analyze(
         }
         Err(refusal) => return LanguageAnalysis::refused(refusal),
     };
+    let source = Arc::from(input.code);
     let mut interpreter = Interpreter {
         program,
-        source: Arc::from(input.code),
+        source: Arc::clone(&source),
+        root_source: source,
         input: *input,
-        ipython_bash: matches!(initial_state, InitialState::Fresh)
-            && protection.is_some_and(proves_ipython_bash),
         report: InlineReport::default(),
         budget: Budget::default(),
         complete: true,
@@ -426,6 +438,8 @@ pub(super) fn analyze(
         call_stack: Vec::with_capacity(depth),
         pending_control: None,
         initial_state,
+        ipython_syntax,
+        ipython_capture,
     };
     let mut state = match initial_state {
         InitialState::Fresh => State::default(),
@@ -435,27 +449,12 @@ pub(super) fn analyze(
             ..State::default()
         },
     };
+    state.ipython_shell = observed_ipython_shell(protection);
     if matches!(initial_state, InitialState::Fresh) && crate::is_ipython_interpreter(program) {
         state.bindings.insert(
             "get_ipython".to_owned(),
             Value::Known(KnownFunction::GetIpython),
         );
-    }
-    if ipython_syntax {
-        state.bindings.extend([
-            (
-                super::IPYTHON_CELL_INTRINSIC.to_owned(),
-                Value::Known(KnownFunction::IpythonSyntaxCell),
-            ),
-            (
-                super::IPYTHON_GETOUTPUT_INTRINSIC.to_owned(),
-                Value::Known(KnownFunction::IpythonSyntaxGetoutput),
-            ),
-            (
-                super::IPYTHON_SYSTEM_INTRINSIC.to_owned(),
-                Value::Known(KnownFunction::IpythonSyntaxSystem),
-            ),
-        ]);
     }
     interpreter.exec_block(module.root(), &mut state, depth);
     if let Some(refusal) = interpreter.budget.refusal {
@@ -470,15 +469,25 @@ pub(super) fn analyze(
     LanguageAnalysis::new(report, interpreter.draft)
 }
 
-fn proves_ipython_bash(protection: &ProtectionInput<'_>) -> bool {
-    protection
+fn observed_ipython_shell(protection: Option<&ProtectionInput<'_>>) -> IpythonShell {
+    let Some(protection) = protection else {
+        return IpythonShell::Unknown;
+    };
+    match protection
         .ambient_variables
         .iter()
         .rev()
         .find(|(name, _)| name == "SHELL")
-        .and_then(|(_, value)| value.as_static())
-        .and_then(|shell| shell.rsplit('/').next())
-        == Some("bash")
+        .map(|(_, value)| value)
+    {
+        Some(EnvironmentValue::Static(shell)) => match shell.rsplit('/').next() {
+            Some("bash") => IpythonShell::Bash,
+            Some("sh" | "dash") => IpythonShell::Sh,
+            _ => IpythonShell::Unknown,
+        },
+        Some(EnvironmentValue::Unset) => IpythonShell::Sh,
+        Some(EnvironmentValue::Unknown) | None => IpythonShell::Unknown,
+    }
 }
 
 impl Interpreter<'_> {
@@ -1603,7 +1612,11 @@ impl Interpreter<'_> {
             });
         let callable = node
             .child(HirField::Function)
-            .map_or(Value::Unknown, |function| self.eval(function, state, depth));
+            .map_or(Value::Unknown, |function| {
+                self.ipython_syntax_function(function)
+                    .map(Value::Known)
+                    .unwrap_or_else(|| self.eval(function, state, depth))
+            });
         if self.pending_control.is_some() {
             return Value::Unknown;
         }
@@ -1692,6 +1705,21 @@ impl Interpreter<'_> {
                 state.cwd = NestedExecutionCwd::Unknown;
                 Value::Unknown
             }
+        }
+    }
+
+    fn ipython_syntax_function(&self, node: &HirNode) -> Option<KnownFunction> {
+        if !self.ipython_syntax
+            || !Arc::ptr_eq(&self.source, &self.root_source)
+            || node.kind() != HirKind::Identifier
+        {
+            return None;
+        }
+        match self.text(node) {
+            super::IPYTHON_CELL_INTRINSIC => Some(KnownFunction::IpythonSyntaxCell),
+            super::IPYTHON_GETOUTPUT_INTRINSIC => Some(KnownFunction::IpythonSyntaxGetoutput),
+            super::IPYTHON_SYSTEM_INTRINSIC => Some(KnownFunction::IpythonSyntaxSystem),
+            _ => None,
         }
     }
 
@@ -1947,7 +1975,7 @@ impl Interpreter<'_> {
                 let stdout_inherited = matches!(
                     function,
                     KnownFunction::IpythonSystem | KnownFunction::IpythonSyntaxSystem
-                );
+                ) && !self.ipython_capture;
                 if arguments.complete
                     && arguments.positional.len() == 1
                     && arguments.keywords.is_empty()
@@ -1959,12 +1987,17 @@ impl Interpreter<'_> {
                     }
                     && self.input.platform != Platform::Windows
                 {
-                    if self.ipython_bash {
-                        self.push_shell_program("bash", code, state.cwd.clone(), stdout_inherited);
-                    } else if syntactic {
-                        self.push_shell_program("sh", code, state.cwd.clone(), stdout_inherited);
-                    } else {
-                        self.draft.set_partial();
+                    match state.ipython_shell {
+                        IpythonShell::Bash => self.push_shell_program(
+                            "bash",
+                            code,
+                            state.cwd.clone(),
+                            stdout_inherited,
+                        ),
+                        IpythonShell::Sh => {
+                            self.push_shell_program("sh", code, state.cwd.clone(), stdout_inherited)
+                        }
+                        IpythonShell::Unknown => self.draft.set_partial(),
                     }
                     let origin = self.emit_call(
                         LanguageCallKind::EvaluatedShell,
@@ -2012,7 +2045,12 @@ impl Interpreter<'_> {
                     && self.input.platform != Platform::Windows
                 {
                     if program == "bash" || syntactic {
-                        self.push_shell_program(program, code, state.cwd.clone(), true);
+                        self.push_shell_program(
+                            program,
+                            code,
+                            state.cwd.clone(),
+                            !self.ipython_capture,
+                        );
                     } else {
                         self.draft.set_partial();
                     }
@@ -4560,6 +4598,9 @@ fn retain_owned_module(value: Value, state: &State) -> Value {
 
 fn invalidate_module(module: Module, state: &mut State) {
     state.invalid_modules.insert(module);
+    if module == Module::Environment {
+        state.ipython_shell = IpythonShell::Unknown;
+    }
     if module == Module::Builtins {
         for (name, function) in OWNED_BUILTINS {
             if state.bindings.get(*name) == Some(&Value::Known(*function)) {
@@ -4854,6 +4895,9 @@ fn join_states(mut left: State, right: State) -> State {
     left.invalid_modules.extend(&right.invalid_modules);
     if left.cwd != right.cwd {
         left.cwd = NestedExecutionCwd::Unknown;
+    }
+    if left.ipython_shell != right.ipython_shell {
+        left.ipython_shell = IpythonShell::Unknown;
     }
     let names = left
         .bindings
@@ -6331,6 +6375,7 @@ mod tests {
             0,
             InitialState::Fresh,
             false,
+            false,
         )
         .into_report()
     }
@@ -6703,8 +6748,8 @@ mod tests {
         let mut interpreter = Interpreter {
             program: "python3",
             source: Arc::from(""),
+            root_source: Arc::from(""),
             input,
-            ipython_bash: false,
             report: InlineReport::default(),
             budget: Budget::default(),
             complete: true,
@@ -6714,6 +6759,8 @@ mod tests {
             call_stack: Vec::new(),
             pending_control: None,
             initial_state: InitialState::Fresh,
+            ipython_syntax: false,
+            ipython_capture: false,
         };
         interpreter.dynamic_execution(
             Value::String("#".repeat(crate::SOURCE_LIMIT + 1)),

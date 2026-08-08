@@ -403,6 +403,7 @@ impl Lowerer {
         let stage_draft = StageDraft {
             invocation,
             invocation_cwd,
+            child_cwd_keys: Vec::new(),
             filesystems: filesystem_drafts,
             git_operations,
             git_project_scoped: git.as_ref().is_some_and(|git| git.project_scoped),

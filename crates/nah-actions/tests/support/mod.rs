@@ -190,20 +190,27 @@ fn facts_with_descendants(
                     },
                 },
                 ObservationQuery::Path {
+                    key,
                     requested,
                     inspect_descendants,
                     ..
                 } => {
-                    let realpath = matches!(change, Change::CanonicalHomeAlias)
-                        .then(|| absolute("/private/home/test"));
-                    let kind = if *inspect_descendants
+                    let resolved = lexically_normalized(requested);
+                    let child_cwd = key.starts_with("inline-child-cwd-");
+                    let realpath = if child_cwd {
+                        Some(absolute(&resolved))
+                    } else {
+                        matches!(change, Change::CanonicalHomeAlias)
+                            .then(|| absolute("/private/home/test"))
+                    };
+                    let kind = if child_cwd
+                        || *inspect_descendants
                         || matches!(change, Change::AliasDirectory) && requested.ends_with("/alias")
                     {
                         PathKind::Directory
                     } else {
                         PathKind::Missing
                     };
-                    let resolved = lexically_normalized(requested);
                     let mut value = PathObservation::new(absolute(&resolved), realpath, kind);
                     if *inspect_descendants {
                         let descendants = descendant_sets

@@ -23,7 +23,7 @@ use crate::bash_flow::{redirects_stdin, redirects_stdout};
 use crate::bash_model::{FilesystemDraft, InvocationDraft, StageDraft, StdoutDraft};
 use crate::bash_state::{current_pwd, known_cwd};
 use crate::bash_symlinks::has_dynamic_target;
-use crate::paths::resolve_from_cwd;
+use crate::paths::{cwd_relative, resolve_from_cwd};
 use crate::shell_word::{
     contains_unquoted_pattern, referenced_env_names, static_filesystem_word, static_word,
 };
@@ -77,6 +77,7 @@ pub(super) fn unresolved_read(requested: &str) -> FilesystemDraft {
         key: None,
         descendant_key: None,
         requested: requested.to_owned(),
+        cwd_relative: false,
         operation: FilesystemOperation::Read,
         git_guard: None,
         recursive: false,
@@ -416,6 +417,7 @@ impl Lowerer {
                 argv: Some(vec!["bash".into()]),
             },
             invocation_cwd: known_cwd(&self.state).map(str::to_owned),
+            child_cwd_keys: Vec::new(),
             filesystems,
             git_operations: Vec::new(),
             git_project_scoped: false,
@@ -506,7 +508,15 @@ impl Lowerer {
             return;
         };
         for operation in operations {
-            self.add_filesystem_with_requirement(&requested, operation, false, false, pattern, out);
+            self.add_filesystem_with_requirement(
+                &requested,
+                operation,
+                false,
+                false,
+                pattern,
+                cwd_relative(&target, self.platform),
+                out,
+            );
         }
     }
 
@@ -565,7 +575,13 @@ impl Lowerer {
                 continue;
             };
             self.add_filesystem_with_requirement(
-                &requested, *operation, *recursive, false, pattern, out,
+                &requested,
+                *operation,
+                *recursive,
+                false,
+                pattern,
+                cwd_relative(target, self.platform),
+                out,
             );
         }
     }
@@ -575,18 +591,33 @@ impl Lowerer {
         requested: &str,
         operation: FilesystemOperation,
         recursive: bool,
+        cwd_relative: bool,
         out: &mut Vec<FilesystemDraft>,
     ) {
-        self.add_filesystem_with_requirement(requested, operation, recursive, false, false, out);
+        self.add_filesystem_with_requirement(
+            requested,
+            operation,
+            recursive,
+            false,
+            false,
+            cwd_relative,
+            out,
+        );
     }
 
-    pub(super) fn add_existing_file(&mut self, requested: &str, out: &mut Vec<FilesystemDraft>) {
+    pub(super) fn add_existing_file(
+        &mut self,
+        requested: &str,
+        cwd_relative: bool,
+        out: &mut Vec<FilesystemDraft>,
+    ) {
         self.add_filesystem_with_requirement(
             requested,
             FilesystemOperation::Read,
             false,
             true,
             false,
+            cwd_relative,
             out,
         );
     }
@@ -599,6 +630,7 @@ impl Lowerer {
         recursive: bool,
         read_if_existing_file: bool,
         pattern: bool,
+        cwd_relative: bool,
         out: &mut Vec<FilesystemDraft>,
     ) {
         // The shell expands a pattern before any path exists to observe, so the
@@ -625,6 +657,7 @@ impl Lowerer {
             key,
             descendant_key: None,
             requested: requested.into(),
+            cwd_relative,
             operation,
             git_guard: None,
             recursive,

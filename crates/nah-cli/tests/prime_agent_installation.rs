@@ -59,19 +59,23 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
             ),
             Value::Null
         );
-        assert_eq!(
-            run_extension(
-                &home,
-                &project,
-                &extension,
-                "ipython",
-                json!({
-                    "code":"import shutil; shutil.rmtree('/')",
-                    "futureBehavior":"execute"
-                }),
-                true,
-            ),
-            Value::Null
+        let blocked = run_extension(
+            &home,
+            &project,
+            &extension,
+            "ipython",
+            json!({
+                "code":"import shutil; shutil.rmtree('/')",
+                "futureBehavior":"execute"
+            }),
+            true,
+        );
+        assert_eq!(blocked.get("block"), Some(&Value::Bool(true)));
+        assert!(
+            blocked
+                .get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|reason| reason.contains("fs-root"))
         );
         assert_eq!(
             run_extension(

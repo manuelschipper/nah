@@ -583,13 +583,58 @@ fn javascript_unknown_branches_and_cwd_changes_remain_explicit() {
         matches!(
             async_cwd.report().nested_executions(),
             [NestedExecution::Command {
-                cwd: NestedExecutionCwd::Unknown,
+                cwd: NestedExecutionCwd::Inherited,
                 ..
             }]
         ),
         "{async_cwd:?}"
     );
-    assert!(!async_cwd.draft().complete());
+    assert!(async_cwd.draft().complete());
+}
+
+#[test]
+fn javascript_async_calls_preserve_only_the_synchronous_cwd_prefix() {
+    for code in [
+        "async function f(){process.chdir('/')} f(); require('child_process').spawnSync('find',['.','-delete'])",
+        "async function f(){process.chdir('/'); await 0} f(); require('child_process').spawnSync('find',['.','-delete'])",
+        "const x={async(){process.chdir('/')}}; x.async(); require('child_process').spawnSync('find',['.','-delete'])",
+    ] {
+        let analysis = analyze_program("node", code);
+        assert!(
+            matches!(
+                analysis.report().nested_executions(),
+                [NestedExecution::Command {
+                    cwd: NestedExecutionCwd::Path(cwd),
+                    ..
+                }] if cwd == "/"
+            ),
+            "{code}: {analysis:?}"
+        );
+        assert!(analysis.draft().complete(), "{code}: {analysis:?}");
+    }
+
+    let commented_arrow = analyze_program(
+        "node",
+        "const f=async/*x*/()=>{await 0;process.chdir('/')}; f(); require('child_process').spawnSync('rm',['-rf','.'])",
+    );
+    assert!(matches!(
+        commented_arrow.report().nested_executions(),
+        [NestedExecution::Command {
+            cwd: NestedExecutionCwd::Inherited,
+            ..
+        }]
+    ));
+    assert!(commented_arrow.draft().complete(), "{commented_arrow:?}");
+
+    let eventual_effect = analyze_program(
+        "node",
+        "async function f(){await 0; require('fs').rmSync('/',{recursive:true})} f()",
+    );
+    assert_eq!(
+        eventual_effect.draft().calls()[0].filesystems()[0].requested(),
+        Some("/")
+    );
+    assert!(eventual_effect.draft().complete(), "{eventual_effect:?}");
 }
 
 #[test]

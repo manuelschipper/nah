@@ -226,7 +226,6 @@ fn exact_shell_forms_emit_nested_execution_and_canonical_draft_evidence() {
 fn direct_get_ipython_needs_an_observed_bash() {
     for (source, shell) in [
         ("get_ipython().system('printf unknown')", None),
-        ("get_ipython().system('printf sh')", Some("/bin/sh")),
         ("get_ipython().system('printf zsh')", Some("/bin/zsh")),
     ] {
         let analysis = language_analysis_with_shell(source, shell);
@@ -238,6 +237,15 @@ fn direct_get_ipython_needs_an_observed_bash() {
         assert!(analysis.report().nested_executions().is_empty(), "{source}");
     }
 
+    let direct_sh =
+        language_analysis_with_shell("get_ipython().system('printf sh')", Some("/bin/sh"));
+    assert!(direct_sh.draft().complete());
+    assert!(matches!(
+        direct_sh.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "sh" && code == "printf sh"
+    ));
+
     let sh_cell = language_analysis_with_shell("%%sh\nprintf cell", Some("/bin/bash"));
     assert!(sh_cell.draft().complete());
     assert!(matches!(
@@ -245,6 +253,18 @@ fn direct_get_ipython_needs_an_observed_bash() {
         [NestedExecution::Shell { program, code, .. }]
             if program == "sh" && code == "printf cell\n"
     ));
+
+    let zsh_escape = language_analysis_with_shell("!printf zsh", Some("/bin/zsh"));
+    assert!(!zsh_escape.draft().complete());
+    assert!(matches!(
+        zsh_escape.draft().calls(),
+        [call] if call.kind() == LanguageCallKind::EvaluatedShell
+    ));
+    assert!(zsh_escape.report().nested_executions().is_empty());
+
+    let mutated = language_analysis("import os\nos.environ['SHELL']='/bin/sh'\n!rm -rf /");
+    assert!(!mutated.draft().complete());
+    assert!(mutated.report().nested_executions().is_empty());
 }
 
 #[test]
@@ -440,7 +460,7 @@ fn persistent_operational_syntax_does_not_depend_on_get_ipython_ownership() {
                 code,
                 stdout_inherited: inherited,
                 ..
-            }] if program == "sh" && code == "rm -rf /" && *inherited == stdout_inherited
+            }] if program == "bash" && code == "rm -rf /" && *inherited == stdout_inherited
         ));
         assert!(matches!(
             analysis.draft().calls(),
@@ -461,7 +481,7 @@ fn persistent_operational_syntax_does_not_depend_on_get_ipython_ownership() {
     assert!(matches!(
         analysis.report().nested_executions(),
         [NestedExecution::Shell { program, code, .. }]
-            if program == "sh" && code == "rm -rf /"
+            if program == "bash" && code == "rm -rf /"
     ));
 }
 
@@ -472,6 +492,7 @@ fn raw_source_cannot_invoke_or_replace_preprocessing_intrinsics() {
         "__nah_ipython_getoutput_7f19__('rm -rf /')",
         "__nah_ipython_cell_7f19__('bash', '', 'rm -rf /')",
         "__nah_ipython_system_7f19__ = replacement\n!rm -rf /",
+        "value=f\"{__nah_ipython_system_7f19__('rm -rf /')}\"\n!printf safe",
     ] {
         let analysis = persistent_language_analysis(source);
         assert!(!analysis.draft().complete(), "{source}");
@@ -537,6 +558,38 @@ fn transparent_time_and_capture_cells_preserve_body_effects() {
         [call] if call.kind() == LanguageCallKind::DirectFile
             && call.filesystems()[0].requested() == Some("/tmp/timed")
     ));
+
+    let analysis = language_analysis("%time !rm -rf /");
+    assert!(analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "bash" && code == "rm -rf /"
+    ));
+
+    let analysis = language_analysis("%%capture\nimport os\nos.system('printf visible')");
+    assert!(!analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell {
+            program,
+            code,
+            stdout_inherited: true,
+            ..
+        }] if program == "sh" && code == "printf visible"
+    ));
+
+    let analysis = language_analysis("%%capture\nget_ipython().system('printf captured')");
+    assert!(!analysis.draft().complete());
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell {
+            program,
+            code,
+            stdout_inherited: false,
+            ..
+        }] if program == "bash" && code == "printf captured"
+    ));
 }
 
 #[test]
@@ -589,4 +642,37 @@ fn magic_text_in_strings_and_comments_stays_inert() {
     assert_eq!(call.filesystems()[0].requested(), Some("/tmp/exact"));
     assert!(analysis.draft().complete());
     assert!(analysis.report().nested_executions().is_empty());
+
+    for source in [
+        "# __nah_ipython_system_7f19__\n!rm -rf /",
+        "text='__nah_ipython_system_7f19__'\n!rm -rf /",
+    ] {
+        let analysis = language_analysis(source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(matches!(
+            analysis.report().nested_executions(),
+            [NestedExecution::Shell { program, code, .. }]
+                if program == "bash" && code == "rm -rf /"
+        ));
+    }
+}
+
+#[test]
+fn generated_ipython_syntax_is_not_mutable_python_state() {
+    let analysis = language_analysis(
+        "exec(\"__nah_ipython_system_7f19__ = lambda command: None\")\n!rm -rf /",
+    );
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "bash" && code == "rm -rf /"
+    ));
+
+    let analysis =
+        language_analysis("exec(\"__nah_ipython_system_7f19__('rm -rf /')\")\n!printf safe");
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "bash" && code == "printf safe"
+    ));
 }

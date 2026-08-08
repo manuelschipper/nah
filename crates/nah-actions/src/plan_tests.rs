@@ -26,6 +26,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
         Draft::Bash(BashDraft {
             complete: true,
             analysis_refused: false,
+            child_cwds: Vec::new(),
             stages: vec![StageDraft {
                 invocation: InvocationDraft::Known {
                     program: "echo".into(),
@@ -34,10 +35,12 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     argv: Some(vec!["echo".into(), "hi".into()]),
                 },
                 invocation_cwd: Some("/repo".into()),
+                child_cwd_keys: Vec::new(),
                 filesystems: vec![FilesystemDraft {
                     key: Some("path-0".into()),
                     descendant_key: None,
                     requested: "/repo/out".into(),
+                    cwd_relative: true,
                     operation: FilesystemOperation::Write,
                     git_guard: None,
                     recursive: false,

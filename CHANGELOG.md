@@ -2,16 +2,22 @@
 
 ## Unreleased
 
-- **Nested child working directories and portable `sh`** — exact `os.chdir`,
-  `process.chdir`, and Python, Node, Deno, or Bun child-process `cwd` values now
-  carry into nested command effects. Default Unix `sh` executions lower a
-  reviewed POSIX subset, while Bash-only syntax and divergent shell state stay
-  partial.
+- **Nested child working directories** — exact `os.chdir`, `process.chdir`, and
+  Python, Node, Deno, or Bun child-process `cwd` values now carry into nested
+  command effects. Explicit child directories are observed and canonicalized;
+  a missing or non-directory cwd produces no child effect.
+- **JavaScript execution timing** — unawaited async helpers now preserve their
+  synchronous pre-`await` state without applying deferred cwd changes early.
+  `Deno.Command` reads mutable options and relative cwd at consumption time.
+- **Portable `sh` lowering** — default Unix `sh` executions lower a reviewed
+  POSIX subset. Bash-only state, implementation-sensitive `echo`, and divergent
+  redirects remain partial instead of publishing Bash-specific effects.
 - **Prime Agent IPython operations** — explicit `%%bash` and `%%sh` cells,
   timing and output-capturing wrappers, and exact current-cell `!` and `!!`
   interpolation now retain their visible shell effects without trusting the
-  persistent kernel's mutable `get_ipython` binding or exposing captured
-  stdout.
+  persistent kernel's mutable `get_ipython` binding or exposing output captured
+  by IPython. Bare escapes use the observed normal shell; unsupported or
+  visibly mutated shell selection remains partial.
 - **Environment and credential-search exfiltration sources** — `exfil-pipe`
   now blocks reviewed Bash environment dumps and scoped credential-indicator
   searches when their output reaches an outbound transfer, including a strict

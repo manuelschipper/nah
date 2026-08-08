@@ -457,6 +457,10 @@ pub(crate) fn resolve_from_cwd(
     }
 }
 
+pub(crate) fn cwd_relative(path: &str, platform: Platform) -> bool {
+    !path.starts_with('~') && AbsolutePath::new(platform, path).is_err()
+}
+
 fn same_user_home(target: &str, home: &str, platform: Platform) -> Option<String> {
     if platform == Platform::Windows {
         return None;
