@@ -1959,6 +1959,72 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "/tmp/trust-alias",
+          "resolved": "/tmp/trust-alias"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/replacement",
+          "resolved": "/tmp/replacement"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/backup",
+          "resolved": "/tmp/backup"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.local/bin/nah.tamper-probe",
+          "resolved": "/home/test/.local/bin/nah.tamper-probe"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/a",
+          "resolved": "/tmp/a"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/b",
+          "resolved": "/tmp/b"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/bin",
+          "resolved": "/tmp/bin"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.local/bin.probe",
+          "resolved": "/home/test/.local/bin.probe"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.local/bin/other",
+          "resolved": "/home/test/.local/bin/other"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/other",
+          "resolved": "/tmp/other"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/\\x2fhome\\x2ftest\\x2f.nah\\x2ftrust.json",
+          "resolved": "/workspace/project/\\x2fhome\\x2ftest\\x2f.nah\\x2ftrust.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "/tmp/unrelated",
           "resolved": "/tmp/unrelated"
         }
