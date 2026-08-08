@@ -140,6 +140,87 @@ fn modeled_exfiltration_sources_keep_the_v1_extension_contract() {
 }
 
 #[test]
+fn root_relocation_and_bounded_printf_keep_v1_contracts() {
+    let home = tempfile::tempdir().unwrap();
+    let project = repo(home.path());
+
+    let output = nah(
+        home.path(),
+        &project,
+        &["test", "--json", "mv /* /tmp"],
+        None,
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["v"], 1);
+    assert_eq!(value["exec_request"]["v"], 1);
+    assert_eq!(value["exec_request"]["action_stream"]["v"], 1);
+    assert_eq!(
+        value["exec_request"]["action_stream"]["coverage"],
+        "partial"
+    );
+    assert_eq!(value["decision"]["verdict"], "block");
+    assert_eq!(
+        value["decision"]["policy_attributions"][0]["policy_version"],
+        1
+    );
+    assert!(
+        value["exec_request"]["action_stream"]["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| {
+                effect["kind"]["invocation"]["program"] == "mv"
+                    && effect["kind"]["invocation"]["operation"] == "move"
+            }),
+        "{value}"
+    );
+
+    for command in [
+        r"printf '\x72\x6d\x20-rf\x20/' | bash",
+        r"printf '\562\555\440-rf\440/' | bash",
+        r"printf '%b' '\162\155\040-rf\040/' | bash",
+    ] {
+        let output = nah(home.path(), &project, &["test", "--json", command], None);
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["exec_request"]["action_stream"]["v"], 1, "{command}");
+        assert_eq!(value["decision"]["verdict"], "block", "{command}");
+        assert_eq!(
+            value["decision"]["policy_attributions"][0]["policy_version"], 1,
+            "{command}"
+        );
+    }
+
+    for harmless in [
+        r"printf '\x65\x63\x68\x6f ok' | bash",
+        r#"printf '%b' 'rm -rf \"/\"' | bash"#,
+        r"printf '\0162\0155\0040-rf\0040/' | bash",
+    ] {
+        let output = nah(home.path(), &project, &["test", "--json", harmless], None);
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["decision"]["verdict"], "delegate", "{harmless}");
+    }
+
+    let output = nah(
+        home.path(),
+        &project,
+        &["test", "--json", "/usr/bin/mv /* /tmp"],
+        None,
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["decision"]["verdict"], "block");
+    assert!(
+        value["exec_request"]["action_stream"]["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| {
+                effect["kind"]["invocation"]["program"] == "/usr/bin/mv"
+                    && effect["kind"]["invocation"]["operation"] == "move"
+            })
+    );
+}
+
+#[test]
 fn audit_json_has_an_exact_independent_v1_contract() {
     let home = tempfile::tempdir().unwrap();
     let project = repo(home.path());

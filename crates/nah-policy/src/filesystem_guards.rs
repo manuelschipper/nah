@@ -2,8 +2,8 @@
 
 use nah_inline::{FindingKind, InlineReport};
 use nah_proto::action::{
-    ActionStream, Effect, EffectKind, FilesystemOperation, InvocationEffect, SemanticCode,
-    pattern_bound,
+    ActionStream, Effect, EffectKind, FilesystemEffect, FilesystemOperation, InvocationEffect,
+    SemanticCode, pattern_bound,
 };
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
@@ -74,14 +74,15 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
         .any(|effect| match (name, effect.kind()) {
             (FS_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
                 let target = filesystem.target.as_str();
-                (selects_root_or_system_tree(target)
-                    || filesystem.pattern && pattern_selects_system_tree(pattern_bound(target)))
-                    && destructive_tree_operation(
-                        action_stream,
-                        effect,
-                        filesystem.operation,
-                        filesystem.recursive,
-                    )
+                root_relocation(action_stream, effect, filesystem)
+                    || (selects_root_or_system_tree(target)
+                        || filesystem.pattern && pattern_selects_system_tree(pattern_bound(target)))
+                        && destructive_tree_operation(
+                            action_stream,
+                            effect,
+                            filesystem.operation,
+                            filesystem.recursive,
+                        )
             }
             (FS_HOME, EffectKind::Filesystem { effect: filesystem }) => {
                 filesystem.selects_home
@@ -112,6 +113,28 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                 operation == &SemanticCode::FORK_BOMB
             }
             _ => false,
+        })
+}
+
+fn root_relocation(
+    action_stream: &ActionStream,
+    effect: &Effect,
+    filesystem: &FilesystemEffect,
+) -> bool {
+    filesystem.operation == FilesystemOperation::Delete
+        && filesystem.target.as_str() == "/*"
+        && filesystem.pattern
+        && action_stream.effects().iter().any(|candidate| {
+            candidate.stage() == effect.stage()
+                && matches!(
+                    candidate.kind(),
+                    EffectKind::Invocation {
+                        invocation: InvocationEffect::Known {
+                            operation,
+                            ..
+                        }
+                    } if operation == &SemanticCode::MOVE
+                )
         })
 }
 

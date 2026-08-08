@@ -22,6 +22,7 @@ use crate::shell_word::static_word;
 
 pub(super) struct CommandResources {
     pub(super) filesystems: Vec<FilesystemDraft>,
+    pub(super) root_move_destination_key: Option<String>,
     pub(super) network_endpoints: Vec<NetworkEndpoint>,
     pub(super) descriptor_flows: Vec<DescriptorFlow>,
     pub(super) system_states: Vec<SemanticCode>,
@@ -45,6 +46,7 @@ impl Lowerer {
         mut descriptor_flows: Vec<DescriptorFlow>,
     ) -> CommandResources {
         let mut system_states = Vec::new();
+        let mut root_move_destination_key = None;
         let git_command_guard = match program {
             _ if git_environment_override => None,
             ProgramDraft::Static(program) => git_command_operation(program, arguments),
@@ -84,6 +86,10 @@ impl Lowerer {
             }
             let first = filesystem_drafts.len();
             self.lower_filesystem_specs(&project.filesystems, &patterns, &mut filesystem_drafts);
+            root_move_destination_key = project
+                .root_move_destination
+                .and_then(|index| filesystem_drafts.get(first + index))
+                .and_then(|filesystem| filesystem.key.clone());
             if matches!(program, ProgramDraft::Static(program) if program == "touch") {
                 for filesystem in &mut filesystem_drafts[first..] {
                     filesystem.content_access = false;
@@ -369,6 +375,7 @@ impl Lowerer {
         git_operations.dedup();
         CommandResources {
             filesystems: filesystem_drafts,
+            root_move_destination_key,
             network_endpoints,
             descriptor_flows,
             system_states,

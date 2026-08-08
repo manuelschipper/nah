@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Deterministic `printf` shell output** — Bash-correct bounded hex, octal,
+  and ASCII-only Unicode escapes now feed exact ASCII bytes through existing
+  shell-content guards; unsupported, non-ASCII, and non-executed output remains
+  delegated.
+- **Proven root-entry relocation** — `fs-root` now blocks the exact active
+  `mv /*` forms when their observed destination is a non-root directory,
+  including trusted executable identities, while named, home, project,
+  quoted-pattern, and non-directory moves remain delegated.
 - **Environment and credential-search exfiltration sources** — `exfil-pipe`
   now blocks reviewed Bash environment dumps and scoped credential-indicator
   searches when their output reaches an outbound transfer, including a strict

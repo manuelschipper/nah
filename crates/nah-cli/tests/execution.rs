@@ -753,6 +753,11 @@ fn exact_visible_program_bytes_are_guarded_end_to_end() {
     for command in [
         "echo 'rm -rf /' | bash",
         "printf '%s' 'rm -rf /' | sh",
+        r"printf '\x72\x6d\x20-rf\x20/' | bash",
+        r"printf '\162\155\040-rf\040/' | bash",
+        r"printf '\562\555\440-rf\440/' | bash",
+        r"printf '\u0072\u006d\u0020-rf\u0020/' | bash",
+        r"printf '%b' '\x72\x6d\x20-rf\x20/' | bash",
         "cat <<'EOF' | bash\nrm -rf /\nEOF\n",
         "eval \"$(printf '%s' 'rm -rf /')\"",
         "echo 'rm -rf /' > downloaded.sh; bash downloaded.sh",
@@ -839,6 +844,97 @@ fn exact_visible_program_bytes_are_guarded_end_to_end() {
         result.action_stream().coverage(),
         nah_proto::action::Coverage::Full
     );
+
+    for command in [
+        r"printf '\x72\x6d\x20-rf\x20/'",
+        r"printf '\x65\x63\x68\x6f ok' | bash",
+        r#"printf '%b' "$PAYLOAD" | bash"#,
+        r"printf '%q' 'rm -rf /' | bash",
+        r"printf '%b' 'rm\c -rf /' | bash",
+        r#"printf '%b' 'rm -rf \"/\"' | bash"#,
+        r"printf '\0162\0155\0040-rf\0040/' | bash",
+        r"printf '\xff' | bash",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+    }
+}
+
+#[test]
+fn proven_root_pattern_moves_block_without_expanding_the_boundary() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = repo(temp.path());
+    let context = execution_ctx(temp.path());
+    let destination = temp.path().join("relocation");
+    std::fs::create_dir(&destination).unwrap();
+    let destination = destination.to_string_lossy();
+
+    for command in [
+        format!("mv /* {destination}"),
+        format!("mv -- /* {destination}"),
+        format!("mv -t {destination} /*"),
+        format!("mv --target-directory {destination} /*"),
+        format!("mv --target-directory={destination} /*"),
+        format!("/bin/mv /* {destination}"),
+        format!("/usr/bin/mv /* {destination}"),
+        format!("hash -p /bin/mv wipe; wipe /* {destination}"),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert_eq!(result.action_stream().coverage(), Coverage::Partial);
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "fs-root"),
+            "{command}"
+        );
+        assert!(result.action_stream().effects().iter().any(|effect| {
+            matches!(
+                effect.kind(),
+                nah_proto::action::EffectKind::Invocation {
+                    invocation: nah_proto::action::InvocationEffect::Known {
+                        operation,
+                        ..
+                    }
+                } if operation == &nah_proto::action::SemanticCode::MOVE
+            )
+        }));
+    }
+
+    let file_destination = temp.path().join("file-destination");
+    std::fs::write(&file_destination, b"").unwrap();
+    let missing_destination = temp.path().join("missing-destination");
+    for command in [
+        "mv /* /dev/null".to_owned(),
+        format!("mv /* {}", file_destination.to_string_lossy()),
+        format!("mv /* {}", missing_destination.to_string_lossy()),
+        format!("mv -n /* {destination}"),
+        format!("mv /* -t{destination}"),
+        format!("mv /* --target-directory={destination}"),
+        format!("mv '/*' {destination}"),
+        format!("mv project/* {destination}"),
+        format!("mv /home/* {destination}"),
+        format!("mv /etc {destination}"),
+        "mv file archive/".to_owned(),
+        "mv /* /".to_owned(),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+    }
 }
 
 #[test]

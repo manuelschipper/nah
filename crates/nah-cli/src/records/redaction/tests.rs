@@ -214,6 +214,100 @@ fn modeled_source_operations_are_structural_in_audit_records() {
 }
 
 #[test]
+fn printf_and_root_move_inputs_remain_structural_in_audit_records() {
+    let stream = nah_proto::action::ActionStream::new(
+        Coverage::Partial,
+        vec![
+            vec![
+                EffectKind::known_with_input(
+                    "printf",
+                    "local-utility",
+                    InvocationInput::shell(
+                        "printf",
+                        vec!["printf".into(), "PLANTED_PRINTF_BYTES".into()],
+                        Some(vec!["printf".into(), "PLANTED_PRINTF_ARGV".into()]),
+                    ),
+                )
+                .unwrap(),
+            ],
+            vec![
+                EffectKind::known_with_input(
+                    "mv",
+                    "move",
+                    InvocationInput::shell(
+                        "mv",
+                        vec!["mv".into(), "/*".into(), "PLANTED_DESTINATION".into()],
+                        Some(vec!["mv".into(), "/*".into(), "PLANTED_DESTINATION".into()]),
+                    ),
+                )
+                .unwrap(),
+                EffectKind::Filesystem {
+                    effect: FilesystemEffect {
+                        operation: FilesystemOperation::Delete,
+                        target: AbsolutePath::new(Platform::Linux, "/*").unwrap(),
+                        scope: PathScope::OutsideProject,
+                        sensitivity: Sensitivity::None,
+                        protection: None,
+                        selects_root: false,
+                        selects_home: false,
+                        recursive: false,
+                        pattern: true,
+                    },
+                },
+                EffectKind::Filesystem {
+                    effect: FilesystemEffect {
+                        operation: FilesystemOperation::Write,
+                        target: AbsolutePath::new(Platform::Linux, "/tmp").unwrap(),
+                        scope: PathScope::OutsideProject,
+                        sensitivity: Sensitivity::None,
+                        protection: None,
+                        selects_root: false,
+                        selects_home: false,
+                        recursive: false,
+                        pattern: false,
+                    },
+                },
+            ],
+        ],
+        vec![],
+    )
+    .unwrap();
+    let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
+    let core = DecisionCore::new(
+        &stream,
+        Verdict::Block,
+        vec![GuardContribution::new(guard, "root relocation").unwrap()],
+    )
+    .unwrap();
+    let tool_call = ToolCallInput::new(
+        nah_proto::ctx::SchemaVersion::V1,
+        "Bash",
+        serde_json::json!({"command": "PLANTED_COMMAND"}),
+        "/repo",
+        None,
+    )
+    .unwrap();
+    let record = AuditRecordV1::redact(
+        &tool_call,
+        &stream,
+        &core,
+        DecisionEnvelope::new("decision-root-move", "2026-08-08T12:00:00Z", 7).unwrap(),
+        "claude",
+        AuditDiagnostics::new(&[], &[], &[]),
+    );
+    let bytes = serde_json::to_string(&record).unwrap();
+
+    assert!(!bytes.contains("PLANTED"));
+    assert_eq!(
+        record.effects[0].description.0,
+        "invoke printf local-utility"
+    );
+    assert_eq!(record.effects[1].description.0, "invoke mv move");
+    assert_eq!(record.effects[2].description.0, "delete /*");
+    assert_eq!(record.effects[3].description.0, "write /tmp");
+}
+
+#[test]
 fn unresolved_filesystem_records_name_the_effect_without_persisting_the_operand() {
     let invocation = EffectKind::known_with_input(
         "rm",

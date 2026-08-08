@@ -417,6 +417,7 @@ impl Lowerer {
             },
             invocation_cwd: known_cwd(&self.state).map(str::to_owned),
             filesystems,
+            root_move_destination_key: None,
             git_operations: Vec::new(),
             git_project_scoped: false,
             network_outbound: false,

@@ -4,12 +4,15 @@ use nah_parse::Word;
 use nah_proto::action::FilesystemOperation;
 
 use crate::bash_model::FilesystemSpec;
-use crate::shell_word::{contains_shell_pattern, static_filesystem_word};
+use crate::shell_word::{
+    contains_shell_pattern, contains_unquoted_pattern, static_filesystem_word,
+};
 
 pub(crate) struct Lowering {
     pub(crate) complete: bool,
     pub(crate) operation: &'static str,
     pub(crate) filesystems: Vec<FilesystemSpec>,
+    pub(crate) root_move_destination: Option<usize>,
 }
 
 pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
@@ -102,7 +105,56 @@ fn move_paths(arguments: &[Word]) -> Lowering {
         ],
         &["--update="],
     );
-    sources_and_destination(parsed, "move", FilesystemOperation::Delete)
+    let mut lowering = sources_and_destination(parsed, "move", FilesystemOperation::Delete);
+    lowering.root_move_destination = root_move_destination(arguments);
+    lowering
+}
+
+fn root_move_destination(arguments: &[Word]) -> Option<usize> {
+    let admitted = match arguments {
+        [first, second] => {
+            active_root_pattern(first) && ordinary_destination(second).is_some()
+                || exact_word(first)
+                    .and_then(|value| value.strip_prefix("--target-directory=").map(str::to_owned))
+                    .is_some_and(|destination| {
+                        !destination.is_empty() && !destination.contains('{')
+                    })
+                    && !contains_unquoted_pattern(first.raw())
+                    && active_root_pattern(second)
+        }
+        [first, second, third] => {
+            exact_word(first).as_deref() == Some("--")
+                && active_root_pattern(second)
+                && exact_destination(third).is_some()
+                || matches!(
+                    exact_word(first).as_deref(),
+                    Some("-t" | "--target-directory")
+                ) && exact_destination(second).is_some()
+                    && active_root_pattern(third)
+        }
+        _ => false,
+    };
+    admitted.then_some(1)
+}
+
+fn active_root_pattern(word: &Word) -> bool {
+    exact_word(word).as_deref() == Some("/*") && contains_unquoted_pattern(word.raw())
+}
+
+fn exact_destination(word: &Word) -> Option<String> {
+    let destination = exact_word(word)?;
+    (!destination.is_empty()
+        && !destination.contains('{')
+        && !contains_unquoted_pattern(word.raw()))
+    .then_some(destination)
+}
+
+fn ordinary_destination(word: &Word) -> Option<String> {
+    exact_destination(word).filter(|destination| !destination.starts_with('-'))
+}
+
+fn exact_word(word: &Word) -> Option<String> {
+    static_filesystem_word(word.raw(), word.substitutions().is_empty())
 }
 
 fn sources_and_destination(
@@ -145,6 +197,7 @@ fn sources_and_destination(
         complete: parsed.complete,
         operation,
         filesystems,
+        root_move_destination: None,
     }
 }
 
@@ -191,6 +244,7 @@ fn remove(arguments: &[Word], rm: bool) -> Lowering {
             .flatten()
             .map(|target| (target, FilesystemOperation::Delete, recursive))
             .collect(),
+        root_move_destination: None,
     }
 }
 
@@ -208,6 +262,7 @@ fn unlink(arguments: &[Word]) -> Lowering {
             .flatten()
             .map(|target| (target, FilesystemOperation::Delete, false))
             .collect(),
+        root_move_destination: None,
     }
 }
 
@@ -230,6 +285,7 @@ fn create(
             .flatten()
             .map(|target| (target, FilesystemOperation::Write, false))
             .collect(),
+        root_move_destination: None,
     }
 }
 
