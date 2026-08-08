@@ -330,6 +330,13 @@
         },
         {
           "exists": true,
+          "kind": "other",
+          "realpath": "/dev/null",
+          "requested": "/dev/null",
+          "resolved": "/dev/null"
+        },
+        {
+          "exists": true,
           "kind": "directory",
           "realpath": "/proc",
           "requested": "/proc",

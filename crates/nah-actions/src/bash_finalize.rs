@@ -104,7 +104,13 @@ pub(crate) fn finalize(
             {
                 complete = false;
             }
-            let invocation = finalize_invocation(stage.invocation, observation, &mut complete)?;
+            let root_move_destination_key = stage.root_move_destination_key.take();
+            let invocation = reclassify_root_move(
+                stage.invocation,
+                root_move_destination_key.as_deref(),
+                observation,
+            );
+            let invocation = finalize_invocation(invocation, observation, &mut complete)?;
             let invocation = match invocation_cwd {
                 Some(cwd) => invocation.with_invocation_cwd(cwd),
                 None => invocation,
@@ -571,6 +577,36 @@ fn rebase_child_path(
         .strip_prefix(&compared_prefix)
         .map(|_| &path[prefix.len()..])?;
     Some(join(canonical, suffix, platform))
+}
+
+fn reclassify_root_move(
+    invocation: InvocationDraft,
+    destination_key: Option<&str>,
+    observation: &Observation,
+) -> InvocationDraft {
+    let destination_is_directory = destination_key.is_some_and(|key| {
+        matches!(
+            observed_path(observation, key),
+            Some(Ok(path))
+                if (path.kind() == PathKind::Directory
+                    || path.kind() == PathKind::Symlink
+                        && path.target_kind() == Some(PathKind::Directory))
+                    && path.realpath().unwrap_or_else(|| path.resolved()).as_str() != "/"
+        )
+    });
+    match invocation {
+        InvocationDraft::Opaque {
+            program: ProgramDraft::Static(program),
+            words,
+            argv,
+        } if destination_is_directory => InvocationDraft::Known {
+            program,
+            operation: SemanticCode::MOVE,
+            words,
+            argv,
+        },
+        invocation => invocation,
+    }
 }
 
 fn finalize_invocation(

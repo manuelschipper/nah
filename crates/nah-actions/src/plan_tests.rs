@@ -57,6 +57,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     read_if_existing_file: false,
                     pattern: false,
                 }],
+                root_move_destination_key: None,
                 git_operations: vec![],
                 git_project_scoped: false,
                 network_outbound: false,

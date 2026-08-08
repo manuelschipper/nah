@@ -42,6 +42,55 @@ fn exact_visible_shell_programs_are_lowered_again() {
 }
 
 #[test]
+fn bounded_printf_escapes_reach_existing_shell_guards() {
+    for source in [
+        r"printf '\x72\x6d\x20-rf\x20/' | bash",
+        r"printf '\162\155\040-rf\040/' | bash",
+        r"printf '\562\555\440-rf\440/' | bash",
+        r"printf '\u0072\u006d\u0020-rf\u0020/' | bash",
+        r"printf '\U00000072\U0000006d\U00000020-rf\U00000020/' | bash",
+        r"printf '%b' '\x72\x6d\x20-rf\x20/' | bash",
+        r"printf '%b' '\162\155\040-rf\040/' | bash",
+        r"printf '%b' '\0162\0155\0040-rf\0040/' | bash",
+        r"printf '%b' '\562\555\440-rf\440/' | bash",
+        r"printf '%b' '\u0072\u006d\u0020-rf\u0020/' | bash",
+        r"command printf '\x72\x6d\x20-rf\x20/' | bash",
+        r"printf '\x72\x6d\x20-rf\x20/' > payload; bash payload",
+        r#"eval "$(printf '\x72\x6d\x20-rf\x20/')""#,
+        r"exec 3> >(bash); printf '\x72\x6d\x20-rf\x20/' >&3",
+    ] {
+        assert!(has_root_delete(source), "{source}: {:?}", stream(source));
+    }
+}
+
+#[test]
+fn uncertain_or_harmless_printf_output_does_not_invent_effects() {
+    for source in [
+        r"printf '\x72\x6d\x20-rf\x20/'",
+        r"printf '\x72\x6d\x20-rf\x20/' | grep rm",
+        r"printf '\x65\x63\x68\x6f ok' | bash",
+        r#"printf "$FMT" 'rm -rf /' | bash"#,
+        r#"printf '%b' "$PAYLOAD" | bash"#,
+        r"printf '%d' 1 | bash",
+        r"printf '%-s' 'rm -rf /' | bash",
+        r"printf '%2s' 'rm -rf /' | bash",
+        r"printf '%.1s' 'rm -rf /' | bash",
+        r"printf '%b' 'rm\c -rf /' | bash",
+        r#"printf '%b' 'rm -rf \"/\"' | bash"#,
+        r"printf '\x' | bash",
+        r"printf '\xff' | bash",
+        r"printf '\377' | bash",
+        r"printf '\0162\0155\0040-rf\0040/' | bash",
+        r"printf '\u072' | bash",
+        r"printf '\u0080' | bash",
+        r"printf 'rm -rf /\0' | bash",
+        r"printf(){ echo safe; }; printf '\x72\x6d\x20-rf\x20/' | bash",
+    ] {
+        assert!(!has_root_delete(source), "{source}: {:?}", stream(source));
+    }
+}
+
+#[test]
 fn ansi_c_words_are_static_but_unknown_content_stays_unresolved() {
     for source in ["$'rm' -rf /", "bash -c $'rm\\x20-rf\\x20/'"] {
         assert!(has_root_delete(source), "{source}: {:?}", stream(source));

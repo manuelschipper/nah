@@ -279,6 +279,7 @@ impl Lowerer {
             if shell_attached_to_dev_socket(program, &local_arguments, &network_endpoints));
         let CommandResources {
             filesystems: filesystem_drafts,
+            root_move_destination_key,
             network_endpoints,
             descriptor_flows,
             system_states,
@@ -405,6 +406,7 @@ impl Lowerer {
             invocation_cwd,
             child_cwd_keys: Vec::new(),
             filesystems: filesystem_drafts,
+            root_move_destination_key,
             git_operations,
             git_project_scoped: git.as_ref().is_some_and(|git| git.project_scoped),
             network_outbound: git.as_ref().is_some_and(|git| git.network_outbound)

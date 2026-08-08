@@ -240,6 +240,101 @@ fn file_only_delete_effects_do_not_claim_directory_tree_destruction() {
 }
 
 #[test]
+fn fs_root_blocks_only_same_stage_known_root_relocation() {
+    let root_pattern = || EffectKind::Filesystem {
+        effect: FilesystemEffect {
+            operation: FilesystemOperation::Delete,
+            target: path("/*"),
+            scope: PathScope::OutsideProject,
+            sensitivity: Sensitivity::None,
+            protection: None,
+            selects_root: false,
+            selects_home: false,
+            recursive: false,
+            pattern: true,
+        },
+    };
+    for program in ["mv", "/usr/bin/mv", "wipe"] {
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
+                EffectKind::known(program, "move").unwrap(),
+                root_pattern(),
+            ]],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy("fs-root", true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Block,
+            "{program}"
+        );
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy("fs-home", true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Delegate,
+            "{program}"
+        );
+    }
+
+    let controls = [
+        ActionStream::new(
+            Coverage::Partial,
+            vec![vec![EffectKind::opaque("mv").unwrap(), root_pattern()]],
+            vec![],
+        )
+        .unwrap(),
+        ActionStream::new(
+            Coverage::Partial,
+            vec![
+                vec![EffectKind::known("mv", "move").unwrap()],
+                vec![EffectKind::opaque("bash").unwrap(), root_pattern()],
+            ],
+            vec![],
+        )
+        .unwrap(),
+        ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
+                EffectKind::known("mv", "copy").unwrap(),
+                root_pattern(),
+            ]],
+            vec![],
+        )
+        .unwrap(),
+        ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
+                EffectKind::known("mv", "move").unwrap(),
+                EffectKind::Filesystem {
+                    effect: FilesystemEffect {
+                        pattern: false,
+                        ..match root_pattern() {
+                            EffectKind::Filesystem { effect } => effect,
+                            _ => unreachable!(),
+                        }
+                    },
+                },
+            ]],
+            vec![],
+        )
+        .unwrap(),
+    ];
+    for control in controls {
+        assert_eq!(
+            nah_policy::decide(&control, &guard_policy("fs-root", true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Delegate,
+            "{control:?}"
+        );
+    }
+}
+
+#[test]
 fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
     for target in [
         "/dev/sda",

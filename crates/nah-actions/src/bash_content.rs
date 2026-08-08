@@ -553,15 +553,12 @@ fn render_printf_once(format: &str, arguments: &[String], output: &mut String) -
                 }
                 'b' => {
                     let argument = arguments.get(consumed).map_or("", String::as_str);
-                    if argument.contains('\\') {
-                        return None;
-                    }
-                    output.push_str(argument);
+                    decode_escaped_text(argument, output)?;
                     consumed += 1;
                 }
                 _ => return None,
             },
-            '\\' => output.push(decode_escape(&mut chars)?),
+            '\\' => output.push(decode_escape(&mut chars, PrintfEscapeContext::Format)?),
             character => output.push(character),
         }
     }
@@ -600,8 +597,29 @@ fn content_len(stdout: &StdoutDraft) -> usize {
     }
 }
 
-fn decode_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<char> {
-    Some(match chars.next()? {
+fn decode_escaped_text(input: &str, output: &mut String) -> Option<()> {
+    let mut chars = input.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => output.push(decode_escape(&mut chars, PrintfEscapeContext::PercentB)?),
+            character => output.push(character),
+        }
+    }
+    Some(())
+}
+
+#[derive(Clone, Copy)]
+enum PrintfEscapeContext {
+    Format,
+    PercentB,
+}
+
+fn decode_escape(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    context: PrintfEscapeContext,
+) -> Option<char> {
+    let escape = chars.next()?;
+    Some(match escape {
         'a' => '\u{7}',
         'b' => '\u{8}',
         'e' | 'E' => '\u{1b}',
@@ -611,21 +629,67 @@ fn decode_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option
         't' => '\t',
         'v' => '\u{b}',
         '0' => {
-            let mut value = 0;
-            for _ in 0..3 {
-                let Some(digit) = chars.peek().and_then(|character| character.to_digit(8)) else {
-                    break;
-                };
-                chars.next();
-                value = value * 8 + digit;
+            if matches!(context, PrintfEscapeContext::Format) {
+                decode_octal_byte(chars, 0, 2)?
+            } else {
+                decode_octal_byte(chars, 0, 3)?
             }
-            char::from_u32(value)?
         }
+        '1'..='7' => decode_octal_byte(chars, escape.to_digit(8)?, 2)?,
+        'x' => decode_ascii_byte(decode_digits(chars, 16, 1, 2)?)?,
+        'u' => char::from_u32(decode_ascii_digits(chars, 4)?)?,
+        'U' => char::from_u32(decode_ascii_digits(chars, 8)?)?,
         '\\' => '\\',
-        '\'' => '\'',
-        '"' => '"',
+        '\'' | '"' if matches!(context, PrintfEscapeContext::Format) => escape,
         _ => return None,
     })
+}
+
+fn decode_octal_byte(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    mut value: u32,
+    remaining: usize,
+) -> Option<char> {
+    for _ in 0..remaining {
+        let Some(digit) = chars.peek().and_then(|character| character.to_digit(8)) else {
+            break;
+        };
+        chars.next();
+        value = value * 8 + digit;
+    }
+    decode_ascii_byte(value)
+}
+
+fn decode_ascii_byte(value: u32) -> Option<char> {
+    let byte = (value & 0xff) as u8;
+    byte.is_ascii().then(|| char::from(byte))
+}
+
+fn decode_digits(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    radix: u32,
+    minimum: usize,
+    maximum: usize,
+) -> Option<u32> {
+    let mut value = 0;
+    let mut consumed = 0;
+    while consumed < maximum {
+        let Some(digit) = chars.peek().and_then(|character| character.to_digit(radix)) else {
+            break;
+        };
+        chars.next();
+        value = value * radix + digit;
+        consumed += 1;
+    }
+    (consumed >= minimum).then_some(value)
+}
+
+fn decode_ascii_digits(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    width: usize,
+) -> Option<u32> {
+    let value = decode_digits(chars, 16, width, width)?;
+    (value <= 0x7f).then_some(value)
 }
 
 #[cfg(test)]
@@ -651,6 +715,7 @@ mod tests {
             invocation_cwd: Some("/repo".into()),
             child_cwd_keys: Vec::new(),
             filesystems: Vec::new(),
+            root_move_destination_key: None,
             git_operations: Vec::new(),
             git_project_scoped: false,
             network_outbound: false,
@@ -734,6 +799,66 @@ mod tests {
         assert_eq!(
             render_printf("%s\\0", &["path".into()]),
             Some("path\0".into())
+        );
+    }
+
+    #[test]
+    fn printf_decodes_bounded_static_escapes() {
+        for format in [
+            "\\x72\\x6d\\x20-rf\\x20/",
+            "\\162\\155\\040-rf\\040/",
+            "\\562\\555\\440-rf\\440/",
+            "\\u0072\\u006d\\u0020-rf\\u0020/",
+            "\\U00000072\\U0000006d\\U00000020-rf\\U00000020/",
+        ] {
+            assert_eq!(render_printf(format, &[]), Some("rm -rf /".into()));
+            assert_eq!(
+                render_printf("%b", &[format.into()]),
+                Some("rm -rf /".into())
+            );
+        }
+        assert_eq!(
+            render_printf("\\0162\\0155\\0040-rf\\0040/", &[]),
+            Some("\u{e}2\r5\u{4}0-rf\u{4}0/".into())
+        );
+        assert_eq!(
+            render_printf("%b", &["\\0162\\0155\\0040-rf\\0040/".into()]),
+            Some("rm -rf /".into())
+        );
+        assert_eq!(render_printf("\\x7!", &[]), Some("\u{7}!".into()));
+    }
+
+    #[test]
+    fn printf_rejects_uncertain_escape_semantics() {
+        for format in [
+            "\\x",
+            "\\u072",
+            "\\U0000000",
+            "\\u0080",
+            "\\U00000080",
+            "\\xff",
+            "\\377",
+            "%b",
+            "%b-quote",
+        ] {
+            let arguments = match format {
+                "%b" => Some(vec!["rm\\c -rf /".into()]),
+                "%b-quote" => Some(vec![r#"rm -rf \"/\""#.into()]),
+                _ => None,
+            };
+            let format = if format == "%b-quote" { "%b" } else { format };
+            assert_eq!(
+                render_printf(format, arguments.as_deref().unwrap_or(&[])),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn printf_output_remains_bounded() {
+        assert_eq!(
+            render_printf("%s", &["x".repeat(INVOCATION_EVIDENCE_CAP + 1)]),
+            None
         );
     }
 }

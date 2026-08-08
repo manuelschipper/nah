@@ -173,6 +173,7 @@ impl LanguageDraftTarget<'_> {
                 invocation_cwd: execution.cwd.map(str::to_owned),
                 child_cwd_keys: outer_child_cwd_keys.clone(),
                 filesystems,
+                root_move_destination_key: None,
                 git_operations: Vec::new(),
                 git_project_scoped: false,
                 network_outbound,

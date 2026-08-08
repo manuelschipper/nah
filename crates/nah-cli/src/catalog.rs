@@ -70,7 +70,7 @@ fn behavior(name: &str) -> &'static str {
         "fs-raw-device" => "Blocks visible writes to raw storage devices and the sysrq trigger.",
         "fs-storage-destroy" => "Blocks definite logical-volume and storage-pool destruction.",
         "fs-root" => {
-            "Blocks deletion or recursive permission changes selecting filesystem or system roots."
+            "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting filesystem or system roots."
         }
         "git-clean-force" => "Blocks an effective forced Git clean selecting the project root.",
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
@@ -136,7 +136,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "lvm vgremove archive",
             "zpool destroy tank",
         ],
-        "fs-root" => ["rm -rf /", "chmod -R 000 /etc", "find / -delete"],
+        "fs-root" => ["rm -rf /", "chmod -R 000 /etc", "mv /* /tmp"],
         "git-clean-force" => [
             "git clean -fd",
             "git clean -fdx",
