@@ -759,6 +759,27 @@ fn definitely_invalid_known_call_shapes_stop_following_effects() {
         "import os\nos.mkdir('/tmp/x', 0o755, None)\nos.remove('/tmp/tail')",
         "import os\nos.chown('/tmp/x', 0, 0, None)\nos.remove('/tmp/tail')",
         "import os\nos.lchown('/tmp/x', 0, 0, dir_fd=None)\nos.remove('/tmp/tail')",
+        "import shutil\nshutil.rmtree('/tmp/x', dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.remove('/tmp/x', dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.mkdir('/tmp/x', mode='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.mkdir('/tmp/x', dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.truncate('/tmp/x', 'bad')\nos.remove('/tmp/tail')",
+        "import os\nos.chmod('/tmp/x', 'bad')\nos.remove('/tmp/tail')",
+        "import os\nos.chmod('/tmp/x', 0o600, dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.chown('/tmp/x', 'bad', 0)\nos.remove('/tmp/tail')",
+        "import os\nos.chown('/tmp/x', 0, 'bad')\nos.remove('/tmp/tail')",
+        "import os\nos.chown('/tmp/x', 0, 0, dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.lchown('/tmp/x', 'bad', 0)\nos.remove('/tmp/tail')",
+        "import os\nos.rename('/tmp/a', '/tmp/b', src_dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.replace('/tmp/a', '/tmp/b', dst_dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.link('/tmp/a', '/tmp/b', src_dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.symlink('/tmp/a', '/tmp/b', dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.open('/tmp/x', 'bad')\nos.remove('/tmp/tail')",
+        "import os\nos.open('/tmp/x', os.O_CREAT, 'bad')\nos.remove('/tmp/tail')",
+        "import os\nos.open('/tmp/x', os.O_RDONLY, dir_fd='bad')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').mkdir(mode='bad')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').chmod('bad')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').lchmod('bad')\nos.remove('/tmp/tail')",
         "import shutil\nshutil.move('/tmp/a', '/tmp/b', copy, None)\nshutil.rmtree('/tmp/tail')",
         "import os\nfrom pathlib import Path\nPath('/tmp/a').rename('/tmp/b', None)\nos.remove('/tmp/tail')",
     ] {
@@ -842,6 +863,28 @@ fn definitely_invalid_known_call_shapes_stop_following_effects() {
             "{program}: {code}"
         );
     }
+}
+
+#[test]
+fn unknown_index_arguments_keep_possible_effects_partial() {
+    for code in [
+        "import os\nos.remove('/tmp/x', dir_fd=fd)\nos.remove('/tmp/tail')",
+        "import os\nos.chmod('/tmp/x', mode)\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').chmod(mode)\nos.remove('/tmp/tail')",
+    ] {
+        let analysis = analyze(code);
+        assert_eq!(analysis.draft().calls().len(), 2, "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    let analysis = analyze(
+        "import os\ntry:\n    os.chmod('/tmp/x', 'bad')\nexcept:\n    os.remove('/tmp/caught')",
+    );
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/caught")
+    );
 }
 
 #[test]

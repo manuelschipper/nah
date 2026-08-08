@@ -1587,6 +1587,21 @@ impl Interpreter<'_> {
         }
     }
 
+    fn admit_index_value(&mut self, value: Option<&Value>, none_allowed: bool) -> bool {
+        match value {
+            None | Some(Value::Int(_) | Value::Bool(_)) => true,
+            Some(Value::None) if none_allowed => true,
+            Some(Value::Unknown | Value::Produced(_)) => {
+                self.draft.set_partial();
+                true
+            }
+            Some(_) => {
+                self.pending_control = Some(Control::Raise);
+                false
+            }
+        }
+    }
+
     fn call_known(
         &mut self,
         function: KnownFunction,
@@ -1621,6 +1636,7 @@ impl Interpreter<'_> {
                     0,
                     keyword_only,
                 )) || !possible_path_argument(&arguments, 0, "path")
+                    || !self.admit_index_value(argument(&arguments, 4, "dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2059,6 +2075,7 @@ impl Interpreter<'_> {
                     &["path"],
                     &["dir_fd"],
                 )) || !possible_path_argument(&arguments, 0, "path")
+                    || !self.admit_index_value(argument(&arguments, 1, "dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2099,6 +2116,8 @@ impl Interpreter<'_> {
                     &["path", "mode"],
                     &["dir_fd"],
                 )) || !possible_path_argument(&arguments, 0, "path")
+                    || !self.admit_index_value(argument(&arguments, 1, "mode"), false)
+                    || !self.admit_index_value(argument(&arguments, 2, "dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2139,6 +2158,11 @@ impl Interpreter<'_> {
                         required_argument(&arguments, position, name).is_none()
                     })
                     || !possible_path_argument(&arguments, 0, keyword)
+                {
+                    return Value::Unknown;
+                }
+                if function == KnownFunction::OsTruncate
+                    && !self.admit_index_value(argument(&arguments, 1, "length"), false)
                 {
                     return Value::Unknown;
                 }
@@ -2245,6 +2269,30 @@ impl Interpreter<'_> {
                 if !self.admit_call_shape(shape) || !possible_path_argument(&arguments, 0, "path") {
                     return Value::Unknown;
                 }
+                let index_values = match function {
+                    KnownFunction::OsChmod => [
+                        (argument(&arguments, 1, "mode"), false),
+                        (argument(&arguments, 2, "dir_fd"), true),
+                        (None, true),
+                    ],
+                    KnownFunction::OsChown => [
+                        (argument(&arguments, 1, "uid"), false),
+                        (argument(&arguments, 2, "gid"), false),
+                        (argument(&arguments, 3, "dir_fd"), true),
+                    ],
+                    KnownFunction::OsLchown => [
+                        (argument(&arguments, 1, "uid"), false),
+                        (argument(&arguments, 2, "gid"), false),
+                        (None, true),
+                    ],
+                    _ => unreachable!(),
+                };
+                if index_values
+                    .into_iter()
+                    .any(|(value, none_allowed)| !self.admit_index_value(value, none_allowed))
+                {
+                    return Value::Unknown;
+                }
                 let no_follow = match function {
                     KnownFunction::OsChmod => {
                         argument(&arguments, 3, "follow_symlinks").and_then(exact_bool)
@@ -2291,6 +2339,8 @@ impl Interpreter<'_> {
                 if !self.admit_call_shape(shape)
                     || !possible_path_argument(&arguments, 0, "src")
                     || !possible_path_argument(&arguments, 1, "dst")
+                    || !self.admit_index_value(argument(&arguments, 2, "src_dir_fd"), true)
+                    || !self.admit_index_value(argument(&arguments, 3, "dst_dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2334,6 +2384,8 @@ impl Interpreter<'_> {
                     &["src_dir_fd", "dst_dir_fd", "follow_symlinks"],
                 )) || !possible_path_argument(&arguments, 0, "src")
                     || !possible_path_argument(&arguments, 1, "dst")
+                    || !self.admit_index_value(argument(&arguments, 2, "src_dir_fd"), true)
+                    || !self.admit_index_value(argument(&arguments, 3, "dst_dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2404,6 +2456,7 @@ impl Interpreter<'_> {
                 };
                 if !self.admit_call_shape(shape)
                     || !possible_path_argument(&arguments, 1, destination_keyword)
+                    || !self.admit_index_value(argument(&arguments, 3, "dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
@@ -2432,10 +2485,13 @@ impl Interpreter<'_> {
                     &["path", "flags", "mode"],
                     &["dir_fd"],
                 )) || !possible_path_argument(&arguments, 0, "path")
+                    || !self.admit_index_value(argument(&arguments, 1, "flags"), false)
+                    || !self.admit_index_value(argument(&arguments, 2, "mode"), false)
+                    || !self.admit_index_value(argument(&arguments, 3, "dir_fd"), true)
                 {
                     return Value::Unknown;
                 }
-                let Some(Value::Int(flags)) = argument(&arguments, 1, "flags") else {
+                let Some(flags) = argument(&arguments, 1, "flags").and_then(exact_index) else {
                     self.draft.set_partial();
                     return Value::Unknown;
                 };
@@ -2743,6 +2799,11 @@ impl Interpreter<'_> {
                     _ => unreachable!(),
                 };
                 if !valid {
+                    return Value::Unknown;
+                }
+                if matches!(method, "mkdir" | "chmod" | "lchmod")
+                    && !self.admit_index_value(argument(&arguments, 0, "mode"), false)
+                {
                     return Value::Unknown;
                 }
                 let no_follow = method == "lchmod"
@@ -4856,6 +4917,14 @@ fn exact_bool(value: &Value) -> Option<bool> {
         Value::Bool(value) => Some(*value),
         Value::Int(0) | Value::None => Some(false),
         Value::Int(1) => Some(true),
+        _ => None,
+    }
+}
+
+fn exact_index(value: &Value) -> Option<i64> {
+    match value {
+        Value::Int(value) => Some(*value),
+        Value::Bool(value) => Some(i64::from(*value)),
         _ => None,
     }
 }
