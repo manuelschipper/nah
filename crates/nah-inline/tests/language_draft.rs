@@ -1764,6 +1764,15 @@ fn local_abrupt_control_stops_unreachable_effects_and_remains_catchable() {
         [NestedExecution::Shell { code, .. }] if code == "safe"
     ));
 
+    let analysis = analyze(
+        "import os\ntry:\n    open('/tmp/x', 'zz')\nexcept ValueError:\n    pass\nos.system('rm -rf /')",
+    );
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { code, .. }] if code == "rm -rf /"
+    ));
+    assert!(!analysis.draft().complete());
+
     let analysis =
         analyze("import os\nos.execl('/bin/true', 'true')\nos.remove('/tmp/unreachable')");
     assert_eq!(analysis.draft().calls().len(), 1);

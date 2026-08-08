@@ -30,7 +30,8 @@
   escape of `sys.modules` removes later import ownership, while reviewed
   read-only registry operations retain it. Definitely invalid integer and
   file-descriptor arguments stop before filesystem effects instead of blocking
-  calls that Python rejects first.
+  calls that Python rejects first. Typed exception handlers retain possible
+  caught paths instead of terminating later analysis.
 - **Canonical Python API effects** — proven Python filesystem, subprocess, and
   reviewed HTTP calls now publish ordinary ActionStream stages, path
   observations, sensitivity, and data-flow edges for built-in and custom
@@ -52,7 +53,8 @@
   `Module.prototype.require` (including CommonJS aliases) removes later built-in
   ownership; cached export mutations do not restore it, while
   `Module.isBuiltin` and unrelated module properties retain it. Exact strict
-  writes, deletes, and property-descriptor failures stop unreachable tails.
+  writes, deletes, property-descriptor failures, and uncaught augmented writes
+  stop unreachable tails.
   JavaScript-family native evidence uses v2 so object and `undefined` values do
   not silently extend the frozen Python v1 domain.
 - **Lexical JavaScript helpers** — inline helper functions now resolve captured

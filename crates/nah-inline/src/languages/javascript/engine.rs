@@ -813,6 +813,7 @@ struct Interpreter<'a> {
     budget: Budget,
     return_value: Value,
     conditional_depth: usize,
+    catchable_depth: usize,
     execution_dominators: Vec<usize>,
 }
 
@@ -863,6 +864,7 @@ pub(super) fn analyze(profile: Profile, input: &InlineInput<'_>, depth: usize) -
         budget: Budget::default(),
         return_value: Value::Undefined,
         conditional_depth: 0,
+        catchable_depth: 0,
         execution_dominators: Vec::new(),
     };
     if profile.ownership == RuntimeOwnership::DenoCheckedEval {
@@ -1232,9 +1234,16 @@ impl<'a> Interpreter<'a> {
     }
 
     fn try_statement(&mut self, node: &HirNode, state: &mut State, call_depth: usize) -> Control {
+        let catches = node.child(HirField::Handler).is_some();
+        if catches {
+            self.catchable_depth += 1;
+        }
         let mut control = node.child(HirField::Body).map_or(Control::Next, |body| {
             self.exec_sequence(body, state, true, call_depth)
         });
+        if catches {
+            self.catchable_depth -= 1;
+        }
         if control == Control::Diverge {
             return control;
         }
@@ -1662,7 +1671,7 @@ impl<'a> Interpreter<'a> {
         if !augmented_coercion_proven(&left_value, right.as_ref(), state) {
             self.complete = false;
             self.draft.set_partial();
-            if member.as_ref().is_some_and(node_loader_reference) {
+            if self.catchable_depth > 0 && member.as_ref().is_some_and(node_loader_reference) {
                 return replacement;
             }
         }
@@ -2558,6 +2567,7 @@ impl<'a> Interpreter<'a> {
             budget: Budget::default(),
             return_value: Value::Undefined,
             conditional_depth: self.conditional_depth,
+            catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
         };
         let mut nested_state = state.dynamic_global(self.profile.ownership);
@@ -2749,6 +2759,7 @@ impl<'a> Interpreter<'a> {
             budget: Budget::default(),
             return_value: Value::Undefined,
             conditional_depth: self.conditional_depth,
+            catchable_depth: self.catchable_depth,
             execution_dominators: Vec::new(),
         };
         let mut nested_state = state.clone();
@@ -8045,6 +8056,7 @@ mod tests {
             "const M=require('module'); M._load('fs').rmSync=()=>{}; M._load('fs').rmSync('/',{recursive:true})",
             "const M=require('module'),fs=M._load('fs'); require('fs').rmSync=()=>{}; fs.rmSync('/',{recursive:true})",
             "const M=require('module'); M._load-={}; M._load('fs').rmSync('/',{recursive:true})",
+            "const M=require('module'); M._load+=process.env.TAG; M._load('fs').rmSync('/',{recursive:true})",
         ] {
             assert!(analysis(code).draft().calls().is_empty(), "{code}");
         }

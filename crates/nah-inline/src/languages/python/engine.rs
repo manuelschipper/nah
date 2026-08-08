@@ -1291,7 +1291,10 @@ impl Interpreter<'_> {
             .child(HirField::Body)
             .map_or(Control::Next, |body| self.exec_block(body, state, depth));
         if control == Control::Raise {
-            let mut bare_handler = None;
+            let raised_state = state.clone();
+            let mut handled = None;
+            let mut catches_all = false;
+            let dominators = self.execution_dominators.clone();
             for clause in node
                 .children()
                 .iter()
@@ -1299,16 +1302,52 @@ impl Interpreter<'_> {
             {
                 let mut children = named_children(clause);
                 let first = children.next();
-                if first.is_some_and(|child| child.kind() == HirKind::Block)
-                    && children.next().is_none()
-                {
-                    bare_handler = first;
-                } else {
+                let bare = first.is_some_and(|child| child.kind() == HirKind::Block)
+                    && children.next().is_none();
+                if !bare {
                     self.complete = false;
                 }
+                let Some(body) = clause.child(HirField::Body).or_else(|| {
+                    named_children(clause).find(|child| child.kind() == HirKind::Block)
+                }) else {
+                    self.complete = false;
+                    continue;
+                };
+                let mut handler_state = raised_state.clone();
+                let conditional = !bare || handled.is_some();
+                if conditional {
+                    self.conditional_depth += 1;
+                }
+                let handler_control = self.exec_block(body, &mut handler_state, depth);
+                if conditional {
+                    self.conditional_depth -= 1;
+                }
+                self.execution_dominators.clone_from(&dominators);
+                handled = Some(match handled {
+                    Some((state, control)) => {
+                        merge_branch_states(state, control, handler_state, handler_control)
+                    }
+                    None => (handler_state, handler_control),
+                });
+                if bare {
+                    catches_all = true;
+                    break;
+                }
             }
-            if let Some(body) = bare_handler {
-                control = self.exec_block(body, state, depth);
+            self.execution_dominators = dominators;
+            if let Some((handled_state, handled_control)) = handled {
+                let (joined, joined_control) = if catches_all {
+                    (handled_state, handled_control)
+                } else {
+                    merge_branch_states(
+                        handled_state,
+                        handled_control,
+                        raised_state,
+                        Control::Raise,
+                    )
+                };
+                *state = joined;
+                control = joined_control;
             }
         } else if control == Control::Next
             && let Some(alternative) = node
