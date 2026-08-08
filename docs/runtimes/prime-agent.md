@@ -35,29 +35,35 @@ no other built-in tool. Every custom, SDK, or future tool uses one Prime-specifi
 opaque identity, including tools named `bash`, `Read`, `Write`, or `Edit`, so a
 native-looking name cannot select Nah's unrelated tool schemas.
 
-Current-cell constants, control flow, and local definitions are still analyzed,
-but imported modules and builtins remain unowned: earlier cells can replace
-`sys.modules`, import hooks, module attributes, and builtin callables. Nah
-therefore does not emit effects for those calls without a future kernel
-provenance contract. Additional fields make coverage partial without hiding the
-built-in code string. A missing or non-string code field stays opaque.
+Current-cell constants, control flow, local definitions, reviewed builtins, and
+reviewed imports are analyzed with normal Python semantics. A visible rebind,
+module mutation, builtin mutation, import-table mutation, or escape removes the
+affected ownership. Hidden changes from earlier cells do not erase definite
+current-cell evidence. Additional fields make coverage partial without hiding
+the built-in code string. A missing or non-string code field stays opaque.
 
-Prime Agent can retain Python bindings, mutate imported modules and builtins,
-and change the kernel working directory between cells, but its tool-call event
-does not expose that state. Prior bare names, imported callables, and relative
-paths therefore remain unknown. nah does not execute a cell or reconstruct the
-full Python runtime to discover them.
+Prime Agent can retain Python bindings and change the kernel working directory
+between cells, but its tool-call event does not expose that state. Prior
+arbitrary names, imported callables not re-established in the current cell,
+the cross-cell heap, and the kernel working directory therefore remain unknown.
+Absolute paths remain actionable; relative paths stay unresolved. nah does not
+execute a cell or reconstruct the full Python runtime to discover hidden state.
 
 ## Shell boundary
 
 At Prime Agent commit `b817a089`, the `tool_call` hook receives raw IPython
-code before the runtime rewrites a `%%bash` cell with configured shell
-settings. The extension context does not expose the resolved settings or
-kernel environment. Consequently raw `%%bash`, `!`, and `!!` syntax remains
-partial and opaque: nah will not assume Bash or analyze bytes that may differ
-from execution. Moving Prime Agent's shell rewrite into argument preparation,
-before validation and `tool_call`, would provide an exact boundary that nah
-could safely consume.
+code before the runtime applies configured shell settings. Nah owns IPython's
+syntactic boundary: `!`, `!!`, `%%bash`, and `%%sh` lower to shell effects
+without trusting spoofable runtime method names. Exact simple `$name` and
+`{name}` interpolation is resolved from current-cell values; unresolved
+interpolation makes the affected shell execution partial. `%%capture`, `%time`,
+and `%%time` are transparent wrappers around the code they execute.
+
+The visible body of a Bash or sh cell is analyzed. Prime Agent's configured
+`commandPrefix`, final shell-path rewrite, and kernel environment are not
+present in the hook input and remain outside the adapter contract. IPython
+state-changing or file-loading forms such as `%cd`, `%run`, and `%%writefile`
+also remain outside the current effect contract.
 
 The package also exports Bash and edit tool factories, but the pinned CLI does
 not register them as base tools. SDK `baseToolsOverride` can supply arbitrary
