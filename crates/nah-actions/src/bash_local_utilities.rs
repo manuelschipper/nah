@@ -12,6 +12,7 @@ use crate::bash_model::FilesystemSpec;
 
 pub(crate) struct Lowering {
     pub(crate) complete: bool,
+    pub(crate) operation: Option<&'static str>,
     pub(crate) filesystems: Vec<FilesystemSpec>,
     pub(crate) system_states: Vec<SemanticCode>,
 }
@@ -20,6 +21,7 @@ impl Lowering {
     fn new() -> Self {
         Self {
             complete: true,
+            operation: None,
             filesystems: Vec::new(),
             system_states: Vec::new(),
         }
@@ -39,6 +41,65 @@ impl Lowering {
         self.filesystems.push((target, operation, true));
     }
 }
+
+#[derive(Clone, Copy)]
+enum CaseMode {
+    Sensitive,
+    Insensitive,
+    Smart,
+}
+
+struct SearchEvidence {
+    patterns: Vec<String>,
+    pattern_file: bool,
+    content_output: bool,
+    case_mode: CaseMode,
+    no_config: bool,
+}
+
+impl SearchEvidence {
+    fn new() -> Self {
+        Self {
+            patterns: Vec::new(),
+            pattern_file: false,
+            content_output: true,
+            case_mode: CaseMode::Sensitive,
+            no_config: false,
+        }
+    }
+
+    fn qualifies(&self, require_no_config: bool) -> bool {
+        !self.pattern_file
+            && self.content_output
+            && (!require_no_config || self.no_config)
+            && self.patterns.iter().any(|pattern| {
+                let insensitive = match self.case_mode {
+                    CaseMode::Sensitive => false,
+                    CaseMode::Insensitive => true,
+                    CaseMode::Smart => !pattern.bytes().any(|byte| byte.is_ascii_uppercase()),
+                };
+                CREDENTIAL_INDICATORS.iter().any(|indicator| {
+                    if insensitive {
+                        pattern
+                            .to_ascii_lowercase()
+                            .contains(&indicator.to_ascii_lowercase())
+                    } else {
+                        pattern.contains(indicator)
+                    }
+                })
+            })
+    }
+}
+
+const CREDENTIAL_INDICATORS: &[&str] = &[
+    "AKIA",
+    "ASIA",
+    "ghp_",
+    "github_pat_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+];
 
 pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
     let mut lowering = match program {
@@ -467,6 +528,7 @@ fn uniq(arguments: &[Word]) -> Lowering {
 
 fn grep(arguments: &[Word]) -> Lowering {
     let mut lowering = Lowering::new();
+    let mut evidence = SearchEvidence::new();
     let mut index = 0;
     let mut after_options = false;
     let mut pattern_supplied = false;
@@ -496,25 +558,47 @@ fn grep(arguments: &[Word]) -> Lowering {
                         &mut lowering,
                     );
                 } else {
-                    consume_value(arguments, &mut index, &mut lowering);
+                    consume_pattern(arguments, &mut index, &mut lowering, &mut evidence);
                 }
                 if value != "--exclude-from" {
                     pattern_supplied = true;
                 }
+                if value == "--file" {
+                    evidence.pattern_file = true;
+                }
             } else if let Some(target) = value.strip_prefix("--file=") {
                 lowering.filesystem(target.to_owned(), FilesystemOperation::Read);
                 pattern_supplied = true;
+                evidence.pattern_file = true;
             } else if let Some(target) = value.strip_prefix("--exclude-from=") {
                 lowering.filesystem(target.to_owned(), FilesystemOperation::Read);
-            } else if value.starts_with("--regexp=") {
+            } else if let Some(pattern) = value.strip_prefix("--regexp=") {
                 pattern_supplied = true;
+                evidence.patterns.push(pattern.to_owned());
             } else if value == "--recursive" {
                 recursive = true;
             } else if value == "--dereference-recursive" {
                 recursive = true;
                 lowering.complete = false;
             } else if grep_long_option(&value) {
-                // Fully accounted selection or display option.
+                if value == "--ignore-case" {
+                    evidence.case_mode = CaseMode::Insensitive;
+                } else if value == "--no-ignore-case" {
+                    evidence.case_mode = CaseMode::Sensitive;
+                }
+                if matches!(
+                    value.as_str(),
+                    "--files-with-matches"
+                        | "--files-without-match"
+                        | "--count"
+                        | "--quiet"
+                        | "--silent"
+                        | "--no-messages"
+                        | "--invert-match"
+                        | "--only-matching"
+                ) {
+                    evidence.content_output = false;
+                }
             } else if grep_long_value_option(&value) {
                 consume_value(arguments, &mut index, &mut lowering);
             } else if grep_long_attached_option(&value) {
@@ -530,10 +614,12 @@ fn grep(arguments: &[Word]) -> Lowering {
                 &mut pattern_supplied,
                 &mut recursive,
                 &mut lowering,
+                &mut evidence,
             );
         } else if !pattern_supplied {
             pattern_supplied = true;
             saw_operand = true;
+            evidence.patterns.push(value);
         } else {
             saw_operand = true;
             if value != "-" {
@@ -548,6 +634,9 @@ fn grep(arguments: &[Word]) -> Lowering {
     }
     if !pattern_supplied {
         lowering.complete = false;
+    }
+    if lowering.complete && evidence.qualifies(false) {
+        lowering.operation = Some("credential-search");
     }
     lowering
 }
@@ -635,19 +724,23 @@ fn parse_grep_short(
     pattern_supplied: &mut bool,
     recursive: &mut bool,
     lowering: &mut Lowering,
+    evidence: &mut SearchEvidence,
 ) {
     let flags = value[1..].char_indices();
     for (offset, flag) in flags {
         if matches!(flag, 'e' | 'f') {
             let attached = &value[offset + 2..];
             if flag == 'f' {
+                evidence.pattern_file = true;
                 if attached.is_empty() {
                     consume_filesystem(arguments, index, FilesystemOperation::Read, lowering);
                 } else {
                     lowering.filesystem(attached.to_owned(), FilesystemOperation::Read);
                 }
             } else if attached.is_empty() {
-                consume_value(arguments, index, lowering);
+                consume_pattern(arguments, index, lowering, evidence);
+            } else {
+                evidence.patterns.push(attached.to_owned());
             }
             *pattern_supplied = true;
             return;
@@ -663,38 +756,47 @@ fn parse_grep_short(
             if flag == 'R' {
                 lowering.complete = false;
             }
-        } else if !matches!(
-            flag,
-            'E' | 'F'
-                | 'G'
-                | 'P'
-                | 'i'
-                | 'w'
-                | 'x'
-                | 'z'
-                | 's'
-                | 'v'
-                | 'b'
-                | 'n'
-                | 'H'
-                | 'h'
-                | 'o'
-                | 'q'
-                | 'a'
-                | 'I'
-                | 'L'
-                | 'l'
-                | 'c'
-                | 'T'
-                | 'Z'
-        ) {
-            lowering.complete = false;
+        } else {
+            if flag == 'i' {
+                evidence.case_mode = CaseMode::Insensitive;
+            }
+            if matches!(flag, 'l' | 'L' | 'c' | 'q' | 's' | 'v' | 'o') {
+                evidence.content_output = false;
+            }
+            if !matches!(
+                flag,
+                'E' | 'F'
+                    | 'G'
+                    | 'P'
+                    | 'i'
+                    | 'w'
+                    | 'x'
+                    | 'z'
+                    | 's'
+                    | 'v'
+                    | 'b'
+                    | 'n'
+                    | 'H'
+                    | 'h'
+                    | 'o'
+                    | 'q'
+                    | 'a'
+                    | 'I'
+                    | 'L'
+                    | 'l'
+                    | 'c'
+                    | 'T'
+                    | 'Z'
+            ) {
+                lowering.complete = false;
+            }
         }
     }
 }
 
 fn rg(arguments: &[Word]) -> Lowering {
     let mut lowering = Lowering::new();
+    let mut evidence = SearchEvidence::new();
     let mut index = 0;
     let mut after_options = false;
     let mut pattern_supplied = false;
@@ -717,11 +819,13 @@ fn rg(arguments: &[Word]) -> Lowering {
             } else if value == "--files" {
                 files_mode = true;
                 pattern_supplied = true;
+                evidence.content_output = false;
             } else if value == "--regexp" {
-                consume_value(arguments, &mut index, &mut lowering);
+                consume_pattern(arguments, &mut index, &mut lowering, &mut evidence);
                 pattern_supplied = true;
-            } else if value.starts_with("--regexp=") {
+            } else if let Some(pattern) = value.strip_prefix("--regexp=") {
                 pattern_supplied = true;
+                evidence.patterns.push(pattern.to_owned());
             } else if matches!(value.as_str(), "--file" | "--ignore-file") {
                 consume_filesystem(
                     arguments,
@@ -731,6 +835,7 @@ fn rg(arguments: &[Word]) -> Lowering {
                 );
                 if value == "--file" {
                     pattern_supplied = true;
+                    evidence.pattern_file = true;
                 }
             } else if let Some(target) = value
                 .strip_prefix("--file=")
@@ -739,6 +844,7 @@ fn rg(arguments: &[Word]) -> Lowering {
                 lowering.filesystem(target.to_owned(), FilesystemOperation::Read);
                 if value.starts_with("--file=") {
                     pattern_supplied = true;
+                    evidence.pattern_file = true;
                 }
             } else if matches!(value.as_str(), "--pre" | "--pre-glob") {
                 // `--pre` can execute an arbitrary command. Keep the visible
@@ -746,11 +852,38 @@ fn rg(arguments: &[Word]) -> Lowering {
                 consume_value(arguments, &mut index, &mut lowering);
                 lowering.complete = false;
             } else if rg_long_value_option(&value) {
+                if value == "--replace" {
+                    evidence.content_output = false;
+                }
                 consume_value(arguments, &mut index, &mut lowering);
             } else if value == "--follow" {
                 lowering.complete = false;
             } else if rg_long_attached_option(&value) || rg_long_option(&value) {
-                // Fully accounted search or display option.
+                if value == "--ignore-case" {
+                    evidence.case_mode = CaseMode::Insensitive;
+                } else if value == "--case-sensitive" {
+                    evidence.case_mode = CaseMode::Sensitive;
+                } else if value == "--smart-case" {
+                    evidence.case_mode = CaseMode::Smart;
+                }
+                if value == "--no-config" {
+                    evidence.no_config = true;
+                }
+                if value.starts_with("--replace=")
+                    || matches!(
+                        value.as_str(),
+                        "--files-with-matches"
+                            | "--files-without-match"
+                            | "--count"
+                            | "--count-matches"
+                            | "--quiet"
+                            | "--invert-match"
+                            | "--only-matching"
+                            | "--type-list"
+                    )
+                {
+                    evidence.content_output = false;
+                }
             } else {
                 lowering.complete = false;
             }
@@ -761,9 +894,11 @@ fn rg(arguments: &[Word]) -> Lowering {
                 &mut index,
                 &mut pattern_supplied,
                 &mut lowering,
+                &mut evidence,
             );
         } else if !pattern_supplied && !files_mode {
             pattern_supplied = true;
+            evidence.patterns.push(value);
         } else {
             paths.push(value);
         }
@@ -777,6 +912,9 @@ fn rg(arguments: &[Word]) -> Lowering {
     }
     for path in paths.into_iter().filter(|path| path != "-") {
         lowering.recursive_filesystem(path, FilesystemOperation::Read);
+    }
+    if lowering.complete && evidence.qualifies(true) {
+        lowering.operation = Some("credential-search");
     }
     lowering
 }
@@ -921,19 +1059,23 @@ fn parse_rg_short(
     index: &mut usize,
     pattern_supplied: &mut bool,
     lowering: &mut Lowering,
+    evidence: &mut SearchEvidence,
 ) {
     let flags = value[1..].char_indices();
     for (offset, flag) in flags {
         if matches!(flag, 'e' | 'f') {
             let attached = &value[offset + 2..];
             if flag == 'f' {
+                evidence.pattern_file = true;
                 if attached.is_empty() {
                     consume_filesystem(arguments, index, FilesystemOperation::Read, lowering);
                 } else {
                     lowering.filesystem(attached.to_owned(), FilesystemOperation::Read);
                 }
             } else if attached.is_empty() {
-                consume_value(arguments, index, lowering);
+                consume_pattern(arguments, index, lowering, evidence);
+            } else {
+                evidence.patterns.push(attached.to_owned());
             }
             *pattern_supplied = true;
             return;
@@ -949,6 +1091,16 @@ fn parse_rg_short(
         }
         if flag == 'L' {
             lowering.complete = false;
+        }
+        if flag == 'i' {
+            evidence.case_mode = CaseMode::Insensitive;
+        } else if flag == 's' {
+            evidence.case_mode = CaseMode::Sensitive;
+        } else if flag == 'S' {
+            evidence.case_mode = CaseMode::Smart;
+        }
+        if matches!(flag, 'c' | 'l' | 'L' | 'o' | 'q' | 'v') {
+            evidence.content_output = false;
         }
         if !matches!(
             flag,
@@ -1426,6 +1578,23 @@ fn consume_value(arguments: &[Word], index: &mut usize, lowering: &mut Lowering)
         .and_then(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
         .is_some()
     {
+        *index += 1;
+    } else {
+        lowering.complete = false;
+    }
+}
+
+fn consume_pattern(
+    arguments: &[Word],
+    index: &mut usize,
+    lowering: &mut Lowering,
+    evidence: &mut SearchEvidence,
+) {
+    if let Some(pattern) = arguments
+        .get(*index + 1)
+        .and_then(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
+    {
+        evidence.patterns.push(pattern);
         *index += 1;
     } else {
         lowering.complete = false;

@@ -176,11 +176,13 @@ impl SemanticCode {
     pub const ANALYSIS_REFUSED: Self = Self::borrowed("analysis-refused");
     pub const CLOCK_SET: Self = Self::borrowed("clock-set");
     pub const CLEAN_FORCE: Self = Self::borrowed("clean-force");
+    pub const CREDENTIAL_SEARCH: Self = Self::borrowed("credential-search");
     pub const CRITICAL_MUTATION: Self = Self::borrowed("critical-mutation");
     pub const DECODE: Self = Self::borrowed("decode");
     pub const DECODED_EXECUTION: Self = Self::borrowed("decoded-execution");
     pub const DIRECT_FILE: Self = Self::borrowed("direct-file");
     pub const ENCODED_COMMAND: Self = Self::borrowed("encoded-command");
+    pub const ENVIRONMENT_DISCLOSURE: Self = Self::borrowed("environment-disclosure");
     pub const EVALUATED_SHELL: Self = Self::borrowed("evaluated-shell");
     pub const FORK_BOMB: Self = Self::borrowed("fork-bomb");
     pub const FORCE_PUSH: Self = Self::borrowed("force-push");

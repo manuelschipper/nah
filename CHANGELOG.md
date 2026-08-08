@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Environment and credential-search exfiltration sources** — `exfil-pipe`
+  now blocks reviewed Bash environment dumps and scoped credential-indicator
+  searches when their output reaches an outbound transfer, including a strict
+  one-recipient mail form.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

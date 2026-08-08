@@ -3,11 +3,11 @@
 mod support;
 
 use nah_proto::action::{
-    ActionStream, Coverage, EffectKind, FilesystemOperation, FlowOrdinals, InvocationInput,
-    NetworkDirection, PathScope, Sensitivity,
+    ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, FlowOrdinals,
+    InvocationInput, NetworkDirection, PathScope, Sensitivity,
 };
 use nah_proto::decision::Verdict;
-use support::{filesystem, guard_policy, project_scope};
+use support::{filesystem, guard_policy, path, project_scope};
 
 #[test]
 fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
@@ -253,6 +253,83 @@ fn execution_guards_require_their_complete_positive_evidence() {
             "{guard}"
         );
     }
+}
+
+#[test]
+fn exfiltration_accepts_only_the_new_proven_source_shapes() {
+    let sink = vec![
+        EffectKind::known("curl", "network-transfer").unwrap(),
+        EffectKind::network(None),
+    ];
+    let environment = ActionStream::new(
+        Coverage::Full,
+        vec![
+            vec![EffectKind::known("env", "environment-disclosure").unwrap()],
+            sink.clone(),
+        ],
+        vec![FlowOrdinals::new(0, 1)],
+    )
+    .unwrap();
+    assert_eq!(
+        nah_policy::decide(&environment, &guard_policy("exfil-pipe", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Block
+    );
+
+    let recursive_read = |target: &str, selects_root: bool| EffectKind::Filesystem {
+        effect: FilesystemEffect {
+            operation: FilesystemOperation::Read,
+            target: path(target),
+            scope: project_scope(),
+            sensitivity: Sensitivity::None,
+            protection: None,
+            selects_root,
+            selects_home: false,
+            recursive: true,
+            pattern: false,
+        },
+    };
+    for (target, selects_root, expected) in [
+        ("/repo", true, Verdict::Block),
+        ("/repo/src", false, Verdict::Delegate),
+    ] {
+        let search = ActionStream::new(
+            Coverage::Full,
+            vec![
+                vec![
+                    EffectKind::known("grep", "credential-search").unwrap(),
+                    recursive_read(target, selects_root),
+                ],
+                sink.clone(),
+            ],
+            vec![FlowOrdinals::new(0, 1)],
+        )
+        .unwrap();
+        assert_eq!(
+            nah_policy::decide(&search, &guard_policy("exfil-pipe", true), &[])
+                .unwrap()
+                .verdict(),
+            expected,
+            "{target}"
+        );
+    }
+
+    let disconnected = ActionStream::new(
+        Coverage::Full,
+        vec![
+            vec![EffectKind::known("env", "environment-disclosure").unwrap()],
+            sink,
+        ],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        nah_policy::decide(&disconnected, &guard_policy("exfil-pipe", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
 }
 
 #[test]

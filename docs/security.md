@@ -20,7 +20,7 @@ guard findings and understood protected-state changes outside maintenance.
   blocks when space allows. `nah test --json` and custom guards may
   expose unredacted modeled input and inline code.
 - Guards block modeled access to protected credential paths and visible flows
-  from sensitive files or network content into dangerous sinks.
+  from sensitive sources or network content into dangerous sinks.
 
 ## Not enforced
 

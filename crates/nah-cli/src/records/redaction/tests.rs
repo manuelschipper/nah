@@ -151,6 +151,69 @@ fn network_commands_are_redacted_without_secret_shaped_heuristics() {
 }
 
 #[test]
+fn modeled_source_operations_are_structural_in_audit_records() {
+    let stream = nah_proto::action::ActionStream::new(
+        Coverage::Full,
+        vec![
+            vec![
+                EffectKind::known_with_input(
+                    "env",
+                    "environment-disclosure",
+                    InvocationInput::shell(
+                        "env",
+                        vec!["env".into(), "PLANTED_TOKEN=value".into()],
+                        Some(vec!["env".into(), "PLANTED_TOKEN=value".into()]),
+                    ),
+                )
+                .unwrap(),
+            ],
+            vec![
+                EffectKind::known_with_input(
+                    "grep",
+                    "credential-search",
+                    InvocationInput::shell(
+                        "grep",
+                        vec!["grep".into(), "PLANTED_PATTERN".into()],
+                        Some(vec!["grep".into(), "PLANTED_PATTERN".into()]),
+                    ),
+                )
+                .unwrap(),
+            ],
+        ],
+        vec![],
+    )
+    .unwrap();
+    let core = DecisionCore::new(&stream, Verdict::Delegate, vec![]).unwrap();
+    let tool_call = ToolCallInput::new(
+        nah_proto::ctx::SchemaVersion::V1,
+        "Bash",
+        serde_json::json!({"command": "PLANTED_COMMAND"}),
+        "/repo",
+        None,
+    )
+    .unwrap();
+    let record = AuditRecordV1::redact(
+        &tool_call,
+        &stream,
+        &core,
+        DecisionEnvelope::new("decision-sources", "2026-08-07T12:00:00Z", 7).unwrap(),
+        "claude",
+        AuditDiagnostics::new(&[], &[], &[]),
+    );
+    let bytes = serde_json::to_string(&record).unwrap();
+
+    assert!(!bytes.contains("PLANTED"));
+    assert_eq!(
+        record.effects[0].description.0,
+        "invoke env environment-disclosure"
+    );
+    assert_eq!(
+        record.effects[1].description.0,
+        "invoke grep credential-search"
+    );
+}
+
+#[test]
 fn unresolved_filesystem_records_name_the_effect_without_persisting_the_operand() {
     let invocation = EffectKind::known_with_input(
         "rm",
