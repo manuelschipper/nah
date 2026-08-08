@@ -4,28 +4,33 @@
 
 nah does not decide from a command name alone. It lowers a visible tool call
 into typed invocation, filesystem, Git, network, and system-state effects.
-Observation resolves requested working directories, project roots, paths, and
-environment values before guards evaluate them.
+Observation resolves working directories, roots, paths, and environment before
+guards evaluate.
 
-Coverage is `full` when nah preserves every visible input needed by guards.
-It does not mean nah understands an opaque program. Unknown semantics may be
-fully represented;
-unresolved arguments, code, or native fields remain `partial`.
+Coverage is `full` when nah preserves every visible input needed by guards; it
+does not mean nah understands an opaque program. Unresolved arguments, code, or
+native fields remain `partial`.
 
-For Bash, nah parses visible pipelines, branches, loops, subshells, and
-redirects, then unions their possible effects into stages and data-flow edges.
+For Bash, nah parses visible pipelines, control flow, subshells, and redirects,
+then unions possible effects into stages and data-flow edges.
 Unresolved shell state or expansion makes the stream partial.
 
-Visible inline source in Python, JavaScript, Ruby, Perl, PHP, Lua, R, Julia,
-Swift, PowerShell, or cmd stays a `code-execution` effect. Python first lowers
-through a maintained grammar into an owned HIR, then evaluates a bounded
-subset without running the code. Unknown values and unsupported constructs
-stay local to the state they can affect. Other languages currently use bounded
-signature passes. Proven child shell source or argv re-enters the Bash planner
-and publishes its effects to all guards.
-Child stdout connects only for APIs that inherit it; cwd and environment stay
-unknown unless proven. Unsupported or ambiguous code adds no finding;
-malformed or bounded-out code adds a refusal. The interpreter remains visible.
+Visible source remains a `code-execution` effect. Python and
+JavaScript/TypeScript/TSX use maintained grammars, owned HIRs, and bounded
+interpretation; IPython preprocesses magics. Nah recovers
+constants and effects without running code. Unknowns widen only affected state.
+
+Profiles own only proven globals: Node APIs; Deno `eval` filesystem/command APIs;
+Bun plus Node APIs; and provenance-tracked OpenClaw QuickJS
+`tools.call`/`callValue` references. Deno checked eval and `run` lack proven
+permissions, generic JavaScript owns none, and rebinding removes ownership.
+
+Exact child argv is nested. Only proven Bash source enters Bash lowering; `sh`,
+Windows or custom shells, Bun's `$`, and `bun exec` stay partial.
+Reviewed Node call shapes preserve supported options and callbacks; accessors
+or custom coercion make the call partial. Sinks are omitted only when proven to
+throw first. Child context/output is unknown unless proven. The interpreter
+remains visible.
 
 ## Verdicts and failures
 
@@ -33,9 +38,8 @@ malformed or bounded-out code adds a refusal. The interpreter remains visible.
 - `delegate` — nothing blocked; the runtime keeps control.
 
 Evaluation failure is diagnostic, not a third verdict. By default it contributes
-no finding and delegates if policy cannot reduce. An installed `--fail-closed`
-hook blocks explicit failures/refusals, not ordinary uncertainty; no valid
-decision uses runtime-native denial. See `nah docs security`.
+no finding. `--fail-closed` blocks explicit failures/refusals, not ordinary
+uncertainty. See `nah docs security`.
 
 nah never approves a call. Delegation returns control to the runtime's normal
 permission or execution behavior. nah is a guard layer, not an approval UI or
@@ -48,22 +52,20 @@ execution, a destructive Git operation, or access to a sensitive path. Guards
 compose by union: any one of them can block a call, and none of them can
 approve one.
 
-An activated custom guard is a one-shot executable that answers `block` or
-`abstain`. Abstain means no finding, not approval. Failure or an invalid response
-contributes a typed failure but no finding.
+An activated custom guard answers `block` or `abstain`. Abstain is no finding,
+not approval. Failure or an invalid response adds a typed failure only.
 
 Coverage does not gate guards: definite evidence may block even when the stream
 is partial; uncertainty alone never blocks.
 
-Run `nah docs guards` for the installed catalog and three tested,
-non-exhaustive examples per built-in guard.
+Run `nah docs guards` for the catalog and tested examples.
 
 ## Trust and activation
 
-User custom guards require activation. Project custom guards require both
-project trust and separate activation; nah does not read their manifests before
-trust. Activation pins the manifest, executable, and declared data. Changed or
-missing activated bytes do not run and add an evaluation failure.
+User guards require activation. Project guards require trust plus activation;
+nah does not read manifests before trust. Activation pins the manifest,
+executable, and data. Changed or missing bytes do not run and add an evaluation
+failure.
 
 Before trust, `.nah/project.toml` may enable additional built-in guards but
 cannot disable guards or execute repository code. Agents may edit inert guard
@@ -78,9 +80,8 @@ configuration` and `nah docs security`.
 
 ## Audit records
 
-Completed live non-dry-run decisions attempt a redacted audit append; recording
-failure never changes the verdict. Stored records name the deciding runtime
-(`unknown` for plain `nah decide`). `nah why <id>` explains one, `nah log` lists
-recent decisions, and `nah log --blocked` lists blocks independently of
-intervening delegates. `nah log --json` emits JSON Lines. Human log and TUI
-views summarize retained evaluation failures without changing JSON output.
+Live decisions attempt a redacted audit append; failure never changes the
+verdict. Records name the runtime (`unknown` for plain `nah decide`). `nah why
+<id>` explains one, `nah log` lists recent decisions, and `nah log --blocked`
+lists blocks independently of intervening delegates. `nah log --json` emits
+JSON Lines. Human views summarize failures without changing JSON output.

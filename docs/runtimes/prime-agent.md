@@ -27,14 +27,13 @@ nah installs, inspects, removes, and protects the extension there instead.
 
 ## Behavior
 
-The extension invokes nah without a shell before each tool executes. Exact
-built-in `ipython` inputs shaped as `{ "code": "..." }` use the shared Python
-effect frontend in a persistent-kernel profile. The extension verifies Prime
-Agent's effective tool provenance; an extension override named `ipython` stays
-opaque. The pinned Prime CLI registers no other built-in tool. Every custom,
-SDK, or future tool uses one Prime-specific opaque identity, including tools
-named `bash`, `Read`, `Write`, or `Edit`, so a native-looking name cannot select
-Nah's unrelated tool schemas.
+The extension invokes nah without a shell before each tool executes. A
+provenance-verified built-in `ipython` call with a nonblank string `code` field
+uses the shared Python effect frontend in a persistent-kernel profile. An
+extension override named `ipython` stays opaque. The pinned Prime CLI registers
+no other built-in tool. Every custom, SDK, or future tool uses one Prime-specific
+opaque identity, including tools named `bash`, `Read`, `Write`, or `Edit`, so a
+native-looking name cannot select Nah's unrelated tool schemas.
 
 Current-cell constants, control flow, and local definitions are still analyzed,
 but imported modules and builtins remain unowned: earlier cells can replace
@@ -45,9 +44,9 @@ built-in code string. A missing or non-string code field stays opaque.
 
 Prime Agent can retain Python bindings, mutate imported modules and builtins,
 and change the kernel working directory between cells, but its tool-call event
-does not expose that state. Bare names, current-cell imports, and relative paths
-therefore remain unknown. nah does not execute a cell or reconstruct the full
-Python runtime to discover them.
+does not expose that state. Prior bare names, imported callables, and relative
+paths therefore remain unknown. nah does not execute a cell or reconstruct the
+full Python runtime to discover them.
 
 ## Shell boundary
 

@@ -10,10 +10,11 @@
   string. Custom, SDK, and future tools share an opaque identity so native-looking
   names cannot impersonate unrelated tool schemas.
 - **Exact code launcher intake** — Node, Deno, Bun, tsx, and IPython now
-  classify only verified inline, stdin, and file forms. Syntax-check modes,
-  invisible package scripts, remote modules, and unknown flags stay opaque;
-  exact Deno `--ext` values select the matching JavaScript, TypeScript, or TSX
-  frontend.
+  classify only verified inline, stdin, and file forms. Non-executing check
+  modes, package scripts without explicit paths, remote modules, and unknown
+  flags stay opaque. Exact Deno subcommands and `--ext` values select distinct
+  eval/run and JavaScript, TypeScript, or TSX profiles; Bun shell forms stay
+  partial rather than entering Bash lowering.
 - **Python effect frontend** — inline Python now uses a maintained grammar,
   owned HIR, and bounded interpreter for constants, f-strings, aliases,
   branches, finite loops, simple functions, decoded values, and exact child
@@ -32,18 +33,20 @@
   identity; unreachable, rebound, and unresolved `which()` targets do not
   block.
 - **Canonical JavaScript and TypeScript effects** — inline JavaScript,
-  TypeScript, and TSX now lower into owned HIR and a bounded interpreter for
-  constants, scopes, helpers, branches, loops, exact eval, and reviewed Node
-  filesystem and child-process calls. Proven calls publish ordinary
-  ActionStream effects; unowned Deno, Bun, and direct-tool profiles do not
-  inherit Node APIs, while rebinding and unsupported behavior stay explicit
-  instead of fabricating effects.
+  TypeScript, and TSX now lower into owned HIR and bounded effect
+  interpretation. Node owns reviewed filesystem and child-process APIs; Deno
+  eval owns reviewed Deno filesystem and command APIs while checked eval and
+  `deno run` remain unowned; Bun owns reviewed Bun APIs plus Node builtins; and
+  OpenClaw QuickJS owns only provenance-tracked tool-bridge calls. Rebinding, unsupported
+  behavior, and unresolved values remain partial or unowned instead of
+  fabricating effects. JavaScript-family native evidence uses v2 so object and
+  `undefined` values do not silently extend the frozen Python v1 domain.
 - **Lexical JavaScript helpers** — inline helper functions now resolve captured
   bindings instead of caller-local shadows, preventing both fabricated and
   missed effects when a call occurs inside a nested block.
-- **JavaScript accessor barriers** — accessed object-literal getters and
-  descriptor mutations now make coverage partial instead of silently treating
-  potentially effectful property access as inert.
+- **JavaScript accessor barriers** — recognized object-literal accessors and
+  descriptor mutations make affected analysis partial instead of being treated
+  as exact property values.
 - **Node filesystem overloads** — JavaScript analysis now distinguishes valid
   modes, file descriptors, stream options, callback effects, accessor barriers,
   and result truthiness so reviewed calls cannot disappear or claim a path that
@@ -57,6 +60,9 @@
 - **Nested shell dialect boundary** — only explicitly proven Bash payloads enter
   the Bash lowerer; default `sh`, Windows, custom-shell, and malformed payloads
   retain partial coverage without fabricated Bash effects.
+- **Python subprocess context** — `cwd`, `env`, `executable`, and unresolved
+  command inputs now suppress speculative nested execution and keep coverage
+  partial instead of resolving a child under the parent process context.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

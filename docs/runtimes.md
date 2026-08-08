@@ -50,10 +50,9 @@ respond.
 
 `install` writes nah-owned integration files or configuration. `uninstall`
 removes only that wiring. `status` reports `not configured`, `wiring current`,
-or `reinstall required` plus the detected failure policy from the wiring on
-disk. It cannot prove that a running
-agent loaded the hook, that the runtime permits it, or that every tool path
-emits an intercepted event.
+or `reinstall required` plus the detected failure policy from disk. It cannot
+prove that a running agent loaded the hook, that the runtime permits it, or
+that every tool path emits an intercepted event.
 
 Users are responsible for configuring their runtime so the hook is loaded and
 remains active. Hook deadlines are runtime-owned and vary by product, surface,
