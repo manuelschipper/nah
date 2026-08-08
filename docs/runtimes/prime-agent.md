@@ -57,7 +57,8 @@ syntactic boundary: `!`, `!!`, `%%bash`, and `%%sh` lower to shell effects
 without trusting spoofable runtime method names. Exact simple `$name` and
 `{name}` interpolation is resolved from current-cell values; unresolved
 interpolation makes the affected shell execution partial. `%%capture`, `%time`,
-and `%%time` are transparent wrappers around the code they execute.
+and `%%time` preserve effects from the code they execute; `%%capture` contains
+the body's stdout instead of exposing it to the surrounding cell.
 
 The visible body of a Bash or sh cell is analyzed. Prime Agent's configured
 `commandPrefix`, final shell-path rewrite, and kernel environment are not

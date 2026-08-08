@@ -8,9 +8,10 @@
   reviewed POSIX subset, while Bash-only syntax and divergent shell state stay
   partial.
 - **Prime Agent IPython operations** — explicit `%%bash` and `%%sh` cells,
-  transparent timing and capture wrappers, and exact current-cell `!` and `!!`
+  timing and output-capturing wrappers, and exact current-cell `!` and `!!`
   interpolation now retain their visible shell effects without trusting the
-  persistent kernel's mutable `get_ipython` binding.
+  persistent kernel's mutable `get_ipython` binding or exposing captured
+  stdout.
 - **Environment and credential-search exfiltration sources** — `exfil-pipe`
   now blocks reviewed Bash environment dumps and scoped credential-indicator
   searches when their output reaches an outbound transfer, including a strict

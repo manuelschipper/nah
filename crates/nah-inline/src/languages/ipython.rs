@@ -136,7 +136,8 @@ fn analyze_with_state(
                 initial_state,
             );
             if partial {
-                let (report, mut draft) = analysis.into_parts();
+                let (mut report, mut draft) = analysis.into_parts();
+                report.suppress_nested_stdout();
                 draft.set_partial();
                 LanguageAnalysis::new(report, draft)
             } else {

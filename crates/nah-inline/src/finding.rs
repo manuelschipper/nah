@@ -205,6 +205,19 @@ impl InlineReport {
         &self.nested_executions
     }
 
+    pub(crate) fn suppress_nested_stdout(&mut self) {
+        for execution in &mut self.nested_executions {
+            match execution {
+                NestedExecution::Shell {
+                    stdout_inherited, ..
+                }
+                | NestedExecution::Command {
+                    stdout_inherited, ..
+                } => *stdout_inherited = false,
+            }
+        }
+    }
+
     pub fn refuse(&mut self, refusal: InlineRefusal) {
         if !self.refusals.contains(&refusal) {
             self.refusals.push(refusal);

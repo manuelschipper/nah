@@ -1960,19 +1960,9 @@ impl Interpreter<'_> {
                     && self.input.platform != Platform::Windows
                 {
                     if self.ipython_bash {
-                        self.push_shell_program(
-                            "bash",
-                            code,
-                            state.cwd.clone(),
-                            stdout_inherited,
-                        );
+                        self.push_shell_program("bash", code, state.cwd.clone(), stdout_inherited);
                     } else if syntactic {
-                        self.push_shell_program(
-                            "sh",
-                            code,
-                            state.cwd.clone(),
-                            stdout_inherited,
-                        );
+                        self.push_shell_program("sh", code, state.cwd.clone(), stdout_inherited);
                     } else {
                         self.draft.set_partial();
                     }

@@ -511,16 +511,22 @@ fn exact_current_cell_interpolation_reaches_the_observed_bash() {
 
 #[test]
 fn transparent_time_and_capture_cells_preserve_body_effects() {
-    for source in [
-        "%%time\n%%bash --noprofile\nrm -rf /",
-        "%%capture\n%%bash --norc\nrm -rf /",
+    for (source, stdout_inherited) in [
+        ("%%time\n%%bash --noprofile\nrm -rf /", true),
+        ("%%capture\n%%bash --norc\nrm -rf /", false),
     ] {
         let analysis = persistent_language_analysis(source);
         assert!(!analysis.draft().complete(), "{source}");
         assert!(matches!(
             analysis.report().nested_executions(),
-            [NestedExecution::Shell { program, code, .. }]
-                if program == "bash" && code == "rm -rf /\n"
+            [NestedExecution::Shell {
+                program,
+                code,
+                stdout_inherited: inherited,
+                ..
+            }] if program == "bash"
+                && code == "rm -rf /\n"
+                && *inherited == stdout_inherited
         ));
     }
 
