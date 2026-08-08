@@ -144,7 +144,7 @@ fn audit_records(home: &std::path::Path) -> Vec<Value> {
 }
 
 #[test]
-fn builtin_ipython_keeps_imported_module_ownership_unknown() {
+fn builtin_ipython_uses_current_cell_import_ownership() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
@@ -157,10 +157,14 @@ fn builtin_ipython_keeps_imported_module_ownership_unknown() {
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["runtime"], "prime-agent");
     assert_eq!(record["command"], "ipython [redacted]");
-    assert_eq!(record["core"]["coverage"], "partial");
+    assert_eq!(record["core"]["coverage"], "full");
     assert_eq!(
         record["effects"],
-        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
+        json!([
+            {"id":"e0","description":"execute ipython interpreter-inline"},
+            {"id":"e1","description":"invoke ipython direct-file"},
+            {"id":"e2","description":"delete /tmp/prime-agent-target"},
+        ])
     );
 }
 
@@ -170,12 +174,23 @@ fn persistent_state_and_shell_rewrites_stay_opaque() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
 
-    for source in [
-        "open('/tmp/prior-builtin', 'w')",
-        "!rm -rf /",
-        "!!",
-        "%%bash\nrm -rf /",
-    ] {
+    let source = "open('/tmp/current-builtin', 'w')";
+    assert_eq!(
+        run_adapter(&home, &project, "ipython", json!({"code":source})),
+        json!({"block":false,"evaluation_failed":false})
+    );
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["coverage"], "full");
+    assert_eq!(
+        record["effects"],
+        json!([
+            {"id":"e0","description":"execute ipython interpreter-inline"},
+            {"id":"e1","description":"invoke ipython direct-file"},
+            {"id":"e2","description":"write /tmp/current-builtin"},
+        ])
+    );
+
+    for source in ["!rm -rf /", "!!", "%%bash\nrm -rf /"] {
         assert_eq!(
             run_adapter(&home, &project, "ipython", json!({"code":source})),
             json!({"block":false,"evaluation_failed":false}),
@@ -192,7 +207,7 @@ fn persistent_state_and_shell_rewrites_stay_opaque() {
 }
 
 #[test]
-fn hidden_module_state_does_not_fabricate_destructive_effects() {
+fn current_cell_destructive_effects_reach_prime_guards() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
@@ -203,22 +218,30 @@ fn hidden_module_state_does_not_fabricate_destructive_effects() {
         "ipython",
         json!({"code":"import shutil; shutil.rmtree('/')"}),
     );
-    assert_eq!(root, json!({"block":false,"evaluation_failed":false}));
+    assert_eq!(root["block"], true);
+    assert_eq!(root["evaluation_failed"], false);
     let record = audit_records(&home).pop().unwrap();
-    assert_eq!(record["core"]["coverage"], "partial");
+    assert_eq!(record["core"]["coverage"], "full");
+    assert_eq!(record["core"]["verdict"], "block");
     assert_eq!(
         record["effects"],
-        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
+        json!([
+            {"id":"e0","description":"execute ipython interpreter-inline"},
+            {"id":"e1","description":"invoke ipython direct-file"},
+            {"id":"e2","description":"delete /"},
+        ])
     );
 
     let extension = home.join(".prime/agent/extensions/nah.js");
     let source = format!("import os; os.remove({:?})", extension.to_str().unwrap());
     let protected = run_adapter(&home, &project, "ipython", json!({"code":source}));
-    assert_eq!(protected, json!({"block":false,"evaluation_failed":false}));
-    assert_eq!(
-        audit_records(&home).pop().unwrap()["effects"],
-        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
-    );
+    assert_eq!(protected["block"], true);
+    assert_eq!(protected["evaluation_failed"], false);
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["verdict"], "block");
+    assert!(record["effects"].as_array().unwrap().iter().any(|effect| {
+        effect["description"] == format!("delete {}", extension.to_string_lossy())
+    }));
 }
 
 #[test]
@@ -247,7 +270,7 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
 }
 
 #[test]
-fn additional_builtin_fields_keep_code_routing_visible_and_partial() {
+fn additional_builtin_fields_cannot_hide_current_cell_effects() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
@@ -259,11 +282,15 @@ fn additional_builtin_fields_keep_code_routing_visible_and_partial() {
         "ipython",
         json!({"code":source,"futureBehavior":"execute"}),
     );
-    assert_eq!(decision, json!({"block":false,"evaluation_failed":false}));
+    assert_eq!(decision["block"], true);
+    assert_eq!(decision["evaluation_failed"], false);
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["core"]["coverage"], "partial");
-    assert_eq!(
-        record["effects"],
-        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
+    assert!(
+        record["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| effect["description"] == "delete /")
     );
 }

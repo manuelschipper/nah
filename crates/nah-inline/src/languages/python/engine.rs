@@ -110,6 +110,16 @@ enum KnownFunction {
     Subprocess(SubprocessKind),
 }
 
+const OWNED_BUILTINS: &[(&str, KnownFunction)] = &[
+    ("eval", KnownFunction::Eval),
+    ("exec", KnownFunction::Exec),
+    ("compile", KnownFunction::Compile),
+    ("open", KnownFunction::Open),
+    ("getattr", KnownFunction::Getattr),
+    ("setattr", KnownFunction::Setattr),
+    ("__import__", KnownFunction::Import),
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ImportRegistryRead {
     Contains,
@@ -245,18 +255,12 @@ struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let bindings = [
-            ("eval", Value::Known(KnownFunction::Eval)),
-            ("exec", Value::Known(KnownFunction::Exec)),
-            ("compile", Value::Known(KnownFunction::Compile)),
-            ("open", Value::Known(KnownFunction::Open)),
-            ("getattr", Value::Known(KnownFunction::Getattr)),
-            ("setattr", Value::Known(KnownFunction::Setattr)),
-            ("__import__", Value::Known(KnownFunction::Import)),
-        ]
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
-        .collect();
+        let bindings = OWNED_BUILTINS
+            .iter()
+            .copied()
+            .map(|(name, function)| (name, Value::Known(function)))
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect();
         Self {
             bindings,
             cells: Vec::new(),
@@ -420,15 +424,9 @@ pub(super) fn analyze(
     let mut state = match initial_state {
         InitialState::Fresh => State::default(),
         InitialState::Persistent => State {
-            bindings: BTreeMap::new(),
-            cells: Vec::new(),
-            functions: Vec::new(),
-            invalid_modules: IMPORT_OWNED_MODULES
-                .iter()
-                .copied()
-                .chain([Module::Ipython, Module::Environment])
-                .collect(),
+            invalid_modules: [Module::Ipython, Module::Environment].into_iter().collect(),
             relative_cwd_known: false,
+            ..State::default()
         },
     };
     if matches!(initial_state, InitialState::Fresh) && crate::is_ipython_interpreter(program) {
@@ -4455,6 +4453,13 @@ fn retain_owned_module(value: Value, state: &State) -> Value {
 
 fn invalidate_module(module: Module, state: &mut State) {
     state.invalid_modules.insert(module);
+    if module == Module::Builtins {
+        for (name, function) in OWNED_BUILTINS {
+            if state.bindings.get(*name) == Some(&Value::Known(*function)) {
+                state.bindings.insert((*name).to_owned(), Value::Unknown);
+            }
+        }
+    }
     for value in state.bindings.values_mut() {
         if *value == Value::Module(module) {
             *value = Value::Unknown;

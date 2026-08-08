@@ -280,12 +280,92 @@ fn get_ipython_ownership_is_exact_until_the_object_escapes_or_is_mutated() {
 }
 
 #[test]
-fn persistent_kernel_state_requires_current_cell_ownership() {
+fn persistent_kernel_owns_reviewed_current_cell_evidence() {
+    for (source, expected_path) in [
+        ("open('/tmp/current-open', 'w')", "/tmp/current-open"),
+        (
+            "import os\nos.remove('/tmp/current-module')",
+            "/tmp/current-module",
+        ),
+        (
+            "from os import remove\nremove('/tmp/current-from')",
+            "/tmp/current-from",
+        ),
+        (
+            "getattr(__import__('os'), 'remove')('/tmp/current-getattr')",
+            "/tmp/current-getattr",
+        ),
+        (
+            "eval(\"open('/tmp/current-eval', 'w')\")",
+            "/tmp/current-eval",
+        ),
+        (
+            "exec(\"open('/tmp/current-exec', 'w')\")",
+            "/tmp/current-exec",
+        ),
+        (
+            "eval(compile(\"open('/tmp/current-compile', 'w')\", '<cell>', 'exec'))",
+            "/tmp/current-compile",
+        ),
+    ] {
+        let analysis = persistent_language_analysis(source);
+        let [call] = analysis.draft().calls() else {
+            panic!("expected one current-cell call for {source}");
+        };
+        assert_eq!(call.filesystems()[0].requested(), Some(expected_path));
+        assert!(analysis.draft().complete(), "{source}");
+    }
+}
+
+#[test]
+fn persistent_kernel_owns_current_cell_process_and_http_sinks() {
+    let analysis = persistent_language_analysis(
+        "import subprocess\nsubprocess.run(['rm', '-rf', '/tmp/current-argv'])",
+    );
+    let [call] = analysis.draft().calls() else {
+        panic!("expected the current-cell subprocess call");
+    };
+    assert_eq!(call.kind(), LanguageCallKind::LocalUtility);
+    assert_eq!(native_input(call.input()).0["callable"], "subprocess.run");
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Command { argv, .. }]
+            if argv == &["rm", "-rf", "/tmp/current-argv"]
+    ));
+    assert!(analysis.draft().complete());
+
+    let analysis = persistent_language_analysis(
+        "import subprocess\nsubprocess.run('rm -rf /tmp/current-shell', shell=True)",
+    );
+    let [call] = analysis.draft().calls() else {
+        panic!("expected the current-cell subprocess shell call");
+    };
+    assert_eq!(call.kind(), LanguageCallKind::EvaluatedShell);
+    assert!(matches!(
+        analysis.report().nested_executions(),
+        [NestedExecution::Shell { program, code, .. }]
+            if program == "sh" && code == "rm -rf /tmp/current-shell"
+    ));
+    assert!(analysis.draft().complete());
+
+    let analysis = persistent_language_analysis(
+        "import requests\nrequests.post('https://example.test/upload', data='visible')",
+    );
+    let [call] = analysis.draft().calls() else {
+        panic!("expected the current-cell HTTP call");
+    };
+    assert_eq!(call.kind(), LanguageCallKind::NetworkTransfer);
+    assert_eq!(call.endpoint(), Some("https://example.test/upload"));
+    assert!(analysis.draft().complete());
+}
+
+#[test]
+fn persistent_kernel_keeps_ambient_state_and_visible_barriers_unknown() {
     for source in [
-        "open('/tmp/prior-builtin', 'w')",
         "get_ipython().system('rm -rf /tmp/prior-shell')",
         "prior_callable()",
         "prior_object.method()",
+        "os.remove('/tmp/prior-module')",
         "!rm -rf /tmp/prior-shell",
         "from IPython import get_ipython\n!rm -rf /tmp/current-import-shell",
         "from IPython import get_ipython\n!!rm -rf /tmp/current-import-shell",
@@ -297,30 +377,24 @@ fn persistent_kernel_state_requires_current_cell_ownership() {
         assert!(analysis.report().nested_executions().is_empty(), "{source}");
     }
 
-    for (prior_cell, source) in [
-        (
-            "import os; os.remove = lambda _: None",
-            "import os\nos.remove('/')",
-        ),
-        (
-            "import os; os.path.join = lambda *_: os.remove('/tmp/hidden')",
-            "import os\nos.path.join('a', 'b')",
-        ),
-        (
-            "builtins.open = replacement",
-            "from builtins import open\nopen('/tmp/current-builtin', 'w')",
-        ),
+    for source in [
+        "open = replacement\nopen('/tmp/rebound-builtin', 'w')",
+        "import os\nos.remove = replacement\nos.remove('/tmp/mutated-module')",
+        "import os\nconsume(os)\nos.remove('/tmp/escaped-module')",
+        "import sys\nsys.modules['os'] = replacement\nimport os\nos.remove('/tmp/replaced-module')",
+        "import builtins\nbuiltins.open = replacement\nopen('/tmp/mutated-builtin', 'w')",
     ] {
         let analysis = persistent_language_analysis(source);
-        assert!(
-            !analysis.draft().complete(),
-            "prior: {prior_cell}\ncurrent: {source}"
-        );
-        assert!(
-            analysis.draft().calls().is_empty(),
-            "prior: {prior_cell}\ncurrent: {source}"
-        );
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
     }
+
+    let analysis = persistent_language_analysis("import os\nos.remove('relative-target')");
+    let [call] = analysis.draft().calls() else {
+        panic!("expected the relative call to remain visible");
+    };
+    assert_eq!(call.filesystems()[0].requested(), None);
+    assert!(!analysis.draft().complete());
 
     let analysis = persistent_language_analysis("def current():\n    return 1\ncurrent()");
     assert!(analysis.draft().complete());

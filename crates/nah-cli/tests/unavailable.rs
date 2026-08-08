@@ -287,13 +287,8 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
     ]
 }
 
-// Prime's hidden kernel makes import-based sinks unowned, so it has no positive
-// guard block to exercise in feedback tests.
 fn guard_blocking_danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
     danger(project)
-        .into_iter()
-        .filter(|(runtime, _)| *runtime != "prime-agent")
-        .collect()
 }
 
 fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {

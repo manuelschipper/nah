@@ -1,7 +1,9 @@
 mod support;
 
 use nah_actions::{AnalysisInput, VisibleCode, finalize, plan};
-use nah_proto::action::{Coverage, EffectKind, InvocationEffect, InvocationInput, SemanticCode};
+use nah_proto::action::{
+    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput, SemanticCode,
+};
 use nah_proto::ctx::{Platform, SchemaVersion};
 use nah_proto::observation::ObservationQuery;
 use nah_proto::tool::ToolCallInput;
@@ -27,15 +29,14 @@ fn ipython_plan(source: &str) -> nah_actions::AnalysisPlan {
 }
 
 #[test]
-fn direct_ipython_keeps_current_imports_unowned() {
+fn direct_ipython_uses_current_cell_imports() {
     let source = "import os; os.remove('/tmp/direct-target')";
     let plan = ipython_plan(source);
-    assert!(!plan.observation_request().queries().iter().any(|query| {
+    assert!(plan.observation_request().queries().iter().any(|query| {
         matches!(query, ObservationQuery::Path { requested, .. } if requested == "/tmp/direct-target")
     }));
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
-    assert_eq!(stream.coverage(), Coverage::Partial);
-    assert_eq!(stream.effects().len(), 1);
+    assert_eq!(stream.coverage(), Coverage::Full);
     assert!(matches!(
         stream.effects()[0].kind(),
         EffectKind::Invocation {
@@ -53,12 +54,30 @@ fn direct_ipython_keeps_current_imports_unowned() {
             && code == source
             && value == &json!({"code":source})
     ));
+    assert!(stream.effects().iter().any(|effect| matches!(
+        effect.kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::Known {
+                program,
+                operation,
+                ..
+            }
+        } if effect.stage().as_str() == "s1"
+            && program == "ipython"
+            && operation == &SemanticCode::DIRECT_FILE
+    )));
+    assert!(stream.effects().iter().any(|effect| matches!(
+        effect.kind(),
+        EffectKind::Filesystem { effect: filesystem }
+            if effect.stage().as_str() == "s1"
+                && filesystem.operation == FilesystemOperation::Delete
+                && filesystem.target.as_str() == "/tmp/direct-target"
+    )));
 }
 
 #[test]
 fn persistent_names_shell_dialect_and_rewritten_cells_stay_unknown() {
     for source in [
-        "open('/tmp/prior-builtin', 'w')",
         "get_ipython().system('rm -rf /tmp/prior-shell')",
         "prior_callable()",
         "prior_object.method()",
@@ -94,5 +113,11 @@ fn direct_ipython_keeps_relative_kernel_cwd_unknown() {
     }));
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     assert_eq!(stream.coverage(), Coverage::Partial);
-    assert_eq!(stream.effects().len(), 1);
+    assert!(stream.effects().iter().any(|effect| matches!(
+        effect.kind(),
+        EffectKind::FilesystemUnresolved {
+            operation: FilesystemOperation::Delete,
+            recursive: false,
+        } if effect.stage().as_str() == "s1"
+    )));
 }

@@ -8,11 +8,12 @@
   one-recipient mail form.
 - **Prime Agent adapter** — `nah hook prime-agent install` wires a direct global
   tool-call extension and routes exact built-in `ipython` cells through
-  persistent-state Python analysis. Prior bindings, imported modules, builtins,
-  relative kernel paths, and pre-rewrite shell syntax stay explicitly partial
-  instead of being guessed; additional tool fields cannot hide the visible code
-  string. Custom, SDK, and future tools share an opaque identity so native-looking
-  names cannot impersonate unrelated tool schemas.
+  persistent-state Python analysis. Reviewed imports and builtins used in the
+  current cell now publish effects, while inherited names,
+  relative kernel paths, and pre-rewrite shell syntax stay explicitly partial;
+  additional tool fields cannot hide the visible code string. Custom, SDK, and
+  future tools share an opaque identity so native-looking names cannot
+  impersonate unrelated tool schemas.
 - **Exact code launcher intake** — Node, Deno, Bun, tsx, and IPython now
   classify only verified inline, stdin, and file forms. Non-executing check
   modes, package scripts without explicit paths, remote modules, and unknown
