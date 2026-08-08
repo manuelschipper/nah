@@ -382,7 +382,7 @@ fn bare_selector_matches_standard_path_but_not_an_arbitrary_lookalike() {
 }
 
 #[test]
-fn custom_guards_receive_original_interpreter_and_nested_command_effects() {
+fn custom_guards_receive_original_interpreter_and_proven_nested_command_effects() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
@@ -422,7 +422,7 @@ else:
     let input = serde_json::json!({
         "v": 1,
         "tool": "Bash",
-        "input": {"command": "python3 -c \"import os; os.system('rm -rf /tmp/example')\""},
+        "input": {"command": "python3 -c \"import subprocess; subprocess.run(['bash','-c','rm -rf /tmp/example'])\""},
         "cwd": home
     })
     .to_string();
