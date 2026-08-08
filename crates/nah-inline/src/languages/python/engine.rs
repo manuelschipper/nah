@@ -187,7 +187,7 @@ enum CodeMode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Cell {
-    Sequence(Vec<Value>),
+    Sequence { values: Vec<Value>, indexable: bool },
     Unknown,
 }
 
@@ -342,6 +342,13 @@ enum CallShape {
     Valid,
     Invalid,
     Incomplete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ValueAdmission {
+    Exact,
+    Possible,
+    Invalid,
 }
 
 impl Default for Arguments {
@@ -1384,7 +1391,10 @@ impl Interpreter<'_> {
             return Value::Unknown;
         }
         let cell = state.cells.len();
-        state.cells.push(Cell::Sequence(values));
+        state.cells.push(Cell::Sequence {
+            values,
+            indexable: node.kind() != HirKind::Set,
+        });
         Value::Cell(cell)
     }
 
@@ -1464,6 +1474,18 @@ impl Interpreter<'_> {
         let object = self.eval(object, state, depth);
         let attribute = self.text(attribute);
         let value = match object {
+            Value::None
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::String(_)
+            | Value::ImplicitString(_)
+            | Value::Bytes(_)
+            | Value::Path(_)
+                if matches!(attribute, "get" | "keys" | "values" | "items") =>
+            {
+                self.pending_control = Some(Control::Raise);
+                Value::Unknown
+            }
             Value::Module(module) => {
                 if module == Module::Os
                     && let Some(value) = os_open_flag(attribute, self.input.platform)
@@ -1559,7 +1581,16 @@ impl Interpreter<'_> {
                     && arguments.positional.is_empty()
                     && arguments.keywords.is_empty()
                 {
-                    Value::Decoded(value)
+                    match *value {
+                        Value::Bytes(value) => String::from_utf8(value).map_or_else(
+                            |_| {
+                                self.pending_control = Some(Control::Raise);
+                                Value::Unknown
+                            },
+                            |value| Value::Decoded(Box::new(Value::String(value))),
+                        ),
+                        value => Value::Decoded(Box::new(value)),
+                    }
                 } else {
                     Value::Unknown
                 }
@@ -1680,6 +1711,20 @@ impl Interpreter<'_> {
         }
     }
 
+    fn admit_value(&mut self, admission: ValueAdmission) -> bool {
+        match admission {
+            ValueAdmission::Exact => true,
+            ValueAdmission::Possible => {
+                self.draft.set_partial();
+                true
+            }
+            ValueAdmission::Invalid => {
+                self.pending_control = Some(Control::Raise);
+                false
+            }
+        }
+    }
+
     fn call_known(
         &mut self,
         function: KnownFunction,
@@ -1730,25 +1775,14 @@ impl Interpreter<'_> {
                 }
                 Value::None
             }
-            KnownFunction::OsSystem | KnownFunction::OsPopen => {
-                let valid = if function == KnownFunction::OsSystem {
-                    valid_call_shape(&arguments, 1, &["command"])
-                        && required_argument(&arguments, 0, "command").is_some()
-                        && possible_scalar_argument(&arguments, 0, "command")
-                } else {
-                    valid_call_shape(&arguments, 3, &["cmd", "mode", "buffering"])
-                        && required_argument(&arguments, 0, "cmd").is_some()
-                        && possible_scalar_argument(&arguments, 0, "cmd")
-                };
-                if !valid {
+            KnownFunction::OsSystem => {
+                if !valid_call_shape(&arguments, 1, &["command"])
+                    || required_argument(&arguments, 0, "command").is_none()
+                    || !possible_scalar_argument(&arguments, 0, "command")
+                {
                     return Value::Unknown;
                 }
-                let name = if function == KnownFunction::OsSystem {
-                    "command"
-                } else {
-                    "cmd"
-                };
-                if let Some(value) = one_argument(&arguments, name) {
+                if let Some(value) = one_argument(&arguments, "command") {
                     if decoded(value) {
                         self.report
                             .push(Finding::exact(FindingKind::DecodedExecution));
@@ -1756,16 +1790,50 @@ impl Interpreter<'_> {
                     if let Some(code) = value_string(value)
                         && self.input.platform != Platform::Windows
                     {
-                        self.push_shell(code, function == KnownFunction::OsSystem);
+                        self.push_shell(code, true);
                     }
                 }
                 self.emit_call(
                     LanguageCallKind::EvaluatedShell,
-                    if function == KnownFunction::OsSystem {
-                        "os.system"
-                    } else {
-                        "os.popen"
-                    },
+                    "os.system",
+                    &arguments,
+                    state,
+                    Vec::new(),
+                    None,
+                )
+                .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+            }
+            KnownFunction::OsPopen => {
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    1,
+                    &["cmd", "mode", "buffering"],
+                    0,
+                    &[],
+                )) || !self.admit_value(text_admission(argument(&arguments, 0, "cmd")))
+                    || !self.admit_value(popen_mode_admission(argument(&arguments, 1, "mode")))
+                    || !self.admit_value(popen_buffering_admission(argument(
+                        &arguments,
+                        2,
+                        "buffering",
+                    )))
+                {
+                    return Value::Unknown;
+                }
+                if let Some(value) = argument(&arguments, 0, "cmd") {
+                    if decoded(value) {
+                        self.report
+                            .push(Finding::exact(FindingKind::DecodedExecution));
+                    }
+                    if let Some(code) = value_string(value)
+                        && self.input.platform != Platform::Windows
+                    {
+                        self.push_shell(code, false);
+                    }
+                }
+                self.emit_call(
+                    LanguageCallKind::EvaluatedShell,
+                    "os.popen",
                     &arguments,
                     state,
                     Vec::new(),
@@ -1852,8 +1920,8 @@ impl Interpreter<'_> {
                 Value::Unknown
             }
             KnownFunction::OsExec(kind) => {
-                if !valid_os_exec_shape(kind, &arguments)
-                    || !possible_os_exec(kind, &arguments, state)
+                if !self.admit_call_shape(os_exec_call_shape(kind, &arguments))
+                    || !self.admit_value(os_exec_admission(kind, &arguments, state))
                 {
                     return Value::Unknown;
                 }
@@ -1874,15 +1942,17 @@ impl Interpreter<'_> {
                 if required_argument(&arguments, 0, "args").is_none()
                     || arguments.positional.len() > 1
                     || !valid_subprocess_shape(&arguments)
+                    || !self.admit_index_value(argument(&arguments, 1, "bufsize"), true)
                 {
                     return Value::Unknown;
                 }
-                let origin = if let Some(shell) = subprocess_shell(&arguments) {
-                    let command = required_argument(&arguments, 0, "args")
-                        .expect("required subprocess argument was checked");
-                    if !possible_subprocess_command(command, state) {
-                        return Value::Unknown;
-                    }
+                let command = required_argument(&arguments, 0, "args")
+                    .expect("required subprocess argument was checked");
+                let shell = subprocess_shell(&arguments);
+                if !self.admit_value(subprocess_command_admission(command, state, shell)) {
+                    return Value::Unknown;
+                }
+                let origin = if let Some(shell) = shell {
                     self.emit_call(
                         if shell {
                             LanguageCallKind::EvaluatedShell
@@ -1929,16 +1999,29 @@ impl Interpreter<'_> {
                 Value::Unknown
             }
             KnownFunction::Compile => {
-                if arguments.complete
-                    && arguments.positional.len() == 3
-                    && arguments.keywords.is_empty()
-                    && arguments.positional.get(1).and_then(value_string).is_some()
-                    && let (Some(source), Some(mode)) = (
-                        arguments.positional.first().and_then(value_string),
-                        arguments.positional.get(2).and_then(value_string),
-                    )
-                    && let Some(mode) = code_mode(mode)
-                    && let Some(source) = bounded_owned(source, &mut self.budget)
+                if !arguments.complete
+                    || arguments.positional.len() != 3
+                    || !arguments.keywords.is_empty()
+                {
+                    return Value::Unknown;
+                }
+                let source = &arguments.positional[0];
+                let filename = &arguments.positional[1];
+                let mode = &arguments.positional[2];
+                if !self.admit_value(compile_source_admission(source))
+                    || !self.admit_value(path_admission(Some(filename)))
+                    || !self.admit_value(text_admission(Some(mode)))
+                {
+                    return Value::Unknown;
+                }
+                let Some(mode) = value_text(mode).and_then(code_mode) else {
+                    if value_text(mode).is_some() {
+                        self.pending_control = Some(Control::Raise);
+                    }
+                    return Value::Unknown;
+                };
+                if let Some(source) =
+                    value_text(source).and_then(|source| bounded_owned(source, &mut self.budget))
                 {
                     return Value::Compiled { source, mode };
                 }
@@ -2023,11 +2106,14 @@ impl Interpreter<'_> {
                 if !self.admit_call_shape(call_shape(&arguments, 1, &["key", "default"], 0, &[])) {
                     return Value::Unknown;
                 }
+                let key = argument(&arguments, 0, "key");
+                if !self.admit_value(text_admission(key)) {
+                    return Value::Unknown;
+                }
                 if state.invalid_modules.contains(&Module::Environment) {
                     Value::Unknown
                 } else {
-                    argument(&arguments, 0, "key")
-                        .and_then(value_string)
+                    key.and_then(value_text)
                         .filter(|name| *name == "HOME")
                         .and_then(|_| bounded_owned(self.input.home, &mut self.budget))
                         .map_or(Value::Unknown, Value::String)
@@ -2043,7 +2129,11 @@ impl Interpreter<'_> {
                 )) {
                     return Value::Unknown;
                 }
-                if let Some(attribute) = arguments.positional.get(1).and_then(value_string)
+                let name = arguments.positional.get(1);
+                if !self.admit_value(text_admission(name)) {
+                    return Value::Unknown;
+                }
+                if let Some(attribute) = name.and_then(value_text)
                     && let Some(value) = arguments.positional.first()
                 {
                     return match value {
@@ -2089,13 +2179,45 @@ impl Interpreter<'_> {
                 }
                 Value::None
             }
-            KnownFunction::Import => arguments
-                .positional
-                .first()
-                .and_then(value_string)
-                .and_then(module_value)
-                .map(|value| retain_owned_module(value, state))
-                .unwrap_or(Value::Unknown),
+            KnownFunction::Import => {
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    1,
+                    &["name", "globals", "locals", "fromlist", "level"],
+                    0,
+                    &[],
+                )) {
+                    return Value::Unknown;
+                }
+                let name = argument(&arguments, 0, "name");
+                let level = argument(&arguments, 4, "level");
+                if !self.admit_value(text_admission(name))
+                    || !self.admit_value(import_level_admission(level))
+                {
+                    return Value::Unknown;
+                }
+                if name.and_then(value_text) == Some("") {
+                    self.pending_control = Some(Control::Raise);
+                    return Value::Unknown;
+                }
+                if matches!(level, Some(Value::Int(value)) if *value > 0)
+                    || matches!(level, Some(Value::Bool(true)))
+                {
+                    if matches!(
+                        argument(&arguments, 1, "globals"),
+                        None | Some(Value::None | Value::EmptyDictionary)
+                    ) {
+                        self.pending_control = Some(Control::Raise);
+                    } else {
+                        self.draft.set_partial();
+                    }
+                    return Value::Unknown;
+                }
+                name.and_then(value_text)
+                    .and_then(module_value)
+                    .map(|value| retain_owned_module(value, state))
+                    .unwrap_or(Value::Unknown)
+            }
             KnownFunction::ShutilWhich => Value::Unknown,
             KnownFunction::Request(kind) => {
                 if !self.admit_call_shape(request_call_shape(kind, &arguments, self.program))
@@ -2145,13 +2267,20 @@ impl Interpreter<'_> {
                 } else {
                     (4, &["file", "mode", "closefd", "opener"][..])
                 };
-                if !valid_call_shape(&arguments, max_positional, keywords) {
-                    return Value::Unknown;
-                }
-                if required_argument(&arguments, 0, "file").is_none() {
-                    return Value::Unknown;
-                }
-                if !argument(&arguments, 0, "file").is_some_and(possible_open_target) {
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    1,
+                    &keywords[..max_positional],
+                    0,
+                    &keywords[max_positional..],
+                )) || !self.admit_value(open_target_admission(argument(&arguments, 0, "file")))
+                    || !self.admit_value(open_mode_admission(
+                        argument(&arguments, 1, "mode"),
+                        function == KnownFunction::IoFile,
+                    ))
+                    || function == KnownFunction::Open
+                        && !self.admit_index_value(argument(&arguments, 2, "buffering"), false)
+                {
                     return Value::Unknown;
                 }
                 let callable = if function == KnownFunction::Open {
@@ -2164,14 +2293,20 @@ impl Interpreter<'_> {
                     return Value::Unknown;
                 };
                 if operations.is_empty() {
+                    self.pending_control = Some(Control::Raise);
                     return Value::Unknown;
                 }
                 let filesystems = operations
                     .into_iter()
                     .map(|operation| filesystem_argument(&arguments, 0, "file", operation, false))
                     .collect();
-                self.emit_filesystem_call(callable, &arguments, state, filesystems)
-                    .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
+                let result = self
+                    .emit_filesystem_call(callable, &arguments, state, filesystems)
+                    .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]));
+                if function == KnownFunction::Open && text_open_is_unbuffered(&arguments) {
+                    self.pending_control = Some(Control::Raise);
+                }
+                result
             }
             KnownFunction::OsRemove | KnownFunction::OsUnlink | KnownFunction::OsRmdir => {
                 let callable = match function {
@@ -2567,7 +2702,12 @@ impl Interpreter<'_> {
                     )
                 };
                 if !self.admit_call_shape(shape)
-                    || !possible_path_argument(&arguments, 1, destination_keyword)
+                    || !self.admit_value(path_admission(argument(&arguments, 0, "src")))
+                    || !self.admit_value(path_admission(argument(
+                        &arguments,
+                        1,
+                        destination_keyword,
+                    )))
                     || !self.admit_index_value(argument(&arguments, 3, "dir_fd"), true)
                 {
                     return Value::Unknown;
@@ -2838,15 +2978,30 @@ impl Interpreter<'_> {
                 if !self.admit_call_shape(call_shape(&arguments, 1, &["name"], 0, &[])) {
                     return Value::Unknown;
                 }
-                argument(&arguments, 0, "name")
-                    .and_then(value_string)
-                    .map_or(Value::Unknown, |name| {
-                        let parent = path
-                            .rsplit_once(['/', '\\'])
-                            .map_or("", |(parent, _)| parent);
-                        join_path(parent.to_owned(), name, &mut self.budget)
-                            .map_or(Value::Unknown, Value::Path)
-                    })
+                let name = argument(&arguments, 0, "name");
+                if !self.admit_value(text_admission(name)) {
+                    return Value::Unknown;
+                }
+                if !path_has_name(&path, self.input.platform) {
+                    self.pending_control = Some(Control::Raise);
+                    return Value::Unknown;
+                }
+                name.and_then(value_text).map_or(Value::Unknown, |name| {
+                    if name.is_empty()
+                        || name == "."
+                        || name.contains('/')
+                        || self.input.platform == Platform::Windows
+                            && (name.contains('\\') || name.contains(':'))
+                    {
+                        self.pending_control = Some(Control::Raise);
+                        return Value::Unknown;
+                    }
+                    let parent = path
+                        .rsplit_once(['/', '\\'])
+                        .map_or("", |(parent, _)| parent);
+                    join_path(parent.to_owned(), name, &mut self.budget)
+                        .map_or(Value::Unknown, Value::Path)
+                })
             }
             "joinpath" => {
                 let mut joined = path;
@@ -2889,28 +3044,28 @@ impl Interpreter<'_> {
                 .map_or(Value::Unknown, |origin| Value::Produced(vec![origin]))
             }
             "write_text" | "write_bytes" | "touch" | "mkdir" | "chmod" | "lchmod" => {
-                let valid = match method {
-                    "write_text" => {
-                        valid_call_shape(&arguments, 4, &["data", "encoding", "errors", "newline"])
-                            && required_argument(&arguments, 0, "data").is_some()
-                    }
-                    "write_bytes" => {
-                        valid_call_shape(&arguments, 1, &["data"])
-                            && required_argument(&arguments, 0, "data").is_some()
-                    }
-                    "touch" => valid_call_shape(&arguments, 2, &["mode", "exist_ok"]),
-                    "mkdir" => valid_call_shape(&arguments, 3, &["mode", "parents", "exist_ok"]),
-                    "chmod" => {
-                        valid_call_shape(&arguments, 1, &["mode", "follow_symlinks"])
-                            && required_argument(&arguments, 0, "mode").is_some()
-                    }
-                    "lchmod" => {
-                        valid_call_shape(&arguments, 1, &["mode"])
-                            && required_argument(&arguments, 0, "mode").is_some()
-                    }
+                let shape = match method {
+                    "write_text" => call_shape(
+                        &arguments,
+                        1,
+                        &["data", "encoding", "errors", "newline"],
+                        0,
+                        &[],
+                    ),
+                    "write_bytes" => call_shape(&arguments, 1, &["data"], 0, &[]),
+                    "touch" => call_shape(&arguments, 0, &["mode", "exist_ok"], 0, &[]),
+                    "mkdir" => call_shape(&arguments, 0, &["mode", "parents", "exist_ok"], 0, &[]),
+                    "chmod" => call_shape(&arguments, 1, &["mode", "follow_symlinks"], 0, &[]),
+                    "lchmod" => call_shape(&arguments, 1, &["mode"], 0, &[]),
                     _ => unreachable!(),
                 };
-                if !valid {
+                if !self.admit_call_shape(shape) {
+                    return Value::Unknown;
+                }
+                let payload = argument(&arguments, 0, "data");
+                if (method == "write_text" && !self.admit_value(text_admission(payload)))
+                    || (method == "write_bytes" && !self.admit_value(bytes_admission(payload)))
+                {
                     return Value::Unknown;
                 }
                 if matches!(method, "mkdir" | "chmod" | "lchmod")
@@ -3023,8 +3178,13 @@ impl Interpreter<'_> {
                 Value::None
             }
             "symlink_to" => {
-                if !valid_call_shape(&arguments, 2, &["target", "target_is_directory"])
-                    || required_argument(&arguments, 0, "target").is_none()
+                if !self.admit_call_shape(call_shape(
+                    &arguments,
+                    1,
+                    &["target", "target_is_directory"],
+                    0,
+                    &[],
+                )) || !self.admit_value(path_admission(argument(&arguments, 0, "target")))
                 {
                     return Value::Unknown;
                 }
@@ -3058,7 +3218,7 @@ impl Interpreter<'_> {
             && let Some(value) = state.cells.get_mut(cell)
         {
             match value {
-                Cell::Sequence(values) => {
+                Cell::Sequence { values, .. } => {
                     let bytes = values_bytes(values).and_then(|bytes| {
                         value_bytes(&arguments.positional[0])
                             .and_then(|added| bytes.checked_add(added))
@@ -3083,7 +3243,7 @@ impl Interpreter<'_> {
             if let Some(value) = state.cells.get_mut(cell) {
                 match extension {
                     Some(extension) => match value {
-                        Cell::Sequence(values) => {
+                        Cell::Sequence { values, .. } => {
                             let items = values.len().checked_add(extension.len());
                             let bytes = values_bytes(values).and_then(|bytes| {
                                 values_bytes(&extension).and_then(|added| bytes.checked_add(added))
@@ -3100,7 +3260,7 @@ impl Interpreter<'_> {
                         Cell::Unknown => {}
                     },
                     None => {
-                        if matches!(value, Cell::Sequence(_)) {
+                        if matches!(value, Cell::Sequence { .. }) {
                             *value = Cell::Unknown;
                         }
                     }
@@ -3461,22 +3621,62 @@ impl Interpreter<'_> {
     }
 
     fn subscript(&mut self, node: &HirNode, state: &mut State, depth: usize) -> Value {
-        if is_import_registry_value(node, state, &self.source) {
-            return Value::ImportRegistry;
+        match registry_provenance(node, state, &self.source) {
+            RegistryProvenance::Exact => return Value::ImportRegistry,
+            RegistryProvenance::Possible => {
+                invalidate_import_ownership(state);
+                self.draft.set_partial();
+            }
+            RegistryProvenance::None => {}
         }
         let children = named_children(node).collect::<Vec<_>>();
         if children.len() < 2 {
             return Value::Unknown;
         }
+        if is_sys_module_dictionary(children[0], state, &self.source)
+            && matches!(
+                static_string(children[1], state, &self.source),
+                StaticString::Exact(value) if value == "version"
+            )
+        {
+            return Value::ImplicitString(String::new());
+        }
         let object = self.eval(children[0], state, depth);
         let index = self.eval(children[1], state, depth);
-        if object == Value::Module(Module::Environment)
-            && !state.invalid_modules.contains(&Module::Environment)
-            && value_string(&index).is_some_and(|value| value == "HOME")
-        {
-            Value::String(self.input.home.to_owned())
-        } else {
-            Value::Unknown
+        match object {
+            Value::Module(Module::Environment)
+                if !state.invalid_modules.contains(&Module::Environment)
+                    && value_string(&index).is_some_and(|value| value == "HOME") =>
+            {
+                Value::String(self.input.home.to_owned())
+            }
+            Value::Cell(cell) => match state.cells.get(cell) {
+                Some(Cell::Sequence {
+                    values,
+                    indexable: true,
+                }) => match exact_index(&index) {
+                    Some(index) => sequence_index(values, index).cloned().unwrap_or_else(|| {
+                        self.pending_control = Some(Control::Raise);
+                        Value::Unknown
+                    }),
+                    None if matches!(index, Value::Unknown | Value::Produced(_)) => {
+                        self.draft.set_partial();
+                        Value::Unknown
+                    }
+                    None => {
+                        self.pending_control = Some(Control::Raise);
+                        Value::Unknown
+                    }
+                },
+                Some(Cell::Sequence {
+                    indexable: false, ..
+                }) => {
+                    self.pending_control = Some(Control::Raise);
+                    Value::Unknown
+                }
+                Some(Cell::Unknown) | None => Value::Unknown,
+            },
+            _ => Value::Unknown,
         }
     }
 
@@ -3801,6 +4001,30 @@ fn shutil_copy_callable(kind: CopyKind) -> &'static str {
     }
 }
 
+fn valid_open_mode(mode: &str, raw: bool) -> bool {
+    let access = mode
+        .bytes()
+        .filter(|byte| matches!(byte, b'r' | b'w' | b'a' | b'x'))
+        .count();
+    access == 1
+        && mode.bytes().all(|byte| {
+            matches!(byte, b'r' | b'w' | b'a' | b'x' | b'b' | b'+') || !raw && byte == b't'
+        })
+        && mode.matches('+').count() <= 1
+        && mode.matches('b').count() <= 1
+        && mode.matches('t').count() <= 1
+        && !(mode.contains('b') && mode.contains('t'))
+}
+
+fn path_has_name(path: &str, platform: Platform) -> bool {
+    let name = if platform == Platform::Windows {
+        path.rsplit(['/', '\\']).next()
+    } else {
+        path.rsplit('/').next()
+    };
+    name.is_some_and(|name| !name.is_empty() && name != ".")
+}
+
 fn open_operations(arguments: &Arguments) -> Option<Vec<FilesystemOperation>> {
     if !arguments.complete {
         return None;
@@ -3813,22 +4037,24 @@ fn open_operations(arguments: &Arguments) -> Option<Vec<FilesystemOperation>> {
             .map(|(_, value)| value)
     });
     let mode = match mode {
-        Some(mode) => value_string(mode)?,
+        Some(mode) => match value_string(mode) {
+            Some(mode) => mode,
+            None if matches!(
+                mode,
+                Value::Unknown | Value::Produced(_) | Value::Decoded(_)
+            ) =>
+            {
+                return Some(vec![FilesystemOperation::Read, FilesystemOperation::Write]);
+            }
+            None => return None,
+        },
         None => "r",
     };
     let access = mode
         .bytes()
         .filter(|byte| matches!(byte, b'r' | b'w' | b'a' | b'x'))
         .collect::<Vec<_>>();
-    let valid = access.len() == 1
-        && mode
-            .bytes()
-            .all(|byte| matches!(byte, b'r' | b'w' | b'a' | b'x' | b'b' | b't' | b'+'))
-        && mode.matches('+').count() <= 1
-        && mode.matches('b').count() <= 1
-        && mode.matches('t').count() <= 1
-        && !(mode.contains('b') && mode.contains('t'));
-    if !valid {
+    if !valid_open_mode(mode, false) {
         return Some(Vec::new());
     }
     let mut operations = Vec::new();
@@ -3839,6 +4065,17 @@ fn open_operations(arguments: &Arguments) -> Option<Vec<FilesystemOperation>> {
         operations.push(FilesystemOperation::Write);
     }
     Some(operations)
+}
+
+fn text_open_is_unbuffered(arguments: &Arguments) -> bool {
+    let buffering = argument(arguments, 2, "buffering");
+    if !matches!(buffering, Some(Value::Int(0) | Value::Bool(false))) {
+        return false;
+    }
+    match argument(arguments, 1, "mode") {
+        None => true,
+        Some(mode) => value_string(mode).is_some_and(|mode| !mode.contains('b')),
+    }
 }
 
 fn language_call_input(callable: &str, arguments: &Arguments, state: &State) -> InvocationInput {
@@ -3916,7 +4153,7 @@ fn native_value(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) ->
         }
         Value::Path(value) => bounded_native_string("path", value),
         Value::Cell(cell) => {
-            let Some(Cell::Sequence(values)) = state.cells.get(*cell) else {
+            let Some(Cell::Sequence { values, .. }) = state.cells.get(*cell) else {
                 return (native_unknown(), false);
             };
             if values.len() > MAX_NATIVE_COLLECTION_ITEMS || !visiting.insert(*cell) {
@@ -4017,7 +4254,7 @@ fn value_origins(
         Value::Produced(values) => origins.extend(values),
         Value::Decoded(value) => value_origins(value, state, visiting, origins),
         Value::Cell(cell) if visiting.insert(*cell) => {
-            if let Some(Cell::Sequence(values)) = state.cells.get(*cell) {
+            if let Some(Cell::Sequence { values, .. }) = state.cells.get(*cell) {
                 for value in values {
                     value_origins(value, state, visiting, origins);
                 }
@@ -4048,7 +4285,7 @@ fn sequence_values<'a>(value: &'a Value, state: &'a State) -> Option<&'a [Value]
         return None;
     };
     match state.cells.get(*cell) {
-        Some(Cell::Sequence(values)) => Some(values),
+        Some(Cell::Sequence { values, .. }) => Some(values),
         Some(Cell::Unknown) | None => None,
     }
 }
@@ -4185,7 +4422,7 @@ fn invalidate_module(module: Module, state: &mut State) {
         }
     }
     for cell in &mut state.cells {
-        if let Cell::Sequence(values) = cell {
+        if let Cell::Sequence { values, .. } = cell {
             for value in values {
                 if *value == Value::Module(module) {
                     *value = Value::Unknown;
@@ -4203,34 +4440,6 @@ fn invalidate_import_ownership(state: &mut State) {
             invalidate_module(*module, state);
         }
     }
-    scrub_import_registry_markers(state);
-}
-
-fn scrub_import_registry_markers(state: &mut State) {
-    fn scrub(value: &mut Value) {
-        if matches!(
-            value,
-            Value::ImportRegistry | Value::ImportRegistryMutator(_) | Value::ImportRegistryRead(_)
-        ) {
-            *value = Value::Unknown;
-        }
-    }
-
-    state.bindings.values_mut().for_each(scrub);
-    for cell in &mut state.cells {
-        if let Cell::Sequence(values) = cell {
-            values.iter_mut().for_each(scrub);
-        }
-    }
-    for function in &mut state.functions {
-        if let Some(parameters) = &mut function.parameters {
-            for parameter in parameters {
-                if let Some(default) = &mut parameter.default {
-                    scrub(default);
-                }
-            }
-        }
-    }
 }
 
 fn contains_import_registry(value: &Value, state: &State, visiting: &mut BTreeSet<usize>) -> bool {
@@ -4240,7 +4449,7 @@ fn contains_import_registry(value: &Value, state: &State, visiting: &mut BTreeSe
         }
         Value::Cell(cell) if visiting.insert(*cell) => {
             let contains = match state.cells.get(*cell) {
-                Some(Cell::Sequence(values)) => values
+                Some(Cell::Sequence { values, .. }) => values
                     .iter()
                     .any(|value| contains_import_registry(value, state, visiting)),
                 Some(Cell::Unknown) | None => false,
@@ -4254,35 +4463,188 @@ fn contains_import_registry(value: &Value, state: &State, visiting: &mut BTreeSe
 
 fn is_import_registry(node: &HirNode, state: &State, source: &str) -> bool {
     match node.kind() {
-        HirKind::Identifier | HirKind::Attribute => is_import_registry_value(node, state, source),
-        HirKind::Subscript => named_children(node).next().is_some_and(|object| {
-            is_import_registry_value(object, state, source)
-                || is_sys_module_dictionary(object, state, source)
-        }),
+        HirKind::Identifier | HirKind::Attribute => {
+            registry_provenance(node, state, source) == RegistryProvenance::Exact
+        }
+        HirKind::Subscript => {
+            registry_provenance(node, state, source) != RegistryProvenance::None
+                || named_children(node).next().is_some_and(|object| {
+                    registry_provenance(object, state, source) != RegistryProvenance::None
+                })
+        }
         _ => false,
     }
 }
 
-fn is_import_registry_value(node: &HirNode, state: &State, source: &str) -> bool {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RegistryProvenance {
+    Exact,
+    Possible,
+    None,
+}
+
+fn registry_provenance(node: &HirNode, state: &State, source: &str) -> RegistryProvenance {
     match node.kind() {
-        HirKind::Identifier => state
-            .bindings
-            .get(unsafe_text(source, node))
-            .is_some_and(|value| contains_import_registry(value, state, &mut BTreeSet::new())),
-        HirKind::Attribute => is_import_registry_attribute(node, state, source),
-        HirKind::Subscript => named_children(node).next().is_some_and(|object| {
-            is_sys_module_dictionary(object, state, source)
-                || object.kind() == HirKind::Identifier
-                    && state
-                        .bindings
-                        .get(unsafe_text(source, object))
-                        .is_some_and(|value| {
-                            matches!(value, Value::Cell(_))
-                                && contains_import_registry(value, state, &mut BTreeSet::new())
-                        })
-        }),
-        _ => false,
+        HirKind::Identifier | HirKind::ParenthesizedExpression => {
+            if static_value(node, state, source) == Some(Value::ImportRegistry) {
+                RegistryProvenance::Exact
+            } else {
+                RegistryProvenance::None
+            }
+        }
+        HirKind::Attribute if is_import_registry_attribute(node, state, source) => {
+            RegistryProvenance::Exact
+        }
+        HirKind::Subscript => registry_subscript_provenance(node, state, source),
+        _ => RegistryProvenance::None,
     }
+}
+
+fn registry_subscript_provenance(
+    node: &HirNode,
+    state: &State,
+    source: &str,
+) -> RegistryProvenance {
+    let mut children = named_children(node);
+    let Some(object) = children.next() else {
+        return RegistryProvenance::None;
+    };
+    let Some(index) = children.next() else {
+        return RegistryProvenance::None;
+    };
+    if is_sys_module_dictionary(object, state, source) {
+        return match static_string(index, state, source) {
+            StaticString::Exact(value) if value == "modules" => RegistryProvenance::Exact,
+            StaticString::Unknown => RegistryProvenance::Possible,
+            StaticString::Exact(_) | StaticString::Other => RegistryProvenance::None,
+        };
+    }
+    let Some(Value::Cell(cell)) = static_value(object, state, source) else {
+        return RegistryProvenance::None;
+    };
+    let Some(Cell::Sequence { values, .. }) = state.cells.get(cell) else {
+        return RegistryProvenance::None;
+    };
+    match static_index(index, state, source) {
+        StaticIndex::Exact(index) => sequence_index(values, index)
+            .filter(|value| matches!(value, Value::ImportRegistry))
+            .map_or(RegistryProvenance::None, |_| RegistryProvenance::Exact),
+        StaticIndex::Unknown
+            if values
+                .iter()
+                .any(|value| contains_import_registry(value, state, &mut BTreeSet::new())) =>
+        {
+            RegistryProvenance::Possible
+        }
+        StaticIndex::Unknown | StaticIndex::Other => RegistryProvenance::None,
+    }
+}
+
+enum StaticString {
+    Exact(String),
+    Other,
+    Unknown,
+}
+
+fn static_string(node: &HirNode, state: &State, source: &str) -> StaticString {
+    match static_value(node, state, source) {
+        Some(Value::String(value) | Value::ImplicitString(value)) => StaticString::Exact(value),
+        Some(Value::Unknown | Value::Produced(_)) | None => StaticString::Unknown,
+        Some(_) => StaticString::Other,
+    }
+}
+
+enum StaticIndex {
+    Exact(i64),
+    Other,
+    Unknown,
+}
+
+fn static_index(node: &HirNode, state: &State, source: &str) -> StaticIndex {
+    match static_value(node, state, source) {
+        Some(Value::Int(value)) => StaticIndex::Exact(value),
+        Some(Value::Bool(value)) => StaticIndex::Exact(i64::from(value)),
+        Some(Value::Unknown | Value::Produced(_)) | None => StaticIndex::Unknown,
+        Some(_) => StaticIndex::Other,
+    }
+}
+
+fn static_value(node: &HirNode, state: &State, source: &str) -> Option<Value> {
+    match node.kind() {
+        HirKind::Identifier => state.bindings.get(unsafe_text(source, node)).cloned(),
+        HirKind::Integer => parse_integer(unsafe_text(source, node)).map(Value::Int),
+        HirKind::True => Some(Value::Bool(true)),
+        HirKind::False => Some(Value::Bool(false)),
+        HirKind::String => static_literal_string(node, source).map(Value::String),
+        HirKind::ParenthesizedExpression => named_children(node)
+            .next()
+            .and_then(|child| static_value(child, state, source)),
+        HirKind::UnaryOperator => {
+            let operator = node
+                .child(HirField::Operator)
+                .map(|operator| unsafe_text(source, operator))?;
+            let value = node
+                .child(HirField::Argument)
+                .or_else(|| named_children(node).next())
+                .and_then(|value| static_value(value, state, source))?;
+            match (operator, value) {
+                ("-", Value::Int(value)) => value.checked_neg().map(Value::Int),
+                ("+", Value::Int(value)) => Some(Value::Int(value)),
+                _ => None,
+            }
+        }
+        HirKind::Subscript => {
+            let mut children = named_children(node);
+            let Value::Cell(cell) = static_value(children.next()?, state, source)? else {
+                return None;
+            };
+            let StaticIndex::Exact(index) = static_index(children.next()?, state, source) else {
+                return None;
+            };
+            let Cell::Sequence { values, .. } = state.cells.get(cell)? else {
+                return None;
+            };
+            sequence_index(values, index).cloned()
+        }
+        _ => None,
+    }
+}
+
+fn static_literal_string(node: &HirNode, source: &str) -> Option<String> {
+    let start = node
+        .children()
+        .iter()
+        .find(|child| child.kind() == HirKind::StringStart)
+        .map(|child| unsafe_text(source, child))?;
+    let prefix_end = start.find(['\'', '"']).unwrap_or(start.len());
+    let prefix = start[..prefix_end].to_ascii_lowercase();
+    if prefix.contains(['b', 'f']) {
+        return None;
+    }
+    let raw = prefix.contains('r');
+    let mut value = String::new();
+    for child in node.children() {
+        match child.kind() {
+            HirKind::StringContent => {
+                value.push_str(&decode_string_fragment(unsafe_text(source, child), raw)?);
+            }
+            HirKind::Interpolation => return None,
+            _ => {}
+        }
+    }
+    Some(value)
+}
+
+fn sequence_index(values: &[Value], index: i64) -> Option<&Value> {
+    let len = i64::try_from(values.len()).ok()?;
+    let index = if index < 0 {
+        len.checked_add(index)?
+    } else {
+        index
+    };
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| values.get(index))
 }
 
 fn is_sys_module_dictionary(node: &HirNode, state: &State, source: &str) -> bool {
@@ -4334,12 +4696,6 @@ fn propagate_invalid_modules(modules: &BTreeSet<Module>, state: &mut State) {
         } else {
             invalidate_module(module, state);
         }
-    }
-    if IMPORT_OWNED_MODULES
-        .iter()
-        .all(|module| state.invalid_modules.contains(module))
-    {
-        scrub_import_registry_markers(state);
     }
 }
 
@@ -4440,7 +4796,16 @@ fn cells_match(
 ) -> bool {
     match (left, right) {
         (Cell::Unknown, Cell::Unknown) => true,
-        (Cell::Sequence(left), Cell::Sequence(right)) => {
+        (
+            Cell::Sequence {
+                values: left,
+                indexable: left_indexable,
+            },
+            Cell::Sequence {
+                values: right,
+                indexable: right_indexable,
+            },
+        ) if left_indexable == right_indexable => {
             left.len() == right.len()
                 && left
                     .iter()
@@ -4750,7 +5115,7 @@ fn truthy(value: &Value, state: &State) -> Option<bool> {
         Value::Bytes(value) => Some(!value.is_empty()),
         Value::EmptyDictionary => Some(false),
         Value::Cell(cell) => match state.cells.get(*cell) {
-            Some(Cell::Sequence(values)) => Some(!values.is_empty()),
+            Some(Cell::Sequence { values, .. }) => Some(!values.is_empty()),
             Some(Cell::Unknown) | None => None,
         },
         Value::Module(_) | Value::Known(_) | Value::LocalFunction(_) | Value::Path(_) => Some(true),
@@ -4767,6 +5132,13 @@ fn display_value(value: &Value) -> Option<String> {
         Value::String(value) | Value::ImplicitString(value) | Value::Path(value) => {
             Some(value.clone())
         }
+        _ => None,
+    }
+}
+
+fn value_text(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(value) | Value::ImplicitString(value) => Some(value),
         _ => None,
     }
 }
@@ -5084,15 +5456,21 @@ fn valid_call_shape(arguments: &Arguments, max_positional: usize, keywords: &[&s
     )
 }
 
-fn valid_os_exec_shape(kind: StringKind, arguments: &Arguments) -> bool {
-    if !arguments.complete || !arguments.keywords.is_empty() {
-        return false;
+fn os_exec_call_shape(kind: StringKind, arguments: &Arguments) -> CallShape {
+    if !arguments.complete {
+        return CallShape::Incomplete;
     }
-    match kind {
-        StringKind::Execl | StringKind::Execlp => arguments.positional.len() >= 2,
-        StringKind::Execle => arguments.positional.len() >= 3,
-        StringKind::Execv | StringKind::Execvp => arguments.positional.len() == 2,
-        StringKind::Execvpe => arguments.positional.len() == 3,
+    let valid = arguments.keywords.is_empty()
+        && match kind {
+            StringKind::Execl | StringKind::Execlp => arguments.positional.len() >= 2,
+            StringKind::Execle => arguments.positional.len() >= 3,
+            StringKind::Execv | StringKind::Execvp => arguments.positional.len() == 2,
+            StringKind::Execvpe => arguments.positional.len() == 3,
+        };
+    if valid {
+        CallShape::Valid
+    } else {
+        CallShape::Invalid
     }
 }
 
@@ -5117,37 +5495,240 @@ fn possible_scalar_value(value: &Value) -> bool {
     )
 }
 
-fn possible_open_target(value: &Value) -> bool {
-    possible_scalar_value(value) || matches!(value, Value::Int(_))
+fn text_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        Some(Value::String(_) | Value::ImplicitString(_)) => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_) | Value::Decoded(_)) => ValueAdmission::Possible,
+        Some(_) | None => ValueAdmission::Invalid,
+    }
 }
 
-fn possible_subprocess_command(value: &Value, state: &State) -> bool {
-    if possible_scalar_value(value) {
-        return true;
+fn path_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        Some(Value::String(_) | Value::ImplicitString(_) | Value::Bytes(_) | Value::Path(_)) => {
+            ValueAdmission::Exact
+        }
+        Some(Value::Unknown | Value::Produced(_) | Value::Decoded(_)) => ValueAdmission::Possible,
+        Some(_) | None => ValueAdmission::Invalid,
     }
+}
+
+fn nonempty_path_admission(value: Option<&Value>) -> ValueAdmission {
+    match value.and_then(empty_path_value) {
+        Some(true) => ValueAdmission::Invalid,
+        Some(false) | None => path_admission(value),
+    }
+}
+
+fn bytes_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        Some(Value::Bytes(_)) => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_) | Value::Decoded(_)) => ValueAdmission::Possible,
+        Some(_) | None => ValueAdmission::Invalid,
+    }
+}
+
+fn open_target_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        Some(
+            Value::String(_)
+            | Value::ImplicitString(_)
+            | Value::Bytes(_)
+            | Value::Path(_)
+            | Value::Bool(_),
+        ) => ValueAdmission::Exact,
+        Some(Value::Int(value)) if *value >= 0 => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_) | Value::Decoded(_)) => ValueAdmission::Possible,
+        Some(_) | None => ValueAdmission::Invalid,
+    }
+}
+
+fn open_mode_admission(value: Option<&Value>, raw: bool) -> ValueAdmission {
+    match value {
+        None => ValueAdmission::Exact,
+        Some(Value::String(value) | Value::ImplicitString(value)) => {
+            if valid_open_mode(value, raw) {
+                ValueAdmission::Exact
+            } else {
+                ValueAdmission::Invalid
+            }
+        }
+        Some(Value::Decoded(value)) => open_mode_admission(Some(value), raw),
+        Some(Value::Unknown | Value::Produced(_)) => ValueAdmission::Possible,
+        Some(_) => ValueAdmission::Invalid,
+    }
+}
+
+fn popen_mode_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        None => ValueAdmission::Exact,
+        Some(Value::String(value) | Value::ImplicitString(value))
+            if value == "r" || value == "w" =>
+        {
+            ValueAdmission::Exact
+        }
+        Some(Value::Decoded(value)) => popen_mode_admission(Some(value)),
+        Some(Value::Unknown | Value::Produced(_)) => ValueAdmission::Possible,
+        Some(_) => ValueAdmission::Invalid,
+    }
+}
+
+fn popen_buffering_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        None | Some(Value::Bool(true)) => ValueAdmission::Exact,
+        Some(Value::Int(value)) if *value != 0 => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_)) => ValueAdmission::Possible,
+        Some(_) => ValueAdmission::Invalid,
+    }
+}
+
+fn compile_source_admission(value: &Value) -> ValueAdmission {
+    match value {
+        Value::String(_) | Value::ImplicitString(_) => ValueAdmission::Exact,
+        Value::Bytes(_) | Value::Unknown | Value::Produced(_) | Value::Decoded(_) => {
+            ValueAdmission::Possible
+        }
+        _ => ValueAdmission::Invalid,
+    }
+}
+
+fn import_level_admission(value: Option<&Value>) -> ValueAdmission {
+    match value {
+        None | Some(Value::Bool(_)) => ValueAdmission::Exact,
+        Some(Value::Int(value)) if *value >= 0 => ValueAdmission::Exact,
+        Some(Value::Unknown | Value::Produced(_)) => ValueAdmission::Possible,
+        Some(_) => ValueAdmission::Invalid,
+    }
+}
+
+fn combine_admission(left: ValueAdmission, right: ValueAdmission) -> ValueAdmission {
+    match (left, right) {
+        (ValueAdmission::Invalid, _) | (_, ValueAdmission::Invalid) => ValueAdmission::Invalid,
+        (ValueAdmission::Possible, _) | (_, ValueAdmission::Possible) => ValueAdmission::Possible,
+        (ValueAdmission::Exact, ValueAdmission::Exact) => ValueAdmission::Exact,
+    }
+}
+
+fn path_values_admission(values: &[Value]) -> ValueAdmission {
+    values
+        .iter()
+        .fold(ValueAdmission::Exact, |admission, value| {
+            combine_admission(admission, path_admission(Some(value)))
+        })
+}
+
+fn empty_path_value(value: &Value) -> Option<bool> {
+    match value {
+        Value::String(value) | Value::ImplicitString(value) | Value::Path(value) => {
+            Some(value.is_empty())
+        }
+        Value::Bytes(value) => Some(value.is_empty()),
+        _ => None,
+    }
+}
+
+fn exec_vector_admission(value: &Value, state: &State) -> ValueAdmission {
     match value {
         Value::Cell(cell) => match state.cells.get(*cell) {
-            Some(Cell::Sequence(values)) => values.iter().all(possible_scalar_value),
-            Some(Cell::Unknown) | None => true,
+            Some(Cell::Sequence {
+                values,
+                indexable: true,
+            }) if values.is_empty() || empty_path_value(&values[0]) == Some(true) => {
+                ValueAdmission::Invalid
+            }
+            Some(Cell::Sequence {
+                values,
+                indexable: true,
+            }) => path_values_admission(values),
+            Some(Cell::Sequence {
+                indexable: false, ..
+            }) => ValueAdmission::Invalid,
+            Some(Cell::Unknown) | None => ValueAdmission::Possible,
         },
-        _ => false,
+        Value::Unknown | Value::Produced(_) => ValueAdmission::Possible,
+        _ => ValueAdmission::Invalid,
     }
 }
 
-fn possible_os_exec(kind: StringKind, arguments: &Arguments, state: &State) -> bool {
-    match kind {
-        StringKind::Execl | StringKind::Execlp => {
-            arguments.positional.iter().all(possible_scalar_value)
+fn exec_environment_admission(value: &Value, state: &State) -> ValueAdmission {
+    match value {
+        Value::EmptyDictionary => ValueAdmission::Exact,
+        Value::Module(Module::Environment)
+            if !state.invalid_modules.contains(&Module::Environment) =>
+        {
+            ValueAdmission::Exact
         }
-        StringKind::Execle => arguments.positional[..arguments.positional.len() - 1]
-            .iter()
-            .all(possible_scalar_value),
-        StringKind::Execv | StringKind::Execvp | StringKind::Execvpe => {
-            possible_scalar_value(&arguments.positional[0])
-                && possible_subprocess_command(&arguments.positional[1], state)
-        }
+        Value::Unknown | Value::Produced(_) => ValueAdmission::Possible,
+        _ => ValueAdmission::Invalid,
     }
 }
+
+fn exec_varargs_admission(values: &[Value]) -> ValueAdmission {
+    if values.is_empty() || empty_path_value(&values[0]) == Some(true) {
+        ValueAdmission::Invalid
+    } else {
+        path_values_admission(values)
+    }
+}
+
+fn os_exec_admission(kind: StringKind, arguments: &Arguments, state: &State) -> ValueAdmission {
+    let path = nonempty_path_admission(arguments.positional.first());
+    let arguments = match kind {
+        StringKind::Execl | StringKind::Execlp => {
+            exec_varargs_admission(&arguments.positional[1..])
+        }
+        StringKind::Execle => combine_admission(
+            exec_varargs_admission(&arguments.positional[1..arguments.positional.len() - 1]),
+            exec_environment_admission(
+                arguments
+                    .positional
+                    .last()
+                    .expect("execle shape requires an environment"),
+                state,
+            ),
+        ),
+        StringKind::Execv | StringKind::Execvp => {
+            exec_vector_admission(&arguments.positional[1], state)
+        }
+        StringKind::Execvpe => combine_admission(
+            exec_vector_admission(&arguments.positional[1], state),
+            exec_environment_admission(&arguments.positional[2], state),
+        ),
+    };
+    combine_admission(path, arguments)
+}
+
+fn subprocess_command_admission(
+    value: &Value,
+    state: &State,
+    shell: Option<bool>,
+) -> ValueAdmission {
+    match value {
+        Value::Cell(cell) => match state.cells.get(*cell) {
+            Some(Cell::Sequence { values, .. }) if values.is_empty() => match shell {
+                Some(false) => ValueAdmission::Invalid,
+                Some(true) => ValueAdmission::Exact,
+                None => ValueAdmission::Possible,
+            },
+            Some(Cell::Sequence { values, .. }) if empty_path_value(&values[0]) == Some(true) => {
+                match shell {
+                    Some(false) => ValueAdmission::Invalid,
+                    Some(true) => ValueAdmission::Exact,
+                    None => ValueAdmission::Possible,
+                }
+            }
+            Some(Cell::Sequence { values, .. }) => path_values_admission(values),
+            Some(Cell::Unknown) | None => ValueAdmission::Possible,
+        },
+        value if empty_path_value(value) == Some(true) => match shell {
+            Some(false) => ValueAdmission::Invalid,
+            Some(true) => ValueAdmission::Exact,
+            None => ValueAdmission::Possible,
+        },
+        value => path_admission(Some(value)),
+    }
+}
+
 fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bool, bool)> {
     if !arguments.complete || arguments.positional.len() > 1 {
         return None;
@@ -5163,6 +5744,7 @@ fn subprocess_options(kind: SubprocessKind, arguments: &Arguments) -> Option<(bo
             return None;
         }
         match name.as_str() {
+            "bufsize" => {}
             "shell" => shell = exact_bool(value)?,
             "capture_output" if kind == SubprocessKind::Run => {
                 if exact_bool(value)? {

@@ -888,6 +888,187 @@ fn unknown_index_arguments_keep_possible_effects_partial() {
 }
 
 #[test]
+fn definitely_invalid_pre_effect_arguments_stop_before_tail() {
+    for code in [
+        "import os\nfrom pathlib import Path\nos.popen(Path('printf unsafe'))\nos.remove('/tmp/tail')",
+        "import os\nos.popen('printf unsafe', mode='x')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nos.popen('printf unsafe', mode=Path('r'))\nos.remove('/tmp/tail')",
+        "import os\nos.popen('printf unsafe', buffering='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.popen('printf unsafe', buffering=0)\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nopen('/tmp/head', Path('w'))\nos.remove('/tmp/tail')",
+        "import os\nopen('/tmp/head', 'w', buffering='bad')\nos.remove('/tmp/tail')",
+        "import io, os\nfrom pathlib import Path\nio.FileIO('/tmp/head', Path('w'))\nos.remove('/tmp/tail')",
+        "import io, os\nio.FileIO('/tmp/head', 'q')\nos.remove('/tmp/tail')",
+        "import os\nos.execv('/bin/rm', 'rm')\nos.remove('/tmp/tail')",
+        "import os\nos.execv('/bin/rm', [])\nos.remove('/tmp/tail')",
+        "import os\nos.execv('/bin/rm', ['rm', 1])\nos.remove('/tmp/tail')",
+        "import os\nos.execle('/bin/rm', 'rm', 1)\nos.remove('/tmp/tail')",
+        "import os\nos.execv('', ['rm'])\nos.remove('/tmp/tail')",
+        "import os\nos.execv('/bin/rm')\nos.remove('/tmp/tail')",
+        "import os, subprocess\nsubprocess.run([], shell=False)\nos.remove('/tmp/tail')",
+        "import os, subprocess\nsubprocess.run([''])\nos.remove('/tmp/tail')",
+        "import os, subprocess\nsubprocess.run(b'')\nos.remove('/tmp/tail')",
+        "import os, subprocess\nsubprocess.run(['printf'], bufsize='bad')\nos.remove('/tmp/tail')",
+        "import os\nos.symlink([], '/tmp/link')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/head').write_text(b'bad')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/head').write_bytes('bad')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/link').symlink_to([])\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\ncompile(Path('pass'), '<x>', 'exec')\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\ncompile('pass', '<x>', Path('exec'))\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\ngetattr(os, Path('remove'))\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\n__import__(Path('os'))\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nos.getenv(Path('HOME'))\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').with_name(Path('y'))\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').with_name('.nah/trust.json').unlink()\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/').with_name('x').unlink()\nos.remove('/tmp/tail')",
+        "import os\nopen(-1, 'w')\nos.remove('/tmp/tail')",
+        "import io, os\nio.FileIO(-1, 'w')\nos.remove('/tmp/tail')",
+        "import os\n__import__('os', level=None)\nos.remove('/tmp/tail')",
+        "import os\n__import__('os', level=-1)\nos.remove('/tmp/tail')",
+    ] {
+        assert!(analyze(code).draft().calls().is_empty(), "{code}");
+    }
+
+    let analysis =
+        analyze("import os\nopen('/tmp/head', 'w', buffering=0)\nos.remove('/tmp/tail')");
+    assert!(matches!(analysis.draft().calls(), [call] if callable(call) == "builtins.open"));
+
+    let analysis =
+        analyze("import os\nopen('/tmp/head', 'wb', buffering=0)\nos.remove('/tmp/tail')");
+    assert_eq!(analysis.draft().calls().len(), 2);
+}
+
+#[test]
+fn reviewed_pre_effect_argument_values_remain_valid() {
+    for (code, expected) in [
+        (
+            "import os\nos.popen('printf safe', mode='r', buffering=1)",
+            "os.popen",
+        ),
+        ("open('/tmp/head', 'w', buffering=1)", "builtins.open"),
+        ("import io\nio.FileIO('/tmp/head', 'wb')", "io.fileio"),
+        (
+            "import os\nos.execv('/bin/rm', ['rm', '-f', '/tmp/head'])",
+            "os.execv",
+        ),
+        (
+            "import os\nos.execle('/bin/rm', 'rm', '-f', '/tmp/head', {})",
+            "os.execle",
+        ),
+        (
+            "import os\nos.execvpe('/bin/rm', ['rm', '-f', '/tmp/head'], os.environ)",
+            "os.execvpe",
+        ),
+        (
+            "import os\nos.execle('/bin/rm', 'rm', '-f', '/tmp/head', os.environ)",
+            "os.execle",
+        ),
+        (
+            "import subprocess\nsubprocess.run([], shell=True)",
+            "subprocess.run",
+        ),
+        (
+            "import subprocess\nsubprocess.run(['printf'], bufsize=None)",
+            "subprocess.run",
+        ),
+        (
+            "import os\nos.symlink('/tmp/source', '/tmp/link')",
+            "os.symlink",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/head').write_text('safe')",
+            "pathlib.path.write_text",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/head').write_bytes(b'safe')",
+            "pathlib.path.write_bytes",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/link').symlink_to(Path('/tmp/source'))",
+            "pathlib.path.symlink_to",
+        ),
+        (
+            "import os\nfrom pathlib import Path\ncompile('pass', Path('<x>'), 'exec')\nos.remove('/tmp/tail')",
+            "os.remove",
+        ),
+        ("import os\ngetattr(os, 'remove')('/tmp/head')", "os.remove"),
+        ("__import__('os').remove('/tmp/head')", "os.remove"),
+        (
+            "import os\nos.remove(os.getenv('HOME') + '/tmp')",
+            "os.remove",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/x').with_name('y').unlink()",
+            "pathlib.path.unlink",
+        ),
+        (
+            "import base64\nopen('/tmp/head', base64.b64decode(b'dw==').decode())",
+            "builtins.open",
+        ),
+        (
+            "import base64, os\nos.popen('printf safe', base64.b64decode(b'cg==').decode())",
+            "os.popen",
+        ),
+        ("__import__('os', level=0).remove('/tmp/head')", "os.remove"),
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(analysis.draft().calls(), [call] if callable(call) == expected),
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn unresolved_pre_effect_arguments_keep_possible_paths_partial() {
+    for (code, expected) in [
+        ("import os\nos.popen(command, mode, buffering)", "os.popen"),
+        (
+            "open('/tmp/head', 'w', buffering=buffering)",
+            "builtins.open",
+        ),
+        ("open('/tmp/head', mode)", "builtins.open"),
+        ("import io\nio.FileIO('/tmp/head', mode)", "io.fileio"),
+        ("import os\nos.execv(program, argv)", "os.execv"),
+        (
+            "import subprocess\nsubprocess.run(argv, bufsize=bufsize)",
+            "subprocess.run",
+        ),
+        ("import os\nos.symlink(source, '/tmp/link')", "os.symlink"),
+        (
+            "from pathlib import Path\nPath('/tmp/head').write_text(data)",
+            "pathlib.path.write_text",
+        ),
+        (
+            "from pathlib import Path\nPath('/tmp/link').symlink_to(target)",
+            "pathlib.path.symlink_to",
+        ),
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(analysis.draft().calls(), [call] if callable(call) == expected),
+            "{code}"
+        );
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    for code in [
+        "import os\nfrom pathlib import Path\ncompile(source, '<x>', 'exec')\nos.remove('/tmp/tail')",
+        "import os\ngetattr(os, name)\nos.remove('/tmp/tail')",
+        "import os\n__import__(name)\nos.remove('/tmp/tail')",
+        "import os\nos.getenv(key)\nos.remove('/tmp/tail')",
+        "import os\nfrom pathlib import Path\nPath('/tmp/x').with_name(name)\nos.remove('/tmp/tail')",
+    ] {
+        let analysis = analyze(code);
+        assert!(
+            matches!(analysis.draft().calls(), [call] if callable(call) == "os.remove"),
+            "{code}"
+        );
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+}
+
+#[test]
 fn reviewed_keyword_and_positional_call_shapes_remain_valid() {
     for (code, expected) in [
         ("import os\nos.remove(path='/tmp/x')", "os.remove"),
@@ -1716,6 +1897,41 @@ fn import_registry_barriers_are_partial_without_widening_host_state() {
         analysis.draft().calls()[0].filesystems()[0].requested(),
         Some("/home/dev/.nah/trust.json")
     );
+
+    for source in [
+        "import sys, shutil\nsys.__dict__['version'] = 'changed'\nshutil.rmtree('/tmp/protected')",
+        "import sys, shutil\nbox = [sys.modules, {}]\nbox[1]['x'] = 1\nshutil.rmtree('/tmp/protected')",
+        "import sys, shutil\nbox = [{}, sys.modules]\nbox[0]['x'] = 1\nshutil.rmtree('/tmp/protected')",
+    ] {
+        let analysis = analyze(source);
+        assert_eq!(analysis.draft().calls().len(), 1, "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some("/tmp/protected"),
+            "{source}"
+        );
+    }
+
+    for source in [
+        "import sys, shutil\nbox = [sys.modules, None]\nbox[1].get('x')\nshutil.rmtree('/tmp/protected')",
+        "import sys, shutil\nbox = [sys.modules]\nbox[9].get('x')\nshutil.rmtree('/tmp/protected')",
+        "import sys, shutil\nbox = [None, sys.modules]\nbox[0].keys()\nshutil.rmtree('/tmp/protected')",
+        "import sys, shutil\nsys.__dict__['version'].get('x')\nshutil.rmtree('/tmp/protected')",
+        "import sys\nclear = sys.modules.clear\nsys.modules['x'] = object()\nclear(1)\nopen('/tmp/tail', 'w')",
+        "import sys\nget = sys.modules.get\nsys.modules['x'] = object()\nget()\nopen('/tmp/tail', 'w')",
+    ] {
+        assert!(analyze(source).draft().calls().is_empty(), "{source}");
+    }
+
+    for source in [
+        "import sys\nbox = [[sys.modules]]\ninner = box[0]\ninner[0]['shutil'] = replacement\nimport shutil\nshutil.rmtree('/tmp/protected')",
+        "import sys\nbox = [sys.modules]\nregistry = box[index]\nregistry['shutil'] = replacement\nimport shutil\nshutil.rmtree('/tmp/protected')",
+        "import sys\nregistry = sys.__dict__[key]\nregistry['shutil'] = replacement\nimport shutil\nshutil.rmtree('/tmp/protected')",
+    ] {
+        let analysis = analyze(source);
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(!analysis.draft().complete(), "{source}");
+    }
 }
 
 #[test]
