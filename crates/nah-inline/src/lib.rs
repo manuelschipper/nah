@@ -683,7 +683,7 @@ mod tests {
             assert!(has_argv(&report(program, code), &["nah", "nap"]));
         }
         for command in [
-            "nah guard disable fs-root",
+            "nah guard disable fs-system-tree",
             "nah hook codex uninstall",
             "nah untrust",
         ] {

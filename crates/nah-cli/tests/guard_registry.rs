@@ -72,7 +72,7 @@ fn every_shipped_guard_blocks_end_to_end() {
         assert_eq!(counts.get(guard), Some(&3), "{guard} example count");
     }
     let injection_warnings = [
-        "exfil-pipe",
+        "secrets-exfil",
         "exec-remote",
         "exec-decoded",
         "exec-obfuscated",

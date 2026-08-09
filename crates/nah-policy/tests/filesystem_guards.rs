@@ -30,7 +30,7 @@ fn unresolved_stream(
 }
 
 #[test]
-fn fs_root_blocks_delete_or_recursive_permission_effects_selecting_root_and_system_trees() {
+fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_and_system_trees() {
     for (operation, target, scope, recursive) in [
         (
             FilesystemOperation::Delete,
@@ -103,9 +103,10 @@ fn fs_root_blocks_delete_or_recursive_permission_effects_selecting_root_and_syst
             vec![],
         )
         .unwrap();
-        let decision = nah_policy::decide(&stream, &guard_policy("fs-root", true), &[]).unwrap();
+        let decision =
+            nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[]).unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{target}");
-        assert_eq!(decision.policy_attributions()[0].name(), "fs-root");
+        assert_eq!(decision.policy_attributions()[0].name(), "fs-system-tree");
     }
 
     for target in [r"C:\", r"C:\Windows", r"D:\ProgramData"] {
@@ -123,7 +124,7 @@ fn fs_root_blocks_delete_or_recursive_permission_effects_selecting_root_and_syst
             },
         });
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy("fs-root", true), &[])
+            nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[])
                 .unwrap()
                 .verdict(),
             Verdict::Block,
@@ -154,7 +155,7 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
 
 #[test]
 fn unbounded_destructive_tree_effects_select_both_root_and_home_guards() {
-    for guard in ["fs-root", "fs-home"] {
+    for guard in ["fs-system-tree", "fs-home"] {
         for stream in [
             unresolved_stream(
                 EffectKind::known("rm", "delete").unwrap(),
@@ -198,7 +199,7 @@ fn unbounded_filesystem_effects_fail_closed_only_at_the_tree_destruction_boundar
             false,
         ),
     ] {
-        for guard in ["fs-root", "fs-home"] {
+        for guard in ["fs-system-tree", "fs-home"] {
             assert_eq!(
                 nah_policy::decide(&stream, &guard_policy(guard, true), &[])
                     .unwrap()
@@ -213,7 +214,7 @@ fn unbounded_filesystem_effects_fail_closed_only_at_the_tree_destruction_boundar
 #[test]
 fn file_only_delete_effects_do_not_claim_directory_tree_destruction() {
     for (guard, target, scope, selects_home) in [
-        ("fs-root", "/etc", PathScope::System, false),
+        ("fs-system-tree", "/etc", PathScope::System, false),
         ("fs-home", "/home/test", PathScope::Home, true),
     ] {
         let stream = guarded_stream(EffectKind::Filesystem {
@@ -368,7 +369,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&root, &guard_policy("fs-root", false), &[])
+        nah_policy::decide(&root, &guard_policy("fs-system-tree", false), &[])
             .unwrap()
             .verdict(),
         Verdict::Delegate
@@ -395,7 +396,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             },
         });
         assert_eq!(
-            nah_policy::decide(&child, &guard_policy("fs-root", true), &[])
+            nah_policy::decide(&child, &guard_policy("fs-system-tree", true), &[])
                 .unwrap()
                 .verdict(),
             Verdict::Delegate,
@@ -417,7 +418,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&windows_child, &guard_policy("fs-root", true), &[])
+        nah_policy::decide(&windows_child, &guard_policy("fs-system-tree", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Delegate

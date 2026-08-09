@@ -14,7 +14,8 @@ use support::{context, guard_policy, path, protected_stream};
 #[test]
 fn critical_self_protection_is_not_a_disableable_guard() {
     let filesystem = protected_stream(NahProtectionTier::Critical);
-    let decision = nah_policy::decide(&filesystem, &guard_policy("fs-root", false), &[]).unwrap();
+    let decision =
+        nah_policy::decide(&filesystem, &guard_policy("fs-system-tree", false), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert!(decision.reason().contains("do not retry"));
     assert!(decision.reason().contains("nah nap"));
@@ -32,7 +33,7 @@ fn critical_self_protection_is_not_a_disableable_guard() {
         )
         .unwrap();
         let decision =
-            nah_policy::decide(&invocation, &guard_policy("fs-root", false), &[]).unwrap();
+            nah_policy::decide(&invocation, &guard_policy("fs-system-tree", false), &[]).unwrap();
         assert_eq!(decision.verdict(), Verdict::Block);
         assert!(decision.reason().contains("do not retry"));
         assert!(decision.policy_attributions().is_empty());
@@ -41,7 +42,7 @@ fn critical_self_protection_is_not_a_disableable_guard() {
 
 #[test]
 fn nap_modes_pause_only_the_agreed_enforcement_layers() {
-    let policy = guard_policy("fs-root", false);
+    let policy = guard_policy("fs-system-tree", false);
     let critical = protected_stream(NahProtectionTier::Critical);
     let permanent = protected_stream(NahProtectionTier::Permanent);
     let refused = ActionStream::new(
@@ -120,7 +121,7 @@ fn incomplete_analysis_does_not_hide_a_recognized_guard_effect() {
     )
     .unwrap();
 
-    let decision = nah_policy::decide(&stream, &guard_policy("fs-root", true), &[]).unwrap();
+    let decision = nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
-    assert_eq!(decision.policy_attributions()[0].name(), "fs-root");
+    assert_eq!(decision.policy_attributions()[0].name(), "fs-system-tree");
 }

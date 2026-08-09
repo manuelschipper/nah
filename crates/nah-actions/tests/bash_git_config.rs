@@ -42,7 +42,7 @@ fn static_git_aliases_preserve_the_effects_they_execute() {
         )
     }));
 
-    let self_disable = stream("git -c 'alias.off=!nah guard disable fs-root' off");
+    let self_disable = stream("git -c 'alias.off=!nah guard disable fs-system-tree' off");
     assert!(self_disable.effects().iter().any(|effect| {
         matches!(
             effect.kind(),

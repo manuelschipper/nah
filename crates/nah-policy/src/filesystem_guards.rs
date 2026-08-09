@@ -8,7 +8,7 @@ use nah_proto::action::{
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
-const FS_ROOT: &str = "fs-root";
+const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
 const FS_STORAGE_DESTROY: &str = "fs-storage-destroy";
@@ -23,8 +23,8 @@ pub(crate) fn add(
     let mut blocked = false;
     for (name, reason) in [
         (
-            FS_ROOT,
-            "fs-root blocked a destructive operation on a filesystem root or system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change",
+            FS_SYSTEM_TREE,
+            "fs-system-tree blocked a destructive operation on the filesystem root or a system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change",
         ),
         (
             FS_HOME,
@@ -60,7 +60,7 @@ pub(crate) fn add(
 
 fn inline_match(name: &str, report: &InlineReport) -> bool {
     let kind = match name {
-        FS_ROOT => FindingKind::RootDestruction,
+        FS_SYSTEM_TREE => FindingKind::RootDestruction,
         FS_HOME => FindingKind::HomeDestruction,
         _ => return false,
     };
@@ -72,7 +72,7 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
         .effects()
         .iter()
         .any(|effect| match (name, effect.kind()) {
-            (FS_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
+            (FS_SYSTEM_TREE, EffectKind::Filesystem { effect: filesystem }) => {
                 let target = filesystem.target.as_str();
                 (selects_root_or_system_tree(target)
                     || filesystem.pattern && pattern_selects_system_tree(pattern_bound(target)))
@@ -93,7 +93,7 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                     )
             }
             (
-                FS_ROOT | FS_HOME,
+                FS_SYSTEM_TREE | FS_HOME,
                 EffectKind::FilesystemUnresolved {
                     operation,
                     recursive,

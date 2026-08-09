@@ -36,7 +36,7 @@ fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
         "nah tui",
         "nah trust /repo",
         "nah untrust /repo",
-        "nah guard disable fs-root",
+        "nah guard disable fs-system-tree",
         "sudo nah trust /repo",
         "/usr/bin/nah trust /repo",
         "command -- nah trust /repo",

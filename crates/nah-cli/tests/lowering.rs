@@ -47,7 +47,7 @@ fn arbitrary_program_paths_are_not_recognized_as_their_bare_name() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-root")
+            .any(|guard| guard.name() == "fs-system-tree")
     );
 }
 

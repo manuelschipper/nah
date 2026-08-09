@@ -187,7 +187,7 @@ mod tests {
             "exec-decoded",
             "exec-obfuscated",
             "exec-remote",
-            "exfil-pipe",
+            "secrets-exfil",
         ];
         let temp = tempfile::tempdir().unwrap();
         let path = Arc::new(temp.path().join("built-ins.json"));
@@ -217,17 +217,21 @@ mod tests {
         let path = temp.path().join("built-ins.json");
         std::fs::write(&path, r#"{"v":2,"disabled":[]}"#).unwrap();
         assert_eq!(
-            ShippedState::load(&path, &["fs-root"]).unwrap_err(),
+            ShippedState::load(&path, &["fs-system-tree"]).unwrap_err(),
             ShippedStateError::UnsupportedVersion
         );
         std::fs::write(&path, r#"{"v":1,"disabled":["unknown"]}"#).unwrap();
         assert_eq!(
-            ShippedState::load(&path, &["fs-root"]).unwrap_err(),
+            ShippedState::load(&path, &["fs-system-tree"]).unwrap_err(),
             ShippedStateError::InvalidState
         );
-        std::fs::write(&path, r#"{"v":1,"disabled":[],"enabled":["fs-root"]}"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"v":1,"disabled":[],"enabled":["fs-system-tree"]}"#,
+        )
+        .unwrap();
         assert_eq!(
-            ShippedState::load(&path, &["fs-root"]).unwrap_err(),
+            ShippedState::load(&path, &["fs-system-tree"]).unwrap_err(),
             ShippedStateError::InvalidState
         );
     }
@@ -236,23 +240,23 @@ mod tests {
     fn guards_default_on_and_can_be_disabled_then_restored() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
-        let known = ["exec-remote", "fs-root"];
+        let known = ["exec-remote", "fs-system-tree"];
 
         let state = ShippedState::load(&path, &known).unwrap();
-        assert!(state.is_enabled("fs-root"));
+        assert!(state.is_enabled("fs-system-tree"));
         assert!(state.is_enabled("exec-remote"));
 
         set_enabled(&path, &known, "exec-remote", false).unwrap();
-        set_enabled(&path, &known, "fs-root", false).unwrap();
+        set_enabled(&path, &known, "fs-system-tree", false).unwrap();
         let state = ShippedState::load(&path, &known).unwrap();
         assert!(!state.is_enabled("exec-remote"));
-        assert!(!state.is_enabled("fs-root"));
+        assert!(!state.is_enabled("fs-system-tree"));
 
         set_enabled(&path, &known, "exec-remote", true).unwrap();
-        set_enabled(&path, &known, "fs-root", true).unwrap();
+        set_enabled(&path, &known, "fs-system-tree", true).unwrap();
         let state = ShippedState::load(&path, &known).unwrap();
         assert!(state.is_enabled("exec-remote"));
-        assert!(state.is_enabled("fs-root"));
+        assert!(state.is_enabled("fs-system-tree"));
     }
 
     #[test]

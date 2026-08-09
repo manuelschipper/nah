@@ -196,7 +196,7 @@ fn credential_basename(path: &str, platform: Platform, pattern: bool) -> bool {
 
 /// Names that usually hold key or credential material but are common enough in
 /// ordinary repositories that a block would be noisy. Classifying them as
-/// sensitive lets `exfil-pipe` see the read, while a plain local read still
+/// sensitive lets `secrets-exfil` see the read, while a plain local read still
 /// delegates.
 ///
 /// The suffix list stays literal: a pattern bound truncates before the

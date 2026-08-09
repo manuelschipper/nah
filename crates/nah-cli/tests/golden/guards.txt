@@ -3,12 +3,11 @@ Built-in:
 - [x] exec-network-shell
 - [x] exec-obfuscated
 - [x] exec-remote
-- [x] exfil-pipe
 - [x] fs-forkbomb
 - [x] fs-home
 - [x] fs-raw-device
-- [x] fs-root
 - [x] fs-storage-destroy
+- [x] fs-system-tree
 - [x] git-clean-force
 - [x] git-force-push
 - [x] git-hard-reset
@@ -17,6 +16,7 @@ Built-in:
 - [x] git-rewrite-force
 - [x] git-worktree-discard
 - [x] secrets-env
+- [x] secrets-exfil
 - [x] secrets-keys
 
 Custom:

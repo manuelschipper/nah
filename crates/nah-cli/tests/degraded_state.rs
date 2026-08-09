@@ -176,7 +176,7 @@ fn damaged_shipped_state_falls_back_to_the_shipped_defaults() {
     let root = std::fs::canonicalize(temp.path()).unwrap();
     let project = repo(&root);
     assert!(
-        nah(&root, &["guard", "disable", "fs-root"], None)
+        nah(&root, &["guard", "disable", "fs-system-tree"], None)
             .status
             .success()
     );

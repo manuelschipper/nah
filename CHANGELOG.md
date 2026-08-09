@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Guard names match their scope** — `fs-system-tree` replaces `fs-root`,
+  and `secrets-exfil` replaces `exfil-pipe`, so configuration and block
+  attribution name the protected system trees and sensitive network flow.
+- **Network-shell documentation** — `exec-network-shell` now documents shell
+  redirection alongside netcat and socat attachments.
 - **Mobile theme toggle alignment** — the homepage theme control now shares
   the navigation links' text baseline on small screens.
 

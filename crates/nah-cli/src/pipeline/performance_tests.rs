@@ -168,7 +168,7 @@ fn performance_kpis() {
         SchemaVersion::V1,
         platform,
         home.clone(),
-        vec![ShippedGuardState::new("exfil-pipe", true).unwrap()],
+        vec![ShippedGuardState::new("secrets-exfil", true).unwrap()],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
         POLICY_VERSION,

@@ -71,7 +71,7 @@ fn only_known_nah_state_mutations_are_structural() {
         "nah tui",
         "nah trust /repo",
         "nah untrust /repo",
-        "nah guard enable fs-root",
+        "nah guard enable fs-system-tree",
         "cargo uninstall nah",
         "cargo uninstall nah-cli",
         "cargo uninstall --package nah-cli",
@@ -139,7 +139,7 @@ fn only_known_nah_state_mutations_are_structural() {
         "nah hook claude status",
         "nah trust . --help",
         "nah hook codex install --help",
-        "nah guard enable fs-root --help",
+        "nah guard enable fs-system-tree --help",
         "amp plugins add @owner/example",
         "amp plugins update",
         "amp plugins list",
@@ -217,7 +217,7 @@ fn only_read_only_nah_commands_are_inspections() {
         "nah hook pi status",
         "nah trust . --help",
         "nah hook codex install --help",
-        "nah guard enable fs-root --help",
+        "nah guard enable fs-system-tree --help",
     ] {
         let syntax = nah_parse::normalize(command).unwrap();
         let nah_parse::Statement::Command {
@@ -237,7 +237,7 @@ fn only_read_only_nah_commands_are_inspections() {
         "nah test 'git status'",
         "nah tui",
         "nah trust .",
-        "nah guard enable fs-root",
+        "nah guard enable fs-system-tree",
         "nah hook claude install",
         "nah hook unknown status",
         "nah log --delete",

@@ -36,8 +36,8 @@ fn record_with(id: &str, verdict: Verdict, warnings: &[String]) -> AuditRecordV1
     )
     .unwrap();
     let contributions = if verdict == Verdict::Block {
-        let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
-        vec![GuardContribution::new(guard, "fs-root blocked test operation").unwrap()]
+        let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+        vec![GuardContribution::new(guard, "fs-system-tree blocked test operation").unwrap()]
     } else {
         vec![]
     };

@@ -304,7 +304,7 @@ mod tests {
             vec!["nah", "trust"],
             vec!["nah", "untrust", "/repo"],
             vec!["nah", "guards"],
-            vec!["nah", "guard", "enable", "fs-root"],
+            vec!["nah", "guard", "enable", "fs-system-tree"],
             vec!["nah", "guard", "enable", "corp", "--user"],
             vec!["nah", "guard", "disable", "fs-home"],
             vec!["nah", "guard", "disable", "corp", "--project", "/repo"],

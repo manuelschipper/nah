@@ -337,7 +337,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "exfil-pipe"),
+                .any(|guard| guard.name() == "secrets-exfil"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -458,7 +458,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .all(|guard| guard.name() != "exfil-pipe"),
+                .all(|guard| guard.name() != "secrets-exfil"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -483,7 +483,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "exfil-pipe")
+            .any(|guard| guard.name() == "secrets-exfil")
     );
 
     use std::os::unix::fs::symlink;
