@@ -34,7 +34,7 @@ fn core_decision_bytes_are_stable_for_delegate_and_block() {
     );
     assert_eq!(
         serde_json::to_string(blocked.core()).unwrap(),
-        r#"{"verdict":"block","reason":"fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change\nfs-root blocked a destructive operation on a filesystem root or system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change","policy_attributions":[{"kind":"shipped","name":"fs-home","policy_version":1},{"kind":"shipped","name":"fs-root","policy_version":1}],"coverage":"full"}"#
+        r#"{"verdict":"block","reason":"fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change\nfs-system-tree blocked a destructive operation on the filesystem root or a system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change","policy_attributions":[{"kind":"shipped","name":"fs-home","policy_version":1},{"kind":"shipped","name":"fs-system-tree","policy_version":1}],"coverage":"full"}"#
     );
 }
 
@@ -63,7 +63,7 @@ fn exact_language_child_cwd_and_portable_sh_reach_root_guards() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "fs-root"),
+                .any(|guard| guard.name() == "fs-system-tree"),
             "{command}"
         );
     }
@@ -123,7 +123,7 @@ fn arbitrary_program_paths_are_not_recognized_as_their_bare_name() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-root")
+            .any(|guard| guard.name() == "fs-system-tree")
     );
 }
 

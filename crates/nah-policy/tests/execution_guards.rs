@@ -13,7 +13,7 @@ use support::{filesystem, guard_policy, path, project_scope};
 fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
     let cases = [
         (
-            "exfil-pipe",
+            "secrets-exfil",
             vec![
                 vec![
                     EffectKind::known("cat", "local-utility").unwrap(),
@@ -32,7 +32,7 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
             vec![FlowOrdinals::new(0, 1)],
         ),
         (
-            "exfil-pipe",
+            "secrets-exfil",
             vec![vec![
                 EffectKind::known("curl", "network-transfer").unwrap(),
                 filesystem(
@@ -46,7 +46,7 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
             vec![],
         ),
         (
-            "exfil-pipe",
+            "secrets-exfil",
             vec![
                 vec![
                     EffectKind::known("mv", "move").unwrap(),
@@ -154,7 +154,7 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
 fn execution_guards_require_their_complete_positive_evidence() {
     let cases = [
         (
-            "exfil-pipe",
+            "secrets-exfil",
             vec![
                 vec![
                     EffectKind::known("cat", "local-utility").unwrap(),
@@ -173,7 +173,7 @@ fn execution_guards_require_their_complete_positive_evidence() {
             vec![FlowOrdinals::new(0, 1)],
         ),
         (
-            "exfil-pipe",
+            "secrets-exfil",
             vec![
                 vec![
                     EffectKind::known("rm", "remove").unwrap(),
@@ -271,7 +271,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&environment, &guard_policy("exfil-pipe", true), &[])
+        nah_policy::decide(&environment, &guard_policy("secrets-exfil", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Block
@@ -307,7 +307,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&search, &guard_policy("exfil-pipe", true), &[])
+            nah_policy::decide(&search, &guard_policy("secrets-exfil", true), &[])
                 .unwrap()
                 .verdict(),
             expected,
@@ -325,7 +325,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&disconnected, &guard_policy("exfil-pipe", true), &[])
+        nah_policy::decide(&disconnected, &guard_policy("secrets-exfil", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Delegate
@@ -366,7 +366,7 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&exfiltration, &guard_policy("exfil-pipe", true), &[])
+        nah_policy::decide(&exfiltration, &guard_policy("secrets-exfil", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Block

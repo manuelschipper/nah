@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Guard names match their scope** — `fs-system-tree` replaces `fs-root`,
+  and `secrets-exfil` replaces `exfil-pipe`, so configuration and block
+  attribution name the protected system trees and sensitive network flow.
+- **Network-shell documentation** — `exec-network-shell` now documents shell
+  redirection alongside netcat and socat attachments.
 - **Nested child working directories** — exact `os.chdir`, `process.chdir`, and
   Python, Node, Deno, or Bun child-process `cwd` values now carry into nested
   command effects. Explicit child directories are observed and canonicalized;
@@ -22,11 +27,11 @@
   and ASCII-only Unicode escapes now feed exact ASCII bytes through existing
   shell-content guards; unsupported, non-ASCII, and non-executed output remains
   delegated.
-- **Proven root-entry relocation** — `fs-root` now blocks the exact active
+- **Proven root-entry relocation** — `fs-system-tree` now blocks the exact active
   `mv /*` forms when their observed destination is a non-root directory,
   including trusted executable identities, while named, home, project,
   quoted-pattern, and non-directory moves remain delegated.
-- **Environment and credential-search exfiltration sources** — `exfil-pipe`
+- **Environment and credential-search exfiltration sources** — `secrets-exfil`
   now blocks reviewed Bash environment dumps and scoped credential-indicator
   searches when their output reaches an outbound transfer, including a strict
   one-recipient mail form.

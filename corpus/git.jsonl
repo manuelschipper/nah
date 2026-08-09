@@ -92,7 +92,7 @@
 {"v":1,"id":"git-metadata.bare-objects","command":"rm -rf backup.git/objects","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-metadata"}}
 {"v":1,"id":"git-metadata.bare-index-delegates","command":"rm -rf backup.git/index","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"git-hard-reset.static-command-alias","command":"git -c 'alias.wipe=reset --hard' wipe","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-hard-reset"}}
-{"v":1,"id":"fs-root.static-shell-alias","command":"git -c 'alias.wipe=!rm -rf /' wipe","ctx_fixture":"default-linux-v1","observation_fixture":"filesystem-linux-v1","expected":{"verdict":"block","guard":"fs-root"}}
+{"v":1,"id":"fs-system-tree.static-shell-alias","command":"git -c 'alias.wipe=!rm -rf /' wipe","ctx_fixture":"default-linux-v1","observation_fixture":"filesystem-linux-v1","expected":{"verdict":"block","guard":"fs-system-tree"}}
 {"v":1,"id":"git-recovery-destroy.static-prune-config","command":"git -c gc.pruneExpire=now gc","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-recovery-destroy"}}
 {"v":1,"id":"git-recovery-destroy.no-prune-overrides-config","command":"git -c gc.pruneExpire=now gc --no-prune","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"git-config.static-ordinary-delegates","command":"git -c user.name=Alice status","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}

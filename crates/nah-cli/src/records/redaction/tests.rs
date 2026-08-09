@@ -272,7 +272,7 @@ fn printf_and_root_move_inputs_remain_structural_in_audit_records() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
@@ -331,11 +331,11 @@ fn unresolved_filesystem_records_name_the_effect_without_persisting_the_operand(
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
-        vec![GuardContribution::new(guard, "fs-root blocked an unresolved delete").unwrap()],
+        vec![GuardContribution::new(guard, "fs-system-tree blocked an unresolved delete").unwrap()],
     )
     .unwrap();
     let tool_call = ToolCallInput::new(
@@ -469,11 +469,11 @@ fn summary_leads_with_short_time_and_verdict_and_trails_the_copyable_id() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
-        vec![GuardContribution::new(guard, "fs-root blocked a root delete").unwrap()],
+        vec![GuardContribution::new(guard, "fs-system-tree blocked a root delete").unwrap()],
     )
     .unwrap();
     let tool_call = ToolCallInput::new(
@@ -680,7 +680,7 @@ fn obsolete_and_incomplete_audit_shapes_are_rejected() {
 
 #[test]
 fn obsolete_policy_kind_records_are_rejected() {
-    let line = "{\"v\":1,\"core\":{\"verdict\":\"block\",\"reason\":\"blocked\",\"policy_attributions\":[{\"kind\":\"shipped\",\"name\":\"fs-root\",\"policy_kind\":\"guard\",\"policy_version\":1}],\"coverage\":\"full\"},\"envelope\":{\"id\":\"decision-9\",\"timestamp_rfc3339\":\"2026-07-23T12:00:00Z\",\"duration_us\":7},\"runtime\":\"claude\",\"command\":\"Bash [redacted]\",\"effects\":[],\"diagnostics\":[],\"consultations\":[]}";
+    let line = "{\"v\":1,\"core\":{\"verdict\":\"block\",\"reason\":\"blocked\",\"policy_attributions\":[{\"kind\":\"shipped\",\"name\":\"fs-system-tree\",\"policy_kind\":\"guard\",\"policy_version\":1}],\"coverage\":\"full\"},\"envelope\":{\"id\":\"decision-9\",\"timestamp_rfc3339\":\"2026-07-23T12:00:00Z\",\"duration_us\":7},\"runtime\":\"claude\",\"command\":\"Bash [redacted]\",\"effects\":[],\"diagnostics\":[],\"consultations\":[]}";
 
     assert!(serde_json::from_str::<AuditRecordV1>(line).is_err());
 }

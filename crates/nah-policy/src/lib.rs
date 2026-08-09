@@ -35,12 +35,11 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "exec-network-shell",
     "exec-obfuscated",
     "exec-remote",
-    "exfil-pipe",
     "fs-forkbomb",
     "fs-home",
     "fs-raw-device",
-    "fs-root",
     "fs-storage-destroy",
+    "fs-system-tree",
     "git-clean-force",
     "git-force-push",
     "git-hard-reset",
@@ -49,6 +48,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-rewrite-force",
     "git-worktree-discard",
     "secrets-env",
+    "secrets-exfil",
     "secrets-keys",
 ];
 

@@ -51,11 +51,11 @@ fn custom_policy_names_cannot_shadow_built_ins_or_each_other() {
     // resolves paths before matching them
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
-    let reserved = nah(home, &["guard", "new", "fs-root"], None);
+    let reserved = nah(home, &["guard", "new", "fs-system-tree"], None);
     assert_eq!(reserved.status.code(), Some(2));
     assert!(
         String::from_utf8_lossy(&reserved.stderr)
-            .contains("guard name `fs-root` is reserved; choose another name")
+            .contains("guard name `fs-system-tree` is reserved; choose another name")
     );
     for invalid in ["FS-ROOT", &"a".repeat(65)] {
         let output = nah(home, &["guard", "new", invalid], None);
@@ -185,10 +185,15 @@ fn project_templates_and_scope_flags_select_one_exact_guard() {
     );
     assert_eq!(conflicting.status.code(), Some(4), "{conflicting:?}");
 
-    let built_in = nah(&home, &["guard", "disable", "fs-root", "--user"], None);
+    let built_in = nah(
+        &home,
+        &["guard", "disable", "fs-system-tree", "--user"],
+        None,
+    );
     assert_eq!(built_in.status.code(), Some(2), "{built_in:?}");
     assert!(
-        String::from_utf8_lossy(&built_in.stderr).contains("built-in guard `fs-root` is global")
+        String::from_utf8_lossy(&built_in.stderr)
+            .contains("built-in guard `fs-system-tree` is global")
     );
 }
 

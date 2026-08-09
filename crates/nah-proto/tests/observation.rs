@@ -39,7 +39,7 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
         Platform::Linux,
         absolute("/home/test"),
         vec![
-            ShippedGuardState::new("fs-root", true).expect("shipped guard"),
+            ShippedGuardState::new("fs-system-tree", true).expect("shipped guard"),
             ShippedGuardState::new("secrets-env", false).expect("shipped guard"),
         ],
         Vec::new(),
@@ -50,7 +50,7 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
     let derived = derive_policy_ctx(&ctx, &present_observation).expect("derive");
     assert_eq!(
         derived.policy_ctx().enabled_shipped_guards(),
-        ["fs-root", "secrets-env"]
+        ["fs-system-tree", "secrets-env"]
     );
     assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
 
@@ -63,7 +63,10 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
     ] {
         let derived =
             derive_policy_ctx(&ctx, &observation(declaration)).expect("derive declaration");
-        assert_eq!(derived.policy_ctx().enabled_shipped_guards(), ["fs-root"]);
+        assert_eq!(
+            derived.policy_ctx().enabled_shipped_guards(),
+            ["fs-system-tree"]
+        );
         assert!(derived.unknown_declared_guards().is_empty());
     }
 }

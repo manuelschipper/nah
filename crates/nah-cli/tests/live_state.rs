@@ -575,7 +575,7 @@ fn project_guard_diagnostics_never_weaken_policy() {
     std::fs::create_dir(repo.join(".nah")).unwrap();
     std::fs::write(
         repo.join(".nah/project.toml"),
-        "enable-guards = [\"fs-root\", \"typo-guard\"]\n",
+        "enable-guards = [\"fs-system-tree\", \"typo-guard\"]\n",
     )
     .unwrap();
     let result = decide_with(

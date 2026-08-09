@@ -74,7 +74,7 @@ fn a_broken_bundle_is_skipped_without_hiding_its_healthy_siblings() {
     let temp = tempfile::tempdir().unwrap();
     let home = absolute(temp.path());
     let guards = temp.path().join(".nah/guards");
-    for (folder, name) in [("healthy", "healthy"), ("shadow", "fs-root")] {
+    for (folder, name) in [("healthy", "healthy"), ("shadow", "fs-system-tree")] {
         let directory = guards.join(folder);
         fs::create_dir_all(&directory).unwrap();
         write_manifest(&directory, name, "tool");
@@ -89,7 +89,7 @@ fn a_broken_bundle_is_skipped_without_hiding_its_healthy_siblings() {
         &home,
         Platform::Linux,
         &TrustProjection::new(vec![]).unwrap(),
-        &["fs-root"],
+        &["fs-system-tree"],
     )
     .unwrap();
 
@@ -194,14 +194,14 @@ fn shipped_guard_names_are_reserved() {
     let home = absolute(temp.path());
     let directory = temp.path().join(".nah/guards/shadow");
     fs::create_dir_all(&directory).unwrap();
-    write_manifest(&directory, "fs-root", "tool");
+    write_manifest(&directory, "fs-system-tree", "tool");
     fs::write(directory.join("run"), "#!/bin/sh\nexit 0\n").unwrap();
     make_executable(&directory.join("run"));
     let (bundles, warnings) = discover_bundles(
         &home,
         Platform::Linux,
         &TrustProjection::new(vec![]).unwrap(),
-        &["fs-root"],
+        &["fs-system-tree"],
     )
     .unwrap();
 
@@ -269,7 +269,7 @@ fn extension_names_are_lowercase_bounded_and_local_to_their_bundle() {
         &home,
         Platform::Linux,
         &TrustProjection::new(vec![]).unwrap(),
-        &["fs-root"],
+        &["fs-system-tree"],
     )
     .unwrap();
     assert_eq!(

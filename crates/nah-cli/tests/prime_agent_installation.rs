@@ -75,7 +75,7 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
             blocked
                 .get("reason")
                 .and_then(Value::as_str)
-                .is_some_and(|reason| reason.contains("fs-root"))
+                .is_some_and(|reason| reason.contains("fs-system-tree"))
         );
         assert_eq!(
             run_extension(

@@ -49,7 +49,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         ("git reset --hard", "git-hard-reset"),
         ("git -c 'alias.wipe=reset --hard' wipe", "git-hard-reset"),
-        ("git -c 'alias.wipe=!rm -rf /' wipe", "fs-root"),
+        ("git -c 'alias.wipe=!rm -rf /' wipe", "fs-system-tree"),
         ("git reset --h", "git-hard-reset"),
         ("/usr/bin/git reset --h", "git-hard-reset"),
         ("git reset --hard \"$REV\"", "git-hard-reset"),

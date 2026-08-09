@@ -47,7 +47,7 @@ fn fixture() -> (ActionStream, nah_proto::ctx::PolicyCtx) {
         SchemaVersion::V1,
         Platform::Linux,
         path("/home/test"),
-        vec![ShippedGuardState::new("fs-root", true).unwrap()],
+        vec![ShippedGuardState::new("fs-system-tree", true).unwrap()],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
         PolicyVersion::V1,

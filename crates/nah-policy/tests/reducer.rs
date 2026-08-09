@@ -83,7 +83,7 @@ fn validated_extensions_can_only_add_a_block() {
 fn captured_policy_p99_is_below_one_millisecond() {
     let stream = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
     let (_, policy) = context(
-        &[("fs-root", true)],
+        &[("fs-system-tree", true)],
         vec![],
         ProjectGuardDeclaration::Absent,
     );

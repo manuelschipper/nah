@@ -17,7 +17,7 @@ fn exact_inline_findings_use_existing_guard_enablement() {
 
     for enabled in [true, false] {
         let (_, policy) = context(
-            &[("fs-root", enabled)],
+            &[("fs-system-tree", enabled)],
             vec![],
             ProjectGuardDeclaration::Absent,
         );
@@ -47,7 +47,7 @@ fn multiple_inline_findings_keep_all_guard_attributions() {
     report.push(Finding::exact(FindingKind::RootDestruction));
     report.push(Finding::exact(FindingKind::DecodedExecution));
     let (_, policy) = context(
-        &[("fs-root", true), ("exec-decoded", true)],
+        &[("fs-system-tree", true), ("exec-decoded", true)],
         vec![],
         ProjectGuardDeclaration::Absent,
     );
@@ -68,7 +68,7 @@ fn multiple_inline_findings_keep_all_guard_attributions() {
             .iter()
             .map(|guard| guard.name())
             .collect::<Vec<_>>(),
-        ["exec-decoded", "fs-root"]
+        ["exec-decoded", "fs-system-tree"]
     );
 }
 
@@ -78,7 +78,7 @@ fn conservative_findings_never_reach_configurable_guards() {
     let mut report = InlineReport::default();
     report.push(Finding::conservative(FindingKind::RootDestruction));
     let (_, policy) = context(
-        &[("fs-root", true)],
+        &[("fs-system-tree", true)],
         vec![],
         ProjectGuardDeclaration::Absent,
     );

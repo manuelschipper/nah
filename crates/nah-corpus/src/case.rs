@@ -276,7 +276,7 @@ mod tests {
             r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"allow"}}"#,
             r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","claimers":["local-utilities"]}}"#,
             r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"unknown"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","guard":"fs-root"}}"#,
+            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","guard":"fs-system-tree"}}"#,
         ] {
             assert!(decode_case(case).is_err(), "accepted {case}");
         }

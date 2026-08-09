@@ -13,12 +13,12 @@ fn decision_stream(coverage: Coverage, effect_count: usize) -> ActionStream {
 
 #[test]
 fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
-    let guard = GuardAttribution::shipped("fs-root", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
     let stream = decision_stream(Coverage::Full, 1);
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
-        vec![GuardContribution::new(guard, "fs-root blocked a root delete").unwrap()],
+        vec![GuardContribution::new(guard, "fs-system-tree blocked a root delete").unwrap()],
     )
     .unwrap();
     let envelope = DecisionEnvelope::new("decision-1", "2026-07-22T12:34:56.123Z", 42).unwrap();
@@ -41,10 +41,10 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
             "v": 1,
             "core": {
                 "verdict": "block",
-                "reason": "fs-root blocked a root delete",
+                "reason": "fs-system-tree blocked a root delete",
                 "policy_attributions": [{
                     "kind": "shipped",
-                    "name": "fs-root",
+                    "name": "fs-system-tree",
                     "policy_version": 1
                 }],
                 "coverage": "full"
@@ -58,7 +58,7 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
     );
     assert_eq!(
         serde_json::to_string(&output).unwrap(),
-        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"fs-root blocked a root delete","policy_attributions":[{"kind":"shipped","name":"fs-root","policy_version":1}],"id":"decision-1","coverage":"full","duration_us":42}"#
+        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"fs-system-tree blocked a root delete","policy_attributions":[{"kind":"shipped","name":"fs-system-tree","policy_version":1}],"id":"decision-1","coverage":"full","duration_us":42}"#
     );
     assert_eq!(output.schema(), "nah/decide/v1");
     assert_eq!(
@@ -103,7 +103,7 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
         "reason": "blocked",
         "policy_attributions": [{
             "kind": "shipped",
-            "name": "fs-root",
+            "name": "fs-system-tree",
             "policy_kind": "guard",
             "policy_version": 1
         }],

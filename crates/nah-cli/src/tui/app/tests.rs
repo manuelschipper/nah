@@ -172,7 +172,7 @@ fn staged(app: &App) -> Vec<(&str, bool)> {
 fn resetting_stages_the_diff_from_the_shipped_defaults() {
     let mut app = App::fixture();
     app.guards.extend([
-        guard_entry(built_in("fs-root"), GuardStatus::Disabled),
+        guard_entry(built_in("fs-system-tree"), GuardStatus::Disabled),
         guard_entry(custom("vendor-sync"), GuardStatus::Enabled),
         guard_entry(
             custom("vanished"),
@@ -191,7 +191,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
         vec![
             ("corp-api", false),
             ("secrets-env", true),
-            ("fs-root", true),
+            ("fs-system-tree", true),
             ("vendor-sync", false),
             ("vanished", false),
         ]
@@ -215,8 +215,10 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
 #[test]
 fn resetting_replaces_the_staged_batch() {
     let mut app = App::fixture();
-    app.guards
-        .push(guard_entry(built_in("fs-root"), GuardStatus::Disabled));
+    app.guards.push(guard_entry(
+        built_in("fs-system-tree"),
+        GuardStatus::Disabled,
+    ));
     app.toggle_guard();
     app.guard_index = 2;
     app.toggle_guard();
@@ -231,7 +233,7 @@ fn resetting_replaces_the_staged_batch() {
         vec![
             ("corp-api", false),
             ("secrets-env", true),
-            ("fs-root", true)
+            ("fs-system-tree", true)
         ]
     );
 }
