@@ -148,7 +148,15 @@ fn builtin_ipython_uses_current_cell_import_ownership() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
-    let source = "import os; os.remove('/tmp/prime-agent-target')";
+    let target_temp = tempfile::tempdir().unwrap();
+    let target = std::fs::canonicalize(target_temp.path())
+        .unwrap()
+        .join("prime-agent-target");
+    let target_text = target.to_string_lossy();
+    let source = format!(
+        "import os; os.remove({})",
+        serde_json::to_string(target_text.as_ref()).unwrap()
+    );
 
     assert_eq!(
         run_adapter(&home, &project, "ipython", json!({"code":source})),
@@ -163,7 +171,7 @@ fn builtin_ipython_uses_current_cell_import_ownership() {
         json!([
             {"id":"e0","description":"execute ipython interpreter-inline"},
             {"id":"e1","description":"invoke ipython direct-file"},
-            {"id":"e2","description":"delete /tmp/prime-agent-target"},
+            {"id":"e2","description":format!("delete {target_text}")},
         ])
     );
 }
@@ -173,8 +181,16 @@ fn builtin_ipython_uses_current_cell_builtin_ownership() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
+    let target_temp = tempfile::tempdir().unwrap();
+    let target = std::fs::canonicalize(target_temp.path())
+        .unwrap()
+        .join("current-builtin");
+    let target_text = target.to_string_lossy();
 
-    let source = "open('/tmp/current-builtin', 'w')";
+    let source = format!(
+        "open({}, 'w')",
+        serde_json::to_string(target_text.as_ref()).unwrap()
+    );
     assert_eq!(
         run_adapter(&home, &project, "ipython", json!({"code":source})),
         json!({"block":false,"evaluation_failed":false})
@@ -186,7 +202,7 @@ fn builtin_ipython_uses_current_cell_builtin_ownership() {
         json!([
             {"id":"e0","description":"execute ipython interpreter-inline"},
             {"id":"e1","description":"invoke ipython direct-file"},
-            {"id":"e2","description":"write /tmp/current-builtin"},
+            {"id":"e2","description":format!("write {target_text}")},
         ])
     );
 }
