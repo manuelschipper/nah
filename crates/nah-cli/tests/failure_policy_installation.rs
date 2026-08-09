@@ -57,7 +57,7 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         assert!(default.status.success(), "{runtime}: {default:?}");
         let status = nah(temp.path(), runtime, "status", None);
         assert!(
-            String::from_utf8_lossy(&status.stdout).contains("failure policy: delegate-on-failure"),
+            String::from_utf8_lossy(&status.stdout).contains("failure policy: fail-open"),
             "{runtime}: {status:?}"
         );
 
@@ -86,7 +86,7 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         assert!(downgraded.status.success(), "{runtime}: {downgraded:?}");
         let status = nah(temp.path(), runtime, "status", None);
         assert!(
-            String::from_utf8_lossy(&status.stdout).contains("failure policy: delegate-on-failure"),
+            String::from_utf8_lossy(&status.stdout).contains("failure policy: fail-open"),
             "{runtime}: {status:?}"
         );
 

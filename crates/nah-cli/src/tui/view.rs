@@ -435,14 +435,25 @@ fn render_runtimes(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_are
             Text::from(vec![
                 Line::styled(runtime.name, Style::new().add_modifier(Modifier::BOLD)),
                 Line::from(""),
-                Line::from(format!("Managed wiring: {status}")),
+                Line::from(format!("Status: {status}")),
                 Line::from(""),
-                Line::from("Current wiring does not prove the runtime loaded or trusted it."),
+                Line::from("fail-open: runtime decides when a required check fails."),
+                Line::from("fail-closed: nah blocks when a required check fails."),
+                Line::from("Unknown valid calls still go to the runtime in either mode."),
                 Line::from(""),
+                Line::from("Change mode:"),
                 Line::from(format!(
-                    "CLI: nah hook {} status",
+                    "nah hook {} install --fail-open",
                     runtime.runtime.cli_name()
                 )),
+                Line::from(format!(
+                    "nah hook {} install --fail-closed",
+                    runtime.runtime.cli_name()
+                )),
+                Line::from(""),
+                Line::from("Status checks installed hook files, not the running runtime."),
+                Line::from("Restart or reload the runtime after changes."),
+                Line::from(""),
                 Line::from(format!("Docs: nah docs {}", runtime.docs_topic)),
             ])
         }

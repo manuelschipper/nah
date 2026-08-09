@@ -22,7 +22,7 @@ curl -fsSL nahguard.ai/install | sh
 
 <p align="center">
   claude code &middot; codex &middot; cursor &middot; pi &middot;
-  <a href="#install-for-your-agent">+ 10 more</a>
+  <a href="#install-for-your-agent">+ 11 more</a>
 </p>
 
 nah is a guard that sits in your coding agent's hook path and reads tool
@@ -69,6 +69,9 @@ not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or
 written, data moving off the machine, environment access, and process behavior.
+Recognized inline Python, IPython, JavaScript, TypeScript, and TSX are lowered
+through bounded language models without running the code; unsupported behavior
+stays partial instead of inventing effects.
 For Bash, sensitive sources include protected-file reads, exact environment
 dumps, and credential-indicator searches over sensitive or root scopes.
 `rg` requires `--no-config`; pattern files, output-suppressing modes, arbitrary
@@ -129,9 +132,10 @@ nah hook claude install
 ```
 
 Replace `claude` with `amp`, `antigravity`, `cline`, `codex`, `copilot`,
-`cursor`, `devin`, `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, or
-`pi`. Each adapter plugs into the runtime's own hook mechanism, and answers in that runtime's deny format, so a block reads to the
-agent as a refusal with instructions rather than a crash. For more, point your agent to:
+`cursor`, `devin`, `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, `pi`, or
+`prime-agent`. Each adapter plugs into the runtime's own hook mechanism, and
+answers in that runtime's deny format, so a block reads to the agent as a
+refusal with instructions rather than a crash. For more, point your agent to:
 
 ```sh
 nah docs runtimes

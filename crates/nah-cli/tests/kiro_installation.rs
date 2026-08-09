@@ -96,7 +96,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Kiro CLI: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-kiro\n"
+        "Kiro CLI: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-kiro\n"
     );
     assert!(nah(home, &["hook", "kiro", "install"]).status.success());
     assert_eq!(std::fs::read(&path).unwrap(), first);
@@ -112,7 +112,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     let status = nah(home, &["hook", "kiro", "status"]);
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Kiro CLI: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook kiro install\ndocs: nah docs runtime-kiro\n"
+        "Kiro CLI: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook kiro install\ndocs: nah docs runtime-kiro\n"
     );
     assert!(nah(home, &["hook", "kiro", "install"]).status.success());
 

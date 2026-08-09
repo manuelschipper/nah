@@ -98,7 +98,7 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     let current = run_lifecycle(home, &hermes_home, &log, &path, "status");
     assert_eq!(
         String::from_utf8_lossy(&current.stdout),
-        "Hermes: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-hermes\n"
+        "Hermes: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-hermes\n"
     );
 
     std::fs::write(
@@ -109,7 +109,7 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     let stale = run_lifecycle(home, &hermes_home, &log, &path, "status");
     assert_eq!(
         String::from_utf8_lossy(&stale.stdout),
-        "Hermes: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook hermes install\ndocs: nah docs runtime-hermes\n"
+        "Hermes: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook hermes install\ndocs: nah docs runtime-hermes\n"
     );
 
     let reinstalled = run_lifecycle(home, &hermes_home, &log, &path, "install");

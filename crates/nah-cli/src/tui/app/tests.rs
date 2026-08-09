@@ -4,7 +4,7 @@ use super::*;
 fn runtime_status_names_show_the_preserved_failure_policy() {
     assert_eq!(
         status_name(RuntimeHookStatus::WiringCurrent),
-        "wiring current · delegate-on-failure"
+        "wiring current · fail-open"
     );
     assert_eq!(
         status_name(RuntimeHookStatus::WiringCurrentFailClosed),

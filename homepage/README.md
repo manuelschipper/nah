@@ -8,8 +8,8 @@ documentation, news, crawler files, install script, og card, and WASM engine.
 
 - `fragment.html` — the page source: `<title>`, all CSS, markup, and JS.
   No document head; `build.py` wraps it.
-- `build.py` — assembles `dist/`: bakes the GitHub star/issue counts
-  (cached in `stars.txt` / `issues.txt` for offline builds), splices
+- `build.py` — assembles `dist/`: bakes the GitHub issue count using
+  `issues.txt` for offline builds, splices
   `nah-tui.cast`, derives the favicons and the og card from the
   hand-lettered word mask embedded in the fragment, renders the compiled
   CLI's built-in guard catalog at `/docs/guards/`, and copies the wasm engine

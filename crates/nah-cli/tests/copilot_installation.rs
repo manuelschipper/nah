@@ -49,7 +49,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "GitHub Copilot: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-copilot\n"
+        "GitHub Copilot: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-copilot\n"
     );
     let installed_again = nah(home, &["hook", "copilot", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
@@ -61,7 +61,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     let status = nah(home, &["hook", "copilot", "status"]);
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "GitHub Copilot: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook copilot install\ndocs: nah docs runtime-copilot\n"
+        "GitHub Copilot: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook copilot install\ndocs: nah docs runtime-copilot\n"
     );
     assert!(nah(home, &["hook", "copilot", "install"]).status.success());
 

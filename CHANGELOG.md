@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Clear runtime failure modes** — CLI and TUI status now call the default
+  mode fail-open, and the runtime detail pane explains both modes, how to
+  switch them, and what its wiring check can verify.
+- **Current homepage star count** — nahguard.ai now hides the GitHub star count
+  until GitHub returns a live value instead of baking a stale cached number.
+- **Inline-language and Prime Agent site coverage** — the README and
+  nahguard.ai now describe bounded Python, IPython, JavaScript, and TypeScript
+  effect recovery, list Prime Agent among supported runtimes, and publish its
+  generated runtime guide.
 - **Guard names match their scope** — `fs-system-tree` replaces `fs-root`,
   and `secrets-exfil` replaces `exfil-pipe`, so configuration and block
   attribution name the protected system trees and sensitive network flow.

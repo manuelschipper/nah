@@ -257,7 +257,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                 }
                 RuntimeHookStatus::NeedsReinstall => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
-                    let _ = writeln!(stdout, "detected failure policy: delegate-on-failure");
+                    let _ = writeln!(stdout, "detected failure policy: fail-open");
                     let _ = writeln!(
                         stdout,
                         "guarantee: runtime approval remains authoritative when nah cannot decide"

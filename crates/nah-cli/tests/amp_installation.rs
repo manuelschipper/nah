@@ -57,7 +57,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     assert!(current.status.success(), "{current:?}");
     assert_eq!(
         String::from_utf8_lossy(&current.stdout),
-        "Amp: wiring current\nfailure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-amp\n"
+        "Amp: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-amp\n"
     );
 
     let strict = nah(home, &["hook", "amp", "install", "--fail-closed"]);
@@ -87,7 +87,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     assert!(stale.status.success(), "{stale:?}");
     assert_eq!(
         String::from_utf8_lossy(&stale.stdout),
-        "Amp: reinstall required\ndetected failure policy: delegate-on-failure\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook amp install\ndocs: nah docs runtime-amp\n"
+        "Amp: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook amp install\ndocs: nah docs runtime-amp\n"
     );
 
     let installed_again = nah(home, &["hook", "amp", "install"]);

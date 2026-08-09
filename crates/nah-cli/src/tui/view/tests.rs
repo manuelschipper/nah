@@ -16,7 +16,7 @@ fn all_four_screens_render() {
     for (screen, expected) in [
         (Screen::Guards, "exec-remote"),
         (Screen::Projects, "Need review: 1"),
-        (Screen::Runtimes, "does not prove"),
+        (Screen::Runtimes, "required check fails"),
         (Screen::Log, "reason: remote code"),
     ] {
         app.screen = screen;
@@ -26,6 +26,22 @@ fn all_four_screens_render() {
     let output = rendered(&app, 100, 24);
     assert!(output.contains("id: decision-2"), "{output}");
     assert!(!output.contains("decision decision-"), "{output}");
+}
+
+#[test]
+fn runtime_screen_explains_and_switches_failure_modes() {
+    let mut app = App::fixture();
+    app.screen = Screen::Runtimes;
+    let output = rendered(&app, 100, 24);
+    for expected in [
+        "fail-open: runtime decides",
+        "fail-closed: nah blocks",
+        "install --fail-open",
+        "install --fail-closed",
+        "Restart or reload",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
 }
 
 #[test]

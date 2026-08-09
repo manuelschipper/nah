@@ -54,22 +54,6 @@ for old, new in NAV_RETARGETS:
     assert frag.count(old) >= 1, f"expected {old} in fragment"
     frag = frag.replace(old, new)
 
-# -- bake the current star count so the page never renders a blank badge;
-#    the page refreshes it live on load. Keeps the last baked value if
-#    GitHub is unreachable at build time.
-STARS_CACHE = f"{HERE}/stars.txt"
-try:
-    with urllib.request.urlopen(
-        "https://api.github.com/repos/manuelschipper/nah", timeout=8
-    ) as r:
-        n = json.load(r)["stargazers_count"]
-    open(STARS_CACHE, "w").write(str(n))
-except Exception:
-    n = int(open(STARS_CACHE).read().strip())
-stars = f"{n / 1000:.1f}".rstrip("0").rstrip(".") + "k" if n >= 1000 else str(n)
-assert frag.count("{{STARS}}") == 2, "expected the topbar badge and the CTA"
-frag = frag.replace("{{STARS}}", stars)
-
 # -- open issues, baked only. The repo's open_issues_count includes PRs, so
 #    ask the search API for issues alone. Not refreshed at runtime: search is
 #    rate limited hard, and a stale count here is harmless.
@@ -413,7 +397,7 @@ def page_shell(page_title, eyebrow, body_html, description, path, current):
     nav = "\n      ".join([
         nav_a("/docs/", "docs", "docs"),
         nav_a("/news/", "news", "news"),
-        f'<a href="https://github.com/manuelschipper/nah">github <span class="star">★</span> {stars}</a>',
+        '<a href="https://github.com/manuelschipper/nah">github</a>',
     ])
     side = sidebar_html(path)
     return f"""<!doctype html>

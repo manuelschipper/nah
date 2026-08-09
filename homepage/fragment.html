@@ -133,7 +133,7 @@ a:focus-visible, button:focus-visible, input:focus-visible{
 .topbar nav{ margin-left:auto; display:flex; gap:1.3rem; font-size:13.5px; color:var(--ink-soft); }
 .topbar nav a{ text-decoration:none; border-bottom:1.5px solid transparent; padding-bottom:1px; }
 .topbar nav a:hover{ border-bottom-color:currentColor; color:var(--ink); }
-/* star count: baked at build, refreshed on load, quiet either way */
+/* The current star count appears only after GitHub answers. */
 .stars{ color:var(--pencil); font-variant-numeric:tabular-nums; }
 .stars .star{ color:var(--nah); }
 .inv-grid{
@@ -167,6 +167,7 @@ a.inv-card:hover{ box-shadow:2px 3px 0 var(--rule); transform:translate(2px,2px)
 .inv-sub .star{ color:var(--nah); }
 .inv-sub .copy-btn{ padding:3px; }
 .inv-sub .copy-btn svg{ width:13px; height:13px; }
+[data-stars-wrap][hidden]{ display:none; }
 section[id]{ scroll-margin-top:4.5rem; }
 .theme-btn{
   font:inherit; font-size:13px; color:var(--ink-soft);
@@ -568,6 +569,11 @@ h2.claim::before{ content:""; }
   -webkit-mask-position:center;  mask-position:center;
   opacity:.88;
 }
+.rt .lg-prime{
+  display:flex; align-items:center; justify-content:center; box-sizing:border-box;
+  background:none; border:2px solid var(--ink); border-radius:50%;
+  color:var(--ink); font-size:17px; font-weight:700;
+}
 .rt span.nm{ font-size:11.5px; color:var(--ink-soft); letter-spacing:.04em; white-space:nowrap; }
 
 /* ---------------- install ---------------- */
@@ -664,7 +670,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
   <div class="bar-inner">
     <a class="brand" href="#top" aria-label="nah — back to top"><span class="art art-word brand-word"></span></a>
     <nav>
-      <a href="https://github.com/manuelschipper/nah">github <span class="stars"><span class="star">★</span> <span data-stars>{{STARS}}</span></span></a>
+      <a href="https://github.com/manuelschipper/nah">github <span class="stars" data-stars-wrap hidden><span class="star">★</span> <span data-stars></span></span></a>
       <a href="https://github.com/manuelschipper/nah/tree/main/docs">docs</a>
       <a href="https://github.com/manuelschipper/nah/blob/main/CHANGELOG.md">news</a>
       <button class="theme-btn" id="theme" type="button" aria-label="switch color theme">theme</button>
@@ -694,7 +700,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <button class="copy-btn inline" id="copy-hero" type="button" aria-label="copy the install command"></button>
       </div>
       <p class="hero-runtimes">
-        claude code · codex · <span class="rt-long">pi · opencode · </span><a href="#runtimes"><span class="rt-long">+ 10 more</span><span class="rt-short">+ 12 more</span></a>
+        claude code · codex · <span class="rt-long">pi · opencode · </span><a href="#runtimes"><span class="rt-long">+ 11 more</span><span class="rt-short">+ 13 more</span></a>
       </p>
     </div>
   </main>
@@ -725,6 +731,11 @@ footer .fine a{ text-decoration-color:var(--rule); }
             disaster. A block tells the agent what was stopped and what
             to do instead of retrying. When no guard claims a call, nah
             delegates: your runtime decides, your permissions stay yours.
+          </p>
+          <p>
+            Recognized inline Python, IPython, JavaScript, and TypeScript are
+            followed into visible filesystem, process, and network effects
+            without running the code.
           </p>
         </div>
         <div class="gclasses">
@@ -889,6 +900,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="rt"><span class="lg lg-openclaw"></span><span class="nm">openclaw</span></div>
         <div class="rt"><span class="lg lg-hermes"></span><span class="nm">hermes</span></div>
         <div class="rt"><span class="lg lg-pi"></span><span class="nm">pi</span></div>
+        <div class="rt"><span class="lg lg-prime" aria-hidden="true">P</span><span class="nm">prime agent</span></div>
       </div>
       <p class="prose" style="margin-top:1.4rem">
         One install command each. Every adapter hooks the runtime's native path
@@ -924,8 +936,8 @@ $ rm "$(which nah)"</pre>
         </a>
         <a class="inv-card" href="https://github.com/manuelschipper/nah">
           <span class="inv-head"><span class="mk mk-github"></span>Star it</span>
-          <span class="inv-sub"><span class="star">★</span>
-            <span data-stars>{{STARS}}</span></span>
+          <span class="inv-sub" data-stars-wrap hidden><span class="star">★</span>
+            <span data-stars></span></span>
         </a>
         <div class="inv-card">
           <span class="inv-head"><span class="mk mk-mail"></span><a
@@ -1192,6 +1204,7 @@ var SAMPLES = [
   "cat .env",
   "git reset --hard",
   "echo aGk9MQ== | base64 -d | sh",
+  "python3 -c \"import shutil; shutil.rmtree('/')\"",
   "nah guard disable secrets-env",
   "git status"
 ];
@@ -1530,8 +1543,7 @@ wireCopy("copy-mail", "mail-addr", false);
   io.observe(rig);
 })();
 
-/* the baked count is already in the markup; try for a fresher one, and
-   leave the baked number alone if GitHub is unreachable or rate-limits */
+/* A star count is useful only while GitHub can provide a current value. */
 (function stars(){
   function fmt(n){
     return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
@@ -1543,6 +1555,9 @@ wireCopy("copy-mail", "mail-addr", false);
       var text = fmt(d.stargazers_count);
       [].forEach.call(document.querySelectorAll("[data-stars]"), function(el){
         el.textContent = text;
+      });
+      [].forEach.call(document.querySelectorAll("[data-stars-wrap]"), function(el){
+        el.hidden = false;
       });
     })
     .catch(function(){});

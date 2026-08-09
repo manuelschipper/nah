@@ -1126,10 +1126,10 @@ fn wrapped_lines(text: &str) -> u16 {
 
 pub(crate) const fn status_name(status: RuntimeHookStatus) -> &'static str {
     match status {
-        RuntimeHookStatus::WiringCurrent => "wiring current · delegate-on-failure",
+        RuntimeHookStatus::WiringCurrent => "wiring current · fail-open",
         RuntimeHookStatus::WiringCurrentFailClosed => "wiring current · fail-closed",
         RuntimeHookStatus::NotConfigured => "not configured",
-        RuntimeHookStatus::NeedsReinstall => "needs reinstall · delegate-on-failure",
+        RuntimeHookStatus::NeedsReinstall => "needs reinstall · fail-open",
         RuntimeHookStatus::NeedsReinstallFailClosed => "needs reinstall · fail-closed",
     }
 }

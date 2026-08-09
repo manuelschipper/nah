@@ -12,7 +12,7 @@ pub(crate) enum FailurePolicy {
 impl FailurePolicy {
     pub(crate) const fn cli_name(self) -> &'static str {
         match self {
-            Self::Delegate => "delegate-on-failure",
+            Self::Delegate => "fail-open",
             Self::Block => "fail-closed",
         }
     }
