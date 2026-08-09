@@ -213,7 +213,15 @@ fn hermes_python_reaches_exact_direct_effects_without_shell_rewriting() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
     std::fs::create_dir_all(home.join(".hermes")).unwrap();
-    let source = "import os; os.remove('/tmp/hermes-direct-python-target')";
+    let target_temp = tempfile::tempdir().unwrap();
+    let target = std::fs::canonicalize(target_temp.path())
+        .unwrap()
+        .join("hermes-direct-python-target");
+    let target_text = target.to_string_lossy();
+    let source = format!(
+        "import os; os.remove({})",
+        serde_json::to_string(target_text.as_ref()).unwrap()
+    );
 
     assert_eq!(
         run_hook(&home, &project, "execute_code", json!({"code":source})),
@@ -229,7 +237,7 @@ fn hermes_python_reaches_exact_direct_effects_without_shell_rewriting() {
         json!([
             {"id":"e0","description":"execute python interpreter-inline"},
             {"id":"e1","description":"invoke python direct-file"},
-            {"id":"e2","description":"delete /tmp/hermes-direct-python-target"},
+            {"id":"e2","description":format!("delete {target_text}")},
         ])
     );
 }
