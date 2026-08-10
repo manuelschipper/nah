@@ -11,8 +11,8 @@
   <a href="https://nahguard.ai/">nahguard.ai</a> &bull;
   <a href="#it-knows-a-disaster-when-it-sees-one">what it blocks</a> &bull;
   <a href="#deterministic-programs-not-llm-judges">how it decides</a> &bull;
-  <a href="#install-for-your-agent">install</a> &bull;
-  <a href="#extend-it-with-the-guard-you-need">extend</a> &bull;
+  <a href="#install">install</a> &bull;
+  <a href="#extensions-are-just-programs-you-build">extend</a> &bull;
   <a href="docs/threat-model.md">threat model</a>
 </p>
 
@@ -22,7 +22,7 @@ curl -fsSL nahguard.ai/install | sh
 
 <p align="center">
   claude code &middot; codex &middot; cursor &middot; pi &middot;
-  <a href="#install-for-your-agent">+ 11 more</a>
+  <a href="#install">+ 11 more</a>
 </p>
 
 nah is a guard that sits in your coding agent's hook path and reads tool

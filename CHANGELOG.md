@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Working README menu** — the install, extend, and runtime shortcuts now
+  target their current sections instead of obsolete heading anchors.
 - **Clear runtime failure modes** — CLI and TUI status now call the default
   mode fail-open, and the runtime detail pane explains both modes, how to
   switch them, and what its wiring check can verify.
