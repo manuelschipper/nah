@@ -302,7 +302,7 @@ pub(super) fn valid_variable_name(name: &str) -> bool {
 }
 
 impl Lowerer {
-    pub(super) fn refuse_parameter_assignment_words<'a>(
+    pub(in crate::bash) fn refuse_parameter_assignment_words<'a>(
         &mut self,
         words: impl IntoIterator<Item = &'a str>,
     ) {
@@ -472,7 +472,7 @@ impl Lowerer {
         self.state.lookup.invalidate_all();
     }
 
-    pub(super) fn refuse_parameter_assignment_state_with(
+    pub(in crate::bash) fn refuse_parameter_assignment_state_with(
         &mut self,
         assignments: Vec<(String, String)>,
     ) {
@@ -482,7 +482,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_unmodeled_command_assignments(
+    pub(in crate::bash) fn lower_unmodeled_command_assignments(
         &mut self,
         assignments: &[(String, Word)],
         unmodeled: &[UnmodeledStateExpansion],
@@ -576,7 +576,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_assignments(
+    pub(in crate::bash) fn lower_assignments(
         &mut self,
         bindings: &[(String, Word)],
         unmodeled: &[UnmodeledStateExpansion],

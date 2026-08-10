@@ -5,7 +5,7 @@ use nah_parse::{Redirect, Substitution, Word};
 use super::{CommandContext, Lowered, Lowerer};
 
 impl Lowerer {
-    pub(super) fn lower_command(
+    pub(in crate::bash) fn lower_command(
         &mut self,
         name: &str,
         name_substitutions: &[Substitution],

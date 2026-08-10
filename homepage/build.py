@@ -44,6 +44,23 @@ DESCRIPTION = (
 os.makedirs(OUT_DIR, exist_ok=True)
 frag = open(FRAGMENT, encoding="utf-8").read()
 
+INLINE_ASSETS = {
+    "{{ASSET_ART_MARK}}": ("art-mark.data-url", 2),
+    "{{ASSET_ART_WORD}}": ("art-word.data-url", 2),
+    "{{ASSET_ART_HAMMOCK}}": ("art-hammock.data-url", 2),
+    "{{ASSET_MARK_GUY}}": ("mark-guy.data-url", 2),
+    "{{ASSET_MARK_NAH}}": ("mark-nah.data-url", 2),
+    "{{ASSET_HAM_BED}}": ("ham-bed.data-url", 2),
+    "{{ASSET_HAM_NAH}}": ("ham-nah.data-url", 2),
+    "{{ASSET_LG_HERMES}}": ("lg-hermes.data-url", 2),
+    "{{ASSET_LG_FACTORY}}": ("lg-factory.data-url", 2),
+    "{{ASCIINEMA_PLAYER_JS}}": ("asciinema-player.min.js", 1),
+}
+for marker, (filename, expected) in INLINE_ASSETS.items():
+    assert frag.count(marker) == expected, f"expected {expected} {marker} markers"
+    payload = open(f"{HERE}/assets/{filename}", encoding="utf-8").read().rstrip("\n")
+    frag = frag.replace(marker, payload)
+
 # -- the docs and news links live on this site now, not on GitHub ---------
 NAV_RETARGETS = [
     ('href="https://github.com/manuelschipper/nah/tree/main/docs"', 'href="/docs/"'),
@@ -73,14 +90,8 @@ frag = frag.replace("{{ISSUES}}", str(issues))
 
 # -- splice the TUI recording so a re-record only needs a rebuild ---------
 cast = open(f"{HERE}/nah-tui.cast", encoding="utf-8").read()
-frag, n = re.subn(
-    r"var NAH_TUI_CAST = .*?;\n",
-    lambda _: "var NAH_TUI_CAST = " + json.dumps(cast) + ";\n",
-    frag,
-    count=1,
-    flags=re.S,
-)
-assert n == 1, "expected the NAH_TUI_CAST assignment"
+assert frag.count("{{NAH_TUI_CAST}}") == 1, "expected the TUI cast marker"
+frag = frag.replace("{{NAH_TUI_CAST}}", json.dumps(cast))
 
 # -- pull the title out of the fragment; it belongs in <head> ------------
 m = re.match(r"<title>(.*?)</title>\n?", frag)

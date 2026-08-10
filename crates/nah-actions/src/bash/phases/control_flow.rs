@@ -232,7 +232,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_if(
+    pub(in crate::bash) fn lower_if(
         &mut self,
         branches: &[ConditionalBranch],
         else_body: &[Statement],
@@ -283,7 +283,7 @@ impl Lowerer {
         lowered
     }
 
-    pub(super) fn lower_loop(
+    pub(in crate::bash) fn lower_loop(
         &mut self,
         kind: LoopKind,
         condition: &[Statement],
@@ -308,7 +308,7 @@ impl Lowerer {
         lowered
     }
 
-    pub(super) fn lower_for(
+    pub(in crate::bash) fn lower_for(
         &mut self,
         variable: &str,
         values: &[Word],
@@ -373,7 +373,7 @@ impl Lowerer {
         lowered
     }
 
-    pub(super) fn lower_case(&mut self, value: &Word, arms: &[CaseArm]) -> Lowered {
+    pub(in crate::bash) fn lower_case(&mut self, value: &Word, arms: &[CaseArm]) -> Lowered {
         let entry = self.state.clone();
         let mut lowered = self.lower_words(std::slice::from_ref(value));
         let mut exits = vec![entry.clone()];

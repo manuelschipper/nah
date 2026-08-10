@@ -22,38 +22,20 @@ use paths::{path_scope, sensitivity};
 use self_protection_tiers::classify as classify_protection;
 
 mod bash;
-mod bash_child_startup;
-mod bash_content;
-mod bash_descendants;
-mod bash_descriptor_paths;
-mod bash_descriptor_state;
-mod bash_descriptors;
-mod bash_environment_disclosure;
-mod bash_executable_identity;
-mod bash_execution;
-mod bash_filesystem;
-mod bash_finalize;
-mod bash_flow;
-mod bash_git;
-mod bash_git_config;
-mod bash_git_operations;
-mod bash_invocation;
-mod bash_local_utilities;
-mod bash_logical_storage;
-mod bash_lookup;
-mod bash_model;
-mod bash_network;
-mod bash_project;
-mod bash_rsync_options;
-mod bash_self_protection;
-mod bash_semantics;
-mod bash_socat;
-mod bash_state;
-mod bash_symlinks;
-mod bash_tar;
-mod bash_targets;
-mod bash_transforms;
-mod bash_wrappers;
+use bash::features::{
+    child_startup as bash_child_startup, content as bash_content, descendants as bash_descendants,
+    descriptor_paths as bash_descriptor_paths, descriptor_state as bash_descriptor_state,
+    descriptors as bash_descriptors, environment_disclosure as bash_environment_disclosure,
+    executable_identity as bash_executable_identity, execution as bash_execution,
+    filesystem as bash_filesystem, finalize as bash_finalize, flow as bash_flow, git as bash_git,
+    git_config as bash_git_config, git_operations as bash_git_operations,
+    invocation as bash_invocation, local_utilities as bash_local_utilities,
+    logical_storage as bash_logical_storage, lookup as bash_lookup, model as bash_model,
+    network as bash_network, project as bash_project, rsync_options as bash_rsync_options,
+    self_protection as bash_self_protection, semantics as bash_semantics, socat as bash_socat,
+    state as bash_state, symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
+    transforms as bash_transforms, wrappers as bash_wrappers,
+};
 mod codex_patch;
 mod language;
 mod native;

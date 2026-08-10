@@ -120,7 +120,7 @@ impl Lowerer {
         self.bounded_origins(origins)
     }
 
-    pub(super) fn visible_variables(&self) -> Vec<(String, VariableValue)> {
+    pub(in crate::bash) fn visible_variables(&self) -> Vec<(String, VariableValue)> {
         let mut variables = self
             .state
             .variables
@@ -234,7 +234,7 @@ impl Lowerer {
         self.set_local_variable_preserving_descriptor_alias(name, value, origins);
     }
 
-    pub(super) fn set_local_variable_preserving_descriptor_alias(
+    pub(in crate::bash) fn set_local_variable_preserving_descriptor_alias(
         &mut self,
         name: &str,
         value: VariableValue,
@@ -287,7 +287,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn mark_local_variable_unknown_with_origins(
+    pub(in crate::bash) fn mark_local_variable_unknown_with_origins(
         &mut self,
         name: &str,
         origins: Vec<usize>,

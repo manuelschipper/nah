@@ -184,7 +184,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn positional_command(
+    pub(in crate::bash) fn positional_command(
         &mut self,
         name: &str,
         substitutions: &[Substitution],

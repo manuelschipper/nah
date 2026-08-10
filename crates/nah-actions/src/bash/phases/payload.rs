@@ -365,7 +365,10 @@ impl Lowerer {
         self.payload_depth = parent_depth;
     }
 
-    pub(super) fn visible_pipeline_output(&self, lowered: &Lowered) -> Option<VisibleStdin> {
+    pub(in crate::bash) fn visible_pipeline_output(
+        &self,
+        lowered: &Lowered,
+    ) -> Option<VisibleStdin> {
         let [stage] = lowered.outputs.as_slice() else {
             return None;
         };
@@ -378,7 +381,7 @@ impl Lowerer {
         })
     }
 
-    pub(super) fn lower_visible_programs(&mut self) {
+    pub(in crate::bash) fn lower_visible_programs(&mut self) {
         let mut seen = self.prelowered_visible_stages.clone();
         loop {
             add_artifact_flows(&self.stages, &mut self.flows, self.platform);
@@ -447,7 +450,7 @@ impl Lowerer {
         self.analyze_language_stage(execution, &analysis_program, &program, &code, true, false);
     }
 
-    pub(super) fn analyze_direct_inline_stage(
+    pub(in crate::bash) fn analyze_direct_inline_stage(
         &mut self,
         execution: VisibleExecutionState,
         program: &str,

@@ -251,7 +251,11 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_redirected(&mut self, body: &Statement, redirects: &[Redirect]) -> Lowered {
+    pub(in crate::bash) fn lower_redirected(
+        &mut self,
+        body: &Statement,
+        redirects: &[Redirect],
+    ) -> Lowered {
         self.refuse_redirect_parameter_assignments(redirects);
         let mut lowered_substitutions = Vec::new();
         let mut redirect_origins = Vec::new();
@@ -351,7 +355,7 @@ impl Lowerer {
         substitutions
     }
 
-    pub(super) fn lower_redirect_only(
+    pub(in crate::bash) fn lower_redirect_only(
         &mut self,
         redirects: &[Redirect],
         produces_stdout: bool,

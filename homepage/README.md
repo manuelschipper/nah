@@ -1,13 +1,16 @@
 # nahguard.ai homepage
 
-A self-contained static site. The landing-page fonts, line art, asciinema
-player, and TUI recording ship inline; `dist/` also contains the generated
+A self-contained generated static site. The landing-page fonts, line art,
+asciinema player, and TUI recording ship inline; `dist/` also contains the generated
 documentation, news, crawler files, install script, og card, and WASM engine.
 
 ## Layout
 
-- `fragment.html` — the page source: `<title>`, all CSS, markup, and JS.
-  No document head; `build.py` wraps it.
+- `fragment.html` — the searchable page source: `<title>`, CSS, markup, and JS.
+  Large inline payloads are named markers; `build.py` restores them and wraps
+  the fragment in a document head.
+- `assets/` — binary-like data URLs and vendored minified JS injected into the
+  generated page. These files are excluded from normal repository searches.
 - `build.py` — assembles `dist/`: bakes the GitHub issue count using
   `issues.txt` for offline builds, splices
   `nah-tui.cast`, derives the favicons and the og card from the

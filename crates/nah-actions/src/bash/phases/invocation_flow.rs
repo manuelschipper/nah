@@ -208,7 +208,7 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_invocation(
+    pub(in crate::bash) fn lower_invocation(
         &mut self,
         name: &str,
         name_substitutions: &[Substitution],

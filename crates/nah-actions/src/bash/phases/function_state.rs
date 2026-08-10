@@ -8,7 +8,12 @@ use crate::shell_word::static_word;
 use super::Lowerer;
 
 impl Lowerer {
-    pub(super) fn define_function(&mut self, name: &str, body: &Statement, redirects: &[Redirect]) {
+    pub(in crate::bash) fn define_function(
+        &mut self,
+        name: &str,
+        body: &Statement,
+        redirects: &[Redirect],
+    ) {
         let bodies = &self.function_bodies;
         let has_matching = self
             .state

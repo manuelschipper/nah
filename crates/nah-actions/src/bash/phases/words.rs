@@ -17,7 +17,10 @@ impl Lowerer {
         lowered
     }
 
-    pub(super) fn lower_word_with_origins(&mut self, word: &Word) -> (Lowered, Vec<usize>) {
+    pub(in crate::bash) fn lower_word_with_origins(
+        &mut self,
+        word: &Word,
+    ) -> (Lowered, Vec<usize>) {
         for name in referenced_env_names(word.raw()) {
             self.prepare_variable_reference(&name);
         }

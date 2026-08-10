@@ -56,27 +56,26 @@ Paths beginning with `nah-*` start under `crates/`; others are repository-relati
 | Bash syntax and fork-bomb graph parsing | `nah-parse/src/{model,parser}.rs`, `nah-parse/src/parser/fork_bomb.rs` |
 | Inline HIRs, bounded interpreters, effect drafts, and nested executions | `nah-inline/src/{lib,language,finding,syntax}.rs`, `nah-inline/src/languages/` |
 | Plan/finalize, language integration, and native tools | `nah-actions/src/{lib,language,native,codex_patch}.rs` |
-| Ordered Bash lowering and shell/command phases | `nah-actions/src/bash.rs`, `nah-actions/src/bash/` |
-| Feature-specific Bash planning, effects, and finalization | `nah-actions/src/bash_*.rs`, `nah-actions/src/{paths,shell_word}.rs`, `nah-actions/src/shell_word/` |
+| Ordered Bash lowering and shell/command phases | `nah-actions/src/bash/mod.rs`, `nah-actions/src/bash/phases/` |
+| Bash feature semantics | `nah-actions/src/bash/features/`, `nah-actions/src/{paths,shell_word}.rs`, `nah-actions/src/shell_word/` |
 | Host and project fact fulfillment | `nah-observe/src/{io_paths,path_facts,roots,project_guards,descendants}.rs` |
 | Built-in guards and reduction | `nah-policy/src/{lib,filesystem_guards,git_guards,secret_guards,execution_guards}.rs` |
-| Self-protection projection, shell recognition, nap, and reduction | `nah-actions/src/{bash_self_protection,self_protection_tiers}.rs`, `nah-inline/src/languages/`, `nah-cli/src/{commands/runtime,nap}.rs`, `nah-policy/src/structural.rs` |
+| Self-protection projection, shell recognition, nap, and reduction | `nah-actions/src/{bash/features/self_protection,self_protection_tiers}.rs`, `nah-inline/src/languages/`, `nah-cli/src/{commands/runtime,nap}.rs`, `nah-policy/src/structural.rs` |
 | Custom-guard trust, activation, selection, execution, and cache | `nah-extensions/src/{trust,activation,bundle,selection,execution,transport,cache}.rs` |
 | Runtime translation and wiring | `nah-cli/src/*_adapter.rs`, `nah-cli/src/{code_input,hook_adapter,adapter_fields}.rs`, `nah-cli/src/commands/*_installation.rs` |
 | Live state, pipeline, dispatch, runtime identity, and records | `nah-cli/src/{live_state,pipeline,dispatch,runtime}.rs`, `nah-cli/src/records/` |
 | Guard configuration and TUI | `nah-cli/src/commands/{custom_guard,shipped_guard,guard_config}.rs`, `nah-cli/src/{catalog,shipped_state}.rs`, `nah-cli/src/tui/` |
 | Corpus fixtures, runner, oracle, and reconciliation | `nah-corpus/src/{case,fixtures,runner,oracle}.rs` |
 
-`bash.rs` orders state transitions; child modules own each phase and
-feature-named `bash_*.rs` files own semantics. Pure lowering never observes the
-host; finalization consumes bound facts supplied by `nah-observe`.
+`bash/mod.rs` orders transitions, `bash/phases/` owns lowering phases, and
+`bash/features/` owns semantics. Finalization consumes facts from `nah-observe`;
+lowering does no I/O.
 
 ## Find a change
 
-- Bash interpretation: `nah-parse`, then `nah-actions/src/bash/` or the
-  matching `bash_*.rs` analyzer.
+- Bash interpretation: `nah-parse`, then `nah-actions/src/bash/{phases,features}/`.
 - Python, IPython, and JavaScript/TypeScript/TSX interpretation:
-  `nah-inline/src/languages/`, then
+  `nah-inline/src/languages/` and the matching `engine/` module, then
   `nah-actions/src/language.rs`. `nah-cli/src/code_input.rs` owns typed runtime
   intake. Exact nested commands return to actions; private findings reach policy.
 - Native tool shapes: the runtime adapter, `nah-actions/src/native.rs`, and
