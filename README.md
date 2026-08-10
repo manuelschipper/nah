@@ -69,9 +69,6 @@ not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or
 written, data moving off the machine, environment access, and process behavior.
-Recognized inline Python, IPython, JavaScript, TypeScript, and TSX are lowered
-through bounded language models without running the code; unsupported behavior
-stays partial instead of inventing effects.
 For Bash, sensitive sources include protected-file reads, exact environment
 dumps, and credential-indicator searches over sensitive or root scopes.
 `rg` requires `--no-config`; pattern files, output-suppressing modes, arbitrary

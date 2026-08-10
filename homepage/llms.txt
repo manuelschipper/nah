@@ -6,15 +6,12 @@
 > else to your normal approval flow. One Rust binary. When a guard you need
 > is missing, your agent can write it.
 
-Recognized inline Python, IPython, JavaScript, TypeScript, and TSX are lowered
-into effects without running the code; unsupported behavior stays partial.
-
 ## Install
 
 - `curl -fsSL nahguard.ai/install | sh`
 - Then wire your runtime: `nah hook claude install` (replace `claude` with
   `amp`, `antigravity`, `cline`, `codex`, `copilot`, `cursor`, `devin`,
-  `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, `pi`, or `prime-agent`).
+  `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, and more).
 
 ## Docs
 
