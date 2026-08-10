@@ -69,15 +69,6 @@ not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or
 written, data moving off the machine, environment access, and process behavior.
-For Bash, sensitive sources include protected-file reads, exact environment
-dumps, and credential-indicator searches over sensitive or root scopes.
-`rg` requires `--no-config`; pattern files, output-suppressing modes, arbitrary
-environment names, and option-bearing mail sends remain outside this model.
-Exact `printf` output is followed only when every format and escape has an
-admitted ASCII byte result and the bytes reach an execution sink. `fs-system-tree`
-blocks the exact ordered `mv /*` forms only when the observed destination is a
-non-root directory; project, home, named, quoted-pattern, and other option
-orders still delegate.
 
 Every decision ends in one of two verdicts:
 

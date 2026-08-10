@@ -7,8 +7,9 @@
   switch them, and what its wiring check can verify.
 - **Current homepage star count** — nahguard.ai now hides the GitHub star count
   until GitHub returns a live value instead of baking a stale cached number.
-- **Prime Agent installation docs** — the README now lists Prime Agent among
-  supported runtime hook targets.
+- **Concise README overview** — the README now lists Prime Agent among
+  supported runtime hook targets without carrying detailed Bash model
+  boundaries in the product overview.
 - **Guard names match their scope** — `fs-system-tree` replaces `fs-root`,
   and `secrets-exfil` replaces `exfil-pipe`, so configuration and block
   attribution name the protected system trees and sensitive network flow.
