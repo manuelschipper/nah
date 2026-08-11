@@ -116,7 +116,8 @@ the selected `runtime-*` topic before relying on the hook.
 
 `--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
 default. Flagless reinstall preserves a recognized mode, otherwise delegate is
-used. The TUI reports and preserves the mode.
+used. In the TUI runtime screen, `f` switches the selected integration's mode;
+`i` installs or refreshes it without changing a recognized mode.
 
 While a hook is active, nah blocks visible install/uninstall commands,
 mutations to its active wiring and standard enablement files, native removal

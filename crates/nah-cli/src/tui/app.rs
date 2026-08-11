@@ -10,7 +10,7 @@ use crate::commands::{
 };
 use crate::nap::{self, ActiveNap, NapMode};
 use crate::records::{DecisionLogView, DecisionRecord, FailureSummary};
-use crate::runtime::Runtime;
+use crate::runtime::{FailurePolicy, Runtime};
 use crate::{catalog, live_state, records};
 
 /// Bounds the browsable window so huge audit logs stay responsive.
@@ -122,6 +122,8 @@ pub(crate) enum Confirmation {
         runtime: Runtime,
         name: &'static str,
         install: bool,
+        failure_policy: Option<FailurePolicy>,
+        configured: bool,
     },
     /// Ends an active nap. The TUI only ever restores enforcement; starting a
     /// nap stays out-of-band in `nah nap`.
@@ -163,6 +165,8 @@ pub(crate) struct App {
     /// Audit file size behind `log`; a change means new decisions to tail.
     log_size: Option<u64>,
     pending: Vec<GuardChange>,
+    /// Overlays the active screen without dismissing its open confirmation.
+    pub(crate) help_open: bool,
     pub(crate) confirmation: Option<Confirmation>,
     pub(crate) confirmation_scroll: u16,
     pub(crate) message: Option<Message>,
@@ -210,6 +214,7 @@ impl App {
             seen_block_id,
             log_size,
             pending: vec![],
+            help_open: false,
             confirmation: None,
             confirmation_scroll: 0,
             message: log_error.map(|error| Message {
@@ -528,10 +533,38 @@ impl App {
         let Some(runtime) = self.runtimes.get(self.runtime_index) else {
             return;
         };
+        let configured = runtime
+            .status
+            .as_ref()
+            .is_ok_and(|status| !matches!(status, RuntimeHookStatus::NotConfigured));
         self.confirmation = Some(Confirmation::ConfigureRuntime {
             runtime: runtime.runtime,
             name: runtime.name,
             install,
+            failure_policy: None,
+            configured,
+        });
+    }
+
+    pub(crate) fn request_runtime_failure_policy(&mut self) {
+        let Some(runtime) = self.runtimes.get(self.runtime_index) else {
+            return;
+        };
+        let Ok(status) = runtime.status.as_ref() else {
+            self.info("cannot change mode while runtime wiring cannot be inspected");
+            return;
+        };
+        let configured = !matches!(status, RuntimeHookStatus::NotConfigured);
+        let failure_policy = match status.failure_policy() {
+            FailurePolicy::Delegate => FailurePolicy::Block,
+            FailurePolicy::Block => FailurePolicy::Delegate,
+        };
+        self.confirmation = Some(Confirmation::ConfigureRuntime {
+            runtime: runtime.runtime,
+            name: runtime.name,
+            install: true,
+            failure_policy: Some(failure_policy),
+            configured,
         });
     }
 
@@ -586,8 +619,11 @@ impl App {
                 Err(error) => self.error(error),
             },
             Confirmation::ConfigureRuntime {
-                runtime, install, ..
-            } => match set_runtime_configured(runtime, install, None) {
+                runtime,
+                install,
+                failure_policy,
+                ..
+            } => match set_runtime_configured(runtime, install, failure_policy) {
                 Ok(mutation) => {
                     self.success(mutation.summary());
                     self.refresh();
@@ -1024,6 +1060,7 @@ impl App {
             seen_block_id: Some("decision-2".into()),
             log_size: None,
             pending: vec![],
+            help_open: false,
             confirmation: None,
             confirmation_scroll: 0,
             message: None,
@@ -1126,11 +1163,11 @@ fn wrapped_lines(text: &str) -> u16 {
 
 pub(crate) const fn status_name(status: RuntimeHookStatus) -> &'static str {
     match status {
-        RuntimeHookStatus::WiringCurrent => "wiring current · fail-open",
-        RuntimeHookStatus::WiringCurrentFailClosed => "wiring current · fail-closed",
+        RuntimeHookStatus::WiringCurrent => "fail-open",
+        RuntimeHookStatus::WiringCurrentFailClosed => "fail-closed",
         RuntimeHookStatus::NotConfigured => "not configured",
-        RuntimeHookStatus::NeedsReinstall => "needs reinstall · fail-open",
-        RuntimeHookStatus::NeedsReinstallFailClosed => "needs reinstall · fail-closed",
+        RuntimeHookStatus::NeedsReinstall => "reinstall · fail-open",
+        RuntimeHookStatus::NeedsReinstallFailClosed => "reinstall · fail-closed",
     }
 }
 

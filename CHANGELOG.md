@@ -4,9 +4,12 @@
 
 - **Working README menu** — the install, extend, and runtime shortcuts now
   target their current sections instead of obsolete heading anchors.
-- **Clear runtime failure modes** — CLI and TUI status now call the default
-  mode fail-open, and the runtime detail pane explains both modes, how to
-  switch them, and what its wiring check can verify.
+- **Contextual TUI help** — `?` opens help for the active screen with its
+  security concepts and key map, including project trust, runtime
+  failure modes, guard review, and decision verdicts.
+- **Runtime failure modes in the TUI** — CLI and TUI status call the default
+  mode fail-open, and the runtime screen can switch the selected integration
+  between fail-open and fail-closed without repeating generic mode guidance.
 - **Current homepage star count** — nahguard.ai now hides the GitHub star count
   until GitHub returns a live value instead of baking a stale cached number.
 - **Concise README overview** — the README now lists Prime Agent among

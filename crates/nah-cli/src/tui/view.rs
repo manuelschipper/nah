@@ -13,6 +13,7 @@ use crate::commands::{
 };
 use crate::nap::NapMode;
 use crate::records::{detail_field, short_time, verdict_name};
+use crate::runtime::FailurePolicy;
 
 use super::app::{App, Confirmation, MessageKind, NapStatus, Screen, status_name};
 
@@ -80,17 +81,35 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
     if let Some(confirmation) = &app.confirmation {
         render_confirmation(frame, confirmation, app.confirmation_scroll);
     }
+    if app.help_open {
+        render_help(frame, app);
+    }
 }
 
 fn render_too_small(frame: &mut Frame<'_>, app: &App) {
     let pending = app.pending_count();
-    let text = if let Some(confirmation) = &app.confirmation {
+    let text = if app.help_open {
+        format!(
+            "nah help \u{2014} {}\n\nResize to at least 50x14 for contextual help.\n\n? or Esc close",
+            help_title(app.screen)
+        )
+    } else if let Some(confirmation) = &app.confirmation {
         let action = match confirmation {
             Confirmation::DiscardChanges { .. } => "y discard and quit  n cancel",
             Confirmation::ApproveGuard { .. } => "y stage enable  n cancel",
             Confirmation::ViewGuard { .. } => "Esc close",
             Confirmation::TrustCurrent { .. } => "y trust  n cancel",
             Confirmation::UntrustProject { .. } => "y untrust  n cancel",
+            Confirmation::ConfigureRuntime {
+                failure_policy: Some(_),
+                configured: true,
+                ..
+            } => "y switch  n cancel",
+            Confirmation::ConfigureRuntime {
+                failure_policy: Some(_),
+                configured: false,
+                ..
+            } => "y install  n cancel",
             Confirmation::ConfigureRuntime { install, .. } if *install => "y install  n cancel",
             Confirmation::ConfigureRuntime { .. } => "y uninstall  n cancel",
             Confirmation::EndNap { .. } => "y wake  n cancel",
@@ -98,7 +117,7 @@ fn render_too_small(frame: &mut Frame<'_>, app: &App) {
         format!("nah\n\n{action}\n\nResize to at least 50x14 for details.")
     } else {
         format!(
-            "nah\n\nTerminal too small. Resize to at least 50x14.\n\n{pending} pending change(s)  q quit"
+            "nah\n\nTerminal too small. Resize to at least 50x14.\n\n{pending} pending change(s)  ? help  q quit"
         )
     };
     frame.render_widget(
@@ -428,34 +447,67 @@ fn render_runtimes(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_are
     );
     let text = match app.selected_runtime() {
         Some(runtime) => {
-            let status = match &runtime.status {
-                Ok(status) => status_name(*status).to_owned(),
-                Err(error) => format!("cannot inspect ({error})"),
-            };
-            Text::from(vec![
+            let mut lines = vec![
                 Line::styled(runtime.name, Style::new().add_modifier(Modifier::BOLD)),
                 Line::from(""),
-                Line::from(format!("Status: {status}")),
+            ];
+            match &runtime.status {
+                Ok(status) => {
+                    let wiring = match status {
+                        RuntimeHookStatus::WiringCurrent
+                        | RuntimeHookStatus::WiringCurrentFailClosed => "wiring current",
+                        RuntimeHookStatus::NotConfigured => "not configured",
+                        RuntimeHookStatus::NeedsReinstall
+                        | RuntimeHookStatus::NeedsReinstallFailClosed => "reinstall required",
+                    };
+                    let current = status.failure_policy();
+                    let target = match current {
+                        FailurePolicy::Delegate => FailurePolicy::Block,
+                        FailurePolicy::Block => FailurePolicy::Delegate,
+                    };
+                    lines.push(Line::from(format!("Status: {wiring}")));
+                    lines.push(Line::from(format!(
+                        "Failure mode: {}{}",
+                        current.cli_name(),
+                        if matches!(status, RuntimeHookStatus::NotConfigured) {
+                            " on install"
+                        } else {
+                            ""
+                        }
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!(
+                        "[f] {} {}",
+                        if matches!(status, RuntimeHookStatus::NotConfigured) {
+                            "Install with"
+                        } else {
+                            "Switch to"
+                        },
+                        target.cli_name()
+                    )));
+                    lines.push(Line::from(
+                        if matches!(status, RuntimeHookStatus::NotConfigured) {
+                            "[i] Install with fail-open"
+                        } else {
+                            "[i] Reinstall wiring"
+                        },
+                    ));
+                    lines.push(Line::from("[u] Uninstall wiring"));
+                }
+                Err(error) => {
+                    lines.push(Line::from(format!("Status: cannot inspect ({error})")));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from("[i] Install or repair wiring"));
+                    lines.push(Line::from("[u] Uninstall wiring"));
+                }
+            }
+            lines.extend([
                 Line::from(""),
-                Line::from("fail-open: runtime decides when a required check fails."),
-                Line::from("fail-closed: nah blocks when a required check fails."),
-                Line::from("Unknown valid calls still go to the runtime in either mode."),
-                Line::from(""),
-                Line::from("Change mode:"),
-                Line::from(format!(
-                    "nah hook {} install --fail-open",
-                    runtime.runtime.cli_name()
-                )),
-                Line::from(format!(
-                    "nah hook {} install --fail-closed",
-                    runtime.runtime.cli_name()
-                )),
-                Line::from(""),
-                Line::from("Status checks installed hook files, not the running runtime."),
-                Line::from("Restart or reload the runtime after changes."),
+                Line::from("Restart or reload the runtime after wiring changes."),
                 Line::from(""),
                 Line::from(format!("Docs: nah docs {}", runtime.docs_topic)),
-            ])
+            ]);
+            Text::from(lines)
         }
         None => Text::from("No supported runtimes."),
     };
@@ -607,16 +659,16 @@ fn log_scope(app: &App) -> String {
 fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let keys = match app.screen {
         Screen::Guards => format!(
-            "Up/Down move  Space toggle  v view files  r review changes  D defaults  Enter apply  {} pending",
+            "Space toggle  v files  r review  Enter apply  ? help  {} pending",
             app.pending_count()
         ),
-        Screen::Projects => "Up/Down move  t trust current  u untrust selected".into(),
-        Screen::Runtimes => "Up/Down move  i install/reinstall  u uninstall".into(),
+        Screen::Projects => "t trust current  u untrust selected  ? help".into(),
+        Screen::Runtimes => "f mode  i install/reinstall  u uninstall  ? help".into(),
         // Typing replaces the keymap, so the query stays visible even where the
         // list title is too narrow to show all of it.
         Screen::Log if app.log_search_editing => format!("/{}\u{2588}", app.log_search),
         Screen::Log => format!(
-            "Up/Down move  PgUp/PgDn detail  / search  v filter: {} ({})  r runtime: {}  R refresh",
+            "/ search  v filter: {} ({})  r runtime: {}  PgUp/PgDn detail  ? help",
             filter_name(app.log_filter),
             verdict_counts(app),
             runtime_filter_name(app)
@@ -646,6 +698,117 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+fn render_help(frame: &mut Frame<'_>, app: &App) {
+    let text = help_lines(app);
+    let width = frame.area().width.saturating_sub(2).clamp(48, 84);
+    let content_height = wrapped_height(&text, width.saturating_sub(2));
+    let height = u16::try_from(content_height.saturating_add(2))
+        .unwrap_or(u16::MAX)
+        .min(frame.area().height);
+    let area = centered_rect(width, height, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(
+                Block::default()
+                    .title(format!(" Help \u{2014} {} ", help_title(app.screen)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::new().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn help_lines(app: &App) -> Vec<Line<'static>> {
+    let mut lines = vec![help_heading("ABOUT")];
+    lines.extend(match app.screen {
+        Screen::Guards => vec![
+            Line::from("Guards block understood danger; they never approve a call."),
+            Line::from("Built-ins ship with nah. User guards are eligible everywhere."),
+            Line::from("Project guards are eligible only in a trusted root and its descendants."),
+            Line::from("Changed custom guard files require review before re-enabling."),
+            Line::from("Changes stay pending until Enter applies them."),
+            Line::from(""),
+            help_heading("KEYS"),
+            Line::from("Space toggle  v view files  r review changes"),
+            Line::from("D reset defaults  Enter apply"),
+        ],
+        Screen::Projects => vec![
+            Line::from("Trust lets a project offer custom guards from its .nah/ directory."),
+            Line::from("Those guards are eligible only in the project root and its descendants."),
+            Line::from("Trust does not enable guards; each still needs review and enablement."),
+            Line::from("Untrusting also disables its project guards."),
+            Line::from(""),
+            help_heading("KEYS"),
+            Line::from("t trust current  u untrust selected"),
+            Line::from("1 open Guards to review project guards"),
+        ],
+        Screen::Runtimes => vec![
+            Line::from("Runtime wiring lets nah inspect supported tool calls before execution."),
+            Line::from("Fail-open (default): explicit evaluation failures and refusals delegate."),
+            Line::from("Fail-closed: those failures and refusals block."),
+            Line::from("Ordinary unknown or uncertain calls delegate in either mode."),
+            Line::from("nah never approves a call; delegation returns control to the runtime."),
+            Line::from(""),
+            help_heading("KEYS"),
+            Line::from("f change failure mode"),
+            Line::from("i install/reinstall  u uninstall"),
+        ],
+        Screen::Log => vec![
+            Line::from("Block means a guard or self-protection found definite danger."),
+            Line::from("Delegate means nah did not block; the runtime keeps control."),
+            Line::from("Delegate is not approval."),
+            Line::from("Unavailable means no valid decision was produced."),
+            Line::from("The log stores redacted decision details."),
+            Line::from(""),
+            help_heading("KEYS"),
+            Line::from("/ search  v verdict filter  r runtime filter"),
+            Line::from("PgUp/PgDn scroll details"),
+        ],
+    });
+    if let Some(confirmation) = &app.confirmation {
+        lines.extend([
+            Line::from(""),
+            help_heading("OPEN PROMPT"),
+            Line::from(match confirmation {
+                Confirmation::ViewGuard { .. } => {
+                    "Close help, then v, q, n, or Esc closes the file view."
+                }
+                _ => "Close help, then y confirms; n or Esc cancels.",
+            }),
+            Line::from("Up/Down or PgUp/PgDn scrolls long prompt details."),
+        ]);
+    }
+    lines.extend([
+        Line::from(""),
+        help_heading("GLOBAL"),
+        Line::from("1-4 open tab  Tab/Shift-Tab cycle tabs"),
+        Line::from("Up/Down or j/k move  R refresh  q quit"),
+    ]);
+    if app.nap.is_some() {
+        lines.push(Line::from("w end the active nap"));
+    }
+    lines.push(Line::from("? or Esc close help"));
+    lines
+}
+
+fn help_heading(text: &'static str) -> Line<'static> {
+    Line::styled(
+        text,
+        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )
+}
+
+const fn help_title(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Guards => "Guards",
+        Screen::Projects => "Projects",
+        Screen::Runtimes => "Runtime integrations",
+        Screen::Log => "Decision log",
+    }
 }
 
 fn render_confirmation(frame: &mut Frame<'_>, confirmation: &Confirmation, scroll: u16) {
@@ -842,28 +1005,67 @@ fn confirmation_lines(confirmation: &Confirmation) -> Vec<Line<'static>> {
             Line::from(path.clone()),
             Line::from(format!("This also disables {approvals} project guard(s).")),
         ],
-        Confirmation::ConfigureRuntime { name, install, .. } => vec![
-            Line::styled(
-                if *install {
-                    "Install or refresh runtime wiring?"
-                } else {
-                    "Uninstall nah-owned runtime wiring?"
-                },
-                Style::new().add_modifier(Modifier::BOLD),
-            ),
-            Line::from(if *install {
-                "y install  n cancel"
+        Confirmation::ConfigureRuntime {
+            name,
+            install,
+            failure_policy,
+            configured,
+            ..
+        } => {
+            if let Some(policy) = failure_policy {
+                vec![
+                    Line::styled(
+                        format!(
+                            "{} {name} {} {}?",
+                            if *configured { "Switch" } else { "Install" },
+                            if *configured { "to" } else { "with" },
+                            policy.cli_name()
+                        ),
+                        Style::new().add_modifier(Modifier::BOLD),
+                    ),
+                    Line::from(if *configured {
+                        "y switch  n cancel"
+                    } else {
+                        "y install  n cancel"
+                    }),
+                    Line::from(""),
+                    Line::from(match policy {
+                        FailurePolicy::Delegate => {
+                            "Explicit evaluation failures and refusals will return to the runtime."
+                        }
+                        FailurePolicy::Block => {
+                            "Explicit evaluation failures and refusals will block."
+                        }
+                    }),
+                    Line::from("Valid unknown calls still delegate in either mode."),
+                    Line::from(""),
+                    Line::from("Restart or reload the runtime after wiring changes."),
+                ]
             } else {
-                "y uninstall  n cancel"
-            }),
-            Line::from(""),
-            Line::from(*name),
-            Line::from(if *install {
-                "This changes only nah-owned integration entries."
-            } else {
-                "Unrelated runtime configuration is preserved."
-            }),
-        ],
+                vec![
+                    Line::styled(
+                        if *install {
+                            "Install or refresh runtime wiring?"
+                        } else {
+                            "Uninstall nah-owned runtime wiring?"
+                        },
+                        Style::new().add_modifier(Modifier::BOLD),
+                    ),
+                    Line::from(if *install {
+                        "y install  n cancel"
+                    } else {
+                        "y uninstall  n cancel"
+                    }),
+                    Line::from(""),
+                    Line::from(*name),
+                    Line::from(if *install {
+                        "This changes only nah-owned integration entries."
+                    } else {
+                        "Unrelated runtime configuration is preserved."
+                    }),
+                ]
+            }
+        }
         Confirmation::EndNap { mode } => vec![
             Line::styled(
                 "End the nap and restore enforcement?",

@@ -47,7 +47,17 @@ enum SessionAction {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
+    if app.help_open {
+        if matches!(key.code, KeyCode::Char('?') | KeyCode::Esc) {
+            app.help_open = false;
+        }
+        return None;
+    }
     if app.confirmation.is_some() {
+        if key.code == KeyCode::Char('?') {
+            app.help_open = true;
+            return None;
+        }
         if matches!(
             app.confirmation.as_ref(),
             Some(app::Confirmation::ViewGuard { .. })
@@ -132,11 +142,15 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
         KeyCode::Char('u') if app.screen == Screen::Projects => app.request_untrust_selected(),
         KeyCode::Char('i') if app.screen == Screen::Runtimes => app.request_runtime(true),
         KeyCode::Char('u') if app.screen == Screen::Runtimes => app.request_runtime(false),
+        KeyCode::Char('f') if app.screen == Screen::Runtimes => {
+            app.request_runtime_failure_policy();
+        }
         KeyCode::Char('v') if app.screen == Screen::Log => app.cycle_log_filter(),
         KeyCode::Char('r') if app.screen == Screen::Log => app.cycle_log_runtime_filter(),
         KeyCode::Char('/') if app.screen == Screen::Log => app.begin_log_search(),
         KeyCode::PageUp if app.screen == Screen::Log => app.scroll_log_detail(false),
         KeyCode::PageDown if app.screen == Screen::Log => app.scroll_log_detail(true),
+        KeyCode::Char('?') => app.help_open = true,
         _ => {}
     }
     None
@@ -152,6 +166,7 @@ mod tests {
     use super::*;
 
     use crate::nap::NapMode;
+    use crate::runtime::FailurePolicy;
 
     use app::{Confirmation, Message, MessageKind, NapStatus};
 
@@ -173,6 +188,47 @@ mod tests {
                 text: "no guard changes to apply".into(),
             })
         );
+    }
+
+    #[test]
+    fn contextual_help_opens_and_closes_on_every_screen() {
+        let mut app = App::fixture();
+        for screen in [
+            Screen::Guards,
+            Screen::Projects,
+            Screen::Runtimes,
+            Screen::Log,
+        ] {
+            app.select_screen(screen);
+            press(&mut app, KeyCode::Char('?'));
+            assert!(app.help_open, "{screen:?}");
+
+            // Help owns its keys until it closes.
+            press(&mut app, KeyCode::Char('q'));
+            assert!(app.help_open, "{screen:?}");
+            assert_eq!(app.screen, screen);
+
+            press(&mut app, KeyCode::Char('?'));
+            assert!(!app.help_open, "{screen:?}");
+            press(&mut app, KeyCode::Char('?'));
+            press(&mut app, KeyCode::Esc);
+            assert!(!app.help_open, "{screen:?}");
+        }
+    }
+
+    #[test]
+    fn help_preserves_the_confirmation_underneath_it() {
+        let mut app = App::fixture();
+        app.select_screen(Screen::Runtimes);
+        press(&mut app, KeyCode::Char('i'));
+        let confirmation = app.confirmation.clone();
+
+        press(&mut app, KeyCode::Char('?'));
+        assert!(app.help_open);
+        press(&mut app, KeyCode::Esc);
+
+        assert!(!app.help_open);
+        assert_eq!(app.confirmation, confirmation);
     }
 
     #[test]
@@ -206,6 +262,24 @@ mod tests {
         assert!(matches!(
             app.confirmation,
             Some(Confirmation::ConfigureRuntime { install: true, .. })
+        ));
+    }
+
+    #[test]
+    fn changing_runtime_failure_mode_stays_inside_the_session() {
+        let mut app = App::fixture();
+        app.select_screen(Screen::Runtimes);
+        press(&mut app, KeyCode::Char('f'));
+
+        let outcome = press(&mut app, KeyCode::Char('y'));
+
+        assert!(matches!(outcome, Some(SessionAction::ConfigureRuntime)));
+        assert!(matches!(
+            app.confirmation,
+            Some(Confirmation::ConfigureRuntime {
+                failure_policy: Some(FailurePolicy::Block),
+                ..
+            })
         ));
     }
 
@@ -265,6 +339,16 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert!(!app.log_search_editing);
         assert_eq!(app.log_search, "qvjk");
+    }
+
+    #[test]
+    fn question_mark_is_search_text_while_editing() {
+        let mut app = searching_app();
+
+        press(&mut app, KeyCode::Char('?'));
+
+        assert_eq!(app.log_search, "?");
+        assert!(!app.help_open);
     }
 
     #[test]

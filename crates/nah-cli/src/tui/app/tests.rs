@@ -2,13 +2,63 @@ use super::*;
 
 #[test]
 fn runtime_status_names_show_the_preserved_failure_policy() {
-    assert_eq!(
-        status_name(RuntimeHookStatus::WiringCurrent),
-        "wiring current · fail-open"
-    );
+    assert_eq!(status_name(RuntimeHookStatus::WiringCurrent), "fail-open");
     assert_eq!(
         status_name(RuntimeHookStatus::WiringCurrentFailClosed),
-        "wiring current · fail-closed"
+        "fail-closed"
+    );
+}
+
+#[test]
+fn runtime_failure_policy_toggle_targets_the_opposite_mode() {
+    let mut app = App::fixture();
+    app.request_runtime_failure_policy();
+    assert!(matches!(
+        app.confirmation,
+        Some(Confirmation::ConfigureRuntime {
+            install: true,
+            failure_policy: Some(FailurePolicy::Block),
+            configured: true,
+            ..
+        })
+    ));
+
+    app.runtimes[0].status = Ok(RuntimeHookStatus::WiringCurrentFailClosed);
+    app.request_runtime_failure_policy();
+    assert!(matches!(
+        app.confirmation,
+        Some(Confirmation::ConfigureRuntime {
+            failure_policy: Some(FailurePolicy::Delegate),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn runtime_failure_policy_toggle_installs_unconfigured_runtime_fail_closed() {
+    let mut app = App::fixture();
+    app.runtimes[0].status = Ok(RuntimeHookStatus::NotConfigured);
+    app.request_runtime_failure_policy();
+    assert!(matches!(
+        app.confirmation,
+        Some(Confirmation::ConfigureRuntime {
+            install: true,
+            failure_policy: Some(FailurePolicy::Block),
+            configured: false,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn runtime_failure_policy_toggle_refuses_uninspectable_wiring() {
+    let mut app = App::fixture();
+    app.runtimes[0].status = Err("runtime-hook-read-failed".into());
+    app.request_runtime_failure_policy();
+    assert!(app.confirmation.is_none());
+    assert_eq!(
+        app.message.as_ref().map(|message| message.text.as_str()),
+        Some("cannot change mode while runtime wiring cannot be inspected")
     );
 }
 

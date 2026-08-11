@@ -16,7 +16,7 @@ fn all_four_screens_render() {
     for (screen, expected) in [
         (Screen::Guards, "exec-remote"),
         (Screen::Projects, "Need review: 1"),
-        (Screen::Runtimes, "required check fails"),
+        (Screen::Runtimes, "Failure mode: fail-open"),
         (Screen::Log, "reason: remote code"),
     ] {
         app.screen = screen;
@@ -29,16 +29,100 @@ fn all_four_screens_render() {
 }
 
 #[test]
-fn runtime_screen_explains_and_switches_failure_modes() {
+fn runtime_screen_offers_one_dynamic_failure_mode_action() {
     let mut app = App::fixture();
     app.screen = Screen::Runtimes;
     let output = rendered(&app, 100, 24);
     for expected in [
-        "fail-open: runtime decides",
-        "fail-closed: nah blocks",
-        "install --fail-open",
-        "install --fail-closed",
+        "Failure mode: fail-open",
+        "[f] Switch to fail-closed",
+        "[i] Reinstall wiring",
+        "f mode",
         "Restart or reload",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
+    assert!(!output.contains("install --fail-"), "{output}");
+    assert!(!output.contains("fail-open: runtime decides"), "{output}");
+}
+
+#[test]
+fn contextual_help_explains_each_screen() {
+    let mut app = App::fixture();
+    app.help_open = true;
+    for (screen, expected) in [
+        (
+            Screen::Guards,
+            "Changed custom guard files require review before re-enabling.",
+        ),
+        (
+            Screen::Projects,
+            "Trust does not enable guards; each still needs review and enablement.",
+        ),
+        (
+            Screen::Runtimes,
+            "Fail-open (default): explicit evaluation failures and refusals delegate.",
+        ),
+        (
+            Screen::Log,
+            "Delegate means nah did not block; the runtime keeps control.",
+        ),
+    ] {
+        app.screen = screen;
+        let output = rendered(&app, 100, 24);
+        assert!(output.contains("ABOUT"), "{screen:?}:\n{output}");
+        assert!(output.contains("KEYS"), "{screen:?}:\n{output}");
+        assert!(output.contains("GLOBAL"), "{screen:?}:\n{output}");
+        assert!(output.contains(expected), "{screen:?}:\n{output}");
+        assert!(
+            output.contains("? or Esc close help"),
+            "{screen:?}:\n{output}"
+        );
+    }
+}
+
+#[test]
+fn help_explains_the_confirmation_underneath_it() {
+    let mut app = App::fixture();
+    app.screen = Screen::Runtimes;
+    app.request_runtime_failure_policy();
+    app.help_open = true;
+
+    let output = rendered(&app, 100, 28);
+
+    assert!(output.contains("OPEN PROMPT"), "{output}");
+    assert!(
+        output.contains("Close help, then y confirms; n or Esc cancels."),
+        "{output}"
+    );
+}
+
+#[test]
+fn every_idle_screen_offers_help() {
+    let mut app = App::fixture();
+    for screen in [
+        Screen::Guards,
+        Screen::Projects,
+        Screen::Runtimes,
+        Screen::Log,
+    ] {
+        app.screen = screen;
+        let output = rendered(&app, 100, 24);
+        assert!(output.contains("? help"), "{screen:?}:\n{output}");
+    }
+}
+
+#[test]
+fn runtime_failure_mode_confirmation_explains_the_selected_change() {
+    let mut app = App::fixture();
+    app.screen = Screen::Runtimes;
+    app.request_runtime_failure_policy();
+    let output = rendered(&app, 100, 24);
+    for expected in [
+        "Switch Codex to fail-closed?",
+        "Explicit evaluation failures and refusals will block.",
+        "Valid unknown calls still delegate in either mode.",
+        "y switch  n cancel",
     ] {
         assert!(output.contains(expected), "missing {expected:?}:\n{output}");
     }
@@ -201,10 +285,11 @@ fn pending_counts_render_on_the_guard_tab() {
 }
 
 #[test]
-fn the_guard_footer_offers_the_defaults_reset() {
-    let app = App::fixture();
+fn guard_help_carries_the_defaults_reset() {
+    let mut app = App::fixture();
+    app.help_open = true;
     let output = rendered(&app, 100, 24);
-    assert!(output.contains("D defaults"), "{output}");
+    assert!(output.contains("D reset defaults"), "{output}");
 }
 
 #[test]
@@ -237,11 +322,10 @@ fn log_footer_counts_verdicts_at_every_width() {
 
     // The footer wraps at the minimum width; the counts survive the wrap.
     let narrow = rendered(&app, 50, 14);
-    assert!(narrow.contains("PgUp/PgDn detail  / search  v"), "{narrow}");
-    assert!(
-        narrow.contains("filter: all (1 delegate, 1 block)  r runtime: all"),
-        "{narrow}"
-    );
+    assert!(narrow.contains("/ search  v filter:"), "{narrow}");
+    assert!(narrow.contains("all (1 delegate, 1 block)"), "{narrow}");
+    assert!(narrow.contains("runtime: all"), "{narrow}");
+    assert!(narrow.contains("? help"), "{narrow}");
 }
 
 #[test]

@@ -36,6 +36,7 @@ installation.
 
 `--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
 default. Flagless reinstall preserves a recognized mode, and `status` reports it.
+In the TUI, `f` changes runtime mode and `?` opens contextual help.
 
 Starting or extending a nap requires a separate interactive operator terminal
 and confirmation; intercepted agents cannot invoke it. Naps are user-global,
