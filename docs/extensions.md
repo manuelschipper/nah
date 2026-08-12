@@ -71,12 +71,13 @@ An explicit path selector matches only that path. A bare selector such as
 It does not match `./aws`, `/tmp/aws`, or a project-local lookalike; name one of
 those paths explicitly when intended.
 
-Selection occurs when any match entry matches a visible known, opaque, or
-code-execution invocation in the action stream. A user guard is eligible
-everywhere. A project guard is eligible only when the matched invocation's
-visible working directory is its trusted project root or a descendant. Once
-selected, it receives the complete stream: re-check each invocation's program
-and `cwd` rather than treating unrelated or out-of-root effects as in scope.
+Selection and `exec/v1` use the public ActionStream: at most 64 modeled calls per
+interpreted source. Saturation makes coverage partial; later calls are
+language-safety only. Any visible known, opaque, or code-execution invocation
+may select a guard. A user guard is eligible
+everywhere. A project guard also requires the invocation's visible `cwd` to be
+its trusted root or a descendant. Re-check each invocation rather than treating
+unrelated or out-of-root effects as in scope.
 
 Exact child commands found in visible interpreter code may appear as additional
 stages beside the original `code-execution` invocation. They use the ordinary
@@ -188,14 +189,14 @@ directory at that stage; it is absent when that directory is unresolved. When
 an earlier `cd` may have failed, coverage is partial even though the requested
 directory remains visible.
 
-Native tool input is `{"kind":"native","value":{...},"complete":true}`.
+Native input is `{"kind":"native","value":{...},"complete":true}`.
 Adapters preserve it for custom guards while normalizing documented tools for
 built-in policy. Unknown native tools remain opaque. An unrecognized field
 makes coverage partial but remains visible. Input and inline code can contain
 secrets and are provided only to activated custom guards and `nah test --json`.
-nah does not itself copy raw evidence into records, diagnostics,
-or feedback, but a guard's `reason` is memoized and sent to the runtime. Never
-put secrets or raw input in a reason.
+nah does not copy raw evidence into records, diagnostics, or feedback, but a
+guard's `reason` is memoized and sent to the runtime. Never put secrets or raw
+input in a reason.
 Invocation evidence over 1 MiB is omitted and marked incomplete rather than
 being sent to a guard.
 

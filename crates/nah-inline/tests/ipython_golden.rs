@@ -1,7 +1,6 @@
 use nah_inline::{
     Evidence, FindingKind, InlineInput, LanguageAnalysis, LanguageCallKind, NestedExecution,
-    ProtectionInput, analyze, analyze_persistent_ipython_with_language_effects,
-    analyze_with_language_effects,
+    ProtectionInput, analyze, interpret_language_effects, interpret_persistent_ipython_effects,
 };
 use nah_proto::action::InvocationInput;
 use nah_proto::ctx::Platform;
@@ -34,7 +33,7 @@ fn language_analysis_with_shell(code: &str, shell: Option<&str>) -> LanguageAnal
             )]
         })
         .unwrap_or_default();
-    analyze_with_language_effects(
+    interpret_language_effects(
         InlineInput {
             program: "ipython",
             code,
@@ -49,7 +48,7 @@ fn language_analysis_with_shell(code: &str, shell: Option<&str>) -> LanguageAnal
 }
 
 fn persistent_language_analysis(code: &str) -> LanguageAnalysis {
-    analyze_persistent_ipython_with_language_effects(
+    interpret_persistent_ipython_effects(
         InlineInput {
             program: "ipython",
             code,

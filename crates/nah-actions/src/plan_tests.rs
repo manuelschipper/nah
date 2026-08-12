@@ -28,6 +28,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
             analysis_refused: false,
             child_cwds: Vec::new(),
             stages: vec![StageDraft {
+                language_safety_only: false,
                 invocation: InvocationDraft::Known {
                     program: "echo".into(),
                     operation: SemanticCode::LOCAL_UTILITY,

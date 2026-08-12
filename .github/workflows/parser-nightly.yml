@@ -20,4 +20,20 @@ jobs:
       - name: Differential parser fuzz
         env:
           NAH_FUZZ_CASES: "4096"
-        run: cargo test -p nah-parse --test parser differential_fuzzer --locked
+        run: |
+          selected="$(cargo test -p nah-parse --test parser a_clean_parser_result_is_accepted_by_bash --locked -- --list)"
+          case "$selected" in
+            *"a_clean_parser_result_is_accepted_by_bash: test"*) ;;
+            *) echo "differential parser fuzz test was not selected" >&2; exit 1 ;;
+          esac
+          cargo test -p nah-parse --test parser a_clean_parser_result_is_accepted_by_bash --locked
+      - name: Python and Node semantic oracle
+        run: |
+          command -v python3
+          command -v node
+          selected="$(cargo test -p nah-inline --test runtime_oracle supported_subset_matches_cpython_and_node --locked -- --ignored --list)"
+          case "$selected" in
+            *"supported_subset_matches_cpython_and_node: test"*) ;;
+            *) echo "language semantic oracle was not selected" >&2; exit 1 ;;
+          esac
+          cargo test -p nah-inline --test runtime_oracle supported_subset_matches_cpython_and_node --locked -- --ignored

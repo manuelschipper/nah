@@ -5,6 +5,7 @@ mod support;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+use nah_cli::POLICY_VERSION;
 use serde_json::Value;
 use support::repo;
 
@@ -125,7 +126,8 @@ fn modeled_exfiltration_sources_keep_the_v1_extension_contract() {
         assert_eq!(value["exec_request"]["action_stream"]["v"], 1, "{command}");
         assert_eq!(value["decision"]["verdict"], "block", "{command}");
         assert_eq!(
-            value["decision"]["policy_attributions"][0]["policy_version"], 1,
+            value["decision"]["policy_attributions"][0]["policy_version"],
+            POLICY_VERSION.value(),
             "{command}"
         );
         assert!(
@@ -161,7 +163,7 @@ fn root_relocation_and_bounded_printf_keep_v1_contracts() {
     assert_eq!(value["decision"]["verdict"], "block");
     assert_eq!(
         value["decision"]["policy_attributions"][0]["policy_version"],
-        1
+        POLICY_VERSION.value()
     );
     assert!(
         value["exec_request"]["action_stream"]["effects"]
@@ -185,7 +187,8 @@ fn root_relocation_and_bounded_printf_keep_v1_contracts() {
         assert_eq!(value["exec_request"]["action_stream"]["v"], 1, "{command}");
         assert_eq!(value["decision"]["verdict"], "block", "{command}");
         assert_eq!(
-            value["decision"]["policy_attributions"][0]["policy_version"], 1,
+            value["decision"]["policy_attributions"][0]["policy_version"],
+            POLICY_VERSION.value(),
             "{command}"
         );
     }

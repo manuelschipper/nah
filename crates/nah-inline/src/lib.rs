@@ -5,14 +5,14 @@
     clippy::disallowed_types
 )]
 
-//! Bounded recognition in exact visible inline code. Native findings remain
-//! private policy inputs; exact child executions return typed descriptors for
-//! the existing Bash planner.
+//! Bounded Python and JavaScript/TypeScript effect interpretation plus narrower
+//! inline detection. Findings remain private policy inputs; exact child
+//! executions return typed descriptors for the Bash planner.
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 
 mod finding;
-mod language;
+mod language_effects;
 mod languages;
 mod syntax;
 
@@ -20,7 +20,7 @@ pub use finding::{
     Evidence, Finding, FindingKind, InlineRefusal, InlineReport, NestedExecution,
     NestedExecutionCwd,
 };
-pub use language::{
+pub use language_effects::{
     LanguageAnalysis, LanguageCall, LanguageCallKind, LanguageDraft, LanguageFilesystem,
     LanguageFlow,
 };
@@ -64,14 +64,16 @@ pub fn supports(program: &str) -> bool {
     languages::supports(program)
 }
 
-pub fn analyze_with_language_effects(
+/// Interprets supported Python and JavaScript/TypeScript effects without executing source.
+pub fn interpret_language_effects(
     input: InlineInput<'_>,
     protection: ProtectionInput<'_>,
 ) -> LanguageAnalysis {
-    analyze_language_at(input, Some(&protection), 0)
+    interpret_language_effects_at(input, Some(&protection), 0)
 }
 
-pub fn analyze_persistent_ipython_with_language_effects(
+/// Interprets an IPython cell while treating persistent-kernel state as unknown.
+pub fn interpret_persistent_ipython_effects(
     input: InlineInput<'_>,
     protection: ProtectionInput<'_>,
 ) -> LanguageAnalysis {
@@ -82,7 +84,7 @@ pub fn analyze_persistent_ipython_with_language_effects(
     if input.code.len() > SOURCE_LIMIT {
         return LanguageAnalysis::refused(InlineRefusal::SourceLimit);
     }
-    languages::analyze_persistent_ipython(input, Some(&protection), 0)
+    languages::interpret_persistent_ipython_effects(input, Some(&protection), 0)
 }
 
 fn analyze_at(
@@ -90,10 +92,10 @@ fn analyze_at(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
-    analyze_language_at(input, protection, depth).into_report()
+    interpret_language_effects_at(input, protection, depth).into_report()
 }
 
-fn analyze_language_at(
+fn interpret_language_effects_at(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
@@ -110,18 +112,18 @@ fn analyze_language_at(
         return LanguageAnalysis::refused(InlineRefusal::RecursionLimit);
     }
     if is_ipython_interpreter(program) {
-        return languages::analyze_ipython(input, protection, depth);
+        return languages::interpret_ipython_effects(input, protection, depth);
     }
     if is_python_interpreter(program) {
-        return languages::analyze_python(input, protection, depth);
+        return languages::interpret_python_effects(input, protection, depth);
     }
     if languages::has_javascript_profile(program) {
-        return languages::analyze_language(input, protection, depth);
+        return languages::interpret_effects(input, protection, depth);
     }
     if let Err(refusal) = syntax::structurally_bounded(input.code, program) {
         return LanguageAnalysis::refused(refusal);
     }
-    languages::analyze_language(input, protection, depth)
+    languages::interpret_effects(input, protection, depth)
 }
 
 pub(crate) fn normalized_program(program: &str) -> String {
@@ -185,7 +187,7 @@ mod tests {
     }
 
     fn finds_root(program: &str, code: &str) -> bool {
-        let analysis = analyze_with_language_effects(
+        let analysis = interpret_language_effects(
             InlineInput {
                 program,
                 code,
@@ -964,7 +966,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let protected = AbsolutePath::new(Platform::Linux, "/home/dev/.nah").unwrap();
-        let report = analyze_with_language_effects(
+        let report = interpret_language_effects(
             InlineInput {
                 program: "python3",
                 code: &code,

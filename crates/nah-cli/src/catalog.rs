@@ -6,7 +6,7 @@ use crate::shipped_state::ShippedState;
 
 /// Version of the block-or-delegate policy contract, not the evolving guard
 /// signature catalog.
-pub const POLICY_VERSION: PolicyVersion = PolicyVersion::V1;
+pub const POLICY_VERSION: PolicyVersion = PolicyVersion::V2;
 
 /// Every shipped guard is a guard, and guards are on unless a human turns one
 /// off.

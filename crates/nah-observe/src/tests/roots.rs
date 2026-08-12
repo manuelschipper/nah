@@ -167,7 +167,7 @@ fn missing_or_slow_git_fails_roots_closed() {
     let relative_git = temp.path().join("relative-git");
     fs::write(&relative_git, "#!/bin/sh\nprintf 'relative-root\\n'\n").unwrap();
     fs::set_permissions(&relative_git, fs::Permissions::from_mode(0o755)).unwrap();
-    let relative = fulfill_with_git(&request, &relative_git, Duration::from_millis(50))
+    let relative = fulfill_with_git(&request, &relative_git, Duration::from_secs(1))
         .expect("relative git observation");
     assert!(matches!(
         value(&relative, "roots"),

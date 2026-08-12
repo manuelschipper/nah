@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Clear `secrets-env` explanation** — block messages now say that the guard
+  blocks reading environment credential files, matching its read-only policy.
+- **Reliable audit writes during child startup** — audit writes now unlock
+  explicitly, preventing a concurrently started child from briefly retaining
+  a completed write's lock.
+- **Portable Kiro hook updates** — reinstalling or changing Kiro's failure
+  policy now works on Linux filesystems without rename-exchange support.
+- **Bounded language safety projection** — Each Python and JavaScript
+  interpretation keeps public output at 64 calls while shipped guards inspect
+  up to 256 calls and 4,096 data-flow edges. A later dangerous call can block
+  without expanding audit or extension payloads; public-output and
+  language-safety saturation now produce distinct typed refusals for
+  fail-closed runtimes.
+- **Policy contract v2** — shipped policy now considers the bounded internal
+  language safety projection, so an exact dangerous effect after the public
+  output limit can change a delegate verdict to block.
+- **Audit symlink protection** — audit reads and writes now verify opened Unix
+  files and parent directories against their paths, protecting symlink targets
+  even on kernels that do not enforce `O_NOFOLLOW` for directories.
 - **Working README menu** — the install, extend, and runtime shortcuts now
   target their current sections instead of obsolete heading anchors.
 - **Contextual TUI help** — `?` opens help for the active screen with its

@@ -72,6 +72,16 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        let config = home.join(".config");
+        std::fs::create_dir(&config).unwrap();
+        std::fs::write(
+            config.join("user-dirs.dirs"),
+            "XDG_DOCUMENTS_DIR=\"$HOME/Documents\"\n",
+        )
+        .unwrap();
+    }
 
     let allowed = run_hook(
         home,
@@ -158,10 +168,9 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
         runtime_lifecycle["errorMessage"]
     );
 
-    // cline keeps its IDE hooks under the documents directory: macOS resolves
-    // that to Documents, while xdg-user-dir answers with the home itself for
-    // a fixture that has no user-dirs configuration
-    let documents = if cfg!(target_os = "macos") {
+    // The Linux fixture pins the XDG directory so systems with and without
+    // xdg-user-dir exercise the same production path.
+    let documents = if cfg!(any(target_os = "linux", target_os = "macos")) {
         home.join("Documents")
     } else {
         home.to_path_buf()

@@ -19,16 +19,16 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
-    analyze_language(program, input, protection, depth).into_report()
+    interpret_effects(program, input, protection, depth).into_report()
 }
 
-pub(super) fn analyze_language(
+pub(super) fn interpret_effects(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    analyze_language_with_state(
+    interpret_effects_with_state(
         program,
         input,
         protection,
@@ -38,7 +38,7 @@ pub(super) fn analyze_language(
     )
 }
 
-pub(super) fn analyze_language_with_state(
+pub(super) fn interpret_effects_with_state(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
@@ -46,7 +46,7 @@ pub(super) fn analyze_language_with_state(
     initial_state: InitialState,
     capture_ipython_output: bool,
 ) -> LanguageAnalysis {
-    engine::analyze(
+    engine::interpret(
         program,
         input,
         protection,
@@ -57,7 +57,7 @@ pub(super) fn analyze_language_with_state(
     )
 }
 
-pub(super) fn analyze_ipython_syntax_with_state(
+pub(super) fn interpret_ipython_syntax_with_state(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
@@ -65,7 +65,7 @@ pub(super) fn analyze_ipython_syntax_with_state(
     initial_state: InitialState,
     capture_ipython_output: bool,
 ) -> LanguageAnalysis {
-    engine::analyze(
+    engine::interpret(
         program,
         input,
         protection,

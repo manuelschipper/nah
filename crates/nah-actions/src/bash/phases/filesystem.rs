@@ -414,6 +414,7 @@ impl Lowerer {
         network_endpoints.extend(filesystem_endpoints);
         descriptor_flows.extend(filesystem_flows);
         self.stages.push(StageDraft {
+            language_safety_only: false,
             invocation: InvocationDraft::Known {
                 program: "bash".into(),
                 operation: SemanticCode::NULL_COMMAND,

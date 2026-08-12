@@ -402,6 +402,7 @@ impl Lowerer {
             .then(|| lastpipe_update(&program, &local_arguments))
             .flatten();
         let stage_draft = StageDraft {
+            language_safety_only: false,
             invocation,
             invocation_cwd,
             child_cwd_keys: Vec::new(),

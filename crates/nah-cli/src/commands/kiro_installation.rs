@@ -596,56 +596,7 @@ fn named_identity(directory: &HookDirectory, name: &str) -> Option<FileIdentity>
     metadata.is_file().then(|| file_identity(&metadata))
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn replace(
-    directory: &HookDirectory,
-    temporary: &str,
-    expected: Option<&LoadedHook>,
-) -> Result<(), String> {
-    use rustix::fs::{AtFlags, RenameFlags};
-
-    let Some(expected) = expected else {
-        return rustix::fs::renameat_with(
-            &directory.file,
-            temporary,
-            &directory.file,
-            "nah.json",
-            RenameFlags::NOREPLACE,
-        )
-        .map_err(|_| "kiro-hook-file-conflict".to_owned());
-    };
-    unchanged(directory, Some(expected))?;
-    rustix::fs::renameat_with(
-        &directory.file,
-        temporary,
-        &directory.file,
-        "nah.json",
-        RenameFlags::EXCHANGE,
-    )
-    .map_err(|_| "kiro-hook-write-failed".to_owned())?;
-    if named_identity(directory, temporary)
-        .is_some_and(|identity| identity.same_content(expected.identity))
-    {
-        rustix::fs::unlinkat(&directory.file, temporary, AtFlags::empty())
-            .map_err(|_| "kiro-hook-write-failed")?;
-        return Ok(());
-    }
-    rustix::fs::renameat_with(
-        &directory.file,
-        temporary,
-        &directory.file,
-        "nah.json",
-        RenameFlags::EXCHANGE,
-    )
-    .map_err(|_| "kiro-hook-write-failed".to_owned())?;
-    Err("kiro-hook-file-conflict".into())
-}
-
-#[cfg(all(
-    unix,
-    not(target_os = "redox"),
-    not(any(target_os = "linux", target_os = "android"))
-))]
+#[cfg(all(unix, not(target_os = "redox")))]
 fn replace(
     directory: &HookDirectory,
     temporary: &str,

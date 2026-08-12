@@ -152,15 +152,15 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
-    analyze_language(program, input, protection, depth).into_report()
+    interpret_effects(program, input, protection, depth).into_report()
 }
 
-pub(super) fn analyze_language(
+pub(super) fn interpret_effects(
     program: &str,
     input: &InlineInput<'_>,
     _protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
     let profile = profile(program).expect("JavaScript analysis requires an admitted profile");
-    engine::analyze(profile, input, depth)
+    engine::interpret(profile, input, depth)
 }

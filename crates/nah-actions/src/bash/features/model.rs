@@ -81,6 +81,7 @@ pub(crate) struct ChildCwdDraft {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StageDraft {
+    pub(crate) language_safety_only: bool,
     pub(crate) invocation: InvocationDraft,
     pub(crate) invocation_cwd: Option<String>,
     pub(crate) child_cwd_keys: Vec<String>,

@@ -519,7 +519,8 @@ where
         inline_report = nah_inline::InlineReport::default();
         inline_failed = true;
     }
-    let action_stream = nah_actions::finalize(plan, observation.clone());
+    let (action_stream, language_safety_stream) =
+        nah_actions::finalize_with_language_safety_stream(plan, observation.clone());
     if action_stream.effects().iter().any(|effect| {
         matches!(
             effect.kind(),
@@ -542,6 +543,7 @@ where
         }
         return match decide_policy(
             &action_stream,
+            &language_safety_stream,
             &inline_report,
             derivation.policy_ctx(),
             &[],
@@ -585,6 +587,7 @@ where
     }
     match decide_policy(
         &action_stream,
+        &language_safety_stream,
         &inline_report,
         derivation.policy_ctx(),
         &responses,
@@ -617,14 +620,16 @@ where
 
 fn decide_policy(
     action_stream: &ActionStream,
+    language_safety_stream: &ActionStream,
     inline_report: &nah_inline::InlineReport,
     policy_ctx: &nah_proto::ctx::PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: nah_policy::EnforcementMode,
 ) -> Result<DecisionCore, ()> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        nah_policy::decide_with_mode_and_inline(
+        nah_policy::decide_with_mode_and_inline_language_safety_stream(
             action_stream,
+            language_safety_stream,
             inline_report,
             policy_ctx,
             responses,

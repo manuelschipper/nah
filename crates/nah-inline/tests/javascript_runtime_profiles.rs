@@ -1,11 +1,11 @@
 use nah_inline::{
     InlineInput, LanguageAnalysis, LanguageCall, LanguageCallKind, NestedExecution,
-    NestedExecutionCwd, ProtectionInput, analyze_with_language_effects,
+    NestedExecutionCwd, ProtectionInput, interpret_language_effects,
 };
 use nah_proto::{action::FilesystemOperation, ctx::Platform};
 
 fn analyze(program: &str, code: &str) -> LanguageAnalysis {
-    analyze_with_language_effects(
+    interpret_language_effects(
         InlineInput {
             program,
             code,

@@ -1,6 +1,12 @@
+//! Owns language-effect interpretation results and their bounded public contracts.
+
 use nah_proto::action::{FilesystemOperation, InvocationInput};
 
 use crate::{InlineRefusal, InlineReport};
+
+const MAX_PUBLIC_LANGUAGE_CALLS: usize = 64;
+const MAX_LANGUAGE_SAFETY_CALLS: usize = 256;
+const MAX_LANGUAGE_SAFETY_FLOWS: usize = 4_096;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LanguageAnalysis {
@@ -9,7 +15,10 @@ pub struct LanguageAnalysis {
 }
 
 impl LanguageAnalysis {
-    pub(crate) fn new(report: InlineReport, draft: LanguageDraft) -> Self {
+    pub(crate) fn new(mut report: InlineReport, draft: LanguageDraft) -> Self {
+        for refusal in draft.refusals() {
+            report.refuse(*refusal);
+        }
         Self { report, draft }
     }
 
@@ -39,6 +48,8 @@ pub struct LanguageDraft {
     complete: bool,
     calls: Vec<LanguageCall>,
     flows: Vec<LanguageFlow>,
+    language_safety_flows: Vec<LanguageFlow>,
+    refusals: Vec<InlineRefusal>,
 }
 
 impl Default for LanguageDraft {
@@ -47,6 +58,8 @@ impl Default for LanguageDraft {
             complete: true,
             calls: Vec::new(),
             flows: Vec::new(),
+            language_safety_flows: Vec::new(),
+            refusals: Vec::new(),
         }
     }
 }
@@ -64,6 +77,10 @@ impl LanguageDraft {
     }
 
     pub fn calls(&self) -> &[LanguageCall] {
+        &self.calls[..self.calls.len().min(MAX_PUBLIC_LANGUAGE_CALLS)]
+    }
+
+    pub fn language_safety_calls(&self) -> &[LanguageCall] {
         &self.calls
     }
 
@@ -71,14 +88,25 @@ impl LanguageDraft {
         &self.flows
     }
 
+    pub fn language_safety_flows(&self) -> &[LanguageFlow] {
+        &self.language_safety_flows
+    }
+
+    pub(crate) fn refusals(&self) -> &[InlineRefusal] {
+        &self.refusals
+    }
+
     pub(crate) fn set_partial(&mut self) {
         self.complete = false;
     }
 
     pub(crate) fn push_call(&mut self, call: LanguageCall) -> Option<usize> {
-        const MAX_CALLS: usize = 64;
-        if self.calls.len() >= MAX_CALLS {
+        if self.calls.len() >= MAX_PUBLIC_LANGUAGE_CALLS {
             self.complete = false;
+            self.refuse(InlineRefusal::LanguageCallLimit);
+        }
+        if self.calls.len() >= MAX_LANGUAGE_SAFETY_CALLS {
+            self.refuse(InlineRefusal::LanguageSafetyLimit);
             return None;
         }
         let ordinal = self.calls.len();
@@ -87,9 +115,25 @@ impl LanguageDraft {
     }
 
     pub(crate) fn push_flow(&mut self, from: usize, to: usize) {
-        if from != to && !self.flows.contains(&LanguageFlow { from, to }) {
-            self.flows.push(LanguageFlow { from, to });
-            self.flows.sort_unstable();
+        let flow = LanguageFlow { from, to };
+        if from != to && !self.language_safety_flows.contains(&flow) {
+            if self.language_safety_flows.len() >= MAX_LANGUAGE_SAFETY_FLOWS {
+                self.complete = false;
+                self.refuse(InlineRefusal::LanguageSafetyLimit);
+                return;
+            }
+            self.language_safety_flows.push(flow);
+            self.language_safety_flows.sort_unstable();
+            if from < MAX_PUBLIC_LANGUAGE_CALLS && to < MAX_PUBLIC_LANGUAGE_CALLS {
+                self.flows.push(flow);
+                self.flows.sort_unstable();
+            }
+        }
+    }
+
+    pub(crate) fn refuse(&mut self, refusal: InlineRefusal) {
+        if !self.refusals.contains(&refusal) {
+            self.refusals.push(refusal);
         }
     }
 }

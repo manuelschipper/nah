@@ -30,14 +30,14 @@ beyond `command` are not fully modeled: a definite command finding still blocks,
 while other such calls stay partial. Process actions, missing workspace identity,
 malformed known input, and adapter failure delegate.
 
-Exact Code Mode exec payloads use bounded JavaScript or TypeScript effect
-interpretation under a QuickJS profile. Direct references and provenance-tracked
-aliases of `tools.call` and `tools.callValue` are recognized only as bridge
-invocations; nah does not
-infer the nested tool's filesystem or shell effects from the outer cell because
-OpenClaw hooks the actual nested call separately. Node globals, other bridge
-namespaces, shadowed or dormant calls, browser/process/device actions, plugins,
-and future tools remain unowned. A valid `restartSafe` boolean is retained as
+Exact Code Mode exec payloads use the JavaScript/TypeScript side of nah's
+bounded effect interpreter under a QuickJS profile. Direct references and
+provenance-tracked aliases of `tools.call` and `tools.callValue` are recognized
+only as bridge invocations; nah does not infer the nested tool's filesystem or
+shell effects from the outer cell because OpenClaw hooks the actual nested call
+separately. Node globals, other bridge namespaces, shadowed or dormant calls,
+browser/process/device actions, plugins, and future tools remain unowned. A
+valid `restartSafe` boolean is retained as
 input metadata; it does not prove that code is read-only or grant additional
 ownership.
 

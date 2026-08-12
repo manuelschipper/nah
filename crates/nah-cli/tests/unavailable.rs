@@ -508,6 +508,93 @@ fn fail_closed_blocks_a_parser_refusal_in_json_and_exit_code_adapters() {
 }
 
 #[test]
+fn fail_closed_blocks_language_call_saturation() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let code = (0..65)
+        .map(|index| format!("open('/tmp/nah-language-call-{index}')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let command = format!("python3 -c \"{code}\"");
+
+    for (runtime, payload) in danger(&project)
+        .into_iter()
+        .filter(|(runtime, _)| matches!(*runtime, "amp" | "droid"))
+    {
+        let observed = run_adapter_mode(
+            runtime,
+            Some(temp.path()),
+            &project,
+            with_command(runtime, payload, &command),
+            true,
+            true,
+        );
+        assert_native_deny(runtime, &observed);
+        assert!(
+            observed
+                .to_string()
+                .contains("split the intended operation")
+        );
+    }
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    for line in records.lines() {
+        let record: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(record["status"], "decision");
+        assert_eq!(record["core"]["verdict"], "block");
+        assert!(
+            record["failures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|failure| {
+                    failure["source"] == "analysis"
+                        && failure["component"] == "inline-analysis"
+                        && failure["code"] == "language-call-limit"
+                })
+        );
+    }
+}
+
+#[test]
+fn fail_closed_blocks_language_safety_saturation() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let code = (0..257)
+        .map(|index| format!("open('/tmp/nah-language-safety-{index}')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let command = format!("python3 -c \"{code}\"");
+    let (runtime, payload) = danger(&project)
+        .into_iter()
+        .find(|(runtime, _)| *runtime == "amp")
+        .unwrap();
+    let observed = run_adapter_mode(
+        runtime,
+        Some(temp.path()),
+        &project,
+        with_command(runtime, payload, &command),
+        true,
+        true,
+    );
+    assert_native_deny(runtime, &observed);
+
+    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
+    let record: Value = serde_json::from_str(records.lines().next().unwrap()).unwrap();
+    assert!(
+        record["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|failure| {
+                failure["source"] == "analysis"
+                    && failure["component"] == "inline-analysis"
+                    && failure["code"] == "language-safety-limit"
+            })
+    );
+}
+
+#[test]
 fn fail_closed_blocks_unknown_fields_on_known_claude_and_codex_tools() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

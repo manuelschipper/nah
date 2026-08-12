@@ -27,13 +27,13 @@ enum Prepared<'a> {
     Opaque,
 }
 
-pub(super) fn analyze(
+pub(super) fn interpret_effects(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    analyze_with_state(
+    interpret_effects_with_state(
         program,
         input,
         protection,
@@ -43,13 +43,13 @@ pub(super) fn analyze(
     )
 }
 
-pub(super) fn analyze_persistent(
+pub(super) fn interpret_persistent_effects(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    analyze_with_state(
+    interpret_effects_with_state(
         program,
         input,
         protection,
@@ -59,7 +59,7 @@ pub(super) fn analyze_persistent(
     )
 }
 
-fn analyze_with_state(
+fn interpret_effects_with_state(
     program: &str,
     input: &InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
@@ -81,7 +81,7 @@ fn analyze_with_state(
                 ..*input
             };
             if syntax_intrinsics {
-                super::python::analyze_ipython_syntax_with_state(
+                super::python::interpret_ipython_syntax_with_state(
                     program,
                     &input,
                     protection,
@@ -90,7 +90,7 @@ fn analyze_with_state(
                     capture_ipython_output,
                 )
             } else {
-                super::python::analyze_language_with_state(
+                super::python::interpret_effects_with_state(
                     program,
                     &input,
                     protection,
@@ -113,9 +113,9 @@ fn analyze_with_state(
                     &[shell_program, line.as_ref(), code.as_ref()],
                 )
             {
-                return opaque_analysis();
+                return opaque_interpretation();
             }
-            super::python::analyze_ipython_syntax_with_state(
+            super::python::interpret_ipython_syntax_with_state(
                 program,
                 &InlineInput {
                     code: &transformed,
@@ -131,7 +131,7 @@ fn analyze_with_state(
             if depth >= 16 {
                 return LanguageAnalysis::refused(InlineRefusal::RecursionLimit);
             }
-            let analysis = analyze_with_state(
+            let interpretation = interpret_effects_with_state(
                 program,
                 &InlineInput {
                     code: code.as_ref(),
@@ -143,18 +143,18 @@ fn analyze_with_state(
                 capture_ipython_output || partial,
             );
             if partial {
-                let (report, mut draft) = analysis.into_parts();
+                let (report, mut draft) = interpretation.into_parts();
                 draft.set_partial();
                 LanguageAnalysis::new(report, draft)
             } else {
-                analysis
+                interpretation
             }
         }
-        Prepared::Opaque => opaque_analysis(),
+        Prepared::Opaque => opaque_interpretation(),
     }
 }
 
-fn opaque_analysis() -> LanguageAnalysis {
+fn opaque_interpretation() -> LanguageAnalysis {
     LanguageAnalysis::new(InlineReport::default(), LanguageDraft::partial())
 }
 

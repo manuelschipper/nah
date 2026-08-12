@@ -195,10 +195,10 @@ pub(crate) fn draft(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn visible_language_draft(
+pub(crate) fn visible_language_effect_draft(
     outer_program: &str,
     interpreter: &str,
-    analysis_program: &str,
+    interpreter_profile: &str,
     source: &str,
     input: InvocationInput,
     requested_cwd: &AbsolutePath,
@@ -213,10 +213,10 @@ pub(crate) fn visible_language_draft(
     nah_inline::InlineReport,
     bool,
 ) {
-    visible_language_draft_with_profile(
+    visible_language_effect_draft_with_profile(
         outer_program,
         interpreter,
-        analysis_program,
+        interpreter_profile,
         source,
         input,
         requested_cwd,
@@ -229,7 +229,7 @@ pub(crate) fn visible_language_draft(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn visible_ipython_draft(
+pub(crate) fn visible_ipython_effect_draft(
     outer_program: &str,
     source: &str,
     input: InvocationInput,
@@ -245,7 +245,7 @@ pub(crate) fn visible_ipython_draft(
     nah_inline::InlineReport,
     bool,
 ) {
-    visible_language_draft_with_profile(
+    visible_language_effect_draft_with_profile(
         outer_program,
         "ipython",
         "ipython",
@@ -261,10 +261,10 @@ pub(crate) fn visible_ipython_draft(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn visible_language_draft_with_profile(
+fn visible_language_effect_draft_with_profile(
     outer_program: &str,
     interpreter: &str,
-    analysis_program: &str,
+    interpreter_profile: &str,
     source: &str,
     input: InvocationInput,
     requested_cwd: &AbsolutePath,
@@ -290,6 +290,7 @@ fn visible_language_draft_with_profile(
         critical_paths,
     );
     lowerer.stages.push(StageDraft {
+        language_safety_only: false,
         invocation: InvocationDraft::CodeExecution {
             program: outer_program.to_owned(),
             interpreter: Some(interpreter.to_owned()),
@@ -325,13 +326,13 @@ fn visible_language_draft_with_profile(
         pwd.value = VariableValue::Unknown;
         pwd.origins.clear();
     }
-    lowerer.analyze_direct_inline_stage(
+    lowerer.interpret_direct_language_effect_stage(
         VisibleExecutionState {
             stage: 0,
             state,
             ambient_variables: lowerer.ambient_variables.clone(),
         },
-        analysis_program,
+        interpreter_profile,
         source,
         persistent_ipython,
     );
@@ -514,6 +515,7 @@ impl Lowerer {
             return;
         }
         self.stages.push(StageDraft {
+            language_safety_only: false,
             invocation: InvocationDraft::Opaque {
                 program: ProgramDraft::Static("bash".into()),
                 words: vec!["bash".into()],
@@ -542,6 +544,7 @@ impl Lowerer {
             return;
         }
         self.stages.push(StageDraft {
+            language_safety_only: false,
             invocation: InvocationDraft::Opaque {
                 program: ProgramDraft::Static("bash".into()),
                 words: vec!["bash".into()],

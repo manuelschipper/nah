@@ -178,15 +178,15 @@ pub(crate) fn execution_spec(program: &str, arguments: &[Word]) -> Option<Execut
     })
 }
 
-pub(crate) fn inline_language_program(program: &str, argv: Option<&[String]>) -> String {
+pub(crate) fn inline_language_profile(program: &str, argv: Option<&[String]>) -> String {
     match normalized_execution_program(program).as_str() {
-        "deno" => deno_inline_language_program(program, argv),
-        "bun" => bun_inline_language_program(program, argv),
+        "deno" => deno_inline_language_profile(program, argv),
+        "bun" => bun_inline_language_profile(program, argv),
         _ => program.to_owned(),
     }
 }
 
-fn deno_inline_language_program(program: &str, argv: Option<&[String]>) -> String {
+fn deno_inline_language_profile(program: &str, argv: Option<&[String]>) -> String {
     let Some(argv) = argv else {
         return program.to_owned();
     };
@@ -242,7 +242,7 @@ fn deno_inline_language_program(program: &str, argv: Option<&[String]>) -> Strin
     }
 }
 
-fn bun_inline_language_program(program: &str, argv: Option<&[String]>) -> String {
+fn bun_inline_language_profile(program: &str, argv: Option<&[String]>) -> String {
     let Some(argv) = argv else {
         return program.to_owned();
     };
@@ -1162,7 +1162,7 @@ fn decode(program: &str, arguments: &[Word]) -> Option<(bool, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use super::inline_language_program;
+    use super::inline_language_profile;
 
     #[test]
     fn exact_deno_argv_selects_the_source_dialect() {
@@ -1191,7 +1191,7 @@ mod tests {
                 .map(|value| (*value).to_owned())
                 .collect::<Vec<_>>();
             assert_eq!(
-                inline_language_program("deno", Some(&argv)),
+                inline_language_profile("deno", Some(&argv)),
                 expected,
                 "{argv:?}"
             );
@@ -1200,9 +1200,9 @@ mod tests {
 
     #[test]
     fn unproven_deno_dialect_stays_ambiguous() {
-        assert_eq!(inline_language_program("deno", None), "deno");
+        assert_eq!(inline_language_profile("deno", None), "deno");
         assert_eq!(
-            inline_language_program(
+            inline_language_profile(
                 "deno",
                 Some(&[
                     "deno".into(),
@@ -1228,12 +1228,12 @@ mod tests {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect::<Vec<_>>();
-            assert_eq!(inline_language_program("bun", Some(&argv)), expected);
+            assert_eq!(inline_language_profile("bun", Some(&argv)), expected);
         }
 
-        assert_eq!(inline_language_program("bun", None), "bun");
+        assert_eq!(inline_language_profile("bun", None), "bun");
         assert_eq!(
-            inline_language_program("bun", Some(&["bun".into(), "script".into()])),
+            inline_language_profile("bun", Some(&["bun".into(), "script".into()])),
             "bun"
         );
     }

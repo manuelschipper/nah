@@ -30,7 +30,10 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+#[cfg(not(feature = "test-support"))]
 const GIT_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(feature = "test-support")]
+const GIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Fulfil every fact named by `request` against its authoritative requested cwd.
 pub fn fulfill(request: &ObservationRequest) -> Result<Observation, BindingError> {

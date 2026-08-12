@@ -44,11 +44,14 @@ impl DecisionLog {
         let mut file = open_regular(&self.path, true)?.ok_or(AuditError::Io)?;
         protect_file(&file)?;
         file.try_lock().map_err(|_| AuditError::Io)?;
-        repair_incomplete_tail(&mut file)?;
-        compact_for(&mut file, incoming)?;
-        file.seek(SeekFrom::End(0)).map_err(|_| AuditError::Io)?;
-        file.write_all(&bytes).map_err(|_| AuditError::Io)?;
-        Ok(())
+        let result = (|| {
+            repair_incomplete_tail(&mut file)?;
+            compact_for(&mut file, incoming)?;
+            file.seek(SeekFrom::End(0)).map_err(|_| AuditError::Io)?;
+            file.write_all(&bytes).map_err(|_| AuditError::Io)
+        })();
+        let unlocked = File::unlock(&file).map_err(|_| AuditError::Io);
+        result.and(unlocked)
     }
 
     #[cfg(test)]
@@ -165,6 +168,15 @@ fn open_regular(path: &Path, append: bool) -> Result<Option<File>, AuditError> {
         Err(error) if !append && error == rustix::io::Errno::NOENT => return Ok(None),
         Err(_) => return Err(AuditError::Io),
     };
+    let directory = File::from(directory);
+    let directory_metadata = directory.metadata().map_err(|_| AuditError::Io)?;
+    let parent_metadata = std::fs::symlink_metadata(parent).map_err(|_| AuditError::Io)?;
+    if !parent_metadata.is_dir()
+        || parent_metadata.dev() != directory_metadata.dev()
+        || parent_metadata.ino() != directory_metadata.ino()
+    {
+        return Err(AuditError::Io);
+    }
     let name = path.file_name().ok_or(AuditError::InvalidPath)?;
     let flags = if append {
         OFlags::RDWR
@@ -176,14 +188,24 @@ fn open_regular(path: &Path, append: bool) -> Result<Option<File>, AuditError> {
     } else {
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC
     };
-    let descriptor = match rustix::fs::openat(directory, name, flags, Mode::RUSR | Mode::WUSR) {
+    let descriptor = match rustix::fs::openat(&directory, name, flags, Mode::RUSR | Mode::WUSR) {
         Ok(descriptor) => descriptor,
         Err(error) if !append && error == rustix::io::Errno::NOENT => return Ok(None),
         Err(_) => return Err(AuditError::Io),
     };
     let file = File::from(descriptor);
     let metadata = file.metadata().map_err(|_| AuditError::Io)?;
-    if !metadata.is_file() || metadata.nlink() != 1 {
+    let path_metadata = std::fs::symlink_metadata(path).map_err(|_| AuditError::Io)?;
+    let parent_metadata = std::fs::symlink_metadata(parent).map_err(|_| AuditError::Io)?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || !path_metadata.is_file()
+        || path_metadata.dev() != metadata.dev()
+        || path_metadata.ino() != metadata.ino()
+        || !parent_metadata.is_dir()
+        || parent_metadata.dev() != directory_metadata.dev()
+        || parent_metadata.ino() != directory_metadata.ino()
+    {
         return Err(AuditError::Io);
     }
     Ok(Some(file))

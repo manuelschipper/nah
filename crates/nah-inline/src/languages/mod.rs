@@ -1,3 +1,5 @@
+//! Dispatches admitted language profiles to effect interpreters or narrower detectors.
+
 mod common;
 mod deferred;
 mod ipython;
@@ -42,12 +44,12 @@ pub(crate) fn has_javascript_profile(program: &str) -> bool {
     javascript::profile(&normalized_program(program)).is_some()
 }
 
-pub(crate) fn analyze_python(
+pub(crate) fn interpret_python_effects(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    python::analyze_language(
+    python::interpret_effects(
         &crate::normalized_program(input.program),
         &input,
         protection,
@@ -55,12 +57,12 @@ pub(crate) fn analyze_python(
     )
 }
 
-pub(crate) fn analyze_ipython(
+pub(crate) fn interpret_ipython_effects(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    ipython::analyze(
+    ipython::interpret_effects(
         &crate::normalized_program(input.program),
         &input,
         protection,
@@ -68,12 +70,12 @@ pub(crate) fn analyze_ipython(
     )
 }
 
-pub(crate) fn analyze_persistent_ipython(
+pub(crate) fn interpret_persistent_ipython_effects(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    ipython::analyze_persistent(
+    ipython::interpret_persistent_effects(
         &crate::normalized_program(input.program),
         &input,
         protection,
@@ -88,7 +90,7 @@ pub(crate) fn analyze(
 ) -> InlineReport {
     let program = normalized_program(input.program);
     if is_ipython_interpreter(&program) {
-        ipython::analyze(&program, &input, protection, depth).into_report()
+        ipython::interpret_effects(&program, &input, protection, depth).into_report()
     } else if is_python_interpreter(&program) {
         python::analyze(&program, &input, protection, depth)
     } else if common::protection::is_perl_interpreter(&program) {
@@ -131,20 +133,20 @@ pub(crate) fn analyze(
     }
 }
 
-pub(crate) fn analyze_language(
+pub(crate) fn interpret_effects(
     input: InlineInput<'_>,
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> LanguageAnalysis {
     let program = normalized_program(input.program);
     if is_ipython_interpreter(&program) {
-        return ipython::analyze(&program, &input, protection, depth);
+        return ipython::interpret_effects(&program, &input, protection, depth);
     }
     if is_python_interpreter(&program) {
-        return python::analyze_language(&program, &input, protection, depth);
+        return python::interpret_effects(&program, &input, protection, depth);
     }
     if javascript::profile(&program).is_some() {
-        return javascript::analyze_language(&program, &input, protection, depth);
+        return javascript::interpret_effects(&program, &input, protection, depth);
     }
     LanguageAnalysis::new(analyze(input, protection, depth), LanguageDraft::default())
 }

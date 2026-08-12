@@ -37,7 +37,7 @@ use bash::features::{
     transforms as bash_transforms, wrappers as bash_wrappers,
 };
 mod codex_patch;
-mod language;
+mod language_effects;
 mod native;
 mod paths;
 #[cfg(test)]
@@ -219,7 +219,7 @@ fn plan_with_ambient_variables(
         }
         AnalysisInput::VisibleCode(visible, input) => {
             let invocation_input = native::invocation_input(input);
-            let (interpreter, analysis_program, source, persistent_ipython) = match visible {
+            let (interpreter, interpreter_profile, source, persistent_ipython) = match visible {
                 VisibleCode::Python { source } => ("python", "python", source, false),
                 VisibleCode::OpenClawJavaScript { source } => {
                     ("javascript", "openclaw-javascript", source, false)
@@ -231,7 +231,7 @@ fn plan_with_ambient_variables(
             };
             let (mut draft, mut coverage_draft, path_queries, inline_report, inline_failed) =
                 if persistent_ipython {
-                    bash::visible_ipython_draft(
+                    bash::visible_ipython_effect_draft(
                         input.tool(),
                         source,
                         invocation_input,
@@ -242,10 +242,10 @@ fn plan_with_ambient_variables(
                         self_protection.protected_paths(),
                     )
                 } else {
-                    bash::visible_language_draft(
+                    bash::visible_language_effect_draft(
                         input.tool(),
                         interpreter,
-                        analysis_program,
+                        interpreter_profile,
                         source,
                         invocation_input,
                         call_site.requested_cwd(),
@@ -298,6 +298,31 @@ fn plan_with_ambient_variables(
 }
 
 pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
+    finalize_inner(plan, observation, false)
+}
+
+pub fn finalize_with_language_safety_stream(
+    plan: AnalysisPlan,
+    observation: Observation,
+) -> (ActionStream, ActionStream) {
+    let has_language_safety = matches!(
+        &plan.draft,
+        Draft::Bash(draft) if draft.stages.iter().any(|stage| stage.language_safety_only)
+    );
+    if !has_language_safety {
+        let stream = finalize(plan, observation);
+        return (stream.clone(), stream);
+    }
+    let language_safety_stream = finalize_inner(plan.clone(), observation.clone(), true);
+    let action_stream = finalize(plan, observation);
+    (action_stream, language_safety_stream)
+}
+
+fn finalize_inner(
+    plan: AnalysisPlan,
+    observation: Observation,
+    include_language_safety: bool,
+) -> ActionStream {
     if observation.bind(&plan.observation_request).is_err() {
         return partial();
     }
@@ -460,6 +485,7 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
                         &plan.trusted_roots,
                         &plan.critical_paths,
                         plan.platform,
+                        include_language_safety,
                     )
                 })
                 .is_some_and(|(complete, _, _)| complete);
@@ -472,6 +498,7 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
                 &plan.trusted_roots,
                 &plan.critical_paths,
                 plan.platform,
+                include_language_safety,
             ) else {
                 return partial();
             };

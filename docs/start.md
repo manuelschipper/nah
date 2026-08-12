@@ -1,5 +1,9 @@
 # Start
 
+nah is a guard that sits in your coding agent's hook path and reads tool calls
+before they run. It blocks the calls it can prove are disasters and leaves
+everything else to your runtime.
+
 nah must be installed in the same execution environment as the coding agent
 or agent gateway whose tool calls it evaluates.
 

@@ -17,7 +17,7 @@ use crate::bash_flow::add_artifact_flows;
 use crate::bash_lookup::LookupMode;
 use crate::bash_model::{ChildCwdDraft, InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
 use crate::bash_state::{BindingAttribute, Cwd, current_pwd, known_cwd};
-use crate::language::{LanguageDraftTarget, LanguageExecution};
+use crate::language_effects::{LanguageEffectDraftTarget, LanguageEffectExecution};
 use crate::paths::resolve_from_cwd;
 use crate::shell_word::static_word;
 
@@ -33,7 +33,7 @@ fn is_return_statement(statement: &Statement) -> bool {
 }
 
 fn requires_ipython_shell(draft: &LanguageDraft) -> bool {
-    draft.calls().iter().any(|call| {
+    draft.language_safety_calls().iter().any(|call| {
         let InvocationInput::Native { value, .. } = call.input() else {
             return false;
         };
@@ -445,34 +445,48 @@ impl Lowerer {
         else {
             return;
         };
-        let analysis_program =
-            crate::bash_execution::inline_language_program(&program, argv.as_deref());
-        self.analyze_language_stage(execution, &analysis_program, &program, &code, true, false);
+        let interpreter_profile =
+            crate::bash_execution::inline_language_profile(&program, argv.as_deref());
+        self.interpret_language_effect_stage(
+            execution,
+            &interpreter_profile,
+            &program,
+            &code,
+            true,
+            false,
+        );
     }
 
-    pub(in crate::bash) fn analyze_direct_inline_stage(
+    pub(in crate::bash) fn interpret_direct_language_effect_stage(
         &mut self,
         execution: VisibleExecutionState,
         program: &str,
         code: &str,
         persistent_ipython: bool,
     ) {
-        self.analyze_language_stage(execution, program, program, code, false, persistent_ipython);
+        self.interpret_language_effect_stage(
+            execution,
+            program,
+            program,
+            code,
+            false,
+            persistent_ipython,
+        );
     }
 
-    fn analyze_language_stage(
+    fn interpret_language_effect_stage(
         &mut self,
         execution: VisibleExecutionState,
-        analysis_program: &str,
+        interpreter_profile: &str,
         evidence_program: &str,
         code: &str,
         cwd_authoritative: bool,
         persistent_ipython: bool,
     ) {
         let environment = inline_environment(&execution);
-        let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let interpretation = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let input = nah_inline::InlineInput {
-                program: analysis_program,
+                program: interpreter_profile,
                 code,
                 home: &self.home,
                 platform: self.platform,
@@ -482,17 +496,17 @@ impl Lowerer {
                 ambient_variables: &environment,
             };
             if persistent_ipython {
-                nah_inline::analyze_persistent_ipython_with_language_effects(input, protection)
+                nah_inline::interpret_persistent_ipython_effects(input, protection)
             } else {
-                nah_inline::analyze_with_language_effects(input, protection)
+                nah_inline::interpret_language_effects(input, protection)
             }
         }));
-        let Ok(analysis) = report else {
+        let Ok(interpretation) = interpretation else {
             self.inline_failed = true;
             return;
         };
-        let (report, language_draft) = analysis.into_parts();
-        if requires_ipython_shell(&language_draft)
+        let (report, language_effect_draft) = interpretation.into_parts();
+        if requires_ipython_shell(&language_effect_draft)
             && !execution
                 .state
                 .variables
@@ -508,7 +522,7 @@ impl Lowerer {
         } else {
             (None, None)
         };
-        LanguageDraftTarget {
+        LanguageEffectDraftTarget {
             complete: &mut self.complete,
             stages: &mut self.stages,
             flows: &mut self.flows,
@@ -517,13 +531,13 @@ impl Lowerer {
             platform: self.platform,
         }
         .append(
-            LanguageExecution {
+            LanguageEffectExecution {
                 stage: execution.stage,
                 program: evidence_program,
                 cwd,
                 pwd,
             },
-            &language_draft,
+            &language_effect_draft,
         );
         for child in nested {
             if self.reserve_inline_child(&child) {

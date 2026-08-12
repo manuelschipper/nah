@@ -40,3 +40,6 @@ windows-sys = { version = "0.61", features = [
 [[bin]]
 name = "nah"
 path = "src/main.rs"
+
+[dev-dependencies]
+nah-observe = { path = "../nah-observe", features = ["test-support"] }

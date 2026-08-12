@@ -26,10 +26,10 @@ entries, and configuration are preserved.
 Hermes' shell hook sends calls to `nah hook hermes run`.
 Terminal, read, write, replace/patch, content-search, literal file-name search,
 and exact `execute_code` Python payloads use nah's shared effects. The Python
-frontend recognizes bounded standard-library filesystem and subprocess calls
-plus reviewed network clients without running code. Absolute paths retain exact
-evidence; relative paths stay unresolved because the hook does not prove the
-execution kernel's working directory.
+side of the bounded effect interpreter recognizes standard-library filesystem
+and subprocess calls plus reviewed network clients without running code.
+Absolute paths retain exact evidence; relative paths stay unresolved because
+the hook does not prove the execution kernel's working directory.
 Wildcard file-name searches, process-control, browser, MCP, plugin, malformed
 or extended code payloads, and future tools remain opaque. Tool calls made
 through `hermes_tools` re-enter the normal hook. Blocks return Hermes'

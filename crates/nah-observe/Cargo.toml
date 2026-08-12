@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 nah-proto = { path = "../nah-proto" }
 toml = "1.1"

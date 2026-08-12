@@ -6,30 +6,28 @@
 nah hook droid install
 ```
 
+Use `--fail-closed` to deny explicit failures/refusals. `--fail-open` restores
+the default; flagless reinstall preserves a recognized mode.
+
 Restart Droid and inspect `/hooks`. Remove only nah's hook group with:
 
 ```sh
 nah hook droid uninstall
 ```
 
-The installer atomically updates `~/.factory/hooks.json`, where standalone
-hook files store event names such as `PreToolUse` at the top level. It
-preserves unrelated hooks and is idempotent. This distinction is deliberate:
-Droid 0.186.0 ignored standalone events nested under a `hooks` object during
-live verification. Installing also migrates nah's older nested standalone
-shape and removes nah-owned copies from the `hooks` key in
-`~/.factory/settings.json` and the legacy `~/.factory/hooks/hooks.json` file.
-Droid still reads hooks from `settings.json` when `hooks.json` is absent; the
-nested hook-file path is legacy.
+The installer atomically updates `~/.factory/hooks.json`, preserves unrelated
+hooks, and is idempotent. Standalone event names such as `PreToolUse` live at
+the top level. Installation migrates nah's old nested shape and removes
+nah-owned copies from `~/.factory/settings.json` and the legacy
+`~/.factory/hooks/hooks.json`.
 
 ## Behavior
 
 Execute, Read, Create, Edit, ApplyPatch, Grep, literal-relative Glob, and LS
 tools use the shared policy. Wildcard or multiple globs delegate.
-Definite blocks and `--fail-closed` failures/refusals exit 2. By default,
-malformed and other unblocked calls delegate to Droid. If nah is
-missing or exits unexpectedly, the installed shell command exits 0 with fixed
-feedback on standard output.
+Definite blocks and fail-closed failures/refusals exit 2. By default, malformed
+and other unblocked calls delegate. If nah is missing or exits unexpectedly,
+the installed wrapper exits 0 with fixed feedback on standard output.
 
 ## Boundaries
 

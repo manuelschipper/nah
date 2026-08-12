@@ -1,4 +1,4 @@
-//! Composes language-analysis drafts into shared action stages.
+//! Composes language-effect drafts into shared action stages.
 
 use nah_inline::{LanguageCallKind, LanguageDraft};
 use nah_proto::action::{FilesystemOperation, NetworkDirection, SemanticCode};
@@ -8,14 +8,14 @@ use nah_proto::observation::{ObservationQuery, SymlinkTraversal};
 use crate::bash_model::{FilesystemDraft, InvocationDraft, StageDraft, StdoutDraft};
 use crate::paths::{cwd_relative, resolve_from_cwd};
 
-pub(crate) struct LanguageExecution<'a> {
+pub(crate) struct LanguageEffectExecution<'a> {
     pub(crate) stage: usize,
     pub(crate) program: &'a str,
     pub(crate) cwd: Option<&'a str>,
     pub(crate) pwd: Option<&'a str>,
 }
 
-pub(crate) struct LanguageDraftTarget<'a> {
+pub(crate) struct LanguageEffectDraftTarget<'a> {
     pub(crate) complete: &'a mut bool,
     pub(crate) stages: &'a mut Vec<StageDraft>,
     pub(crate) flows: &'a mut Vec<(usize, usize)>,
@@ -24,11 +24,12 @@ pub(crate) struct LanguageDraftTarget<'a> {
     pub(crate) platform: Platform,
 }
 
-impl LanguageDraftTarget<'_> {
-    pub(crate) fn append(&mut self, execution: LanguageExecution<'_>, draft: &LanguageDraft) {
+impl LanguageEffectDraftTarget<'_> {
+    pub(crate) fn append(&mut self, execution: LanguageEffectExecution<'_>, draft: &LanguageDraft) {
         *self.complete &= draft.complete();
         let first_stage = self.stages.len();
-        let stage_ordinals = (0..draft.calls().len())
+        let public_calls = draft.calls().len();
+        let stage_ordinals = (0..draft.language_safety_calls().len())
             .map(|ordinal| first_stage + ordinal)
             .collect::<Vec<_>>();
         let outer = &self.stages[execution.stage];
@@ -36,7 +37,7 @@ impl LanguageDraftTarget<'_> {
         let outer_conditional_depth = outer.conditional_depth;
         let outer_dominators = outer.execution_dominators.clone();
         let outer_child_cwd_keys = outer.child_cwd_keys.clone();
-        for (call_ordinal, call) in draft.calls().iter().enumerate() {
+        for (call_ordinal, call) in draft.language_safety_calls().iter().enumerate() {
             let mut filesystems = Vec::new();
             for (filesystem_ordinal, filesystem) in call.filesystems().iter().enumerate() {
                 let resolved = filesystem.requested().and_then(|requested| {
@@ -165,6 +166,7 @@ impl LanguageDraftTarget<'_> {
             execution_dominators.sort_unstable();
             execution_dominators.dedup();
             self.stages.push(StageDraft {
+                language_safety_only: call_ordinal >= public_calls,
                 invocation: InvocationDraft::Native {
                     program: execution.program.to_owned(),
                     operation,
@@ -187,12 +189,13 @@ impl LanguageDraftTarget<'_> {
                 execution_dominators,
             });
         }
-        self.flows.extend(draft.flows().iter().filter_map(|flow| {
-            Some((
-                *stage_ordinals.get(flow.from())?,
-                *stage_ordinals.get(flow.to())?,
-            ))
-        }));
+        self.flows
+            .extend(draft.language_safety_flows().iter().filter_map(|flow| {
+                Some((
+                    *stage_ordinals.get(flow.from())?,
+                    *stage_ordinals.get(flow.to())?,
+                ))
+            }));
     }
 }
 

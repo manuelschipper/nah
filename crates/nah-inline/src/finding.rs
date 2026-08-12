@@ -107,6 +107,8 @@ pub enum InlineRefusal {
     WorkLimit,
     NestedExecutionLimit,
     EvidenceLimit,
+    LanguageCallLimit,
+    LanguageSafetyLimit,
 }
 
 impl InlineRefusal {
@@ -120,6 +122,8 @@ impl InlineRefusal {
             Self::WorkLimit => "work-limit",
             Self::NestedExecutionLimit => "nested-execution-limit",
             Self::EvidenceLimit => "evidence-limit",
+            Self::LanguageCallLimit => "language-call-limit",
+            Self::LanguageSafetyLimit => "language-safety-limit",
         }
     }
 }

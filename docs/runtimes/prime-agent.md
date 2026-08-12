@@ -29,11 +29,11 @@ nah installs, inspects, removes, and protects the extension there instead.
 
 The extension invokes nah without a shell before each tool executes. A
 provenance-verified built-in `ipython` call with a nonblank string `code` field
-uses the shared Python effect frontend in a persistent-kernel profile. An
-extension override named `ipython` stays opaque. The pinned Prime CLI registers
-no other built-in tool. Every custom, SDK, or future tool uses one Prime-specific
-opaque identity, including tools named `bash`, `Read`, `Write`, or `Edit`, so a
-native-looking name cannot select Nah's unrelated tool schemas.
+uses the Python side of nah's bounded effect interpreter in a persistent-kernel
+profile. An extension override named `ipython` stays opaque. The pinned Prime
+CLI registers no other built-in tool. Every custom, SDK, or future tool uses one
+Prime-specific opaque identity, including tools named `bash`, `Read`, `Write`,
+or `Edit`, so a native-looking name cannot select Nah's unrelated tool schemas.
 
 Current-cell constants, control flow, definitions, reviewed builtins, and
 imports use normal Python semantics. Visible rebinding, mutation, or escape

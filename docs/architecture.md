@@ -1,21 +1,20 @@
 # Architecture
 
-nah is a Rust workspace with one decision pipeline and explicit runtime
-ownership profiles.
+nah is a Rust workspace with one pipeline and explicit runtime ownership.
 
 ## Decision path
 
 ```text
 tool call
-  -> validate the call site; normalize Bash, native, or typed visible code
-  -> plan typed effects; bounded language frontends emit effect drafts and nested executions
-  -> only explicitly proven Bash child source re-enters Bash lowering
+  -> validate call site; normalize Bash, native, or typed visible code
+  -> plan typed effects; bounded effect interpreters emit drafts and nested executions
+  -> only proven Bash child source re-enters Bash lowering
   -> plan required observations
   -> bounded environment-only preflight and replanning
-  -> capture a request-bound observation with stable requested environment values
-  -> derive policy context and finalize typed effects
+  -> capture an observation with stable requested environment values
+  -> derive policy context and finalize public and language-safety effect streams
   -> unless all enforcement is paused, select and consult custom guards
-  -> reduce structural protection, built-in guards, and validated custom blocks
+  -> reduce structural protection, built-ins, and validated custom blocks
   -> fail-closed conversion, then block or delegate
 ```
 
@@ -31,8 +30,8 @@ Dry runs, corpus cases, and the demo do not write records.
 | --- | --- |
 | `nah-proto` | Validated shared and wire/storage contracts |
 | `nah-parse` | Bash syntax model and normalization |
-| `nah-inline` | Bounded language effect drafts and exact nested executions |
-| `nah-actions` | Pure plan/finalize lowering and language/Bash integration |
+| `nah-inline` | Bounded Python/JS/TS effect interpretation, detection, and nested execution |
+| `nah-actions` | Plan/finalize lowering and language/Bash integration |
 | `nah-observe` | Requested host and project facts |
 | `nah-policy` | Structural protection, built-in guards, and verdict reduction |
 | `nah-extensions` | Custom-guard lifecycle, selection, templates, execution, and cache |
@@ -40,13 +39,13 @@ Dry runs, corpus cases, and the demo do not write records.
 | `nah-corpus` | Frozen fixtures, execution, oracle audit, and reconciliation |
 
 Internal dependencies are: inline → proto; actions → inline/parse/proto; policy
-→ inline/proto; observe and extensions → proto; CLI → all libraries; corpus →
+→ inline/proto; observe/extensions → proto; CLI → all libraries; corpus →
 CLI/proto. Parse and proto have no internal dependencies.
 Ambient I/O stays out of `nah-proto`, `nah-parse`, `nah-inline`, `nah-actions`,
 and `nah-policy`. `tools/gates` is
 workspace/CI validation tooling, not a runtime crate.
 
-Paths beginning with `nah-*` start under `crates/`; others are repository-relative.
+Crate paths start under `crates/`; other paths are repository-relative.
 
 ## Feature ownership
 
@@ -54,8 +53,8 @@ Paths beginning with `nah-*` start under `crates/`; others are repository-relati
 | --- | --- |
 | Shared tool, context, observation, action, decision, and guard contracts | `nah-proto/src/{tool,ctx,observation,action,decision,exec_v1,extension}.rs` |
 | Bash syntax and fork-bomb graph parsing | `nah-parse/src/{model,parser}.rs`, `nah-parse/src/parser/fork_bomb.rs` |
-| Inline HIRs, bounded interpreters, effect drafts, and nested executions | `nah-inline/src/{lib,language,finding,syntax}.rs`, `nah-inline/src/languages/` |
-| Plan/finalize, language integration, and native tools | `nah-actions/src/{lib,language,native,codex_patch}.rs` |
+| Python/JS/TS effect interpreter, detectors, HIRs, drafts, and nested executions | `nah-inline/src/{lib,language_effects,finding,syntax}.rs`, `nah-inline/src/languages/` |
+| Plan/finalize, language integration, and native tools | `nah-actions/src/{lib,language_effects,native,codex_patch}.rs` |
 | Ordered Bash lowering and shell/command phases | `nah-actions/src/bash/mod.rs`, `nah-actions/src/bash/phases/` |
 | Bash feature semantics | `nah-actions/src/bash/features/`, `nah-actions/src/{paths,shell_word}.rs`, `nah-actions/src/shell_word/` |
 | Host and project fact fulfillment | `nah-observe/src/{io_paths,path_facts,roots,project_guards,descendants}.rs` |
@@ -67,17 +66,17 @@ Paths beginning with `nah-*` start under `crates/`; others are repository-relati
 | Guard configuration and TUI | `nah-cli/src/commands/{custom_guard,shipped_guard,guard_config}.rs`, `nah-cli/src/{catalog,shipped_state}.rs`, `nah-cli/src/tui/` |
 | Corpus fixtures, runner, oracle, and reconciliation | `nah-corpus/src/{case,fixtures,runner,oracle}.rs` |
 
-`bash/mod.rs` orders transitions, `bash/phases/` owns lowering phases, and
-`bash/features/` owns semantics. Finalization consumes facts from `nah-observe`;
-lowering does no I/O.
+`bash/mod.rs` orders transitions, `bash/phases/` lowers, and `bash/features/`
+owns semantics. Finalization consumes `nah-observe` facts; lowering does no I/O.
 
 ## Find a change
 
 - Bash interpretation: `nah-parse`, then `nah-actions/src/bash/{phases,features}/`.
-- Python, IPython, and JavaScript/TypeScript/TSX interpretation:
+- Python and JavaScript/TypeScript effect interpretation, including IPython/TSX:
   `nah-inline/src/languages/` and the matching `engine/` module, then
-  `nah-actions/src/language.rs`. `nah-cli/src/code_input.rs` owns typed runtime
-  intake. Exact nested commands return to actions; private findings reach policy.
+  `nah-actions/src/language_effects.rs`. `nah-cli/src/code_input.rs` owns typed runtime
+  intake. Other language modules provide narrower detection. Exact nested
+  commands return to actions; private findings reach policy.
 - Native tool shapes: the runtime adapter, `nah-actions/src/native.rs`, and
   `codex_patch.rs` for `apply_patch`.
 - A built-in guard: its semantic lowering in `nah-actions`, reducer in `nah-policy`,

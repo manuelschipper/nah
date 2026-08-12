@@ -34,12 +34,18 @@ pub(crate) fn finalize(
     trusted_roots: &[AbsolutePath],
     critical_paths: &[AbsolutePath],
     platform: Platform,
+    include_language_safety: bool,
 ) -> Option<(bool, Vec<Vec<EffectKind>>, Vec<FlowOrdinals>)> {
     let mut complete = draft.complete;
     let analysis_refused = draft.analysis_refused;
     let child_cwds = child_cwd_statuses(&draft.child_cwds, observation, &mut complete)?;
-    let (mut draft_stages, mut draft_flows) =
-        active_child_stages(draft.stages, draft.flows, &child_cwds, platform);
+    let (mut draft_stages, mut draft_flows) = active_child_stages(
+        draft.stages,
+        draft.flows,
+        &child_cwds,
+        platform,
+        include_language_safety,
+    );
     complete &= crate::bash_executable_identity::reclassify(
         &mut draft_stages,
         observation,
@@ -419,14 +425,16 @@ fn active_child_stages(
     flows: Vec<(usize, usize)>,
     child_cwds: &BTreeMap<String, ChildCwdStatus>,
     platform: Platform,
+    include_language_safety: bool,
 ) -> (Vec<StageDraft>, Vec<(usize, usize)>) {
     let mut old_to_new = vec![None; stages.len()];
     let mut active = Vec::new();
     for (old, mut stage) in stages.into_iter().enumerate() {
-        if stage
-            .child_cwd_keys
-            .iter()
-            .any(|key| matches!(child_cwds.get(key), Some(ChildCwdStatus::Inactive)))
+        if !include_language_safety && stage.language_safety_only
+            || stage
+                .child_cwd_keys
+                .iter()
+                .any(|key| matches!(child_cwds.get(key), Some(ChildCwdStatus::Inactive)))
         {
             continue;
         }
