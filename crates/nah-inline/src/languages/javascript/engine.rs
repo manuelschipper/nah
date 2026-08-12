@@ -404,6 +404,7 @@ enum BindingMode {
 struct Arguments {
     values: Vec<Value>,
     complete: bool,
+    uncertain_from: Option<usize>,
     assembly_branches: Vec<AssemblyBranch>,
 }
 

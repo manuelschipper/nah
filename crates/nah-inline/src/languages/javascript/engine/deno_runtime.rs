@@ -113,6 +113,7 @@ pub(super) fn refresh_deno_command(
     let arguments = Arguments {
         values,
         complete: true,
+        uncertain_from: None,
         assembly_branches: Vec::new(),
     };
     attach_deno_command_source(

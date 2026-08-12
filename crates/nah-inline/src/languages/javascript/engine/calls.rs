@@ -20,6 +20,7 @@ impl Interpreter<'_> {
             || Arguments {
                 values: Vec::new(),
                 complete: false,
+                uncertain_from: None,
                 assembly_branches: Vec::new(),
             },
             |arguments| self.arguments(arguments, state, call_depth),
@@ -127,6 +128,7 @@ impl Interpreter<'_> {
             || Arguments {
                 values: Vec::new(),
                 complete: false,
+                uncertain_from: None,
                 assembly_branches: Vec::new(),
             },
             |arguments| self.arguments(arguments, state, call_depth),
@@ -400,6 +402,7 @@ impl Interpreter<'_> {
         let mut arguments = Arguments {
             values: Vec::new(),
             complete: !delimited_has_hole(node, self.source),
+            uncertain_from: None,
             assembly_branches: Vec::new(),
         };
         let mut branches = Vec::new();
@@ -430,9 +433,17 @@ impl Interpreter<'_> {
                             .values
                             .extend(value.chars().map(|value| Value::String(value.to_string())));
                     }
-                    Value::Array(_) | Value::String(_) => arguments.complete = false,
+                    Value::Array(_) | Value::String(_) => {
+                        arguments.complete = false;
+                        arguments
+                            .uncertain_from
+                            .get_or_insert(arguments.values.len());
+                    }
                     _ => {
                         arguments.complete = false;
+                        arguments
+                            .uncertain_from
+                            .get_or_insert(arguments.values.len());
                         self.start_assembly_branch(state, &mut branches);
                     }
                 }
@@ -447,6 +458,7 @@ impl Interpreter<'_> {
             if arguments.values.len() > MAX_COLLECTION_ITEMS {
                 arguments.complete = false;
                 arguments.values.truncate(MAX_COLLECTION_ITEMS);
+                arguments.uncertain_from.get_or_insert(MAX_COLLECTION_ITEMS);
                 self.budget.refuse();
                 break;
             }

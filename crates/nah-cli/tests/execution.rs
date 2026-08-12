@@ -54,6 +54,11 @@ shutil.rmtree = lambda path: None""#,
             3,
         ),
         (
+            r#"node -e "require('fs').rmSync('/', {recursive:true, force:true}, 'ignored')""#,
+            Coverage::Full,
+            3,
+        ),
+        (
             r#"ruby -e "require 'fileutils'; FileUtils.rm_rf('/')""#,
             Coverage::Full,
             1,

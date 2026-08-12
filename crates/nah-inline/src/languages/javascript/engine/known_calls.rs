@@ -128,31 +128,47 @@ impl Interpreter<'_> {
                 arguments.values.first().cloned().unwrap_or(Value::Unknown)
             }
             KnownFunction::Fs(module, member) => {
-                match summarize_fs_call(module, member, &arguments) {
+                let effect = summarize_fs_call(
+                    module,
+                    member,
+                    &arguments,
+                    state.prototype_integrity_known,
+                    self.profile.ownership,
+                    self.platform,
+                );
+                let invalid = matches!(&effect.summary, FsCallSummary::Invalid);
+                match effect.summary {
                     FsCallSummary::Effect(filesystems) => {
-                        let ordinal = self.emit_call(
+                        let ordinal = self.emit_effect_call(
                             LanguageCallKind::DirectFile,
                             fs_callable(module, member),
                             &arguments,
                             state,
                             filesystems,
+                            false,
                         );
-                        if fs_callback_unmodeled(module, member) {
+                        if let Some(index) = effect.callback {
                             self.complete = false;
                             self.draft.set_partial();
-                            if let Some(Value::Function(callback)) = arguments.values.last() {
+                            if let Some(Value::Function(callback)) = arguments.values.get(index) {
                                 self.analyze_callback(callback, state, call_depth, ordinal);
                             }
                         }
                     }
                     FsCallSummary::EffectPartial(filesystems) => {
-                        self.emit_call(
+                        let ordinal = self.emit_effect_call(
                             LanguageCallKind::DirectFile,
                             fs_callable(module, member),
                             &arguments,
                             state,
                             filesystems,
+                            true,
                         );
+                        if let Some(index) = effect.callback
+                            && let Some(Value::Function(callback)) = arguments.values.get(index)
+                        {
+                            self.analyze_callback(callback, state, call_depth, ordinal);
+                        }
                         self.complete = false;
                         self.draft.set_partial();
                     }
@@ -162,7 +178,15 @@ impl Interpreter<'_> {
                     }
                     FsCallSummary::Invalid => {}
                 }
-                fs_return_value(module, member)
+                if invalid {
+                    if module == Module::FsPromises {
+                        Value::RejectedPromise
+                    } else {
+                        Value::SynchronousThrow
+                    }
+                } else {
+                    fs_return_value(module, member)
+                }
             }
             KnownFunction::ProcessChdir => {
                 if !arguments.complete || arguments.values.len() != 1 {
@@ -197,12 +221,13 @@ impl Interpreter<'_> {
                         callback,
                         partial,
                     } => {
-                        let ordinal = self.emit_call(
+                        let ordinal = self.emit_effect_call(
                             kind,
                             child_callable(member),
                             &arguments,
                             state,
                             Vec::new(),
+                            false,
                         );
                         match execution {
                             ChildExecution::Command { argv, cwd } => {
@@ -249,7 +274,7 @@ impl Interpreter<'_> {
                         self.draft.set_partial();
                         Value::Unknown
                     }
-                    ChildCallSummary::Invalid => Value::Unknown,
+                    ChildCallSummary::Invalid => Value::SynchronousThrow,
                 }
             }
             KnownFunction::Deno(DenoMember::Chdir) => {
@@ -351,6 +376,7 @@ impl Interpreter<'_> {
                         Value::Array(argv.iter().cloned().map(Value::String).collect())
                     })],
                     complete: true,
+                    uncertain_from: None,
                     assembly_branches: Vec::new(),
                 };
                 let certainty = if member == DenoCommandMember::Spawn {

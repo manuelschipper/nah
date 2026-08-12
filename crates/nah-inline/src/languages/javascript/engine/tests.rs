@@ -114,16 +114,29 @@ fn monkey_patches_and_unknown_module_consumers_remove_ownership() {
         "const fs=require('fs'); plugin(fs); fs.rmSync('/', {recursive:true})",
         "const fs=require('fs'); if (flag) { fs.rmSync=safe } fs.rmSync('/', {recursive:true})",
         "const fs=require('fs'); switch (flag) { default: break } fs.rmSync('/', {recursive:true})",
-        "const options={recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
-        "const options={recursive:true}; const alias=options; alias.recursive=false; require('fs').rmSync('/', options)",
-        "const options={recursive:true}; Object.defineProperty(options, 'recursive', {value:false}); require('fs').rmSync('/', options)",
-        "const options={constructor:require('module'),recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
         "process.env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
         "const env=process.env; env.HOME='/tmp/safe'; require('fs').rmSync(process.env.HOME, {recursive:true})",
         "eval('require=safe'); require('fs').rmSync('/', {recursive:true})",
         "eval(\"require('fs').rmSync=safe\"); require('fs').rmSync('/', {recursive:true})",
     ] {
         assert!(!root(code), "{code}");
+    }
+    for code in [
+        "const options={recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
+        "const options={recursive:true}; const alias=options; alias.recursive=false; require('fs').rmSync('/', options)",
+        "const options={recursive:true}; Object.defineProperty(options, 'recursive', {value:false}); require('fs').rmSync('/', options)",
+        "const options={constructor:require('module'),recursive:true}; options.recursive=false; require('fs').rmSync('/', options)",
+    ] {
+        let analysis = analysis(code);
+        assert!(
+            analysis.draft().calls().iter().any(|call| {
+                call.filesystems()
+                    .iter()
+                    .any(|filesystem| filesystem.requested() == Some("/"))
+            }),
+            "{code}"
+        );
+        assert!(!analysis.draft().complete(), "{code}");
     }
     assert!(
         report(

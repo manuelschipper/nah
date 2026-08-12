@@ -16,6 +16,7 @@ impl Interpreter<'_> {
         let arguments = Arguments {
             values: vec![Value::Unknown; parameters.len()],
             complete: true,
+            uncertain_from: None,
             assembly_branches: Vec::new(),
         };
         let mut callback_state = state.clone();
@@ -40,6 +41,37 @@ impl Interpreter<'_> {
         state: &State,
         filesystems: Vec<LanguageFilesystem>,
     ) -> Option<usize> {
+        self.emit_call_with_input_partiality(kind, callable, arguments, state, filesystems, true)
+    }
+
+    pub(super) fn emit_effect_call(
+        &mut self,
+        kind: LanguageCallKind,
+        callable: &str,
+        arguments: &Arguments,
+        state: &State,
+        filesystems: Vec<LanguageFilesystem>,
+        input_partiality_affects_effect: bool,
+    ) -> Option<usize> {
+        self.emit_call_with_input_partiality(
+            kind,
+            callable,
+            arguments,
+            state,
+            filesystems,
+            input_partiality_affects_effect,
+        )
+    }
+
+    fn emit_call_with_input_partiality(
+        &mut self,
+        kind: LanguageCallKind,
+        callable: &str,
+        arguments: &Arguments,
+        state: &State,
+        filesystems: Vec<LanguageFilesystem>,
+        input_partiality_affects_effect: bool,
+    ) -> Option<usize> {
         let mut unresolved_filesystem = false;
         let filesystems = filesystems
             .into_iter()
@@ -58,7 +90,7 @@ impl Interpreter<'_> {
             })
             .collect::<Vec<_>>();
         let input = language_call_input(self.profile.syntax, callable, arguments);
-        if !input.complete()
+        if (input_partiality_affects_effect && !input.complete())
             || unresolved_filesystem
             || filesystems
                 .iter()

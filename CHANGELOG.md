@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Node overload effects** — JavaScript filesystem and child-process calls now
+  retain protected paths and nested commands across reviewed Node overloads,
+  ignored surplus arguments, uncertain spreads, option accessors, and runtime
+  coercions. Recognized invalid overloads stop unreachable following effects.
+
 ## nah 1.3.0 — Aug 11, 2026
 
 - **Clear `secrets-env` explanation** — block messages now say that the guard

@@ -195,6 +195,7 @@ impl Interpreter<'_> {
                     Arguments {
                         values: Vec::new(),
                         complete: true,
+                        uncertain_from: None,
                         assembly_branches: Vec::new(),
                     },
                     state,

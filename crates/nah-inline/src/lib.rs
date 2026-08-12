@@ -626,10 +626,6 @@ mod tests {
                 "import subprocess; subprocess.run([[\"rm\", \"-rf\", \"/\"]])",
             ),
             ("node", "require('child_process').spawn('rm', ('-rf', '/'))"),
-            (
-                "node",
-                "require('child_process').spawn('rm', ['-rf',, '/'])",
-            ),
         ] {
             assert_eq!(
                 report(program, code),
@@ -637,6 +633,13 @@ mod tests {
                 "{program}: {code}"
             );
         }
+        assert!(has_argv(
+            &report(
+                "node",
+                "require('child_process').spawn('rm', ['-rf',, '/'])"
+            ),
+            &["rm", "-rf", "undefined", "/"]
+        ));
     }
 
     #[test]
@@ -654,10 +657,6 @@ mod tests {
             (
                 "python3",
                 "import subprocess; subprocess.Popen(['rm','-rf','/'], check=False)",
-            ),
-            (
-                "node",
-                "require('fs').rmSync('/', {recursive:true}, 'extra')",
             ),
             (
                 "node",
@@ -695,6 +694,10 @@ mod tests {
         assert!(finds_root(
             "node",
             "require('fs').rm('/', {recursive:true}, () => {})",
+        ));
+        assert!(finds_root(
+            "node",
+            "require('fs').rmSync('/', {recursive:true}, 'ignored')",
         ));
     }
 

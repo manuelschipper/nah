@@ -425,7 +425,6 @@ fn javascript_child_callbacks_are_conditional_and_invalid_shapes_stay_inert() {
 
     for source in [
         "require('child_process').spawn('rm', '-rf', '/')",
-        "require('child_process').execSync('printf ok', () => {})",
         "require('child_process').execFile('rm', [], {}, 'not a callback')",
     ] {
         let analysis = analyze_program("node", source);
@@ -437,8 +436,104 @@ fn javascript_child_callbacks_are_conditional_and_invalid_shapes_stay_inert() {
         "node",
         "require('child_process').spawn('rm', [], {get shell(){return false}})",
     );
-    assert!(accessor.draft().calls().is_empty());
+    assert!(matches!(
+        accessor.draft().calls(),
+        [call] if call.kind() == LanguageCallKind::EvaluatedShell
+    ));
     assert!(!accessor.draft().complete());
+}
+
+#[test]
+fn javascript_child_process_binds_node_overloads_before_validation() {
+    for source in [
+        "cp.exec('printf ok', () => {}, 0)",
+        "cp.execSync('printf ok', false, 0)",
+        "cp.execSync('printf ok', () => {})",
+        "cp.spawnSync('touch', {stdio:'ignore'}, 0)",
+        "cp.spawnSync('rm', ['-rf', '/'], {}, 0)",
+        "cp.execFile('true', () => {}, 0, 'ignored')",
+    ] {
+        let analysis = analyze_program(
+            "node",
+            &format!("const cp=require('child_process'); {source}"),
+        );
+        assert_eq!(analysis.draft().calls().len(), 1, "{source}");
+    }
+
+    let evaluated_extra = analyze_program(
+        "node",
+        "const cp=require('child_process'), fs=require('fs'); cp.execSync('printf ok', false, fs.rmSync('/tmp/evaluated'))",
+    );
+    assert_eq!(
+        evaluated_extra
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["fs.rmSync", "child_process.execSync"]
+    );
+
+    let ignored_extra = analyze_program(
+        "node",
+        "require('child_process').spawnSync('touch', [], {}, {get shell(){return true}})",
+    );
+    assert!(matches!(
+        ignored_extra.draft().calls(),
+        [call] if call.kind() == LanguageCallKind::LocalUtility
+    ));
+    assert!(ignored_extra.draft().complete());
+
+    let null_callback = analyze_program(
+        "node",
+        "require('child_process').execFile('true', [], {}, null)",
+    );
+    assert_eq!(null_callback.draft().calls().len(), 1);
+    assert!(null_callback.draft().complete());
+
+    for source in [
+        "cp.exec('printf ok', {}, 0)",
+        "cp.spawnSync('rm', [], null)",
+        "cp.execFile('true', {}, 0, () => {})",
+        "cp.execFileSync('true', [], () => {}, 'ignored')",
+        "cp.spawnSync('', [])",
+    ] {
+        let analysis = analyze_program(
+            "node",
+            &format!(
+                "const cp=require('child_process'), fs=require('fs'); {source}; fs.rmSync('/tmp/unreachable')"
+            ),
+        );
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(analysis.draft().complete(), "{source}");
+    }
+}
+
+#[test]
+fn javascript_child_process_coercion_and_uncertainty_keep_possible_calls() {
+    let primitive = analyze_program(
+        "node",
+        "require('child_process').spawnSync('printf', [undefined, null, true, 7])",
+    );
+    assert!(matches!(
+        primitive.report().nested_executions(),
+        [NestedExecution::Command { argv, .. }]
+            if argv.iter().map(String::as_str).eq(["printf", "undefined", "null", "true", "7"])
+    ));
+    assert!(primitive.draft().complete());
+
+    for source in [
+        "cp.spawnSync('rm', [{toString(){return '-rf'}}, '/'])",
+        "const tail=plugin(); cp.spawnSync('rm', ['-rf', '/'], {}, ...tail)",
+        "cp.spawn('rm', [], {get stdio(){return 'ignore'}})",
+    ] {
+        let analysis = analyze_program(
+            "node",
+            &format!("const cp=require('child_process'); {source}"),
+        );
+        assert_eq!(analysis.draft().calls().len(), 1, "{source}");
+        assert!(!analysis.draft().complete(), "{source}");
+    }
 }
 
 #[test]
@@ -805,12 +900,147 @@ fn javascript_fs_overloads_preserve_effect_and_return_semantics() {
     assert!(!descriptor.draft().complete());
 
     let numeric_flags = analyze_program("node", "require('fs').openSync('/tmp/x', 0)");
-    assert!(numeric_flags.draft().calls().is_empty());
-    assert!(!numeric_flags.draft().complete());
+    assert!(matches!(
+        numeric_flags.draft().calls(),
+        [call] if call.filesystems()[0].operation() == FilesystemOperation::Read
+    ));
+    assert!(numeric_flags.draft().complete());
 
-    let invalid = analyze_program("node", "require('fs').mkdirSync('/tmp/x', false)");
-    assert!(invalid.draft().calls().is_empty());
-    assert!(invalid.draft().complete());
+    let falsy_options = analyze_program("node", "require('fs').mkdirSync('/tmp/x', false)");
+    assert_eq!(falsy_options.draft().calls().len(), 1);
+    assert!(falsy_options.draft().complete());
+}
+
+#[test]
+fn javascript_fs_binds_formals_and_preserves_uncertain_candidates() {
+    let surplus = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.rmSync('/tmp/rm', {recursive:true}, 0); fs.mkdirSync('/tmp/mkdir', false, 0); fs.writeFileSync('/tmp/write', 'data', undefined, 0)",
+    );
+    assert_eq!(surplus.draft().calls().len(), 3);
+    assert!(surplus.draft().calls()[0].filesystems()[0].recursive());
+    assert!(surplus.draft().complete());
+
+    let evaluated_extra = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.rmSync('/tmp/rm', {recursive:true}, fs.writeFileSync('/tmp/evaluated', 'data'))",
+    );
+    assert_eq!(
+        evaluated_extra
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["fs.writeFileSync", "fs.rmSync"]
+    );
+
+    let symlink = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.symlink('/tmp/target', '/tmp/link', 'file', 0, () => fs.rmSync('/tmp/callback'))",
+    );
+    assert_eq!(
+        symlink
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["fs.symlink", "fs.rmSync"]
+    );
+    assert_eq!(symlink.draft().calls()[1].execution_dominators(), &[0]);
+    assert!(!symlink.draft().complete());
+
+    let spread = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.writeFileSync('/tmp/prefix', ...unknownValues)",
+    );
+    assert_eq!(spread.draft().calls().len(), 1);
+    assert_eq!(
+        spread.draft().calls()[0].filesystems()[0].requested(),
+        Some("/tmp/prefix")
+    );
+    assert!(!spread.draft().complete());
+}
+
+#[test]
+fn javascript_fs_node_defaults_and_version_edges_are_source_accurate() {
+    let accepted = analyze_program(
+        "node",
+        "const fs=require('fs'), fsp=require('fs/promises'); fs.truncateSync('/tmp/truncate', undefined); fsp.truncate('/tmp/promise-truncate', undefined); fs.openSync('/tmp/default'); fs.openSync('/tmp/sr-plus', 'sr+'); fs.writeFileSync('/tmp/write', 'data', null); fs.copyFileSync('/tmp/source', '/tmp/target', null); fsp.mkdir('/tmp/promise-mkdir', {mode:null})",
+    );
+    assert_eq!(accepted.draft().calls().len(), 7);
+    assert_eq!(accepted.draft().calls()[3].filesystems().len(), 2);
+    assert!(accepted.draft().complete());
+
+    let invalid_sync = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.truncateSync('/tmp/invalid', null); fs.rmSync('/tmp/unreachable')",
+    );
+    assert!(invalid_sync.draft().calls().is_empty());
+    assert!(invalid_sync.draft().complete());
+
+    let invalid_promise = analyze_program(
+        "node",
+        "const fs=require('fs'), fsp=require('fs/promises'); await fsp.truncate('/tmp/invalid-promise', null); fs.rmSync('/tmp/unreachable')",
+    );
+    assert!(invalid_promise.draft().calls().is_empty());
+    assert!(invalid_promise.draft().complete());
+
+    let unawaited_rejection = analyze_program(
+        "node",
+        "const fs=require('fs'), fsp=require('fs/promises'); fsp.truncate('/tmp/invalid-promise', null); fs.rmSync('/tmp/reachable')",
+    );
+    assert!(matches!(
+        unawaited_rejection.draft().calls(),
+        [call] if callable(call) == "fs.rmSync"
+    ));
+    assert!(unawaited_rejection.draft().complete());
+
+    let invalid_write = analyze_program(
+        "node",
+        "const fs=require('fs'); fs.writeFileSync('/tmp/invalid', 'data', false); fs.rmSync('/tmp/unreachable')",
+    );
+    assert!(invalid_write.draft().calls().is_empty());
+    assert!(invalid_write.draft().complete());
+
+    let rmdir = analyze_program(
+        "node",
+        "require('fs').rmdirSync('/tmp/versioned', {recursive:undefined})",
+    );
+    assert_eq!(rmdir.draft().calls().len(), 1);
+    assert!(!rmdir.draft().calls()[0].filesystems()[0].recursive());
+    assert!(!rmdir.draft().complete());
+}
+
+#[test]
+fn javascript_fs_inherited_and_accessor_options_keep_possible_effects() {
+    let inherited = analyze_program(
+        "node",
+        "const fs=require('fs'); Object.prototype.recursive=true; fs.mkdirSync('/tmp/inherited', {}); fs.rmSync('/tmp/spread', {})",
+    );
+    assert_eq!(inherited.draft().calls().len(), 2);
+    assert!(inherited.draft().calls()[0].filesystems()[0].recursive());
+    assert!(!inherited.draft().calls()[1].filesystems()[0].recursive());
+    assert!(!inherited.draft().complete());
+
+    for code in [
+        "require('fs').rm('/tmp/x', {get recursive(){return true}}, () => {})",
+        "require('fs').writeFile('/tmp/x', 'data', {get flag(){return 'w'}}, () => {})",
+        "require('fs').createWriteStream('/tmp/x', {get fd(){return 1}})",
+        "require('fs/promises').mkdir('/tmp/x', {get mode(){return '0700'}})",
+    ] {
+        let analysis = analyze_program("node", code);
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
+        assert!(!analysis.draft().complete(), "{code}");
+    }
+
+    let unread = analyze_program(
+        "node",
+        "require('fs').writeFileSync('/tmp/a', 'data', {get unrelated(){return 1}})",
+    );
+    assert_eq!(unread.draft().calls().len(), 1);
+    assert!(unread.draft().complete());
 }
 
 #[test]
@@ -832,7 +1062,7 @@ fn javascript_fs_callbacks_and_option_accessors_are_explicitly_partial() {
         "require('fs/promises').mkdir('/tmp/x', {get mode(){return '0700'}})",
     ] {
         let analysis = analyze_program("node", code);
-        assert!(analysis.draft().calls().is_empty(), "{code}");
+        assert_eq!(analysis.draft().calls().len(), 1, "{code}");
         assert!(!analysis.draft().complete(), "{code}");
     }
 }
