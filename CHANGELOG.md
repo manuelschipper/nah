@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.3.0 — Aug 11, 2026
 
 - **Clear `secrets-env` explanation** — block messages now say that the guard
   blocks reading environment credential files, matching its read-only policy.
