@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.3.1 — Aug 13, 2026
 
 - **Portable installer checksums** — The installer now verifies one-shot
   SHA-256 output directly, so non-GNU `sha256sum` implementations do not need

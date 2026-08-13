@@ -2,7 +2,7 @@
 # nah installer — https://nahguard.ai
 # Downloads the latest release binary for this machine, verifies its
 # checksum, and installs it to ~/.local/bin (no sudo). Override the
-# version with NAH_VERSION=v1.3.0 or the directory with NAH_INSTALL_DIR.
+# version with NAH_VERSION=v1.3.1 or the directory with NAH_INSTALL_DIR.
 set -eu
 
 REPO="manuelschipper/nah"
