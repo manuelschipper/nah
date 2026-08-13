@@ -7,10 +7,12 @@ guard proposals under `~/.nah/`. Commands own its protected state; the
 Run `nah tui` in an interactive terminal for the same protected configuration
 surface. It has these screens:
 
-- **Guards** lists built-in and custom guards and stages changes into one
+- **Guards** groups built-ins by semantic family and `DEFAULT ON` or `DEFAULT
+  OFF`, with custom user and project subsections, and stages changes into one
   batch until Enter. Custom activation shows a bounded preview of covered
   files and pins the displayed path, scope, and full bundle hash; changed bytes
-  are refused until reviewed again.
+  are refused until reviewed again. Press `f` to compose family,
+  factory-default, and source filters; filtering never drops staged changes.
 - **Projects** trusts the current directory or revokes a selected trusted root.
 - **Runtimes** installs, refreshes, or removes nah-owned integration wiring.
 - **Log** keeps separate 200-row views for decisions and blocks. Rows name the
@@ -22,8 +24,10 @@ invocation through agent tool calls.
 
 ## Built-in guards
 
-Every built-in guard is enabled by default; the documentation view includes
-three examples:
+Every built-in has its own factory default. `fs-startup-persistence` ships off
+because it interrupts routine shell-profile, service, cron, and autostart
+administration. `fs-auth-identity` and all other current built-ins ship on.
+The documentation view shows live and factory status plus three examples:
 
 ```sh
 nah guards
@@ -42,6 +46,12 @@ anything no guard blocks delegates to the runtime. Structural self-protection
 has no persistent disable switch. If custom guards share a name across scopes,
 select one with `--user` or `--project <root>`; built-ins are global.
 
+Global built-in choices are stored in `~/.nah/built-ins.json`. State v2 keeps
+sorted explicit overrides; missing names use their compiled factory defaults.
+Nah reads the previous v1 disabled-name file without rewriting it and writes v2
+on the next guard change. `D` in the TUI resets built-ins to their factory
+posture and disables custom guards.
+
 Configuration can only add or remove blocks; it cannot authorize a tool call.
 
 ## Tighten a project before trust
@@ -55,7 +65,9 @@ enable-guards = ["secrets-env", "git-hard-reset"]
 This file can only enable named built-in guards. It cannot disable guards or
 define executable code. Unknown names warn on every affected decision. A
 malformed or unreadable file adds no project guards; the globally enabled
-guards still run.
+guards still run. An explicit global operator disable wins over a project
+enablement. A default-off guard with no explicit global override may still be
+enabled by the project.
 
 ## Trust project guards
 

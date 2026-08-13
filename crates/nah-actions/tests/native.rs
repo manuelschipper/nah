@@ -1,7 +1,7 @@
 use nah_actions::{AnalysisInput, finalize, plan};
 use nah_proto::action::{
-    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput,
-    NahProtectionTier, PathScope, Sensitivity,
+    Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, InvocationEffect,
+    InvocationInput, NahProtectionTier, PathScope, Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
@@ -370,6 +370,63 @@ fn malformed_schema_or_observation_binding_is_empty_partial() {
     );
     assert_eq!(stream.coverage(), Coverage::Partial);
     assert!(stream.effects().is_empty());
+}
+
+#[test]
+fn block_relevant_literal_paths_survive_permission_and_timeout_failures() {
+    for failure in [
+        ObservationFailure::PermissionDenied,
+        ObservationFailure::Timeout,
+    ] {
+        for (tool, body, requested, expected) in [
+            (
+                "Write",
+                json!({"file_path":"/home/test/.bashrc","content":"alias ll='ls -la'"}),
+                "/home/test/.bashrc",
+                Some(HostIntegrityClass::StartupPersistence),
+            ),
+            (
+                "Delete",
+                json!({"file_path":"/etc/passwd"}),
+                "/etc/passwd",
+                Some(HostIntegrityClass::AuthIdentity),
+            ),
+            (
+                "Read",
+                json!({"file_path":"/repo/.env"}),
+                "/repo/.env",
+                None,
+            ),
+        ] {
+            let input = call(tool, body);
+            let call_site = input.call_site(Platform::Linux).unwrap();
+            let plan = plan(AnalysisInput::Native(&input), &ctx(), &call_site);
+            let stream = finalize(
+                plan,
+                observation(Some((requested, Observed::Error { error: failure }))),
+            );
+            assert_eq!(stream.coverage(), Coverage::Partial, "{tool} {requested}");
+            assert!(
+                stream.effects().iter().any(|effect| matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.host_integrity == expected
+                            && (expected.is_some() || effect.sensitivity != Sensitivity::None)
+                )),
+                "{tool} {requested}: {:?}",
+                stream.effects()
+            );
+        }
+
+        let input = call("Write", json!({"file_path":"/tmp/ordinary","content":"x"}));
+        let call_site = input.call_site(Platform::Linux).unwrap();
+        let plan = plan(AnalysisInput::Native(&input), &ctx(), &call_site);
+        let stream = finalize(
+            plan,
+            observation(Some(("/tmp/ordinary", Observed::Error { error: failure }))),
+        );
+        assert!(stream.effects().is_empty(), "{failure:?}");
+    }
 }
 
 #[test]

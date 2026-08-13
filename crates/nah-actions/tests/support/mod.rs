@@ -120,6 +120,29 @@ pub(crate) fn observe_with_descendant_error(request: &ObservationRequest) -> Obs
     Observation::new(SchemaVersion::V1, request.request_id(), facts).unwrap()
 }
 
+pub(crate) fn observe_with_path_error(
+    request: &ObservationRequest,
+    error: ObservationFailure,
+) -> Observation {
+    let facts = facts(request, "echo", Change::None)
+        .into_iter()
+        .map(|fact| {
+            if matches!(fact.query(), ObservationQuery::Path { .. }) {
+                ObservationFact::new(
+                    fact.query().clone(),
+                    ObservationValue::Path {
+                        observed: Observed::Error { error },
+                    },
+                )
+                .unwrap()
+            } else {
+                fact
+            }
+        })
+        .collect();
+    Observation::new(SchemaVersion::V1, request.request_id(), facts).unwrap()
+}
+
 pub(crate) fn observation_with(
     request: &ObservationRequest,
     request_id: &str,

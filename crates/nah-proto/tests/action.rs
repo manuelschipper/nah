@@ -1,6 +1,7 @@
 use nah_proto::action::{
     ActionStream, ActionStreamVersion, Coverage, EffectId, EffectKind, FilesystemEffect,
-    FilesystemOperation, FlowOrdinals, InvocationInput, PathScope, Sensitivity, pattern_bound,
+    FilesystemOperation, FlowOrdinals, HostIntegrityClass, InvocationInput, PathScope, Sensitivity,
+    pattern_bound,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use proptest::prelude::*;
@@ -197,6 +198,7 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
             },
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: Some(HostIntegrityClass::AuthIdentity),
             selects_root,
             selects_home: false,
             recursive: false,
@@ -223,7 +225,7 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
         serde_json::to_value(stream).unwrap()["effects"],
         serde_json::json!([
             {"id":"e0","stage":"s0","kind":{"kind":"invocation","invocation":{"kind":"known","program":"git","operation":"status","input":{"kind":"shell","words":["git"],"argv":["git"]}}}},
-            {"id":"e1","stage":"s0","kind":{"kind":"filesystem","operation":"write","target":"/repo/file","scope":{"kind":"project","root":"/repo"},"sensitivity":"none","selects_root":false,"selects_home":false,"recursive":false,"pattern":false}},
+            {"id":"e1","stage":"s0","kind":{"kind":"filesystem","operation":"write","target":"/repo/file","scope":{"kind":"project","root":"/repo"},"sensitivity":"none","host_integrity":"auth-identity","selects_root":false,"selects_home":false,"recursive":false,"pattern":false}},
             {"id":"e2","stage":"s0","kind":{"kind":"git","operation":"status"}},
             {"id":"e3","stage":"s0","kind":{"kind":"network","direction":"outbound","host":"example.com"}},
             {"id":"e4","stage":"s0","kind":{"kind":"system-state","operation":"process-start"}}
@@ -272,6 +274,7 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
             scope: PathScope::System,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: false,
@@ -295,6 +298,7 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
             },
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: false,

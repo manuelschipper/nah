@@ -2,14 +2,16 @@
 
 use nah_inline::{FindingKind, InlineReport};
 use nah_proto::action::{
-    ActionStream, Effect, EffectKind, FilesystemEffect, FilesystemOperation, InvocationEffect,
-    SemanticCode, pattern_bound,
+    ActionStream, Effect, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
+    InvocationEffect, SemanticCode, pattern_bound,
 };
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
+const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
+const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
 const FS_STORAGE_DESTROY: &str = "fs-storage-destroy";
 const FS_FORKBOMB: &str = "fs-forkbomb";
@@ -23,6 +25,10 @@ pub(crate) fn add(
     let mut blocked = false;
     for (name, reason) in [
         (
+            FS_AUTH_IDENTITY,
+            "fs-auth-identity blocked a change to host authentication, identity, or privilege policy; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-auth-identity`, then re-enable it after the change",
+        ),
+        (
             FS_SYSTEM_TREE,
             "fs-system-tree blocked a destructive operation on the filesystem root or a system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change",
         ),
@@ -33,6 +39,10 @@ pub(crate) fn add(
         (
             FS_RAW_DEVICE,
             "fs-raw-device blocked a write to raw storage or the kernel crash trigger; do not retry; report the exact target and operation to the operator",
+        ),
+        (
+            FS_STARTUP_PERSISTENCE,
+            "fs-startup-persistence blocked a change to a shell, service, schedule, or login startup path; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
         ),
         (
             FS_STORAGE_DESTROY,
@@ -105,6 +115,18 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                     && (is_raw_storage_or_sysrq(effect.target.as_str())
                         || effect.pattern
                             && pattern_selects_raw_storage(pattern_bound(effect.target.as_str())))
+            }
+            (FS_STARTUP_PERSISTENCE | FS_AUTH_IDENTITY, EffectKind::Filesystem { effect }) => {
+                matches!(
+                    effect.operation,
+                    FilesystemOperation::Write | FilesystemOperation::Delete
+                ) && matches!(
+                    (name, effect.host_integrity),
+                    (
+                        FS_STARTUP_PERSISTENCE,
+                        Some(HostIntegrityClass::StartupPersistence)
+                    ) | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
+                )
             }
             (FS_STORAGE_DESTROY, EffectKind::SystemState { operation }) => {
                 operation == &SemanticCode::LOGICAL_STORAGE_DESTROY

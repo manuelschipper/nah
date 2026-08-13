@@ -40,6 +40,7 @@ pub struct PolicyVersion(u32);
 impl PolicyVersion {
     pub const V1: Self = Self(1);
     pub const V2: Self = Self(2);
+    pub const V3: Self = Self(3);
 
     pub fn new(value: u32) -> Result<Self, CtxError> {
         nonzero_version(value).map(Self)
@@ -273,6 +274,8 @@ impl GuardIdentity {
 pub struct ShippedGuardState {
     name: String,
     enabled: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    explicitly_disabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -280,6 +283,8 @@ pub struct ShippedGuardState {
 struct RawShippedGuardState {
     name: String,
     enabled: bool,
+    #[serde(default)]
+    explicitly_disabled: bool,
 }
 
 impl<'de> Deserialize<'de> for ShippedGuardState {
@@ -288,15 +293,28 @@ impl<'de> Deserialize<'de> for ShippedGuardState {
         D: serde::Deserializer<'de>,
     {
         let raw = RawShippedGuardState::deserialize(deserializer)?;
-        Self::new(raw.name, raw.enabled).map_err(serde::de::Error::custom)
+        Self::with_explicit_disable(raw.name, raw.enabled, raw.explicitly_disabled)
+            .map_err(serde::de::Error::custom)
     }
 }
 
 impl ShippedGuardState {
     pub fn new(name: impl Into<String>, enabled: bool) -> Result<Self, CtxError> {
+        Self::with_explicit_disable(name, enabled, false)
+    }
+
+    pub fn with_explicit_disable(
+        name: impl Into<String>,
+        enabled: bool,
+        explicitly_disabled: bool,
+    ) -> Result<Self, CtxError> {
+        if enabled && explicitly_disabled {
+            return Err(CtxError::InvalidGuardState);
+        }
         Ok(Self {
             name: non_empty(name)?,
             enabled,
+            explicitly_disabled,
         })
     }
 
@@ -306,6 +324,10 @@ impl ShippedGuardState {
 
     pub const fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub const fn explicitly_disabled(&self) -> bool {
+        self.explicitly_disabled
     }
 }
 
@@ -622,10 +644,14 @@ pub fn derive_policy_ctx(
     // globally enabled guards still run.
     if let ProjectGuardDeclaration::Present { names } = declaration {
         for name in names {
-            if guards.contains(name.as_str()) {
-                enabled.insert(name.clone());
-            } else {
+            if !guards.contains(name.as_str()) {
                 unknown.insert(name.clone());
+            } else if !ctx
+                .shipped_guards
+                .iter()
+                .any(|guard| guard.name == *name && guard.explicitly_disabled)
+            {
+                enabled.insert(name.clone());
             }
         }
     }
@@ -643,6 +669,7 @@ pub enum CtxError {
     EmptyIdentifier,
     Duplicate,
     InvalidContentHash,
+    InvalidGuardState,
     InvalidIdentity,
     InvalidObservation,
     InvalidPath,
@@ -658,6 +685,7 @@ impl CtxError {
             Self::EmptyIdentifier => "empty-identifier",
             Self::Duplicate => "duplicate",
             Self::InvalidContentHash => "invalid-content-hash",
+            Self::InvalidGuardState => "invalid-guard-state",
             Self::InvalidIdentity => "invalid-identity",
             Self::InvalidObservation => "invalid-observation",
             Self::InvalidPath => "invalid-path",
@@ -682,6 +710,10 @@ fn non_empty(value: impl Into<String>) -> Result<String, CtxError> {
     } else {
         Ok(value)
     }
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn guard_name(value: impl Into<String>) -> Result<String, CtxError> {

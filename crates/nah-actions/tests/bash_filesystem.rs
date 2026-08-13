@@ -1,8 +1,58 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{Coverage, EffectKind, FilesystemOperation};
-use support::{Change, absolute, bash_plan, observation_with, observe};
+use nah_proto::action::{
+    Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, Sensitivity,
+};
+use nah_proto::observation::ObservationFailure;
+use support::{Change, absolute, bash_plan, observation_with, observe, observe_with_path_error};
+
+#[test]
+fn block_relevant_bash_paths_survive_permission_and_timeout_failures() {
+    for failure in [
+        ObservationFailure::PermissionDenied,
+        ObservationFailure::Timeout,
+    ] {
+        for (source, expected) in [
+            (
+                "printf x > /home/test/.bashrc",
+                Some(HostIntegrityClass::StartupPersistence),
+            ),
+            ("rm /etc/passwd", Some(HostIntegrityClass::AuthIdentity)),
+            ("cat /repo/.env", None),
+        ] {
+            let plan = bash_plan(source);
+            let stream = finalize(
+                plan.clone(),
+                observe_with_path_error(plan.observation_request(), failure),
+            );
+            assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+            assert!(
+                stream.effects().iter().any(|effect| matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.host_integrity == expected
+                            && (expected.is_some() || effect.sensitivity != Sensitivity::None)
+                )),
+                "{source}: {:?}",
+                stream.effects()
+            );
+        }
+
+        let plan = bash_plan("printf x > /tmp/ordinary");
+        let stream = finalize(
+            plan.clone(),
+            observe_with_path_error(plan.observation_request(), failure),
+        );
+        assert!(
+            !stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Filesystem { .. })),
+            "{failure:?}"
+        );
+    }
+}
 
 #[test]
 fn visible_function_calls_and_coprocesses_preserve_destructive_bodies() {

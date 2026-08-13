@@ -1,7 +1,7 @@
 # Corpus workflow
 
-The corpus is the behavioral oracle for policy version 1. No test imports or
-executes nah 0.x.
+The corpus is the behavioral oracle for the current shipped policy contract.
+No test imports or executes nah 0.x.
 
 ## Ownership
 
@@ -46,6 +46,8 @@ historical comparison.
 
 Each JSONL row is self-contained: its descriptive ID, tool input, fixtures, and
 exact expected verdict, guard, and coverage define the behavior under test.
+Context fixtures name either the compiled factory posture or the intentionally
+all-enabled posture; tests must not assume those are equivalent.
 
 ## Check
 

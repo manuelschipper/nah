@@ -18,7 +18,7 @@ use nah_proto::observation::{
 };
 use nah_proto::tool::{CallSite, ToolCallInput};
 
-use paths::{path_scope, sensitivity};
+use paths::{host_integrity_class, path_scope, sensitivity};
 use self_protection_tiers::classify as classify_protection;
 
 mod bash;
@@ -369,10 +369,7 @@ fn finalize_inner(
                         ),
                         true,
                     )
-                } else if matches!(
-                    observed_path(&observation, PATH_KEY),
-                    Some(Err(ObservationFailure::Unavailable))
-                ) {
+                } else if let Some(Err(error)) = observed_path(&observation, PATH_KEY) {
                     let Some(filesystem) = lexical_filesystem_effect(
                         filesystem_operation,
                         &requested_path,
@@ -386,6 +383,14 @@ fn finalize_inner(
                     ) else {
                         return partial();
                     };
+                    if error != ObservationFailure::Unavailable
+                        && (!matches!(
+                            error,
+                            ObservationFailure::PermissionDenied | ObservationFailure::Timeout
+                        ) || !block_relevant_lexical_filesystem(&filesystem))
+                    {
+                        return partial();
+                    }
                     (filesystem, false)
                 } else {
                     return partial();
@@ -425,20 +430,29 @@ fn finalize_inner(
                         plan.platform,
                         false,
                     ));
-                } else if matches!(
-                    observed_path(&observation, &patch_path_key(index)),
-                    Some(Err(ObservationFailure::Unavailable))
-                ) && let Some(filesystem) = lexical_filesystem_effect(
-                    draft.operation,
-                    &draft.requested_path,
-                    cwd,
-                    roots,
-                    &plan.trusted_roots,
-                    &plan.home,
-                    &plan.critical_paths,
-                    plan.platform,
-                    false,
-                ) {
+                } else if let Some(Err(error)) = observed_path(&observation, &patch_path_key(index))
+                {
+                    let Some(filesystem) = lexical_filesystem_effect(
+                        draft.operation,
+                        &draft.requested_path,
+                        cwd,
+                        roots,
+                        &plan.trusted_roots,
+                        &plan.home,
+                        &plan.critical_paths,
+                        plan.platform,
+                        false,
+                    ) else {
+                        return partial();
+                    };
+                    if error != ObservationFailure::Unavailable
+                        && (!matches!(
+                            error,
+                            ObservationFailure::PermissionDenied | ObservationFailure::Timeout
+                        ) || !block_relevant_lexical_filesystem(&filesystem))
+                    {
+                        return partial();
+                    }
                     complete = false;
                     effects.push(filesystem);
                 } else {
@@ -674,6 +688,29 @@ fn filesystem_effect(
         platform,
         false,
     );
+    let host_integrity = [
+        host_integrity_class(
+            operation,
+            requested_path,
+            &target,
+            home,
+            platform,
+            false,
+            recursive,
+        ),
+        host_integrity_class(
+            operation,
+            path.resolved().as_str(),
+            path.resolved(),
+            home,
+            platform,
+            false,
+            recursive,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
     let selects_root = matches!(&scope, PathScope::Project { root } if root == &target);
     EffectKind::Filesystem {
         effect: FilesystemEffect {
@@ -682,6 +719,7 @@ fn filesystem_effect(
             scope,
             sensitivity,
             protection,
+            host_integrity,
             selects_root,
             selects_home: false,
             recursive,
@@ -724,6 +762,15 @@ fn lexical_filesystem_effect(
         platform,
         false,
     );
+    let host_integrity = host_integrity_class(
+        operation,
+        requested_path,
+        &target,
+        home,
+        platform,
+        false,
+        recursive,
+    );
     let selects_root = matches!(&scope, PathScope::Project { root } if root == &target);
     Some(EffectKind::Filesystem {
         effect: FilesystemEffect {
@@ -732,12 +779,22 @@ fn lexical_filesystem_effect(
             scope,
             sensitivity,
             protection,
+            host_integrity,
             selects_root,
             selects_home: false,
             recursive,
             pattern: false,
         },
     })
+}
+
+fn block_relevant_lexical_filesystem(effect: &EffectKind) -> bool {
+    matches!(
+        effect,
+        EffectKind::Filesystem { effect }
+            if effect.sensitivity != nah_proto::action::Sensitivity::None
+                || effect.host_integrity.is_some()
+    )
 }
 
 fn partial() -> ActionStream {

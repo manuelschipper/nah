@@ -330,6 +330,13 @@ pub enum NahProtectionTier {
     Proposal,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HostIntegrityClass {
+    StartupPersistence,
+    AuthIdentity,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FilesystemEffect {
     pub operation: FilesystemOperation,
@@ -338,6 +345,8 @@ pub struct FilesystemEffect {
     pub sensitivity: Sensitivity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protection: Option<NahProtectionTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_integrity: Option<HostIntegrityClass>,
     pub selects_root: bool,
     pub selects_home: bool,
     pub recursive: bool,

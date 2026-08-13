@@ -186,7 +186,6 @@ head = f"""<!doctype html>
 <body>
 """
 doc = head + body + "</body>\n</html>\n"
-open(f"{OUT_DIR}/index.html", "w", encoding="utf-8").write(doc)
 
 # -- the install script, served at /install for curl | sh -----------------
 shutil.copy(f"{HERE}/install.sh", f"{OUT_DIR}/install")
@@ -273,13 +272,16 @@ def generated_guard_docs():
         raise RuntimeError("nah docs guards returned an unexpected document shape")
     built_in = result.stdout[len(prefix):].split(custom_marker, 1)[0].strip()
     guard_count = len(re.findall(r"(?m)^# [a-z0-9-]+$", built_in))
+    default_on_count = len(re.findall(r"(?m)^Default: enabled$", built_in))
     if guard_count == 0:
         raise RuntimeError("nah docs guards returned no built-in guards")
+    if default_on_count == 0 or default_on_count > guard_count:
+        raise RuntimeError("nah docs guards returned invalid default metadata")
 
     # The CLI renders each guard as a standalone document heading. Demote
     # those headings beneath the website page title.
     built_in = re.sub(r"(?m)^# ", "## ", built_in)
-    return f"# Guards\n\n{built_in}\n", guard_count
+    return f"# Guards\n\n{built_in}\n", guard_count, default_on_count
 
 
 def word_mark(color, height=40):
@@ -504,10 +506,19 @@ PAGES.append(render_doc(
 ))
 
 # /docs/guards/ from the exact compiled catalog, under fresh default state
-guard_docs, guard_count = generated_guard_docs()
+guard_docs, guard_count, default_on_count = generated_guard_docs()
 PAGES.append(render_doc(
     guard_docs, "docs/guards/index.html", "NAH(1) · GUARDS", "docs",
 ))
+
+for marker, value in [
+    ("{{GUARD_COUNT}}", guard_count),
+    ("{{DEFAULT_ON_COUNT}}", default_on_count),
+]:
+    if doc.count(marker) != 1:
+        raise RuntimeError(f"expected one homepage marker {marker}")
+    doc = doc.replace(marker, str(value))
+open(f"{OUT_DIR}/index.html", "w", encoding="utf-8").write(doc)
 
 # topic pages
 runtime_slugs = sorted(
@@ -557,5 +568,6 @@ open(f"{OUT_DIR}/sitemap.xml", "w").write(
 
 print(
     f"index.html {len(doc)} bytes · og.png · title {title!r} · 2 favicons · "
-    f"{wasm_note} · {guard_count} generated guards · {len(PAGES)} docs/news pages"
+    f"{wasm_note} · {default_on_count}/{guard_count} guards default on · "
+    f"{len(PAGES)} docs/news pages"
 )

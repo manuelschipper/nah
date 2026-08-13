@@ -284,6 +284,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
             scope: project_scope(),
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root,
             selects_home: false,
             recursive: true,

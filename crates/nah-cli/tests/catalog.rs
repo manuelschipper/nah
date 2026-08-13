@@ -5,7 +5,7 @@ mod support;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use support::repo;
+use support::{bash_path, repo};
 
 fn nah(
     home: &std::path::Path,
@@ -159,6 +159,42 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
             0o600
         );
     }
+}
+
+#[test]
+fn explicit_global_disable_beats_a_project_enablement() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let startup = temp.path().join(".bashrc");
+    let command = format!("printf x > {}", bash_path(&startup));
+
+    assert_eq!(
+        decide(temp.path(), &project, &command)["verdict"],
+        "delegate"
+    );
+    std::fs::create_dir(project.join(".nah")).unwrap();
+    std::fs::write(
+        project.join(".nah/project.toml"),
+        "enable-guards = [\"fs-startup-persistence\"]\n",
+    )
+    .unwrap();
+    assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "fs-startup-persistence"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, &command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":false}}\n"
+    );
 }
 
 #[test]

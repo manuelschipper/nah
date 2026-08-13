@@ -39,11 +39,19 @@ boundary.
 - Analyzer or custom-guard failure adds no finding by default. A loaded
   `--fail-closed` hook blocks explicit failures/refusals and uses native denial
   for malformed/no-decision input; ordinary uncertainty still delegates.
+- Shipped host-integrity policy recognizes writes and deletes of a finite path
+  catalog. Authentication and identity protection ships on; startup persistence
+  protection ships off because those paths are also routine administration.
 
 These properties apply only to tool calls that reach a loaded nah adapter and
 to evidence nah can observe and model. Inline child effects require exact
 source and arguments; unproven child cwd, environment, or output capture is not
 assumed and supplies no derived fact or flow.
+
+The host-integrity path catalog does not cover path-free administration such as
+service-manager enablement, scheduler APIs, login-item APIs, or registry Run
+keys. Reads are not blocked by these guards, though secret guards may
+independently block credential reads.
 
 ## Trust assumptions and limits
 

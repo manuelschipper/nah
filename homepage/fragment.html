@@ -729,7 +729,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
           </p>
         </div>
         <div class="gclasses">
-          <h3>19 guards — all on by default</h3>
+          <h3>{{GUARD_COUNT}} guards — {{DEFAULT_ON_COUNT}} on by default</h3>
           <div class="gclass">
             <p class="gdesc"><b>execution hijacks</b> — content from outside
               becoming code: fetched, decoded, or hidden in obfuscated syntax.</p>
@@ -739,8 +739,9 @@ footer .fine a{ text-decoration-color:var(--rule); }
               off the machine.</p>
           </div>
           <div class="gclass">
-            <p class="gdesc"><b>filesystem destruction</b> — the trees you
-              can't rebuild: system, home, raw devices. and fork bombs.</p>
+            <p class="gdesc"><b>filesystem and host integrity</b> — the trees
+              you can't rebuild, plus reviewed authentication and optional
+              startup paths.</p>
           </div>
           <div class="gclass">
             <p class="gdesc"><b>git disasters</b> — history and remotes with
@@ -997,7 +998,7 @@ var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 /* ---- the try-it demo ------------------------------------------------
    Verdicts come from the real engine: the decision pipeline compiled
    to WebAssembly (homepage/wasm), deciding against a fixed synthetic
-   machine with shipped defaults (all 19 guards on). No shadow rules.
+   machine with the compiled per-guard defaults. No shadow rules.
    Until the module arrives the card says so, and a failed fetch points
    at the terminal instead of guessing.
 --------------------------------------------------------------------- */

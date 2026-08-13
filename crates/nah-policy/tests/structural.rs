@@ -107,6 +107,7 @@ fn incomplete_analysis_does_not_hide_a_recognized_guard_effect() {
                     scope: PathScope::OutsideProject,
                     sensitivity: Sensitivity::None,
                     protection: None,
+                    host_integrity: None,
                     selects_root: false,
                     selects_home: false,
                     recursive: true,

@@ -35,7 +35,10 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-19 guards, all on by default, covering four classes of disaster: **execution hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
+21 guards cover four classes of disaster: **execution hijacks**, **secret
+theft**, **filesystem and host-integrity damage**, and **git disasters**.
+Twenty ship on; the startup-persistence guard is optional because it also
+blocks routine dotfile and service administration.
 
 | Guard | Blocks |
 | --- | --- |
@@ -51,6 +54,8 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-storage-destroy` | Definite logical-volume and storage-pool destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
+| `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
+| `fs-startup-persistence` | Changes to reviewed shell, service, schedule, login, and loader startup paths. Off by default. |
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
@@ -144,7 +149,9 @@ in the [threat model](docs/threat-model.md).
 
 ## Every guard is a switch.
 
-Flip them in the TUI or the CLI. Turning a guard off just means those calls
+The TUI groups built-ins by semantic family and factory default; press `f` to
+filter by family, default, or source. Flip guards there or in the CLI. Turning
+a guard off just means those calls
 delegate again, never past your runtime's own prompts:
 
 ```sh

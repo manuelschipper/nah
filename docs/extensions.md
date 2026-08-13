@@ -158,7 +158,8 @@ An effect `kind` is one of:
   `opaque` (`program`), or `code-execution` (`program`, optional
   `interpreter`, `source`, and optional exact `code`);
 - `filesystem` (`operation`, `target`, `scope`, `sensitivity`, optional
-  `protection`, `selects_root`, `selects_home`, `recursive`, `pattern`);
+  `protection`, optional `host_integrity`, `selects_root`, `selects_home`,
+  `recursive`, `pattern`);
 - `filesystem-unresolved` (`operation`, `recursive`) when a visible operand
   cannot be bounded to one filesystem root; the invocation keeps its input;
 - `git` (`operation`);
@@ -169,9 +170,13 @@ Filesystem operation values are `read`, `write`, or `delete`. Scope is tagged
 by `kind`: `project` also has `root`; the other values are `home`, `system`,
 and `outside-project`. Sensitivity is `none`, `environment-secret`,
 `credential-secret`, or `other-sensitive`. Protection, when present, is
-`critical`, `permanent`, or `proposal`. `pattern` is true when the shell expands
-the target: the effect covers paths starting with the literal text before the
-first `*`, `?`, `[`, `{`, `@(`, `+(`, or `!(`, and coverage is `partial`.
+`critical`, `permanent`, or `proposal`. `host_integrity`, when present, is
+`startup-persistence` or `auth-identity`; it classifies a reviewed requested or
+effective target independently of sensitivity. Built-in policy uses it only for
+writes and deletes, so extensions should still inspect `operation`. `pattern`
+is true when the shell expands the target: the effect covers paths starting
+with the literal text before the first `*`, `?`, `[`, `{`, `@(`, `+(`, or
+`!(`, and coverage is `partial`. The optional field retains ActionStream v1.
 
 Every invocation also has an `input`. Shell input is
 `{"kind":"shell","words":[...],"argv":[...]}`. `words` preserves the visible

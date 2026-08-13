@@ -38,6 +38,19 @@ pub(crate) fn ctx(home: &Path) -> Ctx {
     .unwrap()
 }
 
+pub(crate) fn factory_ctx(home: &Path) -> Ctx {
+    Ctx::new(
+        SchemaVersion::V1,
+        host_platform(),
+        absolute(home),
+        nah_cli::shipped_guard_states(),
+        vec![],
+        TrustProjection::new(vec![]).unwrap(),
+        POLICY_VERSION,
+    )
+    .unwrap()
+}
+
 pub(crate) fn call(tool: &str, input: serde_json::Value, cwd: &Path) -> ToolCallInput {
     ToolCallInput::new(SchemaVersion::V1, tool, input, cwd.to_str().unwrap(), None).unwrap()
 }

@@ -54,6 +54,26 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
     );
     assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
 
+    let explicitly_disabled = Ctx::new(
+        SchemaVersion::V1,
+        Platform::Linux,
+        absolute("/home/test"),
+        vec![
+            ShippedGuardState::new("fs-system-tree", true).unwrap(),
+            ShippedGuardState::with_explicit_disable("secrets-env", false, true).unwrap(),
+        ],
+        Vec::new(),
+        TrustProjection::new(Vec::new()).unwrap(),
+        PolicyVersion::V3,
+    )
+    .unwrap();
+    let derived = derive_policy_ctx(&explicitly_disabled, &present_observation).unwrap();
+    assert_eq!(
+        derived.policy_ctx().enabled_shipped_guards(),
+        ["fs-system-tree"]
+    );
+    assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
+
     // A declaration nah cannot read or parse adds nothing; the globally
     // enabled guards still run.
     for declaration in [

@@ -78,7 +78,9 @@ pub(crate) use runtime::{
     RuntimeEntry, RuntimeHookStatus, RuntimeMutation, runtime_entries, runtime_entry,
     runtime_self_protection, set_runtime_configured,
 };
-pub(crate) use shipped_guard::{list_shipped_guards, set_shipped_guard, shipped_guard_entries};
+pub(crate) use shipped_guard::{
+    list_shipped_guards, reset_shipped_guard, set_shipped_guard, shipped_guard_entries,
+};
 pub(crate) use test::test_command;
 pub(crate) use trust::{
     GuardProposals, TrustedProject, canonical_project_root, guard_proposals, trust_root,

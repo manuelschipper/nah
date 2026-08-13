@@ -2,7 +2,14 @@
   "v": 1,
   "ctx_fixtures": {
     "default-linux-v1": {
-      "all_shipped_guards_enabled": true,
+      "shipped_guards": "all-enabled",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    },
+    "factory-linux-v1": {
+      "shipped_guards": "factory-defaults",
       "extensions": [],
       "home": "/home/test",
       "platform": "linux",
@@ -650,6 +657,51 @@
           "kind": "missing",
           "requested": "/workspace/project/résumé.txt",
           "resolved": "/workspace/project/résumé.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.bashrc",
+          "resolved": "/home/test/.bashrc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.vimrc",
+          "resolved": "/home/test/.vimrc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/authorized_keys",
+          "resolved": "/home/test/.ssh/authorized_keys"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.ssh",
+          "requested": "/home/test/.ssh",
+          "resolved": "/home/test/.ssh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.ssh/*",
+          "resolved": "/home/test/.ssh/*"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.config",
+          "requested": "/home/test/.config",
+          "resolved": "/home/test/.config"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/etc/passwd",
+          "requested": "/etc/passwd",
+          "resolved": "/etc/passwd"
         }
       ],
       "roots": [

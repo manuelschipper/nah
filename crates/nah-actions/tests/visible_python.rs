@@ -2,7 +2,8 @@ mod support;
 
 use nah_actions::{AnalysisInput, VisibleCode, finalize, plan};
 use nah_proto::action::{
-    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput, SemanticCode,
+    Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, InvocationEffect,
+    InvocationInput, SemanticCode,
 };
 use nah_proto::ctx::{Platform, SchemaVersion};
 use nah_proto::observation::{
@@ -81,6 +82,33 @@ fn direct_python_uses_native_outer_evidence_and_exact_absolute_effects() {
                 && filesystem.operation == FilesystemOperation::Delete
                 && filesystem.target.as_str() == "/tmp/direct-target"
     )));
+}
+
+#[test]
+fn direct_python_filesystem_writes_carry_host_integrity_classification() {
+    for (source, expected) in [
+        (
+            "from pathlib import Path; Path('/home/test/.bashrc').write_text('alias ll=ls')",
+            HostIntegrityClass::StartupPersistence,
+        ),
+        (
+            "from pathlib import Path; Path('/home/test/.ssh/authorized_keys').write_text('key')",
+            HostIntegrityClass::AuthIdentity,
+        ),
+    ] {
+        let plan = python_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Write
+                        && effect.host_integrity == Some(expected)
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
 }
 
 #[test]

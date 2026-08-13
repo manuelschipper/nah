@@ -33,6 +33,7 @@ fn fixture() -> (ActionStream, nah_proto::ctx::PolicyCtx) {
                     },
                     sensitivity: Sensitivity::None,
                     protection: None,
+                    host_integrity: None,
                     selects_root: false,
                     selects_home: false,
                     recursive: false,

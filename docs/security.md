@@ -21,6 +21,11 @@ guard findings and understood protected-state changes outside maintenance.
   expose unredacted modeled input and inline code.
 - Guards block modeled access to protected credential paths and visible flows
   from sensitive sources or network content into dangerous sinks.
+- The default-on `fs-auth-identity` guard blocks visible writes and deletes of
+  reviewed login-authority, identity, PAM, sudoers, and sshd paths. The
+  default-off `fs-startup-persistence` guard applies the same mutation-only
+  policy to reviewed shell, service, schedule, login, and loader startup paths
+  when enabled.
 
 ## Not enforced
 
@@ -62,6 +67,13 @@ state or runtime wiring, open `nah tui`, start a nap, or edit protected state.
 Agents may edit inert user or project `.nah/guards/` proposals and give the
 human an exact out-of-band command. Before trust, `.nah/project.toml` may enable
 additional built-in guards but cannot disable them.
+An explicit global operator disable takes precedence over that project
+enablement.
+
+The host-integrity guards classify visible filesystem paths, not intent or file
+contents. Reads stay outside these two rules, and command-level mechanisms such
+as `systemctl enable`, `launchctl`, registry Run keys, and `schtasks` are not
+covered unless the call also exposes a classified filesystem mutation.
 
 ## Operator maintenance
 

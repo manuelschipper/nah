@@ -133,6 +133,21 @@ fn nested_context_contracts_have_exact_json() {
 }
 
 #[test]
+fn shipped_guard_state_records_only_an_explicit_global_veto() {
+    let disabled =
+        ShippedGuardState::with_explicit_disable("fs-auth-identity", false, true).unwrap();
+    assert_eq!(
+        serde_json::to_value(disabled).unwrap(),
+        json!({
+            "name": "fs-auth-identity",
+            "enabled": false,
+            "explicitly_disabled": true
+        })
+    );
+    assert!(ShippedGuardState::with_explicit_disable("fs-auth-identity", true, true).is_err());
+}
+
+#[test]
 fn project_activations_require_their_trusted_root_in_context() {
     let identity = TrustedRootId::new("trust-1").unwrap();
     let activation = ActivationProjection::new(

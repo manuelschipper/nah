@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Authentication and identity guard** — New default-on `fs-auth-identity`
+  blocks visible writes and deletes of reviewed login authority, identity,
+  privilege, PAM, sudoers, sshd, and Windows identity-database paths.
+- **Optional startup-persistence guard** — New default-off
+  `fs-startup-persistence` blocks mutations to reviewed shell, service,
+  schedule, login, autostart, and loader startup paths when enabled.
+- **Mixed built-in defaults and TUI filters** — Guard state now preserves
+  per-guard factory defaults and explicit global overrides, with operator
+  disables taking precedence over project enablement. The TUI groups guards by
+  family and default posture and filters by family, default, and source.
+- **Policy contract v3** — Shipped policy now consumes path-attached host
+  integrity classification and applies the new default-on authentication and
+  identity decision semantics.
+
 ## nah 1.3.1 — Aug 13, 2026
 
 - **Portable installer checksums** — The installer now verifies one-shot

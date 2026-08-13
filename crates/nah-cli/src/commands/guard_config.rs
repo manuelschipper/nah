@@ -4,12 +4,12 @@ use std::path::PathBuf;
 
 use nah_proto::ctx::{GuardIdentity, GuardScope};
 
-use crate::catalog::shipped_guards;
+use crate::catalog::{GuardFamily, shipped_guards};
 
 use super::{
     custom_guard_entries, disable_custom_guard, disable_custom_guard_scoped,
     disable_guard_identity, enable_custom_guard, enable_custom_guard_scoped, enable_guard_identity,
-    set_shipped_guard, shipped_guard_entries, validate_guard_identity,
+    reset_shipped_guard, set_shipped_guard, shipped_guard_entries, validate_guard_identity,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +57,9 @@ pub(crate) enum GuardStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GuardEntry {
     pub(crate) target: GuardTarget,
+    pub(crate) family: Option<GuardFamily>,
+    pub(crate) default_enabled: Option<bool>,
+    pub(crate) operator_override: Option<bool>,
     pub(crate) path: Option<PathBuf>,
     pub(crate) status: GuardStatus,
     pub(crate) behavior: Option<String>,
@@ -70,6 +73,7 @@ pub(crate) struct GuardChange {
     pub(crate) target: GuardTarget,
     pub(crate) enabled: bool,
     pub(crate) expected_hash: Option<String>,
+    pub(crate) reset: bool,
 }
 
 pub(crate) fn guard_entries() -> Result<Vec<GuardEntry>, String> {
@@ -126,6 +130,7 @@ pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> 
 
 pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<(), String> {
     match &change.target {
+        GuardTarget::BuiltIn { name } if change.reset => reset_shipped_guard(name),
         GuardTarget::BuiltIn { name } => set_shipped_guard(name, change.enabled),
         GuardTarget::Custom { identity } if change.enabled => enable_guard_identity(
             identity,

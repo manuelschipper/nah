@@ -24,9 +24,16 @@ pub struct FixtureRegistry {
 pub struct ContextFixture {
     platform: Platform,
     home: String,
-    all_shipped_guards_enabled: bool,
+    shipped_guards: ShippedGuardPosture,
     extensions: Vec<serde_json::Value>,
     trust: Vec<serde_json::Value>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ShippedGuardPosture {
+    FactoryDefaults,
+    AllEnabled,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,8 +96,7 @@ impl FixtureRegistry {
 
 impl ContextFixture {
     fn validate(&self) -> Result<(), String> {
-        if !self.all_shipped_guards_enabled || !self.extensions.is_empty() || !self.trust.is_empty()
-        {
+        if !self.extensions.is_empty() || !self.trust.is_empty() {
             return Err("unsupported context fixture state".into());
         }
         AbsolutePath::new(self.platform, &self.home)
@@ -103,7 +109,10 @@ impl ContextFixture {
             SchemaVersion::V1,
             self.platform,
             AbsolutePath::new(self.platform, &self.home).map_err(|error| error.to_string())?,
-            nah_cli::all_shipped_guard_states_enabled(),
+            match self.shipped_guards {
+                ShippedGuardPosture::FactoryDefaults => nah_cli::shipped_guard_states(),
+                ShippedGuardPosture::AllEnabled => nah_cli::all_shipped_guard_states_enabled(),
+            },
             vec![],
             TrustProjection::new(vec![]).map_err(|error| error.to_string())?,
             nah_cli::POLICY_VERSION,

@@ -74,9 +74,9 @@ pub(crate) fn command_filesystems(
     let positional = || positional_arguments(&values);
     match program {
         "dd" => Some(dd_filesystems(&values)),
-        "touch" | "mkfifo" | "shred" | "truncate" | "blkdiscard" => {
-            Some(positional().into_iter().map(write).collect())
-        }
+        "touch" | "mkfifo" | "blkdiscard" => Some(positional().into_iter().map(write).collect()),
+        "shred" => Some(shred_filesystems(&arguments)),
+        "truncate" => Some(truncate_filesystems(&arguments)),
         "mknod" => Some(mknod_fifo(&values).into_iter().map(write).collect()),
         "pvremove" if !lvm_test_mode(&values) => {
             Some(positional().into_iter().map(write).collect())
@@ -1589,6 +1589,136 @@ fn positional_arguments<'a>(arguments: &'a [&'a str]) -> Vec<&'a str> {
         .collect()
 }
 
+fn shred_filesystems(arguments: &[Option<String>]) -> Vec<FilesystemSpec> {
+    let Some((targets, remove)) = destructive_utility_targets(arguments, true) else {
+        return Vec::new();
+    };
+    targets
+        .into_iter()
+        .flat_map(|target| {
+            let write = (target.clone(), FilesystemOperation::Write, false);
+            if remove {
+                vec![write, (target, FilesystemOperation::Delete, false)]
+            } else {
+                vec![write]
+            }
+        })
+        .collect()
+}
+
+fn truncate_filesystems(arguments: &[Option<String>]) -> Vec<FilesystemSpec> {
+    let Some((targets, _)) = destructive_utility_targets(arguments, false) else {
+        return Vec::new();
+    };
+    targets
+        .into_iter()
+        .map(|target| (target, FilesystemOperation::Write, false))
+        .collect()
+}
+
+fn destructive_utility_targets(
+    arguments: &[Option<String>],
+    shred: bool,
+) -> Option<(Vec<String>, bool)> {
+    let mut targets = Vec::new();
+    let mut remove = false;
+    let mut after_options = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_deref()?;
+        index += 1;
+        if after_options {
+            targets.push(argument.to_owned());
+            continue;
+        }
+        if argument == "--" {
+            after_options = true;
+            continue;
+        }
+        if matches!(argument, "--help" | "--version") {
+            return Some((Vec::new(), false));
+        }
+        if !argument.starts_with('-') || argument == "-" {
+            targets.push(argument.to_owned());
+            continue;
+        }
+        if shred {
+            match argument {
+                "--force" | "--exact" | "--verbose" | "--zero" => continue,
+                "--remove" => {
+                    remove = true;
+                    continue;
+                }
+                "--iterations" | "--random-source" | "--size" => {
+                    arguments.get(index)?.as_deref()?;
+                    index += 1;
+                    continue;
+                }
+                _ if argument.starts_with("--iterations=")
+                    || argument.starts_with("--random-source=")
+                    || argument.starts_with("--size=") =>
+                {
+                    if argument.ends_with('=') {
+                        return None;
+                    }
+                    continue;
+                }
+                _ if argument.starts_with("--remove=") => {
+                    if argument.ends_with('=') {
+                        return None;
+                    }
+                    remove = true;
+                    continue;
+                }
+                _ if argument.starts_with("--") => return None,
+                _ => {}
+            }
+        } else {
+            match argument {
+                "--no-create" | "--io-blocks" => continue,
+                "--reference" | "--size" => {
+                    arguments.get(index)?.as_deref()?;
+                    index += 1;
+                    continue;
+                }
+                _ if argument.starts_with("--reference=") || argument.starts_with("--size=") => {
+                    if argument.ends_with('=') {
+                        return None;
+                    }
+                    continue;
+                }
+                _ if argument.starts_with("--") => return None,
+                _ => {}
+            }
+        }
+        for (offset, flag) in argument[1..].char_indices() {
+            let value_flag = if shred {
+                matches!(flag, 'n' | 's')
+            } else {
+                matches!(flag, 'r' | 's')
+            };
+            if value_flag {
+                let value_start = offset + flag.len_utf8();
+                if value_start == argument[1..].len() {
+                    arguments.get(index)?.as_deref()?;
+                    index += 1;
+                }
+                break;
+            }
+            if shred && flag == 'u' {
+                remove = true;
+            } else if !if shred {
+                matches!(flag, 'f' | 'v' | 'x' | 'z')
+            } else {
+                matches!(flag, 'c' | 'o')
+            } {
+                return None;
+            }
+        }
+    }
+    Some((targets, remove))
+}
+
 fn mknod_fifo<'a>(arguments: &'a [&'a str]) -> Option<&'a str> {
     let mut operands = Vec::new();
     let mut after_options = false;
@@ -1727,4 +1857,64 @@ fn has_short_flag(arguments: &[&str], flag: char) -> bool {
     arguments.iter().any(|argument| {
         argument.starts_with('-') && !argument.starts_with("--") && argument[1..].contains(flag)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arguments(values: &[&str]) -> Vec<Option<String>> {
+        values.iter().map(|value| Some((*value).into())).collect()
+    }
+
+    #[test]
+    fn truncate_skips_option_values_and_keeps_only_real_targets() {
+        for values in [
+            vec!["-s", "0", "/etc/passwd"],
+            vec!["-s0", "/etc/passwd"],
+            vec!["--size=0", "/etc/passwd"],
+            vec!["-co", "-s", "0", "--", "/etc/passwd"],
+        ] {
+            assert_eq!(
+                truncate_filesystems(&arguments(&values)),
+                vec![("/etc/passwd".into(), FilesystemOperation::Write, false)],
+                "{values:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shred_remove_emits_write_and_delete_for_each_target() {
+        for values in [
+            vec!["-u", "-z", "/etc/passwd"],
+            vec!["-uz", "/etc/passwd"],
+            vec!["--remove=wipe", "/etc/passwd"],
+            vec!["-n3", "-s0", "--", "/etc/passwd"],
+        ] {
+            let remove = values
+                .iter()
+                .any(|value| value.contains('u') || value.starts_with("--remove"));
+            let mut expected = vec![("/etc/passwd".into(), FilesystemOperation::Write, false)];
+            if remove {
+                expected.push(("/etc/passwd".into(), FilesystemOperation::Delete, false));
+            }
+            assert_eq!(
+                shred_filesystems(&arguments(&values)),
+                expected,
+                "{values:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_utility_options_never_invent_targets() {
+        for values in [
+            vec![Some("-s".into())],
+            vec![Some("--size=".into()), Some("/etc/passwd".into())],
+            vec![None, Some("/etc/passwd".into())],
+        ] {
+            assert!(truncate_filesystems(&values).is_empty(), "{values:?}");
+            assert!(shred_filesystems(&values).is_empty(), "{values:?}");
+        }
+    }
 }

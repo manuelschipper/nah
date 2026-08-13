@@ -74,9 +74,27 @@ fn built_in_changes_stage_without_writing() {
 }
 
 #[test]
+fn project_declaration_enables_a_guard_unless_the_operator_disabled_it() {
+    let mut guard = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Disabled);
+    apply_project_declarations(
+        std::slice::from_mut(&mut guard),
+        &["fs-startup-persistence".into()],
+    );
+    assert_eq!(guard.status, GuardStatus::Enabled);
+
+    guard.status = GuardStatus::Disabled;
+    guard.operator_override = Some(false);
+    apply_project_declarations(
+        std::slice::from_mut(&mut guard),
+        &["fs-startup-persistence".into()],
+    );
+    assert_eq!(guard.status, GuardStatus::Disabled);
+}
+
+#[test]
 fn changed_custom_guard_stages_the_reviewed_hash() {
     let mut app = App::fixture();
-    app.guard_index = 1;
+    app.guard_index = 2;
     app.toggle_guard();
     assert!(matches!(
         app.confirmation,
@@ -102,7 +120,7 @@ fn same_named_scoped_guards_do_not_share_pending_state() {
     };
     app.guards.push(user);
 
-    app.guard_index = 1;
+    app.guard_index = 3;
     app.toggle_guard();
     app.confirm();
 
@@ -166,10 +184,10 @@ fn current_untrusted_project_participates_in_project_selection() {
 #[test]
 fn failed_preflight_preserves_the_complete_batch() {
     let mut app = App::fixture();
-    app.guard_index = 1;
+    app.guard_index = 2;
     app.toggle_guard();
     app.confirm();
-    app.guard_index = 2;
+    app.guard_index = 1;
     app.toggle_guard();
 
     assert_eq!(app.pending_count(), 2);
@@ -190,8 +208,18 @@ fn failed_preflight_preserves_the_complete_batch() {
 
 /// Entries beyond the fixture's, so a reset has every status to diff.
 fn guard_entry(target: GuardTarget, status: GuardStatus) -> GuardEntry {
+    let default_enabled = matches!(target, GuardTarget::BuiltIn { .. })
+        .then(|| catalog::factory_enabled(target.name()));
+    let operator_override = default_enabled.and_then(|default| match status {
+        GuardStatus::Enabled if !default => Some(true),
+        GuardStatus::Disabled if default => Some(false),
+        _ => None,
+    });
     GuardEntry {
         target,
+        family: None,
+        default_enabled,
+        operator_override,
         path: None,
         status,
         behavior: None,
@@ -310,6 +338,81 @@ fn resetting_at_the_defaults_clears_the_batch() {
 }
 
 #[test]
+fn reset_removes_an_explicit_veto_but_not_a_project_enablement() {
+    let mut app = App::fixture();
+    let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Enabled);
+    startup.operator_override = None;
+    app.guards = vec![startup.clone()];
+
+    app.reset_to_defaults();
+    assert!(app.pending.is_empty());
+
+    startup.status = GuardStatus::Disabled;
+    startup.operator_override = Some(false);
+    app.guards = vec![startup];
+    app.reset_to_defaults();
+    assert_eq!(app.pending.len(), 1);
+    assert!(app.pending[0].reset);
+}
+
+#[test]
+fn guard_filters_compose_without_dropping_hidden_pending_changes() {
+    let mut app = App::fixture();
+    let mut auth = guard_entry(built_in("fs-auth-identity"), GuardStatus::Disabled);
+    auth.family = Some(catalog::GuardFamily::Filesystem);
+    let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Enabled);
+    startup.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.extend([auth, startup]);
+
+    assert_eq!(
+        app.filtered_guards()
+            .iter()
+            .map(|entry| entry.target.name())
+            .collect::<Vec<_>>(),
+        [
+            "exec-remote",
+            "fs-auth-identity",
+            "fs-startup-persistence",
+            "secrets-env",
+            "corp-api",
+        ]
+    );
+
+    app.toggle_guard();
+    app.begin_guard_filter();
+    app.cycle_guard_filter(true);
+    app.cycle_guard_filter(true);
+    app.move_guard_filter_field(true);
+    app.cycle_guard_filter(false);
+    app.apply_guard_filter();
+
+    assert_eq!(
+        app.filtered_guards()[0].target.name(),
+        "fs-startup-persistence"
+    );
+    assert_eq!(app.hidden_pending_count(), 1);
+    assert_eq!(app.guard_index, 0);
+
+    app.clear_guard_filter();
+    assert_eq!(app.filtered_guards().len(), 5);
+    assert_eq!(app.pending_count(), 1);
+}
+
+#[test]
+fn default_off_guards_are_visible_without_filters() {
+    let mut app = App::fixture();
+    let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Disabled);
+    startup.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.push(startup);
+
+    assert!(
+        app.filtered_guards()
+            .iter()
+            .any(|entry| entry.target.name() == "fs-startup-persistence")
+    );
+}
+
+#[test]
 fn screen_navigation_wraps() {
     let mut app = App::fixture();
     app.previous_screen();
@@ -324,13 +427,14 @@ fn screen_navigation_wraps() {
 fn the_guard_screen_keeps_its_selection_across_screens() {
     let mut app = App::fixture();
     app.move_selection(true);
-    assert_eq!(app.guard_index, 1);
+    app.move_selection(true);
+    assert_eq!(app.guard_index, 2);
     assert_eq!(app.selected_guard().unwrap().target.name(), "corp-api");
 
     app.select_screen(Screen::Projects);
     assert!(app.selected_guard().is_none());
     app.move_selection(true);
-    assert_eq!(app.guard_index, 1);
+    assert_eq!(app.guard_index, 2);
 
     app.select_screen(Screen::Guards);
     assert_eq!(app.selected_guard().unwrap().target.name(), "corp-api");

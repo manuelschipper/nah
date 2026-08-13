@@ -3,8 +3,8 @@
 mod support;
 
 use nah_proto::action::{
-    ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, PathScope,
-    Sensitivity,
+    ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
+    PathScope, Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -27,6 +27,67 @@ fn unresolved_stream(
         vec![],
     )
     .unwrap()
+}
+
+fn host_integrity_stream(
+    operation: FilesystemOperation,
+    class: HostIntegrityClass,
+) -> ActionStream {
+    guarded_stream(EffectKind::Filesystem {
+        effect: FilesystemEffect {
+            operation,
+            target: path("/reviewed/path"),
+            scope: PathScope::System,
+            sensitivity: Sensitivity::None,
+            protection: None,
+            host_integrity: Some(class),
+            selects_root: false,
+            selects_home: false,
+            recursive: false,
+            pattern: false,
+        },
+    })
+}
+
+#[test]
+fn host_integrity_guards_are_independent_and_require_mutation() {
+    for (guard, class) in [
+        (
+            "fs-startup-persistence",
+            HostIntegrityClass::StartupPersistence,
+        ),
+        ("fs-auth-identity", HostIntegrityClass::AuthIdentity),
+    ] {
+        for operation in [FilesystemOperation::Write, FilesystemOperation::Delete] {
+            let decision = nah_policy::decide(
+                &host_integrity_stream(operation, class),
+                &guard_policy(guard, true),
+                &[],
+            )
+            .unwrap();
+            assert_eq!(decision.verdict(), Verdict::Block, "{guard} {operation:?}");
+            assert_eq!(decision.policy_attributions()[0].name(), guard);
+            assert!(decision.reason().contains("nah tui"));
+        }
+        let read = nah_policy::decide(
+            &host_integrity_stream(FilesystemOperation::Read, class),
+            &guard_policy(guard, true),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(read.verdict(), Verdict::Delegate, "{guard} read");
+    }
+
+    let mismatched = nah_policy::decide(
+        &host_integrity_stream(
+            FilesystemOperation::Write,
+            HostIntegrityClass::StartupPersistence,
+        ),
+        &guard_policy("fs-auth-identity", true),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(mismatched.verdict(), Verdict::Delegate);
 }
 
 #[test]
@@ -93,6 +154,7 @@ fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_a
                         scope,
                         sensitivity: Sensitivity::None,
                         protection: None,
+                        host_integrity: None,
                         selects_root: false,
                         selects_home: false,
                         recursive,
@@ -117,6 +179,7 @@ fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_a
                 scope: PathScope::System,
                 sensitivity: Sensitivity::None,
                 protection: None,
+                host_integrity: None,
                 selects_root: false,
                 selects_home: false,
                 recursive: true,
@@ -142,6 +205,7 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
             scope: PathScope::Home,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: true,
             recursive: true,
@@ -224,6 +288,7 @@ fn file_only_delete_effects_do_not_claim_directory_tree_destruction() {
                 scope,
                 sensitivity: Sensitivity::None,
                 protection: None,
+                host_integrity: None,
                 selects_root: false,
                 selects_home,
                 recursive: false,
@@ -249,6 +314,7 @@ fn fs_root_blocks_only_same_stage_known_root_relocation() {
             scope: PathScope::OutsideProject,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: false,
@@ -362,6 +428,7 @@ fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
                 scope: PathScope::System,
                 sensitivity: Sensitivity::None,
                 protection: None,
+                host_integrity: None,
                 selects_root: false,
                 selects_home: false,
                 recursive: false,
@@ -380,6 +447,7 @@ fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
             scope: PathScope::System,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: false,
@@ -437,6 +505,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             scope: PathScope::Home,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: true,
@@ -457,6 +526,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             scope: PathScope::OutsideProject,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: true,
@@ -484,6 +554,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
                 scope: PathScope::OutsideProject,
                 sensitivity: Sensitivity::None,
                 protection: None,
+                host_integrity: None,
                 selects_root: false,
                 selects_home: false,
                 recursive: true,
@@ -506,6 +577,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             scope: PathScope::System,
             sensitivity: Sensitivity::None,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: true,
@@ -533,6 +605,7 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
                 scope: PathScope::OutsideProject,
                 sensitivity: Sensitivity::None,
                 protection: None,
+                host_integrity: None,
                 selects_root: false,
                 selects_home: false,
                 recursive: false,

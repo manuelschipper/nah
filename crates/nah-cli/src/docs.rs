@@ -45,13 +45,13 @@ const TOPICS: &[Topic] = &[
         "configuration",
         "Configure guards and trusted projects.",
         "../../../docs/configuration.md",
-        5_632
+        6_656
     ),
     topic!(
         "extending",
         "Build one-shot guard programs.",
         "../../../docs/extensions.md",
-        12_288
+        13_312
     ),
     topic!(
         "runtimes",
@@ -153,13 +153,13 @@ const TOPICS: &[Topic] = &[
         "security",
         "Review nah's enforcement and trust boundaries.",
         "../../../docs/security.md",
-        4_096
+        5_120
     ),
     topic!(
         "threat-model",
         "Understand nah's adversary, assumptions, and companion controls.",
         "../../../docs/threat-model.md",
-        5_120
+        6_144
     ),
     topic!(
         "architecture",

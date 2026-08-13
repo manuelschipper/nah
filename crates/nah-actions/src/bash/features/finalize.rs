@@ -20,7 +20,7 @@ use crate::bash_self_protection::{
     potential_operation_for_words,
 };
 use crate::bash_targets::selects_home;
-use crate::paths::{contains, join, path_scope, sensitivity};
+use crate::paths::{contains, host_integrity_class, join, path_scope, sensitivity};
 use crate::self_protection_tiers::classify as classify_protection;
 use crate::shell_word::{contains_unquoted_pattern, static_word};
 
@@ -188,16 +188,20 @@ pub(crate) fn finalize(
                     Some(Ok(path)) => path,
                     Some(Err(error)) => {
                         complete = false;
-                        if (error == ObservationFailure::Unavailable || filesystem.network_bound)
-                            && let Some(mut effect) = lexical_filesystem_effect(
-                                &filesystem,
-                                roots,
-                                cwd,
-                                home,
-                                trusted_roots,
-                                critical_paths,
-                                platform,
-                            )
+                        if let Some(mut effect) = lexical_filesystem_effect(
+                            &filesystem,
+                            roots,
+                            cwd,
+                            home,
+                            trusted_roots,
+                            critical_paths,
+                            platform,
+                        ) && (error == ObservationFailure::Unavailable
+                            || filesystem.network_bound
+                            || matches!(
+                                error,
+                                ObservationFailure::PermissionDenied | ObservationFailure::Timeout
+                            ) && block_relevant_lexical_filesystem(&effect))
                         {
                             if filesystem.network_bound {
                                 elevate_filesystem_sensitivity(
@@ -250,9 +254,10 @@ pub(crate) fn finalize(
                     path.realpath().unwrap_or_else(|| path.resolved()).clone()
                 };
                 let scope = path_scope(&target, roots, home, platform);
-                let (target_sensitivity, target_protection) = classify_filesystem(
+                let (target_sensitivity, target_protection, host_integrity) = classify_filesystem(
                     &filesystem,
                     &target,
+                    Some(path.resolved()),
                     roots,
                     trusted_roots,
                     home,
@@ -301,6 +306,7 @@ pub(crate) fn finalize(
                         scope,
                         sensitivity: Sensitivity::None,
                         protection: target_protection,
+                        host_integrity,
                         selects_root,
                         selects_home,
                         recursive: filesystem.recursive,
@@ -1136,9 +1142,10 @@ fn lexical_filesystem_effect(
         .ok()?
     };
     let scope = path_scope(&target, roots, home, platform);
-    let (target_sensitivity, target_protection) = classify_filesystem(
+    let (target_sensitivity, target_protection, host_integrity) = classify_filesystem(
         filesystem,
         &target,
+        None,
         roots,
         trusted_roots,
         home,
@@ -1155,6 +1162,7 @@ fn lexical_filesystem_effect(
             scope,
             sensitivity: target_sensitivity,
             protection: target_protection,
+            host_integrity,
             selects_root,
             selects_home: filesystem.pattern
                 && selects_home(&filesystem.requested, home.as_str(), platform, true),
@@ -1168,6 +1176,7 @@ fn lexical_filesystem_effect(
 fn classify_filesystem(
     filesystem: &FilesystemDraft,
     target: &AbsolutePath,
+    requested_target: Option<&AbsolutePath>,
     roots: &[Root],
     trusted_roots: &[AbsolutePath],
     home: &AbsolutePath,
@@ -1177,6 +1186,7 @@ fn classify_filesystem(
 ) -> (
     nah_proto::action::Sensitivity,
     Option<nah_proto::action::NahProtectionTier>,
+    Option<nah_proto::action::HostIntegrityClass>,
 ) {
     let identity = filesystem
         .identity
@@ -1219,12 +1229,13 @@ fn classify_filesystem(
         );
     }
     let identity_protection = identity
+        .as_ref()
         .filter(|_| filesystem.operation == FilesystemOperation::Write)
         .and_then(|identity| {
             classify_protection(
                 filesystem.operation,
-                &identity,
-                &identity,
+                identity,
+                identity,
                 roots,
                 trusted_roots,
                 home,
@@ -1233,9 +1244,58 @@ fn classify_filesystem(
                 false,
             )
         });
+    let host_integrity = [
+        host_integrity_class(
+            filesystem.operation,
+            &filesystem.requested,
+            target,
+            home,
+            platform,
+            pattern,
+            filesystem.recursive,
+        ),
+        requested_target.and_then(|target| {
+            host_integrity_class(
+                filesystem.operation,
+                target.as_str(),
+                target,
+                home,
+                platform,
+                pattern,
+                filesystem.recursive,
+            )
+        }),
+        identity.as_ref().and_then(|identity| {
+            (filesystem.operation == FilesystemOperation::Write)
+                .then(|| {
+                    host_integrity_class(
+                        filesystem.operation,
+                        identity.as_str(),
+                        identity,
+                        home,
+                        platform,
+                        false,
+                        filesystem.recursive,
+                    )
+                })
+                .flatten()
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
     (
         target_sensitivity,
         strongest_protection(direct_protection, identity_protection),
+        host_integrity,
+    )
+}
+
+fn block_relevant_lexical_filesystem(effect: &EffectKind) -> bool {
+    matches!(
+        effect,
+        EffectKind::Filesystem { effect }
+            if effect.sensitivity != Sensitivity::None || effect.host_integrity.is_some()
     )
 }
 

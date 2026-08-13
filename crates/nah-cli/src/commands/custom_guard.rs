@@ -390,6 +390,9 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
                 target: GuardTarget::Custom {
                     identity: projection.identity().clone(),
                 },
+                family: None,
+                default_enabled: None,
+                operator_override: None,
                 path: Some(bundle.directory().to_path_buf()),
                 status,
                 behavior: None,
@@ -414,6 +417,9 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
                     target: GuardTarget::Custom {
                         identity: projection.identity().clone(),
                     },
+                    family: None,
+                    default_enabled: None,
+                    operator_override: None,
                     path: None,
                     status: GuardStatus::Missing {
                         approved_hash: projection.bundle_hash().as_str().to_owned(),

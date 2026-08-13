@@ -87,6 +87,11 @@ fn damaged_state_keeps_the_guards_enforcing_and_says_so() {
 
             let (decision, stderr, code) =
                 decide(&root, &project, "Bash", json!({"command":"rm -rf /"}));
+            let warning = if file == "built-ins.json" && contents == DAMAGE[1] {
+                "unsupported-shipped-state-version; shipped defaults apply"
+            } else {
+                warning
+            };
 
             assert_eq!(decision.verdict(), Verdict::Block, "{file}: {contents}");
             assert_eq!(code, Some(1), "{file}: {contents}");
@@ -180,12 +185,22 @@ fn damaged_shipped_state_falls_back_to_the_shipped_defaults() {
             .status
             .success()
     );
-    let (disabled, _, _) = decide(&root, &project, "Bash", json!({"command":"rm -rf /etc"}));
+    let (disabled, _, _) = decide(
+        &root,
+        &project,
+        "Bash",
+        json!({"command":"rm -rf /usr/bin"}),
+    );
     assert_eq!(disabled.verdict(), Verdict::Delegate);
 
     damage(&root, "built-ins.json", DAMAGE[0]);
 
-    let (blocked, _, _) = decide(&root, &project, "Bash", json!({"command":"rm -rf /etc"}));
+    let (blocked, _, _) = decide(
+        &root,
+        &project,
+        "Bash",
+        json!({"command":"rm -rf /usr/bin"}),
+    );
     assert_eq!(blocked.verdict(), Verdict::Block);
     let (safe, _, _) = decide(&root, &project, "Read", json!({"file_path":"src/lib.rs"}));
     assert_eq!(safe.verdict(), Verdict::Delegate);

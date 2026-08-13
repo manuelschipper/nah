@@ -71,6 +71,7 @@ fn secrets_keys_deletion_delegates_cross_platform() {
             scope: PathScope::Home,
             sensitivity: Sensitivity::CredentialSecret,
             protection: None,
+            host_integrity: None,
             selects_root: false,
             selects_home: false,
             recursive: false,

@@ -2,12 +2,13 @@
 //! to wasm32, deciding against a fixed synthetic machine instead of a live one.
 //!
 //! The synthetic machine is deliberately boring — an empty directory with a
-//! fixed project boundary, no git metadata, no dotfiles, shipped defaults with
-//! every guard on — so the page demos exactly what a fresh install would say.
+//! fixed project boundary, no git metadata, no dotfiles, and the compiled
+//! per-guard factory defaults — so the page demos exactly what a fresh install
+//! would say.
 //! Observations answer the way the corpus fixtures do: the project root exists,
 //! other paths are missing, and env is unset except HOME.
 
-use nah_cli::{all_shipped_guard_states_enabled, decide_with, POLICY_VERSION};
+use nah_cli::{POLICY_VERSION, decide_with, shipped_guard_states};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
@@ -40,7 +41,7 @@ fn decide_core(command: &str) -> Result<String, String> {
         SchemaVersion::V1,
         Platform::Linux,
         AbsolutePath::new(Platform::Linux, HOME).map_err(|error| error.to_string())?,
-        all_shipped_guard_states_enabled(),
+        shipped_guard_states(),
         vec![],
         TrustProjection::new(vec![]).map_err(|error| error.to_string())?,
         POLICY_VERSION,
@@ -112,11 +113,7 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
             } => {
                 let resolved = resolve(requested);
                 let mut value = if resolved == CWD {
-                    PathObservation::new(
-                        absolute(CWD)?,
-                        Some(absolute(CWD)?),
-                        PathKind::Directory,
-                    )
+                    PathObservation::new(absolute(CWD)?, Some(absolute(CWD)?), PathKind::Directory)
                 } else {
                     PathObservation::new(absolute(&resolved)?, None, PathKind::Missing)
                 };
@@ -183,10 +180,7 @@ mod tests {
             ("git clean -f", "git-clean-force"),
             ("git restore .", "git-worktree-discard"),
             ("git checkout -f", "git-worktree-discard"),
-            (
-                "git switch --discard-changes main",
-                "git-worktree-discard",
-            ),
+            ("git switch --discard-changes main", "git-worktree-discard"),
         ] {
             let value = decision(command);
             assert_eq!(value["verdict"], "block", "{command}: {value}");
@@ -210,6 +204,21 @@ mod tests {
             let value = decision(command);
             assert_eq!(value["verdict"], "delegate", "{command}: {value}");
         }
+    }
+
+    #[test]
+    fn demo_uses_the_mixed_factory_posture() {
+        let startup = decision("printf x > ~/.bashrc");
+        assert_eq!(startup["verdict"], "delegate", "{startup}");
+
+        let auth = decision("printf x > ~/.ssh/authorized_keys");
+        assert_eq!(auth["verdict"], "block", "{auth}");
+        assert!(
+            auth["guards"]
+                .as_array()
+                .is_some_and(|guards| guards.iter().any(|guard| guard == "fs-auth-identity")),
+            "{auth}"
+        );
     }
 }
 

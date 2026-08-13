@@ -2,7 +2,7 @@
 
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 
-use crate::catalog::{POLICY_VERSION, configured_guard_states, shipped_names};
+use crate::catalog::{POLICY_VERSION, configured_guard_states, shipped_defaults, shipped_names};
 use crate::nap::{self, ActiveNap};
 use crate::shipped_state::{ShippedState, state_path};
 
@@ -60,7 +60,8 @@ pub(crate) fn load() -> Result<LiveState, String> {
         warnings.push("one or more activated extension guards could not be loaded".into());
     }
     let extension_state_unavailable = activation_state_unavailable || activated_bundle_unavailable;
-    let shipped_state = match ShippedState::load(&state_path(&home, platform), &reserved_names) {
+    let shipped_state = match ShippedState::load(&state_path(&home, platform), &shipped_defaults())
+    {
         Ok(shipped_state) => shipped_state,
         Err(error) => {
             warnings.push(format!("{error}; shipped defaults apply"));

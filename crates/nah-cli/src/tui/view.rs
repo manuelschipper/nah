@@ -7,15 +7,19 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 
+use crate::catalog::GuardFamily;
 use crate::commands::{
-    GuardProposals, GuardSource, GuardSourceFile, GuardStatus, GuardTarget, RuntimeHookStatus,
-    scope_name,
+    GuardEntry, GuardProposals, GuardSource, GuardSourceFile, GuardStatus, GuardTarget,
+    RuntimeHookStatus, scope_name,
 };
 use crate::nap::NapMode;
 use crate::records::{detail_field, short_time, verdict_name};
 use crate::runtime::FailurePolicy;
 
-use super::app::{App, Confirmation, MessageKind, NapStatus, Screen, status_name};
+use super::app::{
+    App, Confirmation, GuardFilterField, GuardFilterOverlay, MessageKind, NapStatus, Screen,
+    status_name,
+};
 
 const SELECTED: Style = Style::new()
     .fg(Color::Black)
@@ -80,6 +84,9 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
     render_footer(frame, app, areas[2]);
     if let Some(confirmation) = &app.confirmation {
         render_confirmation(frame, confirmation, app.confirmation_scroll);
+    }
+    if let Some(filter) = app.guard_filter_overlay {
+        render_guard_filter(frame, filter);
     }
     if app.help_open {
         render_help(frame, app);
@@ -179,36 +186,83 @@ fn tab_label(name: &str, count: usize, marker: char) -> String {
 }
 
 fn render_guards(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_area: Rect) {
-    let items = app
-        .guards
-        .iter()
-        .map(|entry| {
-            let pending = app.pending_value(entry);
-            let (marker, status_style) = if let Some(enabled) = pending {
-                (
-                    if enabled { "[x]*" } else { "[ ]*" },
-                    Style::new().fg(Color::Yellow),
-                )
-            } else {
-                match entry.status {
-                    GuardStatus::Enabled => ("[x] ", Style::default()),
-                    GuardStatus::Disabled => ("[ ] ", Style::default()),
-                    GuardStatus::NeedsReapproval { .. } => ("[!] ", Style::new().fg(Color::Yellow)),
-                    GuardStatus::Missing { .. } => ("[?] ", Style::new().fg(Color::Red)),
+    let guards = app.filtered_guards();
+    let mut items = Vec::new();
+    let mut selected_row = None;
+    let mut guard_index = 0;
+    for family in [
+        GuardFamily::Execution,
+        GuardFamily::Filesystem,
+        GuardFamily::Git,
+        GuardFamily::Secrets,
+    ] {
+        let family_guards = guards
+            .iter()
+            .copied()
+            .filter(|entry| entry.family == Some(family))
+            .collect::<Vec<_>>();
+        if family_guards.is_empty() {
+            continue;
+        }
+        items.push(guard_heading(family.label()));
+        for (default, label) in [(true, "DEFAULT ON"), (false, "DEFAULT OFF")] {
+            let subsection = family_guards
+                .iter()
+                .copied()
+                .filter(|entry| entry.default_enabled == Some(default))
+                .collect::<Vec<_>>();
+            if subsection.is_empty() {
+                continue;
+            }
+            items.push(guard_subheading(label));
+            for entry in subsection {
+                if guard_index == app.guard_index {
+                    selected_row = Some(items.len());
                 }
-            };
-            ListItem::new(Line::from(vec![
-                ratatui::text::Span::styled(marker, status_style),
-                ratatui::text::Span::raw(entry.target.name()),
-                ratatui::text::Span::raw(format!("  {}", guard_scope_name(&entry.target))),
-            ]))
-        })
+                items.push(guard_item(app, entry));
+                guard_index += 1;
+            }
+        }
+    }
+    let custom = guards
+        .iter()
+        .copied()
+        .filter(|entry| entry.family.is_none())
         .collect::<Vec<_>>();
-    let mut state =
-        ListState::default().with_selected((!items.is_empty()).then_some(app.guard_index));
+    if !custom.is_empty() {
+        items.push(guard_heading("CUSTOM"));
+        for (scope, label) in [
+            (nah_proto::ctx::GuardScope::User, "USER"),
+            (nah_proto::ctx::GuardScope::Project, "PROJECT"),
+        ] {
+            let subsection = custom
+                .iter()
+                .copied()
+                .filter(|entry| entry.target.scope() == Some(scope))
+                .collect::<Vec<_>>();
+            if subsection.is_empty() {
+                continue;
+            }
+            items.push(guard_subheading(label));
+            for entry in subsection {
+                if guard_index == app.guard_index {
+                    selected_row = Some(items.len());
+                }
+                items.push(guard_item(app, entry));
+                guard_index += 1;
+            }
+        }
+    }
+    let mut state = ListState::default().with_selected(selected_row);
+    let title = format!(
+        " Guards ({}: {} of {}) ",
+        app.guard_filters.summary(),
+        guards.len(),
+        app.guards.len()
+    );
     frame.render_stateful_widget(
         List::new(items)
-            .block(Block::default().title(" Guards ").borders(Borders::ALL))
+            .block(Block::default().title(title).borders(Borders::ALL))
             .highlight_style(SELECTED)
             .highlight_symbol("> "),
         list_area,
@@ -217,7 +271,14 @@ fn render_guards(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_area:
 
     let text = app
         .selected_guard()
-        .map(guard_details)
+        .map(|entry| {
+            guard_details(
+                entry,
+                app.project_declared_guards
+                    .iter()
+                    .any(|name| name == entry.target.name()),
+            )
+        })
         .unwrap_or_else(|| Text::from("No guards discovered."));
     frame.render_widget(
         Paragraph::new(text)
@@ -227,7 +288,43 @@ fn render_guards(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_area:
     );
 }
 
-fn guard_details(entry: &crate::commands::GuardEntry) -> Text<'static> {
+fn guard_heading(label: &'static str) -> ListItem<'static> {
+    ListItem::new(Line::styled(
+        label,
+        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    ))
+}
+
+fn guard_subheading(label: &'static str) -> ListItem<'static> {
+    ListItem::new(Line::styled(
+        format!("  {label}"),
+        Style::new().add_modifier(Modifier::BOLD),
+    ))
+}
+
+fn guard_item(app: &App, entry: &GuardEntry) -> ListItem<'static> {
+    let pending = app.pending_value(entry);
+    let (marker, status_style) = if let Some(enabled) = pending {
+        (
+            if enabled { "[x]*" } else { "[ ]*" },
+            Style::new().fg(Color::Yellow),
+        )
+    } else {
+        match entry.status {
+            GuardStatus::Enabled => ("[x] ", Style::default()),
+            GuardStatus::Disabled => ("[ ] ", Style::default()),
+            GuardStatus::NeedsReapproval { .. } => ("[!] ", Style::new().fg(Color::Yellow)),
+            GuardStatus::Missing { .. } => ("[?] ", Style::new().fg(Color::Red)),
+        }
+    };
+    ListItem::new(Line::from(vec![
+        ratatui::text::Span::raw("    "),
+        ratatui::text::Span::styled(marker, status_style),
+        ratatui::text::Span::raw(entry.target.name().to_owned()),
+    ]))
+}
+
+fn guard_details(entry: &crate::commands::GuardEntry, project_declared: bool) -> Text<'static> {
     let mut lines = vec![Line::styled(
         entry.target.name().to_owned(),
         Style::new().add_modifier(Modifier::BOLD),
@@ -235,7 +332,28 @@ fn guard_details(entry: &crate::commands::GuardEntry) -> Text<'static> {
     match &entry.target {
         GuardTarget::BuiltIn { .. } => {
             lines.push(Line::from("Source: built-in"));
+            lines.push(Line::from(format!(
+                "Family: {}",
+                entry.family.map_or("unknown", GuardFamily::filter_name)
+            )));
+            lines.push(Line::from(format!(
+                "Default: {}",
+                if entry.default_enabled == Some(true) {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            )));
             lines.push(Line::from("Applies: everywhere nah is active"));
+            if project_declared {
+                if entry.operator_override == Some(false) {
+                    lines.push(Line::from(
+                        "Project: requested by .nah/project.toml; global disable wins",
+                    ));
+                } else {
+                    lines.push(Line::from("Project: enabled by .nah/project.toml"));
+                }
+            }
         }
         GuardTarget::Custom { identity, .. } => {
             lines.push(Line::from(format!(
@@ -309,10 +427,6 @@ fn guard_details(entry: &crate::commands::GuardEntry) -> Text<'static> {
         lines.push(Line::from("Press v to view guard files."));
     }
     Text::from(lines)
-}
-
-fn guard_scope_name(target: &GuardTarget) -> &'static str {
-    target.scope().map_or("built-in", scope_name)
 }
 
 fn render_projects(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_area: Rect) {
@@ -659,8 +773,13 @@ fn log_scope(app: &App) -> String {
 fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let keys = match app.screen {
         Screen::Guards => format!(
-            "Space toggle  v files  r review  Enter apply  ? help  {} pending",
-            app.pending_count()
+            "f filter: {}  Space toggle  D reset  Enter apply  ? help  {} pending{}",
+            app.guard_filters.summary(),
+            app.pending_count(),
+            match app.hidden_pending_count() {
+                0 => String::new(),
+                hidden => format!(" · {hidden} hidden"),
+            }
         ),
         Screen::Projects => "t trust current  u untrust selected  ? help".into(),
         Screen::Runtimes => "f mode  i install/reinstall  u uninstall  ? help".into(),
@@ -700,6 +819,63 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
+fn render_guard_filter(frame: &mut Frame<'_>, filter: GuardFilterOverlay) {
+    let text = vec![
+        Line::from("Choose one value per facet; the filters compose."),
+        Line::from(""),
+        guard_filter_line(
+            "Family",
+            filter.filters.family.name(),
+            filter.field == GuardFilterField::Family,
+        ),
+        guard_filter_line(
+            "Factory default",
+            filter.filters.default.name(),
+            filter.field == GuardFilterField::Default,
+        ),
+        guard_filter_line(
+            "Source",
+            filter.filters.source.name(),
+            filter.field == GuardFilterField::Source,
+        ),
+        Line::from(""),
+        Line::from("Tab/↑/↓ facet  ←/→ value  c clear"),
+        Line::from("Enter apply  Esc cancel"),
+    ];
+    let width = frame.area().width.saturating_sub(2).clamp(48, 68);
+    let height = u16::try_from(text.len() + 2)
+        .unwrap_or(u16::MAX)
+        .min(frame.area().height);
+    let area = centered_rect(width, height, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(
+                Block::default()
+                    .title(" Filter guards ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::new().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn guard_filter_line(label: &str, value: &str, selected: bool) -> Line<'static> {
+    let marker = if selected { ">" } else { " " };
+    Line::from(vec![
+        ratatui::text::Span::raw(format!("{marker} {label:<8}")),
+        ratatui::text::Span::styled(
+            format!("< {value} >"),
+            if selected {
+                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            },
+        ),
+    ])
+}
+
 fn render_help(frame: &mut Frame<'_>, app: &App) {
     let text = help_lines(app);
     let width = frame.area().width.saturating_sub(2).clamp(48, 84);
@@ -733,7 +909,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
             Line::from("Changes stay pending until Enter applies them."),
             Line::from(""),
             help_heading("KEYS"),
-            Line::from("Space toggle  v view files  r review changes"),
+            Line::from("f filter guards  Space toggle  v view files  r review changes"),
             Line::from("D reset defaults  Enter apply"),
         ],
         Screen::Projects => vec![

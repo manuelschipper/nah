@@ -149,6 +149,37 @@ fn openclaw_adapter_maps_guards_and_opaque_code_mode() {
         assert_eq!(code_mode["block"], false, "{restart_safe:?}");
     }
 
+    let startup = format!(
+        "require('fs').writeFileSync({}, 'alias ll=ls')",
+        serde_json::to_string(&home.join(".bashrc")).unwrap()
+    );
+    assert_eq!(
+        run_hook_with_kinds(
+            home,
+            &project,
+            "exec",
+            json!({"code":startup.clone(),"command":startup}),
+            Some("code_mode_exec"),
+            Some("javascript"),
+        )["block"],
+        false
+    );
+
+    let authorized_keys = format!(
+        "require('fs').writeFileSync({}, 'ssh-ed25519 key')",
+        serde_json::to_string(&home.join(".ssh/authorized_keys")).unwrap()
+    );
+    let auth = run_hook_with_kinds(
+        home,
+        &project,
+        "exec",
+        json!({"code":authorized_keys.clone(),"command":authorized_keys}),
+        Some("code_mode_exec"),
+        Some("javascript"),
+    );
+    // OpenClaw's QuickJS profile owns its tool bridge, not Node's `require`.
+    assert_eq!(auth["block"], false, "{auth}");
+
     let missing_discriminator = run_hook_with_kinds(
         home,
         &project,
