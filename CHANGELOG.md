@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Portable installer checksums** — The installer now verifies one-shot
+  SHA-256 output directly, so non-GNU `sha256sum` implementations do not need
+  GNU check mode, and reports when no supported checksum tool is installed.
 - **Node overload effects** — JavaScript filesystem and child-process calls now
   retain protected paths and nested commands across reviewed Node overloads,
   ignored surplus arguments, uncertain spreads, option accessors, and runtime

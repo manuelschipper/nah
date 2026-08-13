@@ -41,11 +41,27 @@ curl -fsSL -o "$tmp/sha256sums.txt" "$base/sha256sums.txt"
 
 (
   cd "$tmp"
-  grep " $asset\$" sha256sums.txt > expected.txt
+  expected=$(awk -v asset="$asset" '
+    $2 == asset && length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ { print tolower($1) }
+  ' sha256sums.txt)
+  if [ -z "$expected" ]; then
+    echo "nah: checksum not found for $asset" >&2
+    exit 1
+  fi
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c expected.txt >/dev/null
+    output=$(sha256sum "$asset")
+  elif command -v shasum >/dev/null 2>&1; then
+    output=$(shasum -a 256 "$asset")
   else
-    shasum -a 256 -c expected.txt >/dev/null
+    echo "nah: SHA-256 tool not found (need sha256sum or shasum)" >&2
+    exit 1
+  fi
+  actual=$(printf '%s\n' "$output" | awk '
+    NR == 1 && length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ { print tolower($1) }
+  ')
+  if [ "$actual" != "$expected" ]; then
+    echo "nah: checksum mismatch for $asset" >&2
+    exit 1
   fi
 )
 echo "checksum ok"
