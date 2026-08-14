@@ -1,5 +1,11 @@
 # Agent instructions
 
+## Documentation scope
+
+Keep documentation changes proportional. Edit the README or homepage only when
+a change makes them inaccurate, and then make the smallest factual correction.
+Do not expand surrounding copy or refresh demos and recordings unless requested.
+
 ## Keep the changelog current
 
 `CHANGELOG.md` doubles as the news feed on nahguard.ai, so it is part of the
