@@ -35,10 +35,8 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-21 guards cover four classes of disaster: **execution hijacks**, **secret
-theft**, **filesystem and host-integrity damage**, and **git disasters**.
-Twenty ship on; the startup-persistence guard is optional because it also
-blocks routine dotfile and service administration.
+21 guards, 20 on by default, covering four classes of disaster: **execution
+hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -149,9 +147,7 @@ in the [threat model](docs/threat-model.md).
 
 ## Every guard is a switch.
 
-The TUI groups built-ins by semantic family and factory default; press `f` to
-filter by family, default, or source. Flip guards there or in the CLI. Turning
-a guard off just means those calls
+Flip them in the TUI or the CLI. Turning a guard off just means those calls
 delegate again, never past your runtime's own prompts:
 
 ```sh

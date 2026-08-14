@@ -21,13 +21,11 @@ OUT = os.path.join(HERE, "nah-tui.cast")
 # (delay-before-send seconds, bytes). None = just wait.
 SCRIPT = [
     (1.6, None),
-    (0.8, b"f"),
-    (0.8, b"l"), (0.4, b"l"),
-    (0.6, b"\t"), (0.5, b"h"),
-    (0.8, b"\r"),
-    (1.8, None),
-    (0.8, b"f"), (0.6, b"c"), (0.5, b"\r"),
-    (1.5, None),
+    (0.8, b"j"), (0.4, b"j"), (0.4, b"j"),
+    (1.0, b" "),
+    (1.2, b"\r"),
+    (1.5, b" "),
+    (1.1, b"\r"),
     (2.2, b"q"),
     (0.9, None),
 ]
