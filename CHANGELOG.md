@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **New `boundary_siblings` config widens the project boundary to a
+  repo-adjacent sibling directory.** Repo-adjacent scratch conventions
+  (`<parent-of-repo>/_scratch/<repo>/`) sit outside the project root by
+  construction, so every operation there previously asked as "outside
+  project" — including `mkdir`, deletes, and writes for the exact
+  directory the convention recommends. `boundary_siblings` (global config
+  only, default `["_scratch"]`) widens each project boundary root — the
+  project root itself, and the main checkout root when run from a linked
+  worktree — to also include `<parent>/<sibling>/<basename>` for each
+  configured sibling name. Only that one sibling directory per root is
+  widened, never the whole sibling tree, so another repo's scratch dir
+  under the same parent still asks. Set `boundary_siblings: []` to restore
+  the old behavior.
+
 - **`nah log` now surfaces the calling agent.** Each entry already recorded which
   agent produced the action (`claude`, `codex`, or `terminal` for the interactive
   bash guard); the human-readable output now shows it as a column and a new

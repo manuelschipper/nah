@@ -5,8 +5,8 @@ import re
 import subprocess
 import sys
 
-from nah.platform_paths import nah_config_dir, windows_appdata_dir
 from nah import taxonomy
+from nah.platform_paths import nah_config_dir, windows_appdata_dir
 
 _HOME = os.path.expanduser("~")
 _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
@@ -476,7 +476,7 @@ def get_project_root() -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, timeout=2, check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             _project_root = result.stdout.strip()
@@ -511,7 +511,7 @@ def _git_output(args: list[str]) -> str | None:
     try:
         result = subprocess.run(
             args,
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, timeout=2, check=False,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
@@ -528,6 +528,15 @@ def get_project_boundary_roots() -> list[str]:
     root while shared repo files live under the main checkout. Use
     `--git-common-dir` to add that main checkout root when it can be derived
     unambiguously.
+
+    Each root additionally grows a sibling scratch root, `<parent>/<sibling>/
+    <basename>` for each name in config `boundary_siblings` (default
+    `["_scratch"]`) — this is the repo-adjacent bulk-data convention
+    (~/.claude/rules/scratch-dirs.md): `<parent-of-repo>/_scratch/<repo>/`.
+    The directory need not exist yet; the path is fully determined by the
+    root, and `scratch dir` creates it on first use. Only that one sibling
+    directory is widened, never the whole `_scratch/` tree, so another
+    repo's scratch dir under the same parent still asks.
     """
     global _project_boundary_roots
     if _project_boundary_roots is not None:
@@ -543,22 +552,24 @@ def get_project_boundary_roots() -> list[str]:
     _append_unique_path(roots, real_project_root)
 
     git_root = _git_output(["git", "rev-parse", "--show-toplevel"])
-    if git_root is None or os.path.realpath(git_root) != real_project_root:
-        _project_boundary_roots = roots
-        return list(roots)
+    if git_root is not None and os.path.realpath(git_root) == real_project_root:
+        common_dir = _git_output(["git", "rev-parse", "--git-common-dir"])
+        if common_dir is not None:
+            if os.path.isabs(common_dir):
+                real_common_dir = os.path.realpath(common_dir)
+            else:
+                real_common_dir = os.path.realpath(os.path.join(os.getcwd(), common_dir))
 
-    common_dir = _git_output(["git", "rev-parse", "--git-common-dir"])
-    if common_dir is None:
-        _project_boundary_roots = roots
-        return list(roots)
+            if os.path.basename(real_common_dir) == ".git":
+                _append_unique_path(roots, os.path.dirname(real_common_dir))
 
-    if os.path.isabs(common_dir):
-        real_common_dir = os.path.realpath(common_dir)
-    else:
-        real_common_dir = os.path.realpath(os.path.join(os.getcwd(), common_dir))
-
-    if os.path.basename(real_common_dir) == ".git":
-        _append_unique_path(roots, os.path.dirname(real_common_dir))
+    from nah.config import get_config  # lazy import to avoid circular
+    siblings = get_config().boundary_siblings
+    for root in roots[:]:  # snapshot: we append to roots inside this loop
+        parent = os.path.dirname(root)
+        name = os.path.basename(root)
+        for sibling in siblings:
+            _append_unique_path(roots, os.path.join(parent, sibling, name))
 
     _project_boundary_roots = roots
     return list(roots)

@@ -45,6 +45,7 @@ class NahConfig:
     llm: dict = field(default_factory=dict)
     llm_mode: str = "off"
     trusted_paths: list[str] = field(default_factory=list)
+    boundary_siblings: list[str] = field(default_factory=lambda: ["_scratch"])
     trusted_containers: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
@@ -685,6 +686,16 @@ def _merge_configs(
     for p in _default_trusted:
         if p not in existing:
             config.trusted_paths.append(p)
+
+    # boundary_siblings: global config ONLY (project .nah.yaml cannot set).
+    # Repo-adjacent scratch dirs (<parent-of-repo>/_scratch/<repo>/, see
+    # ~/.claude/rules/scratch-dirs.md) sit outside the project root by
+    # construction; each name here widens the project boundary to include
+    # exactly that one sibling directory per boundary root. Default matches
+    # the scratch-dir convention so it works with no config.
+    g_boundary_siblings = global_cfg.get("boundary_siblings", ["_scratch"])
+    if isinstance(g_boundary_siblings, list):
+        config.boundary_siblings = [str(s) for s in g_boundary_siblings]
 
     # trusted_containers: global config plus trusted project append only.
     # This loosens docker exec review, so untrusted project and target-scoped

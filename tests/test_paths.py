@@ -607,9 +607,13 @@ class TestProjectRoot:
         paths.reset_project_root()
 
         assert paths.resolve_path(paths.get_project_root()) == paths.resolve_path(str(worktree))
+        # Default boundary_siblings (["_scratch"]) widens each root to also
+        # include its repo-adjacent scratch dir (~/.claude/rules/scratch-dirs.md).
         assert paths.get_project_boundary_roots() == [
             paths.resolve_path(str(worktree)),
             paths.resolve_path(str(repo)),
+            paths.resolve_path(str(worktree.parent / "_scratch" / worktree.name)),
+            paths.resolve_path(str(repo.parent / "_scratch" / repo.name)),
         ]
 
     def test_project_boundary_allows_main_repo_file_from_worktree(self, tmp_path, monkeypatch):
@@ -642,7 +646,47 @@ class TestProjectRoot:
         override.mkdir()
         paths.set_project_root(str(override))
 
-        assert paths.get_project_boundary_roots() == [paths.resolve_path(str(override))]
+        assert paths.get_project_boundary_roots() == [
+            paths.resolve_path(str(override)),
+            paths.resolve_path(str(override.parent / "_scratch" / override.name)),
+        ]
+
+    def test_boundary_siblings_default_widens_repo_adjacent_scratch(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        paths.set_project_root(str(repo))
+
+        scratch = tmp_path / "_scratch" / "repo" / "note.md"
+        assert paths.is_inside_project_boundary(str(scratch))
+
+    def test_boundary_siblings_other_repos_scratch_still_outside(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        paths.set_project_root(str(repo))
+
+        other = tmp_path / "_scratch" / "other-repo" / "note.md"
+        assert not paths.is_inside_project_boundary(str(other))
+
+    def test_boundary_siblings_empty_restores_old_behavior(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        paths.set_project_root(str(repo))
+        config._cached_config = NahConfig(trusted_paths=[], boundary_siblings=[])
+
+        scratch = tmp_path / "_scratch" / "repo" / "note.md"
+        assert paths.get_project_boundary_roots() == [paths.resolve_path(str(repo))]
+        assert not paths.is_inside_project_boundary(str(scratch))
+
+    def test_boundary_siblings_configurable_name(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        paths.set_project_root(str(repo))
+        config._cached_config = NahConfig(trusted_paths=[], boundary_siblings=["_cache"])
+
+        scratch = tmp_path / "_scratch" / "repo" / "note.md"
+        cache = tmp_path / "_cache" / "repo" / "note.md"
+        assert not paths.is_inside_project_boundary(str(scratch))
+        assert paths.is_inside_project_boundary(str(cache))
 
 
 class TestTrustedPathNoGitRoot:
