@@ -1,0 +1,8 @@
+format = 1
+[[sections]]
+id = "agents"
+name = "Agents"
+path = "sections/agents.md"
+
+[targets.agents]
+sections = ["agents"]

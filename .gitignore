@@ -14,3 +14,8 @@ __pycache__/
 /homepage/.tui-home/
 /homepage/wasm/target/
 /.wrangler/
+
+# mdmanager.ai machine-local project overlays
+/AGENTS.override.md
+/CLAUDE.local.md
+/.claude/settings.local.json
