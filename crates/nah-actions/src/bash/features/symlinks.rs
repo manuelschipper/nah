@@ -455,8 +455,6 @@ pub(crate) fn has_dynamic_content_selection(program: &str, arguments: &[Word]) -
                 | "ln"
                 | "more"
                 | "mv"
-                | "rsync"
-                | "scp"
                 | "sed"
                 | "sort"
                 | "strings"

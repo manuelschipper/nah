@@ -1214,6 +1214,13 @@ pub(crate) fn has_dynamic_file_source(
     match program {
         "curl" => curl_has_dynamic_file_source(arguments),
         "wget" => wget_has_dynamic_file_source(arguments),
+        "scp" => scp_analysis(arguments).is_some_and(|analysis| {
+            analysis.has_dynamic_source_to_possible_remote_destination(arguments)
+        }),
+        "rsync" => rsync_analysis(arguments).is_some_and(|analysis| {
+            !analysis.dry_run
+                && analysis.has_dynamic_source_to_possible_remote_destination(arguments)
+        }),
         "socat" => bash_socat::socat_has_dynamic_file_source(arguments, variables),
         _ => false,
     }
@@ -1542,42 +1549,44 @@ const SCP_SHORT_VALUE_OPTIONS: &str = "DFiJloPSXc";
 const RSYNC_SHORT_VALUE_OPTIONS: &str = "BefMT@";
 
 fn scp(arguments: &[Word]) -> Option<Lowering> {
-    let values = argument_values(arguments);
-    let operands = positional_scp_arguments(&values)?;
-    if operands.len() < 2 {
-        return None;
-    }
-    let locations = operands
+    let analysis = scp_analysis(arguments)?;
+    let source_locations = analysis
+        .sources
         .iter()
-        .map(|index| remote_location(&arguments[*index], values[*index].as_deref()))
+        .map(|source| remote_source_location(analysis.values[*source].as_deref()))
         .collect::<Vec<_>>();
-    if locations
-        .iter()
-        .all(|location| *location == RemoteLocation::Local)
+    let destination_location = remote_destination_location(
+        &arguments[analysis.destination],
+        analysis.values[analysis.destination].as_deref(),
+    );
+    if destination_location == RemoteLocation::Local
+        && source_locations
+            .iter()
+            .all(|source| *source == RemoteLocation::Local)
     {
         return None;
     }
-    let recursive = scp_recursive(&values);
-    let destination = *operands.last()?;
-    let destination_location = *locations.last()?;
     let mut filesystems = Vec::new();
     if destination_location != RemoteLocation::Local {
-        filesystems.extend(
-            operands[..operands.len() - 1]
-                .iter()
-                .zip(&locations[..locations.len() - 1])
-                .filter_map(|(source, location)| {
-                    (*location == RemoteLocation::Local)
-                        .then(|| values[*source].as_deref())
-                        .flatten()
-                        .map(|source| (source.to_owned(), FilesystemOperation::Read, recursive))
-                }),
-        );
-    } else if let Some(destination) = values[destination].as_deref() {
+        filesystems.extend(analysis.sources.iter().zip(&source_locations).filter_map(
+            |(source, location)| {
+                (*location == RemoteLocation::Local)
+                    .then(|| analysis.values[*source].as_deref())
+                    .flatten()
+                    .map(|source| {
+                        (
+                            source.to_owned(),
+                            FilesystemOperation::Read,
+                            analysis.recursive,
+                        )
+                    })
+            },
+        ));
+    } else if let Some(destination) = analysis.values[analysis.destination].as_deref() {
         filesystems.push((destination.to_owned(), FilesystemOperation::Write, false));
     }
     Some(Lowering {
-        complete: values.iter().all(Option::is_some),
+        complete: analysis.complete,
         filesystems,
         stdin_flows: false,
         stdout_flows: false,
@@ -1592,6 +1601,110 @@ fn scp(arguments: &[Word]) -> Option<Lowering> {
 /// `scp`. Local-only copies keep their filesystem lowering in `bash_filesystem`,
 /// so returning `None` here leaves that path untouched.
 fn rsync(arguments: &[Word]) -> Option<Lowering> {
+    let analysis = rsync_analysis(arguments)?;
+    if analysis.dry_run {
+        return None;
+    }
+    let destination_location = remote_destination_location(
+        &arguments[analysis.destination],
+        analysis.values[analysis.destination].as_deref(),
+    );
+    let source_locations = analysis
+        .sources
+        .iter()
+        .map(|source| remote_source_location(analysis.values[*source].as_deref()))
+        .collect::<Vec<_>>();
+    if destination_location == RemoteLocation::Local
+        && source_locations
+            .iter()
+            .all(|source| *source == RemoteLocation::Local)
+        || destination_location == RemoteLocation::Remote
+            && source_locations.contains(&RemoteLocation::Remote)
+    {
+        return None;
+    }
+    let mut filesystems = Vec::new();
+    if destination_location != RemoteLocation::Local {
+        filesystems.extend(
+            analysis
+                .sources
+                .iter()
+                .zip(&source_locations)
+                .filter_map(|(source, location)| {
+                    (*location == RemoteLocation::Local)
+                        .then(|| analysis.values[*source].as_deref())
+                        .flatten()
+                })
+                .map(|source| {
+                    let normalized = source.trim_end_matches(['/', '\\']);
+                    (
+                        if normalized.is_empty() {
+                            source.to_owned()
+                        } else {
+                            normalized.to_owned()
+                        },
+                        FilesystemOperation::Read,
+                        analysis.recursive,
+                    )
+                }),
+        );
+    } else if let Some(destination) = analysis.values[analysis.destination].as_deref() {
+        filesystems.push((destination.to_owned(), FilesystemOperation::Write, false));
+    }
+    Some(Lowering {
+        complete: analysis.complete,
+        filesystems,
+        stdin_flows: false,
+        stdout_flows: false,
+        network: true,
+        network_endpoints: Vec::new(),
+        descriptor_sources: Vec::new(),
+        descriptor_sinks: Vec::new(),
+    })
+}
+
+struct TransferAnalysis {
+    values: Vec<Option<String>>,
+    sources: Vec<usize>,
+    destination: usize,
+    recursive: bool,
+    dry_run: bool,
+    complete: bool,
+}
+
+impl TransferAnalysis {
+    fn has_dynamic_source_to_possible_remote_destination(&self, arguments: &[Word]) -> bool {
+        remote_destination_location(
+            &arguments[self.destination],
+            self.values[self.destination].as_deref(),
+        ) != RemoteLocation::Local
+            && self
+                .sources
+                .iter()
+                .any(|source| self.values[*source].is_none())
+    }
+}
+
+fn scp_analysis(arguments: &[Word]) -> Option<TransferAnalysis> {
+    let values = argument_values(arguments);
+    let operands = positional_scp_arguments(&values)?;
+    let (destination, sources) = operands.split_last()?;
+    if sources.is_empty() {
+        return None;
+    }
+    let complete = values.iter().all(Option::is_some);
+    let recursive = scp_recursive(&values);
+    Some(TransferAnalysis {
+        values,
+        sources: sources.to_vec(),
+        destination: *destination,
+        recursive,
+        dry_run: false,
+        complete,
+    })
+}
+
+fn rsync_analysis(arguments: &[Word]) -> Option<TransferAnalysis> {
     let values = argument_values(arguments);
     let mut operands = Vec::<usize>::new();
     let mut dry_run = false;
@@ -1636,60 +1749,17 @@ fn rsync(arguments: &[Word]) -> Option<Lowering> {
         index += 1;
     }
     let (destination, sources) = operands.split_last()?;
-    if sources.is_empty() || dry_run {
+    if sources.is_empty() {
         return None;
     }
-    let destination_location =
-        remote_location(&arguments[*destination], values[*destination].as_deref());
-    let source_locations = sources
-        .iter()
-        .map(|source| remote_location(&arguments[*source], values[*source].as_deref()))
-        .collect::<Vec<_>>();
-    if destination_location == RemoteLocation::Local
-        && source_locations
-            .iter()
-            .all(|source| *source == RemoteLocation::Local)
-        || destination_location == RemoteLocation::Remote
-            && source_locations.contains(&RemoteLocation::Remote)
-    {
-        return None;
-    }
-    let mut filesystems = Vec::new();
-    if destination_location != RemoteLocation::Local {
-        filesystems.extend(
-            sources
-                .iter()
-                .zip(&source_locations)
-                .filter_map(|(source, location)| {
-                    (*location == RemoteLocation::Local)
-                        .then(|| values[*source].as_deref())
-                        .flatten()
-                })
-                .map(|source| {
-                    let normalized = source.trim_end_matches(['/', '\\']);
-                    (
-                        if normalized.is_empty() {
-                            source.to_owned()
-                        } else {
-                            normalized.to_owned()
-                        },
-                        FilesystemOperation::Read,
-                        recursive,
-                    )
-                }),
-        );
-    } else if let Some(destination) = values[*destination].as_deref() {
-        filesystems.push((destination.to_owned(), FilesystemOperation::Write, false));
-    }
-    Some(Lowering {
-        complete: values.iter().all(Option::is_some),
-        filesystems,
-        stdin_flows: false,
-        stdout_flows: false,
-        network: true,
-        network_endpoints: Vec::new(),
-        descriptor_sources: Vec::new(),
-        descriptor_sinks: Vec::new(),
+    let complete = values.iter().all(Option::is_some);
+    Some(TransferAnalysis {
+        values,
+        sources: sources.to_vec(),
+        destination: *destination,
+        recursive,
+        dry_run,
+        complete,
     })
 }
 
@@ -1755,14 +1825,23 @@ fn remote_path(argument: &str) -> bool {
 enum RemoteLocation {
     Local,
     Remote,
+    RawRemote,
     Unknown,
 }
 
-fn remote_location(argument: &Word, value: Option<&str>) -> RemoteLocation {
+fn remote_source_location(value: Option<&str>) -> RemoteLocation {
     match value {
         Some(value) if remote_path(value) => RemoteLocation::Remote,
         Some(_) => RemoteLocation::Local,
-        None if remote_path(argument.raw()) => RemoteLocation::Remote,
+        None => RemoteLocation::Unknown,
+    }
+}
+
+fn remote_destination_location(argument: &Word, value: Option<&str>) -> RemoteLocation {
+    match value {
+        Some(value) if remote_path(value) => RemoteLocation::Remote,
+        Some(_) => RemoteLocation::Local,
+        None if remote_path(argument.raw()) => RemoteLocation::RawRemote,
         None => RemoteLocation::Unknown,
     }
 }

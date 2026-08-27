@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Inbound `scp` and `rsync` destinations** — Remote downloads with an
+  unresolved local destination no longer look like sensitive uploads.
 - **Authentication and identity guard** — New default-on `fs-auth-identity`
   blocks visible writes and deletes of reviewed login authority, identity,
   privilege, PAM, sudoers, sshd, and Windows identity-database paths.
