@@ -9,7 +9,7 @@ use nah_extensions::{
     load_active_extensions, memo_cache_path, record_activation,
 };
 use nah_proto::action::{ActionStream, Coverage, EffectKind};
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::extension::ConsultationOutcome;
 use nah_proto::observation::{
     Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
@@ -76,13 +76,11 @@ pub(crate) fn finish(
     let catalog =
         load_active_extensions(&home, Platform::Linux, &trust, &activations, &[]).unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         vec![],
         catalog.activations(),
         trust,
-        PolicyVersion::V1,
     )
     .unwrap();
     let observation = observation(&home);

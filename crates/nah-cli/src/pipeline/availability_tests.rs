@@ -11,7 +11,7 @@ use super::{
     ConsultedExtensions, EvaluationFailure, EvaluationFailureSource, RecoveryAdvice, decide_with,
     decide_with_extensions, decide_with_extensions_mode, failure_recovery,
 };
-use crate::catalog::{POLICY_VERSION, all_shipped_guard_states_enabled};
+use crate::catalog::all_shipped_guard_states_enabled;
 
 #[test]
 fn selected_extension_failure_delegates_with_typed_failure() {
@@ -37,13 +37,11 @@ fn shipped_block_survives_a_custom_guard_failure() {
     let temp = tempfile::tempdir().unwrap();
     let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         all_shipped_guard_states_enabled(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -81,13 +79,11 @@ fn custom_block_survives_another_custom_guard_failure() {
     )
     .unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         vec![],
         vec![activation.clone()],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -193,13 +189,11 @@ fn shipped_effect_block_survives_an_inline_analyzer_failure() {
     let temp = tempfile::tempdir().unwrap();
     let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         all_shipped_guard_states_enabled(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -277,13 +271,11 @@ fn policy_reducer_failure_delegates_with_typed_failure() {
     )
     .unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         vec![],
         vec![activation.clone()],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -358,13 +350,11 @@ fn recovery_categories_are_fixed_and_severity_ordered() {
 fn context_and_input(path: &std::path::Path) -> (Ctx, ToolCallInput) {
     let home = AbsolutePath::new(Platform::Linux, path.to_str().unwrap()).unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         home.clone(),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let input = ToolCallInput::new(

@@ -44,8 +44,6 @@ mod shipped_state;
 #[cfg(not(target_arch = "wasm32"))]
 mod tui;
 
-pub use catalog::{
-    POLICY_VERSION, all_shipped_guard_states_enabled, shipped_guard_states, shipped_guards,
-};
+pub use catalog::{all_shipped_guard_states_enabled, shipped_guard_states, shipped_guards};
 pub use dispatch::run;
 pub use pipeline::{DecisionResult, decide_with};

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use nah_proto::action::{ActionStream, Coverage, EffectKind};
-use nah_proto::ctx::{AbsolutePath, Platform, PolicyVersion, SchemaVersion};
+use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
 use nah_proto::decision::{
     DecisionCore, DecisionEnvelope, GuardAttribution, GuardContribution, Verdict,
 };
@@ -36,7 +36,7 @@ fn record_with(id: &str, verdict: Verdict, warnings: &[String]) -> AuditRecordV1
     )
     .unwrap();
     let contributions = if verdict == Verdict::Block {
-        let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+        let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
         vec![GuardContribution::new(guard, "fs-system-tree blocked test operation").unwrap()]
     } else {
         vec![]
@@ -149,6 +149,26 @@ fn log_round_trips_and_finds_records() {
             0o600
         );
     }
+}
+
+#[test]
+fn readers_reject_obsolete_policy_version_attributions() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("audit.jsonl");
+    let log = DecisionLog::new(path.clone());
+    let record = blocked_record("decision-old");
+    let mut obsolete = serde_json::to_value(&record).unwrap();
+    assert_eq!(
+        serde_json::from_value::<AuditRecordV1>(obsolete.clone()).unwrap(),
+        record
+    );
+    obsolete["core"]["policy_attributions"][0]["policy_version"] = serde_json::json!(1);
+    let mut line = serde_json::to_vec(&obsolete).unwrap();
+    line.push(b'\n');
+    std::fs::write(path, line).unwrap();
+
+    assert_eq!(log.tail(1), Err(AuditError::InvalidRecord));
+    assert_eq!(log.find("decision-old"), Err(AuditError::InvalidRecord));
 }
 
 #[test]

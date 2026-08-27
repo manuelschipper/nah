@@ -1,8 +1,8 @@
 //! Live HOME-derived context, extension catalog, and memo-cache construction.
 
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, TrustProjection};
 
-use crate::catalog::{POLICY_VERSION, configured_guard_states, shipped_defaults, shipped_names};
+use crate::catalog::{configured_guard_states, shipped_defaults, shipped_names};
 use crate::nap::{self, ActiveNap};
 use crate::shipped_state::{ShippedState, state_path};
 
@@ -69,13 +69,11 @@ pub(crate) fn load() -> Result<LiveState, String> {
         }
     };
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         platform,
         home.clone(),
         configured_guard_states(&shipped_state),
         extensions.activations(),
         trust,
-        POLICY_VERSION,
     )
     .map_err(|error| error.to_string())?;
     let cache = nah_extensions::MemoCache::new(nah_extensions::memo_cache_path(&home, platform));

@@ -291,6 +291,6 @@ Transport rejection codes are `oversize`, `invalid-utf8`, `invalid-json`,
 The response must be a pure function of the request and activated bundle: do
 not use cross-call memory, clocks, or changing network reads. nah memoizes a
 validated response under a digest covering the represented arguments, code,
-native input, working directories, observations, guard context, policy version,
-and bundle identity. Raw evidence is not stored in the key. Identical hot calls
+native input, working directories, observations, guard context, and bundle
+identity. Raw evidence is not stored in the key. Identical hot calls
 can avoid a process spawn. No manifest option disables memoization.

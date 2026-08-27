@@ -5,7 +5,6 @@ mod support;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use nah_cli::POLICY_VERSION;
 use serde_json::Value;
 use support::repo;
 
@@ -61,6 +60,17 @@ fn replace_path(value: &mut Value, path: &str) {
 fn assert_golden(value: &Value, expected: &str) {
     let rendered = serde_json::to_string_pretty(value).unwrap() + "\n";
     assert_eq!(rendered, expected);
+}
+
+fn assert_shipped_attribution(value: &Value) {
+    let attribution = value.as_object().unwrap();
+    assert_eq!(attribution.len(), 2);
+    assert_eq!(attribution["kind"], "shipped");
+    assert!(
+        attribution["name"]
+            .as_str()
+            .is_some_and(|name| !name.is_empty())
+    );
 }
 
 #[test]
@@ -125,11 +135,7 @@ fn modeled_exfiltration_sources_keep_the_v1_extension_contract() {
         assert_eq!(value["exec_request"]["v"], 1, "{command}");
         assert_eq!(value["exec_request"]["action_stream"]["v"], 1, "{command}");
         assert_eq!(value["decision"]["verdict"], "block", "{command}");
-        assert_eq!(
-            value["decision"]["policy_attributions"][0]["policy_version"],
-            POLICY_VERSION.value(),
-            "{command}"
-        );
+        assert_shipped_attribution(&value["decision"]["policy_attributions"][0]);
         assert!(
             value["exec_request"]["action_stream"]["effects"]
                 .as_array()
@@ -161,10 +167,7 @@ fn root_relocation_and_bounded_printf_keep_v1_contracts() {
         "partial"
     );
     assert_eq!(value["decision"]["verdict"], "block");
-    assert_eq!(
-        value["decision"]["policy_attributions"][0]["policy_version"],
-        POLICY_VERSION.value()
-    );
+    assert_shipped_attribution(&value["decision"]["policy_attributions"][0]);
     assert!(
         value["exec_request"]["action_stream"]["effects"]
             .as_array()
@@ -186,11 +189,7 @@ fn root_relocation_and_bounded_printf_keep_v1_contracts() {
         let value: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(value["exec_request"]["action_stream"]["v"], 1, "{command}");
         assert_eq!(value["decision"]["verdict"], "block", "{command}");
-        assert_eq!(
-            value["decision"]["policy_attributions"][0]["policy_version"],
-            POLICY_VERSION.value(),
-            "{command}"
-        );
+        assert_shipped_attribution(&value["decision"]["policy_attributions"][0]);
     }
 
     for harmless in [

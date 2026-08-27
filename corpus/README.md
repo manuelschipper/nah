@@ -1,6 +1,6 @@
 # Corpus workflow
 
-The corpus is the behavioral oracle for the current shipped policy contract.
+The corpus is the behavioral oracle for the current shipped policy.
 No test imports or executes nah 0.x.
 
 ## Ownership

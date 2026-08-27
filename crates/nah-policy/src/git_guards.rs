@@ -55,7 +55,7 @@ pub(crate) fn add(
         {
             continue;
         }
-        let guard = GuardAttribution::shipped(name, policy_ctx.policy_version())?;
+        let guard = GuardAttribution::shipped(name)?;
         contributions.push(GuardContribution::new(guard, reason)?);
         blocked = true;
     }

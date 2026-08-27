@@ -193,7 +193,6 @@ pub(crate) fn memo_key(request: &ExecV1Request, ctx: &Ctx, extension: &Extension
             .as_str()
             .as_bytes()
             .to_vec(),
-        ctx.policy_version().value().to_be_bytes().to_vec(),
     ] {
         hash.update((bytes.len() as u64).to_be_bytes());
         hash.update(bytes);
@@ -207,8 +206,8 @@ mod tests {
         ActionStream, Coverage, EffectKind, FilesystemOperation, InvocationInput,
     };
     use nah_proto::ctx::{
-        ActivationProjection, ContentHash, ExecProtocolVersion, GuardIdentity, PolicyVersion,
-        SchemaVersion, TrustProjection, TrustedRoot, TrustedRootId,
+        ActivationProjection, ContentHash, ExecProtocolVersion, GuardIdentity, TrustProjection,
+        TrustedRoot, TrustedRootId,
     };
 
     use super::*;
@@ -358,13 +357,11 @@ mod tests {
             Platform::Linux | Platform::Macos => "/home/test",
         };
         Ctx::new(
-            SchemaVersion::V1,
             platform,
             AbsolutePath::new(platform, home).unwrap(),
             vec![],
             activations,
             TrustProjection::new(roots).unwrap(),
-            PolicyVersion::V1,
         )
         .unwrap()
     }

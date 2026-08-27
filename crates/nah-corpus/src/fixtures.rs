@@ -106,7 +106,6 @@ impl ContextFixture {
 
     pub(crate) fn context(&self) -> Result<Ctx, String> {
         Ctx::new(
-            SchemaVersion::V1,
             self.platform,
             AbsolutePath::new(self.platform, &self.home).map_err(|error| error.to_string())?,
             match self.shipped_guards {
@@ -115,7 +114,6 @@ impl ContextFixture {
             },
             vec![],
             TrustProjection::new(vec![]).map_err(|error| error.to_string())?,
-            nah_cli::POLICY_VERSION,
         )
         .map_err(|error| error.to_string())
     }

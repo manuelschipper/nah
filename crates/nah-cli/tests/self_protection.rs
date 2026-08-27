@@ -4,15 +4,14 @@ mod support;
 
 use std::path::Path;
 
-use nah_cli::{POLICY_VERSION, decide_with};
-use nah_proto::ctx::{Ctx, SchemaVersion, ShippedGuardState, TrustProjection};
+use nah_cli::decide_with;
+use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
 use nah_proto::decision::{DecisionCore, Verdict};
 use serde_json::json;
 use support::{absolute, bash_path, call, ctx, host_platform, repo};
 
 fn decide(home: &Path, repo: &Path, tool: &str, input: serde_json::Value) -> DecisionCore {
     let disabled = Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(home),
         nah_cli::shipped_guard_states()
@@ -21,7 +20,6 @@ fn decide(home: &Path, repo: &Path, tool: &str, input: serde_json::Value) -> Dec
             .collect(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     nah_cli::decide_with(&call(tool, input, repo), &disabled, |request| {

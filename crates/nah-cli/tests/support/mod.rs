@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::process::Command;
 
-use nah_cli::POLICY_VERSION;
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::tool::ToolCallInput;
 
@@ -27,26 +26,22 @@ pub(crate) fn bash_path(path: &Path) -> String {
 
 pub(crate) fn ctx(home: &Path) -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(home),
         nah_cli::all_shipped_guard_states_enabled(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }
 
 pub(crate) fn factory_ctx(home: &Path) -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(home),
         nah_cli::shipped_guard_states(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }

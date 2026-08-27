@@ -1,5 +1,4 @@
 use nah_proto::action::{ActionStream, Coverage, EffectKind};
-use nah_proto::ctx::PolicyVersion;
 use nah_proto::decision::{
     Decision, DecisionCore, DecisionEnvelope, DecisionError, DecisionOutput, ExitCode,
     GuardAttribution, GuardContribution, Verdict,
@@ -13,7 +12,7 @@ fn decision_stream(coverage: Coverage, effect_count: usize) -> ActionStream {
 
 #[test]
 fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
-    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
     let stream = decision_stream(Coverage::Full, 1);
     let core = DecisionCore::new(
         &stream,
@@ -44,8 +43,7 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
                 "reason": "fs-system-tree blocked a root delete",
                 "policy_attributions": [{
                     "kind": "shipped",
-                    "name": "fs-system-tree",
-                    "policy_version": 1
+                    "name": "fs-system-tree"
                 }],
                 "coverage": "full"
             },
@@ -58,7 +56,7 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
     );
     assert_eq!(
         serde_json::to_string(&output).unwrap(),
-        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"fs-system-tree blocked a root delete","policy_attributions":[{"kind":"shipped","name":"fs-system-tree","policy_version":1}],"id":"decision-1","coverage":"full","duration_us":42}"#
+        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"fs-system-tree blocked a root delete","policy_attributions":[{"kind":"shipped","name":"fs-system-tree"}],"id":"decision-1","coverage":"full","duration_us":42}"#
     );
     assert_eq!(output.schema(), "nah/decide/v1");
     assert_eq!(
@@ -78,8 +76,7 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
     let guard = |name| {
         serde_json::json!({
             "kind": "shipped",
-            "name": name,
-            "policy_version": 1
+            "name": name
         })
     };
     let unsorted_core = serde_json::json!({
@@ -104,7 +101,6 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
         "policy_attributions": [{
             "kind": "shipped",
             "name": "fs-system-tree",
-            "policy_kind": "guard",
             "policy_version": 1
         }],
         "coverage": "full"

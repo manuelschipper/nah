@@ -5,7 +5,7 @@ use nah_parse::normalize;
 use nah_proto::action::{
     Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput,
 };
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
     PathKind, PathObservation, ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
@@ -32,13 +32,11 @@ fn lower_on(
     .unwrap();
     let call_site = input.call_site(platform).unwrap();
     let context = Ctx::new(
-        SchemaVersion::V1,
         platform,
         platform_path(platform, home),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap();
     let plan = plan(AnalysisInput::Bash(&syntax, &input), &context, &call_site);

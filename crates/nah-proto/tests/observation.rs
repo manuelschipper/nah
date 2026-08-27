@@ -1,7 +1,6 @@
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::ctx::Ctx;
 use nah_proto::ctx::Platform;
-use nah_proto::ctx::PolicyVersion;
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::ctx::ShippedGuardState;
 use nah_proto::ctx::TrustProjection;
@@ -35,7 +34,6 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
     present_observation.bind(&request).expect("exact binding");
 
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![
@@ -44,7 +42,6 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
         ],
         Vec::new(),
         TrustProjection::new(Vec::new()).expect("trust"),
-        PolicyVersion::V1,
     )
     .expect("ctx");
     let derived = derive_policy_ctx(&ctx, &present_observation).expect("derive");
@@ -55,7 +52,6 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
     assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
 
     let explicitly_disabled = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![
@@ -64,7 +60,6 @@ fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
         ],
         Vec::new(),
         TrustProjection::new(Vec::new()).unwrap(),
-        PolicyVersion::V3,
     )
     .unwrap();
     let derived = derive_policy_ctx(&explicitly_disabled, &present_observation).unwrap();

@@ -35,33 +35,6 @@ impl<'de> Deserialize<'de> for SchemaVersion {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
-pub struct PolicyVersion(u32);
-
-impl PolicyVersion {
-    pub const V1: Self = Self(1);
-    pub const V2: Self = Self(2);
-    pub const V3: Self = Self(3);
-
-    pub fn new(value: u32) -> Result<Self, CtxError> {
-        nonzero_version(value).map(Self)
-    }
-
-    pub const fn value(self) -> u32 {
-        self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for PolicyVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::new(u32::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
 pub struct ExecProtocolVersion(u32);
 
 impl ExecProtocolVersion {
@@ -455,74 +428,23 @@ impl ActivationProjection {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Ctx {
-    v: SchemaVersion,
     platform: Platform,
     home: AbsolutePath,
-    #[serde(rename = "shipped_units")]
     shipped_guards: Vec<ShippedGuardState>,
     activations: Vec<ActivationProjection>,
     trust: TrustProjection,
-    policy_version: PolicyVersion,
-}
-
-#[derive(Deserialize)]
-struct RawCtx {
-    v: SchemaVersion,
-    platform: Platform,
-    home: AbsolutePath,
-    #[serde(rename = "shipped_units")]
-    shipped_guards: Vec<ShippedGuardState>,
-    activations: Vec<ActivationProjection>,
-    trust: TrustProjection,
-    policy_version: PolicyVersion,
-}
-
-impl<'de> Deserialize<'de> for Ctx {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        let version = value
-            .get("v")
-            .cloned()
-            .ok_or_else(|| serde::de::Error::missing_field("v"))
-            .and_then(|value| {
-                serde_json::from_value::<SchemaVersion>(value).map_err(serde::de::Error::custom)
-            })?;
-        if version != SchemaVersion::V1 {
-            return Err(serde::de::Error::custom("unsupported-version"));
-        }
-        let raw = serde_json::from_value::<RawCtx>(value).map_err(serde::de::Error::custom)?;
-        Self::new(
-            raw.v,
-            raw.platform,
-            raw.home,
-            raw.shipped_guards,
-            raw.activations,
-            raw.trust,
-            raw.policy_version,
-        )
-        .map_err(serde::de::Error::custom)
-    }
 }
 
 impl Ctx {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        v: SchemaVersion,
         platform: Platform,
         home: AbsolutePath,
         mut shipped_guards: Vec<ShippedGuardState>,
         mut activations: Vec<ActivationProjection>,
         trust: TrustProjection,
-        policy_version: PolicyVersion,
     ) -> Result<Self, CtxError> {
-        if v != SchemaVersion::V1 {
-            return Err(CtxError::UnsupportedVersion);
-        }
         if !is_absolute(platform, home.as_str())
             || trust
                 .trusted_roots()
@@ -550,22 +472,16 @@ impl Ctx {
         shipped_guards.sort_by(|left, right| left.name.cmp(&right.name));
         activations.sort_by(|left, right| left.identity.cmp(&right.identity));
         Ok(Self {
-            v,
             platform,
             home,
             shipped_guards,
             activations,
             trust,
-            policy_version,
         })
     }
 
     pub const fn platform(&self) -> Platform {
         self.platform
-    }
-
-    pub const fn version(&self) -> SchemaVersion {
-        self.v
     }
 
     pub fn home(&self) -> &AbsolutePath {
@@ -583,23 +499,14 @@ impl Ctx {
     pub fn trust(&self) -> &TrustProjection {
         &self.trust
     }
-
-    pub const fn policy_version(&self) -> PolicyVersion {
-        self.policy_version
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyCtx {
-    policy_version: PolicyVersion,
     enabled_shipped_guards: Vec<String>,
 }
 
 impl PolicyCtx {
-    pub const fn policy_version(&self) -> PolicyVersion {
-        self.policy_version
-    }
-
     pub fn enabled_shipped_guards(&self) -> &[String] {
         &self.enabled_shipped_guards
     }
@@ -657,7 +564,6 @@ pub fn derive_policy_ctx(
     }
     Ok(PolicyCtxDerivation {
         policy_ctx: PolicyCtx {
-            policy_version: ctx.policy_version,
             enabled_shipped_guards: enabled.into_iter().collect(),
         },
         unknown_declared_guards: unknown.into_iter().collect(),
@@ -675,7 +581,6 @@ pub enum CtxError {
     InvalidPath,
     InvalidProgramName,
     UntrustedActivation,
-    UnsupportedVersion,
     ZeroVersion,
 }
 
@@ -691,7 +596,6 @@ impl CtxError {
             Self::InvalidPath => "invalid-path",
             Self::InvalidProgramName => "invalid-program-name",
             Self::UntrustedActivation => "untrusted-activation",
-            Self::UnsupportedVersion => "unsupported-version",
             Self::ZeroVersion => "zero-version",
         }
     }
