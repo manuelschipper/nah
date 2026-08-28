@@ -5,6 +5,11 @@ use nah_parse::Word;
 use crate::shell_word::static_word;
 
 pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
+    let provider = match program {
+        "gh" => Provider::GitHub,
+        "glab" => Provider::GitLab,
+        _ => return false,
+    };
     let arguments = arguments
         .iter()
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
@@ -13,10 +18,9 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
         return false;
     };
     let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    match program {
-        "gh" => github_repo_delete(&arguments) || github_api_delete(&arguments),
-        "glab" => gitlab_repo_delete(&arguments) || gitlab_api_delete(&arguments),
-        _ => false,
+    match provider {
+        Provider::GitHub => github_repo_delete(&arguments) || github_api_delete(&arguments),
+        Provider::GitLab => gitlab_repo_delete(&arguments) || gitlab_api_delete(&arguments),
     }
 }
 
@@ -74,7 +78,22 @@ fn bool_flag(argument: &str, flag: &str) -> bool {
         || argument
             .strip_prefix(flag)
             .and_then(|value| value.strip_prefix('='))
-            .is_some_and(|value| matches!(value, "true" | "false"))
+            .is_some_and(|value| {
+                matches!(
+                    value,
+                    "1" | "t"
+                        | "T"
+                        | "TRUE"
+                        | "true"
+                        | "True"
+                        | "0"
+                        | "f"
+                        | "F"
+                        | "FALSE"
+                        | "false"
+                        | "False"
+                )
+            })
 }
 
 fn valid_github_repository(target: &str) -> bool {
@@ -251,7 +270,9 @@ fn short_value_option(argument: &str, provider: Provider) -> Option<(&str, &str)
 }
 
 fn github_delete_endpoint(endpoint: &str) -> bool {
-    let path = endpoint.split_once('?').map_or(endpoint, |(path, _)| path);
+    let path = endpoint
+        .split_once(['?', '#'])
+        .map_or(endpoint, |(path, _)| path);
     let path = path.strip_prefix('/').unwrap_or(path);
     let segments = path.split('/').collect::<Vec<_>>();
     matches!(segments.as_slice(), ["repos", owner, repository]

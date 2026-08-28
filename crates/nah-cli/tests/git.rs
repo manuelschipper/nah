@@ -110,8 +110,20 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "gh repo delete github.example.com/owner/project --yes",
             "git-remote-delete",
         ),
+        (
+            "gh repo delete owner/project --confirm=1",
+            "git-remote-delete",
+        ),
         ("glab repo delete group/project -y", "git-remote-delete"),
+        (
+            "glab repo delete group/project -y=TRUE",
+            "git-remote-delete",
+        ),
         ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
+        (
+            "gh api -X DELETE 'repos/owner/project#/issues'",
+            "git-remote-delete",
+        ),
         (
             "glab api --method DELETE projects/group%2Fproject",
             "git-remote-delete",

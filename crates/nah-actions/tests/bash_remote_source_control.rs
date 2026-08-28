@@ -32,11 +32,28 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
 }
 
 #[test]
+fn confirmation_flags_accept_go_boolean_spellings() {
+    for value in [
+        "1", "t", "T", "TRUE", "true", "True", "0", "f", "F", "FALSE", "false", "False",
+    ] {
+        for source in [
+            format!("gh repo delete owner/project --yes={value}"),
+            format!("gh repo delete owner/project --confirm={value}"),
+            format!("glab repo delete group/project --yes={value}"),
+            format!("glab repo delete group/project -y={value}"),
+        ] {
+            assert!(deletes_repository(&source), "{source}");
+        }
+    }
+}
+
+#[test]
 fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
     for source in [
         "gh api repos/owner/project -X DELETE",
         "gh api -Xdelete '/repos/owner/project?archive=false'",
         "gh api --hostname ghe.example --silent --method=DELETE repos/{owner}/{repo}",
+        "gh api --silent=1 --method DELETE repos/owner/project",
         "gh api --method GET -X DELETE repos/owner/project",
         "gh api repos/owner/project --field reason=test --input body.json --method DELETE",
         "gh api -HAccept:application/json -fwhy=test -X=DELETE repos/owner/project",
@@ -46,6 +63,8 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api --field audit=true --input body.json -XDELETE projects/:id",
         "glab api --silent projects/:fullpath --method DELETE",
         "glab api --method DELETE projects/:namespace%2F:repo",
+        "gh api -X DELETE 'repos/owner/project#'",
+        "gh api -X DELETE 'repos/owner/project#/issues'",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -82,12 +101,14 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh repo delete https://github.com/owner/project",
         "gh repo delete \"$REPOSITORY\" --yes",
         "gh repo delete owner/project --unknown",
+        "gh repo delete owner/project --yes=maybe",
         "gh repo delete --help owner/project",
         "glab repo archive group/project",
         "glab repo transfer group/project other",
         "glab repo delete https://gitlab.com/group/project",
         "glab repo delete \"$PROJECT\" -y",
         "glab repo delete group/project --force",
+        "glab repo delete group/project -y=on",
         "gh api -X GET repos/owner/project",
         "gh api repos/owner/project",
         "gh api -f x=y repos/owner/project",
@@ -97,6 +118,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh api -X DELETE https://api.github.com/repos/owner/project",
         "gh api -X DELETE \"$ENDPOINT\"",
         "gh api -X DELETE repos/owner/project --unknown",
+        "gh api --silent=maybe -X DELETE repos/owner/project",
         "gh api -X",
         "gh api --hostname",
         "gh api --method DELETE --method GET repos/owner/project",
