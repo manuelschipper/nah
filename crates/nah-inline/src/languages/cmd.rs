@@ -139,6 +139,9 @@ impl Interpreter<'_> {
     }
 
     fn delete(&mut self, arguments: &[Token]) {
+        let recursive = arguments
+            .iter()
+            .any(|argument| argument.exact && argument.value.eq_ignore_ascii_case("/s"));
         let targets = arguments
             .iter()
             .filter(|argument| !del_option(argument))
@@ -149,7 +152,7 @@ impl Interpreter<'_> {
                 LanguageFilesystem::new(
                     target.exact.then(|| target.value.clone()),
                     FilesystemOperation::Delete,
-                    false,
+                    recursive,
                 )
                 .pattern_if(target.exact && path_pattern(&target.value))
                 .file_only()
@@ -552,7 +555,7 @@ mod tests {
         assert!(!rd.draft().calls()[0].filesystems()[0].recursive());
 
         let del = analysis(r"del /s C:\tmp\*");
-        assert!(!del.draft().calls()[0].filesystems()[0].recursive());
+        assert!(del.draft().calls()[0].filesystems()[0].recursive());
         assert!(del.draft().calls()[0].filesystems()[0].file_only_target());
     }
 }

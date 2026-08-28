@@ -189,6 +189,47 @@ fn windows_shell_escapes_preserve_non_ascii_characters() {
 }
 
 #[test]
+fn powershell_hash_starts_comments_only_at_token_boundaries() {
+    for (source, expected) in [
+        (
+            r"Remove-Item -Recurse -LiteralPath C:\Users\test#backup",
+            r"C:\Users\test#backup",
+        ),
+        (
+            r"Remove-Item -Recurse -LiteralPath C:\Users\test<#backup#>",
+            r"C:\Users\test<#backup#>",
+        ),
+    ] {
+        let path = analyze("pwsh", source);
+        assert!(path.draft().complete(), "{source}");
+        assert_eq!(
+            path.draft().calls()[0].filesystems()[0].requested(),
+            Some(expected),
+            "{source}"
+        );
+        assert!(
+            !path.report().contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+
+    for source in [
+        r"Write-Output x#y; Remove-Item -Recurse -LiteralPath C:\Users\test",
+        "Write-Output x # comment\nRemove-Item -Recurse -LiteralPath C:\\Users\\test",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert_eq!(analysis.draft().calls().len(), 2, "{source}");
+        assert!(
+            analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn powershell_home_references_require_static_boundaries() {
     for (source, expected) in [
         (r"Remove-Item -Recurse -LiteralPath '~'", r"C:\Users\test"),
@@ -395,7 +436,7 @@ fn cmd_filesystem_and_directory_boundaries_are_explicit() {
     let calls = analysis.draft().calls();
     assert!(analysis.draft().complete());
     assert_eq!(calls.len(), 6);
-    assert!(!calls[0].filesystems()[0].recursive());
+    assert!(calls[0].filesystems()[0].recursive());
     assert!(calls[0].filesystems()[0].file_only_target());
     assert!(!calls[1].filesystems()[0].recursive());
     assert!(calls[2].filesystems()[0].recursive());

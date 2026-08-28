@@ -151,6 +151,44 @@ fn top_level_and_nested_windows_shells_share_canonical_filesystem_effects() {
 }
 
 #[test]
+fn nested_powershell_command_joins_static_argv() {
+    let source = r"Remove-Item -Recurse -LiteralPath C:\Users\test";
+    let direct = filesystem_effects(
+        direct_plan(VisibleCode::PowerShell { source }, source),
+        None,
+    );
+    let nested = filesystem_effects(
+        nested_plan(
+            r#"cmd /c "powershell -Command Remove-Item -Recurse -LiteralPath C:\Users\test""#,
+        ),
+        None,
+    );
+    assert_eq!(direct, nested);
+}
+
+#[test]
+fn powershell_hash_words_preserve_following_effects() {
+    let source = r"Write-Output x#y; Remove-Item -Recurse -LiteralPath C:\Users\test";
+    let effects = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);
+    assert_eq!(
+        effects,
+        [(
+            FilesystemOperation::Delete,
+            r"C:\Users\test".into(),
+            true,
+            false
+        )]
+    );
+
+    let hash_path = r"Remove-Item -Recurse -LiteralPath C:\Users\test#backup";
+    let effects = filesystem_effects(
+        direct_plan(VisibleCode::Pwsh { source: hash_path }, hash_path),
+        None,
+    );
+    assert_eq!(effects[0].1, r"C:\Users\test#backup");
+}
+
+#[test]
 fn escaped_non_ascii_windows_paths_lower_at_both_entry_points() {
     for (visible, source, nested) in [
         (
@@ -269,6 +307,21 @@ fn cmd_del_does_not_claim_directory_deletion_and_rd_is_not_implicitly_recursive(
     assert_eq!(
         rd,
         [(FilesystemOperation::Delete, target.into(), false, false)]
+    );
+}
+
+#[test]
+fn cmd_del_s_recurses_over_files_without_claiming_directories() {
+    let source = r"del /s /q C:\Users\test\*";
+    let effects = filesystem_effects(direct_plan(VisibleCode::Cmd { source }, source), None);
+    assert_eq!(
+        effects,
+        [(
+            FilesystemOperation::Delete,
+            r"C:\Users\test\*".into(),
+            true,
+            true
+        )]
     );
 }
 

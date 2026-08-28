@@ -730,13 +730,13 @@ fn strip_comments(code: &str) -> (String, bool) {
             index += character.len_utf8();
             continue;
         }
-        if bytes[index..].starts_with(b"<#") {
+        if bytes[index..].starts_with(b"<#") && comment_token_starts(bytes, index) {
             output.push_str("  ");
             index += 2;
             block = true;
             continue;
         }
-        if bytes[index] == b'#' {
+        if bytes[index] == b'#' && comment_token_starts(bytes, index) {
             while index < bytes.len() && bytes[index] != b'\n' {
                 output.push(' ');
                 index += 1;
@@ -847,7 +847,7 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                     value.push(character);
                     index += 1 + character.len_utf8();
                 }
-                b'#' | b'|' | b'>' | b',' => break,
+                b'|' | b',' => break,
                 byte if byte.is_ascii_whitespace() => break,
                 _ => {
                     let character = source[index..].chars().next()?;
@@ -877,11 +877,17 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                 quoted,
             }));
         }
-        if bytes.get(index) == Some(&b'#') {
-            break;
-        }
     }
     Some((lexemes, bindings_complete))
+}
+
+fn comment_token_starts(bytes: &[u8], index: usize) -> bool {
+    index == 0
+        || bytes[index - 1].is_ascii_whitespace()
+        || matches!(
+            bytes[index - 1],
+            b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' | b',' | b'>'
+        )
 }
 
 fn redirect_prefix(bytes: &[u8], index: usize) -> bool {

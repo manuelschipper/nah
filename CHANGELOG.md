@@ -8,6 +8,8 @@
   partial; escaped non-ASCII paths remain exact and `~` resolves to the declared
   home. Unknown `-WhatIf` values, lookalike variables, platform-specific aliases,
   path globs, and cmd directory semantics avoid resolved effects they cannot prove.
+  Comment markers inside bare words stay literal, and `del /s` retains its recursive
+  file scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.
