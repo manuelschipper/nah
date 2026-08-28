@@ -165,8 +165,8 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 fn explicit_global_disable_beats_a_project_enablement() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
-    let startup = temp.path().join(".bashrc");
-    let command = format!("printf x > {}", bash_path(&startup));
+    let profile = temp.path().join(".bashrc");
+    let command = format!("printf x > {}", bash_path(&profile));
 
     assert_eq!(
         decide(temp.path(), &project, &command)["verdict"],
@@ -175,7 +175,7 @@ fn explicit_global_disable_beats_a_project_enablement() {
     std::fs::create_dir(project.join(".nah")).unwrap();
     std::fs::write(
         project.join(".nah/project.toml"),
-        "enable-guards = [\"fs-startup-persistence\"]\n",
+        "enable-guards = [\"fs-shell-profile\"]\n",
     )
     .unwrap();
     assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
@@ -183,7 +183,7 @@ fn explicit_global_disable_beats_a_project_enablement() {
     let disabled = nah(
         temp.path(),
         &project,
-        &["guard", "disable", "fs-startup-persistence"],
+        &["guard", "disable", "fs-shell-profile"],
         None,
     );
     assert!(disabled.status.success(), "{disabled:?}");
@@ -193,8 +193,61 @@ fn explicit_global_disable_beats_a_project_enablement() {
     );
     assert_eq!(
         std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{\"fs-shell-profile\":false}}\n"
+    );
+}
+
+#[test]
+fn disabling_startup_persistence_leaves_other_guards_enabled() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let persistence = temp.path().join(".ssh/rc");
+    let command = format!("printf x > {}", bash_path(&persistence));
+
+    assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "fs-startup-persistence"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
         "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":false}}\n"
     );
+    assert_eq!(
+        decide(temp.path(), &project, &command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(
+            temp.path(),
+            &project,
+            &format!(
+                "printf x > {}",
+                bash_path(&temp.path().join(".ssh/authorized_keys"))
+            )
+        )["policy_attributions"][0]["name"],
+        "fs-auth-identity"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "git reset --hard")["policy_attributions"][0]["name"],
+        "git-hard-reset"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "fs-startup-persistence"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{}}\n"
+    );
+    assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
 }
 
 #[test]

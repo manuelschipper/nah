@@ -24,10 +24,11 @@ invocation through agent tool calls.
 
 ## Built-in guards
 
-Every built-in has its own factory default. `fs-startup-persistence` ships off
-because it interrupts routine shell-profile, service, cron, and autostart
-administration. `fs-auth-identity` and all other current built-ins ship on.
-The documentation view shows live and factory status plus three examples:
+Every built-in has its own factory default. `fs-shell-profile` ships off because
+shell installers and dotfile tooling routinely change user profiles.
+`fs-startup-persistence`, `fs-auth-identity`, and all other current built-ins
+ship on. The documentation view shows live and factory status plus three
+examples:
 
 ```sh
 nah guards

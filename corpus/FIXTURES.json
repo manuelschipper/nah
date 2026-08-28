@@ -667,6 +667,12 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "/home/test/.ssh/rc",
+          "resolved": "/home/test/.ssh/rc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "/home/test/.vimrc",
           "resolved": "/home/test/.vimrc"
         },

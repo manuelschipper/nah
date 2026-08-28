@@ -52,6 +52,7 @@ fn host_integrity_stream(
 #[test]
 fn host_integrity_guards_are_independent_and_require_mutation() {
     for (guard, class) in [
+        ("fs-shell-profile", HostIntegrityClass::ShellProfile),
         (
             "fs-startup-persistence",
             HostIntegrityClass::StartupPersistence,

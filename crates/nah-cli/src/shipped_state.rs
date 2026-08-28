@@ -308,7 +308,11 @@ mod tests {
     fn malformed_unknown_and_future_state_fail_loudly() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
-        let defaults = [("fs-startup-persistence", false), ("fs-system-tree", true)];
+        let defaults = [
+            ("fs-shell-profile", false),
+            ("fs-startup-persistence", true),
+            ("fs-system-tree", true),
+        ];
         std::fs::write(&path, r#"{"v":3,"overrides":{}}"#).unwrap();
         assert_eq!(
             ShippedState::load(&path, &defaults).unwrap_err(),
@@ -321,7 +325,7 @@ mod tests {
         );
         std::fs::write(
             &path,
-            "{\"v\":2,\"overrides\":{\"fs-system-tree\":false,\"fs-startup-persistence\":true}}\n",
+            "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":true}}\n",
         )
         .unwrap();
         assert_eq!(
@@ -348,24 +352,33 @@ mod tests {
     fn mixed_defaults_store_operator_choices_and_reset_removes_them() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
-        let defaults = [("fs-startup-persistence", false), ("fs-system-tree", true)];
+        let defaults = [
+            ("fs-shell-profile", false),
+            ("fs-startup-persistence", true),
+            ("fs-system-tree", true),
+        ];
 
         let state = ShippedState::load(&path, &defaults).unwrap();
         assert!(state.is_enabled("fs-system-tree", true));
-        assert!(!state.is_enabled("fs-startup-persistence", false));
+        assert!(state.is_enabled("fs-startup-persistence", true));
+        assert!(!state.is_enabled("fs-shell-profile", false));
 
-        set_enabled(&path, &defaults, "fs-startup-persistence", true).unwrap();
+        set_enabled(&path, &defaults, "fs-shell-profile", true).unwrap();
+        set_enabled(&path, &defaults, "fs-startup-persistence", false).unwrap();
         set_enabled(&path, &defaults, "fs-system-tree", false).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":true,\"fs-system-tree\":false}}\n"
+            "{\"v\":2,\"overrides\":{\"fs-shell-profile\":true,\"fs-startup-persistence\":false,\"fs-system-tree\":false}}\n"
         );
         let state = ShippedState::load(&path, &defaults).unwrap();
-        assert!(state.is_enabled("fs-startup-persistence", false));
+        assert!(state.is_enabled("fs-shell-profile", false));
+        assert!(!state.is_enabled("fs-startup-persistence", true));
         assert!(!state.is_enabled("fs-system-tree", true));
+        assert!(state.is_explicitly_disabled("fs-startup-persistence"));
         assert!(state.is_explicitly_disabled("fs-system-tree"));
 
-        reset(&path, &defaults, "fs-startup-persistence").unwrap();
+        set_enabled(&path, &defaults, "fs-startup-persistence", true).unwrap();
+        reset(&path, &defaults, "fs-shell-profile").unwrap();
         reset(&path, &defaults, "fs-system-tree").unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
@@ -377,16 +390,16 @@ mod tests {
     fn explicitly_disabling_a_default_off_guard_is_a_project_veto() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
-        let defaults = [("fs-startup-persistence", false)];
+        let defaults = [("fs-shell-profile", false)];
 
-        set_enabled(&path, &defaults, "fs-startup-persistence", false).unwrap();
+        set_enabled(&path, &defaults, "fs-shell-profile", false).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":false}}\n"
+            "{\"v\":2,\"overrides\":{\"fs-shell-profile\":false}}\n"
         );
         let state = ShippedState::load(&path, &defaults).unwrap();
-        assert!(state.is_explicitly_disabled("fs-startup-persistence"));
+        assert!(state.is_explicitly_disabled("fs-shell-profile"));
     }
 
     #[test]
@@ -394,7 +407,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
         let defaults = [
-            ("fs-startup-persistence", false),
+            ("fs-shell-profile", false),
+            ("fs-startup-persistence", true),
             ("git-clean-force", true),
             ("git-hard-reset", true),
         ];
@@ -403,16 +417,17 @@ mod tests {
         let state = ShippedState::load(&path, &defaults).unwrap();
         assert!(state.is_enabled("git-clean-force", true));
         assert!(!state.is_enabled("git-hard-reset", true));
-        assert!(!state.is_enabled("fs-startup-persistence", false));
+        assert!(!state.is_enabled("fs-shell-profile", false));
+        assert!(state.is_enabled("fs-startup-persistence", true));
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             r#"{"v":1,"disabled":["git-hard-reset"]}"#
         );
 
-        set_enabled(&path, &defaults, "fs-startup-persistence", true).unwrap();
+        set_enabled(&path, &defaults, "fs-shell-profile", true).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":true,\"git-hard-reset\":false}}\n"
+            "{\"v\":2,\"overrides\":{\"fs-shell-profile\":true,\"git-hard-reset\":false}}\n"
         );
     }
 }

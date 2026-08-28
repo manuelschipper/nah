@@ -89,7 +89,7 @@ fn direct_python_filesystem_writes_carry_host_integrity_classification() {
     for (source, expected) in [
         (
             "from pathlib import Path; Path('/home/test/.bashrc').write_text('alias ll=ls')",
-            HostIntegrityClass::StartupPersistence,
+            HostIntegrityClass::ShellProfile,
         ),
         (
             "from pathlib import Path; Path('/home/test/.ssh/authorized_keys').write_text('key')",

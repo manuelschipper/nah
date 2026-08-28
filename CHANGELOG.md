@@ -7,9 +7,12 @@
 - **Authentication and identity guard** — New default-on `fs-auth-identity`
   blocks visible writes and deletes of reviewed login authority, identity,
   privilege, PAM, sudoers, sshd, and Windows identity-database paths.
-- **Optional startup-persistence guard** — New default-off
-  `fs-startup-persistence` blocks mutations to reviewed shell, service,
-  schedule, login, autostart, and loader startup paths when enabled.
+- **Optional shell-profile guard** — New default-off `fs-shell-profile` blocks
+  mutations to reviewed user shell profiles when enabled without interrupting
+  routine shell installers and dotfile tooling at factory posture.
+- **Startup-persistence guard** — Default-on `fs-startup-persistence` blocks
+  mutations to reviewed service, schedule, login, autostart, and loader startup
+  paths while excluding routine user shell profiles.
 - **Mixed built-in defaults and TUI filters** — Guard state now preserves
   per-guard factory defaults and explicit global overrides, with operator
   disables taking precedence over project enablement. The TUI groups guards by

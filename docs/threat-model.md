@@ -40,8 +40,9 @@ boundary.
   `--fail-closed` hook blocks explicit failures/refusals and uses native denial
   for malformed/no-decision input; ordinary uncertainty still delegates.
 - Shipped host-integrity policy recognizes writes and deletes of a finite path
-  catalog. Authentication and identity protection ships on; startup persistence
-  protection ships off because those paths are also routine administration.
+  catalog. Authentication and identity protection and durable startup
+  persistence protection ship on. User shell-profile protection ships off
+  because installers and dotfile tooling routinely change those paths.
 
 These properties apply only to tool calls that reach a loaded nah adapter and
 to evidence nah can observe and model. Inline child effects require exact
