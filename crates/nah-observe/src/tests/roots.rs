@@ -1,5 +1,7 @@
 use super::support::{init_repo, request, run, value};
-use crate::{fulfill, fulfill_with_git};
+use crate::fulfill;
+#[cfg(unix)]
+use crate::fulfill_with_git;
 use nah_proto::observation::{
     ObservationFailure, ObservationValue, Observed, ProjectGuardDeclaration, RootKind,
 };

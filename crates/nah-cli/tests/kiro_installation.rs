@@ -2,10 +2,12 @@
 
 mod support;
 
+#[cfg(unix)]
 use std::io::Write;
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
+#[cfg(unix)]
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {

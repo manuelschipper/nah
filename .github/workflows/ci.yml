@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,6 +43,23 @@ jobs:
           cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
           cargo bench --workspace --no-run --locked
           cargo bench --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --no-run --locked
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Compile
+        run: cargo build --workspace --all-targets --locked
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test cross-platform suites
+        run: cargo test -p nah-proto -p nah-parse -p nah-inline -p nah-actions -p nah-observe -p nah-policy -p nah-extensions -p nah-cli -p nah-corpus --locked
 
   # 1.0 ships Linux and macOS binaries; native Windows support is deferred,
   # so the matrix covers the platforms releases are built for.
