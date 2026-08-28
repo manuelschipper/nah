@@ -36,7 +36,7 @@ Dry runs, corpus cases, and the demo do not write records.
 | `nah-policy` | Structural protection, built-in guards, and verdict reduction |
 | `nah-extensions` | Custom-guard lifecycle, selection, templates, execution, and cache |
 | `nah-cli` | Live composition, records, commands, and runtime adapters |
-| `nah-corpus` | Frozen fixtures, execution, oracle audit, and reconciliation |
+| `nah-corpus` | Frozen fixtures, execution, and triage reconciliation |
 
 Internal dependencies are: inline → proto; actions → inline/parse/proto; policy
 → inline/proto; observe/extensions → proto; CLI → all libraries; corpus →

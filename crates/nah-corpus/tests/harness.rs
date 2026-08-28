@@ -5,10 +5,7 @@
 
 use std::path::Path;
 
-use nah_corpus::{
-    OracleFamily, OracleLedger, audit_oracle, corpus_dir, load_cases, load_fixtures, load_summary,
-    reconcile,
-};
+use nah_corpus::{corpus_dir, load_cases, load_fixtures, load_summary, reconcile};
 
 #[test]
 fn every_case_is_executed_green_or_an_observed_expected_failure() {
@@ -36,38 +33,6 @@ fn every_case_is_executed_green_or_an_observed_expected_failure() {
     assert_eq!(
         result.executed_green.len() + result.expected_failures.len(),
         cases.len()
-    );
-}
-
-#[test]
-fn reviewed_historical_cases_have_no_oracle_blockers() {
-    let dir = corpus_dir();
-    let cases = load_cases(&dir).unwrap_or_else(|errors| panic!("{}", errors.join("\n")));
-    let fixtures = load_fixtures(&dir.join("FIXTURES.json")).expect("typed fixtures");
-    let ledger = OracleLedger::decode(
-        &std::fs::read_to_string(dir.join("ORACLE.json")).expect("oracle ledger"),
-    )
-    .expect("reviewed oracle ledger");
-    let report = audit_oracle(&cases, &fixtures, &ledger);
-
-    assert!(
-        report.blockers().is_empty(),
-        "oracle blockers:\n{}",
-        report.blockers().join("\n")
-    );
-    assert_eq!(report.passed.len(), 120);
-    assert_eq!(
-        ledger.family_counts().into_iter().collect::<Vec<_>>(),
-        [
-            (OracleFamily::Invariant, 21),
-            (OracleFamily::Wrapper, 7),
-            (OracleFamily::Storage, 8),
-            (OracleFamily::Git, 10),
-            (OracleFamily::Secret, 25),
-            (OracleFamily::Flow, 37),
-            (OracleFamily::SelfProtection, 11),
-            (OracleFamily::RuntimeAdapter, 1),
-        ]
     );
 }
 

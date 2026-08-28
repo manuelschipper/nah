@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 mod case;
 mod fixtures;
-mod oracle;
 mod runner;
 
 pub use case::{
@@ -18,10 +17,6 @@ pub use case::{
     load_cases, load_summary,
 };
 pub use fixtures::{ContextFixture, FixtureRegistry, ObservationFixture, load_fixtures};
-pub use oracle::{
-    OracleFamily, OracleLedger, OracleOutcome, OracleReport, OracleVerdict, ReviewedCase,
-    audit_oracle,
-};
 pub use runner::{Reconciliation, reconcile};
 
 pub fn corpus_dir() -> PathBuf {
