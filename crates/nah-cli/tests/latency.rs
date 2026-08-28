@@ -1,3 +1,4 @@
+#![cfg(unix)]
 #![allow(
     clippy::disallowed_macros,
     clippy::disallowed_methods,

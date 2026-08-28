@@ -1,5 +1,6 @@
 #![allow(clippy::disallowed_types)]
 
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use nah_parse::normalize;
@@ -93,6 +94,7 @@ fn opaque_background_loop_conditions_reduce_coverage_instead_of_being_guessed() 
 }
 
 #[test]
+#[cfg(unix)]
 fn a_large_visible_function_graph_is_scanned_without_recursive_graph_walks() {
     let function_count = 1500;
     let mut source = (0..function_count - 1)
