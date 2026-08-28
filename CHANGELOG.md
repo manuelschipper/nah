@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Project root filesystem guard** — New default-on `fs-project-root` blocks
+  recursive deletion and known recursive permission changes selecting the exact
+  project root or one of its three root-wide patterns.
 - **Inbound `scp` and `rsync` destinations** — Remote downloads with an
   unresolved local destination no longer look like sensitive uploads.
 - **Authentication and identity guard** — New default-on `fs-auth-identity`

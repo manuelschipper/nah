@@ -6,6 +6,7 @@ Built-in:
 - [x] fs-auth-identity (default on)
 - [x] fs-forkbomb (default on)
 - [x] fs-home (default on)
+- [x] fs-project-root (default on)
 - [x] fs-raw-device (default on)
 - [ ] fs-startup-persistence (default off)
 - [x] fs-storage-destroy (default on)

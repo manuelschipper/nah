@@ -123,6 +123,7 @@ fn family(name: &str) -> GuardFamily {
         "fs-auth-identity"
         | "fs-forkbomb"
         | "fs-home"
+        | "fs-project-root"
         | "fs-raw-device"
         | "fs-startup-persistence"
         | "fs-storage-destroy"
@@ -152,6 +153,9 @@ fn behavior(name: &str) -> &'static str {
         "exec-remote" => "Blocks execution of a payload visibly obtained from the network.",
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
+        "fs-project-root" => {
+            "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
+        }
         "fs-raw-device" => "Blocks visible writes to raw storage devices and the sysrq trigger.",
         "fs-startup-persistence" => {
             "Blocks changes to reviewed shell, service, schedule, login, and loader startup paths."
@@ -215,6 +219,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "bomb() { bomb | bomb & }; bomb",
         ],
         "fs-home" => ["rm -rf ~", "chmod -R 000 ~", "find ~ -delete"],
+        "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
             "echo b > /proc/sysrq-trigger",

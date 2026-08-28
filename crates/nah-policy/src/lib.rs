@@ -38,6 +38,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-auth-identity",
     "fs-forkbomb",
     "fs-home",
+    "fs-project-root",
     "fs-raw-device",
     "fs-startup-persistence",
     "fs-storage-destroy",

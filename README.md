@@ -35,7 +35,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-21 guards, 20 on by default, covering four classes of disaster: **execution
+22 guards, 21 on by default, covering four classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 
 | Guard | Blocks |
@@ -49,6 +49,7 @@ hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
+| `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-storage-destroy` | Definite logical-volume and storage-pool destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |

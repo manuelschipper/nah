@@ -49,6 +49,44 @@ fn host_integrity_stream(
     })
 }
 
+fn project_effect(
+    platform: Platform,
+    root: &str,
+    target: &str,
+    operation: FilesystemOperation,
+    recursive: bool,
+    pattern: bool,
+) -> EffectKind {
+    EffectKind::Filesystem {
+        effect: FilesystemEffect {
+            operation,
+            target: AbsolutePath::new(platform, target).unwrap(),
+            scope: PathScope::Project {
+                root: AbsolutePath::new(platform, root).unwrap(),
+            },
+            sensitivity: Sensitivity::None,
+            protection: None,
+            host_integrity: None,
+            selects_root: target == root,
+            selects_home: false,
+            recursive,
+            pattern,
+        },
+    }
+}
+
+fn assert_project_root_block(stages: Vec<Vec<EffectKind>>, label: &str) {
+    let stream = ActionStream::new(Coverage::Partial, stages, vec![]).unwrap();
+    let decision =
+        nah_policy::decide(&stream, &guard_policy("fs-project-root", true), &[]).unwrap();
+    assert_eq!(decision.verdict(), Verdict::Block, "{label}");
+    assert_eq!(
+        decision.policy_attributions()[0].name(),
+        "fs-project-root",
+        "{label}"
+    );
+}
+
 #[test]
 fn host_integrity_guards_are_independent_and_require_mutation() {
     for (guard, class) in [
@@ -215,6 +253,185 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
     let decision = nah_policy::decide(&stream, &guard_policy("fs-home", true), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-home");
+}
+
+#[test]
+fn fs_project_root_blocks_recursive_deletes_of_exact_roots_and_root_wide_patterns() {
+    for (platform, root, separator) in [
+        (Platform::Linux, "/repo", "/"),
+        (Platform::Windows, "C:/repo", "/"),
+        (Platform::Windows, r"C:\repo", r"\"),
+    ] {
+        assert_project_root_block(
+            vec![vec![
+                EffectKind::known("rm", "remove").unwrap(),
+                project_effect(
+                    platform,
+                    root,
+                    root,
+                    FilesystemOperation::Delete,
+                    true,
+                    false,
+                ),
+            ]],
+            root,
+        );
+        for suffix in ["*", ".*", "{*,.*}"] {
+            let target = format!("{root}{separator}{suffix}");
+            assert_project_root_block(
+                vec![vec![
+                    EffectKind::known("rm", "remove").unwrap(),
+                    project_effect(
+                        platform,
+                        root,
+                        &target,
+                        FilesystemOperation::Delete,
+                        true,
+                        true,
+                    ),
+                ]],
+                &target,
+            );
+        }
+    }
+}
+
+#[test]
+fn fs_project_root_blocks_same_stage_recursive_permission_changes_for_every_known_tool() {
+    for tool in ["chmod", "chown", "chgrp", "setfacl"] {
+        assert_project_root_block(
+            vec![vec![
+                EffectKind::known(tool, "permission-change").unwrap(),
+                project_effect(
+                    Platform::Linux,
+                    "/repo",
+                    "/repo",
+                    FilesystemOperation::Write,
+                    true,
+                    false,
+                ),
+            ]],
+            tool,
+        );
+    }
+}
+
+#[test]
+fn fs_project_root_delegates_below_its_exact_scope_operation_and_stage_boundary() {
+    let controls = [
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo/build",
+                FilesystemOperation::Delete,
+                true,
+                false,
+            ),
+        ]],
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo/src/*",
+                FilesystemOperation::Delete,
+                true,
+                true,
+            ),
+        ]],
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo/**",
+                FilesystemOperation::Delete,
+                true,
+                true,
+            ),
+        ]],
+        vec![vec![
+            EffectKind::known("cp", "recursive-copy").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo",
+                FilesystemOperation::Write,
+                true,
+                false,
+            ),
+        ]],
+        vec![vec![
+            EffectKind::opaque("chattr").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo",
+                FilesystemOperation::Write,
+                true,
+                false,
+            ),
+        ]],
+        vec![
+            vec![EffectKind::known("chmod", "permission-change").unwrap()],
+            vec![
+                EffectKind::opaque("writer").unwrap(),
+                project_effect(
+                    Platform::Linux,
+                    "/repo",
+                    "/repo",
+                    FilesystemOperation::Write,
+                    true,
+                    false,
+                ),
+            ],
+        ],
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            project_effect(
+                Platform::Linux,
+                "/repo",
+                "/repo",
+                FilesystemOperation::Delete,
+                false,
+                false,
+            ),
+        ]],
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            EffectKind::Filesystem {
+                effect: FilesystemEffect {
+                    operation: FilesystemOperation::Delete,
+                    target: path("/outside"),
+                    scope: PathScope::OutsideProject,
+                    sensitivity: Sensitivity::None,
+                    protection: None,
+                    host_integrity: None,
+                    selects_root: false,
+                    selects_home: false,
+                    recursive: true,
+                    pattern: false,
+                },
+            },
+        ]],
+        vec![vec![
+            EffectKind::known("rm", "remove").unwrap(),
+            EffectKind::FilesystemUnresolved {
+                operation: FilesystemOperation::Delete,
+                recursive: true,
+            },
+        ]],
+    ];
+
+    for control in controls {
+        let stream = ActionStream::new(Coverage::Partial, control, vec![]).unwrap();
+        let decision =
+            nah_policy::decide(&stream, &guard_policy("fs-project-root", true), &[]).unwrap();
+        assert_eq!(decision.verdict(), Verdict::Delegate, "{stream:?}");
+        assert!(decision.policy_attributions().is_empty(), "{stream:?}");
+    }
 }
 
 #[test]
