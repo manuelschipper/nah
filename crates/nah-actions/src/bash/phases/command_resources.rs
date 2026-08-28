@@ -13,6 +13,7 @@ use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
 use crate::bash_git::{command_operation as git_command_operation, metadata_mutation};
 use crate::bash_logical_storage::logical_storage_destroy;
 use crate::bash_model::{FilesystemDraft, ProgramDraft};
+use crate::bash_startup_persistence::operation as startup_management_operation;
 use crate::bash_state::known_cwd;
 use crate::bash_symlinks::{
     has_dynamic_content_selection, has_unresolved_selection, pattern_symlink_traversal,
@@ -283,6 +284,11 @@ impl Lowerer {
         {
             self.complete = false;
             system_states.push(SemanticCode::LOGICAL_STORAGE_DESTROY);
+        }
+        if let ProgramDraft::Static(program) = program
+            && let Some(operation) = startup_management_operation(program, arguments, self.platform)
+        {
+            system_states.push(operation);
         }
         let (filesystem_endpoints, filesystem_flows) =
             self.descriptor_filesystem_effects(&filesystem_drafts, redirected_descriptors, stage);

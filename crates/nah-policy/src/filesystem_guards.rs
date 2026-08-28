@@ -11,6 +11,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
 const FS_SHELL_PROFILE: &str = "fs-shell-profile";
+const FS_STARTUP_MANAGEMENT: &str = "fs-startup-management";
 const FS_PROJECT_ROOT: &str = "fs-project-root";
 const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
 const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
@@ -49,6 +50,10 @@ pub(crate) fn add(
         (
             FS_SHELL_PROFILE,
             "fs-shell-profile blocked a change to a user shell profile; do not retry through another tool; if this shell configuration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-shell-profile`, then re-enable it after the change",
+        ),
+        (
+            FS_STARTUP_MANAGEMENT,
+            "fs-startup-management blocked a definite persistent startup-management command; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-management`, then re-enable it after the change",
         ),
         (
             FS_STARTUP_PERSISTENCE,
@@ -166,6 +171,9 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
             }
             (FS_FORKBOMB, EffectKind::SystemState { operation }) => {
                 operation == &SemanticCode::FORK_BOMB
+            }
+            (FS_STARTUP_MANAGEMENT, EffectKind::SystemState { operation }) => {
+                operation == &SemanticCode::STARTUP_MANAGEMENT
             }
             _ => false,
         })

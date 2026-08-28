@@ -4,7 +4,7 @@ mod support;
 
 use nah_proto::action::{
     ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
-    PathScope, Sensitivity,
+    PathScope, SemanticCode, Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -127,6 +127,60 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
     )
     .unwrap();
     assert_eq!(mismatched.verdict(), Verdict::Delegate);
+}
+
+#[test]
+fn startup_management_is_optional_and_independent_from_startup_paths() {
+    let management = guarded_stream(EffectKind::SystemState {
+        operation: SemanticCode::STARTUP_MANAGEMENT,
+    });
+    let enabled = nah_policy::decide(
+        &management,
+        &guard_policy("fs-startup-management", true),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(
+        enabled.policy_attributions()[0].name(),
+        "fs-startup-management"
+    );
+    assert!(enabled.reason().contains("nah tui"));
+
+    let disabled = nah_policy::decide(
+        &management,
+        &guard_policy("fs-startup-management", false),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(disabled.verdict(), Verdict::Delegate);
+
+    let path = host_integrity_stream(
+        FilesystemOperation::Write,
+        HostIntegrityClass::StartupPersistence,
+    );
+    assert_eq!(
+        nah_policy::decide(&path, &guard_policy("fs-startup-management", true), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
+    assert_eq!(
+        nah_policy::decide(
+            &management,
+            &guard_policy("fs-startup-persistence", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
+        Verdict::Delegate
+    );
+    assert_eq!(
+        nah_policy::decide(&path, &guard_policy("fs-startup-persistence", true), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Block
+    );
 }
 
 #[test]

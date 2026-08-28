@@ -27,6 +27,9 @@ guard findings and understood protected-state changes outside maintenance.
   reviewed user shell profiles when enabled. The default-on
   `fs-startup-persistence` guard protects reviewed service, schedule, login,
   autostart, and loader startup paths.
+- Default-off `fs-startup-management` covers static Linux
+  `systemctl` unit-file changes, macOS `launchctl` enable/disable or legacy
+  `load`/`unload -w`, and `crontab` install/removal.
 
 ## Not enforced
 
@@ -71,10 +74,11 @@ additional built-in guards but cannot disable them.
 An explicit global operator disable takes precedence over that project
 enablement.
 
-The host-integrity guards classify visible filesystem paths, not intent or file
-contents. Reads stay outside these rules, and command-level mechanisms such
-as `systemctl enable`, `launchctl`, registry Run keys, and `schtasks` are not
-covered unless the call also exposes a classified filesystem mutation.
+Path guards classify visible paths only; reads stay outside. Uncovered commands
+include Windows Run keys, `schtasks`, runtime/offline/editor `systemctl`,
+`launchctl` bootstrap/bootout, dynamic input, arbitrary executables, and
+mechanisms unless they expose a classified path mutation. Scripted editors stay
+gaps unless existing lowering proves a write.
 
 ## Operator maintenance
 
