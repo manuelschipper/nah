@@ -122,6 +122,63 @@ fn powershell_false_positive_controls_do_not_overclaim() {
 }
 
 #[test]
+fn powershell_home_references_require_static_boundaries() {
+    for (source, expected) in [
+        (r"Remove-Item -Recurse -LiteralPath '~'", r"C:\Users\test"),
+        (
+            r"Set-Content -LiteralPath '~\.nah\policy.toml' -Value x",
+            r"C:\Users\test\.nah\policy.toml",
+        ),
+        (
+            r#"Set-Content -LiteralPath "$HOME/.nah/policy.toml" -Value x"#,
+            r"C:\Users\test/.nah/policy.toml",
+        ),
+        (
+            r"Set-Content -LiteralPath '$HOME\literal' -Value x",
+            r"$HOME\literal",
+        ),
+        (
+            r#"Set-Content -LiteralPath "`$HOME\literal" -Value x"#,
+            r"$HOME\literal",
+        ),
+        (
+            r#"Set-Content -LiteralPath "$env:USERPROFILE/.nah/policy.toml" -Value x"#,
+            r"C:\Users\test/.nah/policy.toml",
+        ),
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some(expected),
+            "{source}"
+        );
+    }
+
+    let home_delete = analyze("pwsh", r"Remove-Item -Recurse -LiteralPath '~'");
+    assert!(
+        home_delete
+            .report()
+            .contains_exact(FindingKind::HomeDestruction)
+    );
+
+    for source in [
+        r"Remove-Item -Recurse $homelab",
+        r"Remove-Item -Recurse $HOMEWORK",
+        r"Remove-Item -Recurse $env:userprofileX",
+        r"Remove-Item -Recurse ${home}lab",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            None,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn powershell_dialect_aliases_never_invent_download_destinations() {
     for program in ["powershell", "pwsh"] {
         for command in ["curl", "wget"] {

@@ -799,10 +799,14 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
         let mut exact = true;
         let mut quoted = false;
         let mut quote = None;
+        let mut variable_home_reference = true;
         while index < bytes.len() {
             let byte = bytes[index];
             if let Some(active) = quote {
                 if byte == b'`' && index + 1 < bytes.len() {
+                    if bytes[index + 1] == b'$' {
+                        variable_home_reference = false;
+                    }
                     value.push(bytes[index + 1] as char);
                     index += 2;
                     continue;
@@ -827,11 +831,17 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
             }
             match byte {
                 b'\'' | b'"' => {
+                    if byte == b'\'' {
+                        variable_home_reference = false;
+                    }
                     quoted = true;
                     quote = Some(byte);
                     index += 1;
                 }
                 b'`' if index + 1 < bytes.len() => {
+                    if bytes[index + 1] == b'$' {
+                        variable_home_reference = false;
+                    }
                     value.push(bytes[index + 1] as char);
                     index += 2;
                 }
@@ -847,10 +857,14 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
         if quote.is_some() {
             return None;
         }
-        if let Some(resolved) = resolve_home_reference(&value, home) {
+        if let Some(resolved) = resolve_static_home_reference(&value, home, variable_home_reference)
+        {
             value = resolved;
             exact = true;
-        } else if value.contains('$') && !static_boolean_parameter(&value) || value.starts_with('@')
+        } else if (variable_home_reference
+            && value.contains('$')
+            && !static_boolean_parameter(&value))
+            || value.starts_with('@')
         {
             exact = false;
         }
@@ -881,15 +895,32 @@ fn stream_merge(target: &str) -> bool {
         .is_some_and(|stream| stream.len() == 1 && stream.as_bytes()[0].is_ascii_digit())
 }
 
-fn resolve_home_reference(value: &str, home: &str) -> Option<String> {
+fn resolve_static_home_reference(
+    value: &str,
+    home: &str,
+    variable_reference: bool,
+) -> Option<String> {
+    if let Some(suffix) = static_home_suffix(value, "~") {
+        return Some(format!("{home}{suffix}"));
+    }
+    if !variable_reference {
+        return None;
+    }
     ["${home}", "$env:userprofile", "$home"]
         .into_iter()
         .find_map(|prefix| {
-            let head = value.get(..prefix.len())?;
-            head.eq_ignore_ascii_case(prefix)
-                .then(|| format!("{home}{}", &value[prefix.len()..]))
+            static_home_suffix(value, prefix).map(|suffix| format!("{home}{suffix}"))
         })
         .filter(|resolved| !resolved[home.len()..].contains('$'))
+}
+
+fn static_home_suffix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = value.get(..prefix.len())?;
+    if !head.eq_ignore_ascii_case(prefix) {
+        return None;
+    }
+    let suffix = &value[prefix.len()..];
+    matches!(suffix.as_bytes().first(), None | Some(b'/') | Some(b'\\')).then_some(suffix)
 }
 
 fn static_boolean_parameter(value: &str) -> bool {

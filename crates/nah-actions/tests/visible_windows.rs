@@ -174,6 +174,45 @@ fn powershell_collection_targets_do_not_claim_full_coverage() {
 }
 
 #[test]
+fn powershell_tilde_home_uses_canonical_effects_at_both_entry_points() {
+    let source = r"Remove-Item -Recurse -LiteralPath '~'";
+    let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);
+    let nested = filesystem_effects(
+        nested_plan(r#"pwsh -c "Remove-Item -Recurse -LiteralPath '~'""#),
+        None,
+    );
+    let expected = [(
+        FilesystemOperation::Delete,
+        r"C:\Users\test".into(),
+        true,
+        false,
+    )];
+    assert_eq!(direct, expected);
+    assert_eq!(nested, expected);
+}
+
+#[test]
+fn powershell_variable_prefixes_remain_unresolved() {
+    for source in [
+        r"Remove-Item -Recurse $homelab",
+        r"Remove-Item -Recurse $HOMEWORK",
+        r"Remove-Item -Recurse $env:userprofileX",
+        r"Remove-Item -Recurse ${home}lab",
+    ] {
+        let plan = direct_plan(VisibleCode::Pwsh { source }, source);
+        let observation = observe(plan.observation_request(), None);
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            !stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Filesystem { .. }))
+        );
+    }
+}
+
+#[test]
 fn cmd_del_does_not_claim_directory_deletion_and_rd_is_not_implicitly_recursive() {
     let target = r"C:\repo\directory";
     for source in [r"del C:\repo\directory", r"del /s /q C:\repo\directory"] {
