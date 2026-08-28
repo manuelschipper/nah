@@ -290,6 +290,13 @@ fn guard_list_groups_family_then_factory_default_with_live_checkboxes() {
             GuardStatus::Enabled,
             Some(true),
         ),
+        built_in_entry(
+            "fs-startup-management",
+            GuardFamily::Filesystem,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
     ]);
 
     let output = rendered(&app, 120, 36);
@@ -299,13 +306,15 @@ fn guard_list_groups_family_then_factory_default_with_live_checkboxes() {
     let startup = output.find("[x] fs-startup-persistence").unwrap();
     let default_off = output[filesystem..].find("DEFAULT OFF").unwrap() + filesystem;
     let profile = output.find("[x] fs-shell-profile").unwrap();
+    let management = output.find("[ ] fs-startup-management").unwrap();
     let secrets = output.find("SECRETS").unwrap();
     assert!(filesystem < default_on);
     assert!(default_on < auth);
     assert!(auth < startup);
     assert!(startup < default_off);
     assert!(default_off < profile);
-    assert!(profile < secrets);
+    assert!(profile < management);
+    assert!(management < secrets);
 }
 
 #[test]

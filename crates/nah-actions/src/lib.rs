@@ -33,7 +33,8 @@ use bash::features::{
     logical_storage as bash_logical_storage, lookup as bash_lookup, model as bash_model,
     network as bash_network, project as bash_project, rsync_options as bash_rsync_options,
     self_protection as bash_self_protection, semantics as bash_semantics, socat as bash_socat,
-    state as bash_state, symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
+    startup_persistence as bash_startup_persistence, state as bash_state,
+    symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
     transforms as bash_transforms, wrappers as bash_wrappers,
 };
 mod codex_patch;

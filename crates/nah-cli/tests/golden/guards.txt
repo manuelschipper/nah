@@ -9,6 +9,7 @@ Built-in:
 - [x] fs-project-root (default on)
 - [x] fs-raw-device (default on)
 - [ ] fs-shell-profile (default off)
+- [ ] fs-startup-management (default off)
 - [x] fs-startup-persistence (default on)
 - [x] fs-storage-destroy (default on)
 - [x] fs-system-tree (default on)

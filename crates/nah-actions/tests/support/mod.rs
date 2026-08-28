@@ -20,12 +20,24 @@ pub(crate) enum Change {
 }
 
 pub(crate) fn bash_plan(source: &str) -> nah_actions::AnalysisPlan {
-    bash_plan_with_self_protection(source, SelfProtectionProjection::default())
+    bash_plan_on(source, Platform::Linux)
+}
+
+pub(crate) fn bash_plan_on(source: &str, platform: Platform) -> nah_actions::AnalysisPlan {
+    bash_plan_with_self_protection_on(source, SelfProtectionProjection::default(), platform)
 }
 
 pub(crate) fn bash_plan_with_self_protection(
     source: &str,
     self_protection: SelfProtectionProjection,
+) -> nah_actions::AnalysisPlan {
+    bash_plan_with_self_protection_on(source, self_protection, Platform::Linux)
+}
+
+fn bash_plan_with_self_protection_on(
+    source: &str,
+    self_protection: SelfProtectionProjection,
+    platform: Platform,
 ) -> nah_actions::AnalysisPlan {
     let syntax = normalize(source).unwrap();
     let input = nah_proto::tool::ToolCallInput::new(
@@ -36,19 +48,23 @@ pub(crate) fn bash_plan_with_self_protection(
         None,
     )
     .unwrap();
-    let call_site = input.call_site(Platform::Linux).unwrap();
+    let call_site = input.call_site(platform).unwrap();
     plan_with_self_protection(
         AnalysisInput::Bash(&syntax, &input),
-        &ctx(),
+        &ctx_on(platform),
         &call_site,
         &self_protection,
     )
 }
 
 pub(crate) fn ctx() -> Ctx {
+    ctx_on(Platform::Linux)
+}
+
+fn ctx_on(platform: Platform) -> Ctx {
     Ctx::new(
-        Platform::Linux,
-        absolute("/home/test"),
+        platform,
+        absolute_on(platform, "/home/test"),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
@@ -57,7 +73,15 @@ pub(crate) fn ctx() -> Ctx {
 }
 
 pub(crate) fn observe(request: &ObservationRequest, env_program: &str) -> Observation {
-    observe_with_descendants(request, env_program, &[], true)
+    observe_on(request, env_program, Platform::Linux)
+}
+
+pub(crate) fn observe_on(
+    request: &ObservationRequest,
+    env_program: &str,
+    platform: Platform,
+) -> Observation {
+    observe_with_descendants_on(request, env_program, &[], true, platform)
 }
 
 pub(crate) fn observe_with_descendants(
@@ -66,8 +90,18 @@ pub(crate) fn observe_with_descendants(
     descendants: &[&str],
     complete: bool,
 ) -> Observation {
+    observe_with_descendants_on(request, env_program, descendants, complete, Platform::Linux)
+}
+
+fn observe_with_descendants_on(
+    request: &ObservationRequest,
+    env_program: &str,
+    descendants: &[&str],
+    complete: bool,
+    platform: Platform,
+) -> Observation {
     let descendant_sets = [("", descendants)];
-    observe_with_descendant_map(request, env_program, &descendant_sets, complete)
+    observe_with_descendant_map_on(request, env_program, &descendant_sets, complete, platform)
 }
 
 pub(crate) fn observe_with_descendant_map(
@@ -76,15 +110,32 @@ pub(crate) fn observe_with_descendant_map(
     descendant_sets: &[(&str, &[&str])],
     complete: bool,
 ) -> Observation {
+    observe_with_descendant_map_on(
+        request,
+        env_program,
+        descendant_sets,
+        complete,
+        Platform::Linux,
+    )
+}
+
+fn observe_with_descendant_map_on(
+    request: &ObservationRequest,
+    env_program: &str,
+    descendant_sets: &[(&str, &[&str])],
+    complete: bool,
+    platform: Platform,
+) -> Observation {
     Observation::new(
         SchemaVersion::V1,
         request.request_id(),
-        facts_with_descendants(
+        facts_with_descendants_on(
             request,
             env_program,
             Change::None,
             descendant_sets,
             complete,
+            platform,
         ),
     )
     .unwrap()
@@ -169,7 +220,25 @@ fn facts_with_descendants(
     descendant_sets: &[(&str, &[&str])],
     descendants_complete: bool,
 ) -> Vec<ObservationFact> {
-    let project = Root::new(RootKind::Project, absolute("/repo"));
+    facts_with_descendants_on(
+        request,
+        env_program,
+        change,
+        descendant_sets,
+        descendants_complete,
+        Platform::Linux,
+    )
+}
+
+fn facts_with_descendants_on(
+    request: &ObservationRequest,
+    env_program: &str,
+    change: Change,
+    descendant_sets: &[(&str, &[&str])],
+    descendants_complete: bool,
+    platform: Platform,
+) -> Vec<ObservationFact> {
+    let project = Root::new(RootKind::Project, absolute_on(platform, "/repo"));
     let mut facts = request
         .queries()
         .iter()
@@ -187,7 +256,7 @@ fn facts_with_descendants(
             let value = match &query {
                 ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
                     observed: Observed::Ok {
-                        value: absolute("/repo"),
+                        value: absolute_on(platform, "/repo"),
                     },
                 },
                 ObservationQuery::Roots { .. } => ObservationValue::Roots {
@@ -219,10 +288,10 @@ fn facts_with_descendants(
                     let resolved = lexically_normalized(requested);
                     let child_cwd = key.starts_with("inline-child-cwd-");
                     let realpath = if child_cwd {
-                        Some(absolute(&resolved))
+                        Some(absolute_on(platform, &resolved))
                     } else {
                         matches!(change, Change::CanonicalHomeAlias)
-                            .then(|| absolute("/private/home/test"))
+                            .then(|| absolute_on(platform, "/private/home/test"))
                     };
                     let kind = if child_cwd
                         || *inspect_descendants
@@ -232,7 +301,8 @@ fn facts_with_descendants(
                     } else {
                         PathKind::Missing
                     };
-                    let mut value = PathObservation::new(absolute(&resolved), realpath, kind);
+                    let mut value =
+                        PathObservation::new(absolute_on(platform, &resolved), realpath, kind);
                     if *inspect_descendants {
                         let descendants = descendant_sets
                             .iter()
@@ -242,7 +312,10 @@ fn facts_with_descendants(
                             .unwrap_or_default();
                         value = value.with_descendants(
                             DescendantObservation::new(
-                                descendants.iter().map(|path| absolute(path)).collect(),
+                                descendants
+                                    .iter()
+                                    .map(|path| absolute_on(platform, path))
+                                    .collect(),
                                 descendants_complete,
                             )
                             .unwrap(),
@@ -283,7 +356,11 @@ fn facts_with_descendants(
 }
 
 pub(crate) fn absolute(value: &str) -> AbsolutePath {
-    AbsolutePath::new(Platform::Linux, value).unwrap()
+    absolute_on(Platform::Linux, value)
+}
+
+fn absolute_on(platform: Platform, value: &str) -> AbsolutePath {
+    AbsolutePath::new(platform, value).unwrap()
 }
 
 fn lexically_normalized(value: &str) -> String {
