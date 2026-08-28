@@ -207,6 +207,11 @@ pub(crate) fn host_integrity_class(
         .any(|path| startup_persistence_path(path, home, platform, pattern, recursive_delete))
     {
         Some(HostIntegrityClass::StartupPersistence)
+    } else if paths
+        .iter()
+        .any(|path| shell_profile_path(path, home, platform, pattern, recursive_delete))
+    {
+        Some(HostIntegrityClass::ShellProfile)
     } else {
         None
     }
@@ -306,7 +311,7 @@ fn auth_identity_path(
     }
 }
 
-fn startup_persistence_path(
+fn shell_profile_path(
     path: &str,
     home: &AbsolutePath,
     platform: Platform,
@@ -314,7 +319,6 @@ fn startup_persistence_path(
     recursive_delete: bool,
 ) -> bool {
     let home_files = [
-        ".ssh/rc",
         ".bashrc",
         ".bash_profile",
         ".bash_login",
@@ -328,24 +332,17 @@ fn startup_persistence_path(
         ".zlogout",
         ".config/fish/config.fish",
     ];
-    let mut home_directories = vec![
-        ".config/fish/conf.d",
-        ".config/autostart",
-        ".config/systemd/user",
-    ];
+    let home_directories = [".config/fish/conf.d"];
     let mut platform_home_files = Vec::new();
-    if platform == Platform::Macos {
-        home_directories.push("Library/LaunchAgents");
-    } else if platform == Platform::Windows {
+    if platform == Platform::Windows {
         platform_home_files.extend([
             "Documents/PowerShell/profile.ps1",
             "Documents/PowerShell/Microsoft.PowerShell_profile.ps1",
             "Documents/WindowsPowerShell/profile.ps1",
             "Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1",
         ]);
-        home_directories.push("AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup");
     }
-    if home_files
+    home_files
         .into_iter()
         .chain(platform_home_files)
         .any(|entry| {
@@ -368,7 +365,41 @@ fn startup_persistence_path(
                 recursive_delete,
             )
         })
-    {
+}
+
+fn startup_persistence_path(
+    path: &str,
+    home: &AbsolutePath,
+    platform: Platform,
+    pattern: bool,
+    recursive_delete: bool,
+) -> bool {
+    let home_files = [".ssh/rc"];
+    let mut home_directories = vec![".config/autostart", ".config/systemd/user"];
+    if platform == Platform::Macos {
+        home_directories.push("Library/LaunchAgents");
+    } else if platform == Platform::Windows {
+        home_directories.push("AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup");
+    }
+    if home_files.into_iter().any(|entry| {
+        catalog_entry_matches(
+            path,
+            &join(home.as_str(), entry, platform),
+            false,
+            platform,
+            pattern,
+            recursive_delete,
+        )
+    }) || home_directories.into_iter().any(|entry| {
+        catalog_entry_matches(
+            path,
+            &join(home.as_str(), entry, platform),
+            true,
+            platform,
+            pattern,
+            recursive_delete,
+        )
+    }) {
         return true;
     }
     match platform {
@@ -1146,7 +1177,7 @@ mod tests {
     fn host_integrity_catalog_is_operation_and_family_specific() {
         let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
         for (path, expected) in [
-            ("/home/test/.bashrc", HostIntegrityClass::StartupPersistence),
+            ("/home/test/.bashrc", HostIntegrityClass::ShellProfile),
             (
                 "/home/test/.config/systemd/user/backup.service",
                 HostIntegrityClass::StartupPersistence,
@@ -1218,12 +1249,205 @@ mod tests {
     }
 
     #[test]
+    fn host_integrity_catalog_preserves_the_exact_profile_partition() {
+        let linux_home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
+        let classify = |path: &str, home: &AbsolutePath, platform: Platform| {
+            let target = AbsolutePath::new(platform, path).unwrap();
+            host_integrity_class(
+                FilesystemOperation::Write,
+                path,
+                &target,
+                home,
+                platform,
+                false,
+                false,
+            )
+        };
+
+        for path in [
+            "/home/test/.bashrc",
+            "/home/test/.bash_profile",
+            "/home/test/.bash_login",
+            "/home/test/.bash_aliases",
+            "/home/test/.bash_logout",
+            "/home/test/.profile",
+            "/home/test/.zshrc",
+            "/home/test/.zshenv",
+            "/home/test/.zprofile",
+            "/home/test/.zlogin",
+            "/home/test/.zlogout",
+            "/home/test/.config/fish/config.fish",
+            "/home/test/.config/fish/conf.d/aliases.fish",
+        ] {
+            assert_eq!(
+                classify(path, &linux_home, Platform::Linux),
+                Some(HostIntegrityClass::ShellProfile),
+                "{path}"
+            );
+        }
+
+        for path in [
+            "/home/test/.ssh/rc",
+            "/home/test/.config/autostart/example.desktop",
+            "/home/test/.config/systemd/user/example.service",
+            "/etc/profile",
+            "/etc/profile.d/example.sh",
+            "/etc/bash.bashrc",
+            "/etc/bashrc",
+            "/etc/zshenv",
+            "/etc/zprofile",
+            "/etc/zshrc",
+            "/etc/zlogin",
+            "/etc/zlogout",
+            "/etc/zsh/zshenv",
+            "/etc/zsh/zprofile",
+            "/etc/zsh/zshrc",
+            "/etc/zsh/zlogin",
+            "/etc/zsh/zlogout",
+            "/etc/crontab",
+            "/etc/cron.d/example",
+            "/etc/cron.hourly/example",
+            "/etc/cron.daily/example",
+            "/etc/cron.weekly/example",
+            "/etc/cron.monthly/example",
+            "/var/spool/cron/example",
+            "/etc/systemd/system/example.service",
+            "/run/systemd/system/example.service",
+            "/usr/local/lib/systemd/system/example.service",
+            "/usr/lib/systemd/system/example.service",
+            "/lib/systemd/system/example.service",
+            "/etc/systemd/user/example.service",
+            "/usr/local/lib/systemd/user/example.service",
+            "/usr/lib/systemd/user/example.service",
+            "/lib/systemd/user/example.service",
+            "/etc/systemd/system-generators/example",
+            "/etc/systemd/user-generators/example",
+            "/etc/systemd/system-environment-generators/example",
+            "/etc/systemd/user-environment-generators/example",
+            "/usr/local/lib/systemd/system-generators/example",
+            "/usr/local/lib/systemd/user-generators/example",
+            "/usr/local/lib/systemd/system-environment-generators/example",
+            "/usr/local/lib/systemd/user-environment-generators/example",
+            "/usr/lib/systemd/system-generators/example",
+            "/usr/lib/systemd/user-generators/example",
+            "/usr/lib/systemd/system-environment-generators/example",
+            "/usr/lib/systemd/user-environment-generators/example",
+            "/lib/systemd/system-generators/example",
+            "/lib/systemd/user-generators/example",
+            "/lib/systemd/system-environment-generators/example",
+            "/lib/systemd/user-environment-generators/example",
+            "/etc/init.d/example",
+            "/etc/rc.local",
+            "/etc/xdg/autostart/example.desktop",
+            "/etc/ssh/sshrc",
+            "/etc/ld.so.preload",
+        ] {
+            assert_eq!(
+                classify(path, &linux_home, Platform::Linux),
+                Some(HostIntegrityClass::StartupPersistence),
+                "{path}"
+            );
+        }
+
+        let mac_home = AbsolutePath::new(Platform::Macos, "/Users/test").unwrap();
+        for path in [
+            "/Users/test/Library/LaunchAgents/example.plist",
+            "/Library/LaunchAgents/example.plist",
+            "/Library/LaunchDaemons/example.plist",
+        ] {
+            assert_eq!(
+                classify(path, &mac_home, Platform::Macos),
+                Some(HostIntegrityClass::StartupPersistence),
+                "{path}"
+            );
+        }
+
+        let windows_home = AbsolutePath::new(Platform::Windows, r"C:\Users\Test").unwrap();
+        for path in [
+            r"C:\Users\Test\Documents\PowerShell\profile.ps1",
+            r"C:\Users\Test\Documents\PowerShell\Microsoft.PowerShell_profile.ps1",
+            r"C:\Users\Test\Documents\WindowsPowerShell\profile.ps1",
+            r"C:\Users\Test\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
+        ] {
+            assert_eq!(
+                classify(path, &windows_home, Platform::Windows),
+                Some(HostIntegrityClass::ShellProfile),
+                "{path}"
+            );
+        }
+        for path in [
+            r"C:\Users\Test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\example.cmd",
+            r"D:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\example.cmd",
+        ] {
+            assert_eq!(
+                classify(path, &windows_home, Platform::Windows),
+                Some(HostIntegrityClass::StartupPersistence),
+                "{path}"
+            );
+        }
+
+        for (path, home, platform) in [
+            ("/home/test/.bashrc.d/example", &linux_home, Platform::Linux),
+            ("/home/test/.zshrc.d/example", &linux_home, Platform::Linux),
+            ("/home/test/.ssh/config", &linux_home, Platform::Linux),
+            (
+                "/run/systemd/user/example.service",
+                &linux_home,
+                Platform::Linux,
+            ),
+            ("/private/etc/profile", &mac_home, Platform::Macos),
+            (
+                r"C:\Users\Test\Documents\PowerShell\Microsoft.VSCode_profile.ps1",
+                &windows_home,
+                Platform::Windows,
+            ),
+        ] {
+            assert_eq!(classify(path, home, platform), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn host_integrity_uses_the_strongest_requested_or_effective_identity() {
+        let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
+        for (target, expected) in [
+            (
+                "/home/test/.config/systemd/user/example.service",
+                HostIntegrityClass::StartupPersistence,
+            ),
+            (
+                "/home/test/.ssh/authorized_keys",
+                HostIntegrityClass::AuthIdentity,
+            ),
+        ] {
+            let target = AbsolutePath::new(Platform::Linux, target).unwrap();
+            assert_eq!(
+                host_integrity_class(
+                    FilesystemOperation::Write,
+                    "/home/test/.bashrc",
+                    &target,
+                    &home,
+                    Platform::Linux,
+                    false,
+                    false,
+                ),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
     fn host_integrity_patterns_and_recursive_deletes_cover_catalog_reach() {
         let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
         for (path, pattern, recursive, expected) in [
             (
                 "/home/test/.ssh/*",
                 true,
+                true,
+                Some(HostIntegrityClass::AuthIdentity),
+            ),
+            (
+                "/home/test/.ssh",
+                false,
                 true,
                 Some(HostIntegrityClass::AuthIdentity),
             ),
@@ -1299,7 +1523,7 @@ mod tests {
         for (path, expected) in [
             (
                 r"C:\Users\Test\Documents\PowerShell\PROFILE.PS1",
-                HostIntegrityClass::StartupPersistence,
+                HostIntegrityClass::ShellProfile,
             ),
             (
                 r"D:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\agent.cmd",

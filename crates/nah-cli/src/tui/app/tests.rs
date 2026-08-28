@@ -75,10 +75,10 @@ fn built_in_changes_stage_without_writing() {
 
 #[test]
 fn project_declaration_enables_a_guard_unless_the_operator_disabled_it() {
-    let mut guard = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Disabled);
+    let mut guard = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
     apply_project_declarations(
         std::slice::from_mut(&mut guard),
-        &["fs-startup-persistence".into()],
+        &["fs-shell-profile".into()],
     );
     assert_eq!(guard.status, GuardStatus::Enabled);
 
@@ -86,7 +86,7 @@ fn project_declaration_enables_a_guard_unless_the_operator_disabled_it() {
     guard.operator_override = Some(false);
     apply_project_declarations(
         std::slice::from_mut(&mut guard),
-        &["fs-startup-persistence".into()],
+        &["fs-shell-profile".into()],
     );
     assert_eq!(guard.status, GuardStatus::Disabled);
 }
@@ -340,16 +340,16 @@ fn resetting_at_the_defaults_clears_the_batch() {
 #[test]
 fn reset_removes_an_explicit_veto_but_not_a_project_enablement() {
     let mut app = App::fixture();
-    let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Enabled);
-    startup.operator_override = None;
-    app.guards = vec![startup.clone()];
+    let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Enabled);
+    profile.operator_override = None;
+    app.guards = vec![profile.clone()];
 
     app.reset_to_defaults();
     assert!(app.pending.is_empty());
 
-    startup.status = GuardStatus::Disabled;
-    startup.operator_override = Some(false);
-    app.guards = vec![startup];
+    profile.status = GuardStatus::Disabled;
+    profile.operator_override = Some(false);
+    app.guards = vec![profile];
     app.reset_to_defaults();
     assert_eq!(app.pending.len(), 1);
     assert!(app.pending[0].reset);
@@ -362,7 +362,9 @@ fn guard_filters_compose_without_dropping_hidden_pending_changes() {
     auth.family = Some(catalog::GuardFamily::Filesystem);
     let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Enabled);
     startup.family = Some(catalog::GuardFamily::Filesystem);
-    app.guards.extend([auth, startup]);
+    let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
+    profile.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.extend([auth, startup, profile]);
 
     assert_eq!(
         app.filtered_guards()
@@ -373,6 +375,7 @@ fn guard_filters_compose_without_dropping_hidden_pending_changes() {
             "exec-remote",
             "fs-auth-identity",
             "fs-startup-persistence",
+            "fs-shell-profile",
             "secrets-env",
             "corp-api",
         ]
@@ -386,29 +389,26 @@ fn guard_filters_compose_without_dropping_hidden_pending_changes() {
     app.cycle_guard_filter(false);
     app.apply_guard_filter();
 
-    assert_eq!(
-        app.filtered_guards()[0].target.name(),
-        "fs-startup-persistence"
-    );
+    assert_eq!(app.filtered_guards()[0].target.name(), "fs-shell-profile");
     assert_eq!(app.hidden_pending_count(), 1);
     assert_eq!(app.guard_index, 0);
 
     app.clear_guard_filter();
-    assert_eq!(app.filtered_guards().len(), 5);
+    assert_eq!(app.filtered_guards().len(), 6);
     assert_eq!(app.pending_count(), 1);
 }
 
 #[test]
 fn default_off_guards_are_visible_without_filters() {
     let mut app = App::fixture();
-    let mut startup = guard_entry(built_in("fs-startup-persistence"), GuardStatus::Disabled);
-    startup.family = Some(catalog::GuardFamily::Filesystem);
-    app.guards.push(startup);
+    let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
+    profile.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.push(profile);
 
     assert!(
         app.filtered_guards()
             .iter()
-            .any(|entry| entry.target.name() == "fs-startup-persistence")
+            .any(|entry| entry.target.name() == "fs-shell-profile")
     );
 }
 

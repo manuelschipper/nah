@@ -333,6 +333,7 @@ pub enum NahProtectionTier {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HostIntegrityClass {
+    ShellProfile,
     StartupPersistence,
     AuthIdentity,
 }

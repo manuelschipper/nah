@@ -35,7 +35,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-21 guards, 20 on by default, covering four classes of disaster: **execution
+22 guards, 21 on by default, covering four classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 
 | Guard | Blocks |
@@ -53,7 +53,8 @@ hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 | `fs-storage-destroy` | Definite logical-volume and storage-pool destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
 | `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
-| `fs-startup-persistence` | Changes to reviewed shell, service, schedule, login, and loader startup paths. Off by default. |
+| `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
+| `fs-startup-persistence` | Changes to reviewed service, schedule, login, autostart, and loader startup paths. |
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |

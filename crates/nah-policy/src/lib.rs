@@ -39,6 +39,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-forkbomb",
     "fs-home",
     "fs-raw-device",
+    "fs-shell-profile",
     "fs-startup-persistence",
     "fs-storage-destroy",
     "fs-system-tree",

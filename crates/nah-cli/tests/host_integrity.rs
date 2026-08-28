@@ -21,20 +21,36 @@ fn decide(
 }
 
 #[test]
-fn factory_posture_blocks_auth_identity_but_not_startup_administration() {
+fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_identity() {
     let temp = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(temp.path()).unwrap();
     let repo = repo(&root);
     let context = factory_ctx(&root);
-    let startup = root.join(".bashrc");
+    let profile = root.join(".bashrc");
+    let persistence = root.join(".ssh/rc");
     let auth = root.join(".ssh/authorized_keys");
 
-    let startup_result = decide(
-        &format!("printf '%s\\n' alias >> {}", bash_path(&startup)),
+    for command in [
+        format!("printf '%s\\n' alias >> {}", bash_path(&profile)),
+        format!("rm {}", bash_path(&profile)),
+    ] {
+        assert_eq!(
+            decide(&command, &repo, &context).core().verdict(),
+            Verdict::Delegate,
+            "{command}"
+        );
+    }
+
+    let persistence_result = decide(
+        &format!("printf '%s\\n' hook >> {}", bash_path(&persistence)),
         &repo,
         &context,
     );
-    assert_eq!(startup_result.core().verdict(), Verdict::Delegate);
+    assert_eq!(persistence_result.core().verdict(), Verdict::Block);
+    assert_eq!(
+        persistence_result.core().policy_attributions()[0].name(),
+        "fs-startup-persistence"
+    );
 
     let auth_result = decide(
         &format!("printf '%s\\n' key >> {}", bash_path(&auth)),
@@ -50,15 +66,15 @@ fn factory_posture_blocks_auth_identity_but_not_startup_administration() {
 }
 
 #[test]
-fn all_enabled_context_blocks_startup_across_bash_and_native_producers() {
+fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
     let temp = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(temp.path()).unwrap();
     let repo = repo(&root);
     let context = ctx(&root);
-    let startup = root.join(".zshrc");
+    let profile = root.join(".zshrc");
 
     let bash = decide(
-        &format!("printf '%s\\n' alias >> {}", bash_path(&startup)),
+        &format!("printf '%s\\n' alias >> {}", bash_path(&profile)),
         &repo,
         &context,
     );
@@ -67,13 +83,13 @@ fn all_enabled_context_blocks_startup_across_bash_and_native_producers() {
         bash.core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-startup-persistence")
+            .any(|guard| guard.name() == "fs-shell-profile")
     );
 
     let native = decide_with(
         &call(
             "Write",
-            json!({"file_path":startup,"content":"alias ll='ls -la'\n"}),
+            json!({"file_path":profile,"content":"alias ll='ls -la'\n"}),
             &repo,
         ),
         &context,
@@ -85,7 +101,7 @@ fn all_enabled_context_blocks_startup_across_bash_and_native_producers() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-startup-persistence")
+            .any(|guard| guard.name() == "fs-shell-profile")
     );
 
     let patch = decide_with(
@@ -103,7 +119,21 @@ fn all_enabled_context_blocks_startup_across_bash_and_native_producers() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-startup-persistence")
+            .any(|guard| guard.name() == "fs-shell-profile")
+    );
+
+    let source = format!(
+        "from pathlib import Path; Path({}).write_text(\"alias ll=ls\")",
+        serde_json::to_string(profile.to_str().unwrap()).unwrap()
+    );
+    let visible_python = decide(&format!("python3 -c '{source}'"), &repo, &context);
+    assert_eq!(visible_python.core().verdict(), Verdict::Block);
+    assert!(
+        visible_python
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|guard| guard.name() == "fs-shell-profile")
     );
 }
 
@@ -169,7 +199,7 @@ fn ordinary_reads_dotfiles_and_unlisted_system_writes_still_delegate() {
 
 #[cfg(unix)]
 #[test]
-fn requested_startup_identity_survives_a_symlinked_target() {
+fn requested_shell_profile_identity_survives_a_symlinked_target() {
     let temp = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(temp.path()).unwrap();
     let repo = repo(&root);
@@ -193,6 +223,6 @@ fn requested_startup_identity_survives_a_symlinked_target() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-startup-persistence")
+            .any(|guard| guard.name() == "fs-shell-profile")
     );
 }

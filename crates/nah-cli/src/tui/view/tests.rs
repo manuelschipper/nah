@@ -279,6 +279,13 @@ fn guard_list_groups_family_then_factory_default_with_live_checkboxes() {
         built_in_entry(
             "fs-startup-persistence",
             GuardFamily::Filesystem,
+            true,
+            GuardStatus::Enabled,
+            None,
+        ),
+        built_in_entry(
+            "fs-shell-profile",
+            GuardFamily::Filesystem,
             false,
             GuardStatus::Enabled,
             Some(true),
@@ -289,14 +296,16 @@ fn guard_list_groups_family_then_factory_default_with_live_checkboxes() {
     let filesystem = output.find("FILESYSTEM").unwrap();
     let default_on = output[filesystem..].find("DEFAULT ON").unwrap() + filesystem;
     let auth = output.find("[ ] fs-auth-identity").unwrap();
-    let default_off = output[filesystem..].find("DEFAULT OFF").unwrap() + filesystem;
     let startup = output.find("[x] fs-startup-persistence").unwrap();
+    let default_off = output[filesystem..].find("DEFAULT OFF").unwrap() + filesystem;
+    let profile = output.find("[x] fs-shell-profile").unwrap();
     let secrets = output.find("SECRETS").unwrap();
     assert!(filesystem < default_on);
     assert!(default_on < auth);
-    assert!(auth < default_off);
-    assert!(default_off < startup);
-    assert!(startup < secrets);
+    assert!(auth < startup);
+    assert!(startup < default_off);
+    assert!(default_off < profile);
+    assert!(profile < secrets);
 }
 
 #[test]
@@ -316,13 +325,13 @@ fn guard_filter_overlay_exposes_each_composable_facet() {
 fn guard_details_explain_project_enablement_and_global_precedence() {
     let mut app = App::fixture();
     app.guards.push(built_in_entry(
-        "fs-startup-persistence",
+        "fs-shell-profile",
         GuardFamily::Filesystem,
         false,
         GuardStatus::Enabled,
         None,
     ));
-    app.project_declared_guards = vec!["fs-startup-persistence".into()];
+    app.project_declared_guards = vec!["fs-shell-profile".into()];
     app.guard_index = 1;
 
     let output = rendered(&app, 120, 28);
@@ -331,13 +340,13 @@ fn guard_details_explain_project_enablement_and_global_precedence() {
         "{output}"
     );
 
-    let startup = app
+    let profile = app
         .guards
         .iter_mut()
-        .find(|entry| entry.target.name() == "fs-startup-persistence")
+        .find(|entry| entry.target.name() == "fs-shell-profile")
         .unwrap();
-    startup.status = GuardStatus::Disabled;
-    startup.operator_override = Some(false);
+    profile.status = GuardStatus::Disabled;
+    profile.operator_override = Some(false);
     let output = rendered(&app, 120, 28);
     assert!(output.contains("global disable wins"), "{output}");
 }

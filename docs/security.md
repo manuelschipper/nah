@@ -23,9 +23,10 @@ guard findings and understood protected-state changes outside maintenance.
   from sensitive sources or network content into dangerous sinks.
 - The default-on `fs-auth-identity` guard blocks visible writes and deletes of
   reviewed login-authority, identity, PAM, sudoers, and sshd paths. The
-  default-off `fs-startup-persistence` guard applies the same mutation-only
-  policy to reviewed shell, service, schedule, login, and loader startup paths
-  when enabled.
+  default-off `fs-shell-profile` guard applies the same mutation-only policy to
+  reviewed user shell profiles when enabled. The default-on
+  `fs-startup-persistence` guard protects reviewed service, schedule, login,
+  autostart, and loader startup paths.
 
 ## Not enforced
 
@@ -71,7 +72,7 @@ An explicit global operator disable takes precedence over that project
 enablement.
 
 The host-integrity guards classify visible filesystem paths, not intent or file
-contents. Reads stay outside these two rules, and command-level mechanisms such
+contents. Reads stay outside these rules, and command-level mechanisms such
 as `systemctl enable`, `launchctl`, registry Run keys, and `schtasks` are not
 covered unless the call also exposes a classified filesystem mutation.
 

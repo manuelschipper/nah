@@ -383,7 +383,7 @@ fn block_relevant_literal_paths_survive_permission_and_timeout_failures() {
                 "Write",
                 json!({"file_path":"/home/test/.bashrc","content":"alias ll='ls -la'"}),
                 "/home/test/.bashrc",
-                Some(HostIntegrityClass::StartupPersistence),
+                Some(HostIntegrityClass::ShellProfile),
             ),
             (
                 "Delete",

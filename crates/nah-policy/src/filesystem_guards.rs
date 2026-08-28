@@ -10,6 +10,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
+const FS_SHELL_PROFILE: &str = "fs-shell-profile";
 const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
 const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
@@ -41,8 +42,12 @@ pub(crate) fn add(
             "fs-raw-device blocked a write to raw storage or the kernel crash trigger; do not retry; report the exact target and operation to the operator",
         ),
         (
+            FS_SHELL_PROFILE,
+            "fs-shell-profile blocked a change to a user shell profile; do not retry through another tool; if this shell configuration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-shell-profile`, then re-enable it after the change",
+        ),
+        (
             FS_STARTUP_PERSISTENCE,
-            "fs-startup-persistence blocked a change to a shell, service, schedule, or login startup path; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
+            "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
         ),
         (
             FS_STORAGE_DESTROY,
@@ -116,16 +121,21 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         || effect.pattern
                             && pattern_selects_raw_storage(pattern_bound(effect.target.as_str())))
             }
-            (FS_STARTUP_PERSISTENCE | FS_AUTH_IDENTITY, EffectKind::Filesystem { effect }) => {
+            (
+                FS_SHELL_PROFILE | FS_STARTUP_PERSISTENCE | FS_AUTH_IDENTITY,
+                EffectKind::Filesystem { effect },
+            ) => {
                 matches!(
                     effect.operation,
                     FilesystemOperation::Write | FilesystemOperation::Delete
                 ) && matches!(
                     (name, effect.host_integrity),
-                    (
-                        FS_STARTUP_PERSISTENCE,
-                        Some(HostIntegrityClass::StartupPersistence)
-                    ) | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
+                    (FS_SHELL_PROFILE, Some(HostIntegrityClass::ShellProfile))
+                        | (
+                            FS_STARTUP_PERSISTENCE,
+                            Some(HostIntegrityClass::StartupPersistence)
+                        )
+                        | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
                 )
             }
             (FS_STORAGE_DESTROY, EffectKind::SystemState { operation }) => {

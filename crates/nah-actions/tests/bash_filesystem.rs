@@ -16,7 +16,7 @@ fn block_relevant_bash_paths_survive_permission_and_timeout_failures() {
         for (source, expected) in [
             (
                 "printf x > /home/test/.bashrc",
-                Some(HostIntegrityClass::StartupPersistence),
+                Some(HostIntegrityClass::ShellProfile),
             ),
             ("rm /etc/passwd", Some(HostIntegrityClass::AuthIdentity)),
             ("cat /repo/.env", None),
