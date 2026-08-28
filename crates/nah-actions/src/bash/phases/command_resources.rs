@@ -215,6 +215,12 @@ impl Lowerer {
             )
         {
             self.complete = false;
+            if matches!(program.as_str(), "scp" | "rsync") {
+                let (endpoints, flows) =
+                    self.conservative_descriptor_effects(redirected_descriptors, stage);
+                network_endpoints.extend(endpoints);
+                descriptor_flows.extend(flows);
+            }
             filesystem_drafts.push(unresolved_read(
                 known_cwd(&self.state).unwrap_or(&self.initial_cwd),
             ));

