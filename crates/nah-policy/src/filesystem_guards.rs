@@ -3,7 +3,7 @@
 use nah_inline::{FindingKind, InlineReport};
 use nah_proto::action::{
     ActionStream, Effect, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
-    InvocationEffect, SemanticCode, pattern_bound,
+    InvocationEffect, PathScope, SemanticCode, pattern_bound,
 };
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
@@ -11,6 +11,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
 const FS_SHELL_PROFILE: &str = "fs-shell-profile";
+const FS_PROJECT_ROOT: &str = "fs-project-root";
 const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
 const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
@@ -36,6 +37,10 @@ pub(crate) fn add(
         (
             FS_HOME,
             "fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change",
+        ),
+        (
+            FS_PROJECT_ROOT,
+            "fs-project-root blocked a destructive operation on the project root; name the exact files or subtree; ask the operator to perform any project-wide change",
         ),
         (
             FS_RAW_DEVICE,
@@ -107,6 +112,24 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         filesystem.operation,
                         filesystem.recursive,
                     )
+            }
+            (FS_PROJECT_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
+                if let PathScope::Project { root } = &filesystem.scope {
+                    (filesystem.selects_root
+                        || filesystem.pattern
+                            && pattern_selects_project_root(
+                                filesystem.target.as_str(),
+                                root.as_str(),
+                            ))
+                        && destructive_tree_operation(
+                            action_stream,
+                            effect,
+                            filesystem.operation,
+                            filesystem.recursive,
+                        )
+                } else {
+                    false
+                }
             }
             (
                 FS_SYSTEM_TREE | FS_HOME,
@@ -188,6 +211,22 @@ fn destructive_tree_operation(
                         } if operation == &SemanticCode::PERMISSION_CHANGE
                     )
             }))
+}
+
+fn pattern_selects_project_root(target: &str, root: &str) -> bool {
+    let Some(suffix) = target.strip_prefix(root) else {
+        return false;
+    };
+    let suffix = if root.ends_with(['/', '\\']) {
+        suffix
+    } else if let Some(suffix) = suffix.strip_prefix('/') {
+        suffix
+    } else if let Some(suffix) = suffix.strip_prefix('\\') {
+        suffix
+    } else {
+        return false;
+    };
+    matches!(suffix, "*" | ".*" | "{*,.*}")
 }
 
 const SYSTEM_TREES: [&str; 23] = [

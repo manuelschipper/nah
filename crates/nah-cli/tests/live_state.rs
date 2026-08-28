@@ -521,7 +521,14 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
         &ctx(&root),
         |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
     );
-    assert_eq!(delete_main.core().verdict(), Verdict::Delegate);
+    assert_eq!(delete_main.core().verdict(), Verdict::Block);
+    assert!(
+        delete_main
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|guard| guard.name() == "fs-project-root")
+    );
     // The main checkout is inside the worktree's project boundary, and the
     // delete selects that boundary's root.
     assert!(

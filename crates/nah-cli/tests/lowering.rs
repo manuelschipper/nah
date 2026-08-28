@@ -246,7 +246,6 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
         "mkdir -p generated",
         "touch generated.txt",
         "rm -f src/lib.rs",
-        "rm -rf .",
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -256,6 +255,21 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
     }
+
+    let delete_root = decide_with(
+        &call("Bash", json!({"command":"rm -rf ."}), &repo),
+        &context,
+        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+    );
+    assert_eq!(delete_root.core().verdict(), Verdict::Block);
+    assert_eq!(delete_root.core().coverage(), Coverage::Full);
+    assert!(
+        delete_root
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|guard| guard.name() == "fs-project-root")
+    );
 
     for command in [
         format!(

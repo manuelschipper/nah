@@ -181,6 +181,73 @@ fn catastrophic_filesystem_guards_block_visible_bash_effects_end_to_end() {
     assert_eq!(alias.core().coverage(), Coverage::Full);
 }
 
+#[cfg(unix)]
+#[test]
+fn project_root_guard_blocks_only_destructive_root_wide_filesystem_effects() {
+    let temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah resolves
+    // paths before matching them
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let repo = repo(&root);
+    let context = ctx(&root);
+
+    for command in [
+        "rm -rf .",
+        "rm -rf *",
+        "find . -name '*.pyc' -delete",
+        "chmod -R 000 .",
+        "chmod -R 755 .",
+        "chown -R root .",
+        "chgrp -R root .",
+        "setfacl -R -m u::rwx .",
+        "find . -exec chmod 000 '{}' +",
+        "rsync --delete source/ .",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|attribution| attribution.name() == "fs-project-root"),
+            "{command}: {:?}",
+            result.core().policy_attributions()
+        );
+    }
+
+    for command in [
+        "rm -rf src",
+        "find src -name '*.pyc' -delete",
+        "find -delete",
+        "chmod -R 000 src",
+        "chattr -R +i .",
+        "rsync source/ .",
+        "rsync --dry-run --delete source/ .",
+        "rsync --list-only --delete source/ .",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+    }
+
+    let outside = root.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let result = decide_with(
+        &call("Bash", json!({"command":"rm -rf ."}), &outside),
+        &context,
+        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+    );
+    assert_eq!(result.core().verdict(), Verdict::Delegate);
+}
+
 #[test]
 fn unresolved_destructive_paths_delegate_without_inventing_root_or_home() {
     let temp = tempfile::tempdir().unwrap();
@@ -259,7 +326,6 @@ fn non_destructive_storage_forms_do_not_trigger_catastrophic_guards() {
         "lvm vgs",
         "lvm --test lvremove vg/data",
         "lvm lvremove --test vg/data",
-        "find . -exec chmod 000 '{}' +",
         "find / -maxdepth 0 -exec chmod 000 '{}' +",
         "pvremove --test /dev/sda",
         "sfdisk --no-act --delete /dev/sda",
