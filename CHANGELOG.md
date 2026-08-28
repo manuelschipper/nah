@@ -5,6 +5,9 @@
 - **Optional startup-management guard** — New default-off
   `fs-startup-management` blocks reviewed persistent `systemctl`, `launchctl`,
   and `crontab` mutations when enabled without changing startup-path defaults.
+- **`crontab -u` payload inspection** — Visible stdin installed for another
+  user now receives the same nested-command and self-protection analysis as
+  `crontab -`.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

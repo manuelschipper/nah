@@ -31,9 +31,11 @@ fn exact_arguments(arguments: &[Word]) -> Option<Vec<String>> {
     arguments
         .iter()
         .map(|argument| {
-            (!has_unmodeled_expansion(argument.raw()))
-                .then(|| static_word(argument.raw(), argument.substitutions().is_empty()))
-                .flatten()
+            let raw = argument.raw();
+            (!has_unmodeled_expansion(raw)
+                || raw.starts_with('~') && !has_unmodeled_expansion(&raw[1..]))
+            .then(|| static_word(argument.raw(), argument.substitutions().is_empty()))
+            .flatten()
         })
         .collect()
 }
@@ -110,7 +112,10 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
         }
         if argument == "--drop-in" {
             index += 1;
-            if arguments.get(index).is_none_or(String::is_empty) {
+            if arguments
+                .get(index)
+                .is_none_or(|value| value.is_empty() || value.starts_with('-'))
+            {
                 return false;
             }
             edit_option = true;
@@ -127,7 +132,10 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
         }
         if argument == "--preset-mode" {
             index += 1;
-            if arguments.get(index).is_none_or(String::is_empty) {
+            if arguments
+                .get(index)
+                .is_none_or(|value| value.is_empty() || value.starts_with('-'))
+            {
                 return false;
             }
             preset_option = true;
