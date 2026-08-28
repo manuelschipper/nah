@@ -243,6 +243,7 @@ impl Interpreter<'_> {
             None,
             source.is_some()
                 && destination.is_some()
+                && paths.len() == 2
                 && arguments.iter().all(|argument| argument.exact)
                 && arguments
                     .iter()

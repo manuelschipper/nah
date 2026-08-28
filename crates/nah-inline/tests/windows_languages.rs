@@ -1,22 +1,61 @@
 use nah_inline::{
-    InlineInput, LanguageAnalysis, LanguageCallKind, NestedExecution, ProtectionInput,
+    FindingKind, InlineInput, LanguageAnalysis, LanguageCallKind, NestedExecution, ProtectionInput,
     interpret_language_effects,
 };
-use nah_proto::{action::FilesystemOperation, ctx::Platform};
+use nah_proto::{
+    action::FilesystemOperation,
+    ctx::{AbsolutePath, Platform},
+};
 
 fn analyze(program: &str, code: &str) -> LanguageAnalysis {
+    analyze_on(program, code, Platform::Windows, r"C:\Users\test")
+}
+
+fn analyze_on(program: &str, code: &str, platform: Platform, home: &str) -> LanguageAnalysis {
     interpret_language_effects(
         InlineInput {
             program,
             code,
-            home: r"C:\Users\test",
-            platform: Platform::Windows,
+            home,
+            platform,
         },
         ProtectionInput {
             critical_paths: &[],
             ambient_variables: &[],
         },
     )
+}
+
+#[test]
+fn powershell_collection_bindings_remain_partial_and_keep_protection_active() {
+    for source in [
+        r"Remove-Item -Recurse -LiteralPath 'safe','C:\Users\test'",
+        r"Move-Item -Path 'first','second' -Destination 'target'",
+        r"Get-Content -Path 'first','second'",
+        r"Set-Content -Path 'first','second' -Value 'value'",
+        r"Set-Content -Path 'target' -Value 'first','second'",
+    ] {
+        assert!(!analyze("pwsh", source).draft().complete(), "{source}");
+    }
+
+    let critical = AbsolutePath::new(Platform::Windows, r"C:\Users\test\.nah\policy.toml").unwrap();
+    let analysis = interpret_language_effects(
+        InlineInput {
+            program: "pwsh",
+            code: r"Set-Content -Path 'safe','C:\Users\test\.nah\policy.toml' -Value x",
+            home: r"C:\Users\test",
+            platform: Platform::Windows,
+        },
+        ProtectionInput {
+            critical_paths: &[critical],
+            ambient_variables: &[],
+        },
+    );
+    assert!(
+        analysis
+            .report()
+            .contains_conservative(FindingKind::NahTampering)
+    );
 }
 
 #[test]
@@ -108,6 +147,28 @@ fn powershell_dialect_aliases_never_invent_download_destinations() {
         [NestedExecution::Command { argv, .. }]
             if argv.first().map(String::as_str) == Some("curl.exe")
     ));
+}
+
+#[test]
+fn pwsh_uses_windows_only_aliases_only_on_windows() {
+    for command in [
+        "del /tmp/target",
+        "erase /tmp/target",
+        "rd /tmp/target",
+        "rmdir /tmp/target",
+        "type /tmp/target",
+    ] {
+        let analysis = analyze_on("pwsh", command, Platform::Linux, "/home/test");
+        assert!(!analysis.draft().complete(), "{command}");
+        assert!(analysis.draft().calls().is_empty(), "{command}");
+    }
+
+    let stable_alias = analyze_on("pwsh", "rm /tmp/target", Platform::Linux, "/home/test");
+    assert!(stable_alias.draft().complete());
+    assert_eq!(
+        stable_alias.draft().calls()[0].filesystems()[0].operation(),
+        FilesystemOperation::Delete
+    );
 }
 
 #[test]
@@ -230,6 +291,11 @@ fn cmd_filesystem_and_directory_boundaries_are_explicit() {
         calls[4].filesystems()[0].operation(),
         FilesystemOperation::Write
     );
+}
+
+#[test]
+fn cmd_move_with_extra_operands_is_partial() {
+    assert!(!analyze("cmd", r"move C:\a C:\b C:\c").draft().complete());
 }
 
 #[test]

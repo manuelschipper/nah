@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use nah_proto::action::{FilesystemOperation, InvocationInput};
+use nah_proto::{
+    action::{FilesystemOperation, InvocationInput},
+    ctx::Platform,
+};
 use serde_json::json;
 
 use crate::{
@@ -96,8 +99,11 @@ impl Interpreter<'_, '_> {
         }
         let lowercase = trimmed.to_ascii_lowercase();
         if definition_or_resolution_mutation(&lowercase) {
-            self.shadowed
-                .extend(shadowed_commands(trimmed, self.input.home));
+            self.shadowed.extend(shadowed_commands(
+                trimmed,
+                self.input.home,
+                self.input.platform,
+            ));
             self.draft.set_partial();
             return;
         }
@@ -107,10 +113,13 @@ impl Interpreter<'_, '_> {
         if dynamic_statement(trimmed, &lowercase) {
             self.draft.set_partial();
         }
-        let Some(lexemes) = lex(trimmed, self.input.home) else {
+        let Some((lexemes, bindings_complete)) = lex(trimmed, self.input.home) else {
             self.draft.set_partial();
             return;
         };
+        if !bindings_complete {
+            self.draft.set_partial();
+        }
         let mut segment = Vec::new();
         for lexeme in lexemes {
             if matches!(lexeme, Lexeme::Pipe) {
@@ -193,7 +202,7 @@ impl Interpreter<'_, '_> {
             self.draft.set_partial();
             return;
         }
-        match canonical_command(&raw_command) {
+        match canonical_command(&raw_command, self.input.platform) {
             CanonicalCommand::RemoveItem => self.remove_item(command_arguments),
             CanonicalCommand::MoveItem => self.move_item(command_arguments),
             CanonicalCommand::GetContent => {
@@ -495,7 +504,7 @@ impl Interpreter<'_, '_> {
             self.draft.set_partial();
             return true;
         }
-        let Some(lexemes) = lex(&statement[offset..end], self.input.home) else {
+        let Some((lexemes, _)) = lex(&statement[offset..end], self.input.home) else {
             self.draft.set_partial();
             return true;
         };
@@ -618,13 +627,15 @@ enum CanonicalCommand {
     External,
 }
 
-fn canonical_command(command: &str) -> CanonicalCommand {
+fn canonical_command(command: &str, platform: Platform) -> CanonicalCommand {
     match command {
-        "remove-item" | "ri" | "rm" | "rmdir" | "del" | "erase" | "rd" => {
+        "remove-item" | "ri" | "rm" => CanonicalCommand::RemoveItem,
+        "rmdir" | "del" | "erase" | "rd" if platform == Platform::Windows => {
             CanonicalCommand::RemoveItem
         }
         "move-item" | "mi" | "mv" | "move" => CanonicalCommand::MoveItem,
-        "get-content" | "gc" | "cat" | "type" => CanonicalCommand::GetContent,
+        "get-content" | "gc" | "cat" => CanonicalCommand::GetContent,
+        "type" if platform == Platform::Windows => CanonicalCommand::GetContent,
         "set-content" | "sc" => CanonicalCommand::SetContent,
         "add-content" | "ac" => CanonicalCommand::AddContent,
         "clear-content" | "clc" => CanonicalCommand::ClearContent,
@@ -745,15 +756,18 @@ fn strip_comments(code: &str) -> (String, bool) {
     (output, !block)
 }
 
-fn lex(source: &str, home: &str) -> Option<Vec<Lexeme>> {
+fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
     let bytes = source.as_bytes();
     let mut lexemes = Vec::new();
+    let mut bindings_complete = true;
     let mut index = 0;
     while index < bytes.len() {
-        while bytes
-            .get(index)
-            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b',')
-        {
+        while let Some(byte) = bytes.get(index) {
+            if *byte == b',' {
+                bindings_complete = false;
+            } else if !byte.is_ascii_whitespace() {
+                break;
+            }
             index += 1;
         }
         let Some(byte) = bytes.get(index).copied() else {
@@ -851,7 +865,7 @@ fn lex(source: &str, home: &str) -> Option<Vec<Lexeme>> {
             break;
         }
     }
-    Some(lexemes)
+    Some((lexemes, bindings_complete))
 }
 
 fn redirect_prefix(bytes: &[u8], index: usize) -> bool {
@@ -1178,10 +1192,10 @@ fn definition_or_resolution_mutation(lowercase: &str) -> bool {
         || trimmed.starts_with("remove-item ") && trimmed.contains("alias:")
 }
 
-fn shadowed_commands(code: &str, home: &str) -> BTreeSet<String> {
+fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<String> {
     let mut shadowed = BTreeSet::new();
     for statement in statements(code) {
-        let Some(lexemes) = lex(statement, home) else {
+        let Some((lexemes, _)) = lex(statement, home) else {
             continue;
         };
         let words = lexemes
@@ -1217,7 +1231,7 @@ fn shadowed_commands(code: &str, home: &str) -> BTreeSet<String> {
     shadowed
         .into_iter()
         .flat_map(|name| {
-            let canonical = canonical_command(&name);
+            let canonical = canonical_command(&name, platform);
             std::iter::once(name).chain(command_names(canonical).map(str::to_owned))
         })
         .collect()

@@ -165,6 +165,15 @@ fn powershell_path_and_literal_path_keep_pattern_selection_distinct() {
 }
 
 #[test]
+fn powershell_collection_targets_do_not_claim_full_coverage() {
+    let source = r"Remove-Item -Recurse -LiteralPath 'C:\safe','C:\Users\test'";
+    let plan = direct_plan(VisibleCode::PowerShell { source }, source);
+    let observation = observe(plan.observation_request(), Some(r"C:\Users\test"));
+    let stream = finalize(plan, observation);
+    assert_eq!(stream.coverage(), Coverage::Partial);
+}
+
+#[test]
 fn cmd_del_does_not_claim_directory_deletion_and_rd_is_not_implicitly_recursive() {
     let target = r"C:\repo\directory";
     for source in [r"del C:\repo\directory", r"del /s /q C:\repo\directory"] {
