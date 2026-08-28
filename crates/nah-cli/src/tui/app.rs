@@ -1017,7 +1017,10 @@ impl App {
         self.current_project.as_ref().and_then(|current| {
             self.projects
                 .iter()
-                .find(|project| project.path == *current)
+                .filter(|project| {
+                    std::path::Path::new(current).starts_with(std::path::Path::new(&project.path))
+                })
+                .max_by_key(|project| std::path::Path::new(&project.path).components().count())
         })
     }
 
@@ -1243,14 +1246,11 @@ fn log_size() -> Option<u64> {
 
 fn current_project() -> (Option<String>, Vec<String>) {
     use nah_proto::ctx::SchemaVersion;
-    use nah_proto::observation::{
-        ObservationQuery, ObservationRequest, ObservationValue, Observed, ProjectGuardDeclaration,
-        RootKind,
-    };
+    use nah_proto::observation::{ObservationQuery, ObservationRequest, ProjectGuardDeclaration};
 
     let cwd = std::fs::canonicalize(".").ok();
-    let fallback = cwd.as_ref().map(|path| path.display().to_string());
-    let Some((root, declared)) = (|| {
+    let current = cwd.as_ref().map(|path| path.display().to_string());
+    let Some(declared) = (|| {
         let platform = live_state::host_platform();
         let cwd = AbsolutePath::new(platform, cwd?.to_str()?.to_owned()).ok()?;
         let request = ObservationRequest::new(
@@ -1273,29 +1273,16 @@ fn current_project() -> (Option<String>, Vec<String>) {
         )
         .ok()?;
         let observation = nah_observe::fulfill(&request).ok()?;
-        let root = observation
-            .facts()
-            .iter()
-            .find_map(|fact| match fact.value() {
-                ObservationValue::Roots {
-                    observed: Observed::Ok { value },
-                } => value
-                    .iter()
-                    .find(|root| root.kind() == RootKind::Project)
-                    .map(|root| root.path().as_str().to_owned()),
-                _ => None,
-            });
-        let declared = match observation.project_guard_declaration().ok()? {
+        Some(match observation.project_guard_declaration().ok()? {
             ProjectGuardDeclaration::Present { names } => names.clone(),
             ProjectGuardDeclaration::Absent
             | ProjectGuardDeclaration::Malformed
             | ProjectGuardDeclaration::ReadFailure => Vec::new(),
-        };
-        Some((root, declared))
+        })
     })() else {
-        return (fallback, Vec::new());
+        return (current, Vec::new());
     };
-    (root.or(fallback), declared)
+    (current, declared)
 }
 
 fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {

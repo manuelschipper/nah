@@ -33,11 +33,13 @@ impl GuardFamily {
         }
     }
 
-    pub(crate) fn rank(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|family| *family == self)
-            .expect("every guard family is ordered")
+    pub(crate) const fn rank(self) -> usize {
+        match self {
+            Self::Execution => 0,
+            Self::Filesystem => 1,
+            Self::Git => 2,
+            Self::Secrets => 3,
+        }
     }
 }
 

@@ -434,6 +434,7 @@ fn state_view_partitions_by_applied_status_without_following_pending_values() {
 #[test]
 fn project_view_uses_declarations_and_exact_trusted_root_identity() {
     let mut app = App::fixture();
+    app.current_project = Some("/repo/src".into());
     app.project_declared_guards = vec!["exec-remote".into(), "secrets-env".into()];
     app.guards.extend([
         guard_entry(custom("corp-api"), GuardStatus::Enabled),
@@ -470,6 +471,33 @@ fn project_view_uses_declarations_and_exact_trusted_root_identity() {
             .filter(|entry| entry.target.name() == "corp-api")
             .count(),
         1
+    );
+}
+
+#[test]
+fn project_view_uses_the_nearest_trusted_root_containing_the_current_directory() {
+    let mut app = App::fixture();
+    app.current_project = Some("/repo/service/src".into());
+    app.projects.push(TrustedProject {
+        identity: nah_proto::ctx::TrustedRootId::new("root:service").unwrap(),
+        path: "/repo/service".into(),
+        configured_guards: 1,
+        enabled_guards: 1,
+        needs_reapproval: 0,
+        missing_guards: 0,
+    });
+    app.guards.push(guard_entry(
+        project_custom("root:service", "service-api"),
+        GuardStatus::Enabled,
+    ));
+    app.guard_view = GuardView::Project;
+
+    assert_eq!(
+        app.visible_guards()
+            .iter()
+            .map(|entry| entry.target.name())
+            .collect::<Vec<_>>(),
+        ["service-api"]
     );
 }
 
