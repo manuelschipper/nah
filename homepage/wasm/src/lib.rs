@@ -8,7 +8,7 @@
 //! Observations answer the way the corpus fixtures do: the project root exists,
 //! other paths are missing, and env is unset except HOME.
 
-use nah_cli::{POLICY_VERSION, decide_with, shipped_guard_states};
+use nah_cli::{decide_with, shipped_guard_states};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
@@ -38,13 +38,11 @@ fn decide_core(command: &str) -> Result<String, String> {
     )
     .map_err(|error| format!("invalid command: {error}"))?;
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         AbsolutePath::new(Platform::Linux, HOME).map_err(|error| error.to_string())?,
         shipped_guard_states(),
         vec![],
         TrustProjection::new(vec![]).map_err(|error| error.to_string())?,
-        POLICY_VERSION,
     )
     .map_err(|error| error.to_string())?;
     let result = decide_with(&input, &ctx, observe);

@@ -1,6 +1,6 @@
 mod support;
 
-use nah_cli::{POLICY_VERSION, decide_with};
+use nah_cli::decide_with;
 use nah_proto::action::{
     Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput,
 };
@@ -20,13 +20,11 @@ fn windows_path(value: &str) -> AbsolutePath {
 
 fn windows_context() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Windows,
         windows_path(r"C:\Users\Test"),
         nah_cli::all_shipped_guard_states_enabled(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }

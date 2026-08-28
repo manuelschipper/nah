@@ -1,5 +1,4 @@
 use nah_proto::action::{ActionStream, Coverage, EffectKind};
-use nah_proto::ctx::PolicyVersion;
 use nah_proto::decision::{
     DecisionCore, DecisionError, GuardAttribution, GuardContribution, Verdict,
 };
@@ -16,9 +15,8 @@ fn decision_stream(coverage: Coverage, effect_count: usize) -> ActionStream {
 
 #[test]
 fn decision_reason_is_canonical() {
-    let policy = PolicyVersion::new(1).unwrap();
-    let a = GuardAttribution::shipped("a-guard", policy).unwrap();
-    let z = GuardAttribution::shipped("z-guard", policy).unwrap();
+    let a = GuardAttribution::shipped("a-guard").unwrap();
+    let z = GuardAttribution::shipped("z-guard").unwrap();
     let stream = decision_stream(Coverage::Partial, 1);
     let core = DecisionCore::new(
         &stream,
@@ -55,9 +53,8 @@ fn delegate_reason_states_coverage_or_that_no_guard_fired() {
 
 #[test]
 fn decision_reducer_deduplicates_and_canonicalizes_contributions() {
-    let policy = PolicyVersion::V1;
-    let a_guard = GuardAttribution::shipped("a-guard", policy).unwrap();
-    let z_guard = GuardAttribution::shipped("z-guard", policy).unwrap();
+    let a_guard = GuardAttribution::shipped("a-guard").unwrap();
+    let z_guard = GuardAttribution::shipped("z-guard").unwrap();
     let stream = decision_stream(Coverage::Full, 11);
 
     let build = |contributions| DecisionCore::new(&stream, Verdict::Block, contributions).unwrap();
@@ -78,8 +75,7 @@ fn decision_reducer_deduplicates_and_canonicalizes_contributions() {
 
 #[test]
 fn decision_reducer_rejects_delegate_attributions_and_duplicates() {
-    let policy = PolicyVersion::V1;
-    let guard = GuardAttribution::shipped("guard", policy).unwrap();
+    let guard = GuardAttribution::shipped("guard").unwrap();
 
     assert_eq!(
         DecisionCore::new(

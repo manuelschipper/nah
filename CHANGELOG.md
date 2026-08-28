@@ -14,9 +14,12 @@
   per-guard factory defaults and explicit global overrides, with operator
   disables taking precedence over project enablement. The TUI groups guards by
   family and default posture and filters by family, default, and source.
-- **Policy contract v3** — Shipped policy now consumes path-attached host
-  integrity classification and applies the new default-on authentication and
-  identity decision semantics.
+- **Simpler shipped guard attribution** — `nah/decide/v1` and `nah/audit/v1`
+  shipped attributions now contain only the kind discriminator and guard name.
+  A pre-upgrade `~/.nah/audit.jsonl` containing old `policy_version` entries is
+  rejected; remove the file after upgrading to restore `nah log`, `nah why`,
+  TUI decision browsing, and audit compaction. Extension memo entries miss once
+  and are replaced through normal cache use.
 
 ## nah 1.3.1 — Aug 13, 2026
 

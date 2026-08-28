@@ -1,7 +1,7 @@
 use nah_proto::action::{ActionStream, Coverage, EffectKind};
 use nah_proto::ctx::{
     AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
-    Platform, PolicyVersion, SchemaVersion, TrustProjection,
+    Platform, TrustProjection,
 };
 use nah_proto::extension::{
     ConsultationOutcome, ExtensionConsultation, ExtensionResponse, ExtensionValidationError,
@@ -314,13 +314,11 @@ fn activation(name: &str) -> ActivationProjection {
 
 fn ctx_with(activation: ActivationProjection) -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         AbsolutePath::new(Platform::Linux, "/home/test").unwrap(),
         vec![],
         vec![activation],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap()
 }

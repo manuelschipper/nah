@@ -2,7 +2,7 @@
 
 use nah_actions::{AnalysisInput, SelfProtectionProjection, plan_with_self_protection};
 use nah_parse::normalize;
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationFailure,
     ObservationQuery, ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
@@ -47,13 +47,11 @@ pub(crate) fn bash_plan_with_self_protection(
 
 pub(crate) fn ctx() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap()
 }

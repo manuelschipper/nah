@@ -1,5 +1,5 @@
 use nah_proto::action::{FilesystemOperation, SemanticCode};
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::ObservationQuery;
 use nah_proto::observation::SymlinkTraversal;
 use nah_proto::tool::ToolCallInput;
@@ -157,26 +157,22 @@ fn windows_artifact_paths_and_pattern_roots_are_case_aware() {
 
 fn ctx() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap()
 }
 
 fn windows_ctx() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Windows,
         AbsolutePath::new(Platform::Windows, r"C:\Users\Test").unwrap(),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap()
 }

@@ -1,12 +1,8 @@
 //! Shipped policy catalog projection used by live and frozen contexts.
 
-use nah_proto::ctx::{PolicyVersion, ShippedGuardState};
+use nah_proto::ctx::ShippedGuardState;
 
 use crate::shipped_state::ShippedState;
-
-/// Version of the block-or-delegate policy contract, not the evolving guard
-/// signature catalog.
-pub const POLICY_VERSION: PolicyVersion = PolicyVersion::V3;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum GuardFamily {

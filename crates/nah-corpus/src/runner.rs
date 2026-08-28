@@ -208,13 +208,11 @@ mod tests {
     fn malformed_input_is_an_ordinary_delegate() {
         let home = AbsolutePath::new(Platform::Linux, "/repo").unwrap();
         let ctx = nah_proto::ctx::Ctx::new(
-            SchemaVersion::V1,
             Platform::Linux,
             home,
             vec![],
             vec![],
             nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
-            nah_proto::ctx::PolicyVersion::V1,
         )
         .unwrap();
         let input = ToolCallInput::new(

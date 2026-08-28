@@ -4,7 +4,6 @@ use nah_proto::action::{
 };
 use nah_proto::ctx::{
     AbsolutePath, ActivationProjection, ContentHash, ExecProtocolVersion, GuardIdentity, Platform,
-    PolicyVersion,
 };
 use nah_proto::decision::{
     DecisionCore, DecisionEnvelope, GuardAttribution, GuardContribution, Verdict,
@@ -274,7 +273,7 @@ fn printf_and_root_move_inputs_remain_structural_in_audit_records() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
@@ -333,7 +332,7 @@ fn unresolved_filesystem_records_name_the_effect_without_persisting_the_operand(
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
@@ -471,7 +470,7 @@ fn summary_leads_with_short_time_and_verdict_and_trails_the_copyable_id() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("fs-system-tree", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
@@ -681,10 +680,40 @@ fn obsolete_and_incomplete_audit_shapes_are_rejected() {
 }
 
 #[test]
-fn obsolete_policy_kind_records_are_rejected() {
-    let line = "{\"v\":1,\"core\":{\"verdict\":\"block\",\"reason\":\"blocked\",\"policy_attributions\":[{\"kind\":\"shipped\",\"name\":\"fs-system-tree\",\"policy_kind\":\"guard\",\"policy_version\":1}],\"coverage\":\"full\"},\"envelope\":{\"id\":\"decision-9\",\"timestamp_rfc3339\":\"2026-07-23T12:00:00Z\",\"duration_us\":7},\"runtime\":\"claude\",\"command\":\"Bash [redacted]\",\"effects\":[],\"diagnostics\":[],\"consultations\":[]}";
+fn obsolete_policy_version_records_are_rejected() {
+    let obsolete = serde_json::json!({
+        "schema": "nah/audit/v1",
+        "v": 1,
+        "status": "decision",
+        "core": {
+            "verdict": "block",
+            "reason": "blocked",
+            "policy_attributions": [{
+                "kind": "shipped",
+                "name": "fs-system-tree",
+                "policy_version": 1
+            }],
+            "coverage": "full"
+        },
+        "envelope": {
+            "id": "decision-9",
+            "timestamp_rfc3339": "2026-07-23T12:00:00Z",
+            "duration_us": 7
+        },
+        "runtime": "claude",
+        "command": "Bash [redacted]",
+        "effects": [],
+        "diagnostics": [],
+        "consultations": []
+    });
+    let mut current = obsolete.clone();
+    current["core"]["policy_attributions"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("policy_version");
+    serde_json::from_value::<AuditRecordV1>(current).unwrap();
 
-    assert!(serde_json::from_str::<AuditRecordV1>(line).is_err());
+    assert!(serde_json::from_value::<AuditRecordV1>(obsolete).is_err());
 }
 
 /// The row is composed only from strings that already crossed the
@@ -814,7 +843,7 @@ fn blocked_details_align_values_and_give_each_reason_clause_a_line() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("exec-obfuscated", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("exec-obfuscated").unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,
@@ -940,7 +969,7 @@ fn shipped_reasons_and_attribution_survive_redaction() {
         vec![],
     )
     .unwrap();
-    let guard = GuardAttribution::shipped("secrets-env", PolicyVersion::V1).unwrap();
+    let guard = GuardAttribution::shipped("secrets-env").unwrap();
     let core = DecisionCore::new(
         &stream,
         Verdict::Block,

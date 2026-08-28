@@ -7,7 +7,7 @@ use nah_proto::action::{
     Sensitivity,
 };
 use nah_proto::ctx::{
-    AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, ShippedGuardState, TrustProjection,
+    AbsolutePath, Ctx, Platform, SchemaVersion, ShippedGuardState, TrustProjection,
 };
 use nah_proto::observation::{
     Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
@@ -45,13 +45,11 @@ fn fixture() -> (ActionStream, nah_proto::ctx::PolicyCtx) {
     )
     .unwrap();
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         path("/home/test"),
         vec![ShippedGuardState::new("fs-system-tree", true).unwrap()],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap();
     let cwd = ObservationQuery::Cwd {

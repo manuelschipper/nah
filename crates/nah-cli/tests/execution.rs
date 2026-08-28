@@ -2,16 +2,15 @@
 
 mod support;
 
-use nah_cli::{POLICY_VERSION, decide_with};
+use nah_cli::decide_with;
 use nah_proto::action::Coverage;
-use nah_proto::ctx::{Ctx, SchemaVersion, ShippedGuardState, TrustProjection};
+use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
 use nah_proto::decision::Verdict;
 use serde_json::json;
 use support::{absolute, bash_path, call, ctx, host_platform, repo};
 
 fn execution_ctx(home: &std::path::Path) -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(home),
         vec![
@@ -24,7 +23,6 @@ fn execution_ctx(home: &std::path::Path) -> Ctx {
         ],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }
@@ -481,13 +479,11 @@ fn disabling_a_guard_disables_its_inline_signatures() {
     let temp = tempfile::tempdir().unwrap();
     let repo = repo(temp.path());
     let context = Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(temp.path()),
         vec![ShippedGuardState::new("fs-system-tree", false).unwrap()],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let result = decide_with(

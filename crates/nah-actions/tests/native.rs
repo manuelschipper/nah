@@ -3,7 +3,7 @@ use nah_proto::action::{
     Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, InvocationEffect,
     InvocationInput, NahProtectionTier, PathScope, Sensitivity,
 };
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyVersion, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     Observation, ObservationFact, ObservationFailure, ObservationQuery, ObservationValue, Observed,
     PathKind, PathObservation, ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
@@ -697,13 +697,11 @@ fn call(tool: &str, input: serde_json::Value) -> ToolCallInput {
 
 fn ctx() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap()
 }

@@ -31,6 +31,4 @@ Rules:
   marketing language.
 - User-visible changes only. Internal refactors stay out unless they change a
   verdict, a message, or performance.
-- A policy-version bump gets its own bullet stating what decision semantics
-  changed.
 - Do not rewrite entries for releases that have shipped.

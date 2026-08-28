@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::action::{ActionStream, Coverage};
-use crate::ctx::{ActivationProjection, PolicyVersion};
+use crate::ctx::ActivationProjection;
 use serde::{Deserialize, Serialize};
 
 mod output;
@@ -23,21 +23,13 @@ pub enum Verdict {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum GuardAttribution {
-    Shipped {
-        name: String,
-        policy_version: PolicyVersion,
-    },
-    Extension {
-        activation: ActivationProjection,
-    },
+    Shipped { name: String },
+    Extension { activation: ActivationProjection },
 }
 
 impl GuardAttribution {
-    pub fn shipped(name: &str, policy_version: PolicyVersion) -> Result<Self, DecisionError> {
-        Ok(Self::Shipped {
-            name: text(name)?,
-            policy_version,
-        })
+    pub fn shipped(name: &str) -> Result<Self, DecisionError> {
+        Ok(Self::Shipped { name: text(name)? })
     }
 
     pub fn extension(activation: ActivationProjection) -> Self {
@@ -70,23 +62,12 @@ impl<'de> Deserialize<'de> for GuardAttribution {
         #[derive(Deserialize)]
         #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
         enum Wire {
-            Shipped {
-                name: String,
-                policy_version: PolicyVersion,
-            },
-            Extension {
-                activation: ActivationProjection,
-            },
+            Shipped { name: String },
+            Extension { activation: ActivationProjection },
         }
 
         match Wire::deserialize(deserializer)? {
-            Wire::Shipped {
-                name,
-                policy_version,
-            } => text(&name).map(|name| Self::Shipped {
-                name,
-                policy_version,
-            }),
+            Wire::Shipped { name } => text(&name).map(|name| Self::Shipped { name }),
             Wire::Extension { activation } => Ok(Self::extension(activation)),
         }
         .map_err(serde::de::Error::custom)

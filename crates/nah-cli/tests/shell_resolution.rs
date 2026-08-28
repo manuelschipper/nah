@@ -3,22 +3,20 @@
 
 mod support;
 
-use nah_cli::{POLICY_VERSION, decide_with};
+use nah_cli::decide_with;
 use nah_proto::action::Coverage;
-use nah_proto::ctx::{Ctx, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{Ctx, TrustProjection};
 use nah_proto::decision::Verdict;
 use serde_json::json;
 use support::{absolute, call, host_platform, repo};
 
 fn resolution_ctx(home: &std::path::Path) -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         host_platform(),
         absolute(home),
         nah_cli::all_shipped_guard_states_enabled(),
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }

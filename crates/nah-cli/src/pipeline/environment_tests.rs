@@ -15,18 +15,15 @@ use super::{
     ConsultedExtensions, decide_with, decide_with_code, decide_with_extensions,
     decide_with_extensions_mode,
 };
-use crate::catalog::POLICY_VERSION;
 use crate::code_input::CodeInput;
 
 fn context() -> Ctx {
     Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         absolute("/home/test"),
         vec![],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap()
 }

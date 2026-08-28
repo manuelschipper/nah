@@ -13,7 +13,6 @@ use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
 use super::{ConsultedExtensions, EvaluationFailure, decide_with_extensions};
-use crate::catalog::POLICY_VERSION;
 use crate::live_state::host_platform;
 
 const CORE_SAMPLES: usize = 20_000;
@@ -61,16 +60,7 @@ fn performance_kpis() {
     .unwrap();
     let activations = ActivationDatabase::load(&activation_path).unwrap();
     let catalog = load_active_extensions(&home, platform, &trust, &activations, &[]).unwrap();
-    let ctx = Ctx::new(
-        SchemaVersion::V1,
-        platform,
-        home.clone(),
-        vec![],
-        catalog.activations(),
-        trust,
-        POLICY_VERSION,
-    )
-    .unwrap();
+    let ctx = Ctx::new(platform, home.clone(), vec![], catalog.activations(), trust).unwrap();
     let input = ToolCallInput::new(
         SchemaVersion::V1,
         "Bash",
@@ -165,13 +155,11 @@ fn performance_kpis() {
     });
 
     let scan_ctx = Ctx::new(
-        SchemaVersion::V1,
         platform,
         home.clone(),
         vec![ShippedGuardState::new("secrets-exfil", true).unwrap()],
         vec![],
         TrustProjection::new(vec![]).unwrap(),
-        POLICY_VERSION,
     )
     .unwrap();
     let complete_directory = temp.path().join("scan-complete");

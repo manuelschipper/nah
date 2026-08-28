@@ -6,7 +6,7 @@ use nah_proto::action::{
 };
 use nah_proto::ctx::{
     AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
-    Platform, PolicyCtx, PolicyVersion, SchemaVersion, ShippedGuardState, TrustProjection,
+    Platform, PolicyCtx, SchemaVersion, ShippedGuardState, TrustProjection,
 };
 use nah_proto::observation::{
     Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
@@ -124,7 +124,6 @@ pub(crate) fn context(
     declaration: ProjectGuardDeclaration,
 ) -> (Ctx, PolicyCtx) {
     let ctx = Ctx::new(
-        SchemaVersion::V1,
         Platform::Linux,
         path("/home/test"),
         shipped
@@ -133,7 +132,6 @@ pub(crate) fn context(
             .collect(),
         activations,
         TrustProjection::new(vec![]).unwrap(),
-        PolicyVersion::V1,
     )
     .unwrap();
     let policy = nah_proto::ctx::derive_policy_ctx(&ctx, &observation(declaration))
