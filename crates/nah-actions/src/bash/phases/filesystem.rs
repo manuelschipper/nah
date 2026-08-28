@@ -92,6 +92,7 @@ pub(super) fn unresolved_read(requested: &str) -> FilesystemDraft {
         protects_descendants: false,
         follows_final_symlink: true,
         read_if_existing_file: false,
+        file_only: false,
         pattern: false,
     }
 }
@@ -678,6 +679,7 @@ impl Lowerer {
             protects_descendants: false,
             follows_final_symlink: true,
             read_if_existing_file,
+            file_only: false,
             pattern,
         });
     }

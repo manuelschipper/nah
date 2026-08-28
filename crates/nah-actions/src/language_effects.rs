@@ -51,6 +51,7 @@ impl LanguageEffectDraftTarget<'_> {
                     )
                 });
                 let (key, descendant_key, requested, unresolved_selection) = match resolved {
+                    Some(requested) if filesystem.pattern() => (None, None, requested, true),
                     Some(requested) => {
                         let key = format!(
                             "language-{:04}-path-{call_ordinal:04}-{filesystem_ordinal:02}",
@@ -137,7 +138,8 @@ impl LanguageEffectDraftTarget<'_> {
                     protects_descendants: filesystem.descendant_protection(),
                     follows_final_symlink: filesystem.follows_final_symlink(),
                     read_if_existing_file: false,
-                    pattern: false,
+                    file_only: filesystem.file_only_target(),
+                    pattern: filesystem.pattern(),
                 });
             }
             let operation = match call.kind() {

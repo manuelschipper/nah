@@ -6,7 +6,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use nah_parse::{Statement, Substitution, normalize, syntax_is_clean};
+#[cfg(unix)]
+use nah_parse::syntax_is_clean;
+use nah_parse::{Statement, Substitution, normalize};
 use proptest::prelude::*;
 
 fn fuzz_config() -> ProptestConfig {

@@ -2,10 +2,14 @@
 
 mod support;
 
+#[cfg(unix)]
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use serde_json::{Value, json};
+#[cfg(unix)]
+use serde_json::Value;
+use serde_json::json;
+#[cfg(unix)]
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -21,10 +25,12 @@ fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
+#[cfg(unix)]
 fn hooks(home: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(home.join(".codex/hooks.json")).unwrap()).unwrap()
 }
 
+#[cfg(unix)]
 fn nah_handlers(hooks: &Value) -> Vec<&Value> {
     hooks["hooks"]["PreToolUse"]
         .as_array()

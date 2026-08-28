@@ -171,6 +171,9 @@ pub(crate) struct FilesystemDraft {
     // `git add <path>` reads an existing file, stages a missing path as a
     // deletion, and remains incomplete for directories or links.
     pub(crate) read_if_existing_file: bool,
+    // File-only commands do nothing to observed directories but can still
+    // express an intended mutation when the target is currently missing.
+    pub(crate) file_only: bool,
     // The shell expands this target, so `requested` bounds the paths it can
     // select rather than naming one of them.
     pub(crate) pattern: bool,

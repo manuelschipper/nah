@@ -12,13 +12,11 @@ fields are `partial`.
 For Bash, nah parses pipelines, control flow, subshells, and redirects into
 stages and data-flow edges. Unresolved shell state makes the stream partial.
 
-Visible source remains a `code-execution` effect. Nah's language component is a
-bounded Python and JavaScript/TypeScript effect interpreter: maintained grammars
-lower to owned HIRs and follow supported runtime semantics without
-running code. IPython preprocesses magics. TypeScript and TSX ignore reviewed
-type-only syntax and use JavaScript runtime semantics; nah neither type-checks
-nor implements the full TypeScript compilation pipeline. Other languages use
-narrower reviewed detectors.
+Visible source remains a `code-execution` effect. Bounded Python,
+JavaScript/TypeScript, PowerShell, and cmd interpreters lower reviewed behavior
+without running code; the Windows shells have separate static tokenizers.
+IPython preprocesses magics. TypeScript and TSX ignore reviewed type-only syntax
+and use JavaScript runtime semantics. Other languages use narrower detectors.
 
 Profiles own only proven Node, Deno, Bun, OpenClaw QuickJS, or Prime current-cell
 APIs. Rebinding or visible mutation removes ownership; hidden state is unknown.
@@ -28,9 +26,10 @@ Exact child argv and cwd are nested; missing or non-directory cwd prevents the
 child. Unawaited JavaScript applies state only through its first `await`.
 `Deno.Command` reads options and cwd when consumed.
 
-Only proven Bash enters full Bash lowering. `sh` gets a portable subset;
-dialect-sensitive state, redirects, Windows/custom shells, Bun's `$`, and
-`bun exec` stay partial. Sinks vanish only when proven to throw first.
+Only proven Bash enters full Bash lowering. `sh` gets a portable subset.
+`powershell`, `pwsh`, and `cmd` lower reviewed static operations through the same
+typed effects; unproven syntax stays partial. Custom shells, Bun's `$`, and
+`bun exec` also stay partial. Sinks vanish only when proven to throw first.
 
 From each interpreted source, at most 64 modeled language calls enter the public
 ActionStream for custom guards, dry-run JSON, and records. Saturation makes

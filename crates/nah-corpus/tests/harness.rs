@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1247);
+    assert_eq!(summary.cases, 1261);
 }
 
 #[test]
@@ -87,6 +87,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("threat-model.jsonl".to_owned(), 27),
+            ("windows.jsonl".to_owned(), 14),
         ]
     );
 }
@@ -120,6 +121,9 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "self-protection.critical.patch-trust",
         "self-protection.critical.perl-in-place-trust",
         "self-protection.critical.vim-write-trust",
+        "windows.cmd.del-directory-control",
+        "windows.powershell.remove-home",
+        "windows.powershell.curl-alias-unresolved",
     ] {
         assert!(ids.contains(id), "missing reviewed corpus case `{id}`");
     }

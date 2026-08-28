@@ -100,6 +100,20 @@ impl LanguageDraft {
         self.complete = false;
     }
 
+    pub(crate) fn extend(&mut self, other: Self) {
+        let first = self.calls.len();
+        self.complete &= other.complete;
+        for call in other.calls {
+            self.push_call(call);
+        }
+        for flow in other.language_safety_flows {
+            self.push_flow(first + flow.from, first + flow.to);
+        }
+        for refusal in other.refusals {
+            self.refuse(refusal);
+        }
+    }
+
     pub(crate) fn push_call(&mut self, call: LanguageCall) -> Option<usize> {
         if self.calls.len() >= MAX_PUBLIC_LANGUAGE_CALLS {
             self.complete = false;
@@ -205,6 +219,8 @@ pub struct LanguageFilesystem {
     requested: Option<String>,
     operation: FilesystemOperation,
     recursive: bool,
+    pattern: bool,
+    file_only: bool,
     content_access: bool,
     identity: Option<String>,
     identity_requires_missing_target: bool,
@@ -224,6 +240,8 @@ impl LanguageFilesystem {
             requested,
             operation,
             recursive,
+            pattern: false,
+            file_only: false,
             content_access: true,
             identity: None,
             identity_requires_missing_target: false,
@@ -236,6 +254,16 @@ impl LanguageFilesystem {
 
     pub(crate) fn metadata(mut self) -> Self {
         self.content_access = false;
+        self
+    }
+
+    pub(crate) fn pattern_if(mut self, pattern: bool) -> Self {
+        self.pattern = pattern;
+        self
+    }
+
+    pub(crate) fn file_only(mut self) -> Self {
+        self.file_only = true;
         self
     }
 
@@ -321,6 +349,14 @@ impl LanguageFilesystem {
 
     pub const fn recursive(&self) -> bool {
         self.recursive
+    }
+
+    pub const fn pattern(&self) -> bool {
+        self.pattern
+    }
+
+    pub const fn file_only_target(&self) -> bool {
+        self.file_only
     }
 
     pub const fn content_access(&self) -> bool {

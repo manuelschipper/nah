@@ -1,7 +1,51 @@
-use crate::syntax::lexical_code_cased;
-use crate::{Finding, FindingKind, InlineInput, InlineReport, ProtectionInput};
+use std::collections::BTreeSet;
 
-use super::common::{DefinitionStyle, add_exact_argv, observe_shadow, ordered_active_segments};
+use nah_proto::action::{FilesystemOperation, InvocationInput};
+use serde_json::json;
+
+use crate::{
+    Finding, FindingKind, InlineInput, InlineReport, LanguageAnalysis, LanguageCall,
+    LanguageCallKind, LanguageDraft, LanguageFilesystem, ProtectionInput,
+};
+
+use super::common::{add_exact_argv, with_typed_protection};
+
+#[derive(Clone, Debug)]
+struct Token {
+    value: String,
+    exact: bool,
+    quoted: bool,
+}
+
+#[derive(Clone, Debug)]
+enum Lexeme {
+    Word(Token),
+    Pipe,
+    Redirect,
+}
+
+#[derive(Default)]
+struct Arguments {
+    positional: Vec<Token>,
+    parameters: Vec<Parameter>,
+    complete: bool,
+}
+
+struct Parameter {
+    name: String,
+    value: Option<Token>,
+    attached: Option<String>,
+}
+
+struct Interpreter<'a, 'p> {
+    program: String,
+    input: InlineInput<'a>,
+    protection: Option<&'p ProtectionInput<'a>>,
+    depth: usize,
+    report: InlineReport,
+    draft: LanguageDraft,
+    shadowed: BTreeSet<String>,
+}
 
 pub(super) fn analyze(
     program: &str,
@@ -9,238 +53,1272 @@ pub(super) fn analyze(
     protection: Option<&ProtectionInput<'_>>,
     depth: usize,
 ) -> InlineReport {
-    let mut report = InlineReport::default();
-    let mut remove_item_shadowed = false;
-    let mut invoke_expression_shadowed = false;
-    let mut iex_shadowed = false;
-    let mut start_process_shadowed = false;
-    for segment in
-        ordered_active_segments(input.code, program, DefinitionStyle::Braces, &mut report)
-    {
-        if !segment.executable {
-            observe_powershell_shadows(
-                segment.source,
-                program,
-                &mut remove_item_shadowed,
-                &mut invoke_expression_shadowed,
-                &mut iex_shadowed,
-                &mut start_process_shadowed,
-            );
-            continue;
+    interpret_effects(program, input, protection, depth).into_report()
+}
+
+pub(super) fn interpret_effects<'a>(
+    program: &str,
+    input: &InlineInput<'a>,
+    protection: Option<&ProtectionInput<'a>>,
+    depth: usize,
+) -> LanguageAnalysis {
+    let (code, comments_complete) = strip_comments(input.code);
+    let mut interpreter = Interpreter {
+        program: program.to_owned(),
+        input: *input,
+        protection,
+        depth,
+        report: InlineReport::default(),
+        draft: LanguageDraft::default(),
+        shadowed: BTreeSet::new(),
+    };
+    if !comments_complete {
+        interpreter.draft.set_partial();
+    }
+    for statement in statements(&code) {
+        interpreter.interpret_statement(statement);
+    }
+    let report = with_typed_protection(
+        interpreter.report,
+        program,
+        input,
+        protection,
+        &interpreter.draft,
+    );
+    LanguageAnalysis::new(report, interpreter.draft)
+}
+
+impl Interpreter<'_, '_> {
+    fn interpret_statement(&mut self, statement: &str) {
+        let trimmed = statement.trim();
+        if trimmed.is_empty() {
+            return;
         }
-        let (outside, strings, offsets, static_strings, _) =
-            lexical_code_cased(segment.source, program);
-        let lowercase = outside.to_ascii_lowercase();
-        let command = lowercase
-            .split_ascii_whitespace()
-            .next()
-            .unwrap_or_default();
-        let recursive = lowercase
-            .split_ascii_whitespace()
-            .any(|word| matches!(word, "-recurse" | "-r" | "/s"));
-        let what_if = lowercase
-            .split_ascii_whitespace()
-            .any(|word| word == "-whatif" || word == "-whatif:$true");
-        let destructive = if program == "cmd" {
-            matches!(command, "rd" | "rmdir")
-        } else {
-            command == "remove-item"
+        let lowercase = trimmed.to_ascii_lowercase();
+        if definition_or_resolution_mutation(&lowercase) {
+            self.shadowed
+                .extend(shadowed_commands(trimmed, self.input.home));
+            self.draft.set_partial();
+            return;
+        }
+        if self.interpret_webclient(trimmed) {
+            return;
+        }
+        if dynamic_statement(trimmed, &lowercase) {
+            self.draft.set_partial();
+        }
+        let Some(lexemes) = lex(trimmed, self.input.home) else {
+            self.draft.set_partial();
+            return;
         };
-        if recursive && destructive && !what_if && !remove_item_shadowed {
-            let targets =
-                if program == "cmd" {
-                    strings
-                        .iter()
-                        .map(String::as_str)
-                        .chain(lowercase.split_ascii_whitespace().filter(|word| {
-                            matches!(*word, "/" | "\\" | "~") || *word == input.home
-                        }))
-                        .collect::<Vec<_>>()
-                } else {
-                    associated_remove_item_targets(&lowercase, &strings, &offsets)
-                };
-            if targets
-                .iter()
-                .any(|target| *target == "/" || *target == "\\")
-            {
-                report.push(Finding::exact(FindingKind::RootDestruction));
-            }
-            if targets.iter().any(|target| {
-                *target == input.home
-                    || matches!(
-                        target.to_ascii_lowercase().as_str(),
-                        "~" | "$home" | "$env:home"
-                    )
-            }) {
-                report.push(Finding::exact(FindingKind::HomeDestruction));
+        let mut segment = Vec::new();
+        for lexeme in lexemes {
+            if matches!(lexeme, Lexeme::Pipe) {
+                self.interpret_segment(&segment);
+                segment.clear();
+            } else {
+                segment.push(lexeme);
             }
         }
-        let invoke_expression_owned = command == "invoke-expression" && !invoke_expression_shadowed
-            || command == "iex" && !iex_shadowed;
-        if invoke_expression_owned
-            && static_strings == [true]
-            && let [code] = strings.as_slice()
-        {
-            report.extend(crate::analyze_at(
-                InlineInput { code, ..*input },
+        self.interpret_segment(&segment);
+    }
+
+    fn interpret_segment(&mut self, lexemes: &[Lexeme]) {
+        let mut words = Vec::new();
+        let mut index = 0;
+        while index < lexemes.len() {
+            match &lexemes[index] {
+                Lexeme::Word(token) => words.push(token.clone()),
+                Lexeme::Redirect => {
+                    let target = match lexemes.get(index + 1) {
+                        Some(Lexeme::Word(target)) => {
+                            index += 1;
+                            Some(target.clone())
+                        }
+                        _ => None,
+                    };
+                    if target
+                        .as_ref()
+                        .is_some_and(|target| target.exact && stream_merge(&target.value))
+                    {
+                        index += 1;
+                        continue;
+                    }
+                    let filesystem = target
+                        .as_ref()
+                        .map(|target| {
+                            self.filesystem(target, FilesystemOperation::Write, false, true)
+                        })
+                        .unwrap_or_else(|| {
+                            LanguageFilesystem::new(None, FilesystemOperation::Write, false)
+                        });
+                    self.emit(
+                        LanguageCallKind::DirectFile,
+                        "redirection",
+                        target.as_ref().into_iter(),
+                        vec![filesystem],
+                        None,
+                        target.as_ref().is_some_and(|target| target.exact),
+                    );
+                }
+                Lexeme::Pipe => unreachable!("pipeline is split before interpretation"),
+            }
+            index += 1;
+        }
+        let Some((first, remaining)) = words.split_first() else {
+            return;
+        };
+        if first.quoted && remaining.is_empty() {
+            return;
+        }
+        if !first.exact {
+            self.draft.set_partial();
+            return;
+        }
+        let (command, command_arguments) = if first.value == "&" {
+            let Some((command, arguments)) = remaining.split_first() else {
+                self.draft.set_partial();
+                return;
+            };
+            (command, arguments)
+        } else {
+            (first, remaining)
+        };
+        if !command.exact {
+            self.draft.set_partial();
+            return;
+        }
+        let raw_command = command.value.to_ascii_lowercase();
+        if self.shadowed.contains(&raw_command) {
+            self.draft.set_partial();
+            return;
+        }
+        match canonical_command(&raw_command) {
+            CanonicalCommand::RemoveItem => self.remove_item(command_arguments),
+            CanonicalCommand::MoveItem => self.move_item(command_arguments),
+            CanonicalCommand::GetContent => {
+                self.content_call("get-content", command_arguments, FilesystemOperation::Read)
+            }
+            CanonicalCommand::SetContent => {
+                self.content_call("set-content", command_arguments, FilesystemOperation::Write)
+            }
+            CanonicalCommand::AddContent => {
+                self.content_call("add-content", command_arguments, FilesystemOperation::Write)
+            }
+            CanonicalCommand::ClearContent => self.content_call(
+                "clear-content",
+                command_arguments,
+                FilesystemOperation::Write,
+            ),
+            CanonicalCommand::OutFile => self.out_file(command_arguments),
+            CanonicalCommand::InvokeWebRequest => {
+                self.web_request("invoke-webrequest", command_arguments, true)
+            }
+            CanonicalCommand::InvokeRestMethod => {
+                self.web_request("invoke-restmethod", command_arguments, true)
+            }
+            CanonicalCommand::CurlAlias => self.web_request(&raw_command, command_arguments, false),
+            CanonicalCommand::InvokeExpression => self.invoke_expression(command_arguments),
+            CanonicalCommand::StartProcess => self.start_process(command_arguments),
+            CanonicalCommand::NoEffect => self.emit(
+                LanguageCallKind::LocalUtility,
+                &raw_command,
+                command_arguments.iter(),
+                Vec::new(),
                 None,
-                depth + 1,
-            ));
+                command_arguments.iter().all(|token| token.exact),
+            ),
+            CanonicalCommand::External if exact_external(&command.value) => {
+                self.external(command, command_arguments)
+            }
+            CanonicalCommand::External => self.draft.set_partial(),
         }
-        add_static_powershell_child(&mut report, &lowercase, &strings, start_process_shadowed);
-        observe_powershell_shadows(
-            segment.source,
-            program,
-            &mut remove_item_shadowed,
-            &mut invoke_expression_shadowed,
-            &mut iex_shadowed,
-            &mut start_process_shadowed,
+    }
+
+    fn remove_item(&mut self, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, remove_parameter);
+        let what_if = switch_enabled(&arguments, "whatif");
+        let recurse = switch_enabled(&arguments, "recurse") || switch_enabled(&arguments, "r");
+        let (targets, literal) = path_targets(&arguments, true);
+        let filesystems = if what_if {
+            Vec::new()
+        } else {
+            targets
+                .iter()
+                .map(|target| {
+                    self.filesystem(target, FilesystemOperation::Delete, recurse, literal)
+                })
+                .collect()
+        };
+        self.emit(
+            LanguageCallKind::DirectFile,
+            "remove-item",
+            tokens.iter(),
+            filesystems,
+            None,
+            arguments.complete && (!targets.is_empty() || what_if),
         );
     }
-    super::common::with_protection(report, program, input, protection)
+
+    fn move_item(&mut self, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, move_parameter);
+        let what_if = switch_enabled(&arguments, "whatif");
+        let (sources, literal) = path_targets(&arguments, false);
+        let source = sources.first().copied();
+        let named_source = parameter_value(&arguments, &["path", "literalpath"]).is_some();
+        let destination = parameter_value(&arguments, &["destination"])
+            .or_else(|| arguments.positional.get(if named_source { 0 } else { 1 }));
+        let filesystems = if what_if {
+            Vec::new()
+        } else {
+            let mut filesystems = vec![source.map_or_else(
+                || LanguageFilesystem::new(None, FilesystemOperation::Delete, false),
+                |source| self.filesystem(source, FilesystemOperation::Delete, false, literal),
+            )];
+            filesystems.push(
+                destination
+                    .map_or_else(
+                        || LanguageFilesystem::new(None, FilesystemOperation::Write, false),
+                        |destination| {
+                            self.filesystem(destination, FilesystemOperation::Write, false, true)
+                        },
+                    )
+                    .identity(
+                        source
+                            .filter(|source| source.exact)
+                            .map(|source| source.value.clone()),
+                        false,
+                    )
+                    .protects_descendants()
+                    .without_final_symlink_follow(),
+            );
+            filesystems
+        };
+        self.emit(
+            LanguageCallKind::DirectFile,
+            "move-item",
+            tokens.iter(),
+            filesystems,
+            None,
+            arguments.complete && (source.is_some() && destination.is_some() || what_if),
+        );
+    }
+
+    fn content_call(&mut self, callable: &str, tokens: &[Token], operation: FilesystemOperation) {
+        let arguments = parse_arguments(tokens, content_parameter);
+        let what_if = switch_enabled(&arguments, "whatif");
+        let (targets, literal) = path_targets(&arguments, false);
+        let target = targets.first().copied();
+        let filesystems = if what_if {
+            Vec::new()
+        } else {
+            vec![target.map_or_else(
+                || LanguageFilesystem::new(None, operation, false),
+                |target| self.filesystem(target, operation, false, literal),
+            )]
+        };
+        self.emit(
+            LanguageCallKind::DirectFile,
+            callable,
+            tokens.iter(),
+            filesystems,
+            None,
+            arguments.complete && (target.is_some() || what_if),
+        );
+    }
+
+    fn out_file(&mut self, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, out_file_parameter);
+        let what_if = switch_enabled(&arguments, "whatif");
+        let target =
+            parameter_value(&arguments, &["filepath"]).or_else(|| arguments.positional.first());
+        let filesystems = if what_if {
+            Vec::new()
+        } else {
+            vec![target.map_or_else(
+                || LanguageFilesystem::new(None, FilesystemOperation::Write, false),
+                |target| self.filesystem(target, FilesystemOperation::Write, false, true),
+            )]
+        };
+        self.emit(
+            LanguageCallKind::DirectFile,
+            "out-file",
+            tokens.iter(),
+            filesystems,
+            None,
+            arguments.complete && (target.is_some() || what_if),
+        );
+    }
+
+    fn web_request(&mut self, callable: &str, tokens: &[Token], resolved_cmdlet: bool) {
+        let arguments = parse_arguments(tokens, web_parameter);
+        let endpoint = parameter_value(&arguments, &["uri"])
+            .or_else(|| arguments.positional.first())
+            .filter(|token| token.exact)
+            .map(|token| token.value.clone());
+        let filesystems = if resolved_cmdlet {
+            parameter_value(&arguments, &["outfile"])
+                .map(|target| {
+                    vec![self.filesystem(target, FilesystemOperation::Write, false, true)]
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.emit(
+            LanguageCallKind::NetworkTransfer,
+            callable,
+            tokens.iter(),
+            filesystems,
+            endpoint,
+            resolved_cmdlet && arguments.complete,
+        );
+    }
+
+    fn invoke_expression(&mut self, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, invoke_expression_parameter);
+        let code = parameter_value(&arguments, &["command"])
+            .or_else(|| arguments.positional.first())
+            .filter(|code| code.exact);
+        self.emit(
+            LanguageCallKind::EvaluatedShell,
+            "invoke-expression",
+            tokens.iter(),
+            Vec::new(),
+            None,
+            arguments.complete && code.is_some(),
+        );
+        let Some(code) = code else {
+            self.draft.set_partial();
+            return;
+        };
+        let nested = crate::interpret_language_effects_at(
+            InlineInput {
+                code: &code.value,
+                ..self.input
+            },
+            self.protection,
+            self.depth + 1,
+        );
+        let (report, draft) = nested.into_parts();
+        self.report.extend(report);
+        self.draft.extend(draft);
+    }
+
+    fn start_process(&mut self, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, start_process_parameter);
+        let simulated = switch_enabled(&arguments, "whatif");
+        let supported = arguments
+            .parameters
+            .iter()
+            .all(|parameter| matches!(parameter.name.as_str(), "filepath" | "argumentlist"));
+        let program =
+            parameter_value(&arguments, &["filepath"]).or_else(|| arguments.positional.first());
+        let mut argv = Vec::new();
+        if let Some(program) = program.filter(|program| program.exact) {
+            argv.push(program.value.clone());
+            if let Some(argument) =
+                parameter_value(&arguments, &["argumentlist"]).filter(|argument| argument.exact)
+            {
+                argv.push(argument.value.clone());
+            }
+        }
+        let complete = arguments.complete && supported && !argv.is_empty();
+        self.emit(
+            LanguageCallKind::LocalUtility,
+            "start-process",
+            tokens.iter(),
+            Vec::new(),
+            None,
+            complete,
+        );
+        if complete && !simulated {
+            add_exact_argv(&mut self.report, argv);
+        }
+    }
+
+    fn external(&mut self, command: &Token, arguments: &[Token]) {
+        let complete = command.exact && arguments.iter().all(|argument| argument.exact);
+        self.emit(
+            LanguageCallKind::LocalUtility,
+            &command.value,
+            arguments.iter(),
+            Vec::new(),
+            None,
+            complete,
+        );
+        if complete {
+            add_exact_argv(
+                &mut self.report,
+                std::iter::once(command.value.clone())
+                    .chain(arguments.iter().map(|argument| argument.value.clone()))
+                    .collect(),
+            );
+        }
+    }
+
+    fn interpret_webclient(&mut self, statement: &str) -> bool {
+        let lowercase = statement.to_ascii_lowercase();
+        if !lowercase.contains("system.net.webclient") && !lowercase.contains("net.webclient") {
+            return false;
+        }
+        let methods = [
+            (".downloadfile(", "webclient.downloadfile", true),
+            (".downloadstring(", "webclient.downloadstring", false),
+            (".downloaddata(", "webclient.downloaddata", false),
+            (".openread(", "webclient.openread", false),
+        ];
+        let Some((method_offset, needle, callable, writes_file)) =
+            methods.iter().find_map(|(needle, callable, writes_file)| {
+                lowercase
+                    .find(needle)
+                    .map(|offset| (offset, *needle, *callable, *writes_file))
+            })
+        else {
+            self.draft.set_partial();
+            return true;
+        };
+        let receiver = lowercase[..method_offset]
+            .split_ascii_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !reviewed_webclient_receiver(receiver.trim()) {
+            self.draft.set_partial();
+            return true;
+        }
+        let offset = method_offset + needle.len();
+        let Some(end) = matching_parenthesis(statement, offset) else {
+            self.draft.set_partial();
+            return true;
+        };
+        if !statement[end + 1..].trim().is_empty() {
+            self.draft.set_partial();
+            return true;
+        }
+        let Some(lexemes) = lex(&statement[offset..end], self.input.home) else {
+            self.draft.set_partial();
+            return true;
+        };
+        let arguments = lexemes
+            .into_iter()
+            .filter_map(|lexeme| match lexeme {
+                Lexeme::Word(token) => Some(token),
+                Lexeme::Pipe | Lexeme::Redirect => None,
+            })
+            .collect::<Vec<_>>();
+        let endpoint = arguments
+            .first()
+            .filter(|argument| argument.exact)
+            .map(|argument| argument.value.clone());
+        let filesystems = if writes_file {
+            vec![arguments.get(1).map_or_else(
+                || LanguageFilesystem::new(None, FilesystemOperation::Write, false),
+                |target| self.filesystem(target, FilesystemOperation::Write, false, true),
+            )]
+        } else {
+            Vec::new()
+        };
+        let complete = arguments.len() == if writes_file { 2 } else { 1 }
+            && arguments.iter().all(|argument| argument.exact)
+            && endpoint.is_some()
+            && (!writes_file || arguments.get(1).is_some());
+        self.emit(
+            LanguageCallKind::NetworkTransfer,
+            callable,
+            arguments.iter(),
+            filesystems,
+            endpoint,
+            complete,
+        );
+        true
+    }
+
+    fn filesystem(
+        &mut self,
+        token: &Token,
+        operation: FilesystemOperation,
+        recursive: bool,
+        literal: bool,
+    ) -> LanguageFilesystem {
+        let requested = token.exact.then(|| token.value.clone());
+        if operation == FilesystemOperation::Delete && recursive {
+            if requested.as_deref().is_some_and(windows_or_posix_root) {
+                self.report
+                    .push(Finding::exact(FindingKind::RootDestruction));
+            }
+            if requested
+                .as_deref()
+                .is_some_and(|requested| requested.eq_ignore_ascii_case(self.input.home))
+            {
+                self.report
+                    .push(Finding::exact(FindingKind::HomeDestruction));
+            }
+        }
+        LanguageFilesystem::new(requested, operation, recursive)
+            .pattern_if(!literal && token.exact && path_pattern(&token.value))
+    }
+
+    fn emit<'t>(
+        &mut self,
+        kind: LanguageCallKind,
+        callable: &str,
+        arguments: impl Iterator<Item = &'t Token>,
+        filesystems: Vec<LanguageFilesystem>,
+        endpoint: Option<String>,
+        mut complete: bool,
+    ) {
+        let arguments = arguments.collect::<Vec<_>>();
+        complete &= arguments.iter().all(|argument| argument.exact)
+            && filesystems
+                .iter()
+                .all(|filesystem| filesystem.requested().is_some())
+            && (kind != LanguageCallKind::NetworkTransfer || endpoint.is_some());
+        if !complete {
+            self.draft.set_partial();
+        }
+        let input = InvocationInput::native(
+            json!({
+                "v": 1,
+                "language": "powershell",
+                "dialect": self.program,
+                "callable": callable,
+                "argv": arguments
+                    .iter()
+                    .map(|argument| argument.exact.then(|| argument.value.clone()))
+                    .collect::<Vec<_>>(),
+            }),
+            complete,
+        );
+        self.draft.push_call(LanguageCall::new(
+            kind,
+            input,
+            filesystems,
+            endpoint,
+            0,
+            Vec::new(),
+        ));
+    }
 }
 
-fn add_static_powershell_child(
-    report: &mut InlineReport,
-    outside: &str,
-    strings: &[String],
-    start_process_shadowed: bool,
-) {
-    let words = outside.split_ascii_whitespace().collect::<Vec<_>>();
-    if words.as_slice() == ["&", "nah", "nap"] && strings.is_empty() {
-        add_exact_argv(report, vec!["nah".into(), "nap".into()]);
-        return;
-    }
-    if words.as_slice() == ["&"]
-        && matches!(strings, [program, argument] if program.eq_ignore_ascii_case("nah") && argument.eq_ignore_ascii_case("nap"))
-    {
-        add_exact_argv(report, vec!["nah".into(), "nap".into()]);
-        return;
-    }
-    if !start_process_shadowed
-        && words.as_slice() == ["start-process", "nah", "-argumentlist", "nap"]
-        && strings.is_empty()
-    {
-        add_exact_argv(report, vec!["nah".into(), "nap".into()]);
+#[derive(Clone, Copy)]
+enum CanonicalCommand {
+    RemoveItem,
+    MoveItem,
+    GetContent,
+    SetContent,
+    AddContent,
+    ClearContent,
+    OutFile,
+    InvokeWebRequest,
+    InvokeRestMethod,
+    CurlAlias,
+    InvokeExpression,
+    StartProcess,
+    NoEffect,
+    External,
+}
+
+fn canonical_command(command: &str) -> CanonicalCommand {
+    match command {
+        "remove-item" | "ri" | "rm" | "rmdir" | "del" | "erase" | "rd" => {
+            CanonicalCommand::RemoveItem
+        }
+        "move-item" | "mi" | "mv" | "move" => CanonicalCommand::MoveItem,
+        "get-content" | "gc" | "cat" | "type" => CanonicalCommand::GetContent,
+        "set-content" | "sc" => CanonicalCommand::SetContent,
+        "add-content" | "ac" => CanonicalCommand::AddContent,
+        "clear-content" | "clc" => CanonicalCommand::ClearContent,
+        "out-file" => CanonicalCommand::OutFile,
+        "invoke-webrequest" | "iwr" => CanonicalCommand::InvokeWebRequest,
+        "invoke-restmethod" | "irm" => CanonicalCommand::InvokeRestMethod,
+        "curl" | "wget" => CanonicalCommand::CurlAlias,
+        "invoke-expression" | "iex" => CanonicalCommand::InvokeExpression,
+        "start-process" | "saps" | "start" => CanonicalCommand::StartProcess,
+        "write-output" | "echo" | "write-host" => CanonicalCommand::NoEffect,
+        _ => CanonicalCommand::External,
     }
 }
 
-fn observe_powershell_shadows(
-    source: &str,
-    program: &str,
-    remove_item: &mut bool,
-    invoke_expression: &mut bool,
-    iex: &mut bool,
-    start_process: &mut bool,
-) {
-    for (shadowed, name) in [
-        (remove_item, "remove-item"),
-        (invoke_expression, "invoke-expression"),
-        (iex, "iex"),
-        (start_process, "start-process"),
-    ] {
-        observe_shadow(shadowed, source, program, name);
-    }
-}
-
-enum PowerShellToken<'a> {
-    Word(&'a str),
-    Literal(&'a str),
-}
-
-fn associated_remove_item_targets<'a>(
-    outside: &'a str,
-    strings: &'a [String],
-    offsets: &[usize],
-) -> Vec<&'a str> {
-    let mut tokens = Vec::new();
-    let bytes = outside.as_bytes();
+fn statements(code: &str) -> Vec<&str> {
+    let bytes = code.as_bytes();
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut depth = 0usize;
     let mut index = 0;
     while index < bytes.len() {
-        while bytes.get(index).is_some_and(u8::is_ascii_whitespace) {
+        if let Some(active) = quote {
+            if bytes[index] == b'`' && index + 1 < bytes.len() {
+                index += 2;
+                continue;
+            }
+            if bytes[index] == active {
+                if active == b'\'' && bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                quote = None;
+            }
             index += 1;
+            continue;
         }
-        let start = index;
+        match bytes[index] {
+            b'\'' | b'"' => quote = Some(bytes[index]),
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b';' | b'\n' if depth == 0 => {
+                result.push(&code[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    result.push(&code[start..]);
+    result
+}
+
+fn strip_comments(code: &str) -> (String, bool) {
+    let bytes = code.as_bytes();
+    let mut output = String::with_capacity(code.len());
+    let mut quote = None;
+    let mut block = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        if block {
+            if bytes[index..].starts_with(b"#>") {
+                output.push_str("  ");
+                index += 2;
+                block = false;
+            } else {
+                output.push(if bytes[index] == b'\n' { '\n' } else { ' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if let Some(active) = quote {
+            if bytes[index] == b'`' && index + 1 < bytes.len() {
+                output.push('`');
+                index += 1;
+                let character = code[index..]
+                    .chars()
+                    .next()
+                    .expect("index is inside the source");
+                output.push(character);
+                index += character.len_utf8();
+                continue;
+            }
+            if bytes[index] == active {
+                quote = None;
+            }
+            let character = code[index..]
+                .chars()
+                .next()
+                .expect("index is inside the source");
+            output.push(character);
+            index += character.len_utf8();
+            continue;
+        }
+        if bytes[index..].starts_with(b"<#") {
+            output.push_str("  ");
+            index += 2;
+            block = true;
+            continue;
+        }
+        if bytes[index] == b'#' {
+            while index < bytes.len() && bytes[index] != b'\n' {
+                output.push(' ');
+                index += 1;
+            }
+            continue;
+        }
+        if matches!(bytes[index], b'\'' | b'"') {
+            quote = Some(bytes[index]);
+        }
+        let character = code[index..]
+            .chars()
+            .next()
+            .expect("index is inside the source");
+        output.push(character);
+        index += character.len_utf8();
+    }
+    (output, !block)
+}
+
+fn lex(source: &str, home: &str) -> Option<Vec<Lexeme>> {
+    let bytes = source.as_bytes();
+    let mut lexemes = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
         while bytes
             .get(index)
-            .is_some_and(|byte| !byte.is_ascii_whitespace())
+            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b',')
         {
             index += 1;
         }
-        if start < index {
-            tokens.push((start, PowerShellToken::Word(&outside[start..index])));
+        let Some(byte) = bytes.get(index).copied() else {
+            break;
+        };
+        if byte == b'#' {
+            break;
         }
-    }
-    tokens.extend(
-        strings
-            .iter()
-            .zip(offsets)
-            .map(|(value, offset)| (*offset, PowerShellToken::Literal(value))),
-    );
-    tokens.sort_by_key(|(offset, _)| *offset);
-
-    enum Association {
-        Positional,
-        Path,
-        Other,
-    }
-    let mut association = Association::Positional;
-    let mut command_seen = false;
-    let mut targets = Vec::new();
-    for (_, token) in tokens {
-        match token {
-            PowerShellToken::Word(word) => {
-                let word = word.trim_matches([',', ';', '(', ')']);
-                if word.is_empty() {
+        if byte == b'|' {
+            if bytes.get(index + 1) == Some(&b'|') {
+                return None;
+            }
+            lexemes.push(Lexeme::Pipe);
+            index += 1;
+            continue;
+        }
+        if byte == b'>' || redirect_prefix(bytes, index) {
+            if byte != b'>' {
+                index += 1;
+            }
+            index += 1;
+            if bytes.get(index) == Some(&b'>') {
+                index += 1;
+            }
+            lexemes.push(Lexeme::Redirect);
+            continue;
+        }
+        let mut value = String::new();
+        let mut exact = true;
+        let mut quoted = false;
+        let mut quote = None;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if let Some(active) = quote {
+                if byte == b'`' && index + 1 < bytes.len() {
+                    value.push(bytes[index + 1] as char);
+                    index += 2;
                     continue;
                 }
-                if !command_seen {
-                    command_seen = true;
+                if byte == active {
+                    if active == b'\'' && bytes.get(index + 1) == Some(&b'\'') {
+                        value.push('\'');
+                        index += 2;
+                        continue;
+                    }
+                    quote = None;
+                    index += 1;
                     continue;
                 }
-                if word.starts_with('-') {
-                    let parameter = word.split(':').next().unwrap_or(word);
-                    association = if matches!(parameter, "-path" | "-literalpath") {
-                        Association::Path
-                    } else if matches!(
-                        parameter,
-                        "-recurse"
-                            | "-r"
-                            | "-force"
-                            | "-whatif"
-                            | "-confirm"
-                            | "-verbose"
-                            | "-debug"
-                    ) {
-                        Association::Positional
-                    } else {
-                        Association::Other
-                    };
-                } else if matches!(association, Association::Other) {
-                    association = Association::Positional;
+                if active == b'"' && byte == b'$' {
+                    exact = false;
+                }
+                let character = source[index..].chars().next()?;
+                value.push(character);
+                index += character.len_utf8();
+                continue;
+            }
+            match byte {
+                b'\'' | b'"' => {
+                    quoted = true;
+                    quote = Some(byte);
+                    index += 1;
+                }
+                b'`' if index + 1 < bytes.len() => {
+                    value.push(bytes[index + 1] as char);
+                    index += 2;
+                }
+                b'#' | b'|' | b'>' | b',' => break,
+                byte if byte.is_ascii_whitespace() => break,
+                _ => {
+                    let character = source[index..].chars().next()?;
+                    value.push(character);
+                    index += character.len_utf8();
                 }
             }
-            PowerShellToken::Literal(value) => match association {
-                Association::Positional | Association::Path => targets.push(value),
-                Association::Other => association = Association::Positional,
-            },
+        }
+        if quote.is_some() {
+            return None;
+        }
+        if let Some(resolved) = resolve_home_reference(&value, home) {
+            value = resolved;
+            exact = true;
+        } else if value.contains('$') && !static_boolean_parameter(&value) || value.starts_with('@')
+        {
+            exact = false;
+        }
+        if !value.is_empty() {
+            lexemes.push(Lexeme::Word(Token {
+                value,
+                exact,
+                quoted,
+            }));
+        }
+        if bytes.get(index) == Some(&b'#') {
+            break;
         }
     }
-    targets
+    Some(lexemes)
+}
+
+fn redirect_prefix(bytes: &[u8], index: usize) -> bool {
+    bytes
+        .get(index)
+        .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'*')
+        && bytes.get(index + 1) == Some(&b'>')
+}
+
+fn stream_merge(target: &str) -> bool {
+    target
+        .strip_prefix('&')
+        .is_some_and(|stream| stream.len() == 1 && stream.as_bytes()[0].is_ascii_digit())
+}
+
+fn resolve_home_reference(value: &str, home: &str) -> Option<String> {
+    ["${home}", "$env:userprofile", "$home"]
+        .into_iter()
+        .find_map(|prefix| {
+            let head = value.get(..prefix.len())?;
+            head.eq_ignore_ascii_case(prefix)
+                .then(|| format!("{home}{}", &value[prefix.len()..]))
+        })
+        .filter(|resolved| !resolved[home.len()..].contains('$'))
+}
+
+fn static_boolean_parameter(value: &str) -> bool {
+    value
+        .split_once(':')
+        .is_some_and(|(_, value)| matches!(value.to_ascii_lowercase().as_str(), "$true" | "$false"))
+}
+
+fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -> Arguments {
+    let mut parsed = Arguments {
+        complete: true,
+        ..Arguments::default()
+    };
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = &tokens[index];
+        if token.exact
+            && let Some(parameter) = token.value.strip_prefix('-')
+            && !parameter.is_empty()
+        {
+            let (name, attached) = parameter
+                .split_once(':')
+                .map_or((parameter, None), |(name, value)| {
+                    (name, Some(value.to_owned()))
+                });
+            let name = name.to_ascii_lowercase();
+            match parameter_kind(&name) {
+                Some(true) => parsed.parameters.push(Parameter {
+                    name,
+                    value: None,
+                    attached,
+                }),
+                Some(false) => {
+                    let value = attached
+                        .as_ref()
+                        .map(|value| Token {
+                            value: value.clone(),
+                            exact: !value.contains('$'),
+                            quoted: false,
+                        })
+                        .or_else(|| {
+                            let value = tokens.get(index + 1)?;
+                            index += 1;
+                            Some(value.clone())
+                        });
+                    parsed.complete &= value.is_some();
+                    parsed.parameters.push(Parameter {
+                        name,
+                        value,
+                        attached,
+                    });
+                }
+                None => {
+                    parsed.complete = false;
+                    if tokens
+                        .get(index + 1)
+                        .is_some_and(|next| !next.value.starts_with('-'))
+                    {
+                        index += 1;
+                    }
+                }
+            }
+        } else {
+            parsed.complete &= token.exact;
+            parsed.positional.push(token.clone());
+        }
+        index += 1;
+    }
+    parsed
+}
+
+fn remove_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &[
+            "recurse", "r", "force", "whatif", "confirm", "verbose", "debug",
+        ],
+        &[
+            "path",
+            "literalpath",
+            "filter",
+            "include",
+            "exclude",
+            "erroraction",
+        ],
+    )
+}
+
+fn move_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &["force", "whatif", "confirm", "verbose", "debug"],
+        &[
+            "path",
+            "literalpath",
+            "destination",
+            "filter",
+            "include",
+            "exclude",
+            "erroraction",
+        ],
+    )
+}
+
+fn content_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &[
+            "force",
+            "whatif",
+            "confirm",
+            "raw",
+            "tail",
+            "wait",
+            "nonewline",
+            "passthru",
+            "verbose",
+            "debug",
+        ],
+        &[
+            "path",
+            "literalpath",
+            "value",
+            "filter",
+            "include",
+            "exclude",
+            "encoding",
+            "erroraction",
+            "totalcount",
+            "readcount",
+            "delimiter",
+        ],
+    )
+}
+
+fn out_file_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &[
+            "append",
+            "force",
+            "nonewline",
+            "noclobber",
+            "whatif",
+            "confirm",
+            "verbose",
+            "debug",
+        ],
+        &[
+            "filepath",
+            "encoding",
+            "width",
+            "inputobject",
+            "erroraction",
+        ],
+    )
+}
+
+fn web_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &[
+            "usebasicparsing",
+            "disablekeepalive",
+            "skipcertificatecheck",
+            "skipheadervalidation",
+            "preserveauthorizationonredirect",
+            "resume",
+            "passthru",
+            "verbose",
+            "debug",
+        ],
+        &[
+            "uri",
+            "outfile",
+            "method",
+            "headers",
+            "body",
+            "contenttype",
+            "credential",
+            "timeoutsec",
+            "maximumredirection",
+            "useragent",
+            "websession",
+            "sessionvariable",
+            "proxy",
+            "proxycredential",
+            "erroraction",
+        ],
+    )
+}
+
+fn invoke_expression_parameter(name: &str) -> Option<bool> {
+    parameter(name, &[], &["command"])
+}
+
+fn start_process_parameter(name: &str) -> Option<bool> {
+    parameter(
+        name,
+        &[
+            "nonewwindow",
+            "wait",
+            "passthru",
+            "loaduserprofile",
+            "whatif",
+            "confirm",
+        ],
+        &[
+            "filepath",
+            "argumentlist",
+            "workingdirectory",
+            "verb",
+            "windowstyle",
+            "erroraction",
+        ],
+    )
+}
+
+fn parameter(name: &str, switches: &[&str], values: &[&str]) -> Option<bool> {
+    if switches.contains(&name) {
+        Some(true)
+    } else if values.contains(&name) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn parameter_value<'a>(arguments: &'a Arguments, names: &[&str]) -> Option<&'a Token> {
+    arguments
+        .parameters
+        .iter()
+        .find(|parameter| names.contains(&parameter.name.as_str()))
+        .and_then(|parameter| parameter.value.as_ref())
+}
+
+fn path_targets(arguments: &Arguments, all_positionals: bool) -> (Vec<&Token>, bool) {
+    if let Some(value) = parameter_value(arguments, &["literalpath"]) {
+        return (vec![value], true);
+    }
+    if let Some(value) = parameter_value(arguments, &["path"]) {
+        return (vec![value], false);
+    }
+    let targets = if all_positionals {
+        arguments.positional.iter().collect()
+    } else {
+        arguments.positional.first().into_iter().collect()
+    };
+    (targets, false)
+}
+
+fn switch_enabled(arguments: &Arguments, name: &str) -> bool {
+    arguments.parameters.iter().any(|parameter| {
+        parameter.name == name
+            && parameter
+                .attached
+                .as_deref()
+                .is_none_or(|value| !value.eq_ignore_ascii_case("$false"))
+    })
+}
+
+fn dynamic_statement(source: &str, lowercase: &str) -> bool {
+    source.contains("$(")
+        || source.contains("@(")
+        || source.contains("@{")
+        || source.contains("&&")
+        || source.contains("||")
+        || source.contains(['{', '}'])
+        || lowercase
+            .split_ascii_whitespace()
+            .next()
+            .is_some_and(|command| {
+                matches!(
+                    command,
+                    "if" | "elseif"
+                        | "else"
+                        | "foreach"
+                        | "for"
+                        | "while"
+                        | "switch"
+                        | "try"
+                        | "catch"
+                        | "finally"
+                        | "trap"
+                        | "do"
+                        | "class"
+                )
+            })
+        || source.trim_start().starts_with('$') && source.contains('=')
+        || source.contains("::") && !lowercase.contains("system.net.webclient")
+        || lowercase.contains("new-object") && !lowercase.contains("webclient")
+}
+
+fn definition_or_resolution_mutation(lowercase: &str) -> bool {
+    let trimmed = lowercase.trim_start();
+    trimmed.starts_with("function ")
+        || trimmed.starts_with("filter ")
+        || trimmed.starts_with("set-alias ")
+        || trimmed.starts_with("new-alias ")
+        || trimmed.starts_with("remove-item ") && trimmed.contains("alias:")
+}
+
+fn shadowed_commands(code: &str, home: &str) -> BTreeSet<String> {
+    let mut shadowed = BTreeSet::new();
+    for statement in statements(code) {
+        let Some(lexemes) = lex(statement, home) else {
+            continue;
+        };
+        let words = lexemes
+            .into_iter()
+            .filter_map(|lexeme| match lexeme {
+                Lexeme::Word(token) => Some(token.value.to_ascii_lowercase()),
+                Lexeme::Pipe | Lexeme::Redirect => None,
+            })
+            .collect::<Vec<_>>();
+        if words.first().is_some_and(|word| word == "remove-item") {
+            shadowed.extend(words[1..].iter().filter_map(|word| {
+                word.strip_prefix("alias:")
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+            }));
+        }
+        match words.as_slice() {
+            [kind, name, ..] if matches!(kind.as_str(), "function" | "filter") => {
+                shadowed.insert(name.trim_matches(['{', '}']).to_owned());
+            }
+            [kind, flag, name, ..]
+                if matches!(kind.as_str(), "set-alias" | "new-alias")
+                    && flag.eq_ignore_ascii_case("-name") =>
+            {
+                shadowed.insert(name.clone());
+            }
+            [kind, name, ..] if matches!(kind.as_str(), "set-alias" | "new-alias") => {
+                shadowed.insert(name.clone());
+            }
+            _ => {}
+        }
+    }
+    shadowed
+        .into_iter()
+        .flat_map(|name| {
+            let canonical = canonical_command(&name);
+            std::iter::once(name).chain(command_names(canonical).map(str::to_owned))
+        })
+        .collect()
+}
+
+fn reviewed_webclient_receiver(receiver: &str) -> bool {
+    matches!(
+        receiver,
+        "(new-object system.net.webclient)"
+            | "(new-object net.webclient)"
+            | "(new-object -typename system.net.webclient)"
+            | "(new-object -typename net.webclient)"
+            | "[system.net.webclient]::new()"
+            | "[net.webclient]::new()"
+    )
+}
+
+fn command_names(command: CanonicalCommand) -> impl Iterator<Item = &'static str> {
+    let names: &[&str] = match command {
+        CanonicalCommand::RemoveItem => &["remove-item", "ri", "rm", "rmdir", "del", "erase", "rd"],
+        CanonicalCommand::MoveItem => &["move-item", "mi", "mv", "move"],
+        CanonicalCommand::GetContent => &["get-content", "gc", "cat", "type"],
+        CanonicalCommand::SetContent => &["set-content", "sc"],
+        CanonicalCommand::AddContent => &["add-content", "ac"],
+        CanonicalCommand::ClearContent => &["clear-content", "clc"],
+        CanonicalCommand::InvokeWebRequest => &["invoke-webrequest", "iwr"],
+        CanonicalCommand::InvokeRestMethod => &["invoke-restmethod", "irm"],
+        CanonicalCommand::InvokeExpression => &["invoke-expression", "iex"],
+        CanonicalCommand::StartProcess => &["start-process", "saps", "start"],
+        _ => &[],
+    };
+    names.iter().copied()
+}
+
+fn exact_external(command: &str) -> bool {
+    let lowercase = command.to_ascii_lowercase();
+    [".exe", ".com"]
+        .iter()
+        .any(|suffix| lowercase.ends_with(suffix))
+        || lowercase.contains(['/', '\\'])
+        || matches!(
+            lowercase.as_str(),
+            "git" | "nah" | "cmd" | "powershell" | "pwsh"
+        )
+}
+
+fn path_pattern(path: &str) -> bool {
+    path.contains(['*', '?', '['])
+}
+
+fn windows_or_posix_root(path: &str) -> bool {
+    let path = path.trim_end_matches(['/', '\\']);
+    path.is_empty()
+        || path.len() == 2 && path.as_bytes()[0].is_ascii_alphabetic() && path.as_bytes()[1] == b':'
+}
+
+fn matching_parenthesis(source: &str, arguments_start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 1usize;
+    let mut quote = None;
+    let mut index = arguments_start;
+    while index < bytes.len() {
+        if let Some(active) = quote {
+            if bytes[index] == b'`' && index + 1 < bytes.len() {
+                index += 2;
+                continue;
+            }
+            if bytes[index] == active {
+                quote = None;
+            }
+        } else {
+            match bytes[index] {
+                b'\'' | b'"' => quote = Some(bytes[index]),
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nah_proto::ctx::Platform;
 
-    fn report(code: &str) -> InlineReport {
-        analyze(
-            "pwsh",
+    fn analysis(program: &str, code: &str) -> LanguageAnalysis {
+        interpret_effects(
+            program,
             &InlineInput {
-                program: "pwsh",
+                program,
                 code,
-                home: "/home/dev",
-                platform: nah_proto::ctx::Platform::Linux,
+                home: r"C:\Users\test",
+                platform: Platform::Windows,
             },
             None,
             0,
@@ -248,49 +1326,26 @@ mod tests {
     }
 
     #[test]
-    fn powershell_command_replacements_remove_builtin_ownership() {
-        let nested = "Remove-Item -Recurse '/'";
+    fn filters_do_not_consume_remove_item_targets() {
+        let analysis = analysis("pwsh", "Remove-Item -Filter '/' -Recurse 'safe'");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some("safe")
+        );
         assert!(
-            report(&format!("Invoke-Expression \"{nested}\""))
+            !analysis
+                .report()
                 .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            !report(&format!(
-                "function Invoke-Expression {{}}\nInvoke-Expression \"{nested}\""
-            ))
-            .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            !report(&format!("function iex {{}}\niex \"{nested}\""))
-                .contains_exact(FindingKind::RootDestruction)
-        );
-        assert!(
-            report("function Start-Process {}\nStart-Process nah -ArgumentList nap")
-                .nested_executions()
-                .is_empty()
         );
     }
 
     #[test]
-    fn remove_item_uses_only_path_parameters_and_positional_targets() {
-        for source in [
-            "Remove-Item -Recurse '/'",
-            "Remove-Item -Path '/' -Recurse",
-            "Remove-Item -LiteralPath '/' -Recurse",
-        ] {
-            assert!(
-                report(source).contains_exact(FindingKind::RootDestruction),
-                "{source}"
-            );
-        }
-        for source in [
-            "Remove-Item -Filter '/' -Recurse 'safe'",
-            "Remove-Item -ErrorAction '/' -Recurse 'safe'",
-        ] {
-            assert!(
-                !report(source).contains_exact(FindingKind::RootDestruction),
-                "{source}"
-            );
-        }
+    fn user_functions_remove_builtin_ownership() {
+        let analysis = analysis(
+            "pwsh",
+            r"function Remove-Item {}; Remove-Item -Recurse 'C:\'",
+        );
+        assert!(analysis.draft().calls().is_empty());
+        assert!(!analysis.draft().complete());
     }
 }

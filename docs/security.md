@@ -61,6 +61,11 @@ redirects, archives, links, and transfers. Opaque behavior and prior provenance
 remain boundaries. Unresolved or bounded analysis is partial; uncertainty alone
 does not block. Recognized danger still reaches guards. See `nah docs guards`.
 
+PowerShell and cmd use static lowering. Reviewed operations and exact
+argv emit typed effects; unproven language behavior stays partial. `powershell`
+and `pwsh` remain distinct; ambiguous `curl` or `wget` aliases never invent
+writes.
+
 ## Trust and configuration
 
 nah blocks understood agent attempts to trust or untrust projects, change guard

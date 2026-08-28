@@ -215,6 +215,15 @@ pub(crate) fn finalize(
                     }
                     None => return None,
                 };
+                if filesystem.file_only
+                    && matches!(
+                        path.kind(),
+                        PathKind::Directory | PathKind::Symlink | PathKind::Fifo | PathKind::Other
+                    )
+                {
+                    complete = false;
+                    continue;
+                }
                 if filesystem.read_if_existing_file {
                     match path.kind() {
                         PathKind::File => {}

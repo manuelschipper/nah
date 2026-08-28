@@ -56,6 +56,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     protects_descendants: false,
                     follows_final_symlink: true,
                     read_if_existing_file: false,
+                    file_only: false,
                     pattern: false,
                 }],
                 root_move_destination_key: None,

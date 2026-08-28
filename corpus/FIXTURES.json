@@ -14,10 +14,25 @@
       "home": "/home/test",
       "platform": "linux",
       "trust": []
+    },
+    "default-windows-v1": {
+      "shipped_guards": "all-enabled",
+      "extensions": [],
+      "home": "C:\\Users\\test",
+      "platform": "windows",
+      "trust": []
+    },
+    "factory-windows-v1": {
+      "shipped_guards": "factory-defaults",
+      "extensions": [],
+      "home": "C:\\Users\\test",
+      "platform": "windows",
+      "trust": []
     }
   },
   "observation_fixtures": {
     "project-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/outside",
       "env": {},
       "paths": [
@@ -48,6 +63,7 @@
       ]
     },
     "project-root-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -92,6 +108,7 @@
       ]
     },
     "composition-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/outside",
       "env": {},
       "paths": [
@@ -318,6 +335,7 @@
       ]
     },
     "filesystem-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -718,6 +736,7 @@
       ]
     },
     "git-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -859,6 +878,7 @@
       ]
     },
     "git-subdir-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project/src",
       "env": {},
       "paths": [
@@ -899,6 +919,7 @@
       ]
     },
     "secrets-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -1545,6 +1566,7 @@
       ]
     },
     "local-utilities-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -1599,6 +1621,7 @@
       ]
     },
     "project-operations-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -1682,6 +1705,7 @@
       ]
     },
     "self-protection-linux-v1": {
+      "platform": "linux",
       "cwd": "/workspace/project",
       "env": {},
       "paths": [
@@ -2106,6 +2130,44 @@
         {
           "kind": "project",
           "path": "/workspace/project"
+        }
+      ]
+    },
+    "project-windows-v1": {
+      "platform": "windows",
+      "cwd": "C:\\workspace\\outside",
+      "env": {},
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\Users\\test",
+          "requested": "C:\\Users\\test",
+          "resolved": "C:\\Users\\test"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:\\payload",
+          "resolved": "C:\\payload"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:\\safe",
+          "resolved": "C:\\safe"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:\\workspace\\outside\\payload",
+          "resolved": "C:\\workspace\\outside\\payload"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "C:\\workspace\\project"
         }
       ]
     }
