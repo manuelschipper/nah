@@ -5,7 +5,6 @@ use nah_proto::decision::Verdict;
 
 #[cfg(test)]
 use crate::catalog;
-use crate::catalog::GuardFamily;
 use crate::commands::{
     GuardChange, GuardEntry, GuardProposals, GuardSource, GuardStatus, GuardTarget, RuntimeEntry,
     RuntimeHookStatus, TrustedProject, apply_guard_change, guard_entries, guard_proposals,
@@ -46,159 +45,28 @@ pub(crate) enum MessageKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GuardFamilyFilter {
-    All,
-    Execution,
-    Filesystem,
-    Git,
-    Secrets,
-    Custom,
+pub(crate) enum GuardView {
+    Type,
+    State,
+    Project,
 }
 
-impl GuardFamilyFilter {
+impl GuardView {
     pub(crate) const fn name(self) -> &'static str {
         match self {
-            Self::All => "all",
-            Self::Execution => "execution",
-            Self::Filesystem => "filesystem",
-            Self::Git => "git",
-            Self::Secrets => "secrets",
-            Self::Custom => "custom",
+            Self::Type => "Type",
+            Self::State => "State",
+            Self::Project => "Project",
         }
     }
 
-    const fn next(self, forward: bool) -> Self {
-        match (self, forward) {
-            (Self::All, true) | (Self::Filesystem, false) => Self::Execution,
-            (Self::Execution, true) | (Self::Git, false) => Self::Filesystem,
-            (Self::Filesystem, true) | (Self::Secrets, false) => Self::Git,
-            (Self::Git, true) | (Self::Custom, false) => Self::Secrets,
-            (Self::Secrets, true) | (Self::All, false) => Self::Custom,
-            (Self::Custom, true) | (Self::Execution, false) => Self::All,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GuardDefaultFilter {
-    All,
-    On,
-    Off,
-}
-
-impl GuardDefaultFilter {
-    pub(crate) const fn name(self) -> &'static str {
+    const fn next(self) -> Self {
         match self {
-            Self::All => "all",
-            Self::On => "default on",
-            Self::Off => "default off",
+            Self::Type => Self::State,
+            Self::State => Self::Project,
+            Self::Project => Self::Type,
         }
     }
-
-    const fn next(self, forward: bool) -> Self {
-        match (self, forward) {
-            (Self::All, true) | (Self::Off, false) => Self::On,
-            (Self::On, true) | (Self::All, false) => Self::Off,
-            (Self::Off, true) | (Self::On, false) => Self::All,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GuardSourceFilter {
-    All,
-    BuiltIn,
-    Custom,
-}
-
-impl GuardSourceFilter {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::BuiltIn => "built-in",
-            Self::Custom => "custom",
-        }
-    }
-
-    const fn next(self, forward: bool) -> Self {
-        match (self, forward) {
-            (Self::All, true) | (Self::Custom, false) => Self::BuiltIn,
-            (Self::BuiltIn, true) | (Self::All, false) => Self::Custom,
-            (Self::Custom, true) | (Self::BuiltIn, false) => Self::All,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct GuardFilters {
-    pub(crate) family: GuardFamilyFilter,
-    pub(crate) default: GuardDefaultFilter,
-    pub(crate) source: GuardSourceFilter,
-}
-
-impl Default for GuardFilters {
-    fn default() -> Self {
-        Self {
-            family: GuardFamilyFilter::All,
-            default: GuardDefaultFilter::All,
-            source: GuardSourceFilter::All,
-        }
-    }
-}
-
-impl GuardFilters {
-    fn matches(self, entry: &GuardEntry) -> bool {
-        let family = match self.family {
-            GuardFamilyFilter::All => true,
-            GuardFamilyFilter::Execution => entry.family == Some(GuardFamily::Execution),
-            GuardFamilyFilter::Filesystem => entry.family == Some(GuardFamily::Filesystem),
-            GuardFamilyFilter::Git => entry.family == Some(GuardFamily::Git),
-            GuardFamilyFilter::Secrets => entry.family == Some(GuardFamily::Secrets),
-            GuardFamilyFilter::Custom => matches!(&entry.target, GuardTarget::Custom { .. }),
-        };
-        let default = match self.default {
-            GuardDefaultFilter::All => true,
-            GuardDefaultFilter::On => entry.default_enabled == Some(true),
-            GuardDefaultFilter::Off => entry.default_enabled == Some(false),
-        };
-        let source = match self.source {
-            GuardSourceFilter::All => true,
-            GuardSourceFilter::BuiltIn => matches!(&entry.target, GuardTarget::BuiltIn { .. }),
-            GuardSourceFilter::Custom => matches!(&entry.target, GuardTarget::Custom { .. }),
-        };
-        family && default && source
-    }
-
-    pub(crate) fn summary(self) -> String {
-        let mut parts = Vec::new();
-        if self.family != GuardFamilyFilter::All {
-            parts.push(format!("family:{}", self.family.name()));
-        }
-        if self.default != GuardDefaultFilter::All {
-            parts.push(self.default.name().replace(' ', ":"));
-        }
-        if self.source != GuardSourceFilter::All {
-            parts.push(format!("source:{}", self.source.name()));
-        }
-        if parts.is_empty() {
-            "all".into()
-        } else {
-            parts.join(", ")
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GuardFilterField {
-    Family,
-    Default,
-    Source,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct GuardFilterOverlay {
-    pub(crate) filters: GuardFilters,
-    pub(crate) field: GuardFilterField,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -306,8 +174,7 @@ pub(crate) struct App {
     pub(crate) current_project: Option<String>,
     pub(crate) project_declared_guards: Vec<String>,
     pub(crate) guard_index: usize,
-    pub(crate) guard_filters: GuardFilters,
-    pub(crate) guard_filter_overlay: Option<GuardFilterOverlay>,
+    pub(crate) guard_view: GuardView,
     pub(crate) project_index: usize,
     pub(crate) runtime_index: usize,
     pub(crate) log_index: usize,
@@ -354,7 +221,7 @@ impl App {
         };
         // Decisions already recorded are not new arrivals.
         let seen_block_id = blocked_log.first().map(|record| record.id.clone());
-        let project_declared_guards = project_declared_guards();
+        let (current_project, project_declared_guards) = current_project();
         let mut guards = guard_entries()?;
         apply_project_declarations(&mut guards, &project_declared_guards);
         Ok(Self {
@@ -365,11 +232,10 @@ impl App {
             log,
             blocked_log,
             failure_summary,
-            current_project: current_project(),
+            current_project,
             project_declared_guards,
             guard_index: 0,
-            guard_filters: GuardFilters::default(),
-            guard_filter_overlay: None,
+            guard_view: GuardView::Type,
             project_index: 0,
             runtime_index: 0,
             log_index: 0,
@@ -421,7 +287,7 @@ impl App {
     }
 
     pub(crate) fn move_selection(&mut self, down: bool) {
-        let guard_len = self.filtered_guards().len();
+        let guard_len = self.visible_guards().len();
         let project_len = self.project_count();
         let filtered_len = self.filtered_log().len();
         let (index, len) = match self.screen {
@@ -485,94 +351,62 @@ impl App {
         self.pending.len()
     }
 
-    pub(crate) fn filtered_guards(&self) -> Vec<&GuardEntry> {
+    pub(crate) fn visible_guards(&self) -> Vec<&GuardEntry> {
+        let current_root = self
+            .current_trusted_project()
+            .map(|project| &project.identity);
         let mut guards = self
             .guards
             .iter()
-            .filter(|entry| self.guard_filters.matches(entry))
+            .filter(|entry| match self.guard_view {
+                GuardView::Type | GuardView::State => true,
+                GuardView::Project => match &entry.target {
+                    GuardTarget::BuiltIn { name } => self.project_declared_guards.contains(name),
+                    GuardTarget::Custom { identity } => {
+                        current_root.is_some_and(|root| identity.trusted_root() == Some(root))
+                    }
+                },
+            })
             .collect::<Vec<_>>();
-        guards.sort_by(|left, right| {
-            guard_family_rank(left)
-                .cmp(&guard_family_rank(right))
-                .then_with(|| guard_default_rank(left).cmp(&guard_default_rank(right)))
-                .then_with(|| left.target.cmp(&right.target))
+        guards.sort_by(|left, right| match self.guard_view {
+            GuardView::Type => guard_type_rank(left)
+                .cmp(&guard_type_rank(right))
+                .then_with(|| left.target.name().cmp(right.target.name()))
+                .then_with(|| left.target.cmp(&right.target)),
+            GuardView::State | GuardView::Project => guard_status_rank(&left.status)
+                .cmp(&guard_status_rank(&right.status))
+                .then_with(|| guard_family_scope_rank(left).cmp(&guard_family_scope_rank(right)))
+                .then_with(|| left.target.name().cmp(right.target.name()))
+                .then_with(|| left.target.cmp(&right.target)),
         });
         guards
     }
 
-    pub(crate) fn hidden_pending_count(&self) -> usize {
+    pub(crate) fn project_omitted_pending_count(&self) -> usize {
+        if self.guard_view != GuardView::Project {
+            return 0;
+        }
+        let visible = self.visible_guards();
         self.pending
             .iter()
-            .filter(|change| {
-                self.guards
-                    .iter()
-                    .find(|entry| entry.target == change.target)
-                    .is_some_and(|entry| !self.guard_filters.matches(entry))
-            })
+            .filter(|change| !visible.iter().any(|entry| entry.target == change.target))
             .count()
     }
 
-    pub(crate) fn begin_guard_filter(&mut self) {
-        self.guard_filter_overlay = Some(GuardFilterOverlay {
-            filters: self.guard_filters,
-            field: GuardFilterField::Family,
-        });
-    }
-
-    pub(crate) fn move_guard_filter_field(&mut self, forward: bool) {
-        let Some(filter) = &mut self.guard_filter_overlay else {
-            return;
-        };
-        filter.field = match (filter.field, forward) {
-            (GuardFilterField::Family, true) | (GuardFilterField::Default, false) => {
-                GuardFilterField::Default
-            }
-            (GuardFilterField::Default, true) | (GuardFilterField::Source, false) => {
-                GuardFilterField::Source
-            }
-            (GuardFilterField::Source, true) | (GuardFilterField::Family, false) => {
-                GuardFilterField::Family
-            }
-        };
-    }
-
-    pub(crate) fn cycle_guard_filter(&mut self, forward: bool) {
-        let Some(filter) = &mut self.guard_filter_overlay else {
-            return;
-        };
-        match filter.field {
-            GuardFilterField::Family => {
-                filter.filters.family = filter.filters.family.next(forward);
-            }
-            GuardFilterField::Default => {
-                filter.filters.default = filter.filters.default.next(forward);
-            }
-            GuardFilterField::Source => {
-                filter.filters.source = filter.filters.source.next(forward);
-            }
-        }
-    }
-
-    pub(crate) fn clear_guard_filter(&mut self) {
-        if let Some(filter) = &mut self.guard_filter_overlay {
-            filter.filters = GuardFilters::default();
-        } else {
-            self.guard_filters = GuardFilters::default();
-            self.guard_index = 0;
-        }
-    }
-
-    pub(crate) fn apply_guard_filter(&mut self) {
-        let Some(filter) = self.guard_filter_overlay.take() else {
-            return;
-        };
-        self.guard_filters = filter.filters;
-        self.guard_index = 0;
+    pub(crate) fn cycle_guard_view(&mut self) {
+        let selected = self
+            .visible_guards()
+            .get(self.guard_index)
+            .map(|entry| entry.target.clone());
+        self.guard_view = self.guard_view.next();
+        self.guard_index = selected
+            .and_then(|target| {
+                self.visible_guards()
+                    .iter()
+                    .position(|entry| entry.target == target)
+            })
+            .unwrap_or(0);
         self.message = None;
-    }
-
-    pub(crate) fn cancel_guard_filter(&mut self) {
-        self.guard_filter_overlay = None;
     }
 
     pub(crate) fn pending_value(&self, entry: &GuardEntry) -> Option<bool> {
@@ -710,10 +544,10 @@ impl App {
             .collect();
         let staged = self.pending.len();
         if staged == 0 {
-            self.info("already at shipped defaults");
+            self.info("shipped settings are already restored");
         } else {
             self.info(format!(
-                "reset to shipped defaults staged: {staged} change(s); Enter to apply"
+                "restore shipped settings staged: {staged} change(s); Enter to apply"
             ));
         }
     }
@@ -911,7 +745,7 @@ impl App {
 
     pub(crate) fn refresh(&mut self) {
         let mut refresh_error = None;
-        self.project_declared_guards = project_declared_guards();
+        (self.current_project, self.project_declared_guards) = current_project();
         match guard_entries() {
             Ok(mut entries) => {
                 apply_project_declarations(&mut entries, &self.project_declared_guards);
@@ -929,8 +763,7 @@ impl App {
             Err(error) => refresh_error = Some(error),
         }
         self.runtimes = runtime_entries();
-        self.current_project = current_project();
-        self.guard_index = bounded(self.guard_index, self.filtered_guards().len());
+        self.guard_index = bounded(self.guard_index, self.visible_guards().len());
         self.project_index = bounded(self.project_index, self.project_count());
         self.runtime_index = bounded(self.runtime_index, self.runtimes.len());
         self.log_index = bounded(self.log_index, self.filtered_log().len());
@@ -1140,7 +973,7 @@ impl App {
 
     pub(crate) fn selected_guard(&self) -> Option<&GuardEntry> {
         (self.screen == Screen::Guards)
-            .then(|| self.filtered_guards().get(self.guard_index).copied())
+            .then(|| self.visible_guards().get(self.guard_index).copied())
             .flatten()
     }
 
@@ -1178,6 +1011,14 @@ impl App {
         self.current_project
             .as_ref()
             .is_some_and(|current| !self.projects.iter().any(|project| project.path == *current))
+    }
+
+    fn current_trusted_project(&self) -> Option<&TrustedProject> {
+        self.current_project.as_ref().and_then(|current| {
+            self.projects
+                .iter()
+                .find(|project| project.path == *current)
+        })
     }
 
     fn project_selection<'a>(&'a self, project: &'a TrustedProject) -> ProjectSelection<'a> {
@@ -1278,9 +1119,9 @@ impl App {
                     current_hash: None,
                 },
             ],
-            guard_filters: GuardFilters::default(),
-            guard_filter_overlay: None,
+            guard_view: GuardView::Type,
             projects: vec![TrustedProject {
+                identity: TrustedRootId::new("root:repo").unwrap(),
                 path: "/repo".into(),
                 configured_guards: 1,
                 enabled_guards: 0,
@@ -1400,20 +1241,18 @@ fn log_size() -> Option<u64> {
     records::decision_log_size(&home, platform)
 }
 
-fn current_project() -> Option<String> {
-    std::fs::canonicalize(".")
-        .ok()
-        .map(|path| path.display().to_string())
-}
-
-fn project_declared_guards() -> Vec<String> {
+fn current_project() -> (Option<String>, Vec<String>) {
     use nah_proto::ctx::SchemaVersion;
-    use nah_proto::observation::{ObservationQuery, ObservationRequest, ProjectGuardDeclaration};
+    use nah_proto::observation::{
+        ObservationQuery, ObservationRequest, ObservationValue, Observed, ProjectGuardDeclaration,
+        RootKind,
+    };
 
-    (|| {
+    let cwd = std::fs::canonicalize(".").ok();
+    let fallback = cwd.as_ref().map(|path| path.display().to_string());
+    let Some((root, declared)) = (|| {
         let platform = live_state::host_platform();
-        let cwd = std::fs::canonicalize(".").ok()?;
-        let cwd = AbsolutePath::new(platform, cwd.to_str()?.to_owned()).ok()?;
+        let cwd = AbsolutePath::new(platform, cwd?.to_str()?.to_owned()).ok()?;
         let request = ObservationRequest::new(
             SchemaVersion::V1,
             "tui-project-guards",
@@ -1434,14 +1273,29 @@ fn project_declared_guards() -> Vec<String> {
         )
         .ok()?;
         let observation = nah_observe::fulfill(&request).ok()?;
-        match observation.project_guard_declaration().ok()? {
-            ProjectGuardDeclaration::Present { names } => Some(names.clone()),
+        let root = observation
+            .facts()
+            .iter()
+            .find_map(|fact| match fact.value() {
+                ObservationValue::Roots {
+                    observed: Observed::Ok { value },
+                } => value
+                    .iter()
+                    .find(|root| root.kind() == RootKind::Project)
+                    .map(|root| root.path().as_str().to_owned()),
+                _ => None,
+            });
+        let declared = match observation.project_guard_declaration().ok()? {
+            ProjectGuardDeclaration::Present { names } => names.clone(),
             ProjectGuardDeclaration::Absent
             | ProjectGuardDeclaration::Malformed
-            | ProjectGuardDeclaration::ReadFailure => Some(Vec::new()),
-        }
-    })()
-    .unwrap_or_default()
+            | ProjectGuardDeclaration::ReadFailure => Vec::new(),
+        };
+        Some((root, declared))
+    })() else {
+        return (fallback, Vec::new());
+    };
+    (root.or(fallback), declared)
 }
 
 fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {
@@ -1455,25 +1309,34 @@ fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {
     }
 }
 
-fn guard_family_rank(entry: &GuardEntry) -> u8 {
+fn guard_family_scope_rank(entry: &GuardEntry) -> usize {
     match entry.family {
-        Some(GuardFamily::Execution) => 0,
-        Some(GuardFamily::Filesystem) => 1,
-        Some(GuardFamily::Git) => 2,
-        Some(GuardFamily::Secrets) => 3,
-        None => 4,
+        Some(family) => family.rank(),
+        None => {
+            crate::catalog::GuardFamily::ALL.len()
+                + match entry.target.scope() {
+                    Some(nah_proto::ctx::GuardScope::User) => 0,
+                    Some(nah_proto::ctx::GuardScope::Project) => 1,
+                    None => 2,
+                }
+        }
     }
 }
 
-fn guard_default_rank(entry: &GuardEntry) -> u8 {
-    match entry.default_enabled {
-        Some(true) => 0,
-        Some(false) => 1,
-        None => match entry.target.scope() {
-            Some(nah_proto::ctx::GuardScope::User) => 0,
-            Some(nah_proto::ctx::GuardScope::Project) => 1,
-            None => 2,
-        },
+fn guard_type_rank(entry: &GuardEntry) -> usize {
+    entry
+        .family
+        .map_or(crate::catalog::GuardFamily::ALL.len(), |family| {
+            family.rank()
+        })
+}
+
+fn guard_status_rank(status: &GuardStatus) -> u8 {
+    match status {
+        GuardStatus::Enabled => 0,
+        GuardStatus::Disabled => 1,
+        GuardStatus::NeedsReapproval { .. } => 2,
+        GuardStatus::Missing { .. } => 3,
     }
 }
 

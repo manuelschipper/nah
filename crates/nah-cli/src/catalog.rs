@@ -13,6 +13,8 @@ pub(crate) enum GuardFamily {
 }
 
 impl GuardFamily {
+    pub(crate) const ALL: [Self; 4] = [Self::Execution, Self::Filesystem, Self::Git, Self::Secrets];
+
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Execution => "EXECUTION",
@@ -22,13 +24,20 @@ impl GuardFamily {
         }
     }
 
-    pub(crate) const fn filter_name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Execution => "execution",
             Self::Filesystem => "filesystem",
             Self::Git => "git",
             Self::Secrets => "secrets",
         }
+    }
+
+    pub(crate) fn rank(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|family| *family == self)
+            .expect("every guard family is ordered")
     }
 }
 

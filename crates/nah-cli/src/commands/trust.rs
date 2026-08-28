@@ -2,12 +2,13 @@
 
 use std::path::Path;
 
-use nah_proto::ctx::AbsolutePath;
+use nah_proto::ctx::{AbsolutePath, TrustedRootId};
 
 use crate::live_state::{home, host_platform};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TrustedProject {
+    pub(crate) identity: TrustedRootId,
     pub(crate) path: String,
     pub(crate) configured_guards: usize,
     pub(crate) enabled_guards: usize,
@@ -113,6 +114,7 @@ pub(crate) fn trusted_projects() -> Result<Vec<TrustedProject>, String> {
                 }
             }
             TrustedProject {
+                identity: root.identity().clone(),
                 path: root.path().as_str().to_owned(),
                 configured_guards: records.len(),
                 enabled_guards: active,
