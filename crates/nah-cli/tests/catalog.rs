@@ -78,6 +78,7 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 
     for (guard, command) in [
         ("git-clean-force", "git clean -f"),
+        ("git-remote-delete", "gh repo delete owner/project --yes"),
         ("git-worktree-discard", "git restore ."),
     ] {
         assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");

@@ -21,6 +21,8 @@ guard findings and understood protected-state changes outside maintenance.
   expose unredacted modeled input and inline code.
 - Guards block modeled access to protected credential paths and visible flows
   from sensitive sources or network content into dangerous sinks.
+- Default-on `git-remote-delete` blocks exact GitHub/GitLab whole-repository
+  deletion through CLI and REST forms.
 - The default-on `fs-auth-identity` guard blocks visible writes and deletes of
   reviewed login-authority, identity, PAM, sudoers, and sshd paths. The
   default-off `fs-shell-profile` guard applies the same mutation-only policy to
@@ -37,6 +39,8 @@ guard findings and understood protected-state changes outside maintenance.
 - Secret content under unclassified names; guards inspect paths and modeled
   effects, not arbitrary contents.
 - Custom guards are trusted executables; nah does not sandbox them.
+- Other remote deletion tools/routes, unresolved targets, and branch, tag,
+  archive, rename, or transfer operations.
 
 Unknown or opaque input delegates. Fail-closed uses native denial for malformed
 or no-decision input, but requires loaded nah to respond; missing hooks/binaries,

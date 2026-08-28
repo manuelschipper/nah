@@ -309,6 +309,27 @@ fn guard_list_groups_family_then_factory_default_with_live_checkboxes() {
 }
 
 #[test]
+fn remote_repository_delete_guard_renders_as_default_on_git_policy() {
+    let mut app = App::fixture();
+    app.guards.push(built_in_entry(
+        "git-remote-delete",
+        GuardFamily::Git,
+        true,
+        GuardStatus::Enabled,
+        None,
+    ));
+
+    let output = rendered(&app, 120, 30);
+    let git = output.find("GIT").unwrap();
+    let default_on = output[git..].find("DEFAULT ON").unwrap() + git;
+    let guard = output.find("[x] git-remote-delete").unwrap();
+    let secrets = output.find("SECRETS").unwrap();
+    assert!(git < default_on);
+    assert!(default_on < guard);
+    assert!(guard < secrets);
+}
+
+#[test]
 fn guard_filter_overlay_exposes_each_composable_facet() {
     let mut app = App::fixture();
     app.begin_guard_filter();

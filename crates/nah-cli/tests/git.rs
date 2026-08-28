@@ -105,6 +105,17 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ("git restore -- . --keep", "git-worktree-discard"),
         ("git switch --discard-changes main", "git-worktree-discard"),
         ("git switch -f --no-merge main", "git-worktree-discard"),
+        ("gh repo delete", "git-remote-delete"),
+        (
+            "gh repo delete github.example.com/owner/project --yes",
+            "git-remote-delete",
+        ),
+        ("glab repo delete group/project -y", "git-remote-delete"),
+        ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
+        (
+            "glab api --method DELETE projects/group%2Fproject",
+            "git-remote-delete",
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -203,6 +214,12 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "git checkout --no-patch --patch -- .",
         "git switch -f --no-merge --merge main",
         "git branch -D old",
+        "gh repo archive owner/project --yes",
+        "gh repo delete \"$REPOSITORY\" --yes",
+        "gh api -X DELETE repos/owner/project/issues",
+        "glab repo transfer group/project other",
+        "glab api -X DELETE projects/group/project",
+        "curl -X DELETE https://api.github.com/repos/owner/project",
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
