@@ -151,6 +151,36 @@ fn top_level_and_nested_windows_shells_share_canonical_filesystem_effects() {
 }
 
 #[test]
+fn escaped_non_ascii_windows_paths_lower_at_both_entry_points() {
+    for (visible, source, nested) in [
+        (
+            VisibleCode::Pwsh {
+                source: r#"Remove-Item "C:\Users\José`é.txt""#,
+            },
+            r#"Remove-Item "C:\Users\José`é.txt""#,
+            r#"pwsh -c 'Remove-Item "C:\Users\José`é.txt"'"#,
+        ),
+        (
+            VisibleCode::Cmd {
+                source: r"type C:\Users\José^é.txt",
+            },
+            r"type C:\Users\José^é.txt",
+            r"cmd /c 'type C:\Users\José^é.txt'",
+        ),
+    ] {
+        let direct_plan = direct_plan(visible, source);
+        let nested_plan = nested_plan(nested);
+        assert!(!direct_plan.inline_failed(), "{source}");
+        assert!(!nested_plan.inline_failed(), "{source}");
+        assert_eq!(
+            filesystem_effects(direct_plan, None),
+            filesystem_effects(nested_plan, None),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn powershell_path_and_literal_path_keep_pattern_selection_distinct() {
     for (source, pattern) in [
         (r"Remove-Item -Path 'C:\repo\*'", true),

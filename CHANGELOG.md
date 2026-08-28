@@ -5,9 +5,9 @@
 - **PowerShell and cmd effects** — Top-level and nested Windows shell source now
   lowers reviewed static filesystem, network, redirection, and exact child argv
   through the existing typed effects. Dynamic and multi-target forms stay
-  partial; `~` resolves to the declared home, while lookalike variables,
-  platform-specific aliases, `-WhatIf`, path globs, and cmd directory semantics
-  avoid resolved effects they cannot prove.
+  partial; escaped non-ASCII paths remain exact and `~` resolves to the declared
+  home. Unknown `-WhatIf` values, lookalike variables, platform-specific aliases,
+  path globs, and cmd directory semantics avoid resolved effects they cannot prove.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

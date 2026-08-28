@@ -426,8 +426,9 @@ fn lex(source: &str) -> Option<Vec<Lexeme>> {
         while index < bytes.len() {
             match bytes[index] {
                 b'^' if index + 1 < bytes.len() => {
-                    value.push(bytes[index + 1] as char);
-                    index += 2;
+                    let character = source[index + 1..].chars().next()?;
+                    value.push(character);
+                    index += 1 + character.len_utf8();
                 }
                 b'"' => {
                     quote = !quote;

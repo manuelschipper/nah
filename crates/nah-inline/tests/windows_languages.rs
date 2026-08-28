@@ -111,6 +111,14 @@ fn powershell_false_positive_controls_do_not_overclaim() {
         Some(r"C:\safe")
     );
 
+    let positional_filter = analyze("pwsh", r"Remove-Item C:\temp *.txt");
+    assert!(positional_filter.draft().complete());
+    assert_eq!(positional_filter.draft().calls()[0].filesystems().len(), 1);
+    assert_eq!(
+        positional_filter.draft().calls()[0].filesystems()[0].requested(),
+        Some(r"C:\temp")
+    );
+
     for source in [
         "Remove-Item $(Get-Target)",
         "Remove-Item @paths",
@@ -119,6 +127,65 @@ fn powershell_false_positive_controls_do_not_overclaim() {
     ] {
         assert!(!analyze("pwsh", source).draft().complete(), "{source}");
     }
+}
+
+#[test]
+fn powershell_unknown_whatif_values_keep_destructive_effects_partial() {
+    for source in [
+        r"Remove-Item -Recurse -LiteralPath C:\Users\test -WhatIf:0",
+        r#"Remove-Item -Recurse -LiteralPath C:\Users\test -WhatIf:"""#,
+        r"Remove-Item -Recurse -LiteralPath C:\Users\test -WhatIf:''",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert_eq!(analysis.draft().calls()[0].filesystems().len(), 1);
+        assert!(
+            analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+
+    let critical = AbsolutePath::new(Platform::Windows, r"C:\Users\test\.nah\policy.toml").unwrap();
+    let analysis = interpret_language_effects(
+        InlineInput {
+            program: "pwsh",
+            code: r"Set-Content -Path C:\Users\test\.nah\policy.toml -Value evil -WhatIf:0",
+            home: r"C:\Users\test",
+            platform: Platform::Windows,
+        },
+        ProtectionInput {
+            critical_paths: &[critical],
+            ambient_variables: &[],
+        },
+    );
+    assert!(!analysis.draft().complete());
+    assert!(
+        analysis
+            .report()
+            .contains_conservative(FindingKind::NahTampering)
+    );
+}
+
+#[test]
+fn windows_shell_escapes_preserve_non_ascii_characters() {
+    for source in [r#"Remove-Item "a`ébc""#, "Remove-Item a`ébc"] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some("aébc"),
+            "{source}"
+        );
+    }
+
+    let analysis = analyze("cmd", "del a^éb");
+    assert!(analysis.draft().complete());
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some("aéb")
+    );
 }
 
 #[test]

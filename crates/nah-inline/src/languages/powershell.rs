@@ -248,7 +248,7 @@ impl Interpreter<'_, '_> {
         let arguments = parse_arguments(tokens, remove_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
         let recurse = switch_enabled(&arguments, "recurse") || switch_enabled(&arguments, "r");
-        let (targets, literal) = path_targets(&arguments, true);
+        let (targets, literal) = path_targets(&arguments, false);
         let filesystems = if what_if {
             Vec::new()
         } else {
@@ -807,8 +807,9 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                     if bytes[index + 1] == b'$' {
                         variable_home_reference = false;
                     }
-                    value.push(bytes[index + 1] as char);
-                    index += 2;
+                    let character = source[index + 1..].chars().next()?;
+                    value.push(character);
+                    index += 1 + character.len_utf8();
                     continue;
                 }
                 if byte == active {
@@ -842,8 +843,9 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                     if bytes[index + 1] == b'$' {
                         variable_home_reference = false;
                     }
-                    value.push(bytes[index + 1] as char);
-                    index += 2;
+                    let character = source[index + 1..].chars().next()?;
+                    value.push(character);
+                    index += 1 + character.len_utf8();
                 }
                 b'#' | b'|' | b'>' | b',' => break,
                 byte if byte.is_ascii_whitespace() => break,
@@ -948,11 +950,14 @@ fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -
                 });
             let name = name.to_ascii_lowercase();
             match parameter_kind(&name) {
-                Some(true) => parsed.parameters.push(Parameter {
-                    name,
-                    value: None,
-                    attached,
-                }),
+                Some(true) => {
+                    parsed.complete &= static_switch_value(attached.as_deref()).is_some();
+                    parsed.parameters.push(Parameter {
+                        name,
+                        value: None,
+                        attached,
+                    });
+                }
                 Some(false) => {
                     let value = attached
                         .as_ref()
@@ -1174,12 +1179,17 @@ fn path_targets(arguments: &Arguments, all_positionals: bool) -> (Vec<&Token>, b
 
 fn switch_enabled(arguments: &Arguments, name: &str) -> bool {
     arguments.parameters.iter().any(|parameter| {
-        parameter.name == name
-            && parameter
-                .attached
-                .as_deref()
-                .is_none_or(|value| !value.eq_ignore_ascii_case("$false"))
+        parameter.name == name && static_switch_value(parameter.attached.as_deref()) == Some(true)
     })
+}
+
+fn static_switch_value(attached: Option<&str>) -> Option<bool> {
+    match attached {
+        None => Some(true),
+        Some(value) if value.eq_ignore_ascii_case("$true") => Some(true),
+        Some(value) if value.eq_ignore_ascii_case("$false") => Some(false),
+        Some(_) => None,
+    }
 }
 
 fn dynamic_statement(source: &str, lowercase: &str) -> bool {
