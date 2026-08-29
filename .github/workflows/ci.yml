@@ -35,10 +35,12 @@ jobs:
           cargo test --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --locked
       - name: Release KPIs and benches compile
         run: |
-          cargo test --release -p nah-cli --test latency captured_walking_skeleton_p99_is_below_one_millisecond --locked
-          cargo test --release -p nah-cli --test latency captured_bash_spine_p99_is_below_one_millisecond --locked
-          cargo test --release -p nah-cli --test latency captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test latency captured_inline_signature_p99_is_below_one_millisecond --locked
+          cargo test --release -p nah-cli --test latency captured_walking_skeleton_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test latency captured_bash_spine_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test latency captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test latency captured_inline_signature_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-policy --test reducer captured_policy_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-parse --test fork_bomb a_large_visible_function_graph_is_scanned_inside_its_documented_bound --locked -- --ignored --test-threads=1
           cargo test --release -p nah-parse a_long_pipeline_is_scanned_inside_its_documented_bound --locked -- --ignored --nocapture --test-threads=1
           cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
           cargo bench --workspace --no-run --locked

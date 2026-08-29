@@ -2,9 +2,7 @@
 
 mod support;
 
-#[cfg(unix)]
 use std::hint::black_box;
-#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use nah_proto::action::{Coverage, Sensitivity};
@@ -82,7 +80,7 @@ fn validated_extensions_can_only_add_a_block() {
 }
 
 #[test]
-#[cfg(unix)]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_policy_p99_is_below_one_millisecond() {
     let stream = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
     let (_, policy) = context(
