@@ -1,4 +1,4 @@
-use nah_proto::ctx::Platform;
+use nah_proto::{action::FilesystemOperation, ctx::Platform};
 
 use crate::syntax::StaticCallArgument;
 use crate::syntax::{
@@ -6,8 +6,8 @@ use crate::syntax::{
     static_call_arguments_cased,
 };
 use crate::{
-    Finding, FindingKind, InlineInput, InlineReport, NestedExecution, NestedExecutionCwd,
-    ProtectionInput,
+    Finding, FindingKind, InlineInput, InlineReport, LanguageDraft, NestedExecution,
+    NestedExecutionCwd, ProtectionInput,
 };
 
 pub(super) mod protection;
@@ -70,6 +70,60 @@ pub(super) fn with_protection(
         ));
     }
     report
+}
+
+pub(super) fn add_typed_protection(
+    report: &mut InlineReport,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    draft: &LanguageDraft,
+) {
+    let Some(protection) = protection else {
+        return;
+    };
+    let protected_target = draft
+        .language_safety_calls()
+        .iter()
+        .flat_map(|call| call.filesystems())
+        .filter(|filesystem| filesystem.operation() != FilesystemOperation::Read)
+        .filter_map(|filesystem| filesystem.requested())
+        .any(|target| {
+            protection::typed_target_protected(
+                target,
+                input.home,
+                protection.critical_paths,
+                input.platform,
+                protection.ambient_variables,
+            )
+        });
+    let protected_execution = report.nested_executions().iter().any(|execution| {
+        matches!(execution, NestedExecution::Command { argv, .. }
+        if protection::typed_argv_protected(
+            argv,
+            input.home,
+            protection.critical_paths,
+            input.platform,
+            protection.ambient_variables,
+        ))
+    });
+    if protected_target || protected_execution {
+        report.push(Finding::conservative(FindingKind::NahTampering));
+    }
+}
+
+pub(super) fn with_typed_protection(
+    mut report: InlineReport,
+    program: &str,
+    input: &InlineInput<'_>,
+    protection: Option<&ProtectionInput<'_>>,
+    draft: &LanguageDraft,
+) -> InlineReport {
+    add_typed_protection(&mut report, input, protection, draft);
+    if draft.complete() {
+        report
+    } else {
+        with_protection(report, program, input, protection)
+    }
 }
 
 pub(super) fn active_segments<'a>(

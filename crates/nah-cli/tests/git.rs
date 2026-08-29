@@ -2,13 +2,16 @@
 
 mod support;
 
+#[cfg(unix)]
 use std::process::Command;
 
 use nah_cli::decide_with;
 use nah_proto::action::Coverage;
 use nah_proto::decision::Verdict;
 use serde_json::json;
-use support::{call, ctx, git, repo};
+#[cfg(unix)]
+use support::git;
+use support::{call, ctx, repo};
 
 #[cfg(unix)]
 #[test]

@@ -30,7 +30,7 @@ pub(crate) fn new_guard(
         }
         GuardSelector::Project(requested) => {
             let root = canonical_project_root(requested, platform)?;
-            nah_extensions::create_project_guard(&root, name)
+            nah_extensions::create_project_guard(&root, platform, name)
         }
     };
     created.map_err(|error| {

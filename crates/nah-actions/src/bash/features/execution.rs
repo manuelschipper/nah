@@ -589,9 +589,19 @@ fn execution_code(program: &str, arguments: &[Word], source: &str) -> Option<Str
         return values.get(index + 1).cloned();
     }
     if matches!(lower.as_str(), "powershell" | "pwsh") {
-        let index = values
+        let (index, option) = values
             .iter()
-            .position(|argument| powershell_inline_option(argument))?;
+            .enumerate()
+            .find(|(_, argument)| powershell_inline_option(argument))?;
+        if powershell_command_option(option)
+            && !matches!(
+                option.to_ascii_lowercase().as_str(),
+                "-commandwithargs" | "-cwa"
+            )
+        {
+            let code = &values[index + 1..];
+            return (!code.is_empty()).then(|| code.join(" "));
+        }
         return values.get(index + 1).cloned();
     }
     if lower == "cmd" {

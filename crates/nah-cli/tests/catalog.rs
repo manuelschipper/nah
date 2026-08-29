@@ -65,6 +65,7 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     assert!(docs.status.success(), "{docs:?}");
     let docs = String::from_utf8(docs.stdout).unwrap();
     assert!(docs.contains("# git-hard-reset\n\nStatus: enabled"));
+    assert!(docs.contains("# fs-shell-profile\n\nStatus: disabled\n\nDefault: disabled"));
     assert!(docs.contains("# git-clean-force\n\nStatus: enabled"));
     assert!(docs.contains("# git-worktree-discard\n\nStatus: enabled"));
     assert!(
@@ -249,6 +250,55 @@ fn disabling_startup_persistence_leaves_other_guards_enabled() {
         "{\"v\":2,\"overrides\":{}}\n"
     );
     assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
+}
+
+#[test]
+fn startup_management_is_factory_off_and_independent() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let management = "systemctl enable backup.service";
+    let persistence = format!("printf x > {}", bash_path(&temp.path().join(".ssh/rc")));
+
+    assert_eq!(
+        decide(temp.path(), &project, management)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, &persistence)["policy_attributions"][0]["name"],
+        "fs-startup-persistence"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "fs-startup-management"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, management)["policy_attributions"][0]["name"],
+        "fs-startup-management"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "fs-startup-management"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{\"fs-startup-management\":false}}\n"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, management)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, &persistence)["policy_attributions"][0]["name"],
+        "fs-startup-persistence"
+    );
 }
 
 #[test]

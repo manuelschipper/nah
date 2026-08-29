@@ -41,6 +41,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-project-root",
     "fs-raw-device",
     "fs-shell-profile",
+    "fs-startup-management",
     "fs-startup-persistence",
     "fs-storage-destroy",
     "fs-system-tree",

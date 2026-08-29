@@ -1,28 +1,29 @@
 Built-in:
-- [x] exec-decoded (default on)
-- [x] exec-network-shell (default on)
-- [x] exec-obfuscated (default on)
-- [x] exec-remote (default on)
-- [x] fs-auth-identity (default on)
-- [x] fs-forkbomb (default on)
-- [x] fs-home (default on)
-- [x] fs-project-root (default on)
-- [x] fs-raw-device (default on)
-- [ ] fs-shell-profile (default off)
-- [x] fs-startup-persistence (default on)
-- [x] fs-storage-destroy (default on)
-- [x] fs-system-tree (default on)
-- [x] git-clean-force (default on)
-- [x] git-force-push (default on)
-- [x] git-hard-reset (default on)
-- [x] git-metadata (default on)
-- [x] git-recovery-destroy (default on)
-- [x] git-remote-delete (default on)
-- [x] git-rewrite-force (default on)
-- [x] git-worktree-discard (default on)
-- [x] secrets-env (default on)
-- [x] secrets-exfil (default on)
-- [x] secrets-keys (default on)
+- [x] exec-decoded
+- [x] exec-network-shell
+- [x] exec-obfuscated
+- [x] exec-remote
+- [x] fs-auth-identity
+- [x] fs-forkbomb
+- [x] fs-home
+- [x] fs-project-root
+- [x] fs-raw-device
+- [ ] fs-shell-profile
+- [ ] fs-startup-management
+- [x] fs-startup-persistence
+- [x] fs-storage-destroy
+- [x] fs-system-tree
+- [x] git-clean-force
+- [x] git-force-push
+- [x] git-hard-reset
+- [x] git-metadata
+- [x] git-recovery-destroy
+- [x] git-remote-delete
+- [x] git-rewrite-force
+- [x] git-worktree-discard
+- [x] secrets-env
+- [x] secrets-exfil
+- [x] secrets-keys
 
 Custom:
 No custom guards discovered. Create one with `nah guard new <name>`.

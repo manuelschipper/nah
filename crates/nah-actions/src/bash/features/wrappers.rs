@@ -319,7 +319,9 @@ pub(crate) fn executor_payloads(
 }
 
 pub(crate) fn crontab_payload(arguments: &[Word], visible_stdin: Option<&str>) -> Option<String> {
-    if arguments.len() != 1 || static_argument(&arguments[0]).as_deref() != Some("-") {
+    if crate::bash_startup_persistence::crontab_mutation(arguments)
+        != Some(crate::bash_startup_persistence::CrontabMutation::InstallStdin)
+    {
         return None;
     }
     let mut commands = Vec::new();

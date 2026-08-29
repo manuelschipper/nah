@@ -12,6 +12,18 @@ pub(crate) enum CodeInput {
     Ipython {
         source: String,
     },
+    #[allow(dead_code)]
+    PowerShell {
+        source: String,
+    },
+    #[allow(dead_code)]
+    Pwsh {
+        source: String,
+    },
+    #[allow(dead_code)]
+    Cmd {
+        source: String,
+    },
     OpenClawJavaScript {
         source: String,
         restart_safe: Option<bool>,
@@ -27,6 +39,9 @@ impl CodeInput {
         let (language, source, restart_safe) = match self {
             Self::Python { source } => ("python", source, None),
             Self::Ipython { source } => ("ipython", source, None),
+            Self::PowerShell { source } => ("powershell", source, None),
+            Self::Pwsh { source } => ("pwsh", source, None),
+            Self::Cmd { source } => ("cmd", source, None),
             Self::OpenClawJavaScript {
                 source,
                 restart_safe,
@@ -221,6 +236,38 @@ mod tests {
                 restart_safe: Some(true),
             })
         );
+    }
+
+    #[test]
+    fn windows_shell_dialects_have_distinct_canonical_tags() {
+        for (input, language, source) in [
+            (
+                CodeInput::PowerShell {
+                    source: "Write-Output ok".into(),
+                },
+                "powershell",
+                "Write-Output ok",
+            ),
+            (
+                CodeInput::Pwsh {
+                    source: "Write-Output ok".into(),
+                },
+                "pwsh",
+                "Write-Output ok",
+            ),
+            (
+                CodeInput::Cmd {
+                    source: "echo ok".into(),
+                },
+                "cmd",
+                "echo ok",
+            ),
+        ] {
+            assert_eq!(
+                input.canonical_input(),
+                json!({"code":source,"language":language})
+            );
+        }
     }
 
     #[test]

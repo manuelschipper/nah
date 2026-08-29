@@ -1,7 +1,10 @@
+#![cfg(unix)]
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+#[cfg(unix)]
 use std::process::Command;
 
+#[cfg(unix)]
 use serde_json::{Value, json};
 
 #[cfg(unix)]

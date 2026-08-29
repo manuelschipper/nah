@@ -65,6 +65,9 @@ pub(crate) fn decide_case(
         .observation_fixtures
         .get(&case.observation_fixture)
         .ok_or_else(|| format!("unknown observation fixture `{}`", case.observation_fixture))?;
+    if observation_fixture.platform() != ctx_fixture.platform() {
+        return Err("context and observation fixture platforms differ".into());
+    }
     let ctx = ctx_fixture.context()?;
     let input = tool_input(case, ctx.platform(), &observation_fixture.cwd)?;
     let result = decide_with(&input, &ctx, |request| {

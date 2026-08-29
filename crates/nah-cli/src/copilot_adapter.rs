@@ -9,7 +9,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    hook_adapter,
+    code_input::CodeInput,
+    hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
 
@@ -48,6 +49,22 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
+    run_for_platform(
+        stdin,
+        stdout,
+        stderr,
+        live_state::host_platform(),
+        failure_policy,
+    )
+}
+
+fn run_for_platform<R: Read, W: Write, E: Write>(
+    stdin: &mut R,
+    stdout: &mut W,
+    stderr: &mut E,
+    platform: nah_proto::ctx::Platform,
+    failure_policy: FailurePolicy,
+) -> u8 {
     let parsed = serde_json::from_reader::<_, Value>(stdin);
     if parsed
         .as_ref()
@@ -64,12 +81,17 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     let request = parsed
         .map_err(|error| error.to_string())
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-        .and_then(normalize);
+        .and_then(|input| normalize(input, platform));
     let (surface, decision) = match request {
-        Ok((surface, request)) => (
-            surface,
-            hook_adapter::decide_input(request, stderr, Runtime::Copilot, failure_policy),
-        ),
+        Ok((surface, request, code)) => {
+            let decision = hook_adapter::decide_input(
+                (request, code.as_ref()),
+                stderr,
+                Runtime::Copilot,
+                failure_policy,
+            );
+            (surface, decision)
+        }
         Err(_) => (surface, hook_adapter::HookOutcome::MalformedInput),
     };
     let output = match decision {
@@ -127,7 +149,10 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     0
 }
 
-fn normalize(input: CopilotHookInput) -> Result<(Surface, ToolCallInput), String> {
+fn normalize(
+    input: CopilotHookInput,
+    platform: nah_proto::ctx::Platform,
+) -> Result<(Surface, ToolCallInput, Option<CodeInput>), String> {
     let (surface, session, cwd, name, input, input_complete) = match input {
         CopilotHookInput::Cli {
             session_id,
@@ -167,23 +192,36 @@ fn normalize(input: CopilotHookInput) -> Result<(Surface, ToolCallInput), String
         }
     };
     let original_input = input.clone();
-    let lowered = lower(&name, input.clone(), cwd.clone());
-    let (tool, input, cwd, normalization_complete) = match lowered {
-        Ok((tool, input, cwd)) => (
-            tool,
-            input,
+    if platform == nah_proto::ctx::Platform::Windows
+        && matches!(
+            name.as_str(),
+            "Bash" | "runTerminalCommand" | "run_in_terminal"
+        )
+    {
+        let request = ToolCallInput::new(
+            SchemaVersion::V1,
+            "CopilotWindowsShell",
+            original_input.clone(),
             cwd,
-            input_complete && crate::adapter_fields::complete("copilot", &name, &original_input),
-        ),
-        Err(_) => (name.as_str(), original_input.clone(), cwd, false),
+            session,
+        )
+        .map(|call| call.with_original_input(original_input, false))
+        .map_err(|error| error.to_string())?;
+        return Ok((surface, request, None));
+    }
+    let lowered = lower(&name, input.clone(), cwd.clone(), platform);
+    let (tool, input, cwd, code, normalization_complete) = match lowered {
+        Ok((tool, input, cwd, code)) => {
+            let normalization_complete = input_complete
+                && (code.is_some()
+                    || crate::adapter_fields::complete("copilot", &name, &original_input));
+            (tool, input, cwd, code, normalization_complete)
+        }
+        Err(_) => (name.as_str(), original_input.clone(), cwd, None, false),
     };
     ToolCallInput::new(SchemaVersion::V1, tool, input, cwd, session)
-        .map(|call| {
-            (
-                surface,
-                call.with_original_input(original_input, normalization_complete),
-            )
-        })
+        .map(|call| call.with_original_input(original_input, normalization_complete))
+        .map(|call| (surface, call, code))
         .map_err(|error| error.to_string())
 }
 
@@ -197,21 +235,30 @@ fn parse_cli_input(input: Value) -> Result<Value, String> {
     }
 }
 
-fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value, String), String> {
+fn lower(
+    name: &str,
+    input: Value,
+    fallback_cwd: String,
+    platform: nah_proto::ctx::Platform,
+) -> Result<(&str, Value, String, Option<CodeInput>), String> {
     let lowered = match name {
         "bash" | "Bash" | "runTerminalCommand" | "run_in_terminal" => {
-            if matches!(name, "runTerminalCommand" | "run_in_terminal")
-                && crate::live_state::host_platform() == nah_proto::ctx::Platform::Windows
-            {
-                return Ok((name, input, fallback_cwd));
-            }
             let object = object(&input)?;
             let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             (
                 "Bash",
                 json!({"command": string(object, &["command"])?}),
                 cwd,
+                None,
             )
+        }
+        "powershell" if platform == nah_proto::ctx::Platform::Windows => {
+            let object = object(&input)?;
+            let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
+            let code = CodeInput::PowerShell {
+                source: string(object, &["command"])?,
+            };
+            (name, code.canonical_input(), cwd, Some(code))
         }
         "view" | "Read" | "readFile" | "read_file" => {
             let object = object(&input)?;
@@ -219,6 +266,7 @@ fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value,
                 "Read",
                 json!({"file_path": non_empty(object, &["path", "filePath", "file_path"])?}),
                 fallback_cwd,
+                None,
             )
         }
         "create" | "Write" | "createFile" | "create_file" => {
@@ -230,6 +278,7 @@ fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value,
                     "content":string(object, &["file_text", "content"])?
                 }),
                 fallback_cwd,
+                None,
             )
         }
         "edit" | "str_replace_editor" | "replaceString" | "replace_string_in_file" => {
@@ -242,6 +291,7 @@ fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value,
                     "new_string":string(object, &["new_str", "newString", "new_string"])?
                 }),
                 fallback_cwd,
+                None,
             )
         }
         "grep" | "rg" | "Grep" | "grepSearch" | "grep_search" => {
@@ -250,7 +300,7 @@ fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value,
             if let Some(path) = optional_string(object, &["path", "filePath", "file_path"])? {
                 lowered["path"] = json!(path);
             }
-            ("Grep", lowered, fallback_cwd)
+            ("Grep", lowered, fallback_cwd, None)
         }
         "glob" | "Glob" | "fileSearch" | "file_search" => {
             let object = object(&input)?;
@@ -258,9 +308,10 @@ fn lower(name: &str, input: Value, fallback_cwd: String) -> Result<(&str, Value,
                 "Glob",
                 json!({"pattern":string(object, &["pattern", "query"])?}),
                 fallback_cwd,
+                None,
             )
         }
-        _ => (name, input, fallback_cwd),
+        _ => (name, input, fallback_cwd, None),
     };
     Ok(lowered)
 }
@@ -372,7 +423,8 @@ mod tests {
             ("file_search", json!({"query":"**/*.rs"}), "Glob"),
         ];
         for (name, input, expected) in cases {
-            let (tool, _, _) = lower(name, input, "/repo".into()).unwrap();
+            let (tool, _, _, _) =
+                lower(name, input, "/repo".into(), nah_proto::ctx::Platform::Linux).unwrap();
             assert_eq!(tool, expected);
         }
     }
@@ -380,7 +432,13 @@ mod tests {
     #[test]
     fn preserves_unknown_tools() {
         let input = json!({"query":"example"});
-        let (tool, lowered, _) = lower("web_fetch", input.clone(), "/repo".into()).unwrap();
+        let (tool, lowered, _, _) = lower(
+            "web_fetch",
+            input.clone(),
+            "/repo".into(),
+            nah_proto::ctx::Platform::Linux,
+        )
+        .unwrap();
         assert_eq!(tool, "web_fetch");
         assert_eq!(lowered, input);
     }
@@ -398,5 +456,37 @@ mod tests {
             output["hookSpecificOutput"]["additionalContext"],
             "nah - blocked"
         );
+    }
+
+    #[test]
+    fn windows_shell_routing_uses_only_proven_dialects() {
+        let cli = |tool: &str| CopilotHookInput::Cli {
+            session_id: "session-1".into(),
+            cwd: "C:\\repo".into(),
+            tool_name: tool.into(),
+            tool_input: json!({"command":"echo ok"}),
+        };
+
+        let (_, bash, code) = normalize(cli("bash"), nah_proto::ctx::Platform::Windows).unwrap();
+        assert_eq!(bash.tool(), "Bash");
+        assert!(code.is_none());
+
+        let (_, powershell, code) =
+            normalize(cli("powershell"), nah_proto::ctx::Platform::Windows).unwrap();
+        assert_eq!(powershell.tool(), "powershell");
+        assert!(powershell.normalization_complete());
+        assert!(matches!(code, Some(CodeInput::PowerShell { .. })));
+
+        let (_, powershell, code) =
+            normalize(cli("powershell"), nah_proto::ctx::Platform::Linux).unwrap();
+        assert_eq!(powershell.tool(), "powershell");
+        assert!(code.is_none());
+
+        for tool in ["Bash", "runTerminalCommand", "run_in_terminal"] {
+            let (_, call, code) = normalize(cli(tool), nah_proto::ctx::Platform::Windows).unwrap();
+            assert_eq!(call.tool(), "CopilotWindowsShell", "{tool}");
+            assert!(!call.normalization_complete(), "{tool}");
+            assert!(code.is_none(), "{tool}");
+        }
     }
 }

@@ -25,6 +25,7 @@ pub(crate) mod rsync_options;
 pub(crate) mod self_protection;
 pub(crate) mod semantics;
 pub(crate) mod socat;
+pub(crate) mod startup_persistence;
 pub(crate) mod state;
 pub(crate) mod symlinks;
 pub(crate) mod tar;

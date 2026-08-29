@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>expensive mistakes stop here</strong><br>
-  microsecond verdicts. no LLM. extensible.
+  an extensible guard that blocks catastrophic agent actions
 </p>
 
 <p align="center">
@@ -18,6 +18,10 @@
 
 ```sh
 curl -fsSL nahguard.ai/install | sh
+```
+
+```powershell
+irm https://nahguard.ai/install.ps1 | iex
 ```
 
 <p align="center">
@@ -35,7 +39,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-24 guards, 23 on by default, covering four classes of disaster: **execution
+25 guards, 23 on by default, covering four classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 
 | Guard | Blocks |
@@ -55,6 +59,7 @@ hijacks**, **secret theft**, **filesystem destruction**, and **git disasters**.
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
 | `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
 | `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
+| `fs-startup-management` | Reviewed persistent `systemctl`, `launchctl`, and `crontab` management commands. Off by default. |
 | `fs-startup-persistence` | Changes to reviewed service, schedule, login, autostart, and loader startup paths. |
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
@@ -107,11 +112,46 @@ nah test "git status"
 
 ## Install
 
-nah supports macOS and Linux. Native Windows is not supported.
+nah supports Windows, macOS, and Linux.
 
 ```sh
 curl -fsSL nahguard.ai/install | sh
 ```
+
+On x86-64 Windows, run PowerShell:
+
+```powershell
+irm https://nahguard.ai/install.ps1 | iex
+```
+
+The Windows binary is currently unsigned, so Windows may show a SmartScreen
+warning. ARM64 Windows, Winget, Chocolatey, Scoop, and other package-manager
+installs are not supported yet.
+Set `$env:NAH_VERSION` to a tag before installing to request that release.
+
+### Uninstall on Windows
+
+Remove the executable and the exact user PATH entry written by the installer:
+
+```powershell
+$installDirectory = Join-Path $env:USERPROFILE 'AppData\Local\Programs\nah'
+Remove-Item -LiteralPath (Join-Path $installDirectory 'nah.exe'), `
+    (Join-Path $installDirectory 'nah.exe.old') -Force -ErrorAction SilentlyContinue
+$pathEntry = '%USERPROFILE%\AppData\Local\Programs\nah'
+$environmentKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment', $true)
+try {
+    $rawPath = [string]$environmentKey.GetValue(
+        'Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $rawPath = (($rawPath -split ';') -ne $pathEntry) -join ';'
+    $environmentKey.SetValue(
+        'Path', $rawPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+} finally {
+    $environmentKey.Dispose()
+}
+```
+
+Restart open terminals and coding agents after removal. nah does not provide
+an uninstall command for the executable.
 
 Point your agent to:
 

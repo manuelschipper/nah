@@ -215,6 +215,23 @@ pub(crate) fn finalize(
                     }
                     None => return None,
                 };
+                if filesystem.file_only
+                    && matches!(
+                        path.kind(),
+                        PathKind::Directory | PathKind::Symlink | PathKind::Fifo | PathKind::Other
+                    )
+                {
+                    // A file-only command such as cmd `del` leaves the observed
+                    // directory itself in place but still erases the files it
+                    // contains, so keep the deletion visible as an unresolved
+                    // selection instead of dropping the effect.
+                    complete = false;
+                    effects.push(EffectKind::FilesystemUnresolved {
+                        operation: filesystem.operation,
+                        recursive: filesystem.recursive,
+                    });
+                    continue;
+                }
                 if filesystem.read_if_existing_file {
                     match path.kind() {
                         PathKind::File => {}

@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1287);
+    assert_eq!(summary.cases, 1322);
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn current_corpus_file_counts_are_pinned() {
         actual,
         [
             ("execution-flows.jsonl".to_owned(), 296),
-            ("filesystem.jsonl".to_owned(), 243),
+            ("filesystem.jsonl".to_owned(), 251),
             ("git.jsonl".to_owned(), 187),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
@@ -87,6 +87,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("threat-model.jsonl".to_owned(), 27),
+            ("windows.jsonl".to_owned(), 27),
         ]
     );
 }
@@ -141,6 +142,20 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "self-protection.critical.patch-trust",
         "self-protection.critical.perl-in-place-trust",
         "self-protection.critical.vim-write-trust",
+        "windows.cmd.del-directory-control",
+        "windows.cmd.del-recursive-home",
+        "windows.cmd.nested-powershell-argv-home",
+        "windows.powershell.remove-home",
+        "windows.powershell.curl-alias-unresolved",
+        "windows.pwsh.hash-bare-path",
+        "windows.pwsh.hash-keeps-following-statement",
+        "windows.pwsh.tilde-home",
+        "windows.pwsh.quoted-segment-variable",
+        "windows.pwsh.parameter-prefix-home",
+        "windows.cmd.del-recursive-directory",
+        "windows.pwsh.line-continuation-partial",
+        "windows.cmd.line-continuation-partial",
+        "windows.pwsh.ambiguous-whatif-prefix-home",
     ] {
         assert!(ids.contains(id), "missing reviewed corpus case `{id}`");
     }

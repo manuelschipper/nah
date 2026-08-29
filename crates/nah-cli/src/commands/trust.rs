@@ -2,12 +2,13 @@
 
 use std::path::Path;
 
-use nah_proto::ctx::AbsolutePath;
+use nah_proto::ctx::{AbsolutePath, TrustedRootId};
 
 use crate::live_state::{home, host_platform};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TrustedProject {
+    pub(crate) identity: TrustedRootId,
     pub(crate) path: String,
     pub(crate) configured_guards: usize,
     pub(crate) enabled_guards: usize,
@@ -113,6 +114,7 @@ pub(crate) fn trusted_projects() -> Result<Vec<TrustedProject>, String> {
                 }
             }
             TrustedProject {
+                identity: root.identity().clone(),
                 path: root.path().as_str().to_owned(),
                 configured_guards: records.len(),
                 enabled_guards: active,
@@ -136,6 +138,11 @@ pub(crate) fn canonical_project_root(
     let root = root
         .to_str()
         .ok_or_else(|| format!("project root {requested:?} is not UTF-8"))?;
+    let root = if platform == nah_proto::ctx::Platform::Windows {
+        nah_observe::normalize_windows_observed_path(root)
+    } else {
+        root.to_owned()
+    };
     AbsolutePath::new(platform, root).map_err(|error| error.to_string())
 }
 

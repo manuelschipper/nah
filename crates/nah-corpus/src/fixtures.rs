@@ -39,6 +39,7 @@ enum ShippedGuardPosture {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObservationFixture {
+    platform: Platform,
     pub(crate) cwd: String,
     env: BTreeMap<String, Option<String>>,
     paths: Vec<PathFixture>,
@@ -117,13 +118,21 @@ impl ContextFixture {
         )
         .map_err(|error| error.to_string())
     }
+
+    pub(crate) const fn platform(&self) -> Platform {
+        self.platform
+    }
 }
 
 impl ObservationFixture {
+    pub(crate) const fn platform(&self) -> Platform {
+        self.platform
+    }
+
     fn validate(&self) -> Result<(), String> {
-        AbsolutePath::new(Platform::Linux, &self.cwd).map_err(|error| error.to_string())?;
+        AbsolutePath::new(self.platform, &self.cwd).map_err(|error| error.to_string())?;
         for root in &self.roots {
-            AbsolutePath::new(Platform::Linux, &root.path).map_err(|error| error.to_string())?;
+            AbsolutePath::new(self.platform, &root.path).map_err(|error| error.to_string())?;
         }
         for path in &self.paths {
             if path.requested.is_empty()
@@ -133,23 +142,20 @@ impl ObservationFixture {
             {
                 return Err(format!("inconsistent path fixture `{}`", path.requested));
             }
-            AbsolutePath::new(Platform::Linux, &path.resolved)
-                .map_err(|error| error.to_string())?;
+            AbsolutePath::new(self.platform, &path.resolved).map_err(|error| error.to_string())?;
             if let Some(realpath) = &path.realpath {
-                AbsolutePath::new(Platform::Linux, realpath).map_err(|error| error.to_string())?;
+                AbsolutePath::new(self.platform, realpath).map_err(|error| error.to_string())?;
             }
             for descendant in &path.descendants {
-                AbsolutePath::new(Platform::Linux, descendant)
-                    .map_err(|error| error.to_string())?;
+                AbsolutePath::new(self.platform, descendant).map_err(|error| error.to_string())?;
             }
         }
         Ok(())
     }
 
     pub(crate) fn observation(&self, request: &ObservationRequest) -> Result<Observation, String> {
-        let absolute = |path: &str| {
-            AbsolutePath::new(Platform::Linux, path).map_err(|error| error.to_string())
-        };
+        let absolute =
+            |path: &str| AbsolutePath::new(self.platform, path).map_err(|error| error.to_string());
         let roots = self
             .roots
             .iter()

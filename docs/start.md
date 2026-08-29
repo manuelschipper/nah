@@ -7,7 +7,8 @@ everything else to your runtime.
 nah must be installed in the same execution environment as the coding agent
 or agent gateway whose tool calls it evaluates.
 
-nah supports macOS and Linux. Native Windows is not supported.
+nah runs on Windows, macOS, and Linux. Runtime integration support varies; see
+`nah docs runtimes` for the qualified Windows matrix.
 
 ## Install
 
@@ -15,6 +16,18 @@ nah supports macOS and Linux. Native Windows is not supported.
 curl -fsSL https://nahguard.ai/install | sh
 nah docs
 ```
+
+On x86-64 Windows:
+
+```powershell
+irm https://nahguard.ai/install.ps1 | iex
+```
+
+The Windows release is unsigned and may show SmartScreen. ARM64 and package
+managers are unsupported. To uninstall, remove
+`%USERPROFILE%\AppData\Local\Programs\nah\nah.exe` (and `.old`, if present) and the exact
+`%USERPROFILE%\AppData\Local\Programs\nah` user PATH entry; there is no
+`nah uninstall` command.
 
 ## Inspect guards without installing a hook
 

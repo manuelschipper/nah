@@ -3,7 +3,7 @@ mod support;
 use nah_actions::finalize;
 use nah_proto::action::{
     ActionStream, Coverage, EffectKind, FilesystemOperation, InvocationEffect, NahProtectionTier,
-    Sensitivity,
+    SemanticCode, Sensitivity,
 };
 use support::{absolute, bash_plan, observe};
 
@@ -48,6 +48,16 @@ fn mutates_nah(stream: &ActionStream) -> bool {
                         effect.operation,
                         FilesystemOperation::Write | FilesystemOperation::Delete
                     )
+        )
+    })
+}
+
+fn manages_startup(stream: &ActionStream) -> bool {
+    stream.effects().iter().any(|effect| {
+        matches!(
+            effect.kind(),
+            EffectKind::SystemState { operation }
+                if operation == &SemanticCode::STARTUP_MANAGEMENT
         )
     })
 }
@@ -161,6 +171,27 @@ fn exact_xargs_and_crontab_input_preserve_nested_self_protection() {
         if source.contains("xargs -r") {
             assert!(!deletes_root(&actual), "{source}: {:?}", actual.effects());
         }
+    }
+}
+
+#[test]
+fn wrappers_and_visible_crontab_input_preserve_startup_management_evidence() {
+    for source in [
+        "sudo systemctl enable backup.service",
+        "doas -u root systemctl mask backup.service",
+        "env -u SAFE systemctl disable backup.service",
+    ] {
+        let actual = stream(source);
+        assert!(manages_startup(&actual), "{source}: {:?}", actual.effects());
+    }
+
+    for source in [
+        "printf '* * * * * chmod 000 /home/test/.local/bin/nah\\n' | crontab -",
+        "printf '@reboot chmod 000 /home/test/.local/bin/nah\\n' | crontab -u root -",
+    ] {
+        let actual = stream(source);
+        assert!(manages_startup(&actual), "{source}: {:?}", actual.effects());
+        assert!(mutates_nah(&actual), "{source}: {:?}", actual.effects());
     }
 }
 

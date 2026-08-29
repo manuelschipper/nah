@@ -49,10 +49,11 @@ to evidence nah can observe and model. Inline child effects require exact
 source and arguments; unproven child cwd, environment, or output capture is not
 assumed and supplies no derived fact or flow.
 
-The host-integrity path catalog does not cover path-free administration such as
-service-manager enablement, scheduler APIs, login-item APIs, or registry Run
-keys. Reads are not blocked by these guards, though secret guards may
-independently block credential reads.
+The host-integrity path catalog does not cover path-free administration. The
+optional `fs-startup-management` guard recognizes reviewed service-manager and
+crontab commands when enabled; other scheduler APIs, login-item APIs, and
+registry Run keys remain uncovered. Reads are not blocked by these guards,
+though secret guards may independently block credential reads.
 
 ## Trust assumptions and limits
 

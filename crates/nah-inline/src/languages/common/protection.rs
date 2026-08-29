@@ -68,6 +68,34 @@ pub(in crate::languages) fn analyze(
     report
 }
 
+pub(super) fn typed_target_protected(
+    target: &str,
+    home: &str,
+    critical_paths: &[AbsolutePath],
+    platform: Platform,
+    baseline_variables: &[(String, EnvironmentValue)],
+) -> bool {
+    protected_target(
+        target,
+        &[],
+        home,
+        critical_paths,
+        platform,
+        false,
+        baseline_variables,
+    )
+}
+
+pub(super) fn typed_argv_protected(
+    argv: &[String],
+    home: &str,
+    critical_paths: &[AbsolutePath],
+    platform: Platform,
+    baseline_variables: &[(String, EnvironmentValue)],
+) -> bool {
+    protected::inline_runtime_bypass(argv, home, critical_paths, platform, baseline_variables)
+}
+
 fn inline_critical_mutation(
     program: &str,
     code: &str,

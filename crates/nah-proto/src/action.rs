@@ -209,6 +209,7 @@ impl SemanticCode {
     pub const SHELL_FILE: Self = Self::borrowed("shell-file");
     pub const SHELL_PATTERN: Self = Self::borrowed("shell-pattern");
     pub const SHELL_STDIN: Self = Self::borrowed("shell-stdin");
+    pub const STARTUP_MANAGEMENT: Self = Self::borrowed("fs-startup-management");
     pub const STORAGE_WRITE: Self = Self::borrowed("storage-write");
     pub const EVALUATED_SUBSTITUTION: Self = Self::borrowed("evaluated-substitution");
     pub const UNRESOLVED_COMMAND: Self = Self::borrowed("unresolved-command");

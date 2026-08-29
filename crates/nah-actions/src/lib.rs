@@ -34,7 +34,8 @@ use bash::features::{
     network as bash_network, project as bash_project,
     remote_source_control as bash_remote_source_control, rsync_options as bash_rsync_options,
     self_protection as bash_self_protection, semantics as bash_semantics, socat as bash_socat,
-    state as bash_state, symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
+    startup_persistence as bash_startup_persistence, state as bash_state,
+    symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
     transforms as bash_transforms, wrappers as bash_wrappers,
 };
 mod codex_patch;
@@ -62,6 +63,9 @@ pub enum AnalysisInput<'a> {
 #[derive(Clone, Copy)]
 pub enum VisibleCode<'a> {
     Python { source: &'a str },
+    PowerShell { source: &'a str },
+    Pwsh { source: &'a str },
+    Cmd { source: &'a str },
     OpenClawJavaScript { source: &'a str },
     OpenClawTypeScript { source: &'a str },
     Ipython { source: &'a str },
@@ -222,6 +226,9 @@ fn plan_with_ambient_variables(
             let invocation_input = native::invocation_input(input);
             let (interpreter, interpreter_profile, source, persistent_ipython) = match visible {
                 VisibleCode::Python { source } => ("python", "python", source, false),
+                VisibleCode::PowerShell { source } => ("powershell", "powershell", source, false),
+                VisibleCode::Pwsh { source } => ("pwsh", "pwsh", source, false),
+                VisibleCode::Cmd { source } => ("cmd", "cmd", source, false),
                 VisibleCode::OpenClawJavaScript { source } => {
                     ("javascript", "openclaw-javascript", source, false)
                 }

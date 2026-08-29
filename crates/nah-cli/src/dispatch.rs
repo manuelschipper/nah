@@ -659,6 +659,13 @@ fn list_log<W: Write, E: Write>(
     });
     match result {
         Ok(view) => {
+            if let Some(path) = &view.recovered_from {
+                let _ = writeln!(
+                    stderr,
+                    "nah: decision log recovered; original archived to {}",
+                    path.display()
+                );
+            }
             if view.lines.is_empty() && !json {
                 let message = if limit == 0 {
                     "No decisions requested."

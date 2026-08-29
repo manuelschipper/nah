@@ -49,7 +49,10 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         "opencode",
         "pi",
         "prime-agent",
-    ] {
+    ]
+    .into_iter()
+    .filter(installation_supported_on_host)
+    {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join(".hermes")).unwrap();
 
@@ -112,12 +115,20 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
         "opencode",
         "pi",
         "prime-agent",
-    ] {
+    ]
+    .into_iter()
+    .filter(installation_supported_on_host)
+    {
         let temp = tempfile::tempdir().unwrap();
         let strict = nah(temp.path(), runtime, "install", Some("--fail-closed"));
         assert!(strict.status.success(), "{runtime}: {strict:?}");
+        let stale_executable = if cfg!(windows) {
+            r"C:\old\nah.exe"
+        } else {
+            "/old/nah"
+        };
         assert!(
-            rewrite_executable(temp.path(), env!("CARGO_BIN_EXE_nah"), "/old/nah") > 0,
+            rewrite_executable(temp.path(), env!("CARGO_BIN_EXE_nah"), stale_executable) > 0,
             "{runtime}"
         );
 
@@ -141,6 +152,10 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
             "{runtime}: {current:?}"
         );
     }
+}
+
+fn installation_supported_on_host(runtime: &&str) -> bool {
+    !cfg!(windows) || !matches!(*runtime, "amp" | "droid" | "hermes" | "opencode")
 }
 
 fn rewrite_executable(directory: &Path, from: &str, to: &str) -> usize {

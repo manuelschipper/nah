@@ -37,6 +37,12 @@ permission flow. The adapter lowers documented shell, read, create, replace,
 grep, and glob tools. Unknown and extension-contributed tools remain opaque
 and delegate.
 
+On Windows, install, status, reinstall, uninstall, and typed filesystem tools
+are supported natively. Copilot CLI tool `bash` uses Bash analysis and tool
+`powershell` uses PowerShell analysis. A Claude-compatible payload collapsed to
+generic `Bash`, plus `runTerminalCommand` and `run_in_terminal`, remains partial
+when it does not identify the selected Windows shell.
+
 ## Boundaries
 
 - This integration covers local Copilot CLI and the local VS Code Copilot
