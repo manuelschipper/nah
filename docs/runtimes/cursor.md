@@ -21,6 +21,11 @@ nah hook cursor uninstall
 
 The installer preserves unrelated `~/.cursor/hooks.json` and is idempotent.
 
+On Windows, install, status, reinstall, uninstall, and typed filesystem tools
+are supported natively. Cursor's `Shell` tool follows the user's selected
+terminal profile; when the payload does not name that dialect, nah keeps the
+command partial and delegates without shell effects.
+
 ## Behavior
 
 The local `preToolUse` hook covers Cursor Shell, Read, Write, Delete, Grep, and

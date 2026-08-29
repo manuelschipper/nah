@@ -27,7 +27,7 @@ const TOPICS: &[Topic] = &[
         "start",
         "Install nah and guard the first coding agent.",
         "../../../docs/start.md",
-        2_048
+        2_560
     ),
     topic!(
         "concepts",
@@ -57,7 +57,7 @@ const TOPICS: &[Topic] = &[
         "runtimes",
         "Choose and install a supported agent integration.",
         "../../../docs/runtimes.md",
-        3_072
+        5_120
     ),
     topic!(
         "runtime-amp",
@@ -81,7 +81,7 @@ const TOPICS: &[Topic] = &[
         "runtime-cline",
         "Install nah for Cline.",
         "../../../docs/runtimes/cline.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-codex",
@@ -117,7 +117,7 @@ const TOPICS: &[Topic] = &[
         "runtime-hermes",
         "Install nah for Hermes.",
         "../../../docs/runtimes/hermes.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-kiro",

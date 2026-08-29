@@ -34,6 +34,12 @@ multi-query searches, and `editor` insert operations remain opaque because one
 nah call cannot represent them. Blocks return `cancel: true` with branded
 feedback; delegated calls return `cancel: false`, preserving Cline permissions.
 
+On Windows, nah installs `PreToolUse.ps1` in both native hook directories and
+supports status, reinstall, uninstall, and typed filesystem tools. Cline's
+`execute_command` and `run_commands` use the user's selected terminal profile;
+without a dialect in the payload, nah keeps those commands partial and
+delegates without shell effects.
+
 IDE events use `hookName: PreToolUse` and may name the tool with
 `preToolUse.tool`; CLI 3.0.48 uses `hookName: tool_call` and
 `preToolUse.toolName`. Both supply arguments in `preToolUse.parameters`.

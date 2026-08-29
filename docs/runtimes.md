@@ -8,7 +8,8 @@ nah hook <runtime> status
 nah hook <runtime> uninstall
 ```
 
-nah supports Windows, macOS, and Linux.
+nah runs on Windows, macOS, and Linux. Runtime integration support varies by
+platform.
 
 Run `nah docs runtime-<name>` for a runtime-specific guide:
 
@@ -27,6 +28,31 @@ Run `nah docs runtime-<name>` for a runtime-specific guide:
 - `opencode` — OpenCode
 - `pi` — Pi
 - `prime-agent` — Prime Agent
+
+## Analysis on Windows
+
+These integrations have an explicit Windows contract:
+
+| Runtime | Lifecycle | Analysis on Windows |
+| --- | --- | --- |
+| Claude Code | supported | Bash |
+| Codex | supported | partial |
+| Cursor | supported | partial |
+| GitHub Copilot | supported | Bash, PowerShell, or partial by payload |
+| Cline | supported | partial |
+| Kiro CLI | supported | Bash |
+| Amp | unsupported | not available |
+| Factory Droid | unsupported | not available |
+| Hermes | unsupported | not available |
+| OpenCode | unsupported | not available |
+
+Supported lifecycle includes native install, status, reinstall, uninstall,
+typed filesystem tools, self-protection, and failure policy. `partial` means a
+shell payload delegates without shell effects when the runtime does not identify
+its dialect. It does not weaken typed filesystem decisions. Amp, Factory Droid,
+Hermes, and OpenCode return `runtime-platform-unsupported` before installation
+writes, while status reports `not configured`. Other runtime integrations do
+not have a Windows support claim in this matrix.
 
 ## Shared contract
 

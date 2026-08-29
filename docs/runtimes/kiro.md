@@ -27,12 +27,15 @@ nah hook kiro uninstall
 
 ## Behavior
 
-The global `PreToolUse` hook sees built-in and MCP tool calls. Shell calls use
-nah's complete Bash analysis. Kiro CLI 3's `read_file` calls and documented
-single-operation reads and writes expose their path to filesystem guards;
-Kiro's batched filesystem calls and unmapped built-in or MCP tools remain
-opaque and delegate. nah never approves a call, so every delegate continues
-into Kiro's normal permission flow.
+The global `PreToolUse` hook sees built-in and MCP tool calls. Kiro documents
+`shell`, `execute_bash`, and the legacy `execute_cmd` alias as Bash-command
+tools, so all three use nah's Bash analysis on Windows as well as Unix. Native
+Windows install, status, reinstall, uninstall, and typed filesystem tools are
+supported. Kiro CLI 3's `read_file` calls and documented single-operation reads
+and writes expose their path to filesystem guards; Kiro's batched filesystem
+calls and unmapped built-in or MCP tools remain opaque and delegate. nah never
+approves a call, so every delegate continues into Kiro's normal permission
+flow.
 
 Definite blocks exit 2 with nah-branded feedback. In the default mode,
 malformed calls and evaluation failure delegate. A missing or unexpectedly

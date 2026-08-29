@@ -22,14 +22,29 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
     // resolves paths before matching them
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
-    let ide_path = home.join("Documents/Cline/Hooks/PreToolUse");
-    let cli_path = home.join(".cline/hooks/PreToolUse");
+    let file = if cfg!(windows) {
+        "PreToolUse.ps1"
+    } else {
+        "PreToolUse"
+    };
+    let ide_path = home.join("Documents/Cline/Hooks").join(file);
+    let cli_path = home.join(".cline/hooks").join(file);
 
     let installed = nah(home, &["hook", "cline", "install"]);
     assert!(installed.status.success(), "{installed:?}");
     let first = std::fs::read(&ide_path).unwrap();
     let script = String::from_utf8(first.clone()).unwrap();
-    assert!(script.starts_with("#!/bin/sh\n# Managed by nah: Cline PreToolUse\n"));
+    if cfg!(windows) {
+        assert!(script.starts_with("# Managed by nah: Cline PreToolUse\n"));
+        assert!(script.contains("[Console]::In.ReadToEnd()"));
+        assert!(
+            script
+                .to_ascii_lowercase()
+                .contains("nah.exe' hook cline run")
+        );
+    } else {
+        assert!(script.starts_with("#!/bin/sh\n# Managed by nah: Cline PreToolUse\n"));
+    }
     assert!(script.contains(" hook cline run\n"));
     assert_eq!(std::fs::read(&cli_path).unwrap(), first);
 
@@ -82,7 +97,12 @@ fn install_refuses_unowned_or_symlinked_hook_paths() {
     // resolves paths before matching them
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
-    let path = home.join("Documents/Cline/Hooks/PreToolUse");
+    let file = if cfg!(windows) {
+        "PreToolUse.ps1"
+    } else {
+        "PreToolUse"
+    };
+    let path = home.join("Documents/Cline/Hooks").join(file);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
     let conflict = nah(home, &["hook", "cline", "install"]);
@@ -93,7 +113,7 @@ fn install_refuses_unowned_or_symlinked_hook_paths() {
     );
 
     let cli_conflict = tempfile::tempdir().unwrap();
-    let cli_path = cli_conflict.path().join(".cline/hooks/PreToolUse");
+    let cli_path = cli_conflict.path().join(".cline/hooks").join(file);
     std::fs::create_dir_all(cli_path.parent().unwrap()).unwrap();
     std::fs::write(&cli_path, "#!/bin/sh\nexit 0\n").unwrap();
     let conflict = nah(cli_conflict.path(), &["hook", "cline", "install"]);
@@ -105,7 +125,8 @@ fn install_refuses_unowned_or_symlinked_hook_paths() {
     assert!(
         !cli_conflict
             .path()
-            .join("Documents/Cline/Hooks/PreToolUse")
+            .join("Documents/Cline/Hooks")
+            .join(file)
             .exists()
     );
 

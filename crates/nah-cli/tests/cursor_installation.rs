@@ -4,12 +4,9 @@ mod support;
 
 use std::process::{Command, Stdio};
 
-#[cfg(unix)]
 use serde_json::Value;
 use serde_json::json;
-#[cfg(unix)]
 use std::io::Write;
-#[cfg(unix)]
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -24,12 +21,10 @@ fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
-#[cfg(unix)]
 fn hooks(home: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(home.join(".cursor/hooks.json")).unwrap()).unwrap()
 }
 
-#[cfg(unix)]
 fn nah_hooks(config: &Value) -> Vec<&Value> {
     config["hooks"]["preToolUse"]
         .as_array()
@@ -43,7 +38,6 @@ fn nah_hooks(config: &Value) -> Vec<&Value> {
         .collect()
 }
 
-#[cfg(unix)]
 fn run_installed_hook(
     home: &std::path::Path,
     project: &std::path::Path,
@@ -66,14 +60,13 @@ fn run_installed_hook(
     )
 }
 
-#[cfg(unix)]
 fn run_installed_hook_input(
     home: &std::path::Path,
     command: &str,
     input: Value,
 ) -> std::process::Output {
-    let mut child = Command::new("sh")
-        .args(["-c", command])
+    let mut command = configured_command(command);
+    let mut child = command
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
@@ -92,6 +85,19 @@ fn run_installed_hook_input(
 }
 
 #[cfg(unix)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("sh");
+    configured.args(["-c", command]);
+    configured
+}
+
+#[cfg(windows)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("cmd.exe");
+    configured.args(["/d", "/c", command]);
+    configured
+}
+
 #[test]
 fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     let home_temp = tempfile::tempdir().unwrap();
@@ -127,6 +133,16 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     assert_eq!(handlers[0]["matcher"], "*");
     assert_eq!(handlers[0]["timeout"], 5);
     assert!(handlers[0].get("failClosed").is_none());
+    if cfg!(windows) {
+        let command = handlers[0]["command"].as_str().unwrap();
+        assert!(command.starts_with('"'));
+        assert!(
+            command
+                .to_ascii_lowercase()
+                .contains("nah.exe\" hook cursor run")
+        );
+    }
+    assert!(nah(home, &["hook", "cursor", "status"]).status.success());
 
     let installed_again = nah(home, &["hook", "cursor", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
@@ -204,15 +220,20 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
         "Shell",
         json!({"command":"nah hook cursor uninstall","cwd":project}),
     );
-    assert_eq!(lifecycle.status.code(), Some(2), "{lifecycle:?}");
-    let denied: Value = serde_json::from_slice(&lifecycle.stdout).unwrap();
-    assert_eq!(denied["permission"], "deny");
-    assert!(
-        denied["agent_message"]
-            .as_str()
-            .unwrap()
-            .contains("do not retry")
-    );
+    if cfg!(windows) {
+        assert!(lifecycle.status.success(), "{lifecycle:?}");
+        assert!(lifecycle.stdout.is_empty(), "{lifecycle:?}");
+    } else {
+        assert_eq!(lifecycle.status.code(), Some(2), "{lifecycle:?}");
+        let denied: Value = serde_json::from_slice(&lifecycle.stdout).unwrap();
+        assert_eq!(denied["permission"], "deny");
+        assert!(
+            denied["agent_message"]
+                .as_str()
+                .unwrap()
+                .contains("do not retry")
+        );
+    }
     for (tool, input) in [
         (
             "Write",
@@ -249,7 +270,6 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn malformed_cursor_input_delegates() {
     let home_temp = tempfile::tempdir().unwrap();

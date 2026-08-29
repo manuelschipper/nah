@@ -128,7 +128,9 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
             json!({"command":"rm -f ~/.kiro/hooks/nah.json"}),
         ),
         ("execute_bash", json!({"command":"rm -rf ~/.kiro/hooks"})),
+        ("shell", json!({"command":"nah hook kiro uninstall"})),
         ("execute_bash", json!({"command":"nah hook kiro uninstall"})),
+        ("execute_cmd", json!({"command":"nah hook kiro uninstall"})),
     ] {
         let output = run_hook(home, &project, tool, input);
         assert_eq!(output.status.code(), Some(2), "{tool}: {output:?}");

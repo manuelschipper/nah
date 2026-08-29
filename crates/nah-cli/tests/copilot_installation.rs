@@ -43,6 +43,17 @@ fn install_status_and_uninstall_own_only_nah_file() {
             .unwrap()
             .ends_with(" hook copilot run")
     );
+    if cfg!(windows) {
+        let command = config["hooks"]["preToolUse"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(command.starts_with('"'));
+        assert!(
+            command
+                .to_ascii_lowercase()
+                .contains("nah.exe\" hook copilot run")
+        );
+    }
     assert!(sibling.exists());
 
     let status = nah(home, &["hook", "copilot", "status"]);
