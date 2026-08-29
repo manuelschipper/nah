@@ -21,17 +21,15 @@ guard findings and understood protected-state changes outside maintenance.
   expose unredacted modeled input and inline code.
 - Guards block modeled access to protected credential paths and visible flows
   from sensitive sources or network content into dangerous sinks.
-- Default-on `git-remote-delete` blocks exact GitHub/GitLab whole-repository
-  deletion through CLI and REST forms.
-- The default-on `fs-auth-identity` guard blocks visible writes and deletes of
-  reviewed login-authority, identity, PAM, sudoers, and sshd paths. The
-  default-off `fs-shell-profile` guard applies the same mutation-only policy to
-  reviewed user shell profiles when enabled. The default-on
-  `fs-startup-persistence` guard protects reviewed service, schedule, login,
-  autostart, and loader startup paths.
-- Default-off `fs-startup-management` covers static Linux
-  `systemctl` unit-file changes, macOS `launchctl` enable/disable or legacy
-  `load`/`unload -w`, and `crontab` install/removal.
+- `git-remote-delete` defaults on for exact GitHub/GitLab repo deletion
+  via CLI or REST.
+- `fs-auth-identity` blocks writes and deletes of reviewed login-authority,
+  identity, PAM, sudoers, and sshd paths. Default-off `fs-shell-profile`
+  applies that mutation policy to user shell profiles; `fs-startup-persistence`
+  protects reviewed service, schedule, login, autostart, and loader paths.
+- Default-off `fs-startup-management` covers static Linux `systemctl` unit-file
+  changes, macOS `launchctl` enable/disable or legacy `load`/`unload -w`, and
+  `crontab` install/removal.
 
 ## Not enforced
 
@@ -42,8 +40,8 @@ guard findings and understood protected-state changes outside maintenance.
 - Secret content under unclassified names; guards inspect paths and modeled
   effects, not arbitrary contents.
 - Custom guards are trusted executables; nah does not sandbox them.
-- Other remote deletion tools/routes, unresolved targets, and branch, tag,
-  archive, rename, or transfer operations.
+- Other remote deletion tools/routes, unresolved targets, branches, tags,
+  archives, renames, and transfers.
 
 Unknown or opaque input delegates. Fail-closed uses native denial for malformed
 or no-decision input, but requires loaded nah to respond; missing hooks/binaries,
@@ -77,10 +75,8 @@ unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous
 nah blocks understood agent attempts to trust or untrust projects, change guard
 state or runtime wiring, open `nah tui`, start a nap, or edit protected state.
 Agents may edit inert user or project `.nah/guards/` proposals and give the
-human an exact out-of-band command. Before trust, `.nah/project.toml` may enable
-additional built-in guards but cannot disable them.
-An explicit global operator disable takes precedence over that project
-enablement.
+human an exact out-of-band command. Before trust, `.nah/project.toml` may only
+enable built-ins; an explicit global disable overrides it.
 
 Path guards exclude reads. Gaps include Windows Run keys, `schtasks`,
 runtime/offline/editor `systemctl`, `launchctl` bootstrap/bootout, dynamic input,
@@ -97,8 +93,7 @@ authenticated state fails awake; direct mutation of its state, key, or lock
 always blocks. A nap is user-global, and its changes persist.
 
 Self-protection blocks understood mutation of nah, active wiring, executable
-aliases, and ancestors. Windows drive and UNC paths
-normalize; device or reparse paths fail. `%USERPROFILE%\.nah` has an inheritable
-DACL for the user, SYSTEM, and Administrators; nap keys allow only their owner.
-Opaque or unhooked work remains user
-responsibility.
+aliases, and ancestors. Windows drive/UNC paths normalize; device/reparse paths
+fail. `%USERPROFILE%\.nah` has an inheritable user/SYSTEM/Administrators
+DACL; nap keys allow only their owner. Opaque or unhooked work remains the
+user's responsibility.
