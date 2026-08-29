@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>expensive mistakes stop here</strong><br>
-  microsecond verdicts. no LLM. extensible.
+  an extensible guard that blocks catastrophic agent actions
 </p>
 
 <p align="center">
