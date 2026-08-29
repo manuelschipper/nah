@@ -1,7 +1,7 @@
 # Extending
 
 A custom guard is a trusted, one-shot executable supported on macOS, Linux, and
-Windows.
+Windows through the unsigned x86-64 release.
 It can add a block and nothing else. Keep its data, documentation, and tests
 together.
 

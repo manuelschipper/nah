@@ -23,6 +23,8 @@ jobs:
             runner: macos-latest
           - target: aarch64-apple-darwin
             runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +41,8 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p nah-cli --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
         run: |
           BIN=target/${{ matrix.target }}/release/nah
           strip "$BIN" || true
@@ -47,13 +50,25 @@ jobs:
           cp "$BIN" LICENSE pkg/
           tar -C pkg -czf nah-${{ matrix.target }}.tar.gz nah LICENSE
 
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path pkg | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/nah.exe pkg/nah.exe
+          Copy-Item LICENSE pkg/LICENSE
+          Compress-Archive -Path pkg/nah.exe,pkg/LICENSE `
+            -DestinationPath nah-${{ matrix.target }}.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: nah-${{ matrix.target }}
-          path: nah-${{ matrix.target }}.tar.gz
+          path: |
+            nah-${{ matrix.target }}.tar.gz
+            nah-${{ matrix.target }}.zip
           if-no-files-found: error
 
-  release:
+  checksums:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +77,53 @@ jobs:
           merge-multiple: true
 
       - name: Checksums
-        run: sha256sum nah-*.tar.gz > sha256sums.txt
+        run: sha256sum nah-*.tar.gz nah-*.zip > sha256sums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            nah-*.tar.gz
+            nah-*.zip
+            sha256sums.txt
+          if-no-files-found: error
+
+  windows-acceptance:
+    needs: checksums
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
+
+      - name: Test installer and packaged product
+        shell: pwsh
+        run: |
+          $container = New-PesterContainer -Path homepage/install.Tests.ps1 -Data @{
+            ArtifactPath = "$PWD/nah-x86_64-pc-windows-msvc.zip"
+            ChecksumsPath = "$PWD/sha256sums.txt"
+            ExpectedVersion = '${{ github.ref_name }}'
+          }
+          $result = Invoke-Pester -Container $container -CI -PassThru
+          if ($result.FailedCount -ne 0) { exit 1 }
+
+  release:
+    needs: windows-acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
 
       - name: Create release
         env:
@@ -75,4 +136,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "nah $TAG" \
             --notes "See [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md)." \
-            nah-*.tar.gz sha256sums.txt
+            nah-*.tar.gz nah-*.zip sha256sums.txt

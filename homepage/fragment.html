@@ -904,6 +904,13 @@ footer .fine a{ text-decoration-color:var(--rule); }
 <pre id="install-cmds">curl -fsSL nahguard.ai/install | sh</pre>
       </div>
 
+      <p class="step">on x86-64 Windows PowerShell:</p>
+      <div class="card install-card">
+        <button class="copy-btn" id="copy-windows" type="button" aria-label="copy the Windows install command"></button>
+<pre id="install-windows">irm https://nahguard.ai/install.ps1 | iex</pre>
+      </div>
+      <p class="note">the Windows build is unsigned and may show a SmartScreen warning. ARM64 and package-manager installs are not supported.</p>
+
       <p class="step">then tell your agent to run:</p>
       <div class="card install-card">
         <button class="copy-btn" id="copy-docs" type="button" aria-label="copy the docs command"></button>
@@ -1515,6 +1522,7 @@ function wireCopy(btnId, srcId, stripComments){
 }
 wireCopy("copy-hero", "install-one", false);
 wireCopy("copy", "install-cmds", true);
+wireCopy("copy-windows", "install-windows", true);
 wireCopy("copy-docs", "docs-cmd", true);
 wireCopy("copy-threat", "threat-cmd", true);
 wireCopy("copy-mail", "mail-addr", false);
