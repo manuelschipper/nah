@@ -95,6 +95,22 @@ fn github_api_short_boolean_forms_preserve_delete_classification() {
 }
 
 #[test]
+fn github_api_paginate_only_allows_delete_when_disabled() {
+    for value in ["0", "f", "F", "FALSE", "false", "False"] {
+        let source = format!("gh api --paginate={value} -X DELETE repos/owner/project");
+        assert!(deletes_repository(&source), "{source}");
+    }
+
+    for value in ["1", "t", "T", "TRUE", "true", "True"] {
+        let source = format!("gh api --paginate={value} -X DELETE repos/owner/project");
+        assert!(!deletes_repository(&source), "{source}");
+    }
+    assert!(!deletes_repository(
+        "gh api --paginate -X DELETE repos/owner/project"
+    ));
+}
+
+#[test]
 fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
     for source in [
         "gh api repos/owner/project -X DELETE",

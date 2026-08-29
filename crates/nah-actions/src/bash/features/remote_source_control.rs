@@ -156,6 +156,16 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             index += 1;
             continue;
         }
+        if !after_options
+            && provider == Provider::GitHub
+            && let Some(paginate) = boolean_flag(argument, "--paginate")
+        {
+            if paginate {
+                return None;
+            }
+            index += 1;
+            continue;
+        }
         if !after_options && api_boolean_option(argument, provider) {
             index += 1;
             continue;
@@ -212,14 +222,7 @@ fn api_boolean_option(argument: &str, provider: Provider) -> bool {
         return true;
     }
     let options = match provider {
-        Provider::GitHub => [
-            "--include",
-            "--paginate",
-            "--silent",
-            "--slurp",
-            "--verbose",
-        ]
-        .as_slice(),
+        Provider::GitHub => ["--include", "--silent", "--slurp", "--verbose"].as_slice(),
         Provider::GitLab => ["--include", "--paginate", "--silent"].as_slice(),
     };
     options

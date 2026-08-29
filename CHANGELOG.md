@@ -6,7 +6,8 @@
   blocks exact whole-repository deletion through GitHub and GitLab CLI commands
   and REST routes, including valid confirmation values, false-valued help flags,
   GitHub and GitLab API fragments, and documented GitLab composite placeholders,
-  single-label GitHub Enterprise hosts, and GitHub API short-option forms,
+  single-label GitHub Enterprise hosts, GitHub API short-option forms, and
+  disabled GitHub API pagination,
   while leaving branch, tag, archive, rename, and transfer operations outside
   its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
