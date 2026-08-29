@@ -49,19 +49,26 @@ fn repo_delete_target<'a>(arguments: &'a [&str], provider: Provider) -> Option<O
     for argument in arguments {
         if !after_options && *argument == "--" {
             after_options = true;
-        } else if !after_options && help_requested(argument) {
-            return None;
-        } else if !after_options && confirmation_flag(argument, provider) {
-        } else if !after_options && argument.starts_with('-') || target.replace(*argument).is_some()
-        {
+            continue;
+        }
+        if !after_options {
+            match help_flag(argument) {
+                Some(true) => return None,
+                Some(false) => continue,
+                None => {}
+            }
+            if confirmation_flag(argument, provider) {
+                continue;
+            }
+            if argument.starts_with('-') {
+                return None;
+            }
+        }
+        if target.replace(*argument).is_some() {
             return None;
         }
     }
     Some(target)
-}
-
-fn help_requested(argument: &str) -> bool {
-    matches!(argument, "-h" | "--help" | "--help=true")
 }
 
 fn confirmation_flag(argument: &str, provider: Provider) -> bool {
@@ -69,31 +76,25 @@ fn confirmation_flag(argument: &str, provider: Provider) -> bool {
         Provider::GitHub => ["--yes", "--confirm"].as_slice(),
         Provider::GitLab => ["--yes"].as_slice(),
     };
-    long.iter().any(|flag| bool_flag(argument, flag))
-        || provider == Provider::GitLab && bool_flag(argument, "-y")
+    long.iter()
+        .any(|flag| boolean_flag(argument, flag).is_some())
+        || provider == Provider::GitLab && boolean_flag(argument, "-y").is_some()
 }
 
-fn bool_flag(argument: &str, flag: &str) -> bool {
-    argument == flag
-        || argument
-            .strip_prefix(flag)
-            .and_then(|value| value.strip_prefix('='))
-            .is_some_and(|value| {
-                matches!(
-                    value,
-                    "1" | "t"
-                        | "T"
-                        | "TRUE"
-                        | "true"
-                        | "True"
-                        | "0"
-                        | "f"
-                        | "F"
-                        | "FALSE"
-                        | "false"
-                        | "False"
-                )
-            })
+fn help_flag(argument: &str) -> Option<bool> {
+    boolean_flag(argument, "--help").or_else(|| boolean_flag(argument, "-h"))
+}
+
+fn boolean_flag(argument: &str, flag: &str) -> Option<bool> {
+    if argument == flag {
+        return Some(true);
+    }
+    let value = argument.strip_prefix(flag)?.strip_prefix('=')?;
+    match value {
+        "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
+        "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
+        _ => None,
+    }
 }
 
 fn valid_github_repository(target: &str) -> bool {
@@ -148,8 +149,12 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             index += 1;
             continue;
         }
-        if !after_options && help_requested(argument) {
-            return None;
+        if !after_options && let Some(help_requested) = help_flag(argument) {
+            if help_requested {
+                return None;
+            }
+            index += 1;
+            continue;
         }
         if !after_options && api_boolean_option(argument, provider) {
             index += 1;
@@ -212,7 +217,9 @@ fn api_boolean_option(argument: &str, provider: Provider) -> bool {
         .as_slice(),
         Provider::GitLab => ["--include", "--paginate", "--silent"].as_slice(),
     };
-    options.iter().any(|option| bool_flag(argument, option))
+    options
+        .iter()
+        .any(|option| boolean_flag(argument, option).is_some())
 }
 
 fn api_value_option(argument: &str, provider: Provider) -> bool {

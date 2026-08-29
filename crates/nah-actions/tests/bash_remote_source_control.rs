@@ -48,6 +48,35 @@ fn confirmation_flags_accept_go_boolean_spellings() {
 }
 
 #[test]
+fn help_boolean_values_preserve_delete_classification() {
+    for value in ["0", "f", "F", "FALSE", "false", "False"] {
+        for source in [
+            format!("gh repo delete owner/project --yes --help={value}"),
+            format!("gh repo delete owner/project --yes -h={value}"),
+            format!("glab repo delete group/project -y --help={value}"),
+            format!("glab repo delete group/project -y -h={value}"),
+            format!("gh api --help={value} -X DELETE repos/owner/project"),
+            format!("gh api -h={value} -X DELETE repos/owner/project"),
+            format!("glab api --help={value} -X DELETE projects/123"),
+            format!("glab api -h={value} -X DELETE projects/123"),
+        ] {
+            assert!(deletes_repository(&source), "{source}");
+        }
+    }
+
+    for value in ["1", "t", "T", "TRUE", "true", "True"] {
+        for source in [
+            format!("gh repo delete owner/project --yes --help={value}"),
+            format!("glab repo delete group/project -y --help={value}"),
+            format!("gh api --help={value} -X DELETE repos/owner/project"),
+            format!("glab api --help={value} -X DELETE projects/123"),
+        ] {
+            assert!(!deletes_repository(&source), "{source}");
+        }
+    }
+}
+
+#[test]
 fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
     for source in [
         "gh api repos/owner/project -X DELETE",

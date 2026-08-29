@@ -4,9 +4,9 @@
 
 - **Remote repository deletion guard** — New default-on `git-remote-delete`
   blocks exact whole-repository deletion through GitHub and GitLab CLI commands
-  and REST routes, including valid confirmation values and GitHub API fragments,
-  while leaving branch, tag, archive, rename, and transfer operations outside
-  its scope.
+  and REST routes, including valid confirmation values, false-valued help flags,
+  and GitHub API fragments, while leaving branch, tag, archive, rename, and
+  transfer operations outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.
