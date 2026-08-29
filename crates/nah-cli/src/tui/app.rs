@@ -1296,26 +1296,24 @@ fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {
     }
 }
 
-fn guard_family_scope_rank(entry: &GuardEntry) -> usize {
+fn guard_family_scope_rank(entry: &GuardEntry) -> (bool, usize) {
     match entry.family {
-        Some(family) => family.rank(),
-        None => {
-            crate::catalog::GuardFamily::ALL.len()
-                + match entry.target.scope() {
-                    Some(nah_proto::ctx::GuardScope::User) => 0,
-                    Some(nah_proto::ctx::GuardScope::Project) => 1,
-                    None => 2,
-                }
-        }
+        Some(family) => (false, family.rank()),
+        None => (
+            true,
+            match entry.target.scope() {
+                Some(nah_proto::ctx::GuardScope::User) => 0,
+                Some(nah_proto::ctx::GuardScope::Project) => 1,
+                None => 2,
+            },
+        ),
     }
 }
 
-fn guard_type_rank(entry: &GuardEntry) -> usize {
+fn guard_type_rank(entry: &GuardEntry) -> (bool, usize) {
     entry
         .family
-        .map_or(crate::catalog::GuardFamily::ALL.len(), |family| {
-            family.rank()
-        })
+        .map_or((true, 0), |family| (false, family.rank()))
 }
 
 fn guard_status_rank(status: &GuardStatus) -> u8 {

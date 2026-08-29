@@ -13,8 +13,6 @@ pub(crate) enum GuardFamily {
 }
 
 impl GuardFamily {
-    pub(crate) const ALL: [Self; 4] = [Self::Execution, Self::Filesystem, Self::Git, Self::Secrets];
-
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Execution => "EXECUTION",
