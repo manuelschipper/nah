@@ -154,7 +154,7 @@ jsonld = json.dumps({
     "url": "https://nahguard.ai/",
     "description": DESCRIPTION,
     "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "macOS, Linux",
+    "operatingSystem": "Windows, macOS, Linux",
     "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
     "author": {"@type": "Person", "name": "Manuel Schipper",
                "url": "https://schipper.ai/"},
@@ -187,9 +187,13 @@ head = f"""<!doctype html>
 """
 doc = head + body + "</body>\n</html>\n"
 
-# -- the install script, served at /install for curl | sh -----------------
+# -- platform installers, served as plain text ----------------------------
 shutil.copy(f"{HERE}/install.sh", f"{OUT_DIR}/install")
-open(f"{OUT_DIR}/_headers", "w").write("/install\n  Content-Type: text/plain; charset=utf-8\n")
+shutil.copy(f"{HERE}/install.ps1", f"{OUT_DIR}/install.ps1")
+open(f"{OUT_DIR}/_headers", "w").write(
+    "/install\n  Content-Type: text/plain; charset=utf-8\n"
+    "/install.ps1\n  Content-Type: text/plain; charset=utf-8\n"
+)
 
 # -- crawler files. A real 404.html also switches Pages out of SPA
 #    fallback, so unknown paths stop serving the homepage with a 200.

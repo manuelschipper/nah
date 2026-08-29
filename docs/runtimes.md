@@ -9,7 +9,8 @@ nah hook <runtime> uninstall
 ```
 
 nah runs on Windows, macOS, and Linux. Runtime integration support varies by
-platform.
+platform. The official Windows release is x86-64 only and currently unsigned;
+ARM64 Windows and package-manager distributions are not supported.
 
 Run `nah docs runtime-<name>` for a runtime-specific guide:
 

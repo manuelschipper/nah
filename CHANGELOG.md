@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Windows release and installer** — Releases now include a checksummed,
+  pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
+  that preserves expandable user PATH entries and replaces upgrades safely.
 - **Qualified Windows runtime integrations** — Claude Code, Codex, Cursor,
   GitHub Copilot, Cline, and Kiro now support native hook lifecycle and typed
   tools on Windows while ambiguous shell payloads stay partial. Amp, Factory

@@ -9,6 +9,9 @@
 ## Install
 
 - `curl -fsSL nahguard.ai/install | sh`
+- Windows PowerShell: `irm https://nahguard.ai/install.ps1 | iex`
+- Windows releases are unsigned x86-64 builds. Windows ARM64 and package
+  managers are not supported.
 - Then wire your runtime: `nah hook claude install` (replace `claude` with
   `amp`, `antigravity`, `cline`, `codex`, `copilot`, `cursor`, `devin`,
   `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, and more).

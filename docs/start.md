@@ -17,6 +17,18 @@ curl -fsSL https://nahguard.ai/install | sh
 nah docs
 ```
 
+On x86-64 Windows:
+
+```powershell
+irm https://nahguard.ai/install.ps1 | iex
+```
+
+The Windows release is unsigned and may show SmartScreen. ARM64 and package
+managers are unsupported. To uninstall, remove
+`%USERPROFILE%\AppData\Local\Programs\nah\nah.exe` (and `.old`, if present) and the exact
+`%USERPROFILE%\AppData\Local\Programs\nah` user PATH entry; there is no
+`nah uninstall` command.
+
 ## Inspect guards without installing a hook
 
 `nah test` runs the real decision pipeline without executing the command:
