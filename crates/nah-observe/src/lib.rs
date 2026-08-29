@@ -15,7 +15,8 @@ mod path_facts;
 mod project_guards;
 mod roots;
 
-use io_paths::observed_path;
+pub use io_paths::normalize_windows_observed_path;
+use io_paths::{has_reparse_ancestor, observed_path};
 use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::observation::{
     BindingError, EnvObservation, Observation, ObservationFact, ObservationFailure,
@@ -165,7 +166,13 @@ fn observe_cwd(query: &ObservationQuery) -> Observed<AbsolutePath> {
     let ObservationQuery::Cwd { requested, .. } = query else {
         unreachable!("selected cwd query")
     };
-    observed_path(fs::canonicalize(requested.as_str()))
+    match has_reparse_ancestor(Path::new(requested.as_str())) {
+        Ok(true) => Observed::Error {
+            error: ObservationFailure::Unavailable,
+        },
+        Ok(false) => observed_path(fs::canonicalize(requested.as_str())),
+        Err(error) => Observed::Error { error },
+    }
 }
 
 fn observe_env(name: &str) -> Observed<EnvObservation> {

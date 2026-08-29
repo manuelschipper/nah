@@ -12,6 +12,8 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
+use crate::state_protection::validate_private_file;
+
 const VERSION: u32 = 1;
 const DURATION_SECONDS: u64 = 10 * 60;
 const KEY_BYTES: usize = 32;
@@ -243,6 +245,7 @@ fn validate_private_key(file: &File) -> Result<(), NapError> {
             return Err(NapError::InvalidState);
         }
     }
+    validate_private_file(file).map_err(|_| NapError::InvalidState)?;
     Ok(())
 }
 
@@ -499,5 +502,29 @@ mod tests {
         let private_key = key_path(&private_state);
         std::fs::set_permissions(&private_key, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!(load_at(&private_state, 101), Err(NapError::InvalidState));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_state_dacl_keeps_keys_locks_and_replacements_usable() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = AbsolutePath::new(
+            Platform::Windows,
+            temporary.path().to_str().expect("Windows temp path"),
+        )
+        .unwrap();
+        crate::state_protection::ensure_nah_state_directory(&home, Platform::Windows).unwrap();
+        let path = temporary.path().join(".nah/nap.json");
+
+        start_at(&path, NapMode::SelfProtection, 100).unwrap();
+        let first = std::fs::read(&path).unwrap();
+        start_at(&path, NapMode::All, 101).unwrap();
+        assert_ne!(std::fs::read(&path).unwrap(), first);
+        assert_eq!(load_at(&path, 102).unwrap().unwrap().mode(), NapMode::All);
+
+        for path in [&key_path(&path), &path.with_extension("lock")] {
+            let file = File::open(path).unwrap();
+            crate::state_protection::validate_private_file(&file).unwrap();
+        }
     }
 }

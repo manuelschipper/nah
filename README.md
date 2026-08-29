@@ -107,7 +107,7 @@ nah test "git status"
 
 ## Install
 
-nah supports macOS and Linux. Native Windows is not supported.
+nah supports Windows, macOS, and Linux.
 
 ```sh
 curl -fsSL nahguard.ai/install | sh

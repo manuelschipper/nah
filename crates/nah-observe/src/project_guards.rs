@@ -1,5 +1,6 @@
 //! Loads the bounded project guard declaration for an observed project root.
 
+use crate::io_paths::has_reparse_ancestor;
 use nah_proto::observation::{
     BindingError, Observed, ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
 };
@@ -25,6 +26,9 @@ pub(crate) fn observe_project_guards(
 }
 
 fn read_project_guards(path: &Path) -> ProjectGuardDeclaration {
+    if !matches!(has_reparse_ancestor(path), Ok(false)) {
+        return ProjectGuardDeclaration::ReadFailure;
+    }
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {

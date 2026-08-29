@@ -712,26 +712,6 @@ fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
         assert_eq!(decision.verdict(), Verdict::Block, "{target}");
         assert_eq!(decision.policy_attributions()[0].name(), "fs-raw-device");
     }
-    let windows = guarded_stream(EffectKind::Filesystem {
-        effect: FilesystemEffect {
-            operation: FilesystemOperation::Write,
-            target: AbsolutePath::new(Platform::Windows, r"\\.\PhysicalDrive0").unwrap(),
-            scope: PathScope::System,
-            sensitivity: Sensitivity::None,
-            protection: None,
-            host_integrity: None,
-            selects_root: false,
-            selects_home: false,
-            recursive: false,
-            pattern: false,
-        },
-    });
-    assert_eq!(
-        nah_policy::decide(&windows, &guard_policy("fs-raw-device", true), &[])
-            .unwrap()
-            .verdict(),
-        Verdict::Block
-    );
 }
 
 #[test]

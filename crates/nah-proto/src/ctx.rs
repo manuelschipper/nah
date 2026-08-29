@@ -107,6 +107,9 @@ fn is_absolute(platform: Platform, value: &str) -> bool {
     match platform {
         Platform::Linux | Platform::Macos => value.starts_with('/'),
         Platform::Windows => {
+            if windows_device_namespace(value) {
+                return false;
+            }
             let bytes = value.as_bytes();
             value.strip_prefix("\\\\").is_some_and(|remainder| {
                 let mut components = remainder.split(['\\', '/']);
@@ -118,6 +121,13 @@ fn is_absolute(platform: Platform, value: &str) -> bool {
                 && matches!(bytes[2], b'\\' | b'/'))
         }
     }
+}
+
+fn windows_device_namespace(value: &str) -> bool {
+    value.starts_with(r"\\?\")
+        || value.starts_with(r"\\.\")
+        || value.starts_with("//?/")
+        || value.starts_with("//./")
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

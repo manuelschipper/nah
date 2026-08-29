@@ -23,6 +23,19 @@ fn potential_for(program: &str, arguments: &[&str]) -> Option<&'static str> {
 }
 
 #[test]
+fn windows_release_binary_and_its_ancestors_are_protected() {
+    let home = r"C:\Users\test";
+    let binary = r"C:\Users\test\AppData\Local\Programs\nah\nah.exe";
+    assert!(protected_path(binary, home, &[], Platform::Windows));
+    assert!(protected_path_ancestor(
+        r"C:\Users\test\AppData\Local\Programs\nah",
+        home,
+        &[],
+        Platform::Windows,
+    ));
+}
+
+#[test]
 fn shell_patterns_cannot_hide_structural_mutations() {
     for (program, arguments, expected) in [
         ("nah", &["tr?st", "."][..], Some("critical-mutation")),

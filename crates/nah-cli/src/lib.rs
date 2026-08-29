@@ -39,6 +39,7 @@ mod prime_agent_adapter;
 mod records;
 mod runtime;
 mod shipped_state;
+mod state_protection;
 // the TUI's terminal backend has no wasm target; the homepage demo compiles
 // this crate to wasm32 for the browser "try it" pipeline
 #[cfg(not(target_arch = "wasm32"))]
