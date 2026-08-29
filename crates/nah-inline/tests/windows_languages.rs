@@ -196,7 +196,7 @@ fn powershell_hash_starts_comments_only_at_token_boundaries() {
             r"C:\Users\test#backup",
         ),
         (
-            r"Remove-Item -Recurse -LiteralPath C:\Users\test<#backup#>",
+            r"Remove-Item -Recurse -LiteralPath 'C:\Users\test<#backup#>'",
             r"C:\Users\test<#backup#>",
         ),
     ] {
@@ -224,6 +224,43 @@ fn powershell_hash_starts_comments_only_at_token_boundaries() {
             analysis
                 .report()
                 .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn powershell_attached_redirection_emits_a_static_write() {
+    for source in [
+        r"Write-Output evil>C:\target",
+        r"Write-Output evil> C:\target",
+        r"Write-Output evil>>C:\target",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        let filesystems = analysis
+            .draft()
+            .calls()
+            .iter()
+            .flat_map(|call| call.filesystems())
+            .collect::<Vec<_>>();
+        assert_eq!(filesystems.len(), 1, "{source}");
+        assert_eq!(filesystems[0].operation(), FilesystemOperation::Write);
+        assert_eq!(filesystems[0].requested(), Some(r"C:\target"));
+    }
+
+    for source in [
+        r#"Write-Output "evil>C:\literal""#,
+        r"Write-Output evil`>C:\literal",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(
+            analysis
+                .draft()
+                .calls()
+                .iter()
+                .all(|call| call.filesystems().is_empty()),
             "{source}"
         );
     }

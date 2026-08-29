@@ -844,7 +844,7 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                     value.push(character);
                     index += 1 + character.len_utf8();
                 }
-                b'|' | b',' => break,
+                b'|' | b',' | b'>' => break,
                 byte if byte.is_ascii_whitespace() => break,
                 _ => {
                     if byte == b'$' {

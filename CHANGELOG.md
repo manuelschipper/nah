@@ -12,6 +12,7 @@
   file scope. Quoted segments no longer make a following variable exact, unambiguous
   parameter prefixes such as `-Rec` bind like their full names, and `del` on an
   observed directory reports an unresolved deletion instead of dropping the effect.
+  PowerShell redirects remain visible when `>` is attached to the preceding word.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

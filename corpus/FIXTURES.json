@@ -2160,6 +2160,12 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "C:\\Users\\test\\.nah\\config.toml",
+          "resolved": "C:\\Users\\test\\.nah\\config.toml"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "C:\\Users\\test#backup",
           "resolved": "C:\\Users\\test#backup"
         },

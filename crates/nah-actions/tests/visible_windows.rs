@@ -189,6 +189,24 @@ fn powershell_hash_words_preserve_following_effects() {
 }
 
 #[test]
+fn attached_powershell_redirection_lowers_at_both_entry_points() {
+    let source = r"Write-Output evil>C:\Users\test\.nah\config.toml";
+    let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);
+    let nested = filesystem_effects(
+        nested_plan(r#"pwsh -Command 'Write-Output evil>C:\Users\test\.nah\config.toml'"#),
+        None,
+    );
+    let expected = [(
+        FilesystemOperation::Write,
+        r"C:\Users\test\.nah\config.toml".into(),
+        false,
+        false,
+    )];
+    assert_eq!(direct, expected);
+    assert_eq!(nested, expected);
+}
+
+#[test]
 fn escaped_non_ascii_windows_paths_lower_at_both_entry_points() {
     for (visible, source, nested) in [
         (
