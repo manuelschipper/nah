@@ -189,6 +189,20 @@ fn windows_shell_escapes_preserve_non_ascii_characters() {
 }
 
 #[test]
+fn cmd_numeric_output_redirection_emits_a_static_write() {
+    for source in [r"type C:\safe 2>C:\target", r"type C:\safe 2>>C:\target"] {
+        let analysis = analyze("cmd", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().iter().any(|call| {
+            call.filesystems().iter().any(|filesystem| {
+                filesystem.operation() == FilesystemOperation::Write
+                    && filesystem.requested() == Some(r"C:\target")
+            })
+        }));
+    }
+}
+
+#[test]
 fn powershell_hash_starts_comments_only_at_token_boundaries() {
     for (source, expected) in [
         (

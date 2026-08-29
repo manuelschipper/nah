@@ -14,7 +14,8 @@
   observed directory reports an unresolved deletion instead of dropping the effect.
   PowerShell redirects remain visible when `>` is attached to the preceding word.
   Line continuations stay partial without fabricated effects, and parameter prefixes
-  must remain unambiguous against PowerShell's common parameters.
+  must remain unambiguous against PowerShell's common parameters. `cmd` numeric output
+  streams retain their static redirection writes.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

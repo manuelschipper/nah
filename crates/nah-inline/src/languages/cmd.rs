@@ -425,8 +425,8 @@ fn lex(source: &str) -> Option<Vec<Lexeme>> {
         let Some(byte) = bytes.get(index).copied() else {
             break;
         };
-        if byte == b'>' || byte == b'1' && bytes.get(index + 1) == Some(&b'>') {
-            if byte == b'1' {
+        if byte == b'>' || byte.is_ascii_digit() && bytes.get(index + 1) == Some(&b'>') {
+            if byte != b'>' {
                 index += 1;
             }
             index += 1;
@@ -435,9 +435,6 @@ fn lex(source: &str) -> Option<Vec<Lexeme>> {
             }
             lexemes.push(Lexeme::Redirect);
             continue;
-        }
-        if byte.is_ascii_digit() && bytes.get(index + 1) == Some(&b'>') {
-            return None;
         }
         let mut value = String::new();
         let mut quote = false;

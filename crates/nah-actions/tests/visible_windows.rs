@@ -228,6 +228,23 @@ fn attached_powershell_redirection_lowers_at_both_entry_points() {
 }
 
 #[test]
+fn cmd_numeric_output_redirection_lowers_at_both_entry_points() {
+    let source = r"type C:\safe 2>C:\Users\test\.nah\config.toml";
+    let direct = filesystem_effects(direct_plan(VisibleCode::Cmd { source }, source), None);
+    let nested = filesystem_effects(
+        nested_plan(r#"cmd /c 'type C:\safe 2>C:\Users\test\.nah\config.toml'"#),
+        None,
+    );
+    assert_eq!(direct, nested);
+    assert!(direct.contains(&(
+        FilesystemOperation::Write,
+        r"C:\Users\test\.nah\config.toml".into(),
+        false,
+        false,
+    )));
+}
+
+#[test]
 fn windows_shell_line_continuations_are_partial_at_both_entry_points() {
     for (visible, source, nested, expected_target) in [
         (
