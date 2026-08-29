@@ -299,6 +299,9 @@ fn gitlab_delete_endpoint(endpoint: &str) -> bool {
     let Some(identifier) = path.strip_prefix("projects/") else {
         return false;
     };
+    if matches!(identifier, ":namespace/:repo" | ":group/:namespace/:repo") {
+        return true;
+    }
     !identifier.contains('/') && valid_gitlab_project_identifier(identifier)
 }
 
