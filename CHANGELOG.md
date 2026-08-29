@@ -55,9 +55,10 @@
   short-option forms, disabled GitHub API pagination, and percent-encoded GitLab
   project paths and group placeholders, plus GitHub's
   `--allow-escape-sequences` output option and repeated or inherited boolean
-  flags whose final value restores destructive execution,
-  while leaving branch, tag, archive, rename, and transfer operations outside
-  its scope.
+  flags whose final value restores destructive execution and port-qualified
+  GitHub Enterprise hosts. Dynamic API option values, incompatible GitHub
+  output options, branches, tags, archives, renames, and transfers remain
+  outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

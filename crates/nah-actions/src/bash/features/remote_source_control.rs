@@ -2,7 +2,7 @@
 
 use nah_parse::Word;
 
-use crate::shell_word::static_word;
+use crate::shell_word::{has_unmodeled_expansion, static_word};
 
 pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
     let provider = match program {
@@ -12,7 +12,7 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
     };
     let arguments = arguments
         .iter()
-        .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
+        .map(static_remote_argument)
         .collect::<Option<Vec<_>>>();
     let Some(arguments) = arguments else {
         return false;
@@ -38,6 +38,17 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
                 || gitlab_api_delete(arguments, help_requested)
         }
     }
+}
+
+fn static_remote_argument(argument: &Word) -> Option<String> {
+    let expansion_check = argument
+        .raw()
+        .replace("{owner}", "owner")
+        .replace("{repo}", "repo");
+    if has_unmodeled_expansion(&expansion_check) {
+        return None;
+    }
+    static_word(argument.raw(), argument.substitutions().is_empty())
 }
 
 fn github_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
@@ -168,6 +179,10 @@ fn api_request<'a>(
     let mut endpoint = None;
     let mut method = None;
     let mut paginate_requested = None;
+    let mut github_jq = false;
+    let mut github_silent = false;
+    let mut github_template = false;
+    let mut github_verbose = false;
     let mut after_options = false;
     let mut index = 0;
     while index < arguments.len() {
@@ -191,6 +206,14 @@ fn api_request<'a>(
             continue;
         }
         if !after_options && api_boolean_option(argument, provider) {
+            if provider == Provider::GitHub {
+                if let Some(value) = boolean_flag(argument, "--silent") {
+                    github_silent = value;
+                }
+                if let Some(value) = boolean_flag(argument, "--verbose") {
+                    github_verbose = value;
+                }
+            }
             index += 1;
             continue;
         }
@@ -204,6 +227,10 @@ fn api_request<'a>(
             if name == "--method" {
                 method = Some(value);
             }
+            if provider == Provider::GitHub {
+                github_jq |= name == "--jq";
+                github_template |= name == "--template";
+            }
             index += 1;
             continue;
         }
@@ -211,6 +238,10 @@ fn api_request<'a>(
             let value = *arguments.get(index + 1)?;
             if matches!(argument, "-X" | "--method") {
                 method = Some(value);
+            }
+            if provider == Provider::GitHub {
+                github_jq |= matches!(argument, "-q" | "--jq");
+                github_template |= matches!(argument, "-t" | "--template");
             }
             index += 2;
             continue;
@@ -227,6 +258,10 @@ fn api_request<'a>(
             if name == 'X' {
                 method = Some(value);
             }
+            if provider == Provider::GitHub {
+                github_jq |= name == 'q';
+                github_template |= name == 't';
+            }
             index += 1;
             continue;
         }
@@ -238,7 +273,12 @@ fn api_request<'a>(
         }
         index += 1;
     }
-    if help_requested == Some(true) || paginate_requested == Some(true) {
+    let github_output_options = [github_jq, github_silent, github_template, github_verbose]
+        .into_iter()
+        .filter(|selected| *selected)
+        .count();
+    if help_requested == Some(true) || paginate_requested == Some(true) || github_output_options > 1
+    {
         return None;
     }
     Some(ApiRequest {
@@ -444,7 +484,17 @@ fn valid_literal_byte(byte: u8) -> bool {
 }
 
 fn valid_host(host: &str) -> bool {
-    host.split('.').all(|label| {
+    let (hostname, port) = host
+        .split_once(':')
+        .map_or((host, None), |(hostname, port)| (hostname, Some(port)));
+    if port.is_some_and(|port| {
+        port.is_empty()
+            || !port.bytes().all(|byte| byte.is_ascii_digit())
+            || port.parse::<u16>().is_err()
+    }) {
+        return false;
+    }
+    hostname.split('.').all(|label| {
         !label.is_empty()
             && label
                 .bytes()

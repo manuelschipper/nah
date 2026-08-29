@@ -118,6 +118,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete localhost:9/owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
             "gh repo delete owner/project --confirm=1",
             "git-remote-delete",
         ),
@@ -296,6 +300,9 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api --paginate -X DELETE repos/owner/project",
         "gh api --paginate=true -X DELETE repos/owner/project",
         "gh api --paginate=false --paginate -X DELETE repos/owner/project",
+        "gh api --header * -X DELETE repos/owner/project",
+        "glab api --input *.json -X DELETE projects/123",
+        "gh api --silent --verbose -X DELETE repos/owner/project",
         "gh repo delete --help=false --help --yes owner/project",
         "gh --help=false repo delete --help --yes owner/project",
         "glab repo transfer group/project other",
