@@ -439,6 +439,17 @@ where
                 input,
             )
         }
+        (None, Some(CodeInput::PowerShell { source })) => nah_actions::AnalysisInput::VisibleCode(
+            nah_actions::VisibleCode::PowerShell { source },
+            input,
+        ),
+        (None, Some(CodeInput::Pwsh { source })) => nah_actions::AnalysisInput::VisibleCode(
+            nah_actions::VisibleCode::Pwsh { source },
+            input,
+        ),
+        (None, Some(CodeInput::Cmd { source })) => {
+            nah_actions::AnalysisInput::VisibleCode(nah_actions::VisibleCode::Cmd { source }, input)
+        }
         (None, Some(CodeInput::OpenClawJavaScript { source, .. }))
             if input.tool() == "OpenClawCodeModeExec" =>
         {

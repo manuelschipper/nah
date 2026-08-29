@@ -18,6 +18,27 @@
 - **`crontab -u` payload inspection** — Visible stdin installed for another
   user now receives the same nested-command and self-protection analysis as
   `crontab -`.
+- **PowerShell and cmd effects** — Top-level and nested Windows shell source now
+  lowers reviewed static filesystem, network, redirection, and exact child argv
+  through the existing typed effects. Dynamic and multi-target forms stay
+  partial; escaped non-ASCII paths remain exact and `~` resolves to the declared
+  home. Unknown `-WhatIf` values, lookalike variables, platform-specific aliases,
+  path globs, and cmd directory semantics avoid resolved effects they cannot prove.
+  Comment markers inside bare words stay literal, and `del /s` retains its recursive
+  file scope. Quoted segments no longer make a following variable exact, unambiguous
+  parameter prefixes such as `-Rec` bind like their full names, and `del` on an
+  observed directory reports an unresolved deletion instead of dropping the effect.
+  PowerShell redirects remain visible when `>` is attached to the preceding word.
+  Line continuations stay partial without fabricated effects, and parameter prefixes
+  must remain unambiguous against PowerShell's common parameters. `cmd` numeric output
+  streams retain their static redirection writes. Executable-suffixed cmd names stay
+  external, and PowerShell alias removal invalidates later alias resolution through
+  every supported `Remove-Item` spelling and Alias-provider root path. `Set-Item`
+  provider rebinding also invalidates later alias resolution. Surplus positional
+  `Remove-Item` and `Move-Item` bindings stay partial. Conflicting `-Path` and
+  `-LiteralPath` bindings stay partial without fabricated filesystem effects.
+  `-WhatIf` provider mutations and selector values leave later alias resolution
+  unchanged.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

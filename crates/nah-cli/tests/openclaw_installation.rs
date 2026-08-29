@@ -3,9 +3,12 @@
 
 mod support;
 
+#[cfg(unix)]
 use std::process::Command;
 
+#[cfg(unix)]
 use serde_json::Value;
+#[cfg(unix)]
 use support::repo;
 
 #[cfg(unix)]

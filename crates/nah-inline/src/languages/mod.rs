@@ -1,5 +1,6 @@
 //! Dispatches admitted language profiles to effect interpreters or narrower detectors.
 
+mod cmd;
 mod common;
 mod deferred;
 mod ipython;
@@ -125,9 +126,8 @@ pub(crate) fn analyze(
             "r" | "rscript" => r::analyze(&program, &input, protection),
             "julia" => julia::analyze(&program, &input, protection),
             "swift" => swift::analyze(&program, &input, protection),
-            "powershell" | "pwsh" | "cmd" => {
-                powershell::analyze(&program, &input, protection, depth)
-            }
+            "powershell" | "pwsh" => powershell::analyze(&program, &input, protection, depth),
+            "cmd" => cmd::analyze(&program, &input, protection, depth),
             _ => InlineReport::default(),
         }
     }
@@ -147,6 +147,12 @@ pub(crate) fn interpret_effects(
     }
     if javascript::profile(&program).is_some() {
         return javascript::interpret_effects(&program, &input, protection, depth);
+    }
+    if matches!(program.as_str(), "powershell" | "pwsh") {
+        return powershell::interpret_effects(&program, &input, protection, depth);
+    }
+    if program == "cmd" {
+        return cmd::interpret_effects(&program, &input, protection, depth);
     }
     LanguageAnalysis::new(analyze(input, protection, depth), LanguageDraft::default())
 }

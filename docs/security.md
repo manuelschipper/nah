@@ -64,6 +64,10 @@ redirects, archives, links, and transfers. Opaque behavior and prior provenance
 remain boundaries. Unresolved or bounded analysis is partial; uncertainty alone
 does not block. Recognized danger still reaches guards. See `nah docs guards`.
 
+PowerShell and cmd lower reviewed operations and exact argv into typed effects;
+unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous
+`curl`/`wget` aliases never invent writes.
+
 ## Trust and configuration
 
 nah blocks understood agent attempts to trust or untrust projects, change guard
@@ -74,11 +78,9 @@ additional built-in guards but cannot disable them.
 An explicit global operator disable takes precedence over that project
 enablement.
 
-Path guards classify visible paths only; reads stay outside. Uncovered commands
-include Windows Run keys, `schtasks`, runtime/offline/editor `systemctl`,
-`launchctl` bootstrap/bootout, dynamic input, arbitrary executables, and
-mechanisms unless they expose a classified path mutation. Scripted editors stay
-gaps unless existing lowering proves a write.
+Path guards exclude reads. Gaps include Windows Run keys, `schtasks`,
+runtime/offline/editor `systemctl`, `launchctl` bootstrap/bootout, dynamic input,
+arbitrary executables, and scripted editors without a proven classified write.
 
 ## Operator maintenance
 
@@ -90,9 +92,9 @@ Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock
 always blocks. A nap is user-global, and its changes persist.
 
-Self-protection blocks understood mutation of nah, active wiring, its executable,
-aliases, or executable ancestors. On Windows, extended drive and UNC observations
+Self-protection blocks understood mutation of nah, active wiring, executable
+aliases, and ancestors. Windows drive and UNC paths
 normalize; device or reparse paths fail. `%USERPROFILE%\.nah` has an inheritable
-DACL for the current user, SYSTEM, and Administrators; nap keys require that
-owner and no other DACL principal. Opaque or unhooked work remains user
+DACL for the user, SYSTEM, and Administrators; nap keys allow only their owner.
+Opaque or unhooked work remains user
 responsibility.

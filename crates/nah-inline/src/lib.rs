@@ -5,9 +5,9 @@
     clippy::disallowed_types
 )]
 
-//! Bounded Python and JavaScript/TypeScript effect interpretation plus narrower
-//! inline detection. Findings remain private policy inputs; exact child
-//! executions return typed descriptors for the Bash planner.
+//! Bounded visible-language effect interpretation plus narrower inline
+//! detection. Findings remain private policy inputs; exact child executions
+//! return typed descriptors for the Bash planner.
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 
@@ -64,7 +64,7 @@ pub fn supports(program: &str) -> bool {
     languages::supports(program)
 }
 
-/// Interprets supported Python and JavaScript/TypeScript effects without executing source.
+/// Interprets supported visible-language effects without executing source.
 pub fn interpret_language_effects(
     input: InlineInput<'_>,
     protection: ProtectionInput<'_>,
@@ -754,8 +754,11 @@ mod tests {
             &report("pwsh", "Start-Process nah -ArgumentList nap"),
             &["nah", "nap"]
         ));
+        assert!(has_argv(
+            &report("pwsh", "& nah nap --help"),
+            &["nah", "nap", "--help"]
+        ));
         for code in [
-            "& nah nap --help",
             "Start-Process nah -WorkingDirectory nap",
             "Start-Process nah -ArgumentList nap -WhatIf",
         ] {
