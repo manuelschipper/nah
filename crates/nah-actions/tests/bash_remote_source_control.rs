@@ -60,6 +60,10 @@ fn help_boolean_values_preserve_delete_classification() {
             format!("gh api -h={value} -X DELETE repos/owner/project"),
             format!("glab api --help={value} -X DELETE projects/123"),
             format!("glab api -h={value} -X DELETE projects/123"),
+            format!("gh --help={value} repo delete owner/project --yes"),
+            format!("glab --help={value} repo delete group/project -y"),
+            format!("gh --help={value} api -X DELETE repos/owner/project"),
+            format!("glab --help={value} api -X DELETE projects/123"),
         ] {
             assert!(deletes_repository(&source), "{source}");
         }
@@ -70,6 +74,8 @@ fn help_boolean_values_preserve_delete_classification() {
         "glab repo delete --help -h=0 -y group/project",
         "gh api --help --help=false -X DELETE repos/owner/project",
         "glab api -h --help=False -X DELETE projects/123",
+        "gh --help repo delete --help=false --yes owner/project",
+        "glab -h api --help=0 -X DELETE projects/123",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -80,6 +86,10 @@ fn help_boolean_values_preserve_delete_classification() {
             format!("glab repo delete group/project -y --help={value}"),
             format!("gh api --help={value} -X DELETE repos/owner/project"),
             format!("glab api --help={value} -X DELETE projects/123"),
+            format!("gh --help={value} repo delete owner/project --yes"),
+            format!("glab --help={value} repo delete group/project -y"),
+            format!("gh --help={value} api -X DELETE repos/owner/project"),
+            format!("glab --help={value} api -X DELETE projects/123"),
         ] {
             assert!(!deletes_repository(&source), "{source}");
         }
@@ -90,6 +100,8 @@ fn help_boolean_values_preserve_delete_classification() {
         "glab repo delete -h=0 --help -y group/project",
         "gh api --help=false --help -X DELETE repos/owner/project",
         "glab api --help=False -h -X DELETE projects/123",
+        "gh --help=false repo delete --help --yes owner/project",
+        "glab -h=0 api --help -X DELETE projects/123",
     ] {
         assert!(!deletes_repository(source), "{source}");
     }

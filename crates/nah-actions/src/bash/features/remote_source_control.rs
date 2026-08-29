@@ -18,34 +18,53 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
         return false;
     };
     let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut help_requested = None;
+    let mut command_index = 0;
+    while let Some(value) = arguments
+        .get(command_index)
+        .and_then(|argument| help_flag(argument))
+    {
+        help_requested = Some(value);
+        command_index += 1;
+    }
+    let arguments = &arguments[command_index..];
     match provider {
-        Provider::GitHub => github_repo_delete(&arguments) || github_api_delete(&arguments),
-        Provider::GitLab => gitlab_repo_delete(&arguments) || gitlab_api_delete(&arguments),
+        Provider::GitHub => {
+            github_repo_delete(arguments, help_requested)
+                || github_api_delete(arguments, help_requested)
+        }
+        Provider::GitLab => {
+            gitlab_repo_delete(arguments, help_requested)
+                || gitlab_api_delete(arguments, help_requested)
+        }
     }
 }
 
-fn github_repo_delete(arguments: &[&str]) -> bool {
+fn github_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
     let Some(rest) = arguments.strip_prefix(&["repo", "delete"]) else {
         return false;
     };
-    repo_delete_target(rest, Provider::GitHub)
+    repo_delete_target(rest, Provider::GitHub, help_requested)
         .is_some_and(|target| target.is_none_or(valid_github_repository))
 }
 
-fn gitlab_repo_delete(arguments: &[&str]) -> bool {
+fn gitlab_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
     let Some(rest) = arguments
         .strip_prefix(&["repo", "delete"])
         .or_else(|| arguments.strip_prefix(&["project", "delete"]))
     else {
         return false;
     };
-    repo_delete_target(rest, Provider::GitLab)
+    repo_delete_target(rest, Provider::GitLab, help_requested)
         .is_some_and(|target| target.is_none_or(valid_gitlab_repository))
 }
 
-fn repo_delete_target<'a>(arguments: &'a [&str], provider: Provider) -> Option<Option<&'a str>> {
+fn repo_delete_target<'a>(
+    arguments: &'a [&str],
+    provider: Provider,
+    mut help_requested: Option<bool>,
+) -> Option<Option<&'a str>> {
     let mut target = None;
-    let mut help_requested = None;
     let mut after_options = false;
     for argument in arguments {
         if !after_options && *argument == "--" {
@@ -118,20 +137,20 @@ fn valid_gitlab_repository(target: &str) -> bool {
     !segments.is_empty() && segments.into_iter().all(valid_literal_segment)
 }
 
-fn github_api_delete(arguments: &[&str]) -> bool {
+fn github_api_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
     let Some(arguments) = arguments.strip_prefix(&["api"]) else {
         return false;
     };
-    api_request(arguments, Provider::GitHub).is_some_and(|request| {
+    api_request(arguments, Provider::GitHub, help_requested).is_some_and(|request| {
         request.method.eq_ignore_ascii_case("DELETE") && github_delete_endpoint(request.endpoint)
     })
 }
 
-fn gitlab_api_delete(arguments: &[&str]) -> bool {
+fn gitlab_api_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
     let Some(arguments) = arguments.strip_prefix(&["api"]) else {
         return false;
     };
-    api_request(arguments, Provider::GitLab).is_some_and(|request| {
+    api_request(arguments, Provider::GitLab, help_requested).is_some_and(|request| {
         request.method.eq_ignore_ascii_case("DELETE") && gitlab_delete_endpoint(request.endpoint)
     })
 }
@@ -141,10 +160,13 @@ struct ApiRequest<'a> {
     method: &'a str,
 }
 
-fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiRequest<'a>> {
+fn api_request<'a>(
+    arguments: &'a [&str],
+    provider: Provider,
+    mut help_requested: Option<bool>,
+) -> Option<ApiRequest<'a>> {
     let mut endpoint = None;
     let mut method = None;
-    let mut help_requested = None;
     let mut paginate_requested = None;
     let mut after_options = false;
     let mut index = 0;

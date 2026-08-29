@@ -9,8 +9,8 @@
   single-label GitHub Enterprise hosts, attached and separated GitHub API
   short-option forms, disabled GitHub API pagination, and percent-encoded GitLab
   project paths and group placeholders, plus GitHub's
-  `--allow-escape-sequences` output option and repeated boolean flags whose
-  final value restores destructive execution,
+  `--allow-escape-sequences` output option and repeated or inherited boolean
+  flags whose final value restores destructive execution,
   while leaving branch, tag, archive, rename, and transfer operations outside
   its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
