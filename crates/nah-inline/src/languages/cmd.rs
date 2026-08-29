@@ -134,12 +134,14 @@ impl Interpreter<'_> {
             return;
         }
         let lowercase = command.value.to_ascii_lowercase();
-        match lowercase.trim_end_matches(".exe") {
+        match lowercase.as_str() {
             "del" | "erase" => self.delete(arguments),
             "rd" | "rmdir" => self.remove_directory(arguments),
             "move" => self.move_path(arguments),
             "type" => self.read_files(arguments),
-            "certutil" if reviewed_certutil(arguments).is_some() => self.certutil(arguments),
+            "certutil" | "certutil.exe" if reviewed_certutil(arguments).is_some() => {
+                self.certutil(arguments)
+            }
             "echo" | "rem" | "ver" | "cls" | "cd" | "chdir" => self.emit(
                 LanguageCallKind::LocalUtility,
                 &lowercase,

@@ -15,7 +15,9 @@
   PowerShell redirects remain visible when `>` is attached to the preceding word.
   Line continuations stay partial without fabricated effects, and parameter prefixes
   must remain unambiguous against PowerShell's common parameters. `cmd` numeric output
-  streams retain their static redirection writes.
+  streams retain their static redirection writes. Executable-suffixed cmd names stay
+  external, and PowerShell alias removal invalidates later alias resolution through
+  every supported `Remove-Item` spelling.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

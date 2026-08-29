@@ -543,6 +543,18 @@ fn static_invoke_expression_reuses_the_powershell_interpreter() {
 }
 
 #[test]
+fn powershell_remove_item_aliases_invalidate_later_alias_resolution() {
+    for command in ["remove-item", "ri", "rm", "rmdir", "del", "erase", "rd"] {
+        let analysis = analyze(
+            "pwsh",
+            &format!(r"{command} -Path Alias:rm; rm 'C:\Users\test'"),
+        );
+        assert!(!analysis.draft().complete(), "{command}");
+        assert!(analysis.draft().calls().is_empty(), "{command}");
+    }
+}
+
+#[test]
 fn named_move_source_keeps_the_positional_destination() {
     let analysis = analyze("pwsh", r"Move-Item -LiteralPath C:\from C:\to");
     assert!(analysis.draft().complete());
@@ -585,6 +597,42 @@ fn cmd_filesystem_and_directory_boundaries_are_explicit() {
 #[test]
 fn cmd_move_with_extra_operands_is_partial() {
     assert!(!analyze("cmd", r"move C:\a C:\b C:\c").draft().complete());
+}
+
+#[test]
+fn cmd_executable_names_do_not_resolve_as_builtins() {
+    for command in [
+        "del.exe",
+        "erase.exe",
+        "rd.exe",
+        "rmdir.exe",
+        "move.exe",
+        "type.exe",
+        "echo.exe",
+        "rem.exe",
+        "ver.exe",
+        "cls.exe",
+        "cd.exe",
+        "chdir.exe",
+    ] {
+        let analysis = analyze("cmd", &format!(r"{command} C:\safe.txt"));
+        assert!(analysis.draft().complete(), "{command}");
+        assert!(
+            analysis.draft().calls()[0].filesystems().is_empty(),
+            "{command}"
+        );
+        assert!(
+            analysis
+                .report()
+                .nested_executions()
+                .iter()
+                .any(|execution| {
+                    matches!(execution, NestedExecution::Command { argv, .. }
+                        if argv.first().map(String::as_str) == Some(command))
+                }),
+            "{command}"
+        );
+    }
 }
 
 #[test]

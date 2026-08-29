@@ -106,7 +106,7 @@ impl Interpreter<'_, '_> {
             return;
         }
         let lowercase = trimmed.to_ascii_lowercase();
-        if definition_or_resolution_mutation(&lowercase) {
+        if definition_or_resolution_mutation(&lowercase, self.input.platform) {
             self.shadowed.extend(shadowed_commands(
                 trimmed,
                 self.input.home,
@@ -1342,13 +1342,22 @@ fn dynamic_statement(source: &str, lowercase: &str) -> bool {
         || lowercase.contains("new-object") && !lowercase.contains("webclient")
 }
 
-fn definition_or_resolution_mutation(lowercase: &str) -> bool {
+fn definition_or_resolution_mutation(lowercase: &str, platform: Platform) -> bool {
     let trimmed = lowercase.trim_start();
     trimmed.starts_with("function ")
         || trimmed.starts_with("filter ")
         || trimmed.starts_with("set-alias ")
         || trimmed.starts_with("new-alias ")
-        || trimmed.starts_with("remove-item ") && trimmed.contains("alias:")
+        || trimmed
+            .split_ascii_whitespace()
+            .next()
+            .is_some_and(|command| {
+                matches!(
+                    canonical_command(command, platform),
+                    CanonicalCommand::RemoveItem
+                )
+            })
+            && trimmed.contains("alias:")
 }
 
 fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<String> {
@@ -1364,7 +1373,12 @@ fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<Str
                 Lexeme::Pipe | Lexeme::Redirect => None,
             })
             .collect::<Vec<_>>();
-        if words.first().is_some_and(|word| word == "remove-item") {
+        if words.first().is_some_and(|word| {
+            matches!(
+                canonical_command(word, platform),
+                CanonicalCommand::RemoveItem
+            )
+        }) {
             shadowed.extend(words[1..].iter().filter_map(|word| {
                 word.strip_prefix("alias:")
                     .filter(|name| !name.is_empty())
