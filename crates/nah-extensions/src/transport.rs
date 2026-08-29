@@ -5,6 +5,9 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::os::windows::{io::AsRawHandle, process::CommandExt};
+
 use nah_proto::ctx::ActivationProjection;
 use nah_proto::exec_v1::ExecV1Request;
 use nah_proto::extension::{
@@ -55,18 +58,23 @@ pub(crate) fn execute(extension: &ExtensionBundle, request: &ExecV1Request) -> E
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     configure_process_group(&mut command);
+    #[cfg(windows)]
+    let job = match WindowsJob::create() {
+        Ok(job) => job,
+        Err(_) => return spawn_failure(activation),
+    };
+    #[cfg(windows)]
+    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(_) => {
-            return ExecutionOutput {
-                consultation: ExtensionConsultation {
-                    activation,
-                    outcome: ConsultationOutcome::SpawnFailure,
-                },
-                stderr: None,
-            };
-        }
+        Err(_) => return spawn_failure(activation),
     };
+    #[cfg(windows)]
+    if job.assign_and_resume(&child).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return spawn_failure(activation);
+    }
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -93,6 +101,8 @@ pub(crate) fn execute(extension: &ExtensionBundle, request: &ExecV1Request) -> E
             None
         }
     };
+    #[cfg(windows)]
+    job.terminate();
     let _ = writer.join();
     let stdout = stdout_reader.join().unwrap_or_default();
     let stderr = stderr_reader.join().unwrap_or_default();
@@ -116,6 +126,16 @@ pub(crate) fn execute(extension: &ExtensionBundle, request: &ExecV1Request) -> E
             outcome,
         },
         stderr,
+    }
+}
+
+fn spawn_failure(activation: ActivationProjection) -> ExecutionOutput {
+    ExecutionOutput {
+        consultation: ExtensionConsultation {
+            activation,
+            outcome: ConsultationOutcome::SpawnFailure,
+        },
+        stderr: None,
     }
 }
 
@@ -251,6 +271,120 @@ fn kill_process_group(child: &std::process::Child) {
 
 #[cfg(not(unix))]
 fn kill_process_group(_child: &std::process::Child) {}
+
+#[cfg(windows)]
+struct WindowsJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJob {
+    /// Creates a kill-on-close job before the suspended guard can run.
+    fn create() -> std::io::Result<Self> {
+        use std::mem::size_of;
+        use std::ptr;
+
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let set = unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if set != 0 {
+            return Ok(Self { handle });
+        }
+        let error = std::io::Error::last_os_error();
+        unsafe { CloseHandle(handle) };
+        Err(error)
+    }
+
+    /// Assigns the suspended child before resuming its only runnable thread.
+    fn assign_and_resume(&self, child: &std::process::Child) -> std::io::Result<()> {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+        let process = child.as_raw_handle().cast();
+        if unsafe { AssignProcessToJobObject(self.handle, process) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        resume_suspended_process_threads(process)
+    }
+
+    fn terminate(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+
+        unsafe { TerminateJobObject(self.handle, 1) };
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+
+        unsafe { CloseHandle(self.handle) };
+    }
+}
+
+#[cfg(windows)]
+fn resume_suspended_process_threads(
+    process: windows_sys::Win32::Foundation::HANDLE,
+) -> std::io::Result<()> {
+    use std::mem::size_of;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetProcessId, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+    };
+
+    let child_id = unsafe { GetProcessId(process) };
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut entry = THREADENTRY32 {
+        dwSize: size_of::<THREADENTRY32>() as u32,
+        ..Default::default()
+    };
+    let mut result = Ok(());
+    let mut found = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+    while found {
+        if entry.th32OwnerProcessID == child_id {
+            let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+            if thread.is_null() {
+                result = Err(std::io::Error::last_os_error());
+                break;
+            }
+            if unsafe { ResumeThread(thread) } == u32::MAX {
+                result = Err(std::io::Error::last_os_error());
+            }
+            unsafe { CloseHandle(thread) };
+            if result.is_err() {
+                break;
+            }
+        }
+        found = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+    }
+    unsafe { CloseHandle(snapshot) };
+    result
+}
 
 fn strip_terminal_sequences(input: &str) -> String {
     let mut output = String::with_capacity(input.len());

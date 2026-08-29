@@ -117,14 +117,14 @@ fn project_template_stays_inside_a_real_project_directory() {
     let temp = tempfile::tempdir().unwrap();
     let root = absolute(temp.path());
     assert_eq!(
-        create_project_guard(&root, "INVALID")
+        create_project_guard(&root, Platform::Linux, "INVALID")
             .unwrap_err()
             .to_string(),
         "invalid-policy-name"
     );
     assert!(!temp.path().join(".nah").exists());
 
-    let directory = create_project_guard(&root, "example").unwrap();
+    let directory = create_project_guard(&root, Platform::Linux, "example").unwrap();
 
     assert_eq!(directory, temp.path().join(".nah/guards/example"));
     assert!(
@@ -138,7 +138,7 @@ fn project_template_stays_inside_a_real_project_directory() {
     std::os::unix::fs::symlink(redirected.path(), project.path().join(".nah")).unwrap();
     let root = absolute(project.path());
     assert_eq!(
-        create_project_guard(&root, "redirected")
+        create_project_guard(&root, Platform::Linux, "redirected")
             .unwrap_err()
             .to_string(),
         "guard-template-symlink-unsupported"
@@ -151,7 +151,7 @@ fn project_template_stays_inside_a_real_project_directory() {
     std::os::unix::fs::symlink(redirected.path(), project.path().join(".nah/guards")).unwrap();
     let root = absolute(project.path());
     assert_eq!(
-        create_project_guard(&root, "redirected")
+        create_project_guard(&root, Platform::Linux, "redirected")
             .unwrap_err()
             .to_string(),
         "guard-template-symlink-unsupported"

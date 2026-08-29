@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Windows custom guards** — exec/v1 guards now use one deterministic Windows
+  entrypoint, generate a `py -3` template, and terminate full descendant trees
+  after each consultation.
 - **Unreadable decision log recovery** — `nah log` and the TUI archive an
   unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
   readable records, and warn instead of leaving decision browsing unavailable.
