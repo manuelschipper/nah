@@ -859,6 +859,7 @@ dependencies = [
  "tempfile",
  "toml",
  "wait-timeout",
+ "windows-sys",
 ]
 
 [[package]]

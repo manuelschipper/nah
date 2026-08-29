@@ -77,6 +77,9 @@ impl ActiveExtensionCatalog {
 /// The one directory name a guard bundle can live in, under `~/.nah` or a
 /// trusted project's `.nah`.
 const GUARDS: &str = "guards";
+const UNIX_ENTRYPOINT: &str = "run";
+const WINDOWS_ENTRYPOINTS: [&str; 3] = ["run.exe", "run.cmd", "run.bat"];
+type CoveredFile = (String, Vec<u8>);
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,6 +112,7 @@ pub fn discover_bundles(
     let mut warnings = Vec::new();
     discover_directory(
         &guard_directory_path(home, platform),
+        platform,
         GuardScope::User,
         None,
         reserved_names,
@@ -118,6 +122,7 @@ pub fn discover_bundles(
     for root in trust.trusted_roots() {
         discover_directory(
             &Path::new(root.path().as_str()).join(".nah").join(GUARDS),
+            platform,
             GuardScope::Project,
             Some(root.identity().clone()),
             reserved_names,
@@ -206,6 +211,7 @@ pub fn load_active_extensions(
 
 fn discover_directory(
     directory: &Path,
+    platform: Platform,
     scope: GuardScope,
     trusted_root: Option<TrustedRootId>,
     reserved_names: &[&str],
@@ -222,7 +228,13 @@ fn discover_directory(
         if !entry.file_type().map_err(|_| BundleError::Io)?.is_dir() {
             continue;
         }
-        match load_bundle(&entry.path(), scope, trusted_root.clone(), reserved_names) {
+        match load_bundle(
+            &entry.path(),
+            platform,
+            scope,
+            trusted_root.clone(),
+            reserved_names,
+        ) {
             Ok(bundle) => bundles.push(bundle),
             Err(error) => warnings.push(format!(
                 "inactive extension bundle `{}`: {error}",
@@ -235,12 +247,12 @@ fn discover_directory(
 
 fn load_bundle(
     directory: &Path,
+    platform: Platform,
     scope: GuardScope,
     trusted_root: Option<TrustedRootId>,
     reserved_names: &[&str],
 ) -> Result<ExtensionBundle, BundleError> {
     let manifest_path = directory.join("policy.toml");
-    let run = directory.join("run");
     let manifest_bytes = read_regular_file(&manifest_path)?;
     let manifest: Manifest =
         toml::from_slice(&manifest_bytes).map_err(|_| BundleError::InvalidManifest)?;
@@ -259,13 +271,10 @@ fn load_bundle(
     if reserved_names.contains(&identity.name()) {
         return Err(BundleError::ReservedName);
     }
-    let run_bytes = read_regular_file(&run)?;
-    require_executable(&run)?;
+    let (run, mut entrypoints) = select_entrypoint(directory, platform)?;
     let data = validate_data_files(&manifest.data)?;
-    let mut covered = vec![
-        ("policy.toml".to_owned(), manifest_bytes),
-        ("run".to_owned(), run_bytes),
-    ];
+    let mut covered = vec![("policy.toml".to_owned(), manifest_bytes)];
+    covered.append(&mut entrypoints);
     for relative in data {
         covered.push((
             relative.clone(),
@@ -289,6 +298,42 @@ fn load_bundle(
     })
 }
 
+/// Selects this host's launch path while covering every recognized entrypoint
+/// so activation has the same trust identity on every platform.
+fn select_entrypoint(
+    directory: &Path,
+    platform: Platform,
+) -> Result<(PathBuf, Vec<CoveredFile>), BundleError> {
+    let mut entrypoints = Vec::new();
+    let unix_path = directory.join(UNIX_ENTRYPOINT);
+    if let Some(bytes) = read_present_regular_file(&unix_path)? {
+        entrypoints.push((UNIX_ENTRYPOINT.to_owned(), bytes));
+    }
+    let mut windows = Vec::new();
+    for name in WINDOWS_ENTRYPOINTS {
+        let path = directory.join(name);
+        if let Some(bytes) = read_present_regular_file(&path)? {
+            entrypoints.push((name.to_owned(), bytes));
+            windows.push(path);
+        }
+    }
+
+    let run = if platform == Platform::Windows {
+        match windows.as_slice() {
+            [run] => run.clone(),
+            [] => return Err(BundleError::MissingBundleFile),
+            _ => return Err(BundleError::InvalidManifest),
+        }
+    } else {
+        if !unix_path.exists() {
+            return Err(BundleError::MissingBundleFile);
+        }
+        require_executable(&unix_path)?;
+        unix_path
+    };
+    Ok((run, entrypoints))
+}
+
 fn validate_data_files(data: &[String]) -> Result<Vec<String>, BundleError> {
     let mut files = data.to_vec();
     files.sort();
@@ -302,12 +347,23 @@ fn validate_data_files(data: &[String]) -> Result<Vec<String>, BundleError> {
             || path
                 .components()
                 .any(|component| !matches!(component, Component::Normal(_)))
-            || matches!(file.as_str(), "policy.toml" | "run")
+            || matches!(
+                file.as_str(),
+                "policy.toml" | UNIX_ENTRYPOINT | "run.exe" | "run.cmd" | "run.bat"
+            )
         {
             return Err(BundleError::InvalidManifest);
         }
     }
     Ok(files)
+}
+
+fn read_present_regular_file(path: &Path) -> Result<Option<Vec<u8>>, BundleError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => read_regular_file(path).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(BundleError::Io),
+    }
 }
 
 fn read_regular_file(path: &Path) -> Result<Vec<u8>, BundleError> {
@@ -336,7 +392,7 @@ fn require_executable(_path: &Path) -> Result<(), BundleError> {
     Ok(())
 }
 
-fn hash_bundle(files: &[(String, Vec<u8>)]) -> Result<ContentHash, BundleError> {
+fn hash_bundle(files: &[CoveredFile]) -> Result<ContentHash, BundleError> {
     let mut hash = Sha256::new();
     hash.update(b"nah-policy-bundle-v1\0");
     for (name, bytes) in files {
@@ -394,3 +450,30 @@ impl fmt::Display for BundleError {
 }
 
 impl Error for BundleError {}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cross_platform_bundle_hashes_match() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("tool");
+        fs::create_dir(&directory).unwrap();
+        fs::write(
+            directory.join("policy.toml"),
+            "name = \"tool\"\nmatch = [\"tool\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+        )
+        .unwrap();
+        fs::write(directory.join(UNIX_ENTRYPOINT), "#!/bin/sh\nexit 0\n").unwrap();
+        fs::write(directory.join("run.cmd"), "@echo off\r\nexit /b 0\r\n").unwrap();
+
+        let unix = load_bundle(&directory, Platform::Linux, GuardScope::User, None, &[]).unwrap();
+        let windows =
+            load_bundle(&directory, Platform::Windows, GuardScope::User, None, &[]).unwrap();
+        assert_eq!(
+            unix.projection().bundle_hash(),
+            windows.projection().bundle_hash()
+        );
+    }
+}
