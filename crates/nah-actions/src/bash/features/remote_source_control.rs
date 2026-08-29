@@ -182,7 +182,7 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             continue;
         }
         if !after_options && let Some((name, value)) = short_value_option(argument, provider) {
-            if name == "-X" {
+            if name == 'X' {
                 method = Some(value);
             }
             index += 1;
@@ -203,7 +203,12 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
 }
 
 fn api_boolean_option(argument: &str, provider: Provider) -> bool {
-    if argument == "-i" {
+    if boolean_flag(argument, "-i").is_some()
+        || provider == Provider::GitHub
+            && argument
+                .strip_prefix('-')
+                .is_some_and(|flags| !flags.is_empty() && flags.bytes().all(|flag| flag == b'i'))
+    {
         return true;
     }
     let options = match provider {
@@ -263,14 +268,19 @@ fn api_value_option(argument: &str, provider: Provider) -> bool {
     options.contains(&argument)
 }
 
-fn short_value_option(argument: &str, provider: Provider) -> Option<(&str, &str)> {
+fn short_value_option(argument: &str, provider: Provider) -> Option<(char, &str)> {
     let options = match provider {
-        Provider::GitHub => ["-F", "-H", "-q", "-X", "-p", "-f", "-t"].as_slice(),
-        Provider::GitLab => ["-F", "-H", "-X", "-f"].as_slice(),
+        Provider::GitHub => ['F', 'H', 'q', 'X', 'p', 'f', 't'].as_slice(),
+        Provider::GitLab => ['F', 'H', 'X', 'f'].as_slice(),
+    };
+    let options_and_value = argument.strip_prefix('-')?;
+    let options_and_value = match provider {
+        Provider::GitHub => options_and_value.trim_start_matches('i'),
+        Provider::GitLab => options_and_value,
     };
     options.iter().find_map(|option| {
-        argument
-            .strip_prefix(option)
+        options_and_value
+            .strip_prefix(*option)
             .filter(|value| !value.is_empty())
             .map(|value| (*option, value.strip_prefix('=').unwrap_or(value)))
     })
@@ -342,21 +352,20 @@ fn valid_literal_segment(segment: &str) -> bool {
 }
 
 fn valid_host(host: &str) -> bool {
-    host.contains('.')
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-                && label
-                    .as_bytes()
-                    .first()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                && label
-                    .as_bytes()
-                    .last()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-        })
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && label
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+            && label
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphanumeric)
+    })
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]

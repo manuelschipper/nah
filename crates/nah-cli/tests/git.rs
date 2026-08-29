@@ -111,6 +111,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete localhost/owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
             "gh repo delete owner/project --confirm=1",
             "git-remote-delete",
         ),
@@ -120,6 +124,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
+        ("gh api -iXDELETE repos/owner/project", "git-remote-delete"),
         (
             "gh api -X DELETE 'repos/owner/project#/issues'",
             "git-remote-delete",

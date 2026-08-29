@@ -20,6 +20,7 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "gh repo delete project",
         "gh repo delete owner/project --yes",
         "gh repo delete --confirm github.example.com/owner/project",
+        "gh repo delete localhost/owner/project --yes",
         "gh repo delete --yes=false owner/project",
         "glab repo delete",
         "glab repo delete project",
@@ -77,6 +78,23 @@ fn help_boolean_values_preserve_delete_classification() {
 }
 
 #[test]
+fn github_api_short_boolean_forms_preserve_delete_classification() {
+    for value in [
+        "1", "t", "T", "TRUE", "true", "True", "0", "f", "F", "FALSE", "false", "False",
+    ] {
+        let source = format!("gh api -i={value} -XDELETE repos/owner/project");
+        assert!(deletes_repository(&source), "{source}");
+    }
+
+    for source in [
+        "gh api -iXDELETE repos/owner/project",
+        "gh api repos/owner/project -iiX=DELETE",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
 fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
     for source in [
         "gh api repos/owner/project -X DELETE",
@@ -129,7 +147,10 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh repo archive owner/project --yes",
         "gh repo rename replacement",
         "gh repo delete owner/project extra",
-        "gh repo delete group/nested/project",
+        "gh repo delete host/owner/project/extra",
+        "gh repo delete -host/owner/project --yes",
+        "gh repo delete host-/owner/project --yes",
+        "gh repo delete host_name/owner/project --yes",
         "gh repo delete https://github.com/owner/project",
         "gh repo delete \"$REPOSITORY\" --yes",
         "gh repo delete owner/project --unknown",
@@ -151,6 +172,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh api -X DELETE \"$ENDPOINT\"",
         "gh api -X DELETE repos/owner/project --unknown",
         "gh api --silent=maybe -X DELETE repos/owner/project",
+        "gh api -zXDELETE repos/owner/project",
         "gh api -X",
         "gh api --hostname",
         "gh api --method DELETE --method GET repos/owner/project",
