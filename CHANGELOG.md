@@ -56,9 +56,11 @@
   project paths and group placeholders, plus GitHub's
   `--allow-escape-sequences` output option and repeated or inherited boolean
   flags whose final value restores destructive execution and port-qualified
-  GitHub Enterprise hosts. Dynamic API option values, incompatible GitHub
-  output options, branches, tags, archives, renames, and transfers remain
-  outside its scope.
+  GitHub Enterprise hosts. Parent-command help flags, GitHub field placeholders,
+  GitLab user placeholders, and API preflight flags now follow the providers'
+  effective behavior. Dynamic API option values, incompatible GitHub output
+  options, branches, tags, archives, renames, and transfers remain outside its
+  scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

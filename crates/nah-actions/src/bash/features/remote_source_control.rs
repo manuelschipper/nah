@@ -44,7 +44,8 @@ fn static_remote_argument(argument: &Word) -> Option<String> {
     let expansion_check = argument
         .raw()
         .replace("{owner}", "owner")
-        .replace("{repo}", "repo");
+        .replace("{repo}", "repo")
+        .replace("{branch}", "branch");
     if has_unmodeled_expansion(&expansion_check) {
         return None;
     }
@@ -52,7 +53,9 @@ fn static_remote_argument(argument: &Word) -> Option<String> {
 }
 
 fn github_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
-    let Some(rest) = arguments.strip_prefix(&["repo", "delete"]) else {
+    let Some((rest, help_requested)) =
+        repo_delete_command(arguments, Provider::GitHub, help_requested)
+    else {
         return false;
     };
     repo_delete_target(rest, Provider::GitHub, help_requested)
@@ -60,14 +63,32 @@ fn github_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool 
 }
 
 fn gitlab_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
-    let Some(rest) = arguments
-        .strip_prefix(&["repo", "delete"])
-        .or_else(|| arguments.strip_prefix(&["project", "delete"]))
+    let Some((rest, help_requested)) =
+        repo_delete_command(arguments, Provider::GitLab, help_requested)
     else {
         return false;
     };
     repo_delete_target(rest, Provider::GitLab, help_requested)
         .is_some_and(|target| target.is_none_or(valid_gitlab_repository))
+}
+
+fn repo_delete_command<'a>(
+    arguments: &'a [&str],
+    provider: Provider,
+    mut help_requested: Option<bool>,
+) -> Option<(&'a [&'a str], Option<bool>)> {
+    let (parent, mut rest) = arguments.split_first()?;
+    if !matches!(
+        (provider, *parent),
+        (Provider::GitHub, "repo") | (Provider::GitLab, "repo" | "project")
+    ) {
+        return None;
+    }
+    while let Some(value) = rest.first().and_then(|argument| help_flag(argument)) {
+        help_requested = Some(value);
+        rest = &rest[1..];
+    }
+    Some((rest.strip_prefix(&["delete"])?, help_requested))
 }
 
 fn repo_delete_target<'a>(
@@ -179,6 +200,7 @@ fn api_request<'a>(
     let mut endpoint = None;
     let mut method = None;
     let mut paginate_requested = None;
+    let mut github_slurp_requested = None;
     let mut github_jq = false;
     let mut github_silent = false;
     let mut github_template = false;
@@ -197,11 +219,16 @@ fn api_request<'a>(
             index += 1;
             continue;
         }
+        if !after_options && let Some(paginate) = boolean_flag(argument, "--paginate") {
+            paginate_requested = Some(paginate);
+            index += 1;
+            continue;
+        }
         if !after_options
             && provider == Provider::GitHub
-            && let Some(paginate) = boolean_flag(argument, "--paginate")
+            && let Some(slurp) = boolean_flag(argument, "--slurp")
         {
-            paginate_requested = Some(paginate);
+            github_slurp_requested = Some(slurp);
             index += 1;
             continue;
         }
@@ -277,7 +304,10 @@ fn api_request<'a>(
         .into_iter()
         .filter(|selected| *selected)
         .count();
-    if help_requested == Some(true) || paginate_requested == Some(true) || github_output_options > 1
+    if help_requested == Some(true)
+        || paginate_requested == Some(true)
+        || github_slurp_requested == Some(true)
+        || github_output_options > 1
     {
         return None;
     }
@@ -301,11 +331,10 @@ fn api_boolean_option(argument: &str, provider: Provider) -> bool {
             "--allow-escape-sequences",
             "--include",
             "--silent",
-            "--slurp",
             "--verbose",
         ]
         .as_slice(),
-        Provider::GitLab => ["--include", "--paginate", "--silent"].as_slice(),
+        Provider::GitLab => ["--include", "--silent"].as_slice(),
     };
     options
         .iter()
@@ -416,8 +445,10 @@ fn valid_gitlab_project_identifier(identifier: &str) -> bool {
     let components = split_encoded_path(identifier);
     components.len() >= 2
         && components.into_iter().all(|component| {
-            matches!(component, ":group" | ":namespace" | ":repo")
-                || valid_percent_encoded_literal_segment(component)
+            matches!(
+                component,
+                ":group" | ":namespace" | ":repo" | ":user" | ":username"
+            ) || valid_percent_encoded_literal_segment(component)
         })
 }
 

@@ -65,6 +65,9 @@ fn help_boolean_values_preserve_delete_classification() {
             format!("glab --help={value} repo delete group/project -y"),
             format!("gh --help={value} api -X DELETE repos/owner/project"),
             format!("glab --help={value} api -X DELETE projects/123"),
+            format!("gh repo --help={value} delete owner/project --yes"),
+            format!("glab repo --help={value} delete group/project -y"),
+            format!("glab project --help={value} delete group/project -y"),
         ] {
             assert!(deletes_repository(&source), "{source}");
         }
@@ -77,6 +80,10 @@ fn help_boolean_values_preserve_delete_classification() {
         "glab api -h --help=False -X DELETE projects/123",
         "gh --help repo delete --help=false --yes owner/project",
         "glab -h api --help=0 -X DELETE projects/123",
+        "gh repo --help --help=false delete owner/project --yes",
+        "glab project -h --help=0 delete group/project -y",
+        "gh --help repo --help=false delete owner/project --yes",
+        "glab --help project -h=0 delete group/project -y",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -91,6 +98,9 @@ fn help_boolean_values_preserve_delete_classification() {
             format!("glab --help={value} repo delete group/project -y"),
             format!("gh --help={value} api -X DELETE repos/owner/project"),
             format!("glab --help={value} api -X DELETE projects/123"),
+            format!("gh repo --help={value} delete owner/project --yes"),
+            format!("glab repo --help={value} delete group/project -y"),
+            format!("glab project --help={value} delete group/project -y"),
         ] {
             assert!(!deletes_repository(&source), "{source}");
         }
@@ -103,6 +113,8 @@ fn help_boolean_values_preserve_delete_classification() {
         "glab api --help=False -h -X DELETE projects/123",
         "gh --help=false repo delete --help --yes owner/project",
         "glab -h=0 api --help -X DELETE projects/123",
+        "gh repo --help=false --help delete owner/project --yes",
+        "glab project -h=0 --help delete group/project -y",
     ] {
         assert!(!deletes_repository(source), "{source}");
     }
@@ -155,11 +167,49 @@ fn github_api_paginate_only_allows_delete_when_disabled() {
 }
 
 #[test]
+fn api_preflight_flags_only_allow_delete_when_disabled() {
+    for value in ["0", "f", "F", "FALSE", "false", "False"] {
+        for source in [
+            format!("gh api --slurp={value} -X DELETE repos/owner/project"),
+            format!("glab api --paginate={value} -X DELETE projects/123"),
+        ] {
+            assert!(deletes_repository(&source), "{source}");
+        }
+    }
+
+    for value in ["1", "t", "T", "TRUE", "true", "True"] {
+        for source in [
+            format!("gh api --slurp={value} -X DELETE repos/owner/project"),
+            format!("glab api --paginate={value} -X DELETE projects/123"),
+        ] {
+            assert!(!deletes_repository(&source), "{source}");
+        }
+    }
+
+    for source in [
+        "gh api --slurp -X DELETE repos/owner/project",
+        "glab api --paginate -X DELETE projects/123",
+        "gh api --slurp=false --slurp -X DELETE repos/owner/project",
+        "glab api --paginate=false --paginate -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "gh api --slurp --slurp=false -X DELETE repos/owner/project",
+        "glab api --paginate --paginate=false -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
 fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
     for source in [
         "gh api repos/owner/project -X DELETE",
         "gh api -Xdelete '/repos/owner/project?archive=false'",
         "gh api --hostname ghe.example --silent --method=DELETE repos/{owner}/{repo}",
+        "gh api --hostname ghe.example -X DELETE repos/owner/project -F ref={branch}",
         "gh api --silent=1 --method DELETE repos/owner/project",
         "gh api --silent --silent=false --verbose -X DELETE repos/owner/project",
         "gh api --jq . --silent=false -X DELETE repos/owner/project",
@@ -177,6 +227,8 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api --silent projects/:fullpath --method DELETE",
         "glab api --method DELETE projects/:namespace%2F:repo",
         "glab api --method DELETE projects/:group%2F:repo",
+        "glab api --method DELETE projects/:user%2F:repo",
+        "glab api --method DELETE projects/:username%2F:repo",
         "glab api --method DELETE projects/:namespace/:repo",
         "glab api --method DELETE projects/:group/:namespace/:repo",
         "glab api -X DELETE 'projects/123#anything'",
@@ -261,6 +313,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "glab api -X DELETE projects/group%2Fproject%2F",
         "glab api -X DELETE projects/:owner/:repo",
         "glab api -X DELETE projects/:owner%2F:repo",
+        "glab api -X DELETE projects/:account%2F:repo",
         "glab api -X DELETE projects/:group/:namespace/:repo/issues",
         "glab api -X DELETE graphql",
         "glab api -X DELETE https://gitlab.com/api/v4/projects/123",
