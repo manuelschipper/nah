@@ -169,3 +169,4 @@
 {"v":1,"id":"git-remote-delete.gh-api-fragment","command":"gh api -X DELETE 'repos/owner/project#/issues'","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-remote-delete"}}
 {"v":1,"id":"git-remote-delete.gh-repo-help-false","command":"gh repo delete owner/project --yes --help=false","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-remote-delete"}}
 {"v":1,"id":"git-remote-delete.glab-api-help-false","command":"glab api --help=0 -X DELETE projects/123","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-remote-delete"}}
+{"v":1,"id":"git-remote-delete.glab-api-fragment","command":"glab api -X DELETE 'projects/123#anything'","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-remote-delete"}}

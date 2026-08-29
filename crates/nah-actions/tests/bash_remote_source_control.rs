@@ -92,6 +92,7 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api --field audit=true --input body.json -XDELETE projects/:id",
         "glab api --silent projects/:fullpath --method DELETE",
         "glab api --method DELETE projects/:namespace%2F:repo",
+        "glab api -X DELETE 'projects/123#anything'",
         "gh api -X DELETE 'repos/owner/project#'",
         "gh api -X DELETE 'repos/owner/project#/issues'",
     ] {

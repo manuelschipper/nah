@@ -292,7 +292,9 @@ fn valid_github_endpoint_segment(segment: &str, placeholder: &str) -> bool {
 }
 
 fn gitlab_delete_endpoint(endpoint: &str) -> bool {
-    let path = endpoint.split_once('?').map_or(endpoint, |(path, _)| path);
+    let path = endpoint
+        .split_once(['?', '#'])
+        .map_or(endpoint, |(path, _)| path);
     let path = path.strip_prefix('/').unwrap_or(path);
     let Some(identifier) = path.strip_prefix("projects/") else {
         return false;
