@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1267);
+    assert_eq!(summary.cases, 1270);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 20),
+            ("windows.jsonl".to_owned(), 23),
         ]
     );
 }
@@ -129,6 +129,9 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "windows.pwsh.hash-bare-path",
         "windows.pwsh.hash-keeps-following-statement",
         "windows.pwsh.tilde-home",
+        "windows.pwsh.quoted-segment-variable",
+        "windows.pwsh.parameter-prefix-home",
+        "windows.cmd.del-recursive-directory",
     ] {
         assert!(ids.contains(id), "missing reviewed corpus case `{id}`");
     }

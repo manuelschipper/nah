@@ -475,3 +475,53 @@ fn reviewed_certutil_download_is_a_network_bound_write() {
     assert_eq!(call.endpoint(), Some("https://example.test/x"));
     assert_eq!(call.filesystems()[0].requested(), Some(r"C:\payload"));
 }
+
+#[test]
+fn powershell_quoted_segments_do_not_make_later_expansions_exact() {
+    for source in [
+        r"Remove-Item -Recurse -Force 'C:\Users\test'$rest",
+        r"Remove-Item -Recurse -Force ~\$rest",
+        r"Remove-Item -Recurse -Force ''$rest",
+        r#"Remove-Item -Recurse -Force "C:\Users\test"$rest"#,
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            None,
+            "{source}"
+        );
+    }
+
+    for source in [
+        r"Remove-Item -Recurse -Force ''$HOME",
+        r"Remove-Item -Recurse -Force ''$env:USERPROFILE",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(analysis.draft().complete(), "{source}");
+        assert!(
+            analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn powershell_binds_unambiguous_parameter_prefixes() {
+    let analysis = analyze("pwsh", r"Remove-Item -Rec -Force C:\Users\test");
+    assert!(analysis.draft().complete());
+    let filesystem = &analysis.draft().calls()[0].filesystems()[0];
+    assert!(filesystem.recursive());
+    assert_eq!(filesystem.requested(), Some(r"C:\Users\test"));
+
+    let analysis = analyze("pwsh", r"Remove-Item -LiteralP C:\Users\test");
+    assert_eq!(
+        analysis.draft().calls()[0].filesystems()[0].requested(),
+        Some(r"C:\Users\test")
+    );
+
+    let ambiguous = analyze("pwsh", r"Remove-Item -E stop C:\Users\test");
+    assert!(!ambiguous.draft().complete());
+}

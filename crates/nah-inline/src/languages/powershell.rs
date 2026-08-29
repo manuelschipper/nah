@@ -248,7 +248,7 @@ impl Interpreter<'_, '_> {
         let arguments = parse_arguments(tokens, remove_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
         let recurse = switch_enabled(&arguments, "recurse") || switch_enabled(&arguments, "r");
-        let (targets, literal) = path_targets(&arguments, false);
+        let (targets, literal) = path_targets(&arguments);
         let filesystems = if what_if {
             Vec::new()
         } else {
@@ -272,7 +272,7 @@ impl Interpreter<'_, '_> {
     fn move_item(&mut self, tokens: &[Token]) {
         let arguments = parse_arguments(tokens, move_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
-        let (sources, literal) = path_targets(&arguments, false);
+        let (sources, literal) = path_targets(&arguments);
         let source = sources.first().copied();
         let named_source = parameter_value(&arguments, &["path", "literalpath"]).is_some();
         let destination = parameter_value(&arguments, &["destination"])
@@ -316,7 +316,7 @@ impl Interpreter<'_, '_> {
     fn content_call(&mut self, callable: &str, tokens: &[Token], operation: FilesystemOperation) {
         let arguments = parse_arguments(tokens, content_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
-        let (targets, literal) = path_targets(&arguments, false);
+        let (targets, literal) = path_targets(&arguments);
         let target = targets.first().copied();
         let filesystems = if what_if {
             Vec::new()
@@ -799,14 +799,16 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
         let mut exact = true;
         let mut quoted = false;
         let mut quote = None;
-        let mut variable_home_reference = true;
+        // PowerShell expands `$` only outside single quotes and backtick
+        // escapes, so exactness is decided per segment: a token such as
+        // `'C:\Users\test'$rest` is literal up to the quote and still
+        // expands afterwards.
+        let mut live_expansion = false;
+        let mut expansion_starts_token = false;
         while index < bytes.len() {
             let byte = bytes[index];
             if let Some(active) = quote {
                 if byte == b'`' && index + 1 < bytes.len() {
-                    if bytes[index + 1] == b'$' {
-                        variable_home_reference = false;
-                    }
                     let character = source[index + 1..].chars().next()?;
                     value.push(character);
                     index += 1 + character.len_utf8();
@@ -823,7 +825,8 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                     continue;
                 }
                 if active == b'"' && byte == b'$' {
-                    exact = false;
+                    expansion_starts_token |= value.is_empty();
+                    live_expansion = true;
                 }
                 let character = source[index..].chars().next()?;
                 value.push(character);
@@ -832,17 +835,11 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
             }
             match byte {
                 b'\'' | b'"' => {
-                    if byte == b'\'' {
-                        variable_home_reference = false;
-                    }
                     quoted = true;
                     quote = Some(byte);
                     index += 1;
                 }
                 b'`' if index + 1 < bytes.len() => {
-                    if bytes[index + 1] == b'$' {
-                        variable_home_reference = false;
-                    }
                     let character = source[index + 1..].chars().next()?;
                     value.push(character);
                     index += 1 + character.len_utf8();
@@ -850,6 +847,10 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
                 b'|' | b',' => break,
                 byte if byte.is_ascii_whitespace() => break,
                 _ => {
+                    if byte == b'$' {
+                        expansion_starts_token |= value.is_empty();
+                        live_expansion = true;
+                    }
                     let character = source[index..].chars().next()?;
                     value.push(character);
                     index += character.len_utf8();
@@ -859,15 +860,11 @@ fn lex(source: &str, home: &str) -> Option<(Vec<Lexeme>, bool)> {
         if quote.is_some() {
             return None;
         }
-        if let Some(resolved) = resolve_static_home_reference(&value, home, variable_home_reference)
+        if let Some(resolved) = resolve_static_home_reference(&value, home, expansion_starts_token)
         {
             value = resolved;
             exact = true;
-        } else if (variable_home_reference
-            && value.contains('$')
-            && !static_boolean_parameter(&value))
-            || value.starts_with('@')
-        {
+        } else if (live_expansion && !static_boolean_parameter(&value)) || value.starts_with('@') {
             exact = false;
         }
         if !value.is_empty() {
@@ -903,23 +900,25 @@ fn stream_merge(target: &str) -> bool {
         .is_some_and(|stream| stream.len() == 1 && stream.as_bytes()[0].is_ascii_digit())
 }
 
+/// Resolves a PowerShell token that names the declared home through the
+/// provider `~` or a recognized home variable. `expansion_starts_token` states
+/// whether the token begins with a live expansion, so quoted or escaped
+/// lookalikes stay literal. Any further `$` in the remainder leaves the token
+/// unresolved rather than inventing a concrete path.
 fn resolve_static_home_reference(
     value: &str,
     home: &str,
-    variable_reference: bool,
+    expansion_starts_token: bool,
 ) -> Option<String> {
-    if let Some(suffix) = static_home_suffix(value, "~") {
-        return Some(format!("{home}{suffix}"));
+    let mut suffix = static_home_suffix(value, "~");
+    if suffix.is_none() && expansion_starts_token {
+        suffix = ["${home}", "$env:userprofile", "$home"]
+            .into_iter()
+            .find_map(|prefix| static_home_suffix(value, prefix));
     }
-    if !variable_reference {
-        return None;
-    }
-    ["${home}", "$env:userprofile", "$home"]
-        .into_iter()
-        .find_map(|prefix| {
-            static_home_suffix(value, prefix).map(|suffix| format!("{home}{suffix}"))
-        })
-        .filter(|resolved| !resolved[home.len()..].contains('$'))
+    suffix
+        .filter(|suffix| !suffix.contains('$'))
+        .map(|suffix| format!("{home}{suffix}"))
 }
 
 fn static_home_suffix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
@@ -937,7 +936,10 @@ fn static_boolean_parameter(value: &str) -> bool {
         .is_some_and(|(_, value)| matches!(value.to_ascii_lowercase().as_str(), "$true" | "$false"))
 }
 
-fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -> Arguments {
+fn parse_arguments(
+    tokens: &[Token],
+    parameter_kind: fn(&str) -> Option<(&'static str, bool)>,
+) -> Arguments {
     let mut parsed = Arguments {
         complete: true,
         ..Arguments::default()
@@ -954,17 +956,17 @@ fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -
                 .map_or((parameter, None), |(name, value)| {
                     (name, Some(value.to_owned()))
                 });
-            let name = name.to_ascii_lowercase();
-            match parameter_kind(&name) {
-                Some(true) => {
+            let written = name.to_ascii_lowercase();
+            match parameter_kind(&written) {
+                Some((name, true)) => {
                     parsed.complete &= static_switch_value(attached.as_deref()).is_some();
                     parsed.parameters.push(Parameter {
-                        name,
+                        name: name.to_owned(),
                         value: None,
                         attached,
                     });
                 }
-                Some(false) => {
+                Some((name, false)) => {
                     let value = attached
                         .as_ref()
                         .map(|value| Token {
@@ -979,7 +981,7 @@ fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -
                         });
                     parsed.complete &= value.is_some();
                     parsed.parameters.push(Parameter {
-                        name,
+                        name: name.to_owned(),
                         value,
                         attached,
                     });
@@ -1003,7 +1005,7 @@ fn parse_arguments(tokens: &[Token], parameter_kind: fn(&str) -> Option<bool>) -
     parsed
 }
 
-fn remove_parameter(name: &str) -> Option<bool> {
+fn remove_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &[
@@ -1020,7 +1022,7 @@ fn remove_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn move_parameter(name: &str) -> Option<bool> {
+fn move_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &["force", "whatif", "confirm", "verbose", "debug"],
@@ -1036,7 +1038,7 @@ fn move_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn content_parameter(name: &str) -> Option<bool> {
+fn content_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &[
@@ -1067,7 +1069,7 @@ fn content_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn out_file_parameter(name: &str) -> Option<bool> {
+fn out_file_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &[
@@ -1090,7 +1092,7 @@ fn out_file_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn web_parameter(name: &str) -> Option<bool> {
+fn web_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &[
@@ -1124,11 +1126,11 @@ fn web_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn invoke_expression_parameter(name: &str) -> Option<bool> {
+fn invoke_expression_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(name, &[], &["command"])
 }
 
-fn start_process_parameter(name: &str) -> Option<bool> {
+fn start_process_parameter(name: &str) -> Option<(&'static str, bool)> {
     parameter(
         name,
         &[
@@ -1150,14 +1152,36 @@ fn start_process_parameter(name: &str) -> Option<bool> {
     )
 }
 
-fn parameter(name: &str, switches: &[&str], values: &[&str]) -> Option<bool> {
-    if switches.contains(&name) {
-        Some(true)
-    } else if values.contains(&name) {
-        Some(false)
-    } else {
-        None
+/// Binds a written PowerShell parameter name to the modeled parameter it
+/// names, reporting whether that parameter is a switch (`true`) or takes a
+/// value (`false`). PowerShell also binds an unambiguous parameter-name prefix
+/// such as `-Rec`, so a prefix matching exactly one modeled name resolves to
+/// that name; an ambiguous or unknown prefix stays unresolved.
+fn parameter(
+    name: &str,
+    switches: &'static [&'static str],
+    values: &'static [&'static str],
+) -> Option<(&'static str, bool)> {
+    if let Some(switch) = switches.iter().find(|candidate| **candidate == name) {
+        return Some((switch, true));
     }
+    if let Some(value) = values.iter().find(|candidate| **candidate == name) {
+        return Some((value, false));
+    }
+    let mut resolved = None;
+    for (candidate, switch) in switches
+        .iter()
+        .map(|candidate| (*candidate, true))
+        .chain(values.iter().map(|candidate| (*candidate, false)))
+    {
+        if candidate.starts_with(name) {
+            if resolved.is_some() {
+                return None;
+            }
+            resolved = Some((candidate, switch));
+        }
+    }
+    resolved
 }
 
 fn parameter_value<'a>(arguments: &'a Arguments, names: &[&str]) -> Option<&'a Token> {
@@ -1168,19 +1192,17 @@ fn parameter_value<'a>(arguments: &'a Arguments, names: &[&str]) -> Option<&'a T
         .and_then(|parameter| parameter.value.as_ref())
 }
 
-fn path_targets(arguments: &Arguments, all_positionals: bool) -> (Vec<&Token>, bool) {
+/// Collects the path operands of a path cmdlet and reports whether they were
+/// bound literally. Only the first positional operand is a path: the second
+/// positional operand binds `-Filter`, not another target.
+fn path_targets(arguments: &Arguments) -> (Vec<&Token>, bool) {
     if let Some(value) = parameter_value(arguments, &["literalpath"]) {
         return (vec![value], true);
     }
     if let Some(value) = parameter_value(arguments, &["path"]) {
         return (vec![value], false);
     }
-    let targets = if all_positionals {
-        arguments.positional.iter().collect()
-    } else {
-        arguments.positional.first().into_iter().collect()
-    };
-    (targets, false)
+    (arguments.positional.first().into_iter().collect(), false)
 }
 
 fn switch_enabled(arguments: &Arguments, name: &str) -> bool {

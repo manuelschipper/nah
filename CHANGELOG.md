@@ -9,7 +9,9 @@
   home. Unknown `-WhatIf` values, lookalike variables, platform-specific aliases,
   path globs, and cmd directory semantics avoid resolved effects they cannot prove.
   Comment markers inside bare words stay literal, and `del /s` retains its recursive
-  file scope.
+  file scope. Quoted segments no longer make a following variable exact, unambiguous
+  parameter prefixes such as `-Rec` bind like their full names, and `del` on an
+  observed directory reports an unresolved deletion instead of dropping the effect.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

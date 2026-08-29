@@ -283,16 +283,32 @@ fn powershell_variable_prefixes_remain_unresolved() {
 #[test]
 fn cmd_del_does_not_claim_directory_deletion_and_rd_is_not_implicitly_recursive() {
     let target = r"C:\repo\directory";
-    for source in [r"del C:\repo\directory", r"del /s /q C:\repo\directory"] {
+    for (source, recursive) in [
+        (r"del C:\repo\directory", false),
+        (r"del /s /q C:\repo\directory", true),
+    ] {
         let del = direct_plan(VisibleCode::Cmd { source }, source);
         let observation = observe(del.observation_request(), Some(target));
         let stream = finalize(del, observation);
-        assert_eq!(stream.coverage(), Coverage::Partial);
-        assert!(!stream.effects().iter().any(|effect| matches!(
-            effect.kind(),
-            EffectKind::Filesystem { effect }
-                if effect.operation == FilesystemOperation::Delete
-        )));
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            !stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Delete
+            )),
+            "{source}"
+        );
+        // `del` erases the files the directory holds, so the deletion stays
+        // visible as an unresolved selection carrying its `/s` scope.
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::FilesystemUnresolved { operation, recursive: observed }
+                    if *operation == FilesystemOperation::Delete && *observed == recursive
+            )),
+            "{source}"
+        );
     }
 
     let rd = filesystem_effects(
