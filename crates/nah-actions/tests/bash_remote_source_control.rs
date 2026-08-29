@@ -78,7 +78,7 @@ fn help_boolean_values_preserve_delete_classification() {
 }
 
 #[test]
-fn github_api_short_boolean_forms_preserve_delete_classification() {
+fn github_api_short_option_forms_preserve_delete_classification() {
     for value in [
         "1", "t", "T", "TRUE", "true", "True", "0", "f", "F", "FALSE", "false", "False",
     ] {
@@ -89,9 +89,16 @@ fn github_api_short_boolean_forms_preserve_delete_classification() {
     for source in [
         "gh api -iXDELETE repos/owner/project",
         "gh api repos/owner/project -iiX=DELETE",
+        "gh api -iX DELETE repos/owner/project",
+        "gh api repos/owner/project -iiX delete",
+        "gh api -iiiX GET -XDELETE repos/owner/project",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
+
+    assert!(!deletes_repository(
+        "gh api -XDELETE -iiX GET repos/owner/project"
+    ));
 }
 
 #[test]
@@ -192,6 +199,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh api --silent=maybe -X DELETE repos/owner/project",
         "gh api -zXDELETE repos/owner/project",
         "gh api -X",
+        "gh api -iX",
         "gh api --hostname",
         "gh api --method DELETE --method GET repos/owner/project",
         "glab api -X POST projects/123",

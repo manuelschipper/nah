@@ -191,6 +191,14 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             index += 2;
             continue;
         }
+        if !after_options
+            && provider == Provider::GitHub
+            && github_separated_method_option(argument)
+        {
+            method = Some(*arguments.get(index + 1)?);
+            index += 2;
+            continue;
+        }
         if !after_options && let Some((name, value)) = short_value_option(argument, provider) {
             if name == 'X' {
                 method = Some(value);
@@ -269,6 +277,13 @@ fn api_value_option(argument: &str, provider: Provider) -> bool {
         .as_slice(),
     };
     options.contains(&argument)
+}
+
+fn github_separated_method_option(argument: &str) -> bool {
+    argument
+        .strip_prefix("-i")
+        .and_then(|flags| flags.strip_suffix('X'))
+        .is_some_and(|flags| flags.bytes().all(|flag| flag == b'i'))
 }
 
 fn short_value_option(argument: &str, provider: Provider) -> Option<(char, &str)> {
