@@ -7,12 +7,12 @@ guard proposals under `~/.nah/`. Commands own its protected state; the
 Run `nah tui` in an interactive terminal for the same protected configuration
 surface. It has these screens:
 
-- **Guards** groups built-ins by semantic family and `DEFAULT ON` or `DEFAULT
-  OFF`, with custom user and project subsections, and stages changes into one
-  batch until Enter. Custom activation shows a bounded preview of covered
-  files and pins the displayed path, scope, and full bundle hash; changed bytes
-  are refused until reviewed again. Press `f` to compose family,
-  factory-default, and source filters; filtering never drops staged changes.
+- **Guards** starts in Type view, which groups built-ins by semantic family and
+  custom guards by name. Press `f` to cycle through Type, applied State, and
+  current Project views. Changes remain staged across views until Enter.
+  Custom activation shows a bounded preview of covered files and pins the
+  displayed path, scope, and full bundle hash; changed bytes are refused until
+  reviewed again.
 - **Projects** trusts the current directory or revokes a selected trusted root.
 - **Runtimes** installs, refreshes, or removes nah-owned integration wiring.
 - **Log** keeps separate 200-row views for decisions and blocks. Rows name the
@@ -26,8 +26,9 @@ invocation through agent tool calls.
 
 Every built-in has its own factory default. `fs-shell-profile` and
 `fs-startup-management` ship off because routine tooling uses the files and
-commands they cover. All other current built-ins ship on. The documentation
-view shows live and factory status plus three examples:
+commands they cover. All other current built-ins ship on. `nah guards` shows
+each live checkbox and guard name. The documentation view also shows factory
+status plus three examples:
 
 ```sh
 nah guards
@@ -49,8 +50,8 @@ select one with `--user` or `--project <root>`; built-ins are global.
 Global built-in choices are stored in `~/.nah/built-ins.json`. State v2 keeps
 sorted explicit overrides; missing names use their compiled factory defaults.
 Nah reads the previous v1 disabled-name file without rewriting it and writes v2
-on the next guard change. `D` in the TUI resets built-ins to their factory
-posture and disables custom guards.
+on the next guard change. `D` in the TUI restores shipped settings: built-ins
+return to their factory posture and custom guards are disabled.
 
 Configuration can only add or remove blocks; it cannot authorize a tool call.
 

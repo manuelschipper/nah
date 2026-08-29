@@ -104,23 +104,6 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return app.request_quit().then_some(SessionAction::Quit);
     }
-    if app.guard_filter_overlay.is_some() {
-        match key.code {
-            KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
-                app.move_guard_filter_field(true);
-            }
-            KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => {
-                app.move_guard_filter_field(false);
-            }
-            KeyCode::Right | KeyCode::Char('l') => app.cycle_guard_filter(true),
-            KeyCode::Left | KeyCode::Char('h') => app.cycle_guard_filter(false),
-            KeyCode::Char('c') => app.clear_guard_filter(),
-            KeyCode::Enter => app.apply_guard_filter(),
-            KeyCode::Esc => app.cancel_guard_filter(),
-            _ => {}
-        }
-        return None;
-    }
     // Typing a search query takes every printable key, so the single-key
     // bindings below stay dormant until Enter confirms or Esc abandons it.
     if app.log_search_editing {
@@ -154,7 +137,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
         KeyCode::Char('v') if is_guard_screen(app.screen) => app.view_guard(),
         KeyCode::Char('r') if is_guard_screen(app.screen) => app.reapprove_guard(),
         KeyCode::Char('D') if is_guard_screen(app.screen) => app.reset_to_defaults(),
-        KeyCode::Char('f') if is_guard_screen(app.screen) => app.begin_guard_filter(),
+        KeyCode::Char('f') if is_guard_screen(app.screen) => app.cycle_guard_view(),
         KeyCode::Enter if is_guard_screen(app.screen) => app.apply_guards(),
         KeyCode::Char('t') if app.screen == Screen::Projects => app.request_trust_current(),
         KeyCode::Char('u') if app.screen == Screen::Projects => app.request_untrust_selected(),
@@ -415,31 +398,16 @@ mod tests {
     }
 
     #[test]
-    fn f_opens_and_applies_the_composable_guard_filter() {
+    fn f_cycles_guard_views_without_opening_an_input_mode() {
         let mut app = App::fixture();
 
+        assert_eq!(app.guard_view, app::GuardView::Type);
         press(&mut app, KeyCode::Char('f'));
-        assert!(app.guard_filter_overlay.is_some());
-        press(&mut app, KeyCode::Right);
-        press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Right);
-        press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Right);
-        press(&mut app, KeyCode::Enter);
-
-        assert!(app.guard_filter_overlay.is_none());
-        assert_eq!(
-            app.guard_filters.summary(),
-            "family:execution, default:on, source:built-in"
-        );
-
+        assert_eq!(app.guard_view, app::GuardView::State);
         press(&mut app, KeyCode::Char('f'));
-        press(&mut app, KeyCode::Char('c'));
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(
-            app.guard_filters.summary(),
-            "family:execution, default:on, source:built-in"
-        );
+        assert_eq!(app.guard_view, app::GuardView::Project);
+        press(&mut app, KeyCode::Char('f'));
+        assert_eq!(app.guard_view, app::GuardView::Type);
     }
 
     /// The wake itself writes to the real nap state, so these drive the key up

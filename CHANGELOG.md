@@ -25,10 +25,12 @@
 - **Startup-persistence guard** — Default-on `fs-startup-persistence` blocks
   mutations to reviewed service, schedule, login, autostart, and loader startup
   paths while excluding routine user shell profiles.
-- **Mixed built-in defaults and TUI filters** — Guard state now preserves
-  per-guard factory defaults and explicit global overrides, with operator
-  disables taking precedence over project enablement. The TUI groups guards by
-  family and default posture and filters by family, default, and source.
+- **Mixed built-in defaults** — Guard state now preserves per-guard factory
+  defaults and explicit global overrides, with operator disables taking
+  precedence over project enablement.
+- **Focused guard browsing** — The TUI now cycles between Type, applied State,
+  and current Project views without a filter modal, and `nah guards` omits
+  factory labels from its live-state listing.
 - **Simpler shipped guard attribution** — `nah/decide/v1` and `nah/audit/v1`
   shipped attributions now contain only the kind discriminator and guard name.
   Extension memo entries miss once and are replaced through normal cache use.

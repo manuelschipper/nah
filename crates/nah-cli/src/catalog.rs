@@ -22,12 +22,21 @@ impl GuardFamily {
         }
     }
 
-    pub(crate) const fn filter_name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Execution => "execution",
             Self::Filesystem => "filesystem",
             Self::Git => "git",
             Self::Secrets => "secrets",
+        }
+    }
+
+    pub(crate) const fn rank(self) -> usize {
+        match self {
+            Self::Execution => 0,
+            Self::Filesystem => 1,
+            Self::Git => 2,
+            Self::Secrets => 3,
         }
     }
 }
