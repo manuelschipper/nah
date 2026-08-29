@@ -8,7 +8,8 @@
   GitHub and GitLab API fragments, and documented GitLab composite placeholders,
   single-label GitHub Enterprise hosts, attached and separated GitHub API
   short-option forms, disabled GitHub API pagination, and percent-encoded GitLab
-  project paths,
+  project paths and group placeholders, plus GitHub's
+  `--allow-escape-sequences` output option,
   while leaving branch, tag, archive, rename, and transfer operations outside
   its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks

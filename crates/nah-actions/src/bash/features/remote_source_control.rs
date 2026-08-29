@@ -230,7 +230,14 @@ fn api_boolean_option(argument: &str, provider: Provider) -> bool {
         return true;
     }
     let options = match provider {
-        Provider::GitHub => ["--include", "--silent", "--slurp", "--verbose"].as_slice(),
+        Provider::GitHub => [
+            "--allow-escape-sequences",
+            "--include",
+            "--silent",
+            "--slurp",
+            "--verbose",
+        ]
+        .as_slice(),
         Provider::GitLab => ["--include", "--paginate", "--silent"].as_slice(),
     };
     options
@@ -342,7 +349,7 @@ fn valid_gitlab_project_identifier(identifier: &str) -> bool {
     let components = split_encoded_path(identifier);
     components.len() >= 2
         && components.into_iter().all(|component| {
-            matches!(component, ":namespace" | ":repo")
+            matches!(component, ":group" | ":namespace" | ":repo")
                 || valid_percent_encoded_literal_segment(component)
         })
 }

@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1281);
+    assert_eq!(summary.cases, 1283);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 243),
-            ("git.jsonl".to_owned(), 181),
+            ("git.jsonl".to_owned(), 183),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
@@ -121,6 +121,8 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-remote-delete.gh-api-paginate-false",
         "git-remote-delete.gh-api-paginate-true-delegates",
         "git-remote-delete.glab-api-percent-encoded-path",
+        "git-remote-delete.glab-api-encoded-group-placeholder",
+        "git-remote-delete.gh-api-allow-escape-sequences",
         "git-remote-delete.dynamic-target-delegates",
         "git-remote-delete.gh-nested-endpoint-delegates",
         "shell-resolution.ansi-c-program-threat",

@@ -134,6 +134,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh api --allow-escape-sequences -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
             "gh api -X DELETE 'repos/owner/project#/issues'",
             "git-remote-delete",
         ),
@@ -151,6 +155,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         (
             "glab api -X DELETE projects/:namespace/:repo",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/:group%2F:repo",
             "git-remote-delete",
         ),
         (
