@@ -681,6 +681,14 @@ fn statements(code: &str) -> Vec<&str> {
             index += 1;
             continue;
         }
+        if bytes[index] == b'`' && index + 1 < bytes.len() {
+            let escaped = code[index + 1..]
+                .chars()
+                .next()
+                .expect("index is inside the source");
+            index += 1 + escaped.len_utf8();
+            continue;
+        }
         match bytes[index] {
             b'\'' | b'"' => quote = Some(bytes[index]),
             b'(' | b'[' | b'{' => depth += 1,

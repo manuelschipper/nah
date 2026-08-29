@@ -230,6 +230,22 @@ fn powershell_hash_starts_comments_only_at_token_boundaries() {
 }
 
 #[test]
+fn powershell_escaped_semicolon_stays_in_the_current_statement() {
+    let analysis = analyze(
+        "pwsh",
+        r"Write-Output x`; Remove-Item -Recurse -LiteralPath C:\Users\test",
+    );
+    assert!(analysis.draft().complete());
+    assert_eq!(analysis.draft().calls().len(), 1);
+    assert!(analysis.draft().calls()[0].filesystems().is_empty());
+    assert!(
+        !analysis
+            .report()
+            .contains_exact(FindingKind::HomeDestruction)
+    );
+}
+
+#[test]
 fn windows_shell_line_continuations_remain_partial_without_fabricated_effects() {
     let overclaim = analyze(
         "pwsh",

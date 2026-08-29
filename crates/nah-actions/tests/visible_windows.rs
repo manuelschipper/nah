@@ -189,6 +189,27 @@ fn powershell_hash_words_preserve_following_effects() {
 }
 
 #[test]
+fn powershell_escaped_semicolon_does_not_fabricate_later_effects() {
+    let source = r"Write-Output x`; Remove-Item -Recurse -LiteralPath C:\Users\test";
+    for plan in [
+        direct_plan(VisibleCode::Pwsh { source }, source),
+        nested_plan(
+            r#"pwsh -c 'Write-Output x`; Remove-Item -Recurse -LiteralPath C:\Users\test'"#,
+        ),
+    ] {
+        let observation = observe(plan.observation_request(), None);
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Full);
+        assert!(
+            stream
+                .effects()
+                .iter()
+                .all(|effect| !matches!(effect.kind(), EffectKind::Filesystem { .. }))
+        );
+    }
+}
+
+#[test]
 fn attached_powershell_redirection_lowers_at_both_entry_points() {
     let source = r"Write-Output evil>C:\Users\test\.nah\config.toml";
     let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);
