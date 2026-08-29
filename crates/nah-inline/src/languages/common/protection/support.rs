@@ -231,6 +231,15 @@ pub(super) fn protected_path(
     if path == state || path.starts_with(&format!("{state}/")) {
         return true;
     }
+    installed_binary_paths(home, platform)
+        .iter()
+        .any(|candidate| path == lexical_normalized_path(candidate, platform))
+        || critical_paths
+            .iter()
+            .any(|candidate| path == lexical_normalized_path(candidate.as_str(), platform))
+}
+
+pub(super) fn installed_binary_paths(home: &str, platform: Platform) -> Vec<String> {
     let binary = if platform == Platform::Windows {
         "nah.exe"
     } else {
@@ -240,15 +249,12 @@ pub(super) fn protected_path(
         format!("{home}/.local/bin/{binary}"),
         format!("{home}/.cargo/bin/{binary}"),
     ];
-    if platform != Platform::Windows {
+    if platform == Platform::Windows {
+        installed.push(format!("{home}/AppData/Local/Programs/nah/{binary}"));
+    } else {
         installed.extend(["/usr/local/bin/nah".into(), "/usr/bin/nah".into()]);
     }
     installed
-        .iter()
-        .any(|candidate| path == lexical_normalized_path(candidate, platform))
-        || critical_paths
-            .iter()
-            .any(|candidate| path == lexical_normalized_path(candidate.as_str(), platform))
 }
 
 fn same_lexical_path(left: &str, right: &str, platform: Platform) -> bool {
