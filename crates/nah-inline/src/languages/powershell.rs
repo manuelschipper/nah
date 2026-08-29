@@ -1388,12 +1388,30 @@ fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<Str
         let Some((lexemes, _)) = lex(statement, home) else {
             continue;
         };
-        let words = lexemes
+        let tokens = lexemes
             .into_iter()
             .filter_map(|lexeme| match lexeme {
-                Lexeme::Word(token) => Some(token.value.to_ascii_lowercase()),
+                Lexeme::Word(token) => Some(token),
                 Lexeme::Pipe | Lexeme::Redirect => None,
             })
+            .collect::<Vec<_>>();
+        let what_if = tokens.split_first().is_some_and(|(command, arguments)| {
+            let raw_command = command.value.to_ascii_lowercase();
+            let arguments = match canonical_command(&raw_command, platform) {
+                CanonicalCommand::RemoveItem => parse_arguments(arguments, remove_parameter),
+                _ if matches!(raw_command.as_str(), "set-item" | "si") => {
+                    parse_arguments(arguments, content_parameter)
+                }
+                _ => return false,
+            };
+            switch_enabled(&arguments, "whatif")
+        });
+        if what_if {
+            continue;
+        }
+        let words = tokens
+            .iter()
+            .map(|token| token.value.to_ascii_lowercase())
             .collect::<Vec<_>>();
         if words.first().is_some_and(|word| {
             matches!(

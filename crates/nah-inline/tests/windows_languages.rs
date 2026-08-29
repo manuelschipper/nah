@@ -617,6 +617,36 @@ fn powershell_set_item_provider_rebinding_invalidates_later_alias_resolution() {
 }
 
 #[test]
+fn powershell_whatif_provider_mutations_preserve_later_alias_resolution() {
+    for source in [
+        r"Remove-Item -LiteralPath Alias:rm -WhatIf; rm -Recurse -LiteralPath C:\Users\test",
+        r"Set-Item -Path Alias:rm -Value Write-Output -WhatIf; rm -Recurse -LiteralPath C:\Users\test",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert_eq!(analysis.draft().calls().len(), 1, "{source}");
+        assert_eq!(
+            analysis.draft().calls()[0].filesystems()[0].requested(),
+            Some(r"C:\Users\test"),
+            "{source}"
+        );
+        assert!(
+            analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+
+    let executed = analyze(
+        "pwsh",
+        r"Remove-Item -LiteralPath Alias:rm -WhatIf:$false; rm -Recurse -LiteralPath C:\Users\test",
+    );
+    assert!(!executed.draft().complete());
+    assert!(executed.draft().calls().is_empty());
+}
+
+#[test]
 fn named_move_source_keeps_the_positional_destination() {
     let analysis = analyze("pwsh", r"Move-Item -LiteralPath C:\from C:\to");
     assert!(analysis.draft().complete());

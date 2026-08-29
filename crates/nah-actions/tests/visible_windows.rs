@@ -434,6 +434,34 @@ fn powershell_provider_rebinding_stops_later_resolution_at_both_entry_points() {
 }
 
 #[test]
+fn powershell_whatif_provider_mutations_preserve_later_resolution_at_both_entry_points() {
+    for source in [
+        r"Remove-Item -LiteralPath Alias:rm -WhatIf; rm -Recurse -LiteralPath C:\Users\test",
+        r"Set-Item -Path Alias:rm -Value Write-Output -WhatIf; rm -Recurse -LiteralPath C:\Users\test",
+    ] {
+        let nested = format!("pwsh -c '{source}'");
+        for plan in [
+            direct_plan(VisibleCode::Pwsh { source }, source),
+            nested_plan(&nested),
+        ] {
+            let observation = observe(plan.observation_request(), None);
+            let stream = finalize(plan, observation);
+            assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+            assert!(
+                stream.effects().iter().any(|effect| matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.operation == FilesystemOperation::Delete
+                            && effect.target.as_str() == r"C:\Users\test"
+                            && effect.recursive
+                )),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
 fn powershell_tilde_home_uses_canonical_effects_at_both_entry_points() {
     let source = r"Remove-Item -Recurse -LiteralPath '~'";
     let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);
