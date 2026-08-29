@@ -327,7 +327,8 @@ fn valid_gitlab_project_identifier(identifier: &str) -> bool {
     let components = split_encoded_path(identifier);
     components.len() >= 2
         && components.into_iter().all(|component| {
-            matches!(component, ":namespace" | ":repo") || valid_literal_segment(component)
+            matches!(component, ":namespace" | ":repo")
+                || valid_percent_encoded_literal_segment(component)
         })
 }
 
@@ -347,11 +348,50 @@ fn split_encoded_path(mut value: &str) -> Vec<&str> {
     }
 }
 
+fn valid_percent_encoded_literal_segment(segment: &str) -> bool {
+    let bytes = segment.as_bytes();
+    let mut decoded_len = 0;
+    let mut only_dots = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = if bytes[index] == b'%' {
+            let Some(encoded) = bytes.get(index + 1..index + 3) else {
+                return false;
+            };
+            let (Some(high), Some(low)) = (hex_value(encoded[0]), hex_value(encoded[1])) else {
+                return false;
+            };
+            index += 3;
+            high << 4 | low
+        } else {
+            let byte = bytes[index];
+            index += 1;
+            byte
+        };
+        if !valid_literal_byte(byte) {
+            return false;
+        }
+        decoded_len += 1;
+        only_dots &= byte == b'.';
+    }
+    decoded_len > 0 && !(only_dots && decoded_len <= 2)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn valid_literal_segment(segment: &str) -> bool {
-    !matches!(segment, "" | "." | "..")
-        && segment
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    !matches!(segment, "" | "." | "..") && segment.bytes().all(valid_literal_byte)
+}
+
+fn valid_literal_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
 }
 
 fn valid_host(host: &str) -> bool {

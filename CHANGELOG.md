@@ -7,7 +7,7 @@
   and REST routes, including valid confirmation values, false-valued help flags,
   GitHub and GitLab API fragments, and documented GitLab composite placeholders,
   single-label GitHub Enterprise hosts, GitHub API short-option forms, and
-  disabled GitHub API pagination,
+  disabled GitHub API pagination and percent-encoded GitLab project paths,
   while leaving branch, tag, archive, rename, and transfer operations outside
   its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
