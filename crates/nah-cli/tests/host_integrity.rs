@@ -3,6 +3,7 @@
 mod support;
 
 use nah_cli::decide_with;
+#[cfg(unix)]
 use nah_proto::action::EffectKind;
 use nah_proto::decision::Verdict;
 use serde_json::json;
