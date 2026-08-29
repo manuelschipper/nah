@@ -61,6 +61,28 @@ fn powershell_collection_bindings_remain_partial_and_keep_protection_active() {
 }
 
 #[test]
+fn powershell_path_parameter_sets_are_mutually_exclusive() {
+    for source in [
+        r"Remove-Item -Recurse -Path C:\safe -LiteralPath C:\Users\test",
+        r"Move-Item -Path C:\safe -LiteralPath C:\Users\test -Destination C:\target",
+        r"Set-Content -Path C:\safe -LiteralPath C:\Users\test -Value x",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(
+            analysis.draft().calls()[0].filesystems().is_empty(),
+            "{source}"
+        );
+        assert!(
+            !analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn powershell_filesystem_cmdlets_emit_bounded_typed_operations() {
     let analysis = analyze(
         "pwsh",

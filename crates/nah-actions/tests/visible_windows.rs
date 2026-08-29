@@ -369,6 +369,25 @@ fn powershell_surplus_positionals_are_partial_at_both_entry_points() {
 }
 
 #[test]
+fn powershell_conflicting_path_parameters_are_partial_at_both_entry_points() {
+    let source = r"Remove-Item -Recurse -Path C:\safe -LiteralPath C:\Users\test";
+    for plan in [
+        direct_plan(VisibleCode::Pwsh { source }, source),
+        nested_plan(r"pwsh -c 'Remove-Item -Recurse -Path C:\safe -LiteralPath C:\Users\test'"),
+    ] {
+        let observation = observe(plan.observation_request(), None);
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Partial);
+        assert!(stream.effects().iter().all(|effect| {
+            !matches!(
+                effect.kind(),
+                EffectKind::Filesystem { .. } | EffectKind::FilesystemUnresolved { .. }
+            )
+        }));
+    }
+}
+
+#[test]
 fn powershell_alias_provider_removal_stops_later_resolution_at_both_entry_points() {
     let source = r"Remove-Item Alias:\rm; rm -Recurse -LiteralPath C:\Users\test";
     for plan in [

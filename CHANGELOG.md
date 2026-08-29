@@ -35,7 +35,8 @@
   external, and PowerShell alias removal invalidates later alias resolution through
   every supported `Remove-Item` spelling and Alias-provider root path. `Set-Item`
   provider rebinding also invalidates later alias resolution. Surplus positional
-  `Remove-Item` and `Move-Item` bindings stay partial.
+  `Remove-Item` and `Move-Item` bindings stay partial. Conflicting `-Path` and
+  `-LiteralPath` bindings stay partial without fabricated filesystem effects.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

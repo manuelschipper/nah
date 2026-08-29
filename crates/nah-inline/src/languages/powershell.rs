@@ -256,9 +256,11 @@ impl Interpreter<'_, '_> {
         let arguments = parse_arguments(tokens, remove_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
         let recurse = switch_enabled(&arguments, "recurse") || switch_enabled(&arguments, "r");
-        let (targets, literal) = path_targets(&arguments);
+        let path_parameter_set = path_targets(&arguments);
+        let path_parameter_set_complete = path_parameter_set.is_some();
+        let (targets, literal) = path_parameter_set.unwrap_or_default();
         let positionals_complete = arguments.positional.len() <= 1;
-        let filesystems = if what_if {
+        let filesystems = if what_if || !path_parameter_set_complete {
             Vec::new()
         } else {
             targets
@@ -274,14 +276,19 @@ impl Interpreter<'_, '_> {
             tokens.iter(),
             filesystems,
             None,
-            arguments.complete && positionals_complete && (!targets.is_empty() || what_if),
+            arguments.complete
+                && path_parameter_set_complete
+                && positionals_complete
+                && (!targets.is_empty() || what_if),
         );
     }
 
     fn move_item(&mut self, tokens: &[Token]) {
         let arguments = parse_arguments(tokens, move_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
-        let (sources, literal) = path_targets(&arguments);
+        let path_parameter_set = path_targets(&arguments);
+        let path_parameter_set_complete = path_parameter_set.is_some();
+        let (sources, literal) = path_parameter_set.unwrap_or_default();
         let source = sources.first().copied();
         let named_source = parameter_value(&arguments, &["path", "literalpath"]).is_some();
         let named_destination = parameter_value(&arguments, &["destination"]);
@@ -289,7 +296,7 @@ impl Interpreter<'_, '_> {
             .or_else(|| arguments.positional.get(if named_source { 0 } else { 1 }));
         let positionals_complete = arguments.positional.len()
             <= usize::from(!named_source) + usize::from(named_destination.is_none());
-        let filesystems = if what_if {
+        let filesystems = if what_if || !path_parameter_set_complete {
             Vec::new()
         } else {
             let mut filesystems = vec![source.map_or_else(
@@ -322,6 +329,7 @@ impl Interpreter<'_, '_> {
             filesystems,
             None,
             arguments.complete
+                && path_parameter_set_complete
                 && positionals_complete
                 && (source.is_some() && destination.is_some() || what_if),
         );
@@ -330,9 +338,11 @@ impl Interpreter<'_, '_> {
     fn content_call(&mut self, callable: &str, tokens: &[Token], operation: FilesystemOperation) {
         let arguments = parse_arguments(tokens, content_parameter);
         let what_if = switch_enabled(&arguments, "whatif");
-        let (targets, literal) = path_targets(&arguments);
+        let path_parameter_set = path_targets(&arguments);
+        let path_parameter_set_complete = path_parameter_set.is_some();
+        let (targets, literal) = path_parameter_set.unwrap_or_default();
         let target = targets.first().copied();
-        let filesystems = if what_if {
+        let filesystems = if what_if || !path_parameter_set_complete {
             Vec::new()
         } else {
             vec![target.map_or_else(
@@ -346,7 +356,7 @@ impl Interpreter<'_, '_> {
             tokens.iter(),
             filesystems,
             None,
-            arguments.complete && (target.is_some() || what_if),
+            arguments.complete && path_parameter_set_complete && (target.is_some() || what_if),
         );
     }
 
@@ -1289,16 +1299,19 @@ fn parameter_value<'a>(arguments: &'a Arguments, names: &[&str]) -> Option<&'a T
 }
 
 /// Collects the path operands of a path cmdlet and reports whether they were
-/// bound literally. Only the first positional operand is a path: the second
+/// bound literally. `-Path` and `-LiteralPath` select mutually exclusive
+/// parameter sets. Only the first positional operand is a path: the second
 /// positional operand binds `-Filter`, not another target.
-fn path_targets(arguments: &Arguments) -> (Vec<&Token>, bool) {
-    if let Some(value) = parameter_value(arguments, &["literalpath"]) {
-        return (vec![value], true);
+fn path_targets(arguments: &Arguments) -> Option<(Vec<&Token>, bool)> {
+    match (
+        parameter_value(arguments, &["path"]),
+        parameter_value(arguments, &["literalpath"]),
+    ) {
+        (Some(_), Some(_)) => None,
+        (Some(value), None) => Some((vec![value], false)),
+        (None, Some(value)) => Some((vec![value], true)),
+        (None, None) => Some((arguments.positional.first().into_iter().collect(), false)),
     }
-    if let Some(value) = parameter_value(arguments, &["path"]) {
-        return (vec![value], false);
-    }
-    (arguments.positional.first().into_iter().collect(), false)
 }
 
 fn switch_enabled(arguments: &Arguments, name: &str) -> bool {
