@@ -65,6 +65,15 @@ fn help_boolean_values_preserve_delete_classification() {
         }
     }
 
+    for source in [
+        "gh repo delete --help --help=false --yes owner/project",
+        "glab repo delete --help -h=0 -y group/project",
+        "gh api --help --help=false -X DELETE repos/owner/project",
+        "glab api -h --help=False -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+
     for value in ["1", "t", "T", "TRUE", "true", "True"] {
         for source in [
             format!("gh repo delete owner/project --yes --help={value}"),
@@ -74,6 +83,15 @@ fn help_boolean_values_preserve_delete_classification() {
         ] {
             assert!(!deletes_repository(&source), "{source}");
         }
+    }
+
+    for source in [
+        "gh repo delete --help=false --help --yes owner/project",
+        "glab repo delete -h=0 --help -y group/project",
+        "gh api --help=false --help -X DELETE repos/owner/project",
+        "glab api --help=False -h -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
     }
 }
 
@@ -114,6 +132,12 @@ fn github_api_paginate_only_allows_delete_when_disabled() {
     }
     assert!(!deletes_repository(
         "gh api --paginate -X DELETE repos/owner/project"
+    ));
+    assert!(deletes_repository(
+        "gh api --paginate --paginate=false -X DELETE repos/owner/project"
+    ));
+    assert!(!deletes_repository(
+        "gh api --paginate=false --paginate -X DELETE repos/owner/project"
     ));
 }
 

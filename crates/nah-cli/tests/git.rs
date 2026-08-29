@@ -170,6 +170,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete --help --help=false --yes owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --paginate --paginate=false -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
             "glab api --help=0 -X DELETE projects/123",
             "git-remote-delete",
         ),
@@ -276,6 +284,8 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api -X DELETE repos/owner/project/issues",
         "gh api --paginate -X DELETE repos/owner/project",
         "gh api --paginate=true -X DELETE repos/owner/project",
+        "gh api --paginate=false --paginate -X DELETE repos/owner/project",
+        "gh repo delete --help=false --help --yes owner/project",
         "glab repo transfer group/project other",
         "glab api -X DELETE projects/group/project",
         "curl -X DELETE https://api.github.com/repos/owner/project",

@@ -45,6 +45,7 @@ fn gitlab_repo_delete(arguments: &[&str]) -> bool {
 
 fn repo_delete_target<'a>(arguments: &'a [&str], provider: Provider) -> Option<Option<&'a str>> {
     let mut target = None;
+    let mut help_requested = None;
     let mut after_options = false;
     for argument in arguments {
         if !after_options && *argument == "--" {
@@ -52,10 +53,9 @@ fn repo_delete_target<'a>(arguments: &'a [&str], provider: Provider) -> Option<O
             continue;
         }
         if !after_options {
-            match help_flag(argument) {
-                Some(true) => return None,
-                Some(false) => continue,
-                None => {}
+            if let Some(value) = help_flag(argument) {
+                help_requested = Some(value);
+                continue;
             }
             if confirmation_flag(argument, provider) {
                 continue;
@@ -68,7 +68,11 @@ fn repo_delete_target<'a>(arguments: &'a [&str], provider: Provider) -> Option<O
             return None;
         }
     }
-    Some(target)
+    if help_requested == Some(true) {
+        None
+    } else {
+        Some(target)
+    }
 }
 
 fn confirmation_flag(argument: &str, provider: Provider) -> bool {
@@ -140,6 +144,8 @@ struct ApiRequest<'a> {
 fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiRequest<'a>> {
     let mut endpoint = None;
     let mut method = None;
+    let mut help_requested = None;
+    let mut paginate_requested = None;
     let mut after_options = false;
     let mut index = 0;
     while index < arguments.len() {
@@ -149,10 +155,8 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             index += 1;
             continue;
         }
-        if !after_options && let Some(help_requested) = help_flag(argument) {
-            if help_requested {
-                return None;
-            }
+        if !after_options && let Some(value) = help_flag(argument) {
+            help_requested = Some(value);
             index += 1;
             continue;
         }
@@ -160,9 +164,7 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             && provider == Provider::GitHub
             && let Some(paginate) = boolean_flag(argument, "--paginate")
         {
-            if paginate {
-                return None;
-            }
+            paginate_requested = Some(paginate);
             index += 1;
             continue;
         }
@@ -213,6 +215,9 @@ fn api_request<'a>(arguments: &'a [&str], provider: Provider) -> Option<ApiReque
             return None;
         }
         index += 1;
+    }
+    if help_requested == Some(true) || paginate_requested == Some(true) {
+        return None;
     }
     Some(ApiRequest {
         endpoint: endpoint?,
