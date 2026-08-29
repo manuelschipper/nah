@@ -6,6 +6,10 @@
 nah hook hermes install
 ```
 
+Hermes installation is not supported on Windows. Install and uninstall return
+`runtime-platform-unsupported` before writing, and status reports `not
+configured`.
+
 `--fail-closed` denies explicit failures/refusals; ordinary uncertainty still
 delegates. `--fail-open` restores the default; flagless reinstall preserves it.
 nah must respond.

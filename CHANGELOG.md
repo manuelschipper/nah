@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Qualified Windows runtime integrations** — Claude Code, Codex, Cursor,
+  GitHub Copilot, Cline, and Kiro now support native hook lifecycle and typed
+  tools on Windows while ambiguous shell payloads stay partial. Amp, Factory
+  Droid, Hermes, and OpenCode now fail installation before writes and report
+  not configured.
 - **Windows custom guards** — exec/v1 guards now use one deterministic Windows
   entrypoint, generate a `py -3` template, and terminate full descendant trees
   after each consultation.

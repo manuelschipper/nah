@@ -95,7 +95,7 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
         &project,
         payload(&project, "execute_command", json!({"command":"cat .env"})),
     );
-    assert_eq!(shell_sensitive["cancel"], true);
+    assert_eq!(shell_sensitive["cancel"], !cfg!(windows));
 
     let cli_allowed = run_hook(
         home,
@@ -117,7 +117,7 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
             json!({"commands":"[\"cat .env\"]"}),
         ),
     );
-    assert_eq!(cli_sensitive["cancel"], true);
+    assert_eq!(cli_sensitive["cancel"], !cfg!(windows));
 
     let delegated = run_hook(
         home,
@@ -156,13 +156,15 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
             json!({"command":"nah","args":"[\"hook\",\"cline\",\"uninstall\"]"}),
         ),
     );
-    assert_eq!(runtime_lifecycle["cancel"], true);
-    assert!(
-        runtime_lifecycle["errorMessage"]
-            .as_str()
-            .unwrap()
-            .contains("do not retry")
-    );
+    assert_eq!(runtime_lifecycle["cancel"], !cfg!(windows));
+    if !cfg!(windows) {
+        assert!(
+            runtime_lifecycle["errorMessage"]
+                .as_str()
+                .unwrap()
+                .contains("do not retry")
+        );
+    }
     assert_eq!(
         runtime_lifecycle["contextModification"],
         runtime_lifecycle["errorMessage"]

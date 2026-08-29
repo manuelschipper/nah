@@ -8,6 +8,7 @@ use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
@@ -17,6 +18,7 @@ pub(crate) fn mutate_amp_hook(
     policy: FailurePolicy,
 ) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
+    reject_unsupported_windows_runtime(platform)?;
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
@@ -36,6 +38,9 @@ pub(crate) fn mutate_amp_hook(
 
 pub(crate) fn amp_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
+    if reject_unsupported_windows_runtime(platform).is_err() {
+        return Ok(RuntimeHookStatus::NotConfigured);
+    }
     let home = live_state::home(platform)?;
     let paths = AmpHookPaths::new(&home);
     reject_symlinks(&paths)?;

@@ -2,13 +2,14 @@
 
 use std::io::{Read, Write};
 
-use nah_proto::ctx::SchemaVersion;
+use nah_proto::ctx::{Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::hook_adapter::{self, HookOutcome};
+use crate::live_state;
 use crate::runtime::{FailurePolicy, Runtime};
 
 #[derive(Deserialize)]
@@ -28,12 +29,28 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
+    run_for_platform(
+        stdin,
+        stdout,
+        stderr,
+        live_state::host_platform(),
+        failure_policy,
+    )
+}
+
+fn run_for_platform<R: Read, W: Write, E: Write>(
+    stdin: &mut R,
+    stdout: &mut W,
+    stderr: &mut E,
+    platform: Platform,
+    failure_policy: FailurePolicy,
+) -> u8 {
     let request = match hook_adapter::read_event::<_, CursorHookInput>(
         stdin,
         "hook_event_name",
         "preToolUse",
     ) {
-        Ok(Some(input)) => normalize(input),
+        Ok(Some(input)) => normalize_for_platform(input, platform),
         Ok(None) => return 0,
         Err(error) => Err(error.to_string()),
     };
@@ -87,7 +104,10 @@ fn deny_unavailable<W: Write, E: Write>(
     })
 }
 
-fn normalize(input: CursorHookInput) -> Result<ToolCallInput, String> {
+fn normalize_for_platform(
+    input: CursorHookInput,
+    platform: Platform,
+) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "preToolUse" {
         return Err("invalid-cursor-hook-event".into());
@@ -99,6 +119,22 @@ fn normalize(input: CursorHookInput) -> Result<ToolCallInput, String> {
         .filter(|cwd| !cwd.is_empty())
         .ok_or_else(|| "invalid-cursor-hook-input".to_owned())?
         .to_owned();
+    if platform == Platform::Windows && input.tool_name == "Shell" {
+        let cwd = input
+            .tool_input
+            .as_object()
+            .and_then(|object| shell_cwd(object, &fallback_cwd).ok())
+            .unwrap_or(fallback_cwd);
+        return ToolCallInput::new(
+            SchemaVersion::V1,
+            "CursorWindowsShell",
+            original_input.clone(),
+            cwd,
+            input.conversation_id,
+        )
+        .map(|input| input.with_original_input(original_input, false))
+        .map_err(|error| error.to_string());
+    }
     let lowered = lower(&input.tool_name, &input.tool_input, &fallback_cwd);
     let (tool, tool_input, cwd, normalization_complete) = match lowered {
         Ok((tool, tool_input, cwd)) => (
@@ -243,14 +279,17 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(CursorHookInput {
-            hook_event_name: "preToolUse".into(),
-            tool_name: tool_name.into(),
-            tool_input,
-            cwd: Some("/repo".into()),
-            workspace_roots: None,
-            conversation_id: Some("conversation-1".into()),
-        })
+        normalize_for_platform(
+            CursorHookInput {
+                hook_event_name: "preToolUse".into(),
+                tool_name: tool_name.into(),
+                tool_input,
+                cwd: Some("/repo".into()),
+                workspace_roots: None,
+                conversation_id: Some("conversation-1".into()),
+            },
+            Platform::Linux,
+        )
         .unwrap()
     }
 
@@ -334,14 +373,17 @@ mod tests {
                 json!({"command":"pwd","cwd":"/one","working_directory":"/two"}),
             ),
         ] {
-            let call = normalize(CursorHookInput {
-                hook_event_name: "preToolUse".into(),
-                tool_name: name.into(),
-                tool_input: input.clone(),
-                cwd: Some("/repo".into()),
-                workspace_roots: None,
-                conversation_id: None,
-            })
+            let call = normalize_for_platform(
+                CursorHookInput {
+                    hook_event_name: "preToolUse".into(),
+                    tool_name: name.into(),
+                    tool_input: input.clone(),
+                    cwd: Some("/repo".into()),
+                    workspace_roots: None,
+                    conversation_id: None,
+                },
+                Platform::Linux,
+            )
             .unwrap();
             assert_eq!(call.tool(), name);
             assert_eq!(call.input(), &input);
@@ -350,11 +392,32 @@ mod tests {
     }
 
     #[test]
+    fn native_windows_shell_calls_remain_opaque() {
+        let original = json!({"command":"Remove-Item -Recurse -Force C:\\","cwd":"C:\\repo"});
+        let call = normalize_for_platform(
+            CursorHookInput {
+                hook_event_name: "preToolUse".into(),
+                tool_name: "Shell".into(),
+                tool_input: original.clone(),
+                cwd: Some("C:\\workspace".into()),
+                workspace_roots: None,
+                conversation_id: None,
+            },
+            Platform::Windows,
+        )
+        .unwrap();
+        assert_eq!(call.tool(), "CursorWindowsShell");
+        assert_eq!(call.input(), &original);
+        assert_eq!(call.cwd(), "C:\\repo");
+        assert!(!call.normalization_complete());
+    }
+
+    #[test]
     fn native_adapter_stays_thin() {
         let implementation = include_str!("cursor_adapter.rs")
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(implementation.lines().count() <= 244);
+        assert!(implementation.lines().count() <= 280);
     }
 }

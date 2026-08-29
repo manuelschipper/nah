@@ -9,6 +9,7 @@ use serde_yaml_ng::{Mapping, Value};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const COMMAND: &str = "nah hook hermes run";
@@ -20,6 +21,7 @@ pub(crate) fn mutate_hermes_hook(
     policy: FailurePolicy,
 ) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
+    reject_unsupported_windows_runtime(platform)?;
     let path = live_state::home(platform).and_then(|home| {
         let configured = configured_hermes_home(&home);
         let home = resolve_hermes_home(&configured, platform)?;
@@ -39,6 +41,9 @@ pub(crate) fn mutate_hermes_hook(
 
 pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
+    if reject_unsupported_windows_runtime(platform).is_err() {
+        return Ok(RuntimeHookStatus::NotConfigured);
+    }
     let home = live_state::home(platform)?;
     let configured = configured_hermes_home(&home);
     if !configured.exists() {

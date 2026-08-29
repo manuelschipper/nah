@@ -24,6 +24,16 @@ use super::{
 
 type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
 
+pub(super) fn reject_unsupported_windows_runtime(
+    platform: nah_proto::ctx::Platform,
+) -> Result<(), String> {
+    if platform == nah_proto::ctx::Platform::Windows {
+        Err("runtime-platform-unsupported".into())
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeHookStatus {
     WiringCurrent,
@@ -220,5 +230,36 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(runtimes, Runtime::value_variants());
+    }
+
+    #[test]
+    fn unsupported_windows_runtimes_share_one_installation_error() {
+        assert_eq!(
+            reject_unsupported_windows_runtime(nah_proto::ctx::Platform::Windows),
+            Err("runtime-platform-unsupported".into())
+        );
+        for platform in [
+            nah_proto::ctx::Platform::Linux,
+            nah_proto::ctx::Platform::Macos,
+        ] {
+            assert_eq!(reject_unsupported_windows_runtime(platform), Ok(()));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unsupported_windows_runtime_status_is_not_configured() {
+        for runtime in [
+            Runtime::Amp,
+            Runtime::Droid,
+            Runtime::Hermes,
+            Runtime::OpenCode,
+        ] {
+            assert_eq!(
+                runtime_entry(runtime).status,
+                Ok(RuntimeHookStatus::NotConfigured),
+                "{runtime:?}"
+            );
+        }
     }
 }

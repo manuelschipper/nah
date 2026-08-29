@@ -23,6 +23,11 @@ nah hook codex uninstall
 The installer preserves unrelated `~/.codex/hooks.json` content and installs
 the native `nah hook codex run` command without a copied script or interpreter.
 
+On Windows, install, status, reinstall, uninstall, and typed filesystem tools
+are supported natively. Codex's `Bash` hook payload does not identify the
+actual Windows shell dialect, so nah keeps that command partial and delegates
+without Bash, PowerShell, or cmd effects.
+
 ## Behavior
 
 Blocks stop definite policy violations. Everything else delegates and

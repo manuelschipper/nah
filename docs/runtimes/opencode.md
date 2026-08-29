@@ -6,6 +6,10 @@
 nah hook opencode install
 ```
 
+OpenCode installation is not supported on Windows. Install and uninstall
+return `runtime-platform-unsupported` before writing, and status reports `not
+configured`.
+
 To deny explicit evaluation failures and bounded analysis refusals, install
 with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized

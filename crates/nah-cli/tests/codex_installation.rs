@@ -2,14 +2,11 @@
 
 mod support;
 
-#[cfg(unix)]
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-#[cfg(unix)]
 use serde_json::Value;
 use serde_json::json;
-#[cfg(unix)]
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -25,12 +22,10 @@ fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
-#[cfg(unix)]
 fn hooks(home: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(home.join(".codex/hooks.json")).unwrap()).unwrap()
 }
 
-#[cfg(unix)]
 fn nah_handlers(hooks: &Value) -> Vec<&Value> {
     hooks["hooks"]["PreToolUse"]
         .as_array()
@@ -46,7 +41,6 @@ fn nah_handlers(hooks: &Value) -> Vec<&Value> {
         .collect()
 }
 
-#[cfg(unix)]
 fn run_installed_hook(
     home: &std::path::Path,
     project: &std::path::Path,
@@ -54,8 +48,8 @@ fn run_installed_hook(
     tool: &str,
     tool_input: Value,
 ) -> std::process::Output {
-    let mut child = Command::new("sh")
-        .args(["-c", handler["command"].as_str().unwrap()])
+    let mut command = configured_command(handler["command"].as_str().unwrap());
+    let mut child = command
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
@@ -85,6 +79,19 @@ fn run_installed_hook(
 }
 
 #[cfg(unix)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("sh");
+    configured.args(["-c", command]);
+    configured
+}
+
+#[cfg(windows)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("cmd.exe");
+    configured.args(["/d", "/c", command]);
+    configured
+}
+
 #[test]
 fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
     let home_temp = tempfile::tempdir().unwrap();
@@ -124,6 +131,16 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
     assert_eq!(handlers.len(), 1);
     assert_eq!(handlers[0]["timeout"], 5);
     assert!(handlers[0].get("args").is_none());
+    if cfg!(windows) {
+        let command = handlers[0]["command"].as_str().unwrap();
+        assert!(command.starts_with('"'));
+        assert!(
+            command
+                .to_ascii_lowercase()
+                .contains("nah.exe\" hook codex run")
+        );
+    }
+    assert!(nah(home, &["hook", "codex", "status"]).status.success());
 
     let installed_again = nah(home, &["hook", "codex", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
@@ -205,10 +222,14 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
         json!({"command":"cat .env"}),
     );
     assert!(blocked_bash.status.success(), "{blocked_bash:?}");
-    assert_eq!(
-        serde_json::from_slice::<Value>(&blocked_bash.stdout).unwrap()["hookSpecificOutput"]["permissionDecision"],
-        "deny"
-    );
+    if cfg!(windows) {
+        assert!(blocked_bash.stdout.is_empty());
+    } else {
+        assert_eq!(
+            serde_json::from_slice::<Value>(&blocked_bash.stdout).unwrap()["hookSpecificOutput"]["permissionDecision"],
+            "deny"
+        );
+    }
 
     for (tool, input) in [
         (
@@ -235,8 +256,12 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
         "Bash",
         json!({"command":"nah hook codex uninstall"}),
     );
-    let decision: Value = serde_json::from_slice(&lifecycle.stdout).unwrap();
-    assert_eq!(decision["hookSpecificOutput"]["permissionDecision"], "deny");
+    if cfg!(windows) {
+        assert!(lifecycle.stdout.is_empty());
+    } else {
+        let decision: Value = serde_json::from_slice(&lifecycle.stdout).unwrap();
+        assert_eq!(decision["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
 
     let allowed_patch = run_installed_hook(
         home,
@@ -269,11 +294,14 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
     assert!(uninstalled_again.status.success(), "{uninstalled_again:?}");
     assert_eq!(hooks(home), original);
 
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(
-        std::fs::metadata(&hooks_path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&hooks_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
 }
 
 #[test]

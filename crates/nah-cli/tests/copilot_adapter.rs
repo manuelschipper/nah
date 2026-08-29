@@ -83,19 +83,60 @@ fn adapter_maps_cli_and_vscode_decisions() {
         ),
     );
     assert!(runtime_lifecycle.status.success(), "{runtime_lifecycle:?}");
-    let output: Value = serde_json::from_slice(&runtime_lifecycle.stdout).unwrap();
-    assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
-    assert!(
-        output["hookSpecificOutput"]["permissionDecisionReason"]
-            .as_str()
-            .unwrap()
-            .contains("do not retry")
+    if cfg!(windows) {
+        assert!(runtime_lifecycle.stdout.is_empty());
+    } else {
+        let output: Value = serde_json::from_slice(&runtime_lifecycle.stdout).unwrap();
+        assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert!(
+            output["hookSpecificOutput"]["permissionDecisionReason"]
+                .as_str()
+                .unwrap()
+                .contains("do not retry")
+        );
+        assert_eq!(
+            output["hookSpecificOutput"]["additionalContext"],
+            output["hookSpecificOutput"]["permissionDecisionReason"],
+            "VS Code's model must receive the same block guidance as the user"
+        );
+    }
+
+    let bash_lifecycle = run_hook(
+        home,
+        cli_payload(
+            &project,
+            "bash",
+            json!({"command":"nah hook copilot uninstall"}),
+        ),
     );
-    assert_eq!(
-        output["hookSpecificOutput"]["additionalContext"],
-        output["hookSpecificOutput"]["permissionDecisionReason"],
-        "VS Code's model must receive the same block guidance as the user"
-    );
+    let output: Value = serde_json::from_slice(&bash_lifecycle.stdout).unwrap();
+    assert_eq!(output["permissionDecision"], "deny");
+
+    if cfg!(windows) {
+        let powershell = run_hook(
+            home,
+            cli_payload(
+                &project,
+                "powershell",
+                json!({"command":"Remove-Item -LiteralPath C:\\ -Recurse -Force"}),
+            ),
+        );
+        let output: Value = serde_json::from_slice(&powershell.stdout).unwrap();
+        assert_eq!(output["permissionDecision"], "deny");
+
+        for tool in ["Bash", "run_in_terminal"] {
+            let delegated = run_hook(
+                home,
+                vscode_payload(
+                    &project,
+                    tool,
+                    json!({"command":"nah hook copilot uninstall"}),
+                ),
+            );
+            assert!(delegated.status.success(), "{tool}: {delegated:?}");
+            assert!(delegated.stdout.is_empty(), "{tool}: {delegated:?}");
+        }
+    }
 
     for path in [
         home.join(".copilot/hooks/nah.json"),

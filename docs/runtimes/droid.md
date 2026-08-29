@@ -6,6 +6,10 @@
 nah hook droid install
 ```
 
+Factory Droid installation is not supported on Windows. Install and uninstall
+return `runtime-platform-unsupported` before writing, and status reports `not
+configured`.
+
 Use `--fail-closed` to deny explicit failures/refusals. `--fail-open` restores
 the default; flagless reinstall preserves a recognized mode.
 

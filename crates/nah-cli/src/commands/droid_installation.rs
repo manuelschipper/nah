@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
+use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 pub(crate) fn mutate_droid_hook(
@@ -17,6 +18,7 @@ pub(crate) fn mutate_droid_hook(
     policy: FailurePolicy,
 ) -> Result<RuntimeMutation, String> {
     let platform = live_state::host_platform();
+    reject_unsupported_windows_runtime(platform)?;
     let path = live_state::home(platform).and_then(|home| {
         if install {
             let executable = std::env::current_exe()
@@ -36,6 +38,9 @@ pub(crate) fn mutate_droid_hook(
 
 pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
+    if reject_unsupported_windows_runtime(platform).is_err() {
+        return Ok(RuntimeHookStatus::NotConfigured);
+    }
     let home = live_state::home(platform)?;
     let paths = DroidHookPaths::new(&home);
     reject_symlinks(&paths)?;

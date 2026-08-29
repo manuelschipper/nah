@@ -2,12 +2,10 @@
 
 mod support;
 
-#[cfg(unix)]
 use std::io::Write;
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
-#[cfg(unix)]
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -31,14 +29,13 @@ fn config(path: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
-#[cfg(unix)]
 fn run_installed_command(
     home: &std::path::Path,
     project: &std::path::Path,
     command: &str,
 ) -> std::process::Output {
-    let mut child = Command::new("sh")
-        .args(["-c", command])
+    let mut command = configured_command(command);
+    let mut child = command
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
@@ -61,6 +58,20 @@ fn run_installed_command(
         write.is_ok() || write.is_err_and(|error| error.kind() == std::io::ErrorKind::BrokenPipe)
     );
     child.wait_with_output().unwrap()
+}
+
+#[cfg(unix)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("sh");
+    configured.args(["-c", command]);
+    configured
+}
+
+#[cfg(windows)]
+fn configured_command(command: &str) -> Command {
+    let mut configured = Command::new("cmd.exe");
+    configured.args(["/d", "/c", command]);
+    configured
 }
 
 #[test]
@@ -92,6 +103,17 @@ fn install_status_and_uninstall_own_only_nah_file() {
             .unwrap()
             .contains(" hook kiro run")
     );
+    if cfg!(windows) {
+        let command = configured["hooks"][0]["action"]["command"]
+            .as_str()
+            .unwrap();
+        assert!(command.starts_with('"'));
+        assert!(
+            command
+                .to_ascii_lowercase()
+                .contains("nah.exe\" hook kiro run")
+        );
+    }
     assert!(sibling.exists());
 
     let status = nah(home, &["hook", "kiro", "status"]);
@@ -104,11 +126,16 @@ fn install_status_and_uninstall_own_only_nah_file() {
     assert_eq!(std::fs::read(&path).unwrap(), first);
 
     let mut stale = configured;
+    let stale_executable = if cfg!(windows) {
+        r"C:\stale\nah.exe"
+    } else {
+        "/stale/nah"
+    };
     stale["hooks"][0]["action"]["command"] = json!(
         stale["hooks"][0]["action"]["command"]
             .as_str()
             .unwrap()
-            .replace(env!("CARGO_BIN_EXE_nah"), "/stale/nah")
+            .replace(env!("CARGO_BIN_EXE_nah"), stale_executable)
     );
     std::fs::write(&path, serde_json::to_vec_pretty(&stale).unwrap()).unwrap();
     let status = nah(home, &["hook", "kiro", "status"]);
@@ -138,7 +165,6 @@ fn install_status_and_uninstall_own_only_nah_file() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn installed_command_runs_the_adapter_and_delegates_without_nah() {
     let home_temp = tempfile::tempdir().unwrap();
@@ -155,16 +181,19 @@ fn installed_command_runs_the_adapter_and_delegates_without_nah() {
     let healthy = run_installed_command(home, &project, &command);
     assert!(healthy.status.success(), "{healthy:?}");
 
-    let unavailable = run_installed_command(
-        home,
-        &project,
-        &command.replace(env!("CARGO_BIN_EXE_nah"), "/missing/nah"),
-    );
-    assert_eq!(unavailable.status.code(), Some(1), "{unavailable:?}");
-    assert!(
-        String::from_utf8_lossy(&unavailable.stderr).contains("nah - evaluation failed"),
-        "{unavailable:?}"
-    );
+    #[cfg(unix)]
+    {
+        let unavailable = run_installed_command(
+            home,
+            &project,
+            &command.replace(env!("CARGO_BIN_EXE_nah"), "/missing/nah"),
+        );
+        assert_eq!(unavailable.status.code(), Some(1), "{unavailable:?}");
+        assert!(
+            String::from_utf8_lossy(&unavailable.stderr).contains("nah - evaluation failed"),
+            "{unavailable:?}"
+        );
+    }
 }
 
 #[test]

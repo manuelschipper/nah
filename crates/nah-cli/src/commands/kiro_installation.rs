@@ -332,11 +332,16 @@ fn protect_private(_file: &File) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(all(unix, not(target_os = "redox"))))]
+#[cfg(all(not(windows), not(all(unix, not(target_os = "redox")))))]
 fn sync_parent(parent: &Path) -> Result<(), String> {
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|_| "kiro-hook-write-failed".to_owned())
+}
+
+#[cfg(windows)]
+fn sync_parent(_parent: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]

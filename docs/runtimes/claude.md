@@ -24,6 +24,10 @@ The installer preserves unrelated `~/.claude/settings.json` content and is
 idempotent. It uses Claude Code's native executable-and-arguments form, with no
 copied script, shell quoting, or Python dependency.
 
+On Windows, install, status, reinstall, uninstall, and typed filesystem tools
+are supported natively. Claude Code requires Git Bash on Windows, so its
+intercepted `Bash` payloads continue through nah's Bash analysis.
+
 ## Behavior
 
 Known Bash, read, write, edit, search, and related tool calls enter the shared
