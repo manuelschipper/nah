@@ -152,23 +152,45 @@ fn log_round_trips_and_finds_records() {
 }
 
 #[test]
-fn readers_reject_obsolete_policy_version_attributions() {
+fn readers_archive_an_unreadable_log_and_keep_readable_records() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("audit.jsonl");
     let log = DecisionLog::new(path.clone());
-    let record = blocked_record("decision-old");
-    let mut obsolete = serde_json::to_value(&record).unwrap();
-    assert_eq!(
-        serde_json::from_value::<AuditRecordV1>(obsolete.clone()).unwrap(),
-        record
-    );
-    obsolete["core"]["policy_attributions"][0]["policy_version"] = serde_json::json!(1);
-    let mut line = serde_json::to_vec(&obsolete).unwrap();
-    line.push(b'\n');
-    std::fs::write(path, line).unwrap();
+    let first = record("decision-first");
+    let latest = blocked_record("decision-latest");
+    let mut incompatible = serde_json::to_value(record("decision-incompatible")).unwrap();
+    incompatible["schema"] = serde_json::json!("nah/audit/v2");
+    let mut original = serde_json::to_vec(&first).unwrap();
+    original.push(b'\n');
+    original.extend(serde_json::to_vec(&incompatible).unwrap());
+    original.push(b'\n');
+    original.extend(serde_json::to_vec(&latest).unwrap());
+    original.push(b'\n');
+    std::fs::write(&path, &original).unwrap();
 
-    assert_eq!(log.tail(1), Err(AuditError::InvalidRecord));
-    assert_eq!(log.find("decision-old"), Err(AuditError::InvalidRecord));
+    let view = log.tail_with_summary(10).unwrap();
+    assert_eq!(view.records, [first.clone(), latest.clone()]);
+    let backup = view.recovered_from.unwrap();
+    assert_eq!(backup.parent().unwrap().file_name().unwrap(), "old_logs");
+    assert_eq!(std::fs::read(&backup).unwrap(), original);
+    let active = std::fs::read(&path).unwrap();
+    assert_eq!(
+        active
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(serde_json::from_slice::<AuditRecordV1>)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
+        [first, latest]
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(backup).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
 }
 
 #[test]
@@ -379,18 +401,20 @@ fn held_lock_fails_fast_for_appends_and_reads() {
 }
 
 #[test]
-fn readers_reject_an_oversized_log_before_parsing_it() {
+fn readers_archive_an_oversized_unreadable_log() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("audit.jsonl");
     let log = DecisionLog::new(path.clone());
-    std::fs::write(
-        path,
-        vec![b'x'; usize::try_from(MAX_AUDIT_BYTES).unwrap() + 1],
-    )
-    .unwrap();
+    let original = vec![b'x'; usize::try_from(MAX_AUDIT_BYTES).unwrap() + 1];
+    std::fs::write(&path, &original).unwrap();
 
-    assert_eq!(log.tail(1), Err(AuditError::InvalidRecord));
-    assert_eq!(log.find("decision-old"), Err(AuditError::InvalidRecord));
+    let view = log.tail_with_summary(1).unwrap();
+    assert!(view.records.is_empty());
+    assert_eq!(
+        std::fs::read(view.recovered_from.unwrap()).unwrap(),
+        original
+    );
+    assert!(std::fs::read(path).unwrap().is_empty());
 }
 
 #[test]

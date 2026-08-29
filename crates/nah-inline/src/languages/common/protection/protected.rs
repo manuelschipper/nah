@@ -3,8 +3,8 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 use crate::{EnvironmentValue, normalized_program};
 
 use super::support::{
-    EnvironmentVariables, environment_operation, protected_path, runtime_launch_bypass,
-    runtime_launch_program, runtime_name,
+    EnvironmentVariables, environment_operation, installed_binary_paths, protected_path,
+    runtime_launch_bypass, runtime_launch_program, runtime_name,
 };
 
 pub(super) fn protected_target(
@@ -44,13 +44,8 @@ pub(super) fn protected_target(
         .iter()
         .map(|path| path.as_str().replace('\\', "/"))
         .collect::<Vec<_>>();
-    targets.extend([
-        format!("{home}/.nah"),
-        format!("{home}/.local/bin/nah"),
-        format!("{home}/.cargo/bin/nah"),
-        "/usr/local/bin/nah".into(),
-        "/usr/bin/nah".into(),
-    ]);
+    targets.push(format!("{home}/.nah"));
+    targets.extend(installed_binary_paths(home, platform));
     for target in &mut targets {
         *target = target.replace('\\', "/");
     }

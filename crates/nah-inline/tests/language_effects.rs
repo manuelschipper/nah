@@ -1,7 +1,7 @@
 //! Verifies language-effect interpretation contracts across supported runtimes.
 
 use nah_inline::{
-    InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, NestedExecution,
+    FindingKind, InlineInput, InlineRefusal, LanguageAnalysis, LanguageCallKind, NestedExecution,
     NestedExecutionCwd, ProtectionInput, interpret_language_effects,
 };
 use nah_proto::{
@@ -76,6 +76,28 @@ fn language_call_saturation_is_an_explicit_refusal() {
             "{program}"
         );
     }
+}
+
+#[test]
+fn windows_release_binary_is_inline_self_protected() {
+    let analysis = interpret_language_effects(
+        InlineInput {
+            program: "pwsh",
+            code: r#"Remove-Item 'C:\Users\test\AppData\Local\Programs\nah\nah.exe'"#,
+            home: r"C:\Users\test",
+            platform: Platform::Windows,
+        },
+        ProtectionInput {
+            critical_paths: &[],
+            ambient_variables: &[],
+        },
+    );
+
+    assert!(
+        analysis
+            .report()
+            .contains_conservative(FindingKind::NahTampering)
+    );
 }
 
 #[test]

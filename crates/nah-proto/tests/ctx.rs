@@ -203,6 +203,24 @@ fn windows_unc_paths_require_server_and_share() {
     assert!(AbsolutePath::new(Platform::Windows, r"\\server\share").is_ok());
 }
 
+#[test]
+fn windows_extended_and_device_namespaces_are_not_policy_paths() {
+    for path in [
+        r"\\?\C:\Users\test",
+        r"\\?\UNC\server\share",
+        r"\\.\PhysicalDrive0",
+    ] {
+        assert!(
+            AbsolutePath::new(Platform::Windows, path).is_err(),
+            "{path}"
+        );
+        assert!(
+            serde_json::from_value::<AbsolutePath>(json!(path)).is_err(),
+            "{path}"
+        );
+    }
+}
+
 fn absolute(path: &str) -> AbsolutePath {
     AbsolutePath::new(Platform::Linux, path).expect("absolute path")
 }

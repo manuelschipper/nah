@@ -5,6 +5,7 @@ use nah_proto::ctx::{AbsolutePath, Ctx, Platform, TrustProjection};
 use crate::catalog::{configured_guard_states, shipped_defaults, shipped_names};
 use crate::nap::{self, ActiveNap};
 use crate::shipped_state::{ShippedState, state_path};
+use crate::state_protection::ensure_nah_state_directory;
 
 pub(crate) struct LiveState {
     pub(crate) ctx: Ctx,
@@ -101,7 +102,17 @@ pub(crate) fn home(platform: Platform) -> Result<AbsolutePath, String> {
     let home = home
         .to_str()
         .ok_or_else(|| "home directory is not UTF-8".to_owned())?;
-    AbsolutePath::new(platform, home).map_err(|error| error.to_string())
+    let home = if platform == Platform::Windows {
+        nah_observe::normalize_windows_observed_path(home)
+    } else {
+        home.to_owned()
+    };
+    let home = AbsolutePath::new(platform, home).map_err(|error| error.to_string())?;
+    if platform == Platform::Windows {
+        ensure_nah_state_directory(&home, platform)
+            .map_err(|_| "nah-state-protection-failed".to_owned())?;
+    }
+    Ok(home)
 }
 
 fn configured_home<F>(platform: Platform, mut get: F) -> Result<std::ffi::OsString, String>

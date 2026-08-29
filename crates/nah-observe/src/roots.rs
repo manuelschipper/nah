@@ -1,6 +1,6 @@
 //! Discovers validated Git project and linked-worktree roots.
 
-use crate::io_paths::{canonical_absolute, map_io_error};
+use crate::io_paths::{canonical_absolute, has_reparse_ancestor, is_reparse_point, map_io_error};
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::observation::{ObservationFailure, Observed, Root, RootKind};
 use std::ffi::OsStr;
@@ -38,8 +38,19 @@ pub(crate) fn discover_roots(
     git: &Path,
     timeout: Duration,
 ) -> Observed<Vec<Root>> {
-    let Some(marker_root) = find_git_marker(Path::new(cwd.as_str())) else {
-        return Observed::Ok { value: vec![] };
+    match has_reparse_ancestor(Path::new(cwd.as_str())) {
+        Ok(true) => {
+            return Observed::Error {
+                error: ObservationFailure::Unavailable,
+            };
+        }
+        Ok(false) => {}
+        Err(error) => return Observed::Error { error },
+    }
+    let marker_root = match find_git_marker(Path::new(cwd.as_str())) {
+        Ok(Some(marker_root)) => marker_root,
+        Ok(None) => return Observed::Ok { value: vec![] },
+        Err(error) => return Observed::Error { error },
     };
     let marker_root = match canonical_absolute(marker_root) {
         Ok(value) => value,
@@ -165,15 +176,26 @@ impl GitError {
     }
 }
 
-fn find_git_marker(cwd: &Path) -> Option<&Path> {
-    cwd.ancestors().find(|ancestor| {
+fn find_git_marker(cwd: &Path) -> Result<Option<&Path>, ObservationFailure> {
+    for ancestor in cwd.ancestors() {
         let marker = ancestor.join(".git");
-        fs::symlink_metadata(&marker).is_ok_and(|metadata| {
-            metadata.file_type().is_file()
-                || (metadata.file_type().is_dir()
-                    && fs::symlink_metadata(marker.join("HEAD")).is_ok())
-        })
-    })
+        let metadata = match fs::symlink_metadata(&marker) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(map_io_error(&error)),
+        };
+        if is_reparse_point(&metadata) {
+            return Err(ObservationFailure::Unavailable);
+        }
+        if metadata.file_type().is_file()
+            || (metadata.file_type().is_dir()
+                && fs::symlink_metadata(marker.join("HEAD"))
+                    .is_ok_and(|metadata| !is_reparse_point(&metadata)))
+        {
+            return Ok(Some(ancestor));
+        }
+    }
+    Ok(None)
 }
 
 fn validated_worktree_main(
@@ -182,6 +204,9 @@ fn validated_worktree_main(
 ) -> Result<Option<AbsolutePath>, ObservationFailure> {
     let marker = project.join(".git");
     let metadata = fs::symlink_metadata(&marker).map_err(|error| map_io_error(&error))?;
+    if is_reparse_point(&metadata) {
+        return Err(ObservationFailure::Unavailable);
+    }
     if metadata.file_type().is_dir() {
         let marker = fs::canonicalize(marker).map_err(|error| map_io_error(&error))?;
         return if marker == common {
@@ -261,7 +286,8 @@ fn validated_worktree_main(
 
 fn read_small_regular(path: &Path, max_bytes: u64) -> Result<String, ObservationFailure> {
     let metadata = fs::symlink_metadata(path).map_err(|error| map_io_error(&error))?;
-    if !metadata.file_type().is_file() || metadata.len() > max_bytes {
+    if is_reparse_point(&metadata) || !metadata.file_type().is_file() || metadata.len() > max_bytes
+    {
         return Err(ObservationFailure::InvalidPath);
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);

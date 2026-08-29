@@ -8,7 +8,7 @@ nah hook <runtime> status
 nah hook <runtime> uninstall
 ```
 
-nah supports macOS and Linux. Native Windows is not supported.
+nah supports Windows, macOS, and Linux.
 
 Run `nah docs runtime-<name>` for a runtime-specific guide:
 

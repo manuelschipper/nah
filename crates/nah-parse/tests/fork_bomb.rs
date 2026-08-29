@@ -92,15 +92,29 @@ fn opaque_background_loop_conditions_reduce_coverage_instead_of_being_guessed() 
     }
 }
 
-#[test]
-fn a_large_visible_function_graph_is_scanned_without_recursive_graph_walks() {
+fn large_visible_function_graph() -> String {
     let function_count = 1500;
     let mut source = (0..function_count - 1)
         .map(|index| format!("f{index}(){{ f{}; }}", index + 1))
         .collect::<Vec<_>>()
         .join("\n");
     source.push_str(&format!("\nf{}(){{ f0 & }}\nf0", function_count - 1));
+    source
+}
 
+#[test]
+fn a_large_visible_function_graph_is_scanned_without_recursive_graph_walks() {
+    assert!(
+        normalize(&large_visible_function_graph())
+            .unwrap()
+            .fork_bomb()
+    );
+}
+
+#[test]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
+fn a_large_visible_function_graph_is_scanned_inside_its_documented_bound() {
+    let source = large_visible_function_graph();
     let started = Instant::now();
     assert!(normalize(&source).unwrap().fork_bomb());
     let elapsed = started.elapsed();

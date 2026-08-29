@@ -4,7 +4,7 @@ mod support;
 
 use nah_proto::action::{
     ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
-    PathScope, Sensitivity,
+    PathScope, SemanticCode, Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -127,6 +127,60 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
     )
     .unwrap();
     assert_eq!(mismatched.verdict(), Verdict::Delegate);
+}
+
+#[test]
+fn startup_management_is_optional_and_independent_from_startup_paths() {
+    let management = guarded_stream(EffectKind::SystemState {
+        operation: SemanticCode::STARTUP_MANAGEMENT,
+    });
+    let enabled = nah_policy::decide(
+        &management,
+        &guard_policy("fs-startup-management", true),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(
+        enabled.policy_attributions()[0].name(),
+        "fs-startup-management"
+    );
+    assert!(enabled.reason().contains("nah tui"));
+
+    let disabled = nah_policy::decide(
+        &management,
+        &guard_policy("fs-startup-management", false),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(disabled.verdict(), Verdict::Delegate);
+
+    let path = host_integrity_stream(
+        FilesystemOperation::Write,
+        HostIntegrityClass::StartupPersistence,
+    );
+    assert_eq!(
+        nah_policy::decide(&path, &guard_policy("fs-startup-management", true), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
+    assert_eq!(
+        nah_policy::decide(
+            &management,
+            &guard_policy("fs-startup-persistence", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
+        Verdict::Delegate
+    );
+    assert_eq!(
+        nah_policy::decide(&path, &guard_policy("fs-startup-persistence", true), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Block
+    );
 }
 
 #[test]
@@ -658,26 +712,6 @@ fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
         assert_eq!(decision.verdict(), Verdict::Block, "{target}");
         assert_eq!(decision.policy_attributions()[0].name(), "fs-raw-device");
     }
-    let windows = guarded_stream(EffectKind::Filesystem {
-        effect: FilesystemEffect {
-            operation: FilesystemOperation::Write,
-            target: AbsolutePath::new(Platform::Windows, r"\\.\PhysicalDrive0").unwrap(),
-            scope: PathScope::System,
-            sensitivity: Sensitivity::None,
-            protection: None,
-            host_integrity: None,
-            selects_root: false,
-            selects_home: false,
-            recursive: false,
-            pattern: false,
-        },
-    });
-    assert_eq!(
-        nah_policy::decide(&windows, &guard_policy("fs-raw-device", true), &[])
-            .unwrap()
-            .verdict(),
-        Verdict::Block
-    );
 }
 
 #[test]

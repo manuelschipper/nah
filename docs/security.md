@@ -27,6 +27,9 @@ guard findings and understood protected-state changes outside maintenance.
   reviewed user shell profiles when enabled. The default-on
   `fs-startup-persistence` guard protects reviewed service, schedule, login,
   autostart, and loader startup paths.
+- Default-off `fs-startup-management` covers static Linux
+  `systemctl` unit-file changes, macOS `launchctl` enable/disable or legacy
+  `load`/`unload -w`, and `crontab` install/removal.
 
 ## Not enforced
 
@@ -61,10 +64,9 @@ redirects, archives, links, and transfers. Opaque behavior and prior provenance
 remain boundaries. Unresolved or bounded analysis is partial; uncertainty alone
 does not block. Recognized danger still reaches guards. See `nah docs guards`.
 
-PowerShell and cmd use static lowering. Reviewed operations and exact
-argv emit typed effects; unproven language behavior stays partial. `powershell`
-and `pwsh` remain distinct; ambiguous `curl` or `wget` aliases never invent
-writes.
+PowerShell and cmd lower reviewed operations and exact argv into typed effects;
+unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous
+`curl`/`wget` aliases never invent writes.
 
 ## Trust and configuration
 
@@ -76,10 +78,9 @@ additional built-in guards but cannot disable them.
 An explicit global operator disable takes precedence over that project
 enablement.
 
-The host-integrity guards classify visible filesystem paths, not intent or file
-contents. Reads stay outside these rules, and command-level mechanisms such
-as `systemctl enable`, `launchctl`, registry Run keys, and `schtasks` are not
-covered unless the call also exposes a classified filesystem mutation.
+Path guards exclude reads. Gaps include Windows Run keys, `schtasks`,
+runtime/offline/editor `systemctl`, `launchctl` bootstrap/bootout, dynamic input,
+arbitrary executables, and scripted editors without a proven classified write.
 
 ## Operator maintenance
 
@@ -91,9 +92,9 @@ Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock
 always blocks. A nap is user-global, and its changes persist.
 
-Self-protection is a prompt-injection guardrail, not a same-user boundary. It
-blocks understood direct, wrapped, package-manager, or bounded-inline attempts
-to mutate nah or active wiring, replace its installed binary, skip hooks, add
-hard-link aliases, or change access on wiring or executable ancestors. Setup,
-hardening, opaque or unhooked paths, pre-existing aliases, and out-of-session
-work remain user responsibilities.
+Self-protection blocks understood mutation of nah, active wiring, executable
+aliases, and ancestors. Windows drive and UNC paths
+normalize; device or reparse paths fail. `%USERPROFILE%\.nah` has an inheritable
+DACL for the user, SYSTEM, and Administrators; nap keys allow only their owner.
+Opaque or unhooked work remains user
+responsibility.

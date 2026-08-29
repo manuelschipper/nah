@@ -113,6 +113,11 @@ fn resolve_hermes_home(
     let configured = configured
         .to_str()
         .ok_or_else(|| "hermes-home-not-utf8".to_owned())?;
+    let configured = if platform == nah_proto::ctx::Platform::Windows {
+        nah_observe::normalize_windows_observed_path(configured)
+    } else {
+        configured.to_owned()
+    };
     AbsolutePath::new(platform, configured).map_err(|error| error.to_string())
 }
 

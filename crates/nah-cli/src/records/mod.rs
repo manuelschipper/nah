@@ -1,5 +1,7 @@
 //! Persists redacted audit data; it does not decide policy.
 
+use std::path::PathBuf;
+
 mod audit;
 mod redaction;
 
@@ -47,11 +49,13 @@ pub(crate) struct DecisionLogView {
     pub(crate) records: Vec<DecisionRecord>,
     pub(crate) blocked_records: Vec<DecisionRecord>,
     pub(crate) failures: Option<FailureSummary>,
+    pub(crate) recovered_from: Option<PathBuf>,
 }
 
 pub(crate) struct DecisionLines {
     pub(crate) lines: Vec<String>,
     pub(crate) failures: Option<FailureSummary>,
+    pub(crate) recovered_from: Option<PathBuf>,
 }
 
 /// Only a runtime adapter knows which agent sent a call, so decisions reaching
@@ -180,6 +184,7 @@ pub(crate) fn recent_decisions(
             .map(decision_record)
             .collect(),
         failures: tail.failures,
+        recovered_from: tail.recovered_from,
     })
 }
 
@@ -211,6 +216,7 @@ pub(crate) fn list_decisions(
     Ok(DecisionLines {
         lines,
         failures: tail.failures,
+        recovered_from: tail.recovered_from,
     })
 }
 

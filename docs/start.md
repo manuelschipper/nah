@@ -7,7 +7,7 @@ everything else to your runtime.
 nah must be installed in the same execution environment as the coding agent
 or agent gateway whose tool calls it evaluates.
 
-nah supports macOS and Linux. Native Windows is not supported.
+nah supports Windows, macOS, and Linux.
 
 ## Install
 

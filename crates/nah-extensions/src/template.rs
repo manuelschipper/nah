@@ -14,11 +14,17 @@ pub fn create_user_guard(
     name: &str,
 ) -> Result<std::path::PathBuf, TemplateError> {
     validate_name(name)?;
-    create_guard_in(&guard_directory_path(home, platform), name, "user")
+    create_guard_in(
+        &guard_directory_path(home, platform),
+        platform,
+        name,
+        "user",
+    )
 }
 
 pub fn create_project_guard(
     root: &AbsolutePath,
+    platform: Platform,
     name: &str,
 ) -> Result<std::path::PathBuf, TemplateError> {
     validate_name(name)?;
@@ -26,11 +32,12 @@ pub fn create_project_guard(
     ensure_directory(&nah)?;
     let guards = nah.join("guards");
     ensure_directory(&guards)?;
-    create_guard_in(&guards, name, "agent")
+    create_guard_in(&guards, platform, name, "agent")
 }
 
 fn create_guard_in(
     parent: &std::path::Path,
+    platform: Platform,
     name: &str,
     provenance: &str,
 ) -> Result<std::path::PathBuf, TemplateError> {
@@ -47,7 +54,12 @@ fn create_guard_in(
         Err(_) => return Err(TemplateError::Io),
     }
     let manifest = format!(
-        "name = \"{name}\"\nmatch = [\"{name}\"]\nprotocol = \"exec/v1\"\nprovenance = \"{provenance}\"\n"
+        "name = \"{name}\"\nmatch = [\"{name}\"]\nprotocol = \"exec/v1\"\nprovenance = \"{provenance}\"\n{}",
+        if platform == Platform::Windows {
+            "data = [\"run.py\"]\n"
+        } else {
+            ""
+        }
     );
     fs::write(directory.join("policy.toml"), manifest).map_err(|_| TemplateError::Io)?;
     let outcome = format!(
@@ -55,7 +67,7 @@ fn create_guard_in(
         response = {{"block": True, "reason": "blocked the exact example command"}}
         break"#
     );
-    let run = format!(
+    let python = format!(
         r#"#!/usr/bin/env python3
 import json
 import sys
@@ -73,13 +85,24 @@ for effect in effects:
 print(json.dumps(response))
 "#
     );
-    let run_path = directory.join("run");
-    fs::write(&run_path, run).map_err(|_| TemplateError::Io)?;
-    make_executable(&run_path)?;
+    let run_name = if platform == Platform::Windows {
+        fs::write(directory.join("run.py"), python).map_err(|_| TemplateError::Io)?;
+        fs::write(
+            directory.join("run.cmd"),
+            "@echo off\r\npy -3 \"%~dp0run.py\"\r\n",
+        )
+        .map_err(|_| TemplateError::Io)?;
+        "run.cmd"
+    } else {
+        let run_path = directory.join("run");
+        fs::write(&run_path, python).map_err(|_| TemplateError::Io)?;
+        make_executable(&run_path)?;
+        "run"
+    };
     fs::write(
         directory.join("README.md"),
         format!(
-            "# {name}\n\nExample `guard` extension. Review `run` and `nah docs extending` before asking a human to activate it.\n"
+            "# {name}\n\nExample `guard` extension. Review `{run_name}` and `nah docs extending` before asking a human to activate it.\n"
         ),
     )
     .map_err(|_| TemplateError::Io)?;

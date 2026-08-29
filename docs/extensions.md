@@ -1,6 +1,7 @@
 # Extending
 
-A custom guard is a trusted, one-shot executable supported on macOS and Linux.
+A custom guard is a trusted, one-shot executable supported on macOS, Linux, and
+Windows.
 It can add a block and nothing else. Keep its data, documentation, and tests
 together.
 
@@ -17,7 +18,7 @@ User guard loop:
 
 ```sh
 nah guard new corp-api
-# Agent edits ~/.nah/guards/corp-api/{policy.toml,run,README.md}.
+# Agent edits the generated guard files under ~/.nah/guards/corp-api/.
 nah guards
 # Human reviews and enables the exact bytes:
 nah guard enable corp-api
@@ -33,14 +34,18 @@ nah test --json "corp-api status"
   README.md
 ```
 
+On Windows it instead creates `run.cmd` and `run.py`; `run.cmd` invokes
+`py -3` with the adjacent Python file. The generated template therefore
+requires the Python Launcher with Python 3 installed.
+
 Project guards live under `<project>/.nah/guards/<name>`. Create one with
 `nah guard new corp-api --project /repo`; after `nah trust /repo`, enable it
 with the same `--project /repo`. Untrusting the root revokes its activations.
 Scope flags disambiguate the same name in multiple scopes.
 
-Changing bytes in `policy.toml`, `run`, or declared data makes an activation
-`needs-reapproval`; review and enable it again. For `missing`, restore the bundle
-or disable its activation. `nah guards` also reports `inactive` and `active`.
+Changing covered bytes makes an activation `needs-reapproval`; review and
+enable it again. For `missing`, restore the bundle or disable its activation.
+`nah guards` also reports `inactive` and `active`.
 
 Malformed, reserved, or colliding proposals are skipped; `nah test` warns
 without hiding healthy siblings.
@@ -85,18 +90,25 @@ effect schema; a flow to the parent exists only when the child API is proven to
 inherit stdout. Do not infer nesting or execution from stage adjacency.
 
 Every `data` path must be unique, relative, nonempty, and made only of normal
-path components. `policy.toml` and `run` cannot be data entries. Manifest, run,
-and data entries must be regular files, not symlinks; `run` must be executable
-on Unix. Besides `policy.toml` and `run`, only files declared in `data` are
-covered by activation.
+path components. `policy.toml`, `run`, `run.exe`, `run.cmd`, and `run.bat`
+cannot be data entries. Manifest, entrypoints, and data entries must be regular
+files, not symlinks.
+
+macOS and Linux require an executable `run`. Windows requires exactly one of
+`run.exe`, `run.cmd`, or `run.bat`; a missing or ambiguous Windows entrypoint
+leaves the bundle inactive. A cross-platform bundle may contain `run` and one
+Windows entrypoint. Every recognized entrypoint present in the bundle, plus
+every declared data file, is covered by the activation hash on every platform.
+The Windows template declares `run.py` as data so its interpreter source is
+also covered.
 
 ## Exact exec/v1 request
 
-For every selected uncached request, nah starts `run` with the guard directory
-as its working directory. The unsandboxed process inherits nah's environment.
-nah writes one compact UTF-8 JSON object plus a newline to standard input,
-closes it, and captures stdout and stderr. Inherited variables may contain
-credentials.
+For every selected uncached request, nah starts the selected entrypoint with the
+guard directory as its working directory. The unsandboxed process inherits nah's
+environment. nah writes one compact UTF-8 JSON object plus a newline to standard
+input, closes it, and captures stdout and stderr. Inherited variables may
+contain credentials.
 
 Representative request:
 
@@ -264,13 +276,13 @@ Write one compact JSON object to stdout, optionally followed by one newline.
 Leading whitespace, trailing whitespace other than that newline, carriage
 returns, invalid UTF-8, multiple JSON values, and unknown fields are rejected.
 Stdout is capped at 64 KiB. Stderr is capped at 8 KiB and is diagnostic only.
-The whole process has 750 ms; timeout kills the process and its process group
-where supported. A nonzero exit is a crash. A successful exit with empty
-stdout is silence. A spawn, crash, silence, timeout, transport rejection, or
-semantically invalid response produces a typed failure and no finding. Other
-guards still run; any definite finding blocks, otherwise the call delegates.
-Live non-dry-run dispatch attempts to persist the failure redacted. A valid
-abstention contributes nothing.
+The whole process has 750 ms; timeout or transport teardown kills its Unix
+process group or Windows Job Object, including descendants. A nonzero exit is a
+crash. A successful exit with empty stdout is silence. A spawn, crash, silence,
+timeout, transport rejection, or semantically invalid response produces a typed
+failure and no finding. Other guards still run; any definite finding blocks,
+otherwise the call delegates. Live non-dry-run dispatch attempts to persist the
+failure redacted. A valid abstention contributes nothing.
 
 `--fail-closed` converts that delegate to a structural block. Only validated
 responses enter the memo cache, so failures execute again.

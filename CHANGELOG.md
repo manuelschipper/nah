@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Windows custom guards** — exec/v1 guards now use one deterministic Windows
+  entrypoint, generate a `py -3` template, and terminate full descendant trees
+  after each consultation.
+- **Windows host-state protection** — Windows path observations now normalize
+  extended drive and UNC results, unsafe reparse paths fail closed, and
+  `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
+  `nah.exe` path is also self-protected.
+- **Unreadable decision log recovery** — `nah log` and the TUI archive an
+  unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
+  readable records, and warn instead of leaving decision browsing unavailable.
+- **Optional startup-management guard** — New default-off
+  `fs-startup-management` blocks reviewed persistent `systemctl`, `launchctl`,
+  and `crontab` mutations when enabled without changing startup-path defaults.
+- **`crontab -u` payload inspection** — Visible stdin installed for another
+  user now receives the same nested-command and self-protection analysis as
+  `crontab -`.
 - **PowerShell and cmd effects** — Top-level and nested Windows shell source now
   lowers reviewed static filesystem, network, redirection, and exact child argv
   through the existing typed effects. Dynamic and multi-target forms stay
@@ -33,16 +49,15 @@
 - **Startup-persistence guard** — Default-on `fs-startup-persistence` blocks
   mutations to reviewed service, schedule, login, autostart, and loader startup
   paths while excluding routine user shell profiles.
-- **Mixed built-in defaults and TUI filters** — Guard state now preserves
-  per-guard factory defaults and explicit global overrides, with operator
-  disables taking precedence over project enablement. The TUI groups guards by
-  family and default posture and filters by family, default, and source.
+- **Mixed built-in defaults** — Guard state now preserves per-guard factory
+  defaults and explicit global overrides, with operator disables taking
+  precedence over project enablement.
+- **Focused guard browsing** — The TUI now cycles between Type, applied State,
+  and current Project views without a filter modal, and `nah guards` omits
+  factory labels from its live-state listing.
 - **Simpler shipped guard attribution** — `nah/decide/v1` and `nah/audit/v1`
   shipped attributions now contain only the kind discriminator and guard name.
-  A pre-upgrade `~/.nah/audit.jsonl` containing old `policy_version` entries is
-  rejected; remove the file after upgrading to restore `nah log`, `nah why`,
-  TUI decision browsing, and audit compaction. Extension memo entries miss once
-  and are replaced through normal cache use.
+  Extension memo entries miss once and are replaced through normal cache use.
 
 ## nah 1.3.1 — Aug 13, 2026
 

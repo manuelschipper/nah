@@ -1,6 +1,6 @@
 //! Observes requested path identity, kind, aliases, and canonical target.
 
-use crate::io_paths::{absolute_from_path, map_io_error};
+use crate::io_paths::{absolute_from_path, has_reparse_ancestor, is_reparse_point, map_io_error};
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::observation::{ObservationFailure, Observed, PathKind, PathObservation};
 use std::fs;
@@ -14,6 +14,15 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
     } else {
         Path::new(cwd.as_str()).join(requested)
     };
+    match has_reparse_ancestor(&resolved) {
+        Ok(true) => {
+            return Observed::Error {
+                error: ObservationFailure::Unavailable,
+            };
+        }
+        Ok(false) => {}
+        Err(error) => return Observed::Error { error },
+    }
     let resolved_absolute = match entry_path(&resolved) {
         Ok(value) => value,
         Err(error) => return Observed::Error { error },
@@ -21,7 +30,7 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
 
     match fs::symlink_metadata(&resolved) {
         Ok(metadata) => {
-            let kind = path_kind(&metadata.file_type());
+            let kind = path_kind(&metadata);
             let (realpath, target_kind) = match fs::canonicalize(&resolved) {
                 Ok(path) => {
                     let target_metadata = match fs::metadata(&path) {
@@ -46,8 +55,7 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
                     match absolute_from_path(&path) {
                         Ok(path) => (
                             Some(path),
-                            (kind == PathKind::Symlink)
-                                .then(|| path_kind(&target_metadata.file_type())),
+                            (kind == PathKind::Symlink).then(|| path_kind(&target_metadata)),
                         ),
                         Err(error) => return Observed::Error { error },
                     }
@@ -213,14 +221,15 @@ fn lexically_normalize(path: &Path) -> PathBuf {
     normalized
 }
 
-fn path_kind(file_type: &fs::FileType) -> PathKind {
-    if file_type.is_symlink() {
+fn path_kind(metadata: &fs::Metadata) -> PathKind {
+    let file_type = metadata.file_type();
+    if is_reparse_point(metadata) || file_type.is_symlink() {
         PathKind::Symlink
     } else if file_type.is_file() {
         PathKind::File
     } else if file_type.is_dir() {
         PathKind::Directory
-    } else if is_fifo(file_type) {
+    } else if is_fifo(&file_type) {
         PathKind::Fifo
     } else {
         PathKind::Other

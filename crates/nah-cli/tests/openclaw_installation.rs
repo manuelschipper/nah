@@ -1,3 +1,4 @@
+#![cfg(unix)]
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod support;

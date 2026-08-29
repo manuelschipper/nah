@@ -271,6 +271,60 @@ fn why_fails_loudly_for_missing_or_corrupt_records() {
 }
 
 #[test]
+fn log_archives_unreadable_input_and_lists_the_readable_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let project = repo(&root);
+    let payload = json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {"command": "echo hello"},
+        "cwd": project,
+    })
+    .to_string();
+    let first: DecisionOutput =
+        serde_json::from_slice(&nah(&root, &["decide"], Some(&payload)).stdout).unwrap();
+    let audit = root.join(".nah/audit.jsonl");
+    OpenOptions::new()
+        .append(true)
+        .open(&audit)
+        .unwrap()
+        .write_all(b"not-json\n")
+        .unwrap();
+    let latest: DecisionOutput =
+        serde_json::from_slice(&nah(&root, &["decide"], Some(&payload)).stdout).unwrap();
+    let original = std::fs::read(&audit).unwrap();
+
+    let listed = nah(&root, &["log", "--json", "-n", "10"], None);
+    assert!(listed.status.success(), "{listed:?}");
+    let ids = String::from_utf8(listed.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["envelope"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [first.id(), latest.id()]);
+    assert!(!listed.stderr.is_empty());
+
+    let backups = std::fs::read_dir(root.join(".nah/old_logs"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(std::fs::read(backups[0].path()).unwrap(), original);
+    assert!(
+        std::fs::read_to_string(audit)
+            .unwrap()
+            .lines()
+            .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
+    );
+}
+
+#[test]
 fn an_empty_human_log_explains_itself_while_json_stays_empty() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves

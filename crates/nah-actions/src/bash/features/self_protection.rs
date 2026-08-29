@@ -1197,7 +1197,9 @@ pub(crate) fn protected_path(
         format!("{home}/.local/bin/{binary}"),
         format!("{home}/.cargo/bin/{binary}"),
     ];
-    if platform != Platform::Windows {
+    if platform == Platform::Windows {
+        installed.push(format!("{home}/AppData/Local/Programs/nah/{binary}"));
+    } else {
         installed.extend(["/usr/local/bin/nah".into(), "/usr/bin/nah".into()]);
     }
     installed
@@ -1223,16 +1225,25 @@ fn protected_path_ancestor(
         let candidate = lexical_normalized_path(candidate, platform);
         path != candidate && contains(&path, &candidate, platform)
     };
+    let binary = if platform == Platform::Windows {
+        "nah.exe"
+    } else {
+        "nah"
+    };
+    let mut owned = vec![
+        format!("{home}/.nah"),
+        format!("{home}/.local/bin/{binary}"),
+        format!("{home}/.cargo/bin/{binary}"),
+    ];
+    if platform == Platform::Windows {
+        owned.push(format!("{home}/AppData/Local/Programs/nah/{binary}"));
+    }
     if contains(&home, &path, platform)
-        && [
-            format!("{home}/.nah"),
-            format!("{home}/.local/bin/nah"),
-            format!("{home}/.cargo/bin/nah"),
-        ]
-        .iter()
-        .map(String::as_str)
-        .chain(critical_paths.iter().map(AbsolutePath::as_str))
-        .any(&ancestor_of)
+        && owned
+            .iter()
+            .map(String::as_str)
+            .chain(critical_paths.iter().map(AbsolutePath::as_str))
+            .any(&ancestor_of)
     {
         return true;
     }

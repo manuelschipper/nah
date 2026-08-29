@@ -59,7 +59,7 @@ pub(crate) fn list_shipped_guards(docs: bool) -> Result<String, String> {
                 } else {
                     "disabled"
                 },
-                guard.family.map_or("custom", |family| family.filter_name()),
+                guard.family.map_or("custom", |family| family.name()),
                 guard.behavior.as_deref().unwrap_or_default(),
                 examples,
                 guard.target.name(),
@@ -69,14 +69,9 @@ pub(crate) fn list_shipped_guards(docs: bool) -> Result<String, String> {
         } else {
             writeln!(
                 output,
-                "- [{}] {} (default {})",
+                "- [{}] {}",
                 if enabled { "x" } else { " " },
-                guard.target.name(),
-                if guard.default_enabled == Some(true) {
-                    "on"
-                } else {
-                    "off"
-                }
+                guard.target.name()
             )
             .expect("writing to a string succeeds");
         }

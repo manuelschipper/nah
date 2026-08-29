@@ -239,6 +239,16 @@ fn custom(name: &str) -> GuardTarget {
     }
 }
 
+fn project_custom(root: &str, name: &str) -> GuardTarget {
+    GuardTarget::Custom {
+        identity: nah_proto::ctx::GuardIdentity::project(
+            nah_proto::ctx::TrustedRootId::new(root).unwrap(),
+            name,
+        )
+        .unwrap(),
+    }
+}
+
 fn staged(app: &App) -> Vec<(&str, bool)> {
     app.pending
         .iter()
@@ -285,7 +295,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
         app.message,
         Some(Message {
             kind: MessageKind::Info,
-            text: "reset to shipped defaults staged: 5 change(s); Enter to apply".into(),
+            text: "restore shipped settings staged: 5 change(s); Enter to apply".into(),
         })
     );
 }
@@ -293,12 +303,15 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
 #[test]
 fn resetting_replaces_the_staged_batch() {
     let mut app = App::fixture();
-    app.guards.push(guard_entry(
-        built_in("fs-system-tree"),
-        GuardStatus::Disabled,
-    ));
+    let mut filesystem = guard_entry(built_in("fs-system-tree"), GuardStatus::Disabled);
+    filesystem.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.push(filesystem);
     app.toggle_guard();
-    app.guard_index = 2;
+    app.guard_index = app
+        .visible_guards()
+        .iter()
+        .position(|entry| entry.target.name() == "fs-system-tree")
+        .unwrap();
     app.toggle_guard();
     assert_eq!(app.pending_count(), 2);
 
@@ -332,7 +345,7 @@ fn resetting_at_the_defaults_clears_the_batch() {
         app.message,
         Some(Message {
             kind: MessageKind::Info,
-            text: "already at shipped defaults".into(),
+            text: "shipped settings are already restored".into(),
         })
     );
 }
@@ -356,7 +369,7 @@ fn reset_removes_an_explicit_veto_but_not_a_project_enablement() {
 }
 
 #[test]
-fn guard_filters_compose_without_dropping_hidden_pending_changes() {
+fn type_view_orders_every_guard_once_by_family_then_custom_name() {
     let mut app = App::fixture();
     let mut auth = guard_entry(built_in("fs-auth-identity"), GuardStatus::Disabled);
     auth.family = Some(catalog::GuardFamily::Filesystem);
@@ -364,52 +377,156 @@ fn guard_filters_compose_without_dropping_hidden_pending_changes() {
     startup.family = Some(catalog::GuardFamily::Filesystem);
     let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
     profile.family = Some(catalog::GuardFamily::Filesystem);
-    app.guards.extend([auth, startup, profile]);
+    let user = guard_entry(custom("corp-api"), GuardStatus::Disabled);
+    app.guards.extend([auth, startup, profile, user]);
 
     assert_eq!(
-        app.filtered_guards()
+        app.visible_guards()
+            .iter()
+            .map(|entry| (&entry.target, entry.target.name()))
+            .collect::<Vec<_>>(),
+        [
+            (&app.guards[0].target, "exec-remote"),
+            (&app.guards[3].target, "fs-auth-identity"),
+            (&app.guards[5].target, "fs-shell-profile"),
+            (&app.guards[4].target, "fs-startup-persistence"),
+            (&app.guards[2].target, "secrets-env"),
+            (&app.guards[6].target, "corp-api"),
+            (&app.guards[1].target, "corp-api"),
+        ]
+    );
+}
+
+#[test]
+fn state_view_partitions_by_applied_status_without_following_pending_values() {
+    let mut app = App::fixture();
+    let mut filesystem = guard_entry(built_in("fs-home"), GuardStatus::Disabled);
+    filesystem.family = Some(catalog::GuardFamily::Filesystem);
+    app.guards.push(filesystem);
+    app.guards.push(guard_entry(
+        custom("vanished"),
+        GuardStatus::Missing {
+            approved_hash: "old".into(),
+        },
+    ));
+
+    app.guard_view = GuardView::State;
+    assert_eq!(
+        app.visible_guards()
             .iter()
             .map(|entry| entry.target.name())
             .collect::<Vec<_>>(),
         [
             "exec-remote",
-            "fs-auth-identity",
-            "fs-startup-persistence",
-            "fs-shell-profile",
+            "fs-home",
             "secrets-env",
             "corp-api",
+            "vanished"
         ]
     );
 
+    app.guard_index = 0;
     app.toggle_guard();
-    app.begin_guard_filter();
-    app.cycle_guard_filter(true);
-    app.cycle_guard_filter(true);
-    app.move_guard_filter_field(true);
-    app.cycle_guard_filter(false);
-    app.apply_guard_filter();
-
-    assert_eq!(app.filtered_guards()[0].target.name(), "fs-shell-profile");
-    assert_eq!(app.hidden_pending_count(), 1);
-    assert_eq!(app.guard_index, 0);
-
-    app.clear_guard_filter();
-    assert_eq!(app.filtered_guards().len(), 6);
+    assert_eq!(app.visible_guards()[0].target.name(), "exec-remote");
     assert_eq!(app.pending_count(), 1);
 }
 
 #[test]
-fn default_off_guards_are_visible_without_filters() {
+fn project_view_uses_declarations_and_exact_trusted_root_identity() {
     let mut app = App::fixture();
-    let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
-    profile.family = Some(catalog::GuardFamily::Filesystem);
-    app.guards.push(profile);
+    app.current_project = Some("/repo/src".into());
+    app.project_declared_guards = vec!["exec-remote".into(), "secrets-env".into()];
+    app.guards.extend([
+        guard_entry(custom("corp-api"), GuardStatus::Enabled),
+        guard_entry(
+            project_custom("root:other", "other-project"),
+            GuardStatus::Enabled,
+        ),
+        guard_entry(
+            project_custom("root:repo", "vanished"),
+            GuardStatus::Missing {
+                approved_hash: "old".into(),
+            },
+        ),
+    ]);
+    app.guard_view = GuardView::Project;
 
-    assert!(
-        app.filtered_guards()
+    let visible = app.visible_guards();
+    assert_eq!(
+        visible
             .iter()
-            .any(|entry| entry.target.name() == "fs-shell-profile")
+            .map(|entry| entry.target.name())
+            .collect::<Vec<_>>(),
+        ["exec-remote", "secrets-env", "corp-api", "vanished"]
     );
+    assert_eq!(visible[1].status, GuardStatus::Disabled);
+    assert!(
+        visible
+            .iter()
+            .all(|entry| entry.target.name() != "other-project")
+    );
+    assert_eq!(
+        visible
+            .iter()
+            .filter(|entry| entry.target.name() == "corp-api")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn project_view_uses_the_nearest_trusted_root_containing_the_current_directory() {
+    let mut app = App::fixture();
+    app.current_project = Some("/repo/service/src".into());
+    app.projects.push(TrustedProject {
+        identity: nah_proto::ctx::TrustedRootId::new("root:service").unwrap(),
+        path: "/repo/service".into(),
+        configured_guards: 1,
+        enabled_guards: 1,
+        needs_reapproval: 0,
+        missing_guards: 0,
+    });
+    app.guards.push(guard_entry(
+        project_custom("root:service", "service-api"),
+        GuardStatus::Enabled,
+    ));
+    app.guard_view = GuardView::Project;
+
+    assert_eq!(
+        app.visible_guards()
+            .iter()
+            .map(|entry| entry.target.name())
+            .collect::<Vec<_>>(),
+        ["service-api"]
+    );
+}
+
+#[test]
+fn cycling_views_preserves_pending_changes_and_the_selected_guard_when_visible() {
+    let mut app = App::fixture();
+    app.project_declared_guards = vec!["secrets-env".into()];
+    app.toggle_guard();
+    app.guard_index = app
+        .visible_guards()
+        .iter()
+        .position(|entry| entry.target.name() == "secrets-env")
+        .unwrap();
+
+    app.cycle_guard_view();
+    assert_eq!(app.guard_view, GuardView::State);
+    assert_eq!(app.selected_guard().unwrap().target.name(), "secrets-env");
+    app.cycle_guard_view();
+    assert_eq!(app.guard_view, GuardView::Project);
+    assert_eq!(app.selected_guard().unwrap().target.name(), "secrets-env");
+    assert_eq!(app.pending_count(), 1);
+    assert_eq!(app.project_omitted_pending_count(), 1);
+
+    app.cycle_guard_view();
+    app.guard_index = 0;
+    app.cycle_guard_view();
+    app.cycle_guard_view();
+    assert_eq!(app.selected_guard().unwrap().target.name(), "secrets-env");
+    assert_eq!(app.guard_index, 0);
 }
 
 #[test]
@@ -492,6 +609,50 @@ fn reloading_clamps_when_the_pinned_record_is_gone() {
 
     assert_eq!(app.log_index, 0);
     assert_eq!(app.selected_log().unwrap().id, "decision-9");
+}
+
+#[test]
+fn recovered_logs_raise_a_warning_after_the_readable_view_loads() {
+    let mut app = App::fixture();
+    let records = vec![App::record_fixture("decision-recovered", Verdict::Delegate)];
+    app.apply_reloaded_view(DecisionLogView {
+        records: records.clone(),
+        blocked_records: vec![],
+        failures: None,
+        recovered_from: Some("/home/test/.nah/old_logs/audit.jsonl".into()),
+    });
+
+    assert_eq!(app.log, records);
+    assert!(matches!(
+        app.message,
+        Some(Message {
+            kind: MessageKind::Warning,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_recovery_warning_does_not_replace_an_active_error() {
+    let mut app = App::fixture();
+    app.message = Some(Message {
+        kind: MessageKind::Error,
+        text: "active error".into(),
+    });
+    app.apply_reloaded_view(DecisionLogView {
+        records: vec![],
+        blocked_records: vec![],
+        failures: None,
+        recovered_from: Some("/home/test/.nah/old_logs/audit.jsonl".into()),
+    });
+
+    assert!(matches!(
+        app.message,
+        Some(Message {
+            kind: MessageKind::Error,
+            ..
+        })
+    ));
 }
 
 #[test]

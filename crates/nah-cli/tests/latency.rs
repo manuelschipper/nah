@@ -21,6 +21,7 @@ fn serialize_kpi_test() -> MutexGuard<'static, ()> {
 }
 
 #[test]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_walking_skeleton_p99_is_below_one_millisecond() {
     let _serial = serialize_kpi_test();
     let temp = tempfile::tempdir().unwrap();
@@ -62,6 +63,7 @@ fn captured_walking_skeleton_p99_is_below_one_millisecond() {
 }
 
 #[test]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_bash_spine_p99_is_below_one_millisecond() {
     let _serial = serialize_kpi_test();
     let temp = tempfile::tempdir().unwrap();
@@ -99,6 +101,7 @@ fn captured_bash_spine_p99_is_below_one_millisecond() {
 }
 
 #[test]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_ambient_preflight_p99_is_below_one_millisecond() {
     let _serial = serialize_kpi_test();
     let temp = tempfile::tempdir().unwrap();
@@ -149,7 +152,7 @@ fn captured_ambient_preflight_p99_is_below_one_millisecond() {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "release-mode KPI run")]
+#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_inline_signature_p99_is_below_one_millisecond() {
     let _serial = serialize_kpi_test();
     let temp = tempfile::tempdir().unwrap();

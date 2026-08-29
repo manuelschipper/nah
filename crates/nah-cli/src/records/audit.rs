@@ -27,6 +27,7 @@ pub(crate) struct LogTail {
     pub(crate) records: Vec<AuditRecordV1>,
     pub(crate) blocked_records: Vec<AuditRecordV1>,
     pub(crate) failures: Option<FailureSummary>,
+    pub(crate) recovered_from: Option<PathBuf>,
 }
 
 impl DecisionLog {
@@ -69,11 +70,28 @@ impl DecisionLog {
         limit: usize,
         blocked_limit: usize,
     ) -> Result<LogTail, AuditError> {
+        match self.read_tail_views_with_summary(limit, blocked_limit) {
+            Err(AuditError::InvalidRecord) => {
+                let recovered_from = self.recover_invalid_log()?;
+                let mut tail = self.read_tail_views_with_summary(limit, blocked_limit)?;
+                tail.recovered_from = recovered_from;
+                Ok(tail)
+            }
+            result => result,
+        }
+    }
+
+    fn read_tail_views_with_summary(
+        &self,
+        limit: usize,
+        blocked_limit: usize,
+    ) -> Result<LogTail, AuditError> {
         if limit == 0 && blocked_limit == 0 {
             return Ok(LogTail {
                 records: vec![],
                 blocked_records: vec![],
                 failures: None,
+                recovered_from: None,
             });
         }
         let file = match open_bounded(&self.path)? {
@@ -83,16 +101,16 @@ impl DecisionLog {
                     records: vec![],
                     blocked_records: vec![],
                     failures: None,
+                    recovered_from: None,
                 });
             }
         };
         let mut records = VecDeque::new();
         let mut blocked_records = VecDeque::new();
         let mut failures = None;
-        for line in BufReader::new(file).lines() {
-            let line = line.map_err(|_| AuditError::Io)?;
-            let record = serde_json::from_str::<AuditRecordV1>(&line)
-                .map_err(|_| AuditError::InvalidRecord)?;
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        while let Some(record) = next_record(&mut reader, &mut line)? {
             if record.evaluation_failed() {
                 let summary = failures.get_or_insert_with(FailureSummary::default);
                 summary.calls += 1;
@@ -116,6 +134,7 @@ impl DecisionLog {
             records: records.into(),
             blocked_records: blocked_records.into(),
             failures,
+            recovered_from: None,
         })
     }
 
@@ -125,16 +144,110 @@ impl DecisionLog {
             None => return Ok(None),
         };
         let mut found = None;
-        for line in BufReader::new(file).lines() {
-            let line = line.map_err(|_| AuditError::Io)?;
-            let record = serde_json::from_str::<AuditRecordV1>(&line)
-                .map_err(|_| AuditError::InvalidRecord)?;
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        while let Some(record) = next_record(&mut reader, &mut line)? {
             if record.id() == id {
                 found = Some(record);
             }
         }
         Ok(found)
     }
+
+    fn recover_invalid_log(&self) -> Result<Option<PathBuf>, AuditError> {
+        let mut file = open_regular(&self.path, true)?.ok_or(AuditError::Io)?;
+        file.try_lock().map_err(|_| AuditError::Io)?;
+        let result = recover_locked(&self.path, &mut file);
+        let unlocked = File::unlock(&file).map_err(|_| AuditError::Io);
+        match result {
+            Ok(recovered) => unlocked.map(|()| recovered),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn next_record(
+    reader: &mut BufReader<File>,
+    line: &mut Vec<u8>,
+) -> Result<Option<AuditRecordV1>, AuditError> {
+    line.clear();
+    if reader.read_until(b'\n', line).map_err(|_| AuditError::Io)? == 0 {
+        return Ok(None);
+    }
+    let payload = line.strip_suffix(b"\n").ok_or(AuditError::InvalidRecord)?;
+    serde_json::from_slice(payload)
+        .map(Some)
+        .map_err(|_| AuditError::InvalidRecord)
+}
+
+fn recover_locked(path: &Path, file: &mut File) -> Result<Option<PathBuf>, AuditError> {
+    let size = file.metadata().map_err(|_| AuditError::Io)?.len();
+    let start = size.saturating_sub(MAX_AUDIT_BYTES);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|_| AuditError::Io)?;
+    let mut window = Vec::new();
+    file.take(MAX_AUDIT_BYTES)
+        .read_to_end(&mut window)
+        .map_err(|_| AuditError::Io)?;
+    if start > 0 {
+        window = window
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or_else(Vec::new, |position| window.split_off(position + 1));
+    }
+
+    let mut readable = Vec::new();
+    let mut invalid = start > 0;
+    for line in window.split_inclusive(|byte| *byte == b'\n') {
+        let Some(payload) = line.strip_suffix(b"\n") else {
+            invalid = true;
+            continue;
+        };
+        match serde_json::from_slice::<AuditRecordV1>(payload) {
+            Ok(_) => readable.push(line),
+            Err(_) => invalid = true,
+        }
+    }
+    if !invalid {
+        return Ok(None);
+    }
+
+    let backup_path = archive(path, file)?;
+    let mut retained_bytes = 0_u64;
+    let mut retained_start = readable.len();
+    for (index, line) in readable.iter().enumerate().rev() {
+        let line_bytes = u64::try_from(line.len()).map_err(|_| AuditError::InvalidRecord)?;
+        let target = COMPACTED_AUDIT_BYTES.max(line_bytes).min(MAX_AUDIT_BYTES);
+        if retained_bytes.saturating_add(line_bytes) > target {
+            break;
+        }
+        retained_bytes += line_bytes;
+        retained_start = index;
+    }
+
+    file.set_len(0).map_err(|_| AuditError::Io)?;
+    file.seek(SeekFrom::Start(0)).map_err(|_| AuditError::Io)?;
+    for line in &readable[retained_start..] {
+        file.write_all(line).map_err(|_| AuditError::Io)?;
+    }
+    file.sync_all().map_err(|_| AuditError::Io)?;
+    Ok(Some(backup_path))
+}
+
+fn archive(path: &Path, file: &mut File) -> Result<PathBuf, AuditError> {
+    let parent = path.parent().ok_or(AuditError::InvalidPath)?;
+    let old_logs = parent.join("old_logs");
+    std::fs::create_dir_all(&old_logs).map_err(|_| AuditError::Io)?;
+    let nonce_high = getrandom::u64().map_err(|_| AuditError::Io)?;
+    let nonce_low = getrandom::u64().map_err(|_| AuditError::Io)?;
+    let backup_path = old_logs.join(format!("audit-{nonce_high:016x}{nonce_low:016x}.jsonl"));
+    let mut backup = open_regular(&backup_path, true)?.ok_or(AuditError::Io)?;
+    protect_file(&backup)?;
+    file.seek(SeekFrom::Start(0)).map_err(|_| AuditError::Io)?;
+    std::io::copy(file, &mut backup).map_err(|_| AuditError::Io)?;
+    backup.sync_all().map_err(|_| AuditError::Io)?;
+    sync_parent(&old_logs)?;
+    Ok(backup_path)
 }
 
 fn open_bounded(path: &Path) -> Result<Option<File>, AuditError> {
@@ -459,6 +572,18 @@ fn protect_file(file: &File) -> Result<(), AuditError> {
 
 #[cfg(not(unix))]
 fn protect_file(_file: &File) -> Result<(), AuditError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<(), AuditError> {
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| AuditError::Io)
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> Result<(), AuditError> {
     Ok(())
 }
 
