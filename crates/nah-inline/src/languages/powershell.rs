@@ -1350,10 +1350,13 @@ fn dynamic_statement(source: &str, lowercase: &str) -> bool {
 
 fn definition_or_resolution_mutation(lowercase: &str, platform: Platform) -> bool {
     let trimmed = lowercase.trim_start();
+    let command = trimmed.split_ascii_whitespace().next();
     trimmed.starts_with("function ")
         || trimmed.starts_with("filter ")
         || trimmed.starts_with("set-alias ")
         || trimmed.starts_with("new-alias ")
+        || matches!(command, Some("set-item" | "si"))
+            && (trimmed.contains("alias:") || trimmed.contains("function:"))
         || trimmed
             .split_ascii_whitespace()
             .next()
@@ -1390,6 +1393,37 @@ fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<Str
                     .map(|name| name.trim_start_matches(['\\', '/']))
                     .filter(|name| !name.is_empty())
                     .map(str::to_owned)
+            }));
+        }
+        if words
+            .first()
+            .is_some_and(|word| matches!(word.as_str(), "set-item" | "si"))
+        {
+            let target = words[1..]
+                .windows(2)
+                .find_map(|pair| {
+                    matches!(pair[0].as_str(), "-path" | "-literalpath").then_some(pair[1].as_str())
+                })
+                .or_else(|| {
+                    words[1..].iter().find_map(|word| {
+                        word.strip_prefix("-path:")
+                            .or_else(|| word.strip_prefix("-literalpath:"))
+                    })
+                })
+                .or_else(|| {
+                    words[1..]
+                        .iter()
+                        .find(|word| !word.starts_with('-'))
+                        .map(String::as_str)
+                });
+            shadowed.extend(target.into_iter().filter_map(|target| {
+                ["alias:", "function:"].into_iter().find_map(|provider| {
+                    target
+                        .strip_prefix(provider)
+                        .map(|name| name.trim_start_matches(['\\', '/']))
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned)
+                })
             }));
         }
         match words.as_slice() {

@@ -571,6 +571,30 @@ fn powershell_alias_provider_paths_invalidate_later_alias_resolution() {
 }
 
 #[test]
+fn powershell_set_item_provider_rebinding_invalidates_later_alias_resolution() {
+    for source in [
+        r"Set-Item -Force -Path Alias:rm -Value Write-Output; rm -Recurse -LiteralPath 'C:\Users\test'",
+        r"Set-Item -Force -Path Function:rm -Value Write-Output; rm -Recurse -LiteralPath 'C:\Users\test'",
+    ] {
+        let analysis = analyze("pwsh", source);
+        assert!(!analysis.draft().complete(), "{source}");
+        assert!(analysis.draft().calls().is_empty(), "{source}");
+        assert!(
+            !analysis
+                .report()
+                .contains_exact(FindingKind::HomeDestruction),
+            "{source}"
+        );
+        assert!(
+            !analysis
+                .report()
+                .contains_conservative(FindingKind::HomeDestruction),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn named_move_source_keeps_the_positional_destination() {
     let analysis = analyze("pwsh", r"Move-Item -LiteralPath C:\from C:\to");
     assert!(analysis.draft().complete());
