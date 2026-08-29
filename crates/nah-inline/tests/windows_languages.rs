@@ -34,6 +34,8 @@ fn powershell_collection_bindings_remain_partial_and_keep_protection_active() {
         r"Get-Content -Path 'first','second'",
         r"Set-Content -Path 'first','second' -Value 'value'",
         r"Set-Content -Path 'target' -Value 'first','second'",
+        r"Remove-Item -Recurse C:\safe C:\Users\test",
+        r"Move-Item C:\one C:\two C:\destination",
     ] {
         assert!(!analyze("pwsh", source).draft().complete(), "{source}");
     }
@@ -112,7 +114,7 @@ fn powershell_false_positive_controls_do_not_overclaim() {
     );
 
     let positional_filter = analyze("pwsh", r"Remove-Item C:\temp *.txt");
-    assert!(positional_filter.draft().complete());
+    assert!(!positional_filter.draft().complete());
     assert_eq!(positional_filter.draft().calls()[0].filesystems().len(), 1);
     assert_eq!(
         positional_filter.draft().calls()[0].filesystems()[0].requested(),

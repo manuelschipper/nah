@@ -257,6 +257,7 @@ impl Interpreter<'_, '_> {
         let what_if = switch_enabled(&arguments, "whatif");
         let recurse = switch_enabled(&arguments, "recurse") || switch_enabled(&arguments, "r");
         let (targets, literal) = path_targets(&arguments);
+        let positionals_complete = arguments.positional.len() <= 1;
         let filesystems = if what_if {
             Vec::new()
         } else {
@@ -273,7 +274,7 @@ impl Interpreter<'_, '_> {
             tokens.iter(),
             filesystems,
             None,
-            arguments.complete && (!targets.is_empty() || what_if),
+            arguments.complete && positionals_complete && (!targets.is_empty() || what_if),
         );
     }
 
@@ -283,8 +284,11 @@ impl Interpreter<'_, '_> {
         let (sources, literal) = path_targets(&arguments);
         let source = sources.first().copied();
         let named_source = parameter_value(&arguments, &["path", "literalpath"]).is_some();
-        let destination = parameter_value(&arguments, &["destination"])
+        let named_destination = parameter_value(&arguments, &["destination"]);
+        let destination = named_destination
             .or_else(|| arguments.positional.get(if named_source { 0 } else { 1 }));
+        let positionals_complete = arguments.positional.len()
+            <= usize::from(!named_source) + usize::from(named_destination.is_none());
         let filesystems = if what_if {
             Vec::new()
         } else {
@@ -317,7 +321,9 @@ impl Interpreter<'_, '_> {
             tokens.iter(),
             filesystems,
             None,
-            arguments.complete && (source.is_some() && destination.is_some() || what_if),
+            arguments.complete
+                && positionals_complete
+                && (source.is_some() && destination.is_some() || what_if),
         );
     }
 

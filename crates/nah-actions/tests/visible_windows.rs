@@ -347,6 +347,28 @@ fn powershell_collection_targets_do_not_claim_full_coverage() {
 }
 
 #[test]
+fn powershell_surplus_positionals_are_partial_at_both_entry_points() {
+    for (source, nested) in [
+        (
+            r"Remove-Item -Recurse C:\safe C:\Users\test",
+            r"pwsh -c 'Remove-Item -Recurse C:\safe C:\Users\test'",
+        ),
+        (
+            r"Move-Item C:\one C:\two C:\destination",
+            r"pwsh -c 'Move-Item C:\one C:\two C:\destination'",
+        ),
+    ] {
+        for plan in [
+            direct_plan(VisibleCode::Pwsh { source }, source),
+            nested_plan(nested),
+        ] {
+            let observation = observe(plan.observation_request(), None);
+            assert_eq!(finalize(plan, observation).coverage(), Coverage::Partial);
+        }
+    }
+}
+
+#[test]
 fn powershell_alias_provider_removal_stops_later_resolution_at_both_entry_points() {
     let source = r"Remove-Item Alias:\rm; rm -Recurse -LiteralPath C:\Users\test";
     for plan in [
