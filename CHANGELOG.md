@@ -17,7 +17,7 @@
   must remain unambiguous against PowerShell's common parameters. `cmd` numeric output
   streams retain their static redirection writes. Executable-suffixed cmd names stay
   external, and PowerShell alias removal invalidates later alias resolution through
-  every supported `Remove-Item` spelling.
+  every supported `Remove-Item` spelling and Alias-provider root path.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

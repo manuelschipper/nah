@@ -347,6 +347,25 @@ fn powershell_collection_targets_do_not_claim_full_coverage() {
 }
 
 #[test]
+fn powershell_alias_provider_removal_stops_later_resolution_at_both_entry_points() {
+    let source = r"Remove-Item Alias:\rm; rm -Recurse -LiteralPath C:\Users\test";
+    for plan in [
+        direct_plan(VisibleCode::Pwsh { source }, source),
+        nested_plan(r"pwsh -c 'Remove-Item Alias:\rm; rm -Recurse -LiteralPath C:\Users\test'"),
+    ] {
+        let observation = observe(plan.observation_request(), None);
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Partial);
+        assert!(
+            stream
+                .effects()
+                .iter()
+                .all(|effect| !matches!(effect.kind(), EffectKind::Filesystem { .. }))
+        );
+    }
+}
+
+#[test]
 fn powershell_tilde_home_uses_canonical_effects_at_both_entry_points() {
     let source = r"Remove-Item -Recurse -LiteralPath '~'";
     let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);

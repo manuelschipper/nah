@@ -555,6 +555,20 @@ fn powershell_remove_item_aliases_invalidate_later_alias_resolution() {
 }
 
 #[test]
+fn powershell_alias_provider_paths_invalidate_later_alias_resolution() {
+    for alias_path in [r"Alias:\rm", "Alias:/rm"] {
+        let analysis = analyze(
+            "pwsh",
+            &format!(
+                r"Remove-Item -LiteralPath {alias_path}; rm -Recurse -LiteralPath 'C:\Users\test'"
+            ),
+        );
+        assert!(!analysis.draft().complete(), "{alias_path}");
+        assert!(analysis.draft().calls().is_empty(), "{alias_path}");
+    }
+}
+
+#[test]
 fn named_move_source_keeps_the_positional_destination() {
     let analysis = analyze("pwsh", r"Move-Item -LiteralPath C:\from C:\to");
     assert!(analysis.draft().complete());

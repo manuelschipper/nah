@@ -1381,6 +1381,7 @@ fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<Str
         }) {
             shadowed.extend(words[1..].iter().filter_map(|word| {
                 word.strip_prefix("alias:")
+                    .map(|name| name.trim_start_matches(['\\', '/']))
                     .filter(|name| !name.is_empty())
                     .map(str::to_owned)
             }));
