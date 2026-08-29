@@ -805,6 +805,7 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .map_or((idle, Style::default()), |message| {
             let color = match message.kind {
                 MessageKind::Info => Color::White,
+                MessageKind::Warning => Color::Yellow,
                 MessageKind::Success => Color::Green,
                 MessageKind::Error => Color::Red,
             };

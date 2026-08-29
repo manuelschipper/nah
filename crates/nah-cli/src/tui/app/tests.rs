@@ -495,6 +495,50 @@ fn reloading_clamps_when_the_pinned_record_is_gone() {
 }
 
 #[test]
+fn recovered_logs_raise_a_warning_after_the_readable_view_loads() {
+    let mut app = App::fixture();
+    let records = vec![App::record_fixture("decision-recovered", Verdict::Delegate)];
+    app.apply_reloaded_view(DecisionLogView {
+        records: records.clone(),
+        blocked_records: vec![],
+        failures: None,
+        recovered_from: Some("/home/test/.nah/old_logs/audit.jsonl".into()),
+    });
+
+    assert_eq!(app.log, records);
+    assert!(matches!(
+        app.message,
+        Some(Message {
+            kind: MessageKind::Warning,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_recovery_warning_does_not_replace_an_active_error() {
+    let mut app = App::fixture();
+    app.message = Some(Message {
+        kind: MessageKind::Error,
+        text: "active error".into(),
+    });
+    app.apply_reloaded_view(DecisionLogView {
+        records: vec![],
+        blocked_records: vec![],
+        failures: None,
+        recovered_from: Some("/home/test/.nah/old_logs/audit.jsonl".into()),
+    });
+
+    assert!(matches!(
+        app.message,
+        Some(Message {
+            kind: MessageKind::Error,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn blocks_arriving_off_the_log_screen_badge_its_tab() {
     let mut app = App::fixture();
     assert_eq!(app.screen, Screen::Guards);

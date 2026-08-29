@@ -41,6 +41,7 @@ pub(crate) enum Screen {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageKind {
     Info,
+    Warning,
     Success,
     Error,
 }
@@ -346,11 +347,25 @@ impl App {
         // Size first: a decision appended during the load then looks like drift
         // and is tailed, rather than being skipped until the next append.
         let log_size = log_size();
-        // An unreadable log must not keep the guard, trust, and runtime
-        // screens from opening; the failure shows in the footer instead.
-        let (log, blocked_log, failure_summary, log_error) = match recent_log() {
-            Ok(view) => (view.records, view.blocked_records, view.failures, None),
-            Err(error) => (vec![], vec![], None, Some(error)),
+        // Log recovery or an I/O failure must not keep the guard, trust, and
+        // runtime screens from opening; its warning or error uses the footer.
+        let (log, blocked_log, failure_summary, message) = match recent_log() {
+            Ok(view) => {
+                let message = view.recovered_from.as_deref().map(|path| Message {
+                    kind: MessageKind::Warning,
+                    text: recovered_log_message(path),
+                });
+                (view.records, view.blocked_records, view.failures, message)
+            }
+            Err(error) => (
+                vec![],
+                vec![],
+                None,
+                Some(Message {
+                    kind: MessageKind::Error,
+                    text: format!("decision log is unreadable: {error}"),
+                }),
+            ),
         };
         // Decisions already recorded are not new arrivals.
         let seen_block_id = blocked_log.first().map(|record| record.id.clone());
@@ -386,10 +401,7 @@ impl App {
             help_open: false,
             confirmation: None,
             confirmation_scroll: 0,
-            message: log_error.map(|error| Message {
-                kind: MessageKind::Error,
-                text: format!("decision log is unreadable: {error}"),
-            }),
+            message,
         })
     }
 
@@ -923,10 +935,13 @@ impl App {
             Ok(projects) => self.projects = projects,
             Err(error) => refresh_error = Some(error),
         }
-        self.log_size = log_size();
-        match recent_log() {
-            Ok(view) => self.apply_reloaded_view(view),
-            Err(error) => refresh_error = Some(error),
+        #[cfg(not(test))]
+        {
+            self.log_size = log_size();
+            match recent_log() {
+                Ok(view) => self.apply_reloaded_view(view),
+                Err(error) => refresh_error = Some(error),
+            }
         }
         self.runtimes = runtime_entries();
         self.current_project = current_project();
@@ -1012,8 +1027,14 @@ impl App {
     }
 
     fn apply_reloaded_view(&mut self, view: DecisionLogView) {
+        let recovered_from = view.recovered_from;
         self.failure_summary = view.failures;
         self.apply_reloaded_logs(view.records, view.blocked_records);
+        if self.message.is_none()
+            && let Some(path) = recovered_from
+        {
+            self.warning(recovered_log_message(&path));
+        }
     }
 
     /// Verdict totals across the active recent or blocked history window.
@@ -1199,6 +1220,13 @@ impl App {
         });
     }
 
+    fn warning(&mut self, text: impl Into<String>) {
+        self.message = Some(Message {
+            kind: MessageKind::Warning,
+            text: text.into(),
+        });
+    }
+
     fn success(&mut self, text: impl Into<String>) {
         self.message = Some(Message {
             kind: MessageKind::Success,
@@ -1377,6 +1405,13 @@ fn recent_log() -> Result<DecisionLogView, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     records::recent_decisions(&home, platform, LOG_LIMIT).map_err(|error| error.to_string())
+}
+
+fn recovered_log_message(path: &std::path::Path) -> String {
+    format!(
+        "decision log recovered; original archived to {}; showing latest readable decisions",
+        path.display()
+    )
 }
 
 /// Reads the same global nap state the decision path enforces, so an expired

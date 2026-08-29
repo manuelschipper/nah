@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Unreadable decision log recovery** — `nah log` and the TUI archive an
+  unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
+  readable records, and warn instead of leaving decision browsing unavailable.
 - **Optional startup-management guard** — New default-off
   `fs-startup-management` blocks reviewed persistent `systemctl`, `launchctl`,
   and `crontab` mutations when enabled without changing startup-path defaults.
@@ -28,10 +31,7 @@
   family and default posture and filters by family, default, and source.
 - **Simpler shipped guard attribution** — `nah/decide/v1` and `nah/audit/v1`
   shipped attributions now contain only the kind discriminator and guard name.
-  A pre-upgrade `~/.nah/audit.jsonl` containing old `policy_version` entries is
-  rejected; remove the file after upgrading to restore `nah log`, `nah why`,
-  TUI decision browsing, and audit compaction. Extension memo entries miss once
-  and are replaced through normal cache use.
+  Extension memo entries miss once and are replaced through normal cache use.
 
 ## nah 1.3.1 — Aug 13, 2026
 
