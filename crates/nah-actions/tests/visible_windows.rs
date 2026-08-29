@@ -462,6 +462,44 @@ fn powershell_whatif_provider_mutations_preserve_later_resolution_at_both_entry_
 }
 
 #[test]
+fn powershell_selector_values_preserve_later_alias_resolution_at_both_entry_points() {
+    for selector in ["Filter", "Include", "Exclude"] {
+        let source = format!(
+            r"Remove-Item -Path C:\safe -{selector} Alias:rm; rm -Recurse -LiteralPath C:\Users\test"
+        );
+        let nested = format!("pwsh -c '{source}'");
+        for plan in [
+            direct_plan(VisibleCode::Pwsh { source: &source }, &source),
+            nested_plan(&nested),
+        ] {
+            let observation = observe(plan.observation_request(), None);
+            let stream = finalize(plan, observation);
+            assert_eq!(stream.coverage(), Coverage::Full, "{source}");
+            assert!(
+                stream.effects().iter().any(|effect| matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.operation == FilesystemOperation::Delete
+                            && effect.target.as_str() == r"C:\safe"
+                            && !effect.recursive
+                )),
+                "{source}"
+            );
+            assert!(
+                stream.effects().iter().any(|effect| matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { effect }
+                        if effect.operation == FilesystemOperation::Delete
+                            && effect.target.as_str() == r"C:\Users\test"
+                            && effect.recursive
+                )),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
 fn powershell_tilde_home_uses_canonical_effects_at_both_entry_points() {
     let source = r"Remove-Item -Recurse -LiteralPath '~'";
     let direct = filesystem_effects(direct_plan(VisibleCode::Pwsh { source }, source), None);

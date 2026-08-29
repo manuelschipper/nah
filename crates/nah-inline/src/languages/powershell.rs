@@ -106,7 +106,7 @@ impl Interpreter<'_, '_> {
             return;
         }
         let lowercase = trimmed.to_ascii_lowercase();
-        if definition_or_resolution_mutation(&lowercase, self.input.platform) {
+        if definition_or_resolution_mutation(trimmed, self.input.home, self.input.platform) {
             self.shadowed.extend(shadowed_commands(
                 trimmed,
                 self.input.home,
@@ -1361,8 +1361,10 @@ fn dynamic_statement(source: &str, lowercase: &str) -> bool {
         || lowercase.contains("new-object") && !lowercase.contains("webclient")
 }
 
-fn definition_or_resolution_mutation(lowercase: &str, platform: Platform) -> bool {
-    let trimmed = lowercase.trim_start();
+fn definition_or_resolution_mutation(code: &str, home: &str, platform: Platform) -> bool {
+    let trimmed = code.trim_start();
+    let lowercase = trimmed.to_ascii_lowercase();
+    let trimmed = lowercase.as_str();
     let command = trimmed.split_ascii_whitespace().next();
     trimmed.starts_with("function ")
         || trimmed.starts_with("filter ")
@@ -1370,16 +1372,37 @@ fn definition_or_resolution_mutation(lowercase: &str, platform: Platform) -> boo
         || trimmed.starts_with("new-alias ")
         || matches!(command, Some("set-item" | "si"))
             && (trimmed.contains("alias:") || trimmed.contains("function:"))
-        || trimmed
-            .split_ascii_whitespace()
-            .next()
-            .is_some_and(|command| {
-                matches!(
-                    canonical_command(command, platform),
-                    CanonicalCommand::RemoveItem
-                )
+        || trimmed.contains("alias:")
+            && lex(code, home).is_some_and(|(lexemes, _)| {
+                let tokens = lexemes
+                    .into_iter()
+                    .filter_map(|lexeme| match lexeme {
+                        Lexeme::Word(token) => Some(token),
+                        Lexeme::Pipe | Lexeme::Redirect => None,
+                    })
+                    .collect::<Vec<_>>();
+                removed_alias_name(&tokens, platform).is_some()
             })
-            && trimmed.contains("alias:")
+}
+
+fn removed_alias_name(tokens: &[Token], platform: Platform) -> Option<String> {
+    let (command, tokens) = tokens.split_first()?;
+    if !matches!(
+        canonical_command(&command.value.to_ascii_lowercase(), platform),
+        CanonicalCommand::RemoveItem
+    ) {
+        return None;
+    }
+    let arguments = parse_arguments(tokens, remove_parameter);
+    path_targets(&arguments)?
+        .0
+        .first()?
+        .value
+        .to_ascii_lowercase()
+        .strip_prefix("alias:")
+        .map(|name| name.trim_start_matches(['\\', '/']))
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
 }
 
 fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<String> {
@@ -1413,19 +1436,7 @@ fn shadowed_commands(code: &str, home: &str, platform: Platform) -> BTreeSet<Str
             .iter()
             .map(|token| token.value.to_ascii_lowercase())
             .collect::<Vec<_>>();
-        if words.first().is_some_and(|word| {
-            matches!(
-                canonical_command(word, platform),
-                CanonicalCommand::RemoveItem
-            )
-        }) {
-            shadowed.extend(words[1..].iter().filter_map(|word| {
-                word.strip_prefix("alias:")
-                    .map(|name| name.trim_start_matches(['\\', '/']))
-                    .filter(|name| !name.is_empty())
-                    .map(str::to_owned)
-            }));
-        }
+        shadowed.extend(removed_alias_name(&tokens, platform));
         if words
             .first()
             .is_some_and(|word| matches!(word.as_str(), "set-item" | "si"))
