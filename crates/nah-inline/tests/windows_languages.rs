@@ -230,6 +230,63 @@ fn powershell_hash_starts_comments_only_at_token_boundaries() {
 }
 
 #[test]
+fn windows_shell_line_continuations_remain_partial_without_fabricated_effects() {
+    let overclaim = analyze(
+        "pwsh",
+        "Write-Output ok `\nRemove-Item -Recurse C:\\Users\\test",
+    );
+    assert!(!overclaim.draft().complete());
+    assert!(
+        overclaim
+            .draft()
+            .calls()
+            .iter()
+            .all(|call| call.filesystems().is_empty())
+    );
+
+    let deletion = analyze("pwsh", "Remove-Item -Recurse `\nC:\\Users\\test");
+    assert!(!deletion.draft().complete());
+    assert_eq!(
+        deletion.draft().calls()[0].filesystems()[0].requested(),
+        Some(r"C:\Users\test")
+    );
+    assert!(
+        deletion
+            .report()
+            .contains_exact(FindingKind::HomeDestruction)
+    );
+
+    for source in [
+        "del /q ^\nC:\\Users\\test\\secret.txt",
+        "del /q ^\r\nC:\\Users\\test\\secret.txt",
+    ] {
+        let analysis = analyze("cmd", source);
+        assert!(!analysis.draft().complete(), "{source:?}");
+        assert!(analysis.draft().calls().is_empty(), "{source:?}");
+    }
+
+    let critical = AbsolutePath::new(Platform::Windows, r"C:\Users\test\.nah\config.toml").unwrap();
+    let analysis = interpret_language_effects(
+        InlineInput {
+            program: "pwsh",
+            code: "Write-Output x > `\nC:\\Users\\test\\.nah\\config.toml",
+            home: r"C:\Users\test",
+            platform: Platform::Windows,
+        },
+        ProtectionInput {
+            critical_paths: &[critical],
+            ambient_variables: &[],
+        },
+    );
+    assert!(!analysis.draft().complete());
+    assert!(
+        analysis
+            .report()
+            .contains_conservative(FindingKind::NahTampering)
+    );
+}
+
+#[test]
 fn powershell_attached_redirection_emits_a_static_write() {
     for source in [
         r"Write-Output evil>C:\target",
@@ -561,4 +618,13 @@ fn powershell_binds_unambiguous_parameter_prefixes() {
 
     let ambiguous = analyze("pwsh", r"Remove-Item -E stop C:\Users\test");
     assert!(!ambiguous.draft().complete());
+
+    let common_ambiguous = analyze("pwsh", r"Remove-Item -Recurse C:\Users\test -w");
+    assert!(!common_ambiguous.draft().complete());
+    assert!(common_ambiguous.draft().calls()[0].filesystems()[0].recursive());
+    assert!(
+        common_ambiguous
+            .report()
+            .contains_exact(FindingKind::HomeDestruction)
+    );
 }

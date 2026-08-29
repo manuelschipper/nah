@@ -207,6 +207,55 @@ fn attached_powershell_redirection_lowers_at_both_entry_points() {
 }
 
 #[test]
+fn windows_shell_line_continuations_are_partial_at_both_entry_points() {
+    for (visible, source, nested, expected_target) in [
+        (
+            VisibleCode::Pwsh {
+                source: "Write-Output ok `\nRemove-Item -Recurse C:\\Users\\test",
+            },
+            "Write-Output ok `\nRemove-Item -Recurse C:\\Users\\test",
+            "pwsh -c 'Write-Output ok `\nRemove-Item -Recurse C:\\Users\\test'",
+            None,
+        ),
+        (
+            VisibleCode::Pwsh {
+                source: "Remove-Item -Recurse `\nC:\\Users\\test",
+            },
+            "Remove-Item -Recurse `\nC:\\Users\\test",
+            "pwsh -c 'Remove-Item -Recurse `\nC:\\Users\\test'",
+            Some(r"C:\Users\test"),
+        ),
+        (
+            VisibleCode::Cmd {
+                source: "del /q ^\nC:\\Users\\test\\secret.txt",
+            },
+            "del /q ^\nC:\\Users\\test\\secret.txt",
+            "cmd /c 'del /q ^\nC:\\Users\\test\\secret.txt'",
+            None,
+        ),
+    ] {
+        for plan in [direct_plan(visible, source), nested_plan(nested)] {
+            let observation = observe(plan.observation_request(), None);
+            let stream = finalize(plan, observation);
+            assert_eq!(stream.coverage(), Coverage::Partial, "{source:?}");
+            let targets = stream
+                .effects()
+                .iter()
+                .filter_map(|effect| match effect.kind() {
+                    EffectKind::Filesystem { effect } => Some(effect.target.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                targets,
+                expected_target.into_iter().collect::<Vec<_>>(),
+                "{source:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn escaped_non_ascii_windows_paths_lower_at_both_entry_points() {
     for (visible, source, nested) in [
         (

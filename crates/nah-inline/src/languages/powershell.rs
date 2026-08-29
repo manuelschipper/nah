@@ -65,10 +65,15 @@ pub(super) fn interpret_effects<'a>(
     protection: Option<&ProtectionInput<'a>>,
     depth: usize,
 ) -> LanguageAnalysis {
-    let (code, comments_complete) = strip_comments(input.code);
+    let (stripped_code, comments_complete) = strip_comments(input.code);
+    let code_without_continuations = code_without_powershell_line_continuations(&stripped_code);
+    let code = code_without_continuations
+        .as_deref()
+        .unwrap_or(&stripped_code);
+    let analyzed_input = InlineInput { code, ..*input };
     let mut interpreter = Interpreter {
         program: program.to_owned(),
-        input: *input,
+        input: analyzed_input,
         protection,
         depth,
         report: InlineReport::default(),
@@ -78,13 +83,16 @@ pub(super) fn interpret_effects<'a>(
     if !comments_complete {
         interpreter.draft.set_partial();
     }
-    for statement in statements(&code) {
+    if code_without_continuations.is_some() {
+        interpreter.draft.set_partial();
+    }
+    for statement in statements(code) {
         interpreter.interpret_statement(statement);
     }
     let report = with_typed_protection(
         interpreter.report,
         program,
-        input,
+        &analyzed_input,
         protection,
         &interpreter.draft,
     );
@@ -689,6 +697,57 @@ fn statements(code: &str) -> Vec<&str> {
     result
 }
 
+fn code_without_powershell_line_continuations(code: &str) -> Option<String> {
+    let bytes = code.as_bytes();
+    let mut result = String::with_capacity(code.len());
+    let mut segment_start = 0;
+    let mut quote = None;
+    let mut index = 0;
+    while index < bytes.len() {
+        if quote == Some(b'\'') {
+            if bytes[index] == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if bytes[index] == b'`' {
+            let continuation_len = if bytes.get(index + 1) == Some(&b'\n') {
+                Some(2)
+            } else if bytes.get(index + 1) == Some(&b'\r') && bytes.get(index + 2) == Some(&b'\n') {
+                Some(3)
+            } else {
+                None
+            };
+            if let Some(continuation_len) = continuation_len {
+                result.push_str(&code[segment_start..index]);
+                index += continuation_len;
+                segment_start = index;
+                continue;
+            }
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if let Some(active) = quote {
+            if bytes[index] == active {
+                quote = None;
+            }
+        } else if matches!(bytes[index], b'\'' | b'"') {
+            quote = Some(bytes[index]);
+        }
+        index += 1;
+    }
+    if segment_start == 0 {
+        return None;
+    }
+    result.push_str(&code[segment_start..]);
+    Some(result)
+}
+
 fn strip_comments(code: &str) -> (String, bool) {
     let bytes = code.as_bytes();
     let mut output = String::with_capacity(code.len());
@@ -1156,7 +1215,8 @@ fn start_process_parameter(name: &str) -> Option<(&'static str, bool)> {
 /// names, reporting whether that parameter is a switch (`true`) or takes a
 /// value (`false`). PowerShell also binds an unambiguous parameter-name prefix
 /// such as `-Rec`, so a prefix matching exactly one modeled name resolves to
-/// that name; an ambiguous or unknown prefix stays unresolved.
+/// that name. Shared common parameters also participate in ambiguity even when
+/// the command-specific model does not otherwise consume them.
 fn parameter(
     name: &str,
     switches: &'static [&'static str],
@@ -1181,8 +1241,30 @@ fn parameter(
             resolved = Some((candidate, switch));
         }
     }
+    let (resolved_name, _) = resolved?;
+    if POWERSHELL_COMMON_PARAMETERS
+        .iter()
+        .any(|candidate| *candidate != resolved_name && candidate.starts_with(name))
+    {
+        return None;
+    }
     resolved
 }
+
+const POWERSHELL_COMMON_PARAMETERS: &[&str] = &[
+    "debug",
+    "erroraction",
+    "errorvariable",
+    "informationaction",
+    "informationvariable",
+    "outbuffer",
+    "outvariable",
+    "pipelinevariable",
+    "progressaction",
+    "verbose",
+    "warningaction",
+    "warningvariable",
+];
 
 fn parameter_value<'a>(arguments: &'a Arguments, names: &[&str]) -> Option<&'a Token> {
     arguments

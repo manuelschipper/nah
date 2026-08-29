@@ -41,12 +41,23 @@ pub(super) fn interpret_effects(
     protection: Option<&ProtectionInput<'_>>,
     _depth: usize,
 ) -> LanguageAnalysis {
-    let (commands, complete) = commands(input.code);
     let mut interpreter = Interpreter {
         input: *input,
         report: InlineReport::default(),
         draft: LanguageDraft::default(),
     };
+    if has_cmd_line_continuation(input.code) {
+        interpreter.draft.set_partial();
+        let report = with_typed_protection(
+            interpreter.report,
+            program,
+            input,
+            protection,
+            &interpreter.draft,
+        );
+        return LanguageAnalysis::new(report, interpreter.draft);
+    }
+    let (commands, complete) = commands(input.code);
     if !complete {
         interpreter.draft.set_partial();
     }
@@ -61,6 +72,10 @@ pub(super) fn interpret_effects(
         &interpreter.draft,
     );
     LanguageAnalysis::new(report, interpreter.draft)
+}
+
+fn has_cmd_line_continuation(code: &str) -> bool {
+    code.contains("^\n") || code.contains("^\r\n")
 }
 
 impl Interpreter<'_> {
