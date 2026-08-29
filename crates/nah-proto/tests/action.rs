@@ -279,10 +279,10 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
         )
         .is_ok()
     );
-    let windows_device_effect = EffectKind::Filesystem {
+    let windows_system_effect = EffectKind::Filesystem {
         effect: FilesystemEffect {
             operation: FilesystemOperation::Write,
-            target: AbsolutePath::new(Platform::Windows, r"\\.\PhysicalDrive0").unwrap(),
+            target: AbsolutePath::new(Platform::Windows, r"C:\System\state").unwrap(),
             scope: PathScope::System,
             sensitivity: Sensitivity::None,
             protection: None,
@@ -296,7 +296,7 @@ fn complete_effect_algebra_has_stable_tags_and_scope_invariants() {
     assert!(
         ActionStream::new(
             Coverage::Full,
-            vec![vec![known("format", "write"), windows_device_effect]],
+            vec![vec![known("format", "write"), windows_system_effect]],
             vec![],
         )
         .is_ok()

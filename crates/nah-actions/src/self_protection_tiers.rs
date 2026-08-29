@@ -201,7 +201,13 @@ fn installed_binary_paths(home: &AbsolutePath, platform: Platform) -> Vec<String
         .iter()
         .map(|directory| join(&join(home.as_str(), directory, platform), binary, platform))
         .collect::<Vec<_>>();
-    if platform != Platform::Windows {
+    if platform == Platform::Windows {
+        paths.push(join(
+            &join(home.as_str(), "AppData/Local/Programs/nah", platform),
+            binary,
+            platform,
+        ));
+    } else {
         paths.extend(
             ["/usr/local/bin/nah", "/usr/bin/nah"]
                 .iter()
@@ -376,6 +382,44 @@ mod tests {
                 false,
             ),
             Some(NahProtectionTier::Permanent)
+        );
+        let windows_release_binary = AbsolutePath::new(
+            Platform::Windows,
+            r"c:\users\test\AppData\Local\Programs\nah\nah.exe",
+        )
+        .unwrap();
+        assert_eq!(
+            classify(
+                FilesystemOperation::Write,
+                &windows_release_binary,
+                &windows_release_binary,
+                &[],
+                &[],
+                &windows_home,
+                &[],
+                Platform::Windows,
+                false,
+            ),
+            Some(NahProtectionTier::Critical)
+        );
+        let windows_release_directory = AbsolutePath::new(
+            Platform::Windows,
+            r"c:\users\test\AppData\Local\Programs\nah",
+        )
+        .unwrap();
+        assert_eq!(
+            classify(
+                FilesystemOperation::Delete,
+                &windows_release_directory,
+                &windows_release_directory,
+                &[],
+                &[],
+                &windows_home,
+                &[],
+                Platform::Windows,
+                false,
+            ),
+            Some(NahProtectionTier::Critical)
         );
         let windows_devin = AbsolutePath::new(
             Platform::Windows,

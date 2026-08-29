@@ -90,9 +90,9 @@ Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock
 always blocks. A nap is user-global, and its changes persist.
 
-Self-protection is a prompt-injection guardrail, not a same-user boundary. It
-blocks understood direct, wrapped, package-manager, or bounded-inline attempts
-to mutate nah or active wiring, replace its installed binary, skip hooks, add
-hard-link aliases, or change access on wiring or executable ancestors. Setup,
-hardening, opaque or unhooked paths, pre-existing aliases, and out-of-session
-work remain user responsibilities.
+Self-protection blocks understood mutation of nah, active wiring, its executable,
+aliases, or executable ancestors. On Windows, extended drive and UNC observations
+normalize; device or reparse paths fail. `%USERPROFILE%\.nah` has an inheritable
+DACL for the current user, SYSTEM, and Administrators; nap keys require that
+owner and no other DACL principal. Opaque or unhooked work remains user
+responsibility.

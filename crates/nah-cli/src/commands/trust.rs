@@ -138,6 +138,11 @@ pub(crate) fn canonical_project_root(
     let root = root
         .to_str()
         .ok_or_else(|| format!("project root {requested:?} is not UTF-8"))?;
+    let root = if platform == nah_proto::ctx::Platform::Windows {
+        nah_observe::normalize_windows_observed_path(root)
+    } else {
+        root.to_owned()
+    };
     AbsolutePath::new(platform, root).map_err(|error| error.to_string())
 }
 

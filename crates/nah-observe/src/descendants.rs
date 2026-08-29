@@ -10,7 +10,7 @@ use nah_proto::observation::{
     MAX_DESCENDANT_PATHS, PathKind, PathObservation, SymlinkTraversal,
 };
 
-use crate::io_paths::absolute_from_path;
+use crate::io_paths::{absolute_from_path, is_reparse_point};
 use crate::path_facts::has_multiple_links;
 
 pub(crate) struct Budget {
@@ -66,29 +66,33 @@ pub(crate) fn observe(
     }
     budget.entries -= 1;
 
-    match path.kind() {
-        PathKind::Directory => pending.push((physical_root.clone(), visible_root.clone(), 0)),
-        PathKind::Symlink if symlink_traversal != SymlinkTraversal::None => {
-            match fs::metadata(&physical_root) {
-                Ok(metadata) if metadata.is_dir() => {
-                    pending.push((physical_root.clone(), visible_root.clone(), 0));
+    if fs::symlink_metadata(&physical_root).is_ok_and(|metadata| is_reparse_point(&metadata)) {
+        complete = false;
+    } else {
+        match path.kind() {
+            PathKind::Directory => pending.push((physical_root.clone(), visible_root.clone(), 0)),
+            PathKind::Symlink if symlink_traversal != SymlinkTraversal::None => {
+                match fs::metadata(&physical_root) {
+                    Ok(metadata) if metadata.is_dir() => {
+                        pending.push((physical_root.clone(), visible_root.clone(), 0));
+                    }
+                    Ok(metadata) if metadata.is_file() => {
+                        inspect_file(
+                            &physical_root,
+                            &visible_root,
+                            &metadata,
+                            budget,
+                            &mut paths,
+                            &mut complete,
+                        );
+                    }
+                    Ok(_) => complete = false,
+                    Err(_) => complete = false,
                 }
-                Ok(metadata) if metadata.is_file() => {
-                    inspect_file(
-                        &physical_root,
-                        &visible_root,
-                        &metadata,
-                        budget,
-                        &mut paths,
-                        &mut complete,
-                    );
-                }
-                Ok(_) => complete = false,
-                Err(_) => complete = false,
             }
+            PathKind::Other => complete = false,
+            PathKind::Missing | PathKind::File | PathKind::Symlink | PathKind::Fifo => {}
         }
-        PathKind::Other => complete = false,
-        PathKind::Missing | PathKind::File | PathKind::Symlink | PathKind::Fifo => {}
     }
 
     let mut visited = BTreeSet::new();
@@ -124,13 +128,18 @@ pub(crate) fn observe(
             };
             let physical_path = entry.path();
             let visible_path = visible_directory.join(entry.file_name());
-            let file_type = match entry.file_type() {
-                Ok(file_type) => file_type,
+            let metadata = match fs::symlink_metadata(&physical_path) {
+                Ok(metadata) => metadata,
                 Err(_) => {
                     complete = false;
                     continue;
                 }
             };
+            if is_reparse_point(&metadata) {
+                complete = false;
+                continue;
+            }
+            let file_type = metadata.file_type();
             if file_type.is_file() {
                 match entry.metadata() {
                     Ok(metadata) => {

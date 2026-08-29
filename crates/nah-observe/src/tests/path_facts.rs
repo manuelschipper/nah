@@ -1,5 +1,7 @@
 use super::support::{init_repo, request, value};
 use crate::fulfill;
+#[cfg(windows)]
+use nah_proto::ctx::{AbsolutePath, Platform};
 #[cfg(unix)]
 use nah_proto::observation::PathKind;
 use nah_proto::observation::{ObservationFailure, ObservationValue, Observed};
@@ -165,4 +167,33 @@ fn symlink_to_fifo_records_the_followed_target_kind() {
     };
     assert_eq!(link.kind(), PathKind::Symlink);
     assert_eq!(link.target_kind(), Some(PathKind::Fifo));
+}
+
+#[cfg(windows)]
+#[test]
+fn junction_ancestors_are_unavailable() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("root");
+    let target = temporary.path().join("target");
+    let junction = root.join("junction");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("protected-state"), "state").unwrap();
+    assert!(
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let cwd = AbsolutePath::new(Platform::Windows, root.to_str().unwrap()).unwrap();
+    assert!(matches!(
+        crate::path_facts::observe_path(&cwd, r"junction\protected-state"),
+        Observed::Error {
+            error: ObservationFailure::Unavailable,
+        }
+    ));
 }

@@ -5,6 +5,10 @@
 - **Windows custom guards** — exec/v1 guards now use one deterministic Windows
   entrypoint, generate a `py -3` template, and terminate full descendant trees
   after each consultation.
+- **Windows host-state protection** — Windows path observations now normalize
+  extended drive and UNC results, unsafe reparse paths fail closed, and
+  `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
+  `nah.exe` path is also self-protected.
 - **Unreadable decision log recovery** — `nah log` and the TUI archive an
   unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
   readable records, and warn instead of leaving decision browsing unavailable.
