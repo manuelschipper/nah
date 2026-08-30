@@ -1,0 +1,23 @@
+[package]
+name = "effinterp-engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+effinterp-proto = { path = "../effinterp-proto" }
+blake3 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustpython-parser = "0.4.0"
+oxc_allocator = "0.116.0"
+oxc_ast = "0.116.0"
+oxc_ast_visit = "0.116.0"
+oxc_parser = "0.116.0"
+oxc_span = "0.116.0"
+gosyn = "0.2.14"
+lib-ruby-parser = "4.0.6"
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+tree-sitter = "0.25"
+tree-sitter-php = "0.23.11"
+tree-sitter-java = "0.23.5"

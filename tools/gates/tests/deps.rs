@@ -4,8 +4,9 @@
 //! use allowlisted external crates — impurity can't arrive via a dependency.
 
 use gates::{
-    PackageDeps, allowed_nah_deps, dependency_direction_violations, pure_dependency_violations,
-    workspace_packages,
+    PackageDeps, PathDependency, allowed_nah_deps, dependency_direction_violations,
+    effinterp_linkage_violations, effinterp_revision_violations, path_dependency_violations,
+    pure_dependency_violations, workspace_packages, workspace_path_dependencies, workspace_root,
 };
 
 /// Workspace tooling outside the decision pipeline, exempt from layering.
@@ -34,6 +35,87 @@ fn pure_crates_have_only_allowed_dependencies_and_no_build_scripts() {
         "pure-crate dependency gate failed:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn effectinterp_linkage_is_confined_to_the_bridge() {
+    let violations = effinterp_linkage_violations(&workspace_packages());
+    assert!(
+        violations.is_empty(),
+        "effectinterp linkage gate failed:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn seeded_effectinterp_linkage_is_rejected() {
+    let packages = vec![
+        PackageDeps {
+            name: "nah-policy".into(),
+            normal_deps: vec!["effinterp-proto".into()],
+            build_deps: vec!["effinterp-engine".into()],
+            dev_deps: Vec::new(),
+            source_paths: Vec::new(),
+            build_scripts: Vec::new(),
+        },
+        PackageDeps {
+            name: "nah-effinterp".into(),
+            normal_deps: vec!["effinterp-proto".into()],
+            build_deps: vec!["effinterp-engine".into()],
+            dev_deps: Vec::new(),
+            source_paths: Vec::new(),
+            build_scripts: Vec::new(),
+        },
+    ];
+    assert_eq!(effinterp_linkage_violations(&packages).len(), 2);
+}
+
+#[test]
+fn workspace_path_dependencies_stay_inside_the_workspace() {
+    let root = workspace_root();
+    let violations = path_dependency_violations(&workspace_path_dependencies(), &root);
+    assert!(
+        violations.is_empty(),
+        "workspace path dependency gate failed:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn seeded_external_path_dependency_is_rejected() {
+    let root = workspace_root();
+    let dependencies = [PathDependency {
+        package: "nah-cli".into(),
+        dependency: "outside".into(),
+        path: root.parent().unwrap().to_owned(),
+    }];
+    assert_eq!(path_dependency_violations(&dependencies, &root).len(), 1);
+}
+
+#[test]
+fn effectinterp_source_replacement_rev_matches_manifest() {
+    let manifest = include_str!("../../../crates/nah-effinterp/Cargo.toml");
+    let config = include_str!("../../../.cargo/config.toml");
+    let violations = effinterp_revision_violations(manifest, config);
+    assert!(
+        violations.is_empty(),
+        "effectinterp revision gate failed:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn seeded_effectinterp_rev_mismatch_is_rejected() {
+    let manifest = r#"
+[dependencies]
+effinterp-engine = { git = "https://example.invalid/effectinterp", rev = "one" }
+effinterp-proto = { git = "https://example.invalid/effectinterp", rev = "one" }
+"#;
+    let config = r#"
+[source.effinterp]
+rev = "two"
+"#;
+    assert_eq!(effinterp_revision_violations(manifest, config).len(), 2);
 }
 
 #[test]
