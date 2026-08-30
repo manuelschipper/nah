@@ -17,18 +17,21 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
     let Some(arguments) = arguments else {
         return false;
     };
-    let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     let arguments = if provider == Provider::GitLab {
         let Some((arguments, repo_override)) = gitlab_repo_override(&arguments) else {
             return false;
         };
-        if repo_override.is_some_and(|target| !valid_gitlab_repository(target)) {
+        if repo_override
+            .as_deref()
+            .is_some_and(|target| !valid_gitlab_repository(target))
+        {
             return false;
         }
         arguments
     } else {
         arguments
     };
+    let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     let mut help_requested = None;
     let mut command_index = 0;
     while let Some(value) = arguments
@@ -83,18 +86,18 @@ fn gitlab_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool 
         .is_some_and(|target| target.is_none_or(valid_gitlab_repository))
 }
 
-fn gitlab_repo_override<'a>(arguments: &[&'a str]) -> Option<(Vec<&'a str>, Option<&'a str>)> {
+fn gitlab_repo_override(arguments: &[String]) -> Option<(Vec<String>, Option<String>)> {
     let mut remaining = Vec::with_capacity(arguments.len());
     let mut repo_override = None;
     let mut after_options = false;
     let mut index = 0;
     while index < arguments.len() {
-        let argument = arguments[index];
+        let argument = arguments[index].as_str();
         if argument == "--" {
             after_options = true;
         }
         if !after_options && matches!(argument, "-R" | "--repo") {
-            repo_override = Some(*arguments.get(index + 1)?);
+            repo_override = Some(arguments.get(index + 1)?.clone());
             index += 2;
             continue;
         }
@@ -106,7 +109,7 @@ fn gitlab_repo_override<'a>(arguments: &[&'a str]) -> Option<(Vec<&'a str>, Opti
             if value.is_empty() {
                 return None;
             }
-            repo_override = Some(value);
+            repo_override = Some(value.to_owned());
             index += 1;
             continue;
         }
@@ -114,11 +117,34 @@ fn gitlab_repo_override<'a>(arguments: &[&'a str]) -> Option<(Vec<&'a str>, Opti
             && let Some(value) = argument.strip_prefix("-R")
             && !value.is_empty()
         {
-            repo_override = Some(value);
+            repo_override = Some(value.to_owned());
             index += 1;
             continue;
         }
-        remaining.push(argument);
+        if !after_options
+            && let Some(options) = glab_short_options(argument)
+            && let Some(('R', attached_value)) = options.value
+        {
+            let value = attached_value
+                .map(str::to_owned)
+                .or_else(|| arguments.get(index + 1).cloned())?;
+            if value.is_empty() {
+                return None;
+            }
+            repo_override = Some(value);
+            if options.include {
+                remaining.push("-i".to_owned());
+            }
+            if let Some(help) = options.help {
+                remaining.push(if help { "-h" } else { "-h=false" }.to_owned());
+            }
+            if options.confirmation {
+                remaining.push("-y".to_owned());
+            }
+            index += 1 + usize::from(attached_value.is_none());
+            continue;
+        }
+        remaining.push(argument.to_owned());
         index += 1;
     }
     Some((remaining, repo_override))
@@ -1660,7 +1686,7 @@ fn glab_short_options(argument: &str) -> Option<GlabShortOptions<'_>> {
                     return Some(options);
                 }
             }
-            'F' | 'H' | 'X' | 'f' => {
+            'F' | 'H' | 'R' | 'X' | 'f' => {
                 let value = if value.is_empty() {
                     None
                 } else {

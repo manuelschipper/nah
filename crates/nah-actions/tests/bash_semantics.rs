@@ -44,6 +44,7 @@ fn executable_lookalikes_and_ambiguous_options_do_not_gain_system_semantics() {
     for source in [
         "/tmp/chmod --rec 000 /",
         "/usr/local/bin/chmod --rec 000 /",
+        "/tmp/probe/usr/bin/../../../../usr/bin/chmod --rec 000 /",
         "./chmod --rec 000 /",
     ] {
         let stream = stream(source);

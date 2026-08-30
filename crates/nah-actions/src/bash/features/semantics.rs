@@ -239,6 +239,14 @@ fn trusted_program_basename(program: &str, platform: Platform) -> Option<&str> {
         match component {
             "" | "." => {}
             ".." => {
+                // Traversal after an arbitrary prefix may cross a symlink and select a
+                // different executable than lexical normalization would claim.
+                if !matches!(
+                    components.as_slice(),
+                    [] | ["usr"] | ["bin" | "sbin"] | ["usr", "bin" | "sbin"]
+                ) {
+                    return None;
+                }
                 // Absolute paths stay at the filesystem root when parent traversal passes it.
                 let _ = components.pop();
             }
@@ -272,6 +280,13 @@ mod tests {
         }
         assert_eq!(normalize_program("/tmp/chmod", Platform::Linux), None);
         assert_eq!(normalize_program("/../../tmp/chmod", Platform::Linux), None);
+        assert_eq!(
+            normalize_program(
+                "/tmp/probe/usr/bin/../../../../usr/bin/chmod",
+                Platform::Linux,
+            ),
+            None
+        );
         assert_eq!(normalize_program("./chmod", Platform::Linux), None);
         assert_eq!(
             normalize_program("CMD.EXE", Platform::Windows).as_deref(),

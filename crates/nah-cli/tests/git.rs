@@ -162,6 +162,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "glab repo delete group/project -yh=false",
             "git-remote-delete",
         ),
+        (
+            "glab repo delete group/project -yRother/project",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -iRother/project -X DELETE projects/123",
+            "git-remote-delete",
+        ),
         ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
         ("gh api -iXDELETE repos/owner/project", "git-remote-delete"),
         (
@@ -413,6 +421,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api --template '{{' -X DELETE repos/owner/project",
         "gh api --template '{{break}}' -X DELETE repos/owner/project",
         "glab api -H invalid -X DELETE projects/123",
+        "/tmp/probe/usr/bin/../../../../usr/bin/gh repo delete owner/project --yes",
         "gh api --silent --verbose -X DELETE repos/owner/project",
         "gh api --jq= --jq . --silent -X DELETE repos/owner/project",
         "gh repo delete --help=false --help --yes owner/project",

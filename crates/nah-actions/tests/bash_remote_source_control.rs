@@ -34,6 +34,7 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "glab repo delete group/project --yes",
         "glab repo delete -y parent/group/project",
         "glab repo delete -R group/project -y",
+        "glab repo delete group/project -yRother/project",
         "glab repo delete --repo=group/project --yes",
         "glab -R parent/group/project repo delete -y",
         "glab -R parent/group/project --help=false repo delete -y",
@@ -167,6 +168,7 @@ fn gitlab_short_option_clusters_preserve_delete_classification() {
         "glab api -iXDELETE projects/123",
         "glab api -iiX DELETE projects/123",
         "glab api -iFtrace=true -X DELETE projects/123",
+        "glab api -iRother/project -X DELETE projects/123",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -459,6 +461,7 @@ fn wrappers_and_reviewed_executable_paths_retain_remote_delete_identity() {
         "/tmp/gh repo delete owner/project --yes",
         "./glab repo delete group/project -y",
         "/usr/local/bin/gh api -X DELETE repos/owner/project",
+        "/tmp/probe/usr/bin/../../../../usr/bin/gh repo delete owner/project --yes",
     ] {
         assert!(!deletes_repository(source), "{source}");
     }
