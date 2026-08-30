@@ -352,6 +352,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api --jq= --jq . --silent -X DELETE repos/owner/project",
         "gh repo delete --help=false --help --yes owner/project",
         "gh --help=false repo delete --help --yes owner/project",
+        "gh api -h=false -X DELETE repos/owner/project",
         "gh repo --help delete owner/project --yes",
         "glab project --help delete group/project --yes",
         "glab api --paginate -X DELETE projects/123",

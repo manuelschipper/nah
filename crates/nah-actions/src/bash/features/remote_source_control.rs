@@ -22,7 +22,7 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
     let mut command_index = 0;
     while let Some(value) = arguments
         .get(command_index)
-        .and_then(|argument| help_flag(argument))
+        .and_then(|argument| help_flag(argument, provider))
     {
         help_requested = Some(value);
         command_index += 1;
@@ -84,7 +84,10 @@ fn repo_delete_command<'a>(
     ) {
         return None;
     }
-    while let Some(value) = rest.first().and_then(|argument| help_flag(argument)) {
+    while let Some(value) = rest
+        .first()
+        .and_then(|argument| help_flag(argument, provider))
+    {
         help_requested = Some(value);
         rest = &rest[1..];
     }
@@ -104,7 +107,7 @@ fn repo_delete_target<'a>(
             continue;
         }
         if !after_options {
-            if let Some(value) = help_flag(argument) {
+            if let Some(value) = help_flag(argument, provider) {
                 help_requested = Some(value);
                 continue;
             }
@@ -147,8 +150,12 @@ fn confirmation_flag(argument: &str, provider: Provider) -> bool {
         || provider == Provider::GitLab && boolean_flag(argument, "-y").is_some()
 }
 
-fn help_flag(argument: &str) -> Option<bool> {
-    boolean_flag(argument, "--help").or_else(|| boolean_flag(argument, "-h"))
+fn help_flag(argument: &str, provider: Provider) -> Option<bool> {
+    boolean_flag(argument, "--help").or_else(|| match provider {
+        Provider::GitHub if argument == "-h" || argument.starts_with("-h=") => Some(true),
+        Provider::GitHub => None,
+        Provider::GitLab => boolean_flag(argument, "-h"),
+    })
 }
 
 fn boolean_flag(argument: &str, flag: &str) -> Option<bool> {
@@ -272,7 +279,7 @@ fn api_request<'a>(
             index += 1;
             continue;
         }
-        if !after_options && let Some(value) = help_flag(argument) {
+        if !after_options && let Some(value) = help_flag(argument, provider) {
             help_requested = Some(value);
             index += 1;
             continue;

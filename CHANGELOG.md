@@ -58,7 +58,8 @@
   flags whose final value restores destructive execution and port-qualified
   GitHub Enterprise hosts. Parent-command help flags, GitHub field placeholders,
   GitLab user placeholders, and API preflight flags now follow the providers'
-  effective behavior. Glab short-option clusters remain guarded, while
+  effective behavior. GitHub's short `-h` remains a help request even when
+  assigned false. Glab short-option clusters remain guarded, while
   conflicting API body modes delegate. GitHub include-prefixed short options
   remain guarded, while invalid Glab output formats delegate. Empty or superseded
   GitHub output filters now follow the provider's effective preflight behavior.
