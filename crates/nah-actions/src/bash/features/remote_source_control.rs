@@ -231,6 +231,7 @@ fn api_request<'a>(
     let mut gitlab_form_stdin_count = 0;
     let mut gitlab_input = false;
     let mut gitlab_non_form_body = false;
+    let mut gitlab_typed_fields = Vec::new();
     let mut after_options = false;
     let mut index = 0;
     while index < arguments.len() {
@@ -252,7 +253,11 @@ fn api_request<'a>(
             }
             if let Some((name, attached_value)) = options.value {
                 let value = attached_value.or_else(|| arguments.get(index + 1).copied())?;
-                if matches!(name, 'F' | 'f') && !valid_gitlab_field(value, name == 'F') {
+                if name == 'F' {
+                    if !update_gitlab_typed_field(&mut gitlab_typed_fields, value) {
+                        return None;
+                    }
+                } else if name == 'f' && !valid_gitlab_raw_field(value) {
                     return None;
                 }
                 if name == 'X' {
@@ -321,7 +326,17 @@ fn api_request<'a>(
             if !api_value_option(name, provider) {
                 return None;
             }
-            if !valid_api_option_value(name, value, provider) {
+            if !valid_api_option_value(name, value) {
+                return None;
+            }
+            if provider == Provider::GitLab && name == "--field" {
+                if !update_gitlab_typed_field(&mut gitlab_typed_fields, value) {
+                    return None;
+                }
+            } else if provider == Provider::GitLab
+                && name == "--raw-field"
+                && !valid_gitlab_raw_field(value)
+            {
                 return None;
             }
             if provider == Provider::GitLab
@@ -352,7 +367,17 @@ fn api_request<'a>(
         }
         if !after_options && api_value_option(argument, provider) {
             let value = *arguments.get(index + 1)?;
-            if !valid_api_option_value(argument, value, provider) {
+            if !valid_api_option_value(argument, value) {
+                return None;
+            }
+            if provider == Provider::GitLab && argument == "--field" {
+                if !update_gitlab_typed_field(&mut gitlab_typed_fields, value) {
+                    return None;
+                }
+            } else if provider == Provider::GitLab
+                && argument == "--raw-field"
+                && !valid_gitlab_raw_field(value)
+            {
                 return None;
             }
             if provider == Provider::GitLab
@@ -401,6 +426,9 @@ fn api_request<'a>(
         || provider == Provider::GitLab && paginate_requested.is_some() && gitlab_input
         || gitlab_form && gitlab_non_form_body
         || gitlab_form_stdin_count > 1
+        || gitlab_typed_fields
+            .iter()
+            .any(|(_, query_compatible)| !query_compatible)
     {
         return None;
     }
@@ -410,11 +438,9 @@ fn api_request<'a>(
     })
 }
 
-fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
-    match (provider, name) {
-        (_, "--hostname") => valid_api_hostname(value),
-        (Provider::GitLab, "--field") => valid_gitlab_field(value, true),
-        (Provider::GitLab, "--raw-field") => valid_gitlab_field(value, false),
+fn valid_api_option_value(name: &str, value: &str) -> bool {
+    match name {
+        "--hostname" => valid_api_hostname(value),
         _ => true,
     }
 }
@@ -423,20 +449,51 @@ fn valid_api_hostname(hostname: &str) -> bool {
     !hostname.trim().is_empty() && !hostname.contains(['/', ':'])
 }
 
-fn valid_gitlab_field(field: &str, parses_json: bool) -> bool {
-    let Some((_, value)) = field.split_once('=') else {
-        return false;
-    };
-    !parses_json || !value.starts_with(['[', '{']) || valid_json_value(value)
+fn valid_gitlab_raw_field(field: &str) -> bool {
+    field.contains('=')
 }
 
-fn valid_json_value(value: &str) -> bool {
-    let mut parser = JsonParser {
-        remaining: value.as_bytes(),
+fn update_gitlab_typed_field<'a>(fields: &mut Vec<(&'a str, bool)>, field: &'a str) -> bool {
+    let Some((name, value)) = field.split_once('=') else {
+        return false;
     };
-    parser.parse_value(0) && {
+    let query_compatible = if value.starts_with(['[', '{']) {
+        let mut parser = JsonParser {
+            remaining: value.as_bytes(),
+        };
+        let Some(value) = parser.parse_value(0) else {
+            return false;
+        };
         parser.skip_whitespace();
-        parser.remaining.is_empty()
+        if !parser.remaining.is_empty() {
+            return false;
+        }
+        value.query_compatible()
+    } else {
+        true
+    };
+    if let Some((_, current)) = fields.iter_mut().find(|(current, _)| *current == name) {
+        *current = query_compatible;
+    } else {
+        fields.push((name, query_compatible));
+    }
+    true
+}
+
+enum JsonValue {
+    Scalar,
+    Null,
+    Array(bool),
+    Object,
+}
+
+impl JsonValue {
+    fn query_compatible(&self) -> bool {
+        matches!(self, Self::Scalar | Self::Null | Self::Array(true))
+    }
+
+    fn array_element_compatible(&self) -> bool {
+        matches!(self, Self::Scalar)
     }
 }
 
@@ -445,64 +502,64 @@ struct JsonParser<'a> {
 }
 
 impl JsonParser<'_> {
-    fn parse_value(&mut self, depth: usize) -> bool {
+    fn parse_value(&mut self, depth: usize) -> Option<JsonValue> {
         if depth == 128 {
-            return false;
+            return None;
         }
         self.skip_whitespace();
         match self.remaining.first() {
-            Some(b'"') => self.parse_string(),
+            Some(b'"') => self.parse_string().then_some(JsonValue::Scalar),
             Some(b'{') => self.parse_object(depth + 1),
             Some(b'[') => self.parse_array(depth + 1),
-            Some(b't') => self.take(b"true"),
-            Some(b'f') => self.take(b"false"),
-            Some(b'n') => self.take(b"null"),
-            Some(b'-' | b'0'..=b'9') => self.parse_number(),
-            _ => false,
+            Some(b't') => self.take(b"true").then_some(JsonValue::Scalar),
+            Some(b'f') => self.take(b"false").then_some(JsonValue::Scalar),
+            Some(b'n') => self.take(b"null").then_some(JsonValue::Null),
+            Some(b'-' | b'0'..=b'9') => self.parse_number().then_some(JsonValue::Scalar),
+            _ => None,
         }
     }
 
-    fn parse_object(&mut self, depth: usize) -> bool {
+    fn parse_object(&mut self, depth: usize) -> Option<JsonValue> {
         self.take(b"{");
         self.skip_whitespace();
         if self.take(b"}") {
-            return true;
+            return Some(JsonValue::Object);
         }
         loop {
             if !self.parse_string() {
-                return false;
+                return None;
             }
             self.skip_whitespace();
-            if !self.take(b":") || !self.parse_value(depth) {
-                return false;
+            if !self.take(b":") {
+                return None;
             }
+            self.parse_value(depth)?;
             self.skip_whitespace();
             if self.take(b"}") {
-                return true;
+                return Some(JsonValue::Object);
             }
             if !self.take(b",") {
-                return false;
+                return None;
             }
             self.skip_whitespace();
         }
     }
 
-    fn parse_array(&mut self, depth: usize) -> bool {
+    fn parse_array(&mut self, depth: usize) -> Option<JsonValue> {
         self.take(b"[");
         self.skip_whitespace();
         if self.take(b"]") {
-            return true;
+            return Some(JsonValue::Array(true));
         }
+        let mut query_compatible = true;
         loop {
-            if !self.parse_value(depth) {
-                return false;
-            }
+            query_compatible &= self.parse_value(depth)?.array_element_compatible();
             self.skip_whitespace();
             if self.take(b"]") {
-                return true;
+                return Some(JsonValue::Array(query_compatible));
             }
             if !self.take(b",") {
-                return false;
+                return None;
             }
         }
     }

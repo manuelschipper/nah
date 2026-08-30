@@ -257,7 +257,7 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api -X DELETE projects/gitlab-org%2F%63li",
         "glab api --field audit=true --input body.json -XDELETE projects/:id",
         "glab api --form body=@- -X DELETE projects/123",
-        "glab api -F 'data={\"audit\":true}' -f reason=test -X DELETE projects/123",
+        "glab api -F 'data=[\"audit\",true,false,-1.2e3]' -f reason=test -X DELETE projects/123",
         "glab api --silent projects/:fullpath --method DELETE",
         "glab api --method DELETE projects/:namespace%2F:repo",
         "glab api --method DELETE projects/:group%2F:repo",
@@ -328,15 +328,24 @@ fn invalid_api_values_and_preflight_conflicts_delegate_before_delete() {
 }
 
 #[test]
-fn gitlab_typed_fields_require_valid_json() {
+fn gitlab_typed_fields_require_valid_delete_query_values() {
     for source in [
-        "glab api -F 'data={\"items\":[null,true,false,-1.2e3]}' -X DELETE projects/123",
+        "glab api -F 'data=[\"item\",true,false,-1.2e3]' -X DELETE projects/123",
         "glab api --field 'data=[\"line\\n\",\"\\u0041\"]' -X DELETE projects/123",
+        "glab api --field 'data=[]' -X DELETE projects/123",
+        "glab api -f 'data={\"audit\":true}' -X DELETE projects/123",
+        "glab api -F 'data={\"audit\":true}' -F data=1 -X DELETE projects/123",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
 
     for source in [
+        "glab api -F 'data={\"audit\":true}' -X DELETE projects/123",
+        "glab api -F 'data=[null]' -X DELETE projects/123",
+        "glab api -F 'data=[{\"item\":1}]' -X DELETE projects/123",
+        "glab api -F 'data=[[1]]' -X DELETE projects/123",
+        "glab api -F data=1 -F 'data={\"audit\":true}' -X DELETE projects/123",
+        "glab api -F 'data={\"audit\":true}' -f data=1 -X DELETE projects/123",
         "glab api -F 'data={\"item\":1} trailing' -X DELETE projects/123",
         "glab api -F 'data=[01]' -X DELETE projects/123",
         "glab api -F 'data=[1.]' -X DELETE projects/123",

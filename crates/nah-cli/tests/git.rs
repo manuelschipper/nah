@@ -350,6 +350,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "glab api --paginate=false --input /dev/null -X DELETE projects/123",
         "glab api --form first=@- --form second=@- -X DELETE projects/123",
         "glab api -F 'data={' -X DELETE projects/123",
+        "glab api -F 'data={\"audit\":true}' -X DELETE projects/123",
         "glab api -f missingequals -X DELETE projects/123",
         "glab api --output yaml -X DELETE projects/123",
         "gh api --hostname bad/host -X DELETE repos/owner/project",
