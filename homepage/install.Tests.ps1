@@ -319,9 +319,15 @@ Describe 'nah Windows installer and release artifact' `
         $powerShellDecision = Invoke-NahProcess -Executable $nah `
             -Arguments @('hook', 'copilot', 'run') -Payload $powerShellPayload
         $powerShellDecision.ExitCode | Should -Be 0
-        ($powerShellDecision.Stdout | ConvertFrom-Json).permissionDecision |
+        $powerShellResponse = $powerShellDecision.Stdout | ConvertFrom-Json
+        if ($powerShellResponse.permissionDecision -ne 'deny') {
+            $powerShellAudit = Invoke-NahProcess -Executable $nah `
+                -Arguments @('log', '--json', '-n', '1')
+        }
+        $powerShellResponse.permissionDecision |
             Should -BeExactly 'deny' -Because (
-                "stdout: $($powerShellDecision.Stdout); stderr: $($powerShellDecision.Stderr)")
+                "stdout: $($powerShellDecision.Stdout); stderr: $($powerShellDecision.Stderr); " +
+                "audit: $($powerShellAudit.Stdout)")
 
         foreach ($runtime in @('claude', 'codex', 'cursor', 'copilot', 'cline', 'kiro')) {
             $before = Invoke-NahProcess -Executable $nah -Arguments @('hook', $runtime, 'status')
