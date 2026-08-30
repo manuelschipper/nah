@@ -170,12 +170,25 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
         runtime_lifecycle["errorMessage"]
     );
 
-    // The Linux fixture pins the XDG directory so systems with and without
-    // xdg-user-dir exercise the same production path.
-    let documents = if cfg!(any(target_os = "linux", target_os = "macos")) {
-        home.join("Documents")
+    #[cfg(windows)]
+    let documents = {
+        let output = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "[System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+    };
+    #[cfg(not(windows))]
+    let documents = home.join("Documents");
+    let file = if cfg!(windows) {
+        "PreToolUse.ps1"
     } else {
-        home.to_path_buf()
+        "PreToolUse"
     };
     let wiring = run_hook(
         home,
@@ -184,7 +197,7 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
             &project,
             "write_to_file",
             json!({
-                "path":documents.join("Cline/Hooks/PreToolUse"),
+                "path":documents.join("Cline/Hooks").join(file),
                 "content":"disabled"
             }),
         ),
