@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -648,6 +648,7 @@ fn spawn_build_child(
 // UNDOCUMENTED-EFFINTERP: wait4 supplies the child's peak resident set even after a limit kill.
 #[cfg(unix)]
 fn wait_for_build(mut child: Child) -> Result<BuildCompletion, String> {
+    use std::io::Read as _;
     use std::os::unix::process::ExitStatusExt;
 
     let started = Instant::now();
