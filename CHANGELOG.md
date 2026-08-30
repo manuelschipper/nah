@@ -63,10 +63,11 @@
   conflicting API body modes delegate. GitHub include-prefixed short options
   remain guarded, while invalid Glab output formats delegate. Empty or superseded
   GitHub output filters now follow the provider's effective preflight behavior.
-  Invalid API hostnames and Glab fields that cannot be encoded as DELETE query values,
-  duplicate form stdin sources, and pagination/input conflicts delegate before the
-  guard. Dynamic API option values, incompatible GitHub output options, branches, tags,
-  archives, renames, and transfers remain outside its scope.
+  Invalid API hostnames, malformed GitHub API field, header, cache, and template
+  values, and Glab fields that cannot be encoded as DELETE query values delegate
+  before the guard, as do duplicate form stdin sources and pagination/input
+  conflicts. Dynamic API option values, incompatible GitHub output options,
+  branches, tags, archives, renames, and transfers remain outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

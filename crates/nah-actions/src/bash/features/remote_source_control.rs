@@ -227,6 +227,8 @@ fn api_request<'a>(
     let mut github_silent = false;
     let mut github_template = false;
     let mut github_verbose = false;
+    let mut api_hostname = None;
+    let mut github_template_value = None;
     let mut gitlab_form = false;
     let mut gitlab_form_stdin_count = 0;
     let mut gitlab_input = false;
@@ -275,6 +277,20 @@ fn api_request<'a>(
         {
             if let Some((name, attached_value)) = options.value {
                 let value = attached_value.or_else(|| arguments.get(index + 1).copied())?;
+                let option = match name {
+                    'F' => Some("--field"),
+                    'H' => Some("--header"),
+                    'f' => Some("--raw-field"),
+                    't' => Some("--template"),
+                    _ => None,
+                };
+                if option.is_some_and(|name| !valid_api_option_value(name, value, Provider::GitHub))
+                {
+                    return None;
+                }
+                if name == 't' {
+                    github_template_value = Some(value);
+                }
                 if name == 'X' {
                     method = Some(value);
                 }
@@ -326,7 +342,7 @@ fn api_request<'a>(
             if !api_value_option(name, provider) {
                 return None;
             }
-            if !valid_api_option_value(name, value) {
+            if !valid_api_option_value(name, value, provider) {
                 return None;
             }
             if provider == Provider::GitLab && name == "--field" {
@@ -348,6 +364,9 @@ fn api_request<'a>(
             if name == "--method" {
                 method = Some(value);
             }
+            if name == "--hostname" {
+                api_hostname = Some(value);
+            }
             if provider == Provider::GitLab {
                 gitlab_form |= name == "--form";
                 gitlab_form_stdin_count += usize::from(name == "--form" && value.ends_with("=@-"));
@@ -360,6 +379,7 @@ fn api_request<'a>(
                 }
                 if name == "--template" {
                     github_template = !value.is_empty();
+                    github_template_value = Some(value);
                 }
             }
             index += 1;
@@ -367,7 +387,7 @@ fn api_request<'a>(
         }
         if !after_options && api_value_option(argument, provider) {
             let value = *arguments.get(index + 1)?;
-            if !valid_api_option_value(argument, value) {
+            if !valid_api_option_value(argument, value, provider) {
                 return None;
             }
             if provider == Provider::GitLab && argument == "--field" {
@@ -389,6 +409,9 @@ fn api_request<'a>(
             if argument == "--method" {
                 method = Some(value);
             }
+            if argument == "--hostname" {
+                api_hostname = Some(value);
+            }
             if provider == Provider::GitLab {
                 gitlab_form |= argument == "--form";
                 gitlab_form_stdin_count +=
@@ -402,6 +425,7 @@ fn api_request<'a>(
                 }
                 if argument == "--template" {
                     github_template = !value.is_empty();
+                    github_template_value = Some(value);
                 }
             }
             index += 2;
@@ -423,6 +447,8 @@ fn api_request<'a>(
         || paginate_requested == Some(true)
         || github_slurp_requested == Some(true)
         || github_output_options > 1
+        || api_hostname.is_some_and(|hostname| !valid_api_hostname(hostname))
+        || github_template_value.is_some_and(|template| !valid_github_template(template))
         || provider == Provider::GitLab && paginate_requested.is_some() && gitlab_input
         || gitlab_form && gitlab_non_form_body
         || gitlab_form_stdin_count > 1
@@ -438,15 +464,202 @@ fn api_request<'a>(
     })
 }
 
-fn valid_api_option_value(name: &str, value: &str) -> bool {
-    match name {
-        "--hostname" => valid_api_hostname(value),
+fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
+    match (provider, name) {
+        (Provider::GitHub, "--field" | "--raw-field") => valid_github_api_field(value),
+        (Provider::GitHub, "--header") => valid_github_api_header(value),
+        (Provider::GitHub, "--cache") => valid_go_duration(value),
         _ => true,
     }
 }
 
 fn valid_api_hostname(hostname: &str) -> bool {
-    !hostname.trim().is_empty() && !hostname.contains(['/', ':'])
+    !hostname.trim().is_empty() && !hostname.contains(['/', ':', '?', '#'])
+}
+
+fn valid_github_api_field(field: &str) -> bool {
+    let mut key_start = 0;
+    let mut has_key = false;
+    let mut last_key_empty = false;
+    for (index, character) in field.char_indices() {
+        match character {
+            '[' => {
+                if key_start == 0 {
+                    has_key = true;
+                    last_key_empty = index == 0;
+                }
+                key_start = index + 1;
+            }
+            ']' => {
+                has_key = true;
+                last_key_empty = key_start == index;
+            }
+            '=' => return true,
+            _ => {}
+        }
+    }
+    has_key && last_key_empty
+}
+
+fn valid_github_api_header(header: &str) -> bool {
+    let Some((name, value)) = header.split_once(':') else {
+        return false;
+    };
+    !name.eq_ignore_ascii_case("Content-Length") || value.trim().parse::<i64>().is_ok()
+}
+
+fn valid_go_duration(value: &str) -> bool {
+    let (negative, mut value) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    if value == "0" {
+        return true;
+    }
+    if value.is_empty() {
+        return false;
+    }
+
+    let mut duration = 0_u128;
+    while !value.is_empty() {
+        let integer_len = value.bytes().take_while(u8::is_ascii_digit).count();
+        let integer = value[..integer_len]
+            .bytes()
+            .try_fold(0_u128, |value, digit| {
+                value.checked_mul(10)?.checked_add(u128::from(digit - b'0'))
+            });
+        let Some(integer) = integer.filter(|value| *value <= 1_u128 << 63) else {
+            return false;
+        };
+        value = &value[integer_len..];
+
+        let mut fraction = 0_u128;
+        let mut scale = 1_f64;
+        let mut fraction_digits = 0;
+        let mut fraction_overflow = false;
+        if let Some(rest) = value.strip_prefix('.') {
+            fraction_digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+            for digit in rest.bytes().take(fraction_digits) {
+                if fraction_overflow {
+                    continue;
+                }
+                let Some(next) = fraction
+                    .checked_mul(10)
+                    .and_then(|value| value.checked_add(u128::from(digit - b'0')))
+                    .filter(|value| *value <= 1_u128 << 63)
+                else {
+                    fraction_overflow = true;
+                    continue;
+                };
+                fraction = next;
+                scale *= 10.0;
+            }
+            value = &rest[fraction_digits..];
+        }
+        if integer_len == 0 && fraction_digits == 0 {
+            return false;
+        }
+
+        let unit_len = value
+            .bytes()
+            .take_while(|byte| *byte != b'.' && !byte.is_ascii_digit())
+            .count();
+        let unit = match &value[..unit_len] {
+            "ns" => 1_u128,
+            "us" | "µs" | "μs" => 1_000,
+            "ms" => 1_000_000,
+            "s" => 1_000_000_000,
+            "m" => 60 * 1_000_000_000,
+            "h" => 60 * 60 * 1_000_000_000,
+            _ => return false,
+        };
+        let Some(component) = integer.checked_mul(unit) else {
+            return false;
+        };
+        let component = component + (fraction as f64 * (unit as f64 / scale)) as u128;
+        let Some(total) = duration.checked_add(component) else {
+            return false;
+        };
+        if total > 1_u128 << 63 {
+            return false;
+        }
+        duration = total;
+        value = &value[unit_len..];
+    }
+    negative || duration < 1_u128 << 63
+}
+
+fn valid_github_template(mut template: &str) -> bool {
+    let mut blocks = 0_usize;
+    loop {
+        let Some(open) = template.find("{{") else {
+            return !template.contains("}}") && blocks == 0;
+        };
+        if template[..open].contains("}}") {
+            return false;
+        }
+        let action_source = &template[open + 2..];
+        let Some(close) = github_template_action_end(action_source) else {
+            return false;
+        };
+        let mut action = action_source[..close].trim();
+        if let Some(trimmed) = action.strip_prefix('-') {
+            action = trimmed.trim_start();
+        }
+        if let Some(trimmed) = action.strip_suffix('-') {
+            action = trimmed.trim_end();
+        }
+        if action.is_empty() {
+            return false;
+        }
+        let mut words = action.split_whitespace();
+        match words.next() {
+            Some("if" | "range" | "with" | "define" | "block") => {
+                if words.next().is_none() {
+                    return false;
+                }
+                blocks += 1;
+            }
+            Some("else") if blocks == 0 => return false,
+            Some("end") => {
+                if blocks == 0 || words.next().is_some() {
+                    return false;
+                }
+                blocks -= 1;
+            }
+            _ => {}
+        }
+        template = &action_source[close + 2..];
+    }
+}
+
+fn github_template_action_end(action: &str) -> Option<usize> {
+    if action.trim_start().starts_with("/*") {
+        return action.find("*/}}").map(|index| index + 2);
+    }
+    let bytes = action.as_bytes();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut index = 0;
+    while index + 1 < bytes.len() {
+        let byte = bytes[index];
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if delimiter != b'`' && byte == b'\\' {
+                escaped = true;
+            } else if byte == delimiter {
+                quote = None;
+            }
+        } else if matches!(byte, b'\'' | b'"' | b'`') {
+            quote = Some(byte);
+        } else if byte == b'}' && bytes[index + 1] == b'}' {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 fn valid_gitlab_raw_field(field: &str) -> bool {
