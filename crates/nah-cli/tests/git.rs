@@ -264,6 +264,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "gh api --template '{{$item := .}}{{$item}}' -X DELETE repos/owner/project",
             "git-remote-delete",
         ),
+        (
+            "gh api --hostname bücher.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{1_000}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -384,6 +392,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api -f invalid -X DELETE repos/owner/project",
         "gh api -F invalid -X DELETE repos/owner/project",
         "gh api -H invalid -X DELETE repos/owner/project",
+        "gh api --header ': value' -X DELETE repos/owner/project",
         "gh api --cache invalid -X DELETE repos/owner/project",
         "gh api --template '{{' -X DELETE repos/owner/project",
         "gh api --template '{{break}}' -X DELETE repos/owner/project",

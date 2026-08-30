@@ -501,7 +501,7 @@ fn api_request<'a>(
         || paginate_requested == Some(true)
         || github_slurp_requested == Some(true)
         || github_output_options > 1
-        || api_hostname.is_some_and(|hostname| !valid_api_hostname(hostname))
+        || api_hostname.is_some_and(|hostname| !valid_api_hostname(hostname, provider))
         || github_template_value.is_some_and(|template| !valid_github_template(template))
         || provider == Provider::GitLab && paginate_requested.is_some() && gitlab_input
         || gitlab_form && gitlab_non_form_body
@@ -528,8 +528,21 @@ fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
     }
 }
 
-fn valid_api_hostname(hostname: &str) -> bool {
-    !hostname.contains(':') && valid_host(hostname)
+fn valid_api_hostname(hostname: &str, provider: Provider) -> bool {
+    !hostname.contains(':')
+        && (valid_host(hostname) || provider == Provider::GitHub && valid_idn_hostname(hostname))
+}
+
+fn valid_idn_hostname(hostname: &str) -> bool {
+    let hostname = hostname.strip_suffix('.').unwrap_or(hostname);
+    !hostname.is_ascii()
+        && hostname.split('.').all(|label| {
+            label.chars().next().is_some_and(char::is_alphanumeric)
+                && label.chars().last().is_some_and(char::is_alphanumeric)
+                && label
+                    .chars()
+                    .all(|character| character.is_alphanumeric() || character == '-')
+        })
 }
 
 fn valid_github_api_field(field: &str) -> bool {
@@ -560,7 +573,28 @@ fn valid_github_api_header(header: &str) -> bool {
     let Some((name, value)) = header.split_once(':') else {
         return false;
     };
-    !name.eq_ignore_ascii_case("Content-Length") || value.trim().parse::<i64>().is_ok()
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+        && (!name.eq_ignore_ascii_case("Content-Length") || value.trim().parse::<i64>().is_ok())
 }
 
 fn valid_gitlab_api_header(header: &str) -> bool {
@@ -1206,6 +1240,32 @@ fn valid_github_template_identifier(identifier: &str) -> bool {
 fn valid_github_template_number(number: &str) -> bool {
     let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
     let unsigned = unsigned.strip_suffix('i').unwrap_or(unsigned);
+    let (radix, prefix_len) = if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        (16, 2)
+    } else if unsigned.starts_with("0b") || unsigned.starts_with("0B") {
+        (2, 2)
+    } else if unsigned.starts_with("0o") || unsigned.starts_with("0O") {
+        (8, 2)
+    } else {
+        (10, 0)
+    };
+    let bytes = unsigned.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'_' {
+            continue;
+        }
+        let follows_prefix = prefix_len > 0 && index == prefix_len;
+        if (!follows_prefix
+            && (index == 0 || !valid_github_template_digit(bytes[index - 1], radix)))
+            || !bytes
+                .get(index + 1)
+                .is_some_and(|byte| valid_github_template_digit(*byte, radix))
+        {
+            return false;
+        }
+    }
+    let normalized = unsigned.replace('_', "");
+    let unsigned = normalized.as_str();
     if let Some(hexadecimal) = unsigned
         .strip_prefix("0x")
         .or_else(|| unsigned.strip_prefix("0X"))
@@ -1225,6 +1285,16 @@ fn valid_github_template_number(number: &str) -> bool {
         return !octal.is_empty() && octal.bytes().all(|byte| matches!(byte, b'0'..=b'7'));
     }
     !unsigned.is_empty() && unsigned.parse::<f64>().is_ok()
+}
+
+fn valid_github_template_digit(byte: u8, radix: u8) -> bool {
+    match radix {
+        2 => matches!(byte, b'0' | b'1'),
+        8 => matches!(byte, b'0'..=b'7'),
+        10 => byte.is_ascii_digit(),
+        16 => byte.is_ascii_hexdigit(),
+        _ => false,
+    }
 }
 
 fn github_template_action_end(action: &str) -> Option<usize> {
