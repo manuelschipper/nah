@@ -106,6 +106,9 @@ Describe 'nah Windows installer and release artifact' `
         $script:originalUserProfile = $env:USERPROFILE
         $script:originalHome = $env:HOME
         $script:originalProcessPath = $env:PATH
+        $pythonLauncher = Get-Command py -CommandType Application -ErrorAction Stop |
+            Select-Object -First 1
+        $script:pythonLauncherDirectory = Split-Path -Parent $pythonLauncher.Path
         $script:originalVariables = @{}
         foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
             $script:originalVariables[$name] = [Environment]::GetEnvironmentVariable(
@@ -394,6 +397,7 @@ Describe 'nah Windows installer and release artifact' `
         $cline.ExitCode | Should -Be 0
         ($cline.Stdout | ConvertFrom-Json).cancel | Should -BeFalse
 
+        $env:PATH = "$env:PATH;$script:pythonLauncherDirectory"
         $created = Invoke-NahProcess -Executable $nah `
             -Arguments @('guard', 'new', 'release-acceptance')
         $created.ExitCode | Should -Be 0
@@ -404,7 +408,13 @@ Describe 'nah Windows installer and release artifact' `
             input = @{ command = 'release-acceptance destroy --all' }
         } | ConvertTo-Json -Compress -Depth 8
         $custom = Invoke-NahProcess -Executable $nah -Arguments @('decide') -Payload $customInput
-        $custom.ExitCode | Should -Be 1
+        $customAudit = $null
+        if ($custom.ExitCode -ne 1) {
+            $customAudit = Invoke-NahProcess -Executable $nah -Arguments @('log', '--json', '-n', '1')
+        }
+        $custom.ExitCode | Should -Be 1 -Because (
+            "stdout: $($custom.Stdout); stderr: $($custom.Stderr); " +
+            "audit: $($customAudit.Stdout)")
         ($custom.Stdout | ConvertFrom-Json).verdict | Should -BeExactly 'block'
     }
 }
