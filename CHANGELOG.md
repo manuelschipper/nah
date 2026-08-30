@@ -74,7 +74,7 @@
   including reviewed short-option clusters.
   Static GitHub API IDN hosts and digit-separated Go template numbers remain
   guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN
-  GitHub repository hosts, including Devanagari, Bengali, Tamil, and Kannada IDNs,
+  GitHub repository hosts, including IDNs with combining marks across scripts,
   while invalid GitHub header names delegate before the guard. GitLab API IDN hosts
   and current GitHub template literals remain guarded, while duplicate GitHub API
   scalar fields and invalid GitLab headers delegate.

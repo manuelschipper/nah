@@ -94,6 +94,7 @@ pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
             "tree-sitter-python",
             "tree-sitter-typescript",
         ]),
+        "nah-actions" => Some(&["idna"]),
         krate if PURE_CRATES.contains(&krate) => Some(&[]),
         _ => None,
     }

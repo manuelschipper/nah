@@ -154,6 +154,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete 'శక్తి.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
             "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
             "git-remote-delete",
         ),

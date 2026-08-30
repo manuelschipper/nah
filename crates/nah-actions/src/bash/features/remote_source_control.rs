@@ -580,48 +580,14 @@ fn valid_api_hostname(hostname: &str) -> bool {
 fn valid_idn_hostname(hostname: &str) -> bool {
     let hostname = hostname.strip_suffix('.').unwrap_or(hostname);
     !hostname.is_ascii()
-        && hostname.split('.').all(|label| {
-            label.chars().next().is_some_and(char::is_alphanumeric)
-                && label
-                    .chars()
-                    .last()
-                    .is_some_and(|character| character.is_alphanumeric() || is_idn_mark(character))
-                && label.chars().all(|character| {
-                    character.is_alphanumeric() || character == '-' || is_idn_mark(character)
-                })
-        })
-}
-
-fn is_idn_mark(character: char) -> bool {
-    matches!(
-        character,
-        '\u{300}'..='\u{36f}'
-            | '\u{900}'..='\u{903}'
-            | '\u{93a}'..='\u{94f}'
-            | '\u{951}'..='\u{957}'
-            | '\u{962}'..='\u{963}'
-            | '\u{981}'..='\u{983}'
-            | '\u{9bc}'
-            | '\u{9be}'..='\u{9c4}'
-            | '\u{9c7}'..='\u{9c8}'
-            | '\u{9cb}'..='\u{9cd}'
-            | '\u{9d7}'
-            | '\u{9e2}'..='\u{9e3}'
-            | '\u{9fe}'
-            | '\u{b82}'
-            | '\u{bbe}'..='\u{bc2}'
-            | '\u{bc6}'..='\u{bc8}'
-            | '\u{bca}'..='\u{bcd}'
-            | '\u{bd7}'
-            | '\u{c81}'..='\u{c83}'
-            | '\u{cbc}'
-            | '\u{cbe}'..='\u{cc4}'
-            | '\u{cc6}'..='\u{cc8}'
-            | '\u{cca}'..='\u{ccd}'
-            | '\u{cd5}'..='\u{cd6}'
-            | '\u{ce2}'..='\u{ce3}'
-            | '\u{cf3}'
-    )
+        && idna::uts46::Uts46::new()
+            .to_ascii(
+                hostname.as_bytes(),
+                idna::AsciiDenyList::STD3,
+                idna::uts46::Hyphens::Check,
+                idna::uts46::DnsLength::Ignore,
+            )
+            .is_ok()
 }
 
 fn valid_github_api_field(field: &str) -> bool {
