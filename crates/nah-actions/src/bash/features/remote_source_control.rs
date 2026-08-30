@@ -582,19 +582,25 @@ fn valid_idn_hostname(hostname: &str) -> bool {
     !hostname.is_ascii()
         && hostname.split('.').all(|label| {
             label.chars().next().is_some_and(char::is_alphanumeric)
-                && label.chars().last().is_some_and(|character| {
-                    character.is_alphanumeric() || is_combining_diacritical_mark(character)
-                })
+                && label
+                    .chars()
+                    .last()
+                    .is_some_and(|character| character.is_alphanumeric() || is_idn_mark(character))
                 && label.chars().all(|character| {
-                    character.is_alphanumeric()
-                        || character == '-'
-                        || is_combining_diacritical_mark(character)
+                    character.is_alphanumeric() || character == '-' || is_idn_mark(character)
                 })
         })
 }
 
-fn is_combining_diacritical_mark(character: char) -> bool {
-    matches!(character, '\u{300}'..='\u{36f}')
+fn is_idn_mark(character: char) -> bool {
+    matches!(
+        character,
+        '\u{300}'..='\u{36f}'
+            | '\u{900}'..='\u{903}'
+            | '\u{93a}'..='\u{94f}'
+            | '\u{951}'..='\u{957}'
+            | '\u{962}'..='\u{963}'
+    )
 }
 
 fn valid_github_api_field(field: &str) -> bool {
