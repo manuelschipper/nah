@@ -252,11 +252,16 @@ fn disabling_startup_persistence_leaves_other_guards_enabled() {
     assert_eq!(decide(temp.path(), &project, &command)["verdict"], "block");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn startup_management_is_factory_off_and_independent() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
-    let management = "systemctl enable backup.service";
+    let management = if cfg!(target_os = "macos") {
+        "launchctl enable system/com.example.backup"
+    } else {
+        "systemctl enable backup.service"
+    };
     let persistence = format!("printf x > {}", bash_path(&temp.path().join(".ssh/rc")));
 
     assert_eq!(

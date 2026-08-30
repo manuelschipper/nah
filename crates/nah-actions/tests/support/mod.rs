@@ -40,11 +40,12 @@ fn bash_plan_with_self_protection_on(
     platform: Platform,
 ) -> nah_actions::AnalysisPlan {
     let syntax = normalize(source).unwrap();
+    let cwd = path_on(platform, "/repo");
     let input = nah_proto::tool::ToolCallInput::new(
         SchemaVersion::V1,
         "Bash",
         serde_json::json!({"command": source}),
-        "/repo",
+        cwd,
         None,
     )
     .unwrap();
@@ -251,7 +252,7 @@ fn facts_with_descendants_on(
             if matches!(change, Change::ChangedPath)
                 && let ObservationQuery::Path { requested, .. } = &mut query
             {
-                *requested = "/changed".into();
+                *requested = path_on(platform, "/changed");
             }
             let value = match &query {
                 ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
@@ -360,7 +361,15 @@ pub(crate) fn absolute(value: &str) -> AbsolutePath {
 }
 
 fn absolute_on(platform: Platform, value: &str) -> AbsolutePath {
-    AbsolutePath::new(platform, value).unwrap()
+    AbsolutePath::new(platform, path_on(platform, value)).unwrap()
+}
+
+fn path_on(platform: Platform, value: &str) -> String {
+    match platform {
+        Platform::Windows if value.starts_with('/') => format!("C:{value}"),
+        Platform::Linux | Platform::Macos if cfg!(windows) => value.replace('\\', "/"),
+        _ => value.to_owned(),
+    }
 }
 
 fn lexically_normalized(value: &str) -> String {
