@@ -62,9 +62,37 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test cross-platform suites
         run: cargo test -p nah-proto -p nah-parse -p nah-inline -p nah-actions -p nah-observe -p nah-policy -p nah-extensions -p nah-cli -p nah-corpus --locked
+      - name: Build release artifact
+        run: cargo build --release --locked -p nah-cli
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
+      - name: Test installer and packaged product
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path pkg | Out-Null
+          Copy-Item target/release/nah.exe pkg/nah.exe
+          Copy-Item LICENSE pkg/LICENSE
+          Compress-Archive -Path pkg/nah.exe,pkg/LICENSE `
+            -DestinationPath nah-x86_64-pc-windows-msvc.zip
+          $hash = (Get-FileHash nah-x86_64-pc-windows-msvc.zip `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(
+            "$PWD/sha256sums.txt",
+            "$hash  nah-x86_64-pc-windows-msvc.zip`n")
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $expectedVersion = ($metadata.packages |
+            Where-Object name -eq 'nah-cli').version
+          $container = New-PesterContainer -Path homepage/install.Tests.ps1 -Data @{
+            ArtifactPath = "$PWD/nah-x86_64-pc-windows-msvc.zip"
+            ChecksumsPath = "$PWD/sha256sums.txt"
+            ExpectedVersion = $expectedVersion
+          }
+          $result = Invoke-Pester -Container $container -CI -PassThru
+          if ($result.FailedCount -ne 0) { exit 1 }
 
-  # 1.0 ships Linux and macOS binaries; native Windows support is deferred,
-  # so the matrix covers the platforms releases are built for.
+  # Windows has its own native job above; this matrix covers the remaining
+  # supported release platform.
   platform:
     strategy:
       fail-fast: false
