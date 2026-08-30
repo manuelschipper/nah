@@ -87,8 +87,10 @@ fn configured_command(command: &str) -> Command {
 
 #[cfg(windows)]
 fn configured_command(command: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+
     let mut configured = Command::new("cmd.exe");
-    configured.args(["/d", "/c", command]);
+    configured.raw_arg(format!("/d /c {command}"));
     configured
 }
 
