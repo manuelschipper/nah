@@ -4,8 +4,8 @@ use nah_proto::action::{ActionStreamVersion, Coverage};
 use nah_proto::ctx::{AbsolutePath, ExecProtocolVersion, Platform};
 use nah_proto::labels::{PathScope, Sensitivity};
 use nah_proto::observation::{ObservationFailure, Observed};
-use nah_proto::stream::effinterp_proto::Plan;
-use nah_proto::stream::{ActionStream, EffectAnnotation, ExecRequest, PathLabel};
+use nah_proto::stream::effinterp_proto::{ExecutionRealm, Plan};
+use nah_proto::stream::{ActionStream, EffectAnnotation, ExecRequest, PathLabel, StreamError};
 
 const FIXTURES: [&str; 4] = [
     include_str!("fixtures/effinterp/curl-upload-endpoint.json"),
@@ -54,6 +54,55 @@ fn stream_rejects_invalid_plans_annotation_domains_and_counts() {
     invalid_plan.schema = "future/plan".into();
     let annotations = vec![EffectAnnotation::default(); invalid_plan.effects.len()];
     assert!(ActionStream::new(invalid_plan, annotations).is_err());
+}
+
+#[test]
+fn runtime_cli_must_name_a_nah_runtime() {
+    let plan = fixture_plan(FIXTURES[1]);
+    let mut annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+    annotations[0].runtime_cli = Some("codex".into());
+    let stream = ActionStream::new(plan, annotations).unwrap();
+
+    let mut wire = serde_json::to_value(stream).unwrap();
+    wire["annotations"][0]["runtime_cli"] = "definitely-not-a-nah-runtime".into();
+    assert!(serde_json::from_value::<ActionStream>(wire).is_err());
+
+    let plan = fixture_plan(FIXTURES[1]);
+    let mut annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+    annotations[0].runtime_cli = Some("definitely-not-a-nah-runtime".into());
+    assert_eq!(
+        ActionStream::new(plan, annotations).unwrap_err(),
+        StreamError::InvalidRuntimeCli
+    );
+}
+
+#[test]
+fn path_labels_only_apply_to_host_filesystem_effects() {
+    let mut plan = fixture_plan(FIXTURES[1]);
+    let realm = ExecutionRealm::Container {
+        runtime: "docker".into(),
+        name: "test".into(),
+    };
+    for node in &mut plan.execution_graph.nodes {
+        node.realm = realm.clone();
+    }
+    for effect in &mut plan.effects {
+        effect.realm = realm.clone();
+    }
+    for node in &mut plan.causality.nodes {
+        if node.execution.is_some() {
+            node.realm = realm.clone();
+        }
+    }
+    let annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+    assert!(ActionStream::new(plan.clone(), annotations).is_ok());
+
+    let mut annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+    annotations[1].path = Some(PathLabel::Unresolved);
+    assert_eq!(
+        ActionStream::new(plan, annotations).unwrap_err(),
+        StreamError::InvalidAnnotationDomain
+    );
 }
 
 #[test]

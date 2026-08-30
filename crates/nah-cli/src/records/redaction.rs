@@ -204,7 +204,7 @@ struct RedactedEffectAnnotation {
 enum RedactedPathLabel {
     Resolved {
         path: RedactedText,
-        scope: nah_proto::labels::PathScope,
+        scope: RedactedPathScope,
         sensitivity: Sensitivity,
         #[serde(skip_serializing_if = "Option::is_none")]
         protection: Option<nah_proto::labels::NahProtectionTier>,
@@ -214,6 +214,16 @@ enum RedactedPathLabel {
         selects_home: bool,
     },
     Unresolved,
+}
+
+#[cfg(feature = "effinterp")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum RedactedPathScope {
+    Project { root: RedactedText },
+    Home,
+    System,
+    OutsideProject,
 }
 
 #[cfg(feature = "effinterp")]
@@ -748,7 +758,16 @@ impl From<&PathLabel> for RedactedPathLabel {
                 selects_home,
             } => Self::Resolved {
                 path: redact(path.as_str(), *sensitivity != Sensitivity::None),
-                scope: scope.clone(),
+                scope: match scope {
+                    nah_proto::labels::PathScope::Project { root } => RedactedPathScope::Project {
+                        root: redact(root.as_str(), *sensitivity != Sensitivity::None),
+                    },
+                    nah_proto::labels::PathScope::Home => RedactedPathScope::Home,
+                    nah_proto::labels::PathScope::System => RedactedPathScope::System,
+                    nah_proto::labels::PathScope::OutsideProject => {
+                        RedactedPathScope::OutsideProject
+                    }
+                },
                 sensitivity: *sensitivity,
                 protection: *protection,
                 host_integrity: *host_integrity,

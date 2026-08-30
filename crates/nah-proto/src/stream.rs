@@ -17,6 +17,24 @@ use crate::exec_v1::{ExecObservation, ExecRequestError};
 use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
 use crate::observation::{Observed, Root};
 
+const RUNTIME_CLI_NAMES: &[&str] = &[
+    "amp",
+    "antigravity",
+    "claude",
+    "cline",
+    "codex",
+    "copilot",
+    "cursor",
+    "devin",
+    "droid",
+    "hermes",
+    "kiro",
+    "openclaw",
+    "opencode",
+    "pi",
+    "prime-agent",
+];
+
 /// A validated effinterp plan paired positionally with nah-owned effect labels.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ActionStream {
@@ -47,10 +65,17 @@ impl ActionStream {
         }
         for (effect, annotation) in self.plan.effects.iter().zip(&self.annotations) {
             let domain = effect.operation.domain();
-            if annotation.path.is_some() && domain != "filesystem"
+            if annotation.path.is_some() && (domain != "filesystem" || !effect.realm.is_host())
                 || annotation.runtime_cli.is_some() && domain != "process"
             {
                 return Err(StreamError::InvalidAnnotationDomain);
+            }
+            if annotation
+                .runtime_cli
+                .as_deref()
+                .is_some_and(|runtime| !RUNTIME_CLI_NAMES.contains(&runtime))
+            {
+                return Err(StreamError::InvalidRuntimeCli);
             }
             let Some(PathLabel::Resolved {
                 path,
@@ -243,6 +268,7 @@ pub enum StreamError {
     InvalidAnnotationDomain,
     InvalidPathLabel,
     InvalidPlan,
+    InvalidRuntimeCli,
     UnsupportedVersion,
 }
 
@@ -253,6 +279,7 @@ impl StreamError {
             Self::InvalidAnnotationDomain => "invalid-annotation-domain",
             Self::InvalidPathLabel => "invalid-path-label",
             Self::InvalidPlan => "invalid-plan",
+            Self::InvalidRuntimeCli => "invalid-runtime-cli",
             Self::UnsupportedVersion => "unsupported-version",
         }
     }

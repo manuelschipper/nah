@@ -1017,11 +1017,13 @@ fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
     annotations[0].runtime_cli = Some("claude".into());
     annotations[1].path = Some(PathLabel::Resolved {
         path: AbsolutePath::new(Platform::Linux, "/work/secret.key").unwrap(),
-        scope: PathScope::System,
+        scope: PathScope::Project {
+            root: AbsolutePath::new(Platform::Linux, "/work/secret.key").unwrap(),
+        },
         sensitivity: Sensitivity::CredentialSecret,
         protection: None,
         host_integrity: None,
-        selects_root: false,
+        selects_root: true,
         selects_home: false,
     });
     let stream = EffinterpActionStream::new(plan, annotations).unwrap();
@@ -1057,6 +1059,10 @@ fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
     assert_eq!(value["plan"]["effects"][1]["resource"]["path"], MASK);
     assert_eq!(
         value["plan"]["effects"][1]["annotation"]["path"]["path"],
+        MASK
+    );
+    assert_eq!(
+        value["plan"]["effects"][1]["annotation"]["path"]["scope"]["root"],
         MASK
     );
     assert_eq!(value["plan"]["effects"][2]["resource"]["family"], "net");
