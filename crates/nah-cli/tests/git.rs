@@ -146,6 +146,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete 'தமிழ்.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
             "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
             "git-remote-delete",
         ),
@@ -306,6 +310,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         (
             "gh api --hostname শক্তি.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname தமிழ்.example -X DELETE repos/owner/project",
             "git-remote-delete",
         ),
         (
