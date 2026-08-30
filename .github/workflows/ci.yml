@@ -61,7 +61,7 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test cross-platform suites
-        run: cargo test -p nah-proto -p nah-parse -p nah-inline -p nah-actions -p nah-observe -p nah-policy -p nah-extensions -p nah-cli -p nah-corpus --locked
+        run: cargo test -p nah-proto -p nah-parse -p nah-inline -p nah-actions -p nah-observe -p nah-policy -p nah-extensions -p nah-cli -p nah-corpus --locked --no-fail-fast
       - name: Build release artifact
         run: cargo build --release --locked -p nah-cli
       - name: Install Pester
