@@ -137,7 +137,7 @@ fn unsigned_nap_state_fails_awake_without_minting_a_key() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let timestamp = now();
@@ -154,7 +154,7 @@ fn tampered_authenticated_state_fails_awake() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let timestamp = now();
@@ -175,7 +175,7 @@ fn nap_requires_an_operator_terminal_and_agents_cannot_start_it() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
 
@@ -207,7 +207,7 @@ fn self_nap_pauses_self_protection_but_keeps_guards_awake_globally() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let first = repo(home);
     let second_parent = home.join("second");
@@ -230,7 +230,7 @@ fn all_nap_delegates_every_non_permanent_call_and_wake_restores_enforcement() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let timestamp = now();
@@ -298,7 +298,7 @@ fn all_nap_intentionally_ignores_unavailable_extension_state() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let timestamp = now();
@@ -329,7 +329,7 @@ fn expired_or_invalid_state_fails_awake() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let timestamp = now();

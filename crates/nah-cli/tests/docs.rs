@@ -1,5 +1,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod support;
+
 use std::process::Command;
 
 #[test]
@@ -7,7 +9,7 @@ fn docs_command_works_without_state() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_nah"))
             .args(args)

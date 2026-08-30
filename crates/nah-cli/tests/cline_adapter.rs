@@ -68,7 +68,7 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
@@ -211,7 +211,7 @@ fn malformed_payloads_delegate_with_native_output() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     for malformed in [

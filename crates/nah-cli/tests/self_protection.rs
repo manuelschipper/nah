@@ -34,7 +34,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
     let critical_path = home.join(".nah/trust.json");
@@ -179,7 +179,7 @@ fn nap_state_is_permanent_and_project_policy_remains_a_proposal() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
 
@@ -227,7 +227,7 @@ fn native_tool_payload_cannot_forge_the_internal_critical_operation() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
     let decision = decide(
@@ -244,7 +244,7 @@ fn shell_state_indirection_cannot_hide_nah_authority_mutations() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
     let critical = bash_path(&home.join(".nah/config"));
@@ -275,7 +275,7 @@ fn direct_project_interpreter_cannot_hide_descriptor_self_protection() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
     std::fs::create_dir_all(repo.join("bin")).unwrap();
@@ -296,7 +296,7 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
     let installed = home.join(".local/bin/nah");

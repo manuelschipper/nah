@@ -6,6 +6,18 @@ use std::process::Command;
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::tool::ToolCallInput;
 
+/// Resolves Unix temp symlinks without creating Windows device-namespace paths.
+pub(crate) fn test_temp_path(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        path.to_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::canonicalize(path).unwrap()
+    }
+}
+
 pub(crate) fn absolute(path: &Path) -> AbsolutePath {
     AbsolutePath::new(host_platform(), path.to_str().unwrap()).unwrap()
 }

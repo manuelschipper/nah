@@ -1,5 +1,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod support;
+
 use std::process::{Command, Stdio};
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -20,7 +22,7 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let file = if cfg!(windows) {
         "PreToolUse.ps1"
@@ -95,7 +97,7 @@ fn install_refuses_unowned_or_symlinked_hook_paths() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let file = if cfg!(windows) {
         "PreToolUse.ps1"
@@ -155,7 +157,7 @@ fn install_uses_clines_xdg_documents_directory() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let bin = home.join("bin");
     let documents = home.join("My Documents");

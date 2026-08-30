@@ -14,7 +14,7 @@ fn decide_command_emits_machine_json_and_verdict_exit_codes() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     for (path, expected_code, expected_verdict) in [
         ("src/lib.rs", 2, Verdict::Delegate),
@@ -54,7 +54,7 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     // 8000 nested groups is 40 KB and used to overflow the parser's stack,
     // which ended `nah` on a signal with no verdict at all.

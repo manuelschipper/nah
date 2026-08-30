@@ -98,7 +98,7 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let settings_path = home.join(".claude/settings.json");
@@ -283,7 +283,7 @@ fn malformed_settings_fail_without_overwriting_user_configuration() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let settings_path = home.join(".claude/settings.json");
     std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
@@ -317,7 +317,7 @@ fn install_rejects_symlinked_claude_config_paths() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let settings_path = home.join(".claude/settings.json");
     let target = home.join("real-settings.json");
@@ -350,7 +350,7 @@ fn install_rejects_a_symlinked_lock_file() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let lock_path = home.join(".nah/claude-hook.lock");
     let target = home.join("lock-target");

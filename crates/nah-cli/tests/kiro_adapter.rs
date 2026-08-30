@@ -64,7 +64,7 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
@@ -175,7 +175,7 @@ fn adapter_accepts_a_valid_event_larger_than_eight_mib() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))

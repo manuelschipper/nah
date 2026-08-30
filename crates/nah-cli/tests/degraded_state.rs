@@ -81,7 +81,7 @@ fn damaged_state_keeps_the_guards_enforcing_and_says_so() {
             let temp = tempfile::tempdir().unwrap();
             // macOS temp directories sit under a symlinked /var, and nah resolves
             // paths before matching them
-            let root = std::fs::canonicalize(temp.path()).unwrap();
+            let root = support::test_temp_path(temp.path());
             let project = repo(&root);
             damage(&root, file, contents);
 
@@ -128,7 +128,7 @@ fn damaged_state_decides_exactly_like_a_fresh_install() {
             let temp = tempfile::tempdir().unwrap();
             // macOS temp directories sit under a symlinked /var, and nah resolves
             // paths before matching them
-            let root = std::fs::canonicalize(temp.path()).unwrap();
+            let root = support::test_temp_path(temp.path());
             let project = repo(&root);
             damage(&root, file, contents);
 
@@ -143,7 +143,7 @@ fn damaged_activation_state_delegates_with_a_failure() {
         let temp = tempfile::tempdir().unwrap();
         // macOS temp directories sit under a symlinked /var, and nah resolves
         // paths before matching them
-        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let root = support::test_temp_path(temp.path());
         let project = repo(&root);
         damage(&root, "activations.json", contents);
         let payload = json!({
@@ -178,7 +178,7 @@ fn damaged_shipped_state_falls_back_to_the_shipped_defaults() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     assert!(
         nah(&root, &["guard", "disable", "fs-system-tree"], None)
@@ -212,7 +212,7 @@ fn a_malformed_bundle_does_not_disarm_a_healthy_sibling() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     assert!(nah(&root, &["guard", "new", "tool"], None).status.success());
     assert!(
         nah(&root, &["guard", "enable", "tool"], None)

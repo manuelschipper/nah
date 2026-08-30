@@ -13,7 +13,7 @@ fn fork_bomb_guard_blocks_structural_evidence_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let result = decide_with(
         &call("Bash", json!({"command":":(){ :|:& };:"}), &repo),
@@ -37,7 +37,7 @@ fn catastrophic_filesystem_guards_block_visible_bash_effects_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let mut cases: Vec<(String, &str)> = vec![
@@ -187,7 +187,7 @@ fn project_root_guard_blocks_only_destructive_root_wide_filesystem_effects() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
 
@@ -253,7 +253,7 @@ fn unresolved_destructive_paths_delegate_without_inventing_root_or_home() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     for command in [
@@ -295,7 +295,7 @@ fn non_destructive_storage_forms_do_not_trigger_catastrophic_guards() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     for command in [

@@ -43,7 +43,7 @@ fn decide_writes_a_redacted_log_which_drives_why_and_log() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let payload = json!({
         "v": 1,
@@ -105,7 +105,7 @@ fn decide_writes_a_redacted_log_which_drives_why_and_log() {
 #[test]
 fn blocked_inline_source_never_reaches_the_audit_log() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let payload = json!({
         "v": 1,
@@ -130,7 +130,7 @@ fn blocked_log_lists_the_last_blocks_independently() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let decide = |command: &str| {
         let payload = json!({
@@ -176,7 +176,7 @@ fn adapters_record_the_runtime_that_decided_and_decide_records_none() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let hook_payload = |command: &str| {
         json!({
@@ -255,7 +255,7 @@ fn why_fails_loudly_for_missing_or_corrupt_records() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let missing = nah(&root, &["why", "missing"], None);
     assert_eq!(missing.status.code(), Some(2));
     let error = String::from_utf8_lossy(&missing.stderr);
@@ -273,7 +273,7 @@ fn why_fails_loudly_for_missing_or_corrupt_records() {
 #[test]
 fn log_archives_unreadable_input_and_lists_the_readable_records() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let payload = json!({
         "v": 1,
@@ -329,7 +329,7 @@ fn an_empty_human_log_explains_itself_while_json_stays_empty() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
 
     let human = nah(&root, &["log"], None);
     assert!(human.status.success(), "{human:?}");
@@ -349,7 +349,7 @@ fn opaque_native_payloads_are_redacted_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let payload = json!({
         "v": 1,
@@ -371,7 +371,7 @@ fn damaged_state_is_logged_without_exposing_the_command() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let config = &root.join(".nah");
     std::fs::create_dir_all(config).unwrap();
@@ -411,7 +411,7 @@ fn audit_failure_never_changes_the_policy_verdict() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     std::fs::create_dir_all(root.join(".nah/audit.jsonl")).unwrap();
     let payload = json!({
@@ -436,7 +436,7 @@ fn audit_lock_contention_never_stalls_a_decision() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let directory = &root.join(".nah");
     std::fs::create_dir_all(directory).unwrap();
@@ -478,7 +478,7 @@ fn audit_symlinks_never_modify_their_targets() {
         let temp = tempfile::tempdir().unwrap();
         // macOS temp directories sit under a symlinked /var, and nah resolves
         // paths before matching them
-        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let root = support::test_temp_path(temp.path());
         let project = repo(&root);
         let victim_directory = &root.join("victim");
         std::fs::create_dir_all(victim_directory).unwrap();
@@ -519,7 +519,7 @@ fn audit_hard_link_never_modifies_its_target() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let project = repo(&root);
     let directory = &root.join(".nah");
     std::fs::create_dir_all(directory).unwrap();

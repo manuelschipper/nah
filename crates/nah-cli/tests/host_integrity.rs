@@ -24,7 +24,7 @@ fn decide(
 #[test]
 fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_identity() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = factory_ctx(&root);
     let profile = root.join(".bashrc");
@@ -69,7 +69,7 @@ fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_iden
 #[test]
 fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let profile = root.join(".zshrc");
@@ -142,7 +142,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
 #[test]
 fn reviewed_destructive_utilities_name_only_real_auth_targets() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = factory_ctx(&root);
 
@@ -181,7 +181,7 @@ fn reviewed_destructive_utilities_name_only_real_auth_targets() {
 #[test]
 fn ordinary_reads_dotfiles_and_unlisted_system_writes_still_delegate() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     for command in [
@@ -202,7 +202,7 @@ fn ordinary_reads_dotfiles_and_unlisted_system_writes_still_delegate() {
 #[test]
 fn requested_shell_profile_identity_survives_a_symlinked_target() {
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let target = repo.join("zshrc");
     std::fs::write(&target, "# aliases\n").unwrap();

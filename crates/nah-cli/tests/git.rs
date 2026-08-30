@@ -19,7 +19,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     for (command, guard) in [
@@ -661,7 +661,7 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     let context = ctx(&root);

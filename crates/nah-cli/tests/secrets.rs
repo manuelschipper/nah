@@ -15,7 +15,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and observation
     // resolves paths before scanning them
-    let home = std::fs::canonicalize(temp.path()).unwrap();
+    let home = support::test_temp_path(temp.path());
     let repo = repo(&home);
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     std::fs::write(repo.join(".env.example"), "TOKEN=\n").unwrap();
@@ -496,7 +496,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     }
 
     let clean_temp = tempfile::tempdir().unwrap();
-    let clean_home = std::fs::canonicalize(clean_temp.path()).unwrap();
+    let clean_home = support::test_temp_path(clean_temp.path());
     let clean_repo = support::repo(&clean_home);
     let clean_context = ctx(&clean_home);
     let git_upload = decide_with(

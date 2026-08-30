@@ -55,7 +55,7 @@ fn adapter_maps_cli_and_vscode_decisions() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
@@ -182,7 +182,7 @@ fn malformed_payloads_delegate_in_each_protocol() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     for payload in [

@@ -50,7 +50,7 @@ fn documented_examples(home: &std::path::Path, project: &std::path::Path) -> Vec
 #[test]
 fn every_shipped_guard_blocks_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
-    let home = std::fs::canonicalize(temp.path()).unwrap();
+    let home = support::test_temp_path(temp.path());
     let repo = repo(&home);
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     let context = ctx(&home);

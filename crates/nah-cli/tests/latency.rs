@@ -27,7 +27,7 @@ fn captured_walking_skeleton_p99_is_below_one_millisecond() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let input = call("Read", json!({"file_path":"src/lib.rs"}), &repo);
@@ -69,7 +69,7 @@ fn captured_bash_spine_p99_is_below_one_millisecond() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let input = call("Bash", json!({"command":"echo hello | cat"}), &repo);
@@ -107,7 +107,7 @@ fn captured_ambient_preflight_p99_is_below_one_millisecond() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let input = call("Bash", json!({"command":"echo \"$PATH\""}), &repo);
@@ -156,7 +156,7 @@ fn captured_ambient_preflight_p99_is_below_one_millisecond() {
 fn captured_inline_signature_p99_is_below_one_millisecond() {
     let _serial = serialize_kpi_test();
     let temp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let input = call(

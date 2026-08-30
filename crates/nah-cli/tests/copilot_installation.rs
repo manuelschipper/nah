@@ -1,5 +1,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod support;
+
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
@@ -22,7 +24,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let hooks = home.join(".copilot/hooks");
     std::fs::create_dir_all(&hooks).unwrap();
@@ -105,7 +107,7 @@ fn install_rejects_conflicts_custom_home_and_symlinks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = home.join(".copilot/hooks/nah.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -147,7 +149,7 @@ fn owned_command_with_unowned_configuration_is_not_overwritten() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     assert!(nah(home, &["hook", "copilot", "install"]).status.success());
     let path = home.join(".copilot/hooks/nah.json");

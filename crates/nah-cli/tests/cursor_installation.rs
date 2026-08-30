@@ -103,7 +103,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
@@ -275,7 +275,7 @@ fn malformed_cursor_input_delegates() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let installed = nah(home, &["hook", "cursor", "install"]);
@@ -301,7 +301,7 @@ fn malformed_cursor_configuration_is_not_overwritten() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = home.join(".cursor/hooks.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -341,7 +341,7 @@ fn install_rejects_symlinked_cursor_config_and_lock() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = home.join(".cursor/hooks.json");
     let target = home.join("real-hooks.json");

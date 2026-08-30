@@ -20,7 +20,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
 
@@ -152,7 +152,7 @@ fn live_bash_analysis_keeps_exact_quoted_here_document_code() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let command = format!(
@@ -175,7 +175,7 @@ fn path_identity_distinguishes_entries_from_targets_and_retains_lexical_danger()
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
     let outside = &root.join("outside");
@@ -275,7 +275,7 @@ fn symlink_following_project_searches_delegate() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
 
@@ -309,7 +309,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
 
@@ -442,7 +442,7 @@ fn git_environment_and_config_cannot_expand_project_roots() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let outside = &root.join("outside");
     std::fs::create_dir(outside).unwrap();
@@ -494,7 +494,7 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let worktree = &root.join("worktree");
     git(
@@ -577,7 +577,7 @@ fn project_guard_diagnostics_never_weaken_policy() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
-    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     std::fs::create_dir(repo.join(".nah")).unwrap();
     std::fs::write(

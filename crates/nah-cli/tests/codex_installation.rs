@@ -97,7 +97,7 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     let hooks_path = home.join(".codex/hooks.json");
@@ -309,7 +309,7 @@ fn malformed_hooks_fail_without_overwriting_codex_configuration() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let hooks_path = home.join(".codex/hooks.json");
     std::fs::create_dir_all(hooks_path.parent().unwrap()).unwrap();
@@ -352,7 +352,7 @@ fn install_rejects_symlinked_codex_config_paths() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let hooks_path = home.join(".codex/hooks.json");
     let target = home.join("real-hooks.json");
@@ -377,7 +377,7 @@ fn install_rejects_a_symlinked_codex_lock_file() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let lock_path = home.join(".nah/codex-hook.lock");
     let target = home.join("lock-target");
@@ -396,7 +396,7 @@ fn custom_codex_home_is_rejected_until_it_can_be_self_protected() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let custom = home.join("custom-codex");
     std::fs::create_dir(&custom).unwrap();

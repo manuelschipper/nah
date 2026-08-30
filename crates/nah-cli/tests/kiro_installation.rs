@@ -79,7 +79,7 @@ fn install_status_and_uninstall_own_only_nah_file() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let hooks = home.join(".kiro/hooks");
     std::fs::create_dir_all(&hooks).unwrap();
@@ -170,7 +170,7 @@ fn installed_command_runs_the_adapter_and_delegates_without_nah() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
     assert!(nah(home, &["hook", "kiro", "install"]).status.success());
@@ -201,7 +201,7 @@ fn install_rejects_conflicts_and_supports_absolute_kiro_home() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = hook_path(home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -216,7 +216,7 @@ fn install_rejects_conflicts_and_supports_absolute_kiro_home() {
     let custom_temp = tempfile::tempdir().unwrap();
     // kiro refuses a home whose canonical path differs from the one given,
     // and macOS temp directories sit under a symlinked /var
-    let custom = std::fs::canonicalize(custom_temp.path()).unwrap();
+    let custom = support::test_temp_path(custom_temp.path());
     let installed = Command::new(env!("CARGO_BIN_EXE_nah"))
         .args(["hook", "kiro", "install"])
         .env("HOME", home)
@@ -244,7 +244,7 @@ fn install_and_uninstall_reject_modified_nah_shaped_hooks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = hook_path(home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -284,7 +284,7 @@ fn install_rejects_hook_and_directory_symlinks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let target = home.join("target");
     std::fs::create_dir(&target).unwrap();
@@ -296,7 +296,7 @@ fn install_rejects_hook_and_directory_symlinks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let path = hook_path(home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -310,7 +310,7 @@ fn install_rejects_hook_and_directory_symlinks() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let real = tempfile::tempdir().unwrap();
     let custom = home.join("custom-kiro");
