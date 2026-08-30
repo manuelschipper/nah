@@ -1,1 +1,2 @@
 docs/** text eol=lf
+crates/nah-cli/tests/golden/** text eol=lf
