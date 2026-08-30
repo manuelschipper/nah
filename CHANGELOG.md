@@ -72,8 +72,9 @@
   guarded. GitHub template rune literals, two-variable ranges, and the current
   `replace` helper remain guarded, as does Glab's static `-R`/`--repo` selection.
   Static GitHub API IDN hosts and digit-separated Go template numbers remain
-  guarded, as do IDN and IPv4-mapped IPv6 GitHub repository hosts, while invalid
-  GitHub header names delegate before the guard.
+  guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN
+  GitHub repository hosts, while invalid GitHub header names delegate before the
+  guard.
   Dynamic API option values, incompatible GitHub output options, branches, tags,
   archives, renames, and transfers remain outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
