@@ -24,6 +24,7 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "gh repo delete localhost:9/owner/project --yes",
         "gh repo delete localhost./owner/project --yes",
         "gh repo delete github.example.:443/owner/project --yes",
+        "gh repo delete '[::1]/owner/project' --yes",
         "gh repo delete --yes=false owner/project",
         "glab repo delete",
         "glab repo delete project",
@@ -434,6 +435,7 @@ fn wrappers_and_reviewed_executable_paths_retain_remote_delete_identity() {
         "/usr//bin/gh repo delete owner/project --yes",
         "/usr/bin/./gh repo delete owner/project --yes",
         "/usr/bin/../bin/gh api -X DELETE repos/owner/project",
+        "/../../usr/bin/gh repo delete owner/project --yes",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -461,6 +463,8 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh repo delete localhost:/owner/project --yes",
         "gh repo delete localhost:invalid/owner/project --yes",
         "gh repo delete localhost:65536/owner/project --yes",
+        "gh repo delete '[::gg]/owner/project' --yes",
+        "gh repo delete '[::1]extra/owner/project' --yes",
         "gh repo delete https://github.com/owner/project",
         "gh repo delete \"$REPOSITORY\" --yes",
         "gh repo delete owner/project --unknown",

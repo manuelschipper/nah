@@ -126,7 +126,15 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete '[::1]/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
             "/usr/bin/../bin/gh repo delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "/../../usr/bin/gh repo delete owner/project --yes",
             "git-remote-delete",
         ),
         (

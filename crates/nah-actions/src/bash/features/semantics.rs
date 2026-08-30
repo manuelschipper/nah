@@ -239,7 +239,8 @@ fn trusted_program_basename(program: &str, platform: Platform) -> Option<&str> {
         match component {
             "" | "." => {}
             ".." => {
-                components.pop()?;
+                // Absolute paths stay at the filesystem root when parent traversal passes it.
+                let _ = components.pop();
             }
             _ => components.push(component),
         }
@@ -261,6 +262,7 @@ mod tests {
             "/usr//bin/chmod",
             "/usr/bin/./chmod",
             "/usr/bin/../bin/chmod",
+            "/../../usr/bin/chmod",
         ] {
             assert_eq!(
                 normalize_program(program, Platform::Linux).as_deref(),
@@ -269,6 +271,7 @@ mod tests {
             );
         }
         assert_eq!(normalize_program("/tmp/chmod", Platform::Linux), None);
+        assert_eq!(normalize_program("/../../tmp/chmod", Platform::Linux), None);
         assert_eq!(normalize_program("./chmod", Platform::Linux), None);
         assert_eq!(
             normalize_program("CMD.EXE", Platform::Windows).as_deref(),

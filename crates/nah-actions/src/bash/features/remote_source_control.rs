@@ -1703,14 +1703,17 @@ fn valid_literal_byte(byte: u8) -> bool {
 }
 
 fn valid_host(host: &str) -> bool {
+    if let Some(bracketed) = host.strip_prefix('[') {
+        let Some((address, suffix)) = bracketed.split_once(']') else {
+            return false;
+        };
+        return valid_ipv6_address(address)
+            && (suffix.is_empty() || suffix.strip_prefix(':').is_some_and(valid_port));
+    }
     let (hostname, port) = host
         .split_once(':')
         .map_or((host, None), |(hostname, port)| (hostname, Some(port)));
-    if port.is_some_and(|port| {
-        port.is_empty()
-            || !port.bytes().all(|byte| byte.is_ascii_digit())
-            || port.parse::<u16>().is_err()
-    }) {
+    if port.is_some_and(|port| !valid_port(port)) {
         return false;
     }
     let hostname = hostname.strip_suffix('.').unwrap_or(hostname);
@@ -1728,6 +1731,36 @@ fn valid_host(host: &str) -> bool {
                 .last()
                 .is_some_and(u8::is_ascii_alphanumeric)
     })
+}
+
+fn valid_ipv6_address(address: &str) -> bool {
+    if let Some((left, right)) = address.split_once("::") {
+        if right.contains("::") {
+            return false;
+        }
+        return ipv6_hextet_count(left)
+            .zip(ipv6_hextet_count(right))
+            .is_some_and(|(left, right)| left + right < 8);
+    }
+    ipv6_hextet_count(address) == Some(8)
+}
+
+fn ipv6_hextet_count(address: &str) -> Option<usize> {
+    if address.is_empty() {
+        return Some(0);
+    }
+    address.split(':').try_fold(0, |count, hextet| {
+        (!hextet.is_empty()
+            && hextet.len() <= 4
+            && hextet.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then_some(count + 1)
+    })
+}
+
+fn valid_port(port: &str) -> bool {
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]

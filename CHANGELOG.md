@@ -67,11 +67,12 @@
   values, malformed Glab headers, and Glab fields that cannot be encoded as DELETE
   query values delegate before the guard, as do duplicate form stdin sources and
   pagination/input conflicts. Literal closing braces in valid GitHub templates,
-  normalized standard-system executable paths, and trailing-dot GitHub Enterprise
-  hosts remain guarded. GitHub template rune literals, two-variable ranges, and the
-  current `replace` helper remain guarded, as does Glab's static `-R`/`--repo`
-  selection. Dynamic API option values, incompatible GitHub output options, branches,
-  tags, archives, renames, and transfers remain outside its scope.
+  normalized standard-system executable paths, including root-clamped parent
+  traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts remain
+  guarded. GitHub template rune literals, two-variable ranges, and the current
+  `replace` helper remain guarded, as does Glab's static `-R`/`--repo` selection.
+  Dynamic API option values, incompatible GitHub output options, branches, tags,
+  archives, renames, and transfers remain outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.
