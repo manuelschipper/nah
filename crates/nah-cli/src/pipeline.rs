@@ -25,6 +25,8 @@ const ENVIRONMENT_OSCILLATION_REASON: &str = "environment changed repeatedly dur
 pub struct DecisionResult {
     core: DecisionCore,
     action_stream: ActionStream,
+    #[cfg(feature = "effinterp")]
+    effinterp_action_stream: Option<nah_proto::stream::ActionStream>,
     observation: Option<Observation>,
     warnings: Vec<String>,
     consultations: Vec<ExtensionConsultation>,
@@ -147,6 +149,11 @@ impl DecisionResult {
 
     pub fn action_stream(&self) -> &ActionStream {
         &self.action_stream
+    }
+
+    #[cfg(feature = "effinterp")]
+    pub fn effinterp_action_stream(&self) -> Option<&nah_proto::stream::ActionStream> {
+        self.effinterp_action_stream.as_ref()
     }
 
     pub fn observation(&self) -> Option<&Observation> {
@@ -283,6 +290,8 @@ pub(crate) fn decide_live_with_self_protection(
                 &state.ctx,
                 observation,
                 action_stream,
+                #[cfg(feature = "effinterp")]
+                None,
                 &state.cache,
             );
             ConsultedExtensions {
@@ -563,6 +572,8 @@ where
             Ok(core) => DecisionResult {
                 core,
                 action_stream,
+                #[cfg(feature = "effinterp")]
+                effinterp_action_stream: None,
                 observation: Some(observation),
                 warnings,
                 consultations: vec![],
@@ -607,6 +618,8 @@ where
         Ok(core) => DecisionResult {
             core,
             action_stream,
+            #[cfg(feature = "effinterp")]
+            effinterp_action_stream: None,
             observation: Some(observation),
             warnings,
             consultations,
@@ -947,6 +960,8 @@ fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> D
     DecisionResult {
         core,
         action_stream: stream,
+        #[cfg(feature = "effinterp")]
+        effinterp_action_stream: None,
         observation: None,
         warnings: vec![warning],
         consultations: vec![],
@@ -992,6 +1007,8 @@ fn failed_with_stream(
     DecisionResult {
         core,
         action_stream,
+        #[cfg(feature = "effinterp")]
+        effinterp_action_stream: None,
         observation: Some(observation),
         warnings,
         consultations,

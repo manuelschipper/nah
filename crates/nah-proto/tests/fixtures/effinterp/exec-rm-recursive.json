@@ -1,0 +1,411 @@
+{
+  "schema": "effinterp/plan/v1",
+  "subject": {
+    "kind": "exec",
+    "argv": [
+      "rm",
+      "-rf",
+      "./cache"
+    ],
+    "cwd": "/work/repo"
+  },
+  "analysis": {
+    "engine_version": "0.1.0",
+    "model_set": "builtin:blake3:abc69c5d8d950e1a3855491efb60e4726fddb9e5de84ebe583eedcd055d2ad0f",
+    "limits": {
+      "max_boundaries": 4096,
+      "max_causal_edges": 32768,
+      "max_causal_nodes": 16384,
+      "max_effects": 4096,
+      "max_execution_depth": 8,
+      "max_execution_fanout": 256,
+      "max_execution_nodes": 4096,
+      "max_provenance_nodes": 65536,
+      "max_source_bytes": 4194304
+    }
+  },
+  "effects": [
+    {
+      "operation": "process.exec",
+      "resource": {
+        "expr": "concrete",
+        "identity": {
+          "family": "process",
+          "executable": "rm",
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "-rf"
+            },
+            {
+              "expr": "literal",
+              "value": "./cache"
+            }
+          ],
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work/repo"
+            }
+          }
+        }
+      },
+      "modality": "may",
+      "execution": 0,
+      "provenance": [
+        0
+      ]
+    },
+    {
+      "operation": "filesystem.delete",
+      "resource": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/work/repo/cache"
+        }
+      },
+      "attributes": {
+        "force": true,
+        "recursive": true
+      },
+      "modality": "may",
+      "execution": 0,
+      "provenance": [
+        2,
+        1
+      ]
+    }
+  ],
+  "execution_graph": {
+    "entry": 0,
+    "nodes": [
+      {
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rm",
+            "-rf",
+            "./cache"
+          ],
+          "cwd": "/work/repo"
+        },
+        "argv": [
+          {
+            "expr": "literal",
+            "value": "rm"
+          },
+          {
+            "expr": "literal",
+            "value": "-rf"
+          },
+          {
+            "expr": "literal",
+            "value": "./cache"
+          }
+        ],
+        "cwd": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work/repo"
+          }
+        },
+        "streams": {},
+        "realm": {
+          "realm": "host"
+        },
+        "assurance": "exact"
+      }
+    ]
+  },
+  "provenance": [
+    {
+      "kind": "argument",
+      "index": 0
+    },
+    {
+      "kind": "model_application",
+      "model": "coreutils/rm@v0#blake3:25c0a08fceff74970b0a7d04623a2c1ebcf5a1a4ceddac9c8c84b0f2d5016eea",
+      "antecedents": [
+        0
+      ]
+    },
+    {
+      "kind": "argument",
+      "index": 2
+    }
+  ],
+  "coverage": {
+    "filesystem": "full",
+    "process": "full"
+  },
+  "causality": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "kind": "port",
+        "port": "code",
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 0,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:495ae7f37f09dcda419270b5d8af6101134741f30aabea61e75481802b845dc9",
+        "kind": "value",
+        "value": {
+          "expr": "literal",
+          "value": "rm"
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 1,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:5ae7db5d9713382d89c778b169aa503e97e4694c352769a1e6811127c37add26",
+        "kind": "port",
+        "port": {
+          "arg": 0
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 2,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:4792214c087ced4a2305072d7385432dd0a79995d4352535a103534b7d4b3a9c",
+        "kind": "value",
+        "value": {
+          "expr": "literal",
+          "value": "-rf"
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 3,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:4919bcbb9f67a7beade191b4954256fa6f2afa68c4b90a969abd385f8d6154c7",
+        "kind": "port",
+        "port": {
+          "arg": 1
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 4,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:5a00e6136b67c17ef26cbd87243ffdc5fd41566f52142257ca7eadea041d71ab",
+        "kind": "value",
+        "value": {
+          "expr": "literal",
+          "value": "./cache"
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 5,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:781aa0bef4319a5a503cf0836a1b6e7bcef3ea5878017c26a3c282c48ab93781",
+        "kind": "port",
+        "port": {
+          "arg": 2
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 6,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:d848c304452d73b5cac603c29dd4a3c54c9e12bb0b3cc4f9516202a813b29f93",
+        "kind": "resource_interaction",
+        "operation": "process.exec",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "process",
+            "executable": "rm",
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "-rf"
+              },
+              {
+                "expr": "literal",
+                "value": "./cache"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/work/repo"
+              }
+            }
+          }
+        },
+        "execution": 0,
+        "modality": "may",
+        "order": 7,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "id": "occurrence:blake3:8e83a503b542d368f06b0a697f10a0d4e227de59807fb57cd251e72ed29d80e4",
+        "kind": "resource_interaction",
+        "operation": "filesystem.delete",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work/repo/cache"
+          }
+        },
+        "attributes": {
+          "force": true,
+          "recursive": true
+        },
+        "execution": 0,
+        "modality": "may",
+        "order": 8,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          2,
+          1
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "occurrence:blake3:4792214c087ced4a2305072d7385432dd0a79995d4352535a103534b7d4b3a9c",
+        "to": "occurrence:blake3:4919bcbb9f67a7beade191b4954256fa6f2afa68c4b90a969abd385f8d6154c7",
+        "reason": "containment",
+        "modality": "must-on-success",
+        "order": 0,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:4919bcbb9f67a7beade191b4954256fa6f2afa68c4b90a969abd385f8d6154c7",
+        "to": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "reason": "value_dependency",
+        "modality": "must-on-success",
+        "order": 1,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:495ae7f37f09dcda419270b5d8af6101134741f30aabea61e75481802b845dc9",
+        "to": "occurrence:blake3:5ae7db5d9713382d89c778b169aa503e97e4694c352769a1e6811127c37add26",
+        "reason": "containment",
+        "modality": "must-on-success",
+        "order": 2,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:5a00e6136b67c17ef26cbd87243ffdc5fd41566f52142257ca7eadea041d71ab",
+        "to": "occurrence:blake3:781aa0bef4319a5a503cf0836a1b6e7bcef3ea5878017c26a3c282c48ab93781",
+        "reason": "containment",
+        "modality": "must-on-success",
+        "order": 3,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:5ae7db5d9713382d89c778b169aa503e97e4694c352769a1e6811127c37add26",
+        "to": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "reason": "value_dependency",
+        "modality": "must-on-success",
+        "order": 4,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:781aa0bef4319a5a503cf0836a1b6e7bcef3ea5878017c26a3c282c48ab93781",
+        "to": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "reason": "value_dependency",
+        "modality": "must-on-success",
+        "order": 5,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "from": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "to": "occurrence:blake3:8e83a503b542d368f06b0a697f10a0d4e227de59807fb57cd251e72ed29d80e4",
+        "reason": "control_dependency",
+        "modality": "may",
+        "order": 6,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          2,
+          1
+        ]
+      },
+      {
+        "from": "occurrence:blake3:a4f47e5e5432f4e3969c451d339ad6204c792e1ee86bdfc315373436630a1312",
+        "to": "occurrence:blake3:d848c304452d73b5cac603c29dd4a3c54c9e12bb0b3cc4f9516202a813b29f93",
+        "reason": "control_dependency",
+        "modality": "may",
+        "order": 7,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      }
+    ],
+    "coverage": "full"
+  }
+}

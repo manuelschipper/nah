@@ -7,11 +7,20 @@ use nah_proto::extension::{
     ValidatedExtensionResponse, validate_response,
 };
 use nah_proto::observation::Observation;
+#[cfg(feature = "effinterp")]
+use nah_proto::stream::ActionStream as EffinterpActionStream;
 
 use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 use crate::cache::MemoCache;
+#[cfg(feature = "effinterp")]
+use crate::selection::ExtensionExecRequest;
 use crate::selection::{memo_key, request, selected_extensions};
 use crate::transport::{decode_cache_entry, encode_cache_entry, execute, outcome_code};
+
+#[cfg(not(feature = "effinterp"))]
+type ActiveExecRequest = nah_proto::exec_v1::ExecV1Request;
+#[cfg(feature = "effinterp")]
+type ActiveExecRequest = ExtensionExecRequest;
 
 pub struct ConsultationOutput {
     pub consultations: Vec<ExtensionConsultation>,
@@ -79,10 +88,22 @@ pub fn consult_extensions(
     ctx: &Ctx,
     observation: &Observation,
     action_stream: &ActionStream,
+    #[cfg(feature = "effinterp")] effinterp_action_stream: Option<&EffinterpActionStream>,
     cache: &MemoCache,
 ) -> ConsultationOutput {
-    let selected = selected_extensions(catalog, ctx, action_stream);
-    let request = match request(action_stream, observation) {
+    let selected = selected_extensions(
+        catalog,
+        ctx,
+        action_stream,
+        #[cfg(feature = "effinterp")]
+        effinterp_action_stream,
+    );
+    let request = match request(
+        action_stream,
+        #[cfg(feature = "effinterp")]
+        effinterp_action_stream,
+        observation,
+    ) {
         Ok(request) => request,
         Err(error) => {
             return ConsultationOutput {
@@ -226,7 +247,7 @@ const fn transport_rejection_code(code: TransportRejectionCode) -> &'static str 
 
 fn execute_extension(
     extension: &ExtensionBundle,
-    request: &nah_proto::exec_v1::ExecV1Request,
+    request: &ActiveExecRequest,
 ) -> (ExtensionConsultation, Option<ConsultationDiagnostic>) {
     let executed = execute(extension, request);
     let diagnostic = executed.stderr.map(|stderr| ConsultationDiagnostic {

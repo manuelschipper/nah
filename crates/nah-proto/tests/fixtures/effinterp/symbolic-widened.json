@@ -1,0 +1,340 @@
+{
+  "schema": "effinterp/plan/v1",
+  "subject": {
+    "kind": "shell",
+    "source": "cleanup --purge"
+  },
+  "analysis": {
+    "engine_version": "0.1.0",
+    "model_set": "dev",
+    "limits": {
+      "deadline_ms": 100,
+      "max_effects": 256,
+      "max_flows": 16
+    }
+  },
+  "effects": [
+    {
+      "operation": "filesystem.delete",
+      "resource": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "parameter",
+            "name": "cache_root"
+          },
+          {
+            "expr": "property",
+            "base": {
+              "expr": "parameter",
+              "name": "tenant"
+            },
+            "name": "id"
+          }
+        ]
+      },
+      "modality": "may",
+      "condition": {
+        "expression": "options.purge == true"
+      },
+      "execution": 0,
+      "provenance": [
+        0
+      ]
+    },
+    {
+      "operation": "filesystem.delete",
+      "resource": {
+        "expr": "pattern",
+        "family": "filesystem",
+        "pattern": "/tmp/build-*"
+      },
+      "modality": "must-on-success",
+      "execution": 0,
+      "provenance": [
+        0
+      ]
+    },
+    {
+      "operation": "filesystem.read",
+      "resource": {
+        "expr": "union",
+        "alternatives": [
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/etc/cleanup.conf"
+            }
+          },
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/home/user/.cleanup.conf"
+            }
+          }
+        ]
+      },
+      "modality": "may",
+      "execution": 0,
+      "provenance": [
+        0
+      ]
+    },
+    {
+      "operation": "network.request",
+      "resource": {
+        "expr": "unresolved",
+        "family": "network"
+      },
+      "modality": "may",
+      "execution": 0,
+      "provenance": [
+        0
+      ]
+    }
+  ],
+  "execution_graph": {
+    "entry": 0,
+    "nodes": [
+      {
+        "subject": {
+          "kind": "shell",
+          "source": "cleanup --purge"
+        },
+        "streams": {},
+        "realm": {
+          "realm": "host"
+        },
+        "assurance": "exact"
+      }
+    ]
+  },
+  "provenance": [
+    {
+      "kind": "source_span",
+      "start": 0,
+      "end": 15
+    }
+  ],
+  "boundaries": [
+    {
+      "reason": "partial_analysis",
+      "class": "unmodeled",
+      "domains": [
+        "filesystem"
+      ]
+    },
+    {
+      "reason": "limit_saturated",
+      "class": "limit",
+      "domains": [
+        "network"
+      ],
+      "limit": "max_flows"
+    }
+  ],
+  "coverage": {
+    "filesystem": "partial",
+    "network": "none"
+  },
+  "causality": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
+        "kind": "port",
+        "port": "code",
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 0,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        }
+      },
+      {
+        "id": "occurrence:blake3:53b6b6f5eb751d1500dfb4fdd41b7434698d831b68f1aa2556cdac6b2e825566",
+        "kind": "resource_interaction",
+        "operation": "filesystem.delete",
+        "resource": {
+          "expr": "join",
+          "parts": [
+            {
+              "expr": "parameter",
+              "name": "cache_root"
+            },
+            {
+              "expr": "property",
+              "base": {
+                "expr": "parameter",
+                "name": "tenant"
+              },
+              "name": "id"
+            }
+          ]
+        },
+        "execution": 0,
+        "modality": "may",
+        "condition": {
+          "expression": "options.purge == true"
+        },
+        "order": 1,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "id": "occurrence:blake3:f0e3c059282e643b5c7dbc9b57312b9dc17d2295c994712f86fc44c2db7bcde7",
+        "kind": "resource_interaction",
+        "operation": "filesystem.delete",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "/tmp/build-*"
+        },
+        "execution": 0,
+        "modality": "must-on-success",
+        "order": 2,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "id": "occurrence:blake3:070187785b53a486cefabac27de8dd029f1399ffb46c1155477eb0e04d2e65cb",
+        "kind": "resource_interaction",
+        "operation": "filesystem.read",
+        "resource": {
+          "expr": "union",
+          "alternatives": [
+            {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/etc/cleanup.conf"
+              }
+            },
+            {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/home/user/.cleanup.conf"
+              }
+            }
+          ]
+        },
+        "execution": 0,
+        "modality": "may",
+        "order": 3,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "id": "occurrence:blake3:e5530d9f984dd4c6693906a20b144b0cbe2fddb65c3438699f100cff38f1c9c4",
+        "kind": "resource_interaction",
+        "operation": "network.request",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        },
+        "execution": 0,
+        "modality": "may",
+        "order": 4,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "id": "occurrence:blake3:41e8c07338c7455531f426e0fdfae0b8a6ba5a1b81b5cd0efdd3d99e377caee0",
+        "kind": "boundary",
+        "reason": "limit_saturated",
+        "limit": "max_flows",
+        "modality": "may",
+        "order": 5,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
+        "to": "occurrence:blake3:53b6b6f5eb751d1500dfb4fdd41b7434698d831b68f1aa2556cdac6b2e825566",
+        "reason": "control_dependency",
+        "modality": "may",
+        "condition": {
+          "expression": "options.purge == true"
+        },
+        "order": 0,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
+        "to": "occurrence:blake3:f0e3c059282e643b5c7dbc9b57312b9dc17d2295c994712f86fc44c2db7bcde7",
+        "reason": "control_dependency",
+        "modality": "must-on-success",
+        "order": 1,
+        "cardinality": {
+          "min": 1,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
+        "to": "occurrence:blake3:070187785b53a486cefabac27de8dd029f1399ffb46c1155477eb0e04d2e65cb",
+        "reason": "control_dependency",
+        "modality": "may",
+        "order": 2,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      },
+      {
+        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
+        "to": "occurrence:blake3:e5530d9f984dd4c6693906a20b144b0cbe2fddb65c3438699f100cff38f1c9c4",
+        "reason": "control_dependency",
+        "modality": "may",
+        "order": 3,
+        "cardinality": {
+          "min": 0,
+          "max": 1
+        },
+        "provenance": [
+          0
+        ]
+      }
+    ],
+    "coverage": "full"
+  }
+}

@@ -52,6 +52,8 @@ fn generated_template_is_executable_and_answers() {
         &fixture.ctx,
         &fixture.observation,
         &blocked_shape,
+        #[cfg(feature = "effinterp")]
+        None,
         &fixture.cache,
     );
     assert!(output.warnings.is_empty(), "{:?}", output.warnings);
@@ -73,6 +75,8 @@ fn extensions_are_not_spawned_without_an_exact_program_match() {
         &fixture.ctx,
         &fixture.observation,
         &different_stream,
+        #[cfg(feature = "effinterp")]
+        None,
         &fixture.cache,
     );
     assert!(output.consultations.is_empty());
@@ -90,6 +94,8 @@ fn extensions_are_not_spawned_without_an_exact_program_match() {
             &fixture.ctx,
             &fixture.observation,
             &path_spoof,
+            #[cfg(feature = "effinterp")]
+            None,
             &fixture.cache,
         )
         .consultations

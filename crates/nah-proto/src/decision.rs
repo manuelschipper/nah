@@ -113,9 +113,16 @@ impl DecisionCore {
     pub fn new(
         action_stream: &ActionStream,
         verdict: Verdict,
+        contributions: Vec<GuardContribution>,
+    ) -> Result<Self, DecisionError> {
+        Self::new_with_coverage(action_stream.coverage(), verdict, contributions)
+    }
+
+    pub fn new_with_coverage(
+        coverage: Coverage,
+        verdict: Verdict,
         mut contributions: Vec<GuardContribution>,
     ) -> Result<Self, DecisionError> {
-        let coverage = action_stream.coverage();
         contributions.sort_by(|left, right| left.guard.cmp(&right.guard));
         if contributions
             .windows(2)

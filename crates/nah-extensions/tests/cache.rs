@@ -197,6 +197,8 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
             &fixture.ctx,
             &fixture.observation,
             &stream,
+            #[cfg(feature = "effinterp")]
+            None,
             &fixture.cache,
         );
     }
@@ -232,6 +234,8 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
             &fixture.ctx,
             &fixture.observation,
             &stream,
+            #[cfg(feature = "effinterp")]
+            None,
             &fixture.cache,
         );
     }

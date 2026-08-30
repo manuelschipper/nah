@@ -87,7 +87,7 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
 /// unrestricted by this particular check.
 pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
     match krate {
-        "nah-proto" => Some(&["serde", "serde_json"]),
+        "nah-proto" => Some(&["effinterp-proto", "serde", "serde_json"]),
         "nah-parse" => Some(&["tree-sitter", "tree-sitter-bash"]),
         "nah-inline" => Some(&[
             "serde_json",
@@ -299,7 +299,10 @@ pub fn effinterp_linkage_violations(packages: &[PackageDeps]) -> Vec<String> {
             ("dependency", &pkg.normal_deps),
             ("build-dependency", &pkg.build_deps),
         ] {
-            for dep in deps.iter().filter(|dep| dep.starts_with("effinterp-")) {
+            for dep in deps.iter().filter(|dep| {
+                dep.starts_with("effinterp-")
+                    && !(pkg.name == "nah-proto" && dep.as_str() == "effinterp-proto")
+            }) {
                 violations.push(format!(
                     "{} has forbidden {kind} {dep}; link effectinterp through nah-effinterp",
                     pkg.name

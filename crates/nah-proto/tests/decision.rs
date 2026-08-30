@@ -52,6 +52,15 @@ fn delegate_reason_states_coverage_or_that_no_guard_fired() {
 }
 
 #[test]
+fn decision_core_accepts_coverage_without_the_legacy_stream_shape() {
+    let core =
+        DecisionCore::new_with_coverage(Coverage::Partial, Verdict::Delegate, vec![]).unwrap();
+
+    assert_eq!(core.coverage(), Coverage::Partial);
+    assert_eq!(core.reason(), "partial coverage");
+}
+
+#[test]
 fn decision_reducer_deduplicates_and_canonicalizes_contributions() {
     let a_guard = GuardAttribution::shipped("a-guard").unwrap();
     let z_guard = GuardAttribution::shipped("z-guard").unwrap();

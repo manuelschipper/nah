@@ -111,6 +111,8 @@ fn performance_kpis() {
                     &ctx,
                     observed,
                     action_stream,
+                    #[cfg(feature = "effinterp")]
+                    None,
                     &cache,
                 ))
             },
@@ -130,6 +132,8 @@ fn performance_kpis() {
                 &ctx,
                 observed,
                 action_stream,
+                #[cfg(feature = "effinterp")]
+                None,
                 &memo_cache,
             ))
         },
@@ -146,6 +150,8 @@ fn performance_kpis() {
                     &ctx,
                     observed,
                     action_stream,
+                    #[cfg(feature = "effinterp")]
+                    None,
                     &memo_cache,
                 ))
             },

@@ -37,7 +37,14 @@ pub(crate) fn test_command(
     if json {
         let exec_request = result
             .observation()
-            .map(|observation| nah_extensions::exec_request(result.action_stream(), observation))
+            .map(|observation| {
+                nah_extensions::exec_request(
+                    result.action_stream(),
+                    #[cfg(feature = "effinterp")]
+                    result.effinterp_action_stream(),
+                    observation,
+                )
+            })
             .transpose()
             .map_err(|error| format!("extension request failed: {error}"))?;
         #[allow(unused_mut)]

@@ -65,6 +65,8 @@ impl Fixture {
             &self.ctx,
             &self.observation,
             &self.action_stream,
+            #[cfg(feature = "effinterp")]
+            None,
             &self.cache,
         )
     }

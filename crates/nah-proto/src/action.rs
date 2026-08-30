@@ -9,6 +9,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::ctx::AbsolutePath;
+pub use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -304,40 +305,6 @@ pub enum FilesystemOperation {
     Read,
     Write,
     Delete,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum PathScope {
-    Project { root: AbsolutePath },
-    Home,
-    System,
-    OutsideProject,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Sensitivity {
-    None,
-    EnvironmentSecret,
-    CredentialSecret,
-    OtherSensitive,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum NahProtectionTier {
-    Critical,
-    Permanent,
-    Proposal,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum HostIntegrityClass {
-    ShellProfile,
-    StartupPersistence,
-    AuthIdentity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -660,7 +627,7 @@ fn validate_invocation_cwd(cwd: Option<&AbsolutePath>) -> Result<(), ActionError
     Ok(())
 }
 
-fn is_path_descendant(target: &str, root: &str) -> bool {
+pub(crate) fn is_path_descendant(target: &str, root: &str) -> bool {
     let windows = root.starts_with("\\\\") || root.as_bytes().get(1) == Some(&b':');
     let is_separator = |byte| byte == b'/' || (windows && byte == b'\\');
     let Some(suffix) = target.strip_prefix(root) else {
@@ -677,7 +644,7 @@ fn is_path_descendant(target: &str, root: &str) -> bool {
                 .is_some_and(|byte| is_separator(*byte)))
 }
 
-fn is_lexically_normalized_path(path: &str) -> bool {
+pub(crate) fn is_lexically_normalized_path(path: &str) -> bool {
     if path == "/" {
         return true;
     }
