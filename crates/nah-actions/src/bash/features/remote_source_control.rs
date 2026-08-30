@@ -309,6 +309,7 @@ fn api_request<'a>(
     let mut github_verbose = false;
     let mut api_hostname = None;
     let mut github_template_value = None;
+    let mut github_fields = Vec::new();
     let mut gitlab_form = false;
     let mut gitlab_form_stdin_count = 0;
     let mut gitlab_input = false;
@@ -340,7 +341,7 @@ fn api_request<'a>(
                         return None;
                     }
                 } else if name == 'f' && !valid_gitlab_raw_field(value)
-                    || name == 'H' && !valid_gitlab_api_header(value)
+                    || name == 'H' && !valid_api_header(value)
                 {
                     return None;
                 }
@@ -367,6 +368,10 @@ fn api_request<'a>(
                     _ => None,
                 };
                 if option.is_some_and(|name| !valid_api_option_value(name, value, Provider::GitHub))
+                {
+                    return None;
+                }
+                if matches!(name, 'F' | 'f') && !update_github_api_field(&mut github_fields, value)
                 {
                     return None;
                 }
@@ -427,6 +432,12 @@ fn api_request<'a>(
             if !valid_api_option_value(name, value, provider) {
                 return None;
             }
+            if provider == Provider::GitHub
+                && matches!(name, "--field" | "--raw-field")
+                && !update_github_api_field(&mut github_fields, value)
+            {
+                return None;
+            }
             if provider == Provider::GitLab && name == "--field" {
                 if !update_gitlab_typed_field(&mut gitlab_typed_fields, value) {
                     return None;
@@ -470,6 +481,12 @@ fn api_request<'a>(
         if !after_options && api_value_option(argument, provider) {
             let value = *arguments.get(index + 1)?;
             if !valid_api_option_value(argument, value, provider) {
+                return None;
+            }
+            if provider == Provider::GitHub
+                && matches!(argument, "--field" | "--raw-field")
+                && !update_github_api_field(&mut github_fields, value)
+            {
                 return None;
             }
             if provider == Provider::GitLab && argument == "--field" {
@@ -529,7 +546,7 @@ fn api_request<'a>(
         || paginate_requested == Some(true)
         || github_slurp_requested == Some(true)
         || github_output_options > 1
-        || api_hostname.is_some_and(|hostname| !valid_api_hostname(hostname, provider))
+        || api_hostname.is_some_and(|hostname| !valid_api_hostname(hostname))
         || github_template_value.is_some_and(|template| !valid_github_template(template))
         || provider == Provider::GitLab && paginate_requested.is_some() && gitlab_input
         || gitlab_form && gitlab_non_form_body
@@ -549,16 +566,15 @@ fn api_request<'a>(
 fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
     match (provider, name) {
         (Provider::GitHub, "--field" | "--raw-field") => valid_github_api_field(value),
-        (Provider::GitHub, "--header") => valid_github_api_header(value),
+        (Provider::GitHub, "--header") => valid_api_header(value),
         (Provider::GitHub, "--cache") => valid_go_duration(value),
-        (Provider::GitLab, "--header") => valid_gitlab_api_header(value),
+        (Provider::GitLab, "--header") => valid_api_header(value),
         _ => true,
     }
 }
 
-fn valid_api_hostname(hostname: &str, provider: Provider) -> bool {
-    !hostname.contains(':')
-        && (valid_host(hostname) || provider == Provider::GitHub && valid_idn_hostname(hostname))
+fn valid_api_hostname(hostname: &str) -> bool {
+    !hostname.contains(':') && (valid_host(hostname) || valid_idn_hostname(hostname))
 }
 
 fn valid_idn_hostname(hostname: &str) -> bool {
@@ -605,7 +621,19 @@ fn valid_github_api_field(field: &str) -> bool {
     has_key && last_key_empty
 }
 
-fn valid_github_api_header(header: &str) -> bool {
+fn update_github_api_field<'a>(fields: &mut Vec<(&'a str, bool)>, field: &'a str) -> bool {
+    let name = field.split_once('=').map_or(field, |(name, _)| name);
+    let (name, array) = name
+        .strip_suffix("[]")
+        .map_or((name, false), |name| (name, true));
+    if let Some((_, current_array)) = fields.iter().find(|(current, _)| *current == name) {
+        return array && *current_array;
+    }
+    fields.push((name, array));
+    true
+}
+
+fn valid_api_header(header: &str) -> bool {
     let Some((name, value)) = header.split_once(':') else {
         return false;
     };
@@ -631,12 +659,6 @@ fn valid_github_api_header(header: &str) -> bool {
                 )
         })
         && (!name.eq_ignore_ascii_case("Content-Length") || value.trim().parse::<i64>().is_ok())
-}
-
-fn valid_gitlab_api_header(header: &str) -> bool {
-    header
-        .split_once(':')
-        .is_some_and(|(name, _)| !name.is_empty())
 }
 
 fn valid_go_duration(value: &str) -> bool {
@@ -733,10 +755,14 @@ fn valid_github_template(mut template: &str) -> bool {
             return false;
         };
         let mut action = action_source[..close].trim();
-        if let Some(trimmed) = action.strip_prefix('-') {
+        if let Some(trimmed) = action.strip_prefix('-')
+            && trimmed.chars().next().is_some_and(char::is_whitespace)
+        {
             action = trimmed.trim_start();
         }
-        if let Some(trimmed) = action.strip_suffix('-') {
+        if let Some(trimmed) = action.strip_suffix('-')
+            && trimmed.chars().last().is_some_and(char::is_whitespace)
+        {
             action = trimmed.trim_end();
         }
         if action.is_empty() {
@@ -973,12 +999,7 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
             b'.' => {
                 let start = index;
                 index += 1;
-                while bytes
-                    .get(index)
-                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
-                {
-                    index += 1;
-                }
+                index = github_template_name_end(action, index, true);
                 let path = &action[start..index];
                 if path != "." && path.ends_with('.') || path.contains("..") {
                     return false;
@@ -995,12 +1016,7 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
             b'$' => {
                 let start = index;
                 index += 1;
-                while bytes
-                    .get(index)
-                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
-                {
-                    index += 1;
-                }
+                index = github_template_name_end(action, index, true);
                 let variable = &action[start..index];
                 let base = variable.split_once('.').map_or(variable, |(base, _)| base);
                 if base == "$" && variable != "$" && !variable.starts_with("$.")
@@ -1026,12 +1042,7 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
                         return false;
                     }
                     next += 1;
-                    while bytes
-                        .get(next)
-                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-                    {
-                        next += 1;
-                    }
+                    next = github_template_name_end(action, next, false);
                     let second = &action[second_start..next];
                     while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
                         next += 1;
@@ -1149,6 +1160,16 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
             .first()
             .expect("template pipeline")
             .declaration_pending
+}
+
+fn github_template_name_end(source: &str, mut index: usize, allow_dot: bool) -> usize {
+    while let Some(character) = source[index..].chars().next() {
+        if !(character.is_alphanumeric() || character == '_' || allow_dot && character == '.') {
+            break;
+        }
+        index += character.len_utf8();
+    }
+    index
 }
 
 fn github_template_name_remainder(source: &str) -> Option<&str> {
@@ -1274,8 +1295,27 @@ fn valid_github_template_identifier(identifier: &str) -> bool {
 }
 
 fn valid_github_template_number(number: &str) -> bool {
+    if let Some(complex) = number.strip_suffix('i') {
+        let unsigned = complex.strip_prefix(['+', '-']).unwrap_or(complex);
+        if let Some(separator) = unsigned
+            .char_indices()
+            .skip(1)
+            .find_map(|(index, character)| {
+                (matches!(character, '+' | '-')
+                    && !matches!(unsigned.as_bytes()[index - 1], b'e' | b'E' | b'p' | b'P'))
+                .then_some(index)
+            })
+        {
+            return valid_github_template_real_number(&unsigned[..separator])
+                && valid_github_template_real_number(&unsigned[separator..]);
+        }
+        return valid_github_template_real_number(unsigned);
+    }
+    valid_github_template_real_number(number)
+}
+
+fn valid_github_template_real_number(number: &str) -> bool {
     let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
-    let unsigned = unsigned.strip_suffix('i').unwrap_or(unsigned);
     let (radix, prefix_len) = if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
         (16, 2)
     } else if unsigned.starts_with("0b") || unsigned.starts_with("0B") {
@@ -1306,6 +1346,13 @@ fn valid_github_template_number(number: &str) -> bool {
         .strip_prefix("0x")
         .or_else(|| unsigned.strip_prefix("0X"))
     {
+        if let Some((mantissa, exponent)) = hexadecimal
+            .split_once('p')
+            .or_else(|| hexadecimal.split_once('P'))
+        {
+            return valid_github_template_hex_mantissa(mantissa)
+                && valid_github_template_decimal_exponent(exponent);
+        }
         return !hexadecimal.is_empty() && hexadecimal.bytes().all(|byte| byte.is_ascii_hexdigit());
     }
     if let Some(binary) = unsigned
@@ -1320,7 +1367,34 @@ fn valid_github_template_number(number: &str) -> bool {
     {
         return !octal.is_empty() && octal.bytes().all(|byte| matches!(byte, b'0'..=b'7'));
     }
-    !unsigned.is_empty() && unsigned.parse::<f64>().is_ok()
+    if unsigned.len() > 1 && unsigned.starts_with('0') && !unsigned.contains(['.', 'e', 'E']) {
+        return unsigned.bytes().all(|byte| matches!(byte, b'0'..=b'7'));
+    }
+    !unsigned.is_empty()
+        && unsigned
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-'))
+        && unsigned.parse::<f64>().is_ok()
+}
+
+fn valid_github_template_hex_mantissa(mantissa: &str) -> bool {
+    let mut parts = mantissa.split('.');
+    let left = parts.next().expect("hexadecimal mantissa");
+    let right = parts.next();
+    if parts.next().is_some() {
+        return false;
+    }
+    let right = right.unwrap_or("");
+    (!left.is_empty() || !right.is_empty())
+        && left
+            .bytes()
+            .chain(right.bytes())
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn valid_github_template_decimal_exponent(exponent: &str) -> bool {
+    let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+    !exponent.is_empty() && exponent.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn valid_github_template_digit(byte: u8, radix: u8) -> bool {

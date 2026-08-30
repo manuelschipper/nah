@@ -293,7 +293,27 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "glab api --hostname bücher.invalid -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --hostname bu\u{308}cher.invalid -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
             "gh api --template '{{1_000}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{0x1.fp2}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{1+2i}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{$é := .}}{{$é}}' -X DELETE repos/owner/project",
             "git-remote-delete",
         ),
     ] {
@@ -420,7 +440,13 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api --cache invalid -X DELETE repos/owner/project",
         "gh api --template '{{' -X DELETE repos/owner/project",
         "gh api --template '{{break}}' -X DELETE repos/owner/project",
+        "gh api --template '{{08}}' -X DELETE repos/owner/project",
+        "gh api --template '{{1-}}' -X DELETE repos/owner/project",
+        "gh api -f a=1 -f a=2 -X DELETE repos/owner/project",
+        "gh api -f a=1 -F a=2 -X DELETE repos/owner/project",
         "glab api -H invalid -X DELETE projects/123",
+        "glab api -H 'bad name:value' -X DELETE projects/123",
+        "glab api -H 'Content-Length:nope' -X DELETE projects/123",
         "/tmp/probe/usr/bin/../../../../usr/bin/gh repo delete owner/project --yes",
         "gh api --silent --verbose -X DELETE repos/owner/project",
         "gh api --jq= --jq . --silent -X DELETE repos/owner/project",

@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1365);
+    assert_eq!(summary.cases, 1371);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 251),
-            ("git.jsonl".to_owned(), 230),
+            ("git.jsonl".to_owned(), 236),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
@@ -160,6 +160,12 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-remote-delete.glab-repo-override",
         "git-remote-delete.glab-clustered-repo-override",
         "git-remote-delete.glab-api-clustered-repo-override",
+        "git-remote-delete.glab-api-idn-host",
+        "git-remote-delete.gh-template-hex-float",
+        "git-remote-delete.gh-template-unicode-variable",
+        "git-remote-delete.gh-invalid-legacy-octal-delegates",
+        "git-remote-delete.gh-duplicate-field-delegates",
+        "git-remote-delete.glab-invalid-content-length-delegates",
         "git-remote-delete.gh-ipv6-host",
         "git-remote-delete.gh-api-idn-host",
         "git-remote-delete.gh-decomposed-idn-repository-host",
