@@ -261,7 +261,9 @@ fn operation_for_values_at(
     }
     match words {
         [command, ..] if command == "nap" => Some("permanent-mutation"),
-        [command, ..] if command == "tui" => Some("critical-mutation"),
+        [command, ..] if matches!(command.as_str(), "tui" | "effinterp") => {
+            Some("critical-mutation")
+        }
         [command, ..] if matches!(command.as_str(), "trust" | "untrust") => {
             Some("critical-mutation")
         }
@@ -578,7 +580,7 @@ fn potential_mutation(
         if word_may_equal(words.first(), "nap") {
             return Some(("nah", "permanent-mutation"));
         }
-        if ["tui", "trust", "untrust"]
+        if ["tui", "trust", "untrust", "effinterp"]
             .iter()
             .any(|command| word_may_equal(words.first(), command))
             || words.windows(2).any(|parts| {

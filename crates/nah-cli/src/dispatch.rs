@@ -9,6 +9,8 @@ use nah_proto::tool::ToolCallInput;
 
 use crate::amp_adapter;
 use crate::antigravity_adapter;
+#[cfg(feature = "effinterp")]
+use crate::args::EffinterpAction;
 use crate::args::{Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
 use crate::claude_adapter;
 use crate::cline_adapter;
@@ -19,6 +21,8 @@ use crate::commands::{
     runtime_entry, runtime_self_protection, set_guard_enabled, set_runtime_configured,
     test_command, trust_root, untrust_root,
 };
+#[cfg(feature = "effinterp")]
+use crate::commands::{configure_effinterp, effinterp_status};
 use crate::copilot_adapter;
 use crate::cursor_adapter;
 use crate::devin_adapter;
@@ -66,7 +70,19 @@ fn run_with<R: Read, W: Write, E: Write>(
             let _ = writeln!(stderr, "nah: `nah tui` requires an interactive terminal.");
             2
         }
-        Command::Decide => run_decide(stdin, stdout, stderr),
+        Command::Decide(args) => {
+            #[cfg(feature = "effinterp")]
+            {
+                crate::effinterp_state::with_forced(args.effinterp, || {
+                    run_decide(stdin, stdout, stderr)
+                })
+            }
+            #[cfg(not(feature = "effinterp"))]
+            {
+                let _ = args;
+                run_decide(stdin, stdout, stderr)
+            }
+        }
         Command::Nap(_) => {
             let _ = writeln!(
                 stderr,
@@ -105,20 +121,34 @@ fn run_with<R: Read, W: Write, E: Write>(
                 configure_runtime_hook(args.runtime, false, None, stdout, stderr)
             }
             HookAction::Status => inspect_runtime_hook(args.runtime, stdout, stderr),
-            HookAction::Run(run) => run_runtime_hook(
-                args.runtime,
-                if run.fail_closed {
+            HookAction::Run(run) => {
+                let policy = if run.fail_closed {
                     FailurePolicy::Block
                 } else {
                     FailurePolicy::Delegate
-                },
-                stdin,
-                stdout,
-                stderr,
-            ),
+                };
+                #[cfg(feature = "effinterp")]
+                {
+                    crate::effinterp_state::with_forced(run.effinterp, || {
+                        run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
+                    })
+                }
+                #[cfg(not(feature = "effinterp"))]
+                {
+                    run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
+                }
+            }
         },
         Command::Why(args) => explain(&args.id, stdout, stderr),
-        Command::Log(args) => list_log(args.count, args.json, args.blocked, stdout, stderr),
+        Command::Log(args) => {
+            #[cfg(feature = "effinterp")]
+            let gap = args.effinterp_gap;
+            #[cfg(not(feature = "effinterp"))]
+            let gap = false;
+            list_log(args.count, args.json, args.blocked, gap, stdout, stderr)
+        }
+        #[cfg(feature = "effinterp")]
+        Command::Effinterp(args) => configure_effinterp_command(args.action, stdout, stderr),
         Command::Docs(args) => emit_docs(args.topic.as_deref(), stdout, stderr),
     }
 }
@@ -659,12 +689,13 @@ fn list_log<W: Write, E: Write>(
     limit: usize,
     json: bool,
     blocked: bool,
+    effinterp_gap: bool,
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
     let platform = live_state::host_platform();
     let result = live_state::home(platform).and_then(|home| {
-        records::list_decisions(&home, platform, limit, json, blocked)
+        records::list_decisions(&home, platform, limit, json, blocked, effinterp_gap)
             .map_err(|error| error.to_string())
     });
     match result {
@@ -679,6 +710,8 @@ fn list_log<W: Write, E: Write>(
             if view.lines.is_empty() && !json {
                 let message = if limit == 0 {
                     "No decisions requested."
+                } else if effinterp_gap {
+                    "No effinterp gaps recorded."
                 } else if blocked {
                     "No blocked decisions recorded."
                 } else {
@@ -695,6 +728,29 @@ fn list_log<W: Write, E: Write>(
             for line in view.lines {
                 let _ = writeln!(stdout, "{line}");
             }
+            0
+        }
+        Err(error) => {
+            let _ = writeln!(stderr, "nah: {error}");
+            2
+        }
+    }
+}
+
+#[cfg(feature = "effinterp")]
+fn configure_effinterp_command<W: Write, E: Write>(
+    action: EffinterpAction,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
+    let result = match action {
+        EffinterpAction::On => configure_effinterp(true),
+        EffinterpAction::Off => configure_effinterp(false),
+        EffinterpAction::Status => effinterp_status(),
+    };
+    match result {
+        Ok(status) => {
+            let _ = writeln!(stdout, "{status}");
             0
         }
         Err(error) => {

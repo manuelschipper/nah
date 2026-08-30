@@ -1,6 +1,8 @@
 //! Exact decision pipeline shared by live calls and frozen corpus execution.
 
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(feature = "effinterp")]
+use std::time::Instant;
 
 use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
 use nah_proto::ctx::Ctx;
@@ -31,6 +33,16 @@ pub struct DecisionResult {
     diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
     failures: Vec<EvaluationFailure>,
     refusals: Vec<AnalysisRefusal>,
+    #[cfg(feature = "effinterp")]
+    effinterp: Option<EffinterpShadow>,
+}
+
+#[cfg(feature = "effinterp")]
+pub(crate) struct EffinterpShadow {
+    plan: nah_effinterp::Plan,
+    annotations: Vec<nah_proto::action_v2::EffectAnnotation>,
+    engine_time_us: u64,
+    gap: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -169,6 +181,11 @@ impl DecisionResult {
         &self.refusals
     }
 
+    #[cfg(feature = "effinterp")]
+    pub(crate) fn effinterp(&self) -> Option<&EffinterpShadow> {
+        self.effinterp.as_ref()
+    }
+
     pub(crate) fn replace_core(&mut self, core: DecisionCore) {
         self.core = core;
     }
@@ -199,6 +216,25 @@ impl DecisionResult {
     }
 }
 
+#[cfg(feature = "effinterp")]
+impl EffinterpShadow {
+    pub(crate) fn plan(&self) -> &nah_effinterp::Plan {
+        &self.plan
+    }
+
+    pub(crate) fn annotations(&self) -> &[nah_proto::action_v2::EffectAnnotation] {
+        &self.annotations
+    }
+
+    pub(crate) const fn engine_time_us(&self) -> u64 {
+        self.engine_time_us
+    }
+
+    pub(crate) const fn gap(&self) -> bool {
+        self.gap
+    }
+}
+
 fn failure_recovery(failure: &EvaluationFailure) -> RecoveryAdvice {
     if failure.source() == "custom-guard"
         && matches!(failure.code(), "timeout" | "crash" | "spawn-failure")
@@ -225,6 +261,7 @@ where
         observe,
         |_, _| ConsultedExtensions::default(),
         false,
+        false,
     )
 }
 
@@ -246,6 +283,7 @@ where
         nah_policy::EnforcementMode::Normal,
         observe,
         |_, _| ConsultedExtensions::default(),
+        false,
         false,
     )
 }
@@ -270,6 +308,10 @@ pub(crate) fn decide_live_with_self_protection(
         Some(NapMode::SelfProtection) => nah_policy::EnforcementMode::SelfProtectionPaused,
         Some(NapMode::All) => nah_policy::EnforcementMode::AllPaused,
     };
+    #[cfg(feature = "effinterp")]
+    let effinterp_enabled = state.effinterp_enabled;
+    #[cfg(not(feature = "effinterp"))]
+    let effinterp_enabled = false;
     let mut result = decide_with_extensions_mode(
         input,
         code,
@@ -297,6 +339,7 @@ pub(crate) fn decide_live_with_self_protection(
                     .collect(),
             }
         },
+        effinterp_enabled,
         false,
     );
     if state.extension_state_unavailable && mode != nah_policy::EnforcementMode::AllPaused {
@@ -338,6 +381,7 @@ where
         observe,
         consult,
         false,
+        false,
     )
 }
 
@@ -350,6 +394,7 @@ fn decide_with_extensions_mode<F, U>(
     mode: nah_policy::EnforcementMode,
     mut observe: F,
     consult: U,
+    effinterp_enabled: bool,
     simulate_inline_failure: bool,
 ) -> DecisionResult
 where
@@ -501,6 +546,20 @@ where
             return delegated_with_refusals(refusal.reason().to_owned(), refusals);
         }
     };
+    #[cfg(feature = "effinterp")]
+    let (mut effinterp_shadow, effinterp_warning) = if effinterp_enabled && input.tool() == "Bash" {
+        match run_effinterp_shadow(input, &call_site, ctx, &mut observe) {
+            Ok(shadow) => (Some(shadow), None),
+            Err(error) => (None, Some(error)),
+        }
+    } else {
+        (None, None)
+    };
+    #[cfg(not(feature = "effinterp"))]
+    let effinterp_warning: Option<String> = {
+        let _ = effinterp_enabled;
+        None
+    };
     refusals.extend(
         plan.inline_report()
             .refusals()
@@ -523,6 +582,7 @@ where
         .unknown_declared_guards()
         .iter()
         .map(|name| format!("unknown project guard `{name}`"))
+        .chain(effinterp_warning)
         .collect::<Vec<_>>();
     let mut inline_report = plan.inline_report().clone();
     let mut inline_failed = plan.inline_failed();
@@ -532,6 +592,10 @@ where
     }
     let (action_stream, language_safety_stream) =
         nah_actions::finalize_with_language_safety_stream(plan, observation.clone());
+    #[cfg(feature = "effinterp")]
+    if let Some(shadow) = &mut effinterp_shadow {
+        shadow.gap = effinterp_gap(&action_stream, &shadow.plan);
+    }
     if action_stream.effects().iter().any(|effect| {
         matches!(
             effect.kind(),
@@ -569,10 +633,13 @@ where
                 diagnostics: vec![],
                 failures,
                 refusals,
+                #[cfg(feature = "effinterp")]
+                effinterp: effinterp_shadow,
             },
             Err(()) => {
                 failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
-                failed_with_stream(
+                #[cfg_attr(not(feature = "effinterp"), allow(unused_mut))]
+                let mut result = failed_with_stream(
                     action_stream,
                     observation,
                     warnings,
@@ -580,7 +647,12 @@ where
                     vec![],
                     failures,
                     refusals,
-                )
+                );
+                #[cfg(feature = "effinterp")]
+                {
+                    result.effinterp = effinterp_shadow;
+                }
+                result
             }
         };
     }
@@ -613,10 +685,13 @@ where
             diagnostics,
             failures,
             refusals,
+            #[cfg(feature = "effinterp")]
+            effinterp: effinterp_shadow,
         },
         Err(()) => {
             failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
-            failed_with_stream(
+            #[cfg_attr(not(feature = "effinterp"), allow(unused_mut))]
+            let mut result = failed_with_stream(
                 action_stream,
                 observation,
                 warnings,
@@ -624,7 +699,12 @@ where
                 diagnostics,
                 failures,
                 refusals,
-            )
+            );
+            #[cfg(feature = "effinterp")]
+            {
+                result.effinterp = effinterp_shadow;
+            }
+            result
         }
     }
 }
@@ -953,6 +1033,8 @@ fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> D
         diagnostics: vec![],
         failures: vec![],
         refusals,
+        #[cfg(feature = "effinterp")]
+        effinterp: None,
     }
 }
 
@@ -998,7 +1080,71 @@ fn failed_with_stream(
         diagnostics,
         failures,
         refusals,
+        #[cfg(feature = "effinterp")]
+        effinterp: None,
     }
+}
+
+#[cfg(feature = "effinterp")]
+fn run_effinterp_shadow<F>(
+    input: &ToolCallInput,
+    call_site: &nah_proto::tool::CallSite,
+    ctx: &Ctx,
+    observe: &mut F,
+) -> Result<EffinterpShadow, String>
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
+    let command = input
+        .input()
+        .as_object()
+        .and_then(|input| input.get("command"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "effinterp shadow input is invalid".to_owned())?;
+    let started = Instant::now();
+    let plan = nah_effinterp::analyze_shell(command, call_site.requested_cwd().as_str())?;
+    let engine_time_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+    let request = nah_effinterp::request(&plan, call_site);
+    let observation = observe(&request).map_err(|_| "effinterp shadow observation failed")?;
+    observation
+        .bind(&request)
+        .map_err(|_| "effinterp shadow observation mismatch")?;
+    let annotations = nah_effinterp::annotate(&plan, &observation, ctx);
+    Ok(EffinterpShadow {
+        plan,
+        annotations,
+        engine_time_us,
+        gap: false,
+    })
+}
+
+#[cfg(feature = "effinterp")]
+fn effinterp_gap(action_stream: &ActionStream, plan: &nah_effinterp::Plan) -> bool {
+    use nah_effinterp::CoverageLevel;
+
+    let old = action_stream
+        .effects()
+        .iter()
+        .map(|effect| match effect.kind() {
+            EffectKind::Invocation { .. } => "process",
+            EffectKind::Filesystem { .. } | EffectKind::FilesystemUnresolved { .. } => "filesystem",
+            EffectKind::Git { .. } => "git",
+            EffectKind::Network { .. } => "network",
+            EffectKind::SystemState { .. } => "environment",
+        })
+        .collect::<BTreeSet<_>>();
+    let interpreted = plan
+        .effects
+        .iter()
+        .map(|effect| effect.operation.domain())
+        .collect::<BTreeSet<_>>();
+    old != interpreted
+        || !plan.boundaries.is_empty()
+        || plan
+            .coverage
+            .0
+            .values()
+            .any(|coverage| coverage != &CoverageLevel::Full)
 }
 
 #[cfg(all(test, unix))]

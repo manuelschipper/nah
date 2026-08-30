@@ -24,6 +24,8 @@ mod devin_adapter;
 mod dispatch;
 mod docs;
 mod droid_adapter;
+#[cfg(feature = "effinterp")]
+mod effinterp_state;
 mod hermes_adapter;
 mod hook_adapter;
 mod kiro_adapter;

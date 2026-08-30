@@ -10,6 +10,7 @@
 //! syntax, policy decisions, I/O, or application orchestration.
 
 pub mod action;
+pub mod action_v2;
 pub mod ctx;
 pub mod decision;
 pub mod exec_v1;

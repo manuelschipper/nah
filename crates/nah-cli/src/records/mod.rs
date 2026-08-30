@@ -72,23 +72,26 @@ pub(crate) fn append_decision(
     runtime: Option<Runtime>,
     include_refusals: bool,
 ) -> Result<(), AuditError> {
+    let diagnostics = redaction::AuditDiagnostics::new(
+        result.warnings(),
+        result.consultations(),
+        result.diagnostics(),
+    )
+    .with_failures(result.failures())
+    .with_refusals(if include_refusals {
+        result.refusals()
+    } else {
+        &[]
+    });
+    #[cfg(feature = "effinterp")]
+    let diagnostics = diagnostics.with_effinterp(result.effinterp());
     let record = redaction::AuditRecordV1::redact(
         tool_call,
         result.action_stream(),
         result.core(),
         envelope,
         runtime_name(runtime),
-        redaction::AuditDiagnostics::new(
-            result.warnings(),
-            result.consultations(),
-            result.diagnostics(),
-        )
-        .with_failures(result.failures())
-        .with_refusals(if include_refusals {
-            result.refusals()
-        } else {
-            &[]
-        }),
+        diagnostics,
     );
     DecisionLog::new(decision_log_path(ctx.home(), ctx.platform())).append(&record)
 }
@@ -194,10 +197,15 @@ pub(crate) fn list_decisions(
     limit: usize,
     json: bool,
     blocked: bool,
+    effinterp_gap: bool,
 ) -> Result<DecisionLines, AuditError> {
-    let tail = DecisionLog::new(decision_log_path(home, platform))
-        .tail_views_with_summary(usize::from(!blocked) * limit, usize::from(blocked) * limit)?;
-    let records = if blocked {
+    let log = DecisionLog::new(decision_log_path(home, platform));
+    let tail = if effinterp_gap {
+        log.tail_effinterp_gaps(limit)?
+    } else {
+        log.tail_views_with_summary(usize::from(!blocked) * limit, usize::from(blocked) * limit)?
+    };
+    let records = if blocked && !effinterp_gap {
         &tail.blocked_records
     } else {
         &tail.records

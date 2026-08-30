@@ -14,6 +14,8 @@ pub(crate) struct LiveState {
     pub(crate) nap: Option<ActiveNap>,
     pub(crate) extension_state_unavailable: bool,
     pub(crate) warnings: Vec<String>,
+    #[cfg(feature = "effinterp")]
+    pub(crate) effinterp_enabled: bool,
 }
 
 /// Damaged state must never be treated better than absent state: every loader
@@ -85,6 +87,16 @@ pub(crate) fn load() -> Result<LiveState, String> {
             None
         }
     };
+    #[cfg(feature = "effinterp")]
+    let effinterp_enabled =
+        match crate::effinterp_state::enabled(&crate::effinterp_state::state_path(&home, platform))
+        {
+            Ok(enabled) => enabled,
+            Err(error) => {
+                warnings.push(format!("{error}; effinterp shadow remains off"));
+                false
+            }
+        };
     Ok(LiveState {
         ctx,
         extensions,
@@ -92,6 +104,8 @@ pub(crate) fn load() -> Result<LiveState, String> {
         nap,
         extension_state_unavailable,
         warnings,
+        #[cfg(feature = "effinterp")]
+        effinterp_enabled,
     })
 }
 

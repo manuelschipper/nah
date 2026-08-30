@@ -10,6 +10,8 @@ mod cursor_installation;
 mod custom_guard;
 mod devin_installation;
 mod droid_installation;
+#[cfg(feature = "effinterp")]
+mod effinterp;
 mod guard_config;
 mod hermes_installation;
 mod hook_config;
@@ -54,6 +56,8 @@ pub(crate) use devin_installation::{
 pub(crate) use droid_installation::{
     droid_hook_status, droid_self_protection_paths, mutate_droid_hook,
 };
+#[cfg(feature = "effinterp")]
+pub(crate) use effinterp::{configure as configure_effinterp, status as effinterp_status};
 pub(crate) use guard_config::{
     GuardChange, GuardEntry, GuardSelector, GuardStatus, GuardTarget, apply_guard_change,
     guard_entries, scope_name, set_guard_enabled, validate_guard_change,

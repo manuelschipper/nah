@@ -7,8 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-engine = ["dep:effinterp-engine", "dep:effinterp-proto"]
+effinterp = ["dep:effinterp-proto", "dep:nah-proto"]
+engine = ["effinterp", "dep:effinterp-engine"]
 
 [dependencies]
 effinterp-engine = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
 effinterp-proto = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
+nah-proto = { path = "../nah-proto", optional = true }
+
+[dev-dependencies]
+nah-proto = { path = "../nah-proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
