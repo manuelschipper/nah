@@ -201,3 +201,69 @@ fn malformed_payloads_delegate_in_each_protocol() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn independent_guards_still_block_when_self_protection_is_unavailable() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(home_temp.path());
+    let project = repo(&home);
+    let (tool, command) = if cfg!(windows) {
+        (
+            "powershell",
+            "Remove-Item -LiteralPath C:\\ -Recurse -Force",
+        )
+    } else {
+        ("bash", "rm -rf /")
+    };
+    let payload = cli_payload(&project, tool, json!({"command":command}));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "copilot", "run"])
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env("COPILOT_HOME", home.join("elsewhere"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+
+    let responses = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        responses
+            .iter()
+            .any(|response| response["type"] == "progress")
+    );
+    assert!(
+        responses
+            .iter()
+            .any(|response| response["permissionDecision"] == "deny")
+    );
+
+    let records = std::fs::read_to_string(home.join(".nah/audit.jsonl")).unwrap();
+    let record: Value = serde_json::from_str(records.lines().last().unwrap()).unwrap();
+    assert_eq!(record["core"]["verdict"], "block");
+    assert!(
+        record["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|failure| {
+                failure["source"] == "nah"
+                    && failure["component"] == "runtime-self-protection"
+                    && failure["code"] == "failed"
+            })
+    );
+}

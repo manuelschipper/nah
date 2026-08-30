@@ -31,7 +31,7 @@ use crate::nap::{self, NapMode};
 use crate::openclaw_adapter;
 use crate::opencode_adapter;
 use crate::pi_adapter;
-use crate::pipeline::{decide_live_with_self_protection, failed_delegate};
+use crate::pipeline::{EvaluationFailure, decide_live_with_self_protection, failed_delegate};
 use crate::prime_agent_adapter;
 use crate::records;
 use crate::runtime::{FailurePolicy, Runtime};
@@ -462,16 +462,19 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                 .map(runtime_self_protection)
                 .transpose()
                 .map(|self_protection| self_protection.unwrap_or_default());
-            let result = match self_protection {
-                Ok(self_protection) => {
-                    decide_live_with_self_protection(&input, code, &state, &self_protection)
-                }
-                Err(_) => failed_delegate(
-                    "runtime-self-protection",
-                    "failed",
-                    "runtime self-protection failed",
+            let (self_protection, self_protection_error) = match self_protection {
+                Ok(self_protection) => (self_protection, None),
+                Err(error) => (
+                    nah_actions::SelfProtectionProjection::default(),
+                    Some(error),
                 ),
             };
+            let mut result =
+                decide_live_with_self_protection(&input, code, &state, &self_protection);
+            if let Some(error) = self_protection_error {
+                result.push_warning(format!("runtime self-protection failed: {error}"));
+                result.push_failure(EvaluationFailure::nah("runtime-self-protection", "failed"));
+            }
             audit = Some((state.ctx.clone(), input.clone()));
             result
         }

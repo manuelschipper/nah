@@ -106,6 +106,9 @@ Describe 'nah Windows installer and release artifact' `
         $script:originalUserProfile = $env:USERPROFILE
         $script:originalHome = $env:HOME
         $script:originalProcessPath = $env:PATH
+        $pythonLauncher = Get-Command py -CommandType Application -ErrorAction Stop |
+            Select-Object -First 1
+        $script:pythonLauncherDirectory = Split-Path -Parent $pythonLauncher.Path
         $script:originalVariables = @{}
         foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
             $script:originalVariables[$name] = [Environment]::GetEnvironmentVariable(
@@ -132,8 +135,7 @@ Describe 'nah Windows installer and release artifact' `
         New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
         $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
         foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
-            [Environment]::SetEnvironmentVariable(
-                $name, $null, [EnvironmentVariableTarget]::Process)
+            Remove-Item -LiteralPath "Env:$name" -Force -ErrorAction SilentlyContinue
         }
         Set-RawUserPath -Value '%SystemRoot%\System32;C:\Existing'
     }
@@ -319,8 +321,16 @@ Describe 'nah Windows installer and release artifact' `
         $powerShellDecision = Invoke-NahProcess -Executable $nah `
             -Arguments @('hook', 'copilot', 'run') -Payload $powerShellPayload
         $powerShellDecision.ExitCode | Should -Be 0
-        $powerShellResponse = $powerShellDecision.Stdout | ConvertFrom-Json
-        if ($powerShellResponse.permissionDecision -ne 'deny') {
+        $powerShellResponses = @(
+            $powerShellDecision.Stdout -split "`r?`n" |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object { $_ | ConvertFrom-Json })
+        $powerShellResponse = $powerShellResponses |
+            Where-Object permissionDecision -eq 'deny' | Select-Object -First 1
+        $powerShellProgress = $powerShellResponses |
+            Where-Object type -eq 'progress' | Select-Object -First 1
+        $powerShellAudit = $null
+        if ($null -eq $powerShellResponse -or $null -ne $powerShellProgress) {
             $powerShellAudit = Invoke-NahProcess -Executable $nah `
                 -Arguments @('log', '--json', '-n', '1')
         }
@@ -328,6 +338,8 @@ Describe 'nah Windows installer and release artifact' `
             Should -BeExactly 'deny' -Because (
                 "stdout: $($powerShellDecision.Stdout); stderr: $($powerShellDecision.Stderr); " +
                 "audit: $($powerShellAudit.Stdout)")
+        $powerShellProgress | Should -BeNullOrEmpty -Because (
+            "stdout: $($powerShellDecision.Stdout); audit: $($powerShellAudit.Stdout)")
 
         foreach ($runtime in @('claude', 'codex', 'cursor', 'copilot', 'cline', 'kiro')) {
             $before = Invoke-NahProcess -Executable $nah -Arguments @('hook', $runtime, 'status')
@@ -385,6 +397,7 @@ Describe 'nah Windows installer and release artifact' `
         $cline.ExitCode | Should -Be 0
         ($cline.Stdout | ConvertFrom-Json).cancel | Should -BeFalse
 
+        $env:PATH = "$env:PATH;$script:pythonLauncherDirectory"
         $created = Invoke-NahProcess -Executable $nah `
             -Arguments @('guard', 'new', 'release-acceptance')
         $created.ExitCode | Should -Be 0
@@ -395,7 +408,13 @@ Describe 'nah Windows installer and release artifact' `
             input = @{ command = 'release-acceptance destroy --all' }
         } | ConvertTo-Json -Compress -Depth 8
         $custom = Invoke-NahProcess -Executable $nah -Arguments @('decide') -Payload $customInput
-        $custom.ExitCode | Should -Be 1
+        $customAudit = $null
+        if ($custom.ExitCode -ne 1) {
+            $customAudit = Invoke-NahProcess -Executable $nah -Arguments @('log', '--json', '-n', '1')
+        }
+        $custom.ExitCode | Should -Be 1 -Because (
+            "stdout: $($custom.Stdout); stderr: $($custom.Stderr); " +
+            "audit: $($customAudit.Stdout)")
         ($custom.Stdout | ConvertFrom-Json).verdict | Should -BeExactly 'block'
     }
 }
