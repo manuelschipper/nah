@@ -132,8 +132,7 @@ Describe 'nah Windows installer and release artifact' `
         New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
         $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
         foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
-            [Environment]::SetEnvironmentVariable(
-                $name, $null, [EnvironmentVariableTarget]::Process)
+            Remove-Item -LiteralPath "Env:$name" -Force -ErrorAction SilentlyContinue
         }
         Set-RawUserPath -Value '%SystemRoot%\System32;C:\Existing'
     }
@@ -319,8 +318,16 @@ Describe 'nah Windows installer and release artifact' `
         $powerShellDecision = Invoke-NahProcess -Executable $nah `
             -Arguments @('hook', 'copilot', 'run') -Payload $powerShellPayload
         $powerShellDecision.ExitCode | Should -Be 0
-        $powerShellResponse = $powerShellDecision.Stdout | ConvertFrom-Json
-        if ($powerShellResponse.permissionDecision -ne 'deny') {
+        $powerShellResponses = @(
+            $powerShellDecision.Stdout -split "`r?`n" |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object { $_ | ConvertFrom-Json })
+        $powerShellResponse = $powerShellResponses |
+            Where-Object permissionDecision -eq 'deny' | Select-Object -First 1
+        $powerShellProgress = $powerShellResponses |
+            Where-Object type -eq 'progress' | Select-Object -First 1
+        $powerShellAudit = $null
+        if ($null -eq $powerShellResponse -or $null -ne $powerShellProgress) {
             $powerShellAudit = Invoke-NahProcess -Executable $nah `
                 -Arguments @('log', '--json', '-n', '1')
         }
@@ -328,6 +335,8 @@ Describe 'nah Windows installer and release artifact' `
             Should -BeExactly 'deny' -Because (
                 "stdout: $($powerShellDecision.Stdout); stderr: $($powerShellDecision.Stderr); " +
                 "audit: $($powerShellAudit.Stdout)")
+        $powerShellProgress | Should -BeNullOrEmpty -Because (
+            "stdout: $($powerShellDecision.Stdout); audit: $($powerShellAudit.Stdout)")
 
         foreach ($runtime in @('claude', 'codex', 'cursor', 'copilot', 'cline', 'kiro')) {
             $before = Invoke-NahProcess -Executable $nah -Arguments @('hook', $runtime, 'status')

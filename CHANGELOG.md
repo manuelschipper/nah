@@ -25,6 +25,9 @@
   `nah.exe` path is also self-protected, nap keys inherited under that boundary
   remain usable, and concurrent trust updates tolerate transient Windows
   filesystem contention.
+- **Runtime self-protection failure isolation** — A runtime wiring-path failure
+  remains visible without suppressing independent guard decisions, so a proven
+  unrelated disaster still blocks while the adapter reports incomplete evaluation.
 - **Unreadable decision log recovery** — `nah log` and the TUI archive an
   unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
   readable records, and warn instead of leaving decision browsing unavailable.
