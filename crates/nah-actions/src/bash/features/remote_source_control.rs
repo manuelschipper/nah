@@ -613,6 +613,14 @@ fn is_idn_mark(character: char) -> bool {
             | '\u{bc6}'..='\u{bc8}'
             | '\u{bca}'..='\u{bcd}'
             | '\u{bd7}'
+            | '\u{c81}'..='\u{c83}'
+            | '\u{cbc}'
+            | '\u{cbe}'..='\u{cc4}'
+            | '\u{cc6}'..='\u{cc8}'
+            | '\u{cca}'..='\u{ccd}'
+            | '\u{cd5}'..='\u{cd6}'
+            | '\u{ce2}'..='\u{ce3}'
+            | '\u{cf3}'
     )
 }
 
