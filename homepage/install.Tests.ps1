@@ -4,6 +4,7 @@ param(
     [string]$ExpectedVersion
 )
 
+BeforeAll {
 $installerPath = Join-Path $PSScriptRoot 'install.ps1'
 $removalDocumentationPath = Join-Path $PSScriptRoot '..\README.md'
 . $installerPath
@@ -96,6 +97,7 @@ function Invoke-NahProcess {
     } finally {
         Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
     }
+}
 }
 
 Describe 'nah Windows installer and release artifact' `
