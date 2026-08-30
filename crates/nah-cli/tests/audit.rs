@@ -232,7 +232,15 @@ fn adapters_record_the_runtime_that_decided_and_decide_records_none() {
     assert!(listed.status.success(), "{listed:?}");
     let listed = String::from_utf8(listed.stdout).unwrap();
     assert!(listed.contains("claude      Bash: echo"), "{listed}");
-    assert!(listed.contains("codex       Bash: echo"), "{listed}");
+    let codex_tool = if cfg!(windows) {
+        "CodexWindowsShell"
+    } else {
+        "Bash: echo"
+    };
+    assert!(
+        listed.contains(&format!("codex       {codex_tool}")),
+        "{listed}"
+    );
     assert!(listed.contains("unknown     Bash: echo"), "{listed}");
 
     let id = serde_json::from_str::<serde_json::Value>(recorded.lines().next().unwrap()).unwrap()
