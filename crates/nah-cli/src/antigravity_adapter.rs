@@ -452,9 +452,11 @@ mod tests {
             ("find_by_name", json!({"SearchDirectory":"/repo"})),
             ("grep_search", json!({"SearchPath":"/repo","Query":7})),
         ] {
-            let call = normalized(name, args.clone());
+            let mut expected = args.clone();
+            native_paths(&mut expected);
+            let call = normalized(name, args);
             assert_eq!(call.tool(), name);
-            assert_eq!(call.input(), &args);
+            assert_eq!(call.input(), &expected);
             assert!(!call.normalization_complete());
         }
     }
