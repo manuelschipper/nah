@@ -145,6 +145,30 @@ fn github_api_short_option_forms_preserve_delete_classification() {
 }
 
 #[test]
+fn gitlab_short_option_clusters_preserve_delete_classification() {
+    for source in [
+        "glab repo delete group/project -yh=false",
+        "glab project delete group/project -yyh=0",
+        "glab api -ih=false -X DELETE projects/123",
+        "glab api -iXDELETE projects/123",
+        "glab api -iiX DELETE projects/123",
+        "glab api -iFtrace=true -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "glab repo delete group/project -yh=true",
+        "glab repo delete group/project -hy=false",
+        "glab api -ih=true -X DELETE projects/123",
+        "glab api -hi=false -X DELETE projects/123",
+        "glab api -iXDELETE -iiX GET projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
 fn github_api_paginate_only_allows_delete_when_disabled() {
     for value in ["0", "f", "F", "FALSE", "false", "False"] {
         let source = format!("gh api --paginate={value} -X DELETE repos/owner/project");
@@ -234,6 +258,27 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api -X DELETE 'projects/123#anything'",
         "gh api -X DELETE 'repos/owner/project#'",
         "gh api -X DELETE 'repos/owner/project#/issues'",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn gitlab_api_form_conflicts_delegate_before_delete() {
+    for source in [
+        "glab api --form a=b --field c=d -X DELETE projects/123",
+        "glab api --field=a=b --form=c=d -X DELETE projects/123",
+        "glab api --form a=b -F c=d -X DELETE projects/123",
+        "glab api --form a=b --raw-field c=d -X DELETE projects/123",
+        "glab api --form a=b -fc=d -X DELETE projects/123",
+        "glab api --form a=b --input body.json -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "glab api --form a=b -X DELETE projects/123",
+        "glab api --field a=b --input body.json -X DELETE projects/123",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
