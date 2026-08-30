@@ -89,7 +89,7 @@ print(json.dumps(response))
         fs::write(directory.join("run.py"), python).map_err(|_| TemplateError::Io)?;
         fs::write(
             directory.join("run.cmd"),
-            "@echo off\r\npy -3 \"%~dp0run.py\"\r\n",
+            "@echo off\r\npy -3 -S \"%~dp0run.py\"\r\n",
         )
         .map_err(|_| TemplateError::Io)?;
         "run.cmd"
