@@ -18,6 +18,17 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
         return false;
     };
     let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let arguments = if provider == Provider::GitLab {
+        let Some((arguments, repo_override)) = gitlab_repo_override(&arguments) else {
+            return false;
+        };
+        if repo_override.is_some_and(|target| !valid_gitlab_repository(target)) {
+            return false;
+        }
+        arguments
+    } else {
+        arguments
+    };
     let mut help_requested = None;
     let mut command_index = 0;
     while let Some(value) = arguments
@@ -70,6 +81,47 @@ fn gitlab_repo_delete(arguments: &[&str], help_requested: Option<bool>) -> bool 
     };
     repo_delete_target(rest, Provider::GitLab, help_requested)
         .is_some_and(|target| target.is_none_or(valid_gitlab_repository))
+}
+
+fn gitlab_repo_override<'a>(arguments: &[&'a str]) -> Option<(Vec<&'a str>, Option<&'a str>)> {
+    let mut remaining = Vec::with_capacity(arguments.len());
+    let mut repo_override = None;
+    let mut after_options = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index];
+        if argument == "--" {
+            after_options = true;
+        }
+        if !after_options && matches!(argument, "-R" | "--repo") {
+            repo_override = Some(*arguments.get(index + 1)?);
+            index += 2;
+            continue;
+        }
+        if !after_options
+            && let Some(value) = argument
+                .strip_prefix("--repo=")
+                .or_else(|| argument.strip_prefix("-R="))
+        {
+            if value.is_empty() {
+                return None;
+            }
+            repo_override = Some(value);
+            index += 1;
+            continue;
+        }
+        if !after_options
+            && let Some(value) = argument.strip_prefix("-R")
+            && !value.is_empty()
+        {
+            repo_override = Some(value);
+            index += 1;
+            continue;
+        }
+        remaining.push(argument);
+        index += 1;
+    }
+    Some((remaining, repo_override))
 }
 
 fn repo_delete_command<'a>(
@@ -811,7 +863,19 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
                 pipelines.pop();
                 index += 1;
             }
-            b'\'' => return false,
+            b'\'' => {
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.after_pipe {
+                    return false;
+                }
+                let Some(length) = github_template_rune_len(&action[index..]) else {
+                    return false;
+                };
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+                index += length;
+            }
             delimiter @ (b'"' | b'`') => {
                 let pipeline = pipelines.last_mut().expect("template pipeline");
                 if pipeline.after_pipe {
@@ -878,6 +942,60 @@ fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bo
                 let mut next = index;
                 while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
                     next += 1;
+                }
+                if bytes.get(next) == Some(&b',') {
+                    if pipelines.len() != 1 || action[..start].trim() != "range" {
+                        return false;
+                    }
+                    next += 1;
+                    while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
+                        next += 1;
+                    }
+                    let second_start = next;
+                    if bytes.get(next) != Some(&b'$') {
+                        return false;
+                    }
+                    next += 1;
+                    while bytes
+                        .get(next)
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                    {
+                        next += 1;
+                    }
+                    let second = &action[second_start..next];
+                    while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
+                        next += 1;
+                    }
+                    let declaration = if bytes.get(next..next + 2) == Some(b":=") {
+                        true
+                    } else if bytes.get(next) == Some(&b'=') {
+                        false
+                    } else {
+                        return false;
+                    };
+                    if variable == "$"
+                        || variable.contains('.')
+                        || second == "$"
+                        || variable == second
+                        || !declaration
+                            && (!variables.iter().any(|current| current == variable)
+                                || !variables.iter().any(|current| current == second))
+                    {
+                        return false;
+                    }
+                    if declaration {
+                        for variable in [variable, second] {
+                            if !variables.iter().any(|current| current == variable) {
+                                variables.push(variable.to_owned());
+                            }
+                        }
+                    }
+                    index = next + if declaration { 2 } else { 1 };
+                    pipelines
+                        .last_mut()
+                        .expect("template pipeline")
+                        .declaration_pending = true;
+                    continue;
                 }
                 let declaration = if bytes.get(next..next + 2) == Some(b":=") {
                     Some(true)
@@ -983,6 +1101,25 @@ fn github_template_name_remainder(source: &str) -> Option<&str> {
     None
 }
 
+fn github_template_rune_len(source: &str) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.first() != Some(&b'\'') {
+        return None;
+    }
+    let mut index = 1;
+    if bytes.get(index) == Some(&b'\\') {
+        index += 1;
+        index += github_template_escape_len(&bytes[index..])?;
+    } else {
+        let rune = source.get(index..)?.chars().next()?;
+        if matches!(rune, '\'' | '\\' | '\n' | '\r') {
+            return None;
+        }
+        index += rune.len_utf8();
+    }
+    (bytes.get(index) == Some(&b'\'')).then_some(index + 1)
+}
+
 fn github_template_escape_len(source: &[u8]) -> Option<usize> {
     match *source.first()? {
         b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'\\' | b'"' | b'\'' => Some(1),
@@ -1051,6 +1188,7 @@ fn valid_github_template_identifier(identifier: &str) -> bool {
             | "println"
             | "range"
             | "regexMatch"
+            | "replace"
             | "slice"
             | "tablerender"
             | "tablerow"
