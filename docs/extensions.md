@@ -276,9 +276,10 @@ Write one compact JSON object to stdout, optionally followed by one newline.
 Leading whitespace, trailing whitespace other than that newline, carriage
 returns, invalid UTF-8, multiple JSON values, and unknown fields are rejected.
 Stdout is capped at 64 KiB. Stderr is capped at 8 KiB and is diagnostic only.
-The whole process has 750 ms; timeout or transport teardown kills its Unix
-process group or Windows Job Object, including descendants. A nonzero exit is a
-crash. A successful exit with empty stdout is silence. A spawn, crash, silence,
+The whole process has 750 ms on Unix and 1.5 seconds on Windows, where cold
+process startup is slower. Timeout or transport teardown kills its Unix process
+group or Windows Job Object, including descendants. A nonzero exit is a crash.
+A successful exit with empty stdout is silence. A spawn, crash, silence,
 timeout, transport rejection, or semantically invalid response produces a typed
 failure and no finding. Other guards still run; any definite finding blocks,
 otherwise the call delegates. Live non-dry-run dispatch attempts to persist the

@@ -39,7 +39,10 @@ impl ChildExt for std::process::Child {
     }
 }
 
+#[cfg(not(windows))]
 pub const EXEC_TIMEOUT: Duration = Duration::from_millis(750);
+#[cfg(windows)]
+pub const EXEC_TIMEOUT: Duration = Duration::from_millis(1_500);
 pub const OUTPUT_SIZE_CAP: usize = 64 * 1024;
 const STDERR_SIZE_CAP: usize = 8 * 1024;
 const CACHE_ENTRY_VERSION: u32 = 1;

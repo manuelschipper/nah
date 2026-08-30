@@ -13,8 +13,9 @@
 - **Windows custom guards** — exec/v1 guards now use one deterministic Windows
   entrypoint, generate a `py -3` template, and terminate full descendant trees
   after each consultation. Native line endings and memo-cache hits are handled
-  without rejecting valid responses, and generated Python guards skip site
-  initialization to stay within the existing consultation deadline.
+  without rejecting valid responses. Generated Python guards skip site
+  initialization, and Windows consultations allow 1.5 seconds so cold process
+  startup does not reject a working guard.
 - **Windows host-state protection** — Windows path observations now normalize
   extended drive and UNC results, unsafe reparse paths fail closed, and
   `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
