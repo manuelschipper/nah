@@ -178,10 +178,17 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
                 "-Command",
                 "[System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)",
             ])
+            .env("HOME", home)
+            .env("USERPROFILE", home)
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
-        std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+        let documents = std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        if documents.is_absolute() {
+            documents
+        } else {
+            home.join("Documents")
+        }
     };
     #[cfg(not(windows))]
     let documents = home.join("Documents");
@@ -211,7 +218,7 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
             &project,
             "write_to_file",
             json!({
-                "path":home.join(".cline/hooks/PreToolUse"),
+                "path":home.join(".cline/hooks").join(file),
                 "content":"disabled"
             }),
         ),
