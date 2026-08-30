@@ -7,9 +7,10 @@
   that preserves expandable user PATH entries and replaces upgrades safely.
 - **Qualified Windows runtime integrations** — Claude Code, Codex, Cursor,
   GitHub Copilot, Cline, and Kiro now support native hook lifecycle and typed
-  tools on Windows while ambiguous shell payloads stay partial. Amp, Factory
-  Droid, Hermes, and OpenCode now fail installation before writes and report
-  not configured.
+  tools on Windows while ambiguous shell payloads stay partial. Copilot CLI
+  PowerShell calls now retain their typed analysis through dispatch. Amp,
+  Factory Droid, Hermes, and OpenCode now fail installation before writes and
+  report not configured.
 - **Windows custom guards** — exec/v1 guards now use one deterministic Windows
   entrypoint, generate a `py -3` template, and terminate full descendant trees
   after each consultation. Native line endings and memo-cache hits are handled
@@ -19,8 +20,9 @@
 - **Windows host-state protection** — Windows path observations now normalize
   extended drive and UNC results, unsafe reparse paths fail closed, and
   `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
-  `nah.exe` path is also self-protected, and nap keys inherited under that
-  boundary remain usable.
+  `nah.exe` path is also self-protected, nap keys inherited under that boundary
+  remain usable, and concurrent trust updates tolerate transient Windows
+  filesystem contention.
 - **Unreadable decision log recovery** — `nah log` and the TUI archive an
   unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
   readable records, and warn instead of leaving decision browsing unavailable.

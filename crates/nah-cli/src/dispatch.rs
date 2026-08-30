@@ -384,7 +384,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
 ) -> DecideOutcome {
     let code = if matches!(
         runtime,
-        Some(Runtime::Hermes | Runtime::OpenClaw | Runtime::PrimeAgent)
+        Some(Runtime::Copilot | Runtime::Hermes | Runtime::OpenClaw | Runtime::PrimeAgent)
     ) {
         code
     } else {

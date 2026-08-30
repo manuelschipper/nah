@@ -313,14 +313,15 @@ fn test_command_is_a_human_dry_run_and_does_not_write_an_audit_record() {
     let output = nah(temp.path(), &project, &["test", "echo hello"], None);
 
     assert!(output.status.success(), "{output:?}");
-    // macOS temp directories sit under a symlinked /var, and the decision
-    // reports the resolved path, so redact the one nah printed
-    let printed = support::test_temp_path(&project);
-    let printed = serde_json::to_string(printed.to_str().unwrap()).unwrap();
-    let stdout = String::from_utf8(output.stdout)
-        .unwrap()
-        .replace(printed.trim_matches('"'), "<project>")
-        .replace(project.to_str().unwrap(), "<project>");
+    // The decision reports the host-resolved path, including macOS symlinks
+    // and Windows short names, so redact either form nah may print.
+    let printed = [support::test_temp_path(&project), project]
+        .map(|path| serde_json::to_string(path.to_str().unwrap()).unwrap());
+    let stdout = printed
+        .iter()
+        .fold(String::from_utf8(output.stdout).unwrap(), |stdout, path| {
+            stdout.replace(path.trim_matches('"'), "<project>")
+        });
     assert_eq!(stdout, include_str!("golden/test-echo.txt"));
     assert!(!temp.path().join(".nah/audit.jsonl").exists());
 }

@@ -101,21 +101,31 @@ pub fn record_trusted_root(
     platform: Platform,
     root: AbsolutePath,
 ) -> Result<(), TrustError> {
-    let parent = path.parent().ok_or(TrustError::InvalidPath)?;
-    std::fs::create_dir_all(parent).map_err(|_| TrustError::Io)?;
-    let lock_path = path.with_extension("lock");
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock_path)
-        .map_err(|_| TrustError::Io)?;
-    lock.lock().map_err(|_| TrustError::Io)?;
+    let attempts = if cfg!(windows) { 4 } else { 1 };
+    for attempt in 0..attempts {
+        let result = (|| {
+            let parent = path.parent().ok_or(TrustError::InvalidPath)?;
+            std::fs::create_dir_all(parent).map_err(|_| TrustError::Io)?;
+            let lock_path = path.with_extension("lock");
+            let lock = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(lock_path)
+                .map_err(|_| TrustError::Io)?;
+            lock.lock().map_err(|_| TrustError::Io)?;
 
-    let mut database = TrustDatabase::load(path, platform)?;
-    database.trust(root)?;
-    database.save(path)
+            let mut database = TrustDatabase::load(path, platform)?;
+            database.trust(root.clone())?;
+            database.save(path)
+        })();
+        if result != Err(TrustError::Io) || attempt + 1 == attempts {
+            return result;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    unreachable!("the retry loop always returns")
 }
 
 pub fn record_project_activation(
