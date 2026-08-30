@@ -261,8 +261,12 @@ fn api_request<'a>(
                 if name == 'X' {
                     method = Some(value);
                 }
-                github_jq |= name == 'q';
-                github_template |= name == 't';
+                if name == 'q' {
+                    github_jq = !value.is_empty();
+                }
+                if name == 't' {
+                    github_template = !value.is_empty();
+                }
                 index += usize::from(attached_value.is_none());
             }
             index += 1;
@@ -319,8 +323,12 @@ fn api_request<'a>(
                 gitlab_non_form_body |= matches!(name, "--field" | "--raw-field" | "--input");
             }
             if provider == Provider::GitHub {
-                github_jq |= name == "--jq";
-                github_template |= name == "--template";
+                if name == "--jq" {
+                    github_jq = !value.is_empty();
+                }
+                if name == "--template" {
+                    github_template = !value.is_empty();
+                }
             }
             index += 1;
             continue;
@@ -341,8 +349,12 @@ fn api_request<'a>(
                 gitlab_non_form_body |= matches!(argument, "--field" | "--raw-field" | "--input");
             }
             if provider == Provider::GitHub {
-                github_jq |= argument == "--jq";
-                github_template |= argument == "--template";
+                if argument == "--jq" {
+                    github_jq = !value.is_empty();
+                }
+                if argument == "--template" {
+                    github_template = !value.is_empty();
+                }
             }
             index += 2;
             continue;

@@ -60,9 +60,10 @@
   GitLab user placeholders, and API preflight flags now follow the providers'
   effective behavior. Glab short-option clusters remain guarded, while
   conflicting API body modes delegate. GitHub include-prefixed short options
-  remain guarded, while invalid Glab output formats delegate. Dynamic API option
-  values, incompatible GitHub output options, branches, tags, archives, renames,
-  and transfers remain outside its scope.
+  remain guarded, while invalid Glab output formats delegate. Empty or superseded
+  GitHub output filters now follow the provider's effective preflight behavior.
+  Dynamic API option values, incompatible GitHub output options, branches, tags,
+  archives, renames, and transfers remain outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.
