@@ -75,7 +75,14 @@ fn run_with<R: Read, W: Write, E: Write>(
             2
         }
         Command::Wake => wake(stdout, stderr),
-        Command::Test(args) => emit_test(test_command(&args.command, args.json), stdout, stderr),
+        Command::Test(args) => {
+            // UNDOCUMENTED-EFFINTERP: forward the hidden opt-in only in feature builds.
+            #[cfg(feature = "effinterp")]
+            let result = test_command(&args.command, args.json, args.effinterp);
+            #[cfg(not(feature = "effinterp"))]
+            let result = test_command(&args.command, args.json);
+            emit_test(result, stdout, stderr)
+        }
         Command::Trust(args) => persist_trust(&args.root, stdout, stderr),
         Command::Untrust(args) => revoke_trust(&args.root, stdout, stderr),
         Command::Guards => emit_catalog(false, stdout, stderr),

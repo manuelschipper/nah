@@ -115,6 +115,26 @@ fn test_json_has_an_exact_independent_v1_contract() {
     assert_golden(&value, include_str!("golden/test-v1.json"));
 }
 
+// UNDOCUMENTED-EFFINTERP: the hidden opt-in exposes a structured planner result.
+#[cfg(feature = "effinterp")]
+#[test]
+fn test_json_effinterp_opt_in_exposes_a_plan() {
+    let home = tempfile::tempdir().unwrap();
+    let project = repo(home.path());
+    let output = nah(
+        home.path(),
+        &project,
+        &["test", "--json", "--effinterp", "echo hello"],
+        None,
+    );
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let plan = value["effinterp"].as_object().unwrap();
+    assert!(plan["effects"].is_array());
+    assert!(plan["coverage"].is_object());
+    assert!(plan["subject"].is_object());
+}
+
 #[test]
 fn modeled_exfiltration_sources_keep_the_v1_extension_contract() {
     let home = tempfile::tempdir().unwrap();

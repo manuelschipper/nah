@@ -8,6 +8,7 @@ members = [
     "crates/nah-observe",
     "crates/nah-policy",
     "crates/nah-extensions",
+    "crates/nah-effinterp",
     "crates/nah-cli",
     "crates/nah-corpus",
     "tools/gates",

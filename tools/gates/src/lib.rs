@@ -62,6 +62,7 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
         "nah-observe" => &["nah-proto"],
         "nah-policy" => &["nah-proto", "nah-inline"],
         "nah-extensions" => &["nah-proto"],
+        "nah-effinterp" => &["nah-proto"],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[
@@ -72,6 +73,7 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
             "nah-observe",
             "nah-policy",
             "nah-extensions",
+            "nah-effinterp",
         ],
         // The corpus harness drives the same application seam from frozen
         // fixtures. It must not assemble a second decision pipeline.
@@ -121,6 +123,14 @@ pub struct PackageDeps {
     pub source_paths: Vec<PathBuf>,
     /// Custom build-script targets reported by Cargo.
     pub build_scripts: Vec<PathBuf>,
+}
+
+/// A workspace manifest's path dependency, resolved by Cargo.
+#[derive(Debug)]
+pub struct PathDependency {
+    pub package: String,
+    pub dependency: String,
+    pub path: PathBuf,
 }
 
 /// Workspace packages via `cargo metadata`, which resolves the forms string
@@ -191,6 +201,44 @@ pub fn workspace_packages() -> Vec<PackageDeps> {
         .collect()
 }
 
+/// Workspace path dependencies via `cargo metadata`.
+pub fn workspace_path_dependencies() -> Vec<PathDependency> {
+    let out = Command::new("cargo")
+        .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        out.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("parse cargo metadata");
+    meta["packages"]
+        .as_array()
+        .expect("packages array")
+        .iter()
+        .flat_map(|pkg| {
+            pkg["dependencies"]
+                .as_array()
+                .expect("dependencies")
+                .iter()
+                .filter_map(|dependency| {
+                    Some(PathDependency {
+                        package: pkg["name"].as_str().expect("package name").to_owned(),
+                        dependency: dependency["name"]
+                            .as_str()
+                            .expect("dependency name")
+                            .to_owned(),
+                        path: PathBuf::from(dependency["path"].as_str()?),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 /// Layering violations in normal and build dependencies. The corpus harness
 /// also applies the same allowlist to dev-dependencies because its executable
 /// harness lives under `tests/`. Shared with a seeded-red fixture so this is
@@ -238,6 +286,97 @@ pub fn dependency_direction_violations(
         }
     }
     violations
+}
+
+/// External effectinterp crates may link only at the designated boundary.
+pub fn effinterp_linkage_violations(packages: &[PackageDeps]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for pkg in packages {
+        if matches!(pkg.name.as_str(), "nah-effinterp" | "nah-cli") {
+            continue;
+        }
+        for (kind, deps) in [
+            ("dependency", &pkg.normal_deps),
+            ("build-dependency", &pkg.build_deps),
+        ] {
+            for dep in deps.iter().filter(|dep| dep.starts_with("effinterp-")) {
+                violations.push(format!(
+                    "{} has forbidden {kind} {dep}; link effectinterp through nah-effinterp",
+                    pkg.name
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Path dependencies must not escape the workspace through relative paths or symlinks.
+pub fn path_dependency_violations(dependencies: &[PathDependency], root: &Path) -> Vec<String> {
+    let root = root.canonicalize().expect("canonical workspace root");
+    dependencies
+        .iter()
+        .filter_map(|dependency| {
+            let path = dependency
+                .path
+                .canonicalize()
+                .expect("canonical path dependency");
+            (!path.starts_with(&root)).then(|| {
+                format!(
+                    "{} has path dependency {} outside workspace: {}",
+                    dependency.package,
+                    dependency.dependency,
+                    path.display()
+                )
+            })
+        })
+        .collect()
+}
+
+/// The private source replacement must stay pinned to both dependency declarations.
+pub fn effinterp_revision_violations(manifest: &str, config: &str) -> Vec<String> {
+    let config_rev = section_revision(config, "source.effinterp");
+    let mut violations = Vec::new();
+    for dependency in ["effinterp-engine", "effinterp-proto"] {
+        let dependency_rev = manifest.lines().find_map(|line| {
+            let line = line.trim();
+            line.starts_with(dependency)
+                .then(|| quoted_assignment(line, "rev"))
+                .flatten()
+        });
+        match (dependency_rev, config_rev) {
+            (Some(dependency_rev), Some(config_rev)) if dependency_rev == config_rev => {}
+            (Some(dependency_rev), Some(config_rev)) => violations.push(format!(
+                "{dependency} rev {dependency_rev} differs from source.effinterp rev {config_rev}"
+            )),
+            (None, _) => violations.push(format!("{dependency} has no pinned rev")),
+            (_, None) => violations.push("source.effinterp has no pinned rev".to_owned()),
+        }
+    }
+    violations
+}
+
+fn section_revision<'a>(text: &'a str, section: &str) -> Option<&'a str> {
+    let header = format!("[{section}]");
+    let mut in_section = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_section = line == header;
+        } else if in_section && line.starts_with("rev") {
+            return quoted_assignment(line, "rev");
+        }
+    }
+    None
+}
+
+fn quoted_assignment<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let (_, value) = line.split_once(key)?;
+    let value = value
+        .trim_start()
+        .strip_prefix('=')?
+        .trim_start()
+        .strip_prefix('"')?;
+    value.split_once('"').map(|(value, _)| value)
 }
 
 /// Dependency purity violations. Pure crates may use only explicitly

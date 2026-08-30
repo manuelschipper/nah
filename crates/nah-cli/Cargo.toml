@@ -17,6 +17,7 @@ nah-inline = { path = "../nah-inline" }
 nah-observe = { path = "../nah-observe" }
 nah-policy = { path = "../nah-policy" }
 nah-extensions = { path = "../nah-extensions" }
+nah-effinterp = { path = "../nah-effinterp", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
@@ -39,6 +40,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Threading",
 ] }
+
+[features]
+effinterp = ["dep:nah-effinterp", "nah-effinterp/engine"]
 
 [[bin]]
 name = "nah"

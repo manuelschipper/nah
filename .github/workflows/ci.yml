@@ -46,6 +46,37 @@ jobs:
           cargo bench --workspace --no-run --locked
           cargo bench --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --no-run --locked
 
+  effinterp:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: manuelschipper/effectinterp
+          ref: c6a8d6122a6f0817b927068c0bc08e5434f59370
+          ssh-key: ${{ secrets.EFFECTINTERP_DEPLOY_KEY }}
+          fetch-depth: 0
+          path: effectinterp-src
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Lint with effectinterp
+        run: >
+          cargo clippy --workspace --all-targets --features nah-cli/effinterp --locked
+          --config 'source.effinterp.replace-with="effinterp-sibling"'
+          --config 'source.effinterp-sibling.git="file://${{ github.workspace }}/effectinterp-src"'
+          -- -D warnings
+      - name: Test with effectinterp
+        run: >
+          cargo test --workspace --features nah-cli/effinterp --locked
+          --config 'source.effinterp.replace-with="effinterp-sibling"'
+          --config 'source.effinterp-sibling.git="file://${{ github.workspace }}/effectinterp-src"'
+
   windows:
     runs-on: windows-latest
     steps:

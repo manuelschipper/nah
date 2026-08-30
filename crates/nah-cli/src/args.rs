@@ -138,6 +138,11 @@ pub(crate) struct TestArgs {
     #[arg(long)]
     pub(crate) json: bool,
 
+    // UNDOCUMENTED-EFFINTERP: hidden opt-in while the planner is private.
+    #[cfg(feature = "effinterp")]
+    #[arg(long, hide = true)]
+    pub(crate) effinterp: bool,
+
     /// Shell command to inspect.
     pub(crate) command: String,
 }

@@ -1,0 +1,7 @@
+[source.effinterp]
+git = "https://github.com/manuelschipper/effectinterp.git"
+rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370"
+replace-with = "effinterp-stubs"
+
+[source.effinterp-stubs]
+directory = "vendor/effinterp-stubs"

@@ -10,7 +10,11 @@ use nah_proto::tool::ToolCallInput;
 use crate::live_state;
 use crate::pipeline::decide_live;
 
-pub(crate) fn test_command(command: &str, json: bool) -> Result<(String, Vec<String>), String> {
+pub(crate) fn test_command(
+    command: &str,
+    json: bool,
+    #[cfg(feature = "effinterp")] effinterp: bool,
+) -> Result<(String, Vec<String>), String> {
     let cwd = std::env::current_dir()
         .ok()
         .and_then(|path| path.to_str().map(str::to_owned))
@@ -19,19 +23,25 @@ pub(crate) fn test_command(command: &str, json: bool) -> Result<(String, Vec<Str
         SchemaVersion::V1,
         "Bash",
         serde_json::json!({"command": command}),
-        cwd,
+        cwd.clone(),
         None,
     )
     .map_err(|error| format!("invalid test command: {error}"))?;
     let state = live_state::load().map_err(|error| format!("context failed: {error}"))?;
     let result = decide_live(&input, &state);
+    // UNDOCUMENTED-EFFINTERP: analysis is opt-in and never changes nah's verdict.
+    #[cfg(feature = "effinterp")]
+    let effinterp_plan = effinterp
+        .then(|| nah_effinterp::analyze_shell(command, &cwd))
+        .transpose()?;
     if json {
         let exec_request = result
             .observation()
             .map(|observation| nah_extensions::exec_request(result.action_stream(), observation))
             .transpose()
             .map_err(|error| format!("extension request failed: {error}"))?;
-        let value = serde_json::json!({
+        #[allow(unused_mut)]
+        let mut value = serde_json::json!({
             "schema": "nah/test/v1",
             "v": 1,
             "exec_request": exec_request,
@@ -43,6 +53,12 @@ pub(crate) fn test_command(command: &str, json: bool) -> Result<(String, Vec<Str
                 "code": failure.code(),
             })).collect::<Vec<_>>(),
         });
+        // UNDOCUMENTED-EFFINTERP: expose the plan only when explicitly requested.
+        #[cfg(feature = "effinterp")]
+        if let Some(plan) = &effinterp_plan {
+            value["effinterp"] = serde_json::to_value(plan)
+                .map_err(|error| format!("effinterp plan failed: {error}"))?;
+        }
         let output = serde_json::to_string_pretty(&value)
             .map_err(|error| format!("test output failed: {error}"))?;
         return Ok((format!("{output}\n"), result.warnings().to_vec()));
@@ -84,6 +100,11 @@ pub(crate) fn test_command(command: &str, json: bool) -> Result<(String, Vec<Str
             )
             .expect("writing to a string succeeds");
         }
+    }
+    // UNDOCUMENTED-EFFINTERP: keep ordinary human output byte-identical.
+    #[cfg(feature = "effinterp")]
+    if let Some(plan) = &effinterp_plan {
+        output.push_str(&nah_effinterp::render(plan));
     }
     Ok((output, result.warnings().to_vec()))
 }
