@@ -134,6 +134,9 @@ fn github_api_short_option_forms_preserve_delete_classification() {
         "gh api repos/owner/project -iiX=DELETE",
         "gh api -iX DELETE repos/owner/project",
         "gh api repos/owner/project -iiX delete",
+        "gh api -ip corsair -X DELETE repos/owner/project",
+        "gh api -iH X-Probe:true -X DELETE repos/owner/project",
+        "gh api -ii=false -X DELETE repos/owner/project",
         "gh api -iiiX GET -XDELETE repos/owner/project",
     ] {
         assert!(deletes_repository(source), "{source}");
@@ -281,6 +284,23 @@ fn gitlab_api_form_conflicts_delegate_before_delete() {
         "glab api --field a=b --input body.json -X DELETE projects/123",
     ] {
         assert!(deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn gitlab_api_output_requires_a_supported_format() {
+    for source in [
+        "glab api --output json -X DELETE projects/123",
+        "glab api --output=ndjson -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "glab api --output yaml -X DELETE projects/123",
+        "glab api --output=xml -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
     }
 }
 

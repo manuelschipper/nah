@@ -252,6 +252,22 @@ fn api_request<'a>(
             index += 1;
             continue;
         }
+        if !after_options
+            && provider == Provider::GitHub
+            && let Some(options) = github_short_options(argument)
+        {
+            if let Some((name, attached_value)) = options.value {
+                let value = attached_value.or_else(|| arguments.get(index + 1).copied())?;
+                if name == 'X' {
+                    method = Some(value);
+                }
+                github_jq |= name == 'q';
+                github_template |= name == 't';
+                index += usize::from(attached_value.is_none());
+            }
+            index += 1;
+            continue;
+        }
         if !after_options && let Some(value) = help_flag(argument) {
             help_requested = Some(value);
             index += 1;
@@ -289,6 +305,12 @@ fn api_request<'a>(
             if !api_value_option(name, provider) {
                 return None;
             }
+            if provider == Provider::GitLab
+                && name == "--output"
+                && !matches!(value, "json" | "ndjson")
+            {
+                return None;
+            }
             if name == "--method" {
                 method = Some(value);
             }
@@ -305,41 +327,24 @@ fn api_request<'a>(
         }
         if !after_options && api_value_option(argument, provider) {
             let value = *arguments.get(index + 1)?;
-            if matches!(argument, "-X" | "--method") {
+            if provider == Provider::GitLab
+                && argument == "--output"
+                && !matches!(value, "json" | "ndjson")
+            {
+                return None;
+            }
+            if argument == "--method" {
                 method = Some(value);
             }
             if provider == Provider::GitLab {
                 gitlab_form |= argument == "--form";
-                gitlab_non_form_body |= matches!(
-                    argument,
-                    "--field" | "--raw-field" | "--input" | "-F" | "-f"
-                );
+                gitlab_non_form_body |= matches!(argument, "--field" | "--raw-field" | "--input");
             }
             if provider == Provider::GitHub {
-                github_jq |= matches!(argument, "-q" | "--jq");
-                github_template |= matches!(argument, "-t" | "--template");
+                github_jq |= argument == "--jq";
+                github_template |= argument == "--template";
             }
             index += 2;
-            continue;
-        }
-        if !after_options
-            && provider == Provider::GitHub
-            && github_separated_method_option(argument)
-        {
-            method = Some(*arguments.get(index + 1)?);
-            index += 2;
-            continue;
-        }
-        if !after_options
-            && provider == Provider::GitHub
-            && let Some((name, value)) = github_short_value_option(argument)
-        {
-            if name == 'X' {
-                method = Some(value);
-            }
-            github_jq |= name == 'q';
-            github_template |= name == 't';
-            index += 1;
             continue;
         }
         if !after_options && argument.starts_with('-') {
@@ -369,14 +374,6 @@ fn api_request<'a>(
 }
 
 fn api_boolean_option(argument: &str, provider: Provider) -> bool {
-    if boolean_flag(argument, "-i").is_some()
-        || provider == Provider::GitHub
-            && argument
-                .strip_prefix('-')
-                .is_some_and(|flags| !flags.is_empty() && flags.bytes().all(|flag| flag == b'i'))
-    {
-        return true;
-    }
     let options = match provider {
         Provider::GitHub => [
             "--allow-escape-sequences",
@@ -405,13 +402,6 @@ fn api_value_option(argument: &str, provider: Provider) -> bool {
             "--preview",
             "--raw-field",
             "--template",
-            "-F",
-            "-H",
-            "-q",
-            "-X",
-            "-p",
-            "-f",
-            "-t",
         ]
         .as_slice(),
         Provider::GitLab => [
@@ -423,21 +413,45 @@ fn api_value_option(argument: &str, provider: Provider) -> bool {
             "--method",
             "--output",
             "--raw-field",
-            "-F",
-            "-H",
-            "-X",
-            "-f",
         ]
         .as_slice(),
     };
     options.contains(&argument)
 }
 
-fn github_separated_method_option(argument: &str) -> bool {
-    argument
-        .strip_prefix("-i")
-        .and_then(|flags| flags.strip_suffix('X'))
-        .is_some_and(|flags| flags.bytes().all(|flag| flag == b'i'))
+struct GithubShortOptions<'a> {
+    value: Option<(char, Option<&'a str>)>,
+}
+
+fn github_short_options(argument: &str) -> Option<GithubShortOptions<'_>> {
+    let flags = argument.strip_prefix('-')?;
+    if flags.is_empty() || flags.starts_with('-') {
+        return None;
+    }
+    let mut options = GithubShortOptions { value: None };
+    let mut indices = flags.char_indices().peekable();
+    while let Some((_, flag)) = indices.next() {
+        let value = indices.peek().map_or("", |(index, _)| &flags[*index..]);
+        match flag {
+            'i' => {
+                if let Some(value) = value.strip_prefix('=') {
+                    parse_boolean_value(value)?;
+                    return Some(options);
+                }
+            }
+            'F' | 'H' | 'q' | 'X' | 'p' | 'f' | 't' => {
+                let value = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.strip_prefix('=').unwrap_or(value))
+                };
+                options.value = Some((flag, value));
+                return Some(options);
+            }
+            _ => return None,
+        }
+    }
+    Some(options)
 }
 
 struct GlabShortOptions<'a> {
@@ -491,18 +505,6 @@ fn glab_short_options(argument: &str) -> Option<GlabShortOptions<'_>> {
         }
     }
     Some(options)
-}
-
-fn github_short_value_option(argument: &str) -> Option<(char, &str)> {
-    let options = ['F', 'H', 'q', 'X', 'p', 'f', 't'];
-    let options_and_value = argument.strip_prefix('-')?;
-    let options_and_value = options_and_value.trim_start_matches('i');
-    options.iter().find_map(|option| {
-        options_and_value
-            .strip_prefix(*option)
-            .filter(|value| !value.is_empty())
-            .map(|value| (*option, value.strip_prefix('=').unwrap_or(value)))
-    })
 }
 
 fn github_delete_endpoint(endpoint: &str) -> bool {
