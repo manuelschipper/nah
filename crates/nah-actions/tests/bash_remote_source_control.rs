@@ -22,6 +22,8 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "gh repo delete --confirm github.example.com/owner/project",
         "gh repo delete localhost/owner/project --yes",
         "gh repo delete localhost:9/owner/project --yes",
+        "gh repo delete localhost./owner/project --yes",
+        "gh repo delete github.example.:443/owner/project --yes",
         "gh repo delete --yes=false owner/project",
         "glab repo delete",
         "glab repo delete project",
@@ -242,6 +244,8 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "gh api --jq . --silent=false -X DELETE repos/owner/project",
         "gh api --jq= --silent -X DELETE repos/owner/project",
         "gh api --template '' --verbose -X DELETE repos/owner/project",
+        "gh api --template '}}' -X DELETE repos/owner/project",
+        "gh api --template 'literal }} {{.}}' -X DELETE repos/owner/project",
         "gh api -q '' --silent -X DELETE repos/owner/project",
         "gh api -t '' --verbose -X DELETE repos/owner/project",
         "gh api --jq . --jq= --silent -X DELETE repos/owner/project",
@@ -378,6 +382,9 @@ fn wrappers_and_reviewed_executable_paths_retain_remote_delete_identity() {
         "timeout 5 gh api -X DELETE repos/owner/project",
         "command /usr/bin/gh repo delete owner/project",
         "/bin/glab api projects/123 --method DELETE",
+        "/usr//bin/gh repo delete owner/project --yes",
+        "/usr/bin/./gh repo delete owner/project --yes",
+        "/usr/bin/../bin/gh api -X DELETE repos/owner/project",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -401,6 +408,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh repo delete -host/owner/project --yes",
         "gh repo delete host-/owner/project --yes",
         "gh repo delete host_name/owner/project --yes",
+        "gh repo delete localhost../owner/project --yes",
         "gh repo delete localhost:/owner/project --yes",
         "gh repo delete localhost:invalid/owner/project --yes",
         "gh repo delete localhost:65536/owner/project --yes",

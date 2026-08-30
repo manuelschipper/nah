@@ -231,12 +231,23 @@ fn normalize_basename(program: &str, platform: Platform) -> String {
 }
 
 fn trusted_program_basename(program: &str, platform: Platform) -> Option<&str> {
-    if platform == Platform::Windows || program.contains('\\') {
+    if platform == Platform::Windows || program.contains('\\') || !program.starts_with('/') {
         return None;
     }
-    let (directory, basename) = program.rsplit_once('/')?;
-    (!basename.is_empty() && matches!(directory, "/bin" | "/sbin" | "/usr/bin" | "/usr/sbin"))
-        .then_some(basename)
+    let mut components = Vec::new();
+    for component in program.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components.pop()?;
+            }
+            _ => components.push(component),
+        }
+    }
+    match components.as_slice() {
+        ["bin" | "sbin", basename] | ["usr", "bin" | "sbin", basename] => Some(*basename),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -245,10 +256,18 @@ mod tests {
 
     #[test]
     fn only_standard_qualified_programs_are_canonicalized() {
-        assert_eq!(
-            normalize_program("/usr/bin/chmod", Platform::Linux).as_deref(),
-            Some("chmod")
-        );
+        for program in [
+            "/usr/bin/chmod",
+            "/usr//bin/chmod",
+            "/usr/bin/./chmod",
+            "/usr/bin/../bin/chmod",
+        ] {
+            assert_eq!(
+                normalize_program(program, Platform::Linux).as_deref(),
+                Some("chmod"),
+                "{program}"
+            );
+        }
         assert_eq!(normalize_program("/tmp/chmod", Platform::Linux), None);
         assert_eq!(normalize_program("./chmod", Platform::Linux), None);
         assert_eq!(

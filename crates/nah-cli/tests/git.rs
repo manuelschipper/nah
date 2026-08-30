@@ -122,6 +122,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete localhost./owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "/usr/bin/../bin/gh repo delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
             "gh repo delete owner/project --confirm=1",
             "git-remote-delete",
         ),
@@ -238,6 +246,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         (
             "gh api --template '' --verbose -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '}}' -X DELETE repos/owner/project",
             "git-remote-delete",
         ),
     ] {

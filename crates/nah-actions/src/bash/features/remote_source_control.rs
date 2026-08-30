@@ -594,11 +594,8 @@ fn valid_github_template(mut template: &str) -> bool {
     let mut blocks = 0_usize;
     loop {
         let Some(open) = template.find("{{") else {
-            return !template.contains("}}") && blocks == 0;
+            return blocks == 0;
         };
-        if template[..open].contains("}}") {
-            return false;
-        }
         let action_source = &template[open + 2..];
         let Some(close) = github_template_action_end(action_source) else {
             return false;
@@ -1120,6 +1117,7 @@ fn valid_host(host: &str) -> bool {
     }) {
         return false;
     }
+    let hostname = hostname.strip_suffix('.').unwrap_or(hostname);
     hostname.split('.').all(|label| {
         !label.is_empty()
             && label
