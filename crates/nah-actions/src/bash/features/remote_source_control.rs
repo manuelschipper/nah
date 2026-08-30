@@ -259,7 +259,9 @@ fn api_request<'a>(
                     if !update_gitlab_typed_field(&mut gitlab_typed_fields, value) {
                         return None;
                     }
-                } else if name == 'f' && !valid_gitlab_raw_field(value) {
+                } else if name == 'f' && !valid_gitlab_raw_field(value)
+                    || name == 'H' && !valid_gitlab_api_header(value)
+                {
                     return None;
                 }
                 if name == 'X' {
@@ -469,12 +471,13 @@ fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
         (Provider::GitHub, "--field" | "--raw-field") => valid_github_api_field(value),
         (Provider::GitHub, "--header") => valid_github_api_header(value),
         (Provider::GitHub, "--cache") => valid_go_duration(value),
+        (Provider::GitLab, "--header") => valid_gitlab_api_header(value),
         _ => true,
     }
 }
 
 fn valid_api_hostname(hostname: &str) -> bool {
-    !hostname.trim().is_empty() && !hostname.contains(['/', ':', '?', '#'])
+    !hostname.contains(':') && valid_host(hostname)
 }
 
 fn valid_github_api_field(field: &str) -> bool {
@@ -506,6 +509,12 @@ fn valid_github_api_header(header: &str) -> bool {
         return false;
     };
     !name.eq_ignore_ascii_case("Content-Length") || value.trim().parse::<i64>().is_ok()
+}
+
+fn valid_gitlab_api_header(header: &str) -> bool {
+    header
+        .split_once(':')
+        .is_some_and(|(name, _)| !name.is_empty())
 }
 
 fn valid_go_duration(value: &str) -> bool {
@@ -591,10 +600,11 @@ fn valid_go_duration(value: &str) -> bool {
 }
 
 fn valid_github_template(mut template: &str) -> bool {
-    let mut blocks = 0_usize;
+    let mut blocks = Vec::new();
+    let mut variables = vec!["$".to_owned()];
     loop {
         let Some(open) = template.find("{{") else {
-            return blocks == 0;
+            return blocks.is_empty();
         };
         let action_source = &template[open + 2..];
         let Some(close) = github_template_action_end(action_source) else {
@@ -610,25 +620,473 @@ fn valid_github_template(mut template: &str) -> bool {
         if action.is_empty() {
             return false;
         }
+        let variable_count = variables.len();
+        if !valid_github_template_action(action, &mut variables) {
+            return false;
+        }
         let mut words = action.split_whitespace();
         match words.next() {
-            Some("if" | "range" | "with" | "define" | "block") => {
-                if words.next().is_none() {
+            Some(keyword @ ("if" | "with")) => {
+                let pipeline = action
+                    .strip_prefix(keyword)
+                    .expect("matched template keyword")
+                    .trim_start();
+                if pipeline.is_empty() || pipeline.starts_with('|') {
                     return false;
                 }
-                blocks += 1;
+                blocks.push(GithubTemplateBlock {
+                    kind: GithubTemplateBlockKind::Other,
+                    variable_count,
+                });
             }
-            Some("else") if blocks == 0 => return false,
-            Some("end") => {
-                if blocks == 0 || words.next().is_some() {
+            Some("define") => {
+                let Some(remaining) = github_template_name_remainder(
+                    action
+                        .strip_prefix("define")
+                        .expect("matched template keyword"),
+                ) else {
+                    return false;
+                };
+                if !remaining.trim().is_empty() {
                     return false;
                 }
-                blocks -= 1;
+                blocks.push(GithubTemplateBlock {
+                    kind: GithubTemplateBlockKind::Other,
+                    variable_count,
+                });
+            }
+            Some("block") => {
+                let Some(remaining) = github_template_name_remainder(
+                    action
+                        .strip_prefix("block")
+                        .expect("matched template keyword"),
+                ) else {
+                    return false;
+                };
+                let pipeline = remaining.trim_start();
+                if pipeline.is_empty() || pipeline.starts_with('|') {
+                    return false;
+                }
+                blocks.push(GithubTemplateBlock {
+                    kind: GithubTemplateBlockKind::Other,
+                    variable_count,
+                });
+            }
+            Some("template") => {
+                let Some(remaining) = github_template_name_remainder(
+                    action
+                        .strip_prefix("template")
+                        .expect("matched template keyword"),
+                ) else {
+                    return false;
+                };
+                if remaining.trim_start().starts_with('|') {
+                    return false;
+                }
+            }
+            Some("range") => {
+                let pipeline = action
+                    .strip_prefix("range")
+                    .expect("matched template keyword")
+                    .trim_start();
+                if pipeline.is_empty() || pipeline.starts_with('|') {
+                    return false;
+                }
+                blocks.push(GithubTemplateBlock {
+                    kind: GithubTemplateBlockKind::Range,
+                    variable_count,
+                });
+            }
+            Some("else") => {
+                if blocks.is_empty() {
+                    return false;
+                }
+                match words.next() {
+                    None => {}
+                    Some(keyword @ ("if" | "with")) => {
+                        let pipeline = action
+                            .strip_prefix("else")
+                            .expect("matched template keyword")
+                            .trim_start()
+                            .strip_prefix(keyword)
+                            .expect("matched template keyword")
+                            .trim_start();
+                        if pipeline.is_empty() || pipeline.starts_with('|') {
+                            return false;
+                        }
+                    }
+                    Some(_) => return false,
+                }
+            }
+            Some("end") => {
+                let Some(block) = blocks.pop() else {
+                    return false;
+                };
+                if words.next().is_some() {
+                    return false;
+                }
+                variables.truncate(block.variable_count);
+            }
+            Some("break" | "continue") => {
+                if words.next().is_some()
+                    || !blocks
+                        .iter()
+                        .any(|block| block.kind == GithubTemplateBlockKind::Range)
+                {
+                    return false;
+                }
             }
             _ => {}
         }
         template = &action_source[close + 2..];
     }
+}
+
+struct GithubTemplateBlock {
+    kind: GithubTemplateBlockKind,
+    variable_count: usize,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum GithubTemplateBlockKind {
+    Other,
+    Range,
+}
+
+struct GithubTemplatePipeline {
+    after_pipe: bool,
+    command_empty: bool,
+    declaration_pending: bool,
+    has_term: bool,
+}
+
+fn valid_github_template_action(action: &str, variables: &mut Vec<String>) -> bool {
+    if action.starts_with("/*") {
+        return action.ends_with("*/");
+    }
+    let bytes = action.as_bytes();
+    let mut pipelines = vec![GithubTemplatePipeline {
+        after_pipe: false,
+        command_empty: true,
+        declaration_pending: false,
+        has_term: false,
+    }];
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            byte if byte.is_ascii_whitespace() => index += 1,
+            b'|' => {
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.command_empty || pipeline.declaration_pending {
+                    return false;
+                }
+                pipeline.after_pipe = true;
+                pipeline.command_empty = true;
+                index += 1;
+            }
+            b'(' => {
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                pipeline.after_pipe = false;
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+                pipelines.push(GithubTemplatePipeline {
+                    after_pipe: false,
+                    command_empty: true,
+                    declaration_pending: false,
+                    has_term: false,
+                });
+                index += 1;
+            }
+            b')' => {
+                if pipelines.len() == 1
+                    || !pipelines.last().expect("template pipeline").has_term
+                    || pipelines
+                        .last()
+                        .expect("template pipeline")
+                        .declaration_pending
+                {
+                    return false;
+                }
+                pipelines.pop();
+                index += 1;
+            }
+            b'\'' => return false,
+            delimiter @ (b'"' | b'`') => {
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.after_pipe {
+                    return false;
+                }
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+                index += 1;
+                loop {
+                    let Some(byte) = bytes.get(index).copied() else {
+                        return false;
+                    };
+                    index += 1;
+                    if delimiter != b'`' && byte == b'\\' {
+                        let Some(length) = github_template_escape_len(&bytes[index..]) else {
+                            return false;
+                        };
+                        index += length;
+                    } else if byte == delimiter {
+                        break;
+                    }
+                }
+            }
+            b'.' => {
+                let start = index;
+                index += 1;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+                {
+                    index += 1;
+                }
+                let path = &action[start..index];
+                if path != "." && path.ends_with('.') || path.contains("..") {
+                    return false;
+                }
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.after_pipe && path == "." {
+                    return false;
+                }
+                pipeline.after_pipe = false;
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+            }
+            b'$' => {
+                let start = index;
+                index += 1;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+                {
+                    index += 1;
+                }
+                let variable = &action[start..index];
+                let base = variable.split_once('.').map_or(variable, |(base, _)| base);
+                if base == "$" && variable != "$" && !variable.starts_with("$.")
+                    || variable.ends_with('.')
+                    || variable.contains("..")
+                {
+                    return false;
+                }
+                let mut next = index;
+                while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
+                    next += 1;
+                }
+                let declaration = if bytes.get(next..next + 2) == Some(b":=") {
+                    Some(true)
+                } else if bytes.get(next) == Some(&b'=') {
+                    Some(false)
+                } else {
+                    None
+                };
+                if let Some(is_declaration) = declaration {
+                    if variable.contains('.')
+                        || !is_declaration && !variables.iter().any(|current| current == base)
+                    {
+                        return false;
+                    }
+                    if is_declaration && !variables.iter().any(|current| current == base) {
+                        variables.push(base.to_owned());
+                    }
+                    index = next + if is_declaration { 2 } else { 1 };
+                    pipelines
+                        .last_mut()
+                        .expect("template pipeline")
+                        .declaration_pending = true;
+                    continue;
+                }
+                if !variables.iter().any(|current| current == base) {
+                    return false;
+                }
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                pipeline.after_pipe = false;
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+            }
+            b'+' | b'-' | b'0'..=b'9' => {
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.after_pipe {
+                    return false;
+                }
+                let start = index;
+                index += 1;
+                while bytes.get(index).is_some_and(|byte| {
+                    !byte.is_ascii_whitespace() && !matches!(byte, b'|' | b'(' | b')')
+                }) {
+                    index += 1;
+                }
+                if !valid_github_template_number(&action[start..index]) {
+                    return false;
+                }
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+            }
+            b':' | b'=' => return false,
+            byte if byte.is_ascii_alphabetic() || byte == b'_' => {
+                let start = index;
+                index += 1;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                {
+                    index += 1;
+                }
+                if !valid_github_template_identifier(&action[start..index]) {
+                    return false;
+                }
+                let identifier = &action[start..index];
+                let pipeline = pipelines.last_mut().expect("template pipeline");
+                if pipeline.after_pipe && matches!(identifier, "false" | "nil" | "true") {
+                    return false;
+                }
+                pipeline.after_pipe = false;
+                pipeline.command_empty = false;
+                pipeline.declaration_pending = false;
+                pipeline.has_term = true;
+            }
+            _ => return false,
+        }
+    }
+    pipelines.len() == 1
+        && !pipelines
+            .first()
+            .expect("template pipeline")
+            .declaration_pending
+}
+
+fn github_template_name_remainder(source: &str) -> Option<&str> {
+    let source = source.trim_start();
+    let delimiter = *source.as_bytes().first()?;
+    if !matches!(delimiter, b'"' | b'`') {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    let mut index = 1;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        index += 1;
+        if delimiter != b'`' && byte == b'\\' {
+            index += github_template_escape_len(&bytes[index..])?;
+        } else if byte == delimiter {
+            return Some(&source[index..]);
+        }
+    }
+    None
+}
+
+fn github_template_escape_len(source: &[u8]) -> Option<usize> {
+    match *source.first()? {
+        b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'\\' | b'"' | b'\'' => Some(1),
+        b'x' => source
+            .get(1..3)
+            .filter(|digits| digits.iter().all(u8::is_ascii_hexdigit))
+            .map(|_| 3),
+        marker @ (b'u' | b'U') => {
+            let digits = if marker == b'u' { 4 } else { 8 };
+            let hexadecimal = source
+                .get(1..digits + 1)
+                .filter(|digits| digits.iter().all(u8::is_ascii_hexdigit))?;
+            let value = hexadecimal.iter().fold(0_u32, |value, digit| {
+                value * 16 + u32::from(hex_value(*digit).expect("checked hexadecimal digit"))
+            });
+            char::from_u32(value).map(|_| digits + 1)
+        }
+        b'0'..=b'7' => {
+            let octal = source
+                .get(..3)
+                .filter(|digits| digits.iter().all(|digit| matches!(digit, b'0'..=b'7')))?;
+            let value = octal
+                .iter()
+                .fold(0_u16, |value, digit| value * 8 + u16::from(digit - b'0'));
+            (value <= u16::from(u8::MAX)).then_some(3)
+        }
+        _ => None,
+    }
+}
+
+fn valid_github_template_identifier(identifier: &str) -> bool {
+    matches!(
+        identifier,
+        "and"
+            | "autocolor"
+            | "block"
+            | "break"
+            | "call"
+            | "color"
+            | "contains"
+            | "continue"
+            | "define"
+            | "else"
+            | "end"
+            | "eq"
+            | "ge"
+            | "gt"
+            | "hasPrefix"
+            | "hasSuffix"
+            | "html"
+            | "hyperlink"
+            | "if"
+            | "index"
+            | "join"
+            | "js"
+            | "le"
+            | "len"
+            | "lt"
+            | "ne"
+            | "nil"
+            | "not"
+            | "or"
+            | "pluck"
+            | "print"
+            | "printf"
+            | "println"
+            | "range"
+            | "regexMatch"
+            | "slice"
+            | "tablerender"
+            | "tablerow"
+            | "template"
+            | "timeago"
+            | "timefmt"
+            | "true"
+            | "truncate"
+            | "false"
+            | "urlquery"
+            | "with"
+    )
+}
+
+fn valid_github_template_number(number: &str) -> bool {
+    let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
+    let unsigned = unsigned.strip_suffix('i').unwrap_or(unsigned);
+    if let Some(hexadecimal) = unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))
+    {
+        return !hexadecimal.is_empty() && hexadecimal.bytes().all(|byte| byte.is_ascii_hexdigit());
+    }
+    if let Some(binary) = unsigned
+        .strip_prefix("0b")
+        .or_else(|| unsigned.strip_prefix("0B"))
+    {
+        return !binary.is_empty() && binary.bytes().all(|byte| matches!(byte, b'0' | b'1'));
+    }
+    if let Some(octal) = unsigned
+        .strip_prefix("0o")
+        .or_else(|| unsigned.strip_prefix("0O"))
+    {
+        return !octal.is_empty() && octal.bytes().all(|byte| matches!(byte, b'0'..=b'7'));
+    }
+    !unsigned.is_empty() && unsigned.parse::<f64>().is_ok()
 }
 
 fn github_template_action_end(action: &str) -> Option<usize> {

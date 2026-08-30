@@ -252,6 +252,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "gh api --template '}}' -X DELETE repos/owner/project",
             "git-remote-delete",
         ),
+        (
+            "gh api --template '{{$item := .}}{{$item}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -368,11 +372,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "gh api --hostname bad/host -X DELETE repos/owner/project",
         "gh api --hostname 'bad#host' -X DELETE repos/owner/project",
         "gh api --hostname 'bad?host' -X DELETE repos/owner/project",
+        "gh api --hostname 'bad host' -X DELETE repos/owner/project",
         "gh api -f invalid -X DELETE repos/owner/project",
         "gh api -F invalid -X DELETE repos/owner/project",
         "gh api -H invalid -X DELETE repos/owner/project",
         "gh api --cache invalid -X DELETE repos/owner/project",
         "gh api --template '{{' -X DELETE repos/owner/project",
+        "gh api --template '{{break}}' -X DELETE repos/owner/project",
+        "glab api -H invalid -X DELETE projects/123",
         "gh api --silent --verbose -X DELETE repos/owner/project",
         "gh api --jq= --jq . --silent -X DELETE repos/owner/project",
         "gh repo delete --help=false --help --yes owner/project",
