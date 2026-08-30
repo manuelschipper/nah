@@ -16,10 +16,6 @@
   <a href="docs/threat-model.md">threat model</a>
 </p>
 
-```sh
-curl -fsSL nahguard.ai/install | sh
-```
-
 <p align="center">
   claude code &middot; codex &middot; cursor &middot; pi &middot;
   <a href="#install">+ 11 more</a>
