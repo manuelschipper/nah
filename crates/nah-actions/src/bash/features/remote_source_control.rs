@@ -232,7 +232,9 @@ fn valid_github_repository(target: &str) -> bool {
         [repository] => valid_literal_segment(repository),
         [owner, repository] => valid_literal_segment(owner) && valid_literal_segment(repository),
         [host, owner, repository] => {
-            valid_host(host) && valid_literal_segment(owner) && valid_literal_segment(repository)
+            (valid_host(host) || valid_idn_hostname(host))
+                && valid_literal_segment(owner)
+                && valid_literal_segment(repository)
         }
         _ => false,
     }
@@ -1818,6 +1820,22 @@ fn valid_ipv6_address(address: &str) -> bool {
 fn ipv6_hextet_count(address: &str) -> Option<usize> {
     if address.is_empty() {
         return Some(0);
+    }
+    if address.contains('.') {
+        let (prefix, address) = address.rsplit_once(':').unwrap_or(("", address));
+        let octets = address.split('.').collect::<Vec<_>>();
+        if prefix.contains('.')
+            || octets.len() != 4
+            || !octets.into_iter().all(|octet| {
+                !octet.is_empty()
+                    && (octet == "0" || !octet.starts_with('0'))
+                    && octet.bytes().all(|byte| byte.is_ascii_digit())
+                    && octet.parse::<u8>().is_ok()
+            })
+        {
+            return None;
+        }
+        return ipv6_hextet_count(prefix).map(|count| count + 2);
     }
     address.split(':').try_fold(0, |count, hextet| {
         (!hextet.is_empty()

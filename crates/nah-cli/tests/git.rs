@@ -130,6 +130,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete 'bücher.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
             "/usr/bin/../bin/gh repo delete owner/project --yes",
             "git-remote-delete",
         ),
