@@ -316,9 +316,10 @@ fn test_command_is_a_human_dry_run_and_does_not_write_an_audit_record() {
     // macOS temp directories sit under a symlinked /var, and the decision
     // reports the resolved path, so redact the one nah printed
     let printed = support::test_temp_path(&project);
+    let printed = serde_json::to_string(printed.to_str().unwrap()).unwrap();
     let stdout = String::from_utf8(output.stdout)
         .unwrap()
-        .replace(printed.to_str().unwrap(), "<project>");
+        .replace(printed.trim_matches('"'), "<project>");
     assert_eq!(stdout, include_str!("golden/test-echo.txt"));
     assert!(!temp.path().join(".nah/audit.jsonl").exists());
 }
