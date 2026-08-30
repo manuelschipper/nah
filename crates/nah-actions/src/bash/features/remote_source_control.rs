@@ -258,9 +258,7 @@ fn valid_github_repository(target: &str) -> bool {
         [repository] => valid_literal_segment(repository),
         [owner, repository] => valid_literal_segment(owner) && valid_literal_segment(repository),
         [host, owner, repository] => {
-            (valid_host(host) || valid_idn_hostname(host))
-                && valid_literal_segment(owner)
-                && valid_literal_segment(repository)
+            valid_host(host) && valid_literal_segment(owner) && valid_literal_segment(repository)
         }
         _ => false,
     }
@@ -574,7 +572,7 @@ fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
 }
 
 fn valid_api_hostname(hostname: &str) -> bool {
-    !hostname.contains(':') && (valid_host(hostname) || valid_idn_hostname(hostname))
+    !hostname.contains(':') && valid_host(hostname)
 }
 
 fn valid_idn_hostname(hostname: &str) -> bool {
@@ -1890,23 +1888,35 @@ fn valid_host(host: &str) -> bool {
         return false;
     }
     let hostname = hostname.strip_suffix('.').unwrap_or(hostname);
-    hostname.split('.').all(|label| {
-        !label.is_empty()
-            && label
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && label
-                .as_bytes()
-                .first()
-                .is_some_and(u8::is_ascii_alphanumeric)
-            && label
-                .as_bytes()
-                .last()
-                .is_some_and(u8::is_ascii_alphanumeric)
-    })
+    valid_idn_hostname(hostname)
+        || hostname.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        })
 }
 
 fn valid_ipv6_address(address: &str) -> bool {
+    let (address, zone) = address
+        .split_once("%25")
+        .map_or((address, None), |(address, zone)| (address, Some(zone)));
+    if zone.is_some_and(|zone| {
+        zone.is_empty()
+            || !zone.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+            })
+    }) {
+        return false;
+    }
     if let Some((left, right)) = address.split_once("::") {
         if right.contains("::") {
             return false;

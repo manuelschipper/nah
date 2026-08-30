@@ -68,13 +68,15 @@
   query values delegate before the guard, as do duplicate form stdin sources and
   pagination/input conflicts. Literal closing braces in valid GitHub templates,
   normalized standard-system executable paths, including root-clamped parent
-  traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts remain
-  guarded. GitHub template rune literals, two-variable ranges, and the current
-  `replace` helper remain guarded, as does Glab's static `-R`/`--repo` selection,
+  traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts, including
+  percent-encoded zone identifiers, remain guarded. GitHub template rune literals,
+  two-variable ranges, and the current `replace` helper remain guarded, as does
+  Glab's static `-R`/`--repo` selection,
   including reviewed short-option clusters.
   Static GitHub API IDN hosts and digit-separated Go template numbers remain
   guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN
-  GitHub repository hosts, including IDNs with combining marks across scripts,
+  GitHub repository hosts with numeric ports, including IDNs with combining marks
+  across scripts,
   while invalid GitHub header names delegate before the guard. GitLab API IDN hosts
   and current GitHub template literals remain guarded, while duplicate GitHub API
   scalar fields and invalid GitLab headers delegate.
