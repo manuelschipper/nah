@@ -170,6 +170,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         (
+            "gh repo delete '[fe80::1%25%6Co]:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
             "/usr/bin/../bin/gh repo delete owner/project --yes",
             "git-remote-delete",
         ),
@@ -199,6 +203,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-remote-delete",
         ),
         ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
+        ("gh api -X DELETE repos/%63li/%63li", "git-remote-delete"),
         ("gh api -iXDELETE repos/owner/project", "git-remote-delete"),
         (
             "gh api -iiX DELETE repos/owner/project",
@@ -226,6 +231,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ),
         (
             "glab api -X DELETE projects/%67itlab-org%2Fcli",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/%32%37%38%39%36%34",
             "git-remote-delete",
         ),
         (

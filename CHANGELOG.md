@@ -52,8 +52,9 @@
   and REST routes, including valid confirmation values, false-valued help flags,
   GitHub and GitLab API fragments, and documented GitLab composite placeholders,
   single-label GitHub Enterprise hosts, attached and separated GitHub API
-  short-option forms, disabled GitHub API pagination, and percent-encoded GitLab
-  project paths and group placeholders, plus GitHub's
+  short-option forms, disabled GitHub API pagination, percent-encoded GitHub
+  repository routes, and percent-encoded GitLab project paths, numeric IDs, and
+  group placeholders, plus GitHub's
   `--allow-escape-sequences` output option and repeated or inherited boolean
   flags whose final value restores destructive execution and port-qualified
   GitHub Enterprise hosts. Parent-command help flags, GitHub field placeholders,
@@ -69,9 +70,9 @@
   pagination/input conflicts. Literal closing braces in valid GitHub templates,
   normalized standard-system executable paths, including root-clamped parent
   traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts, including
-  percent-encoded zone identifiers, remain guarded. GitHub template rune literals,
-  two-variable ranges, and the current `replace` helper remain guarded, as does
-  Glab's static `-R`/`--repo` selection,
+  zone identifiers with percent-encoded bytes, remain guarded. GitHub template rune
+  literals, two-variable ranges, and the current `replace` helper remain guarded, as
+  does Glab's static `-R`/`--repo` selection,
   including reviewed short-option clusters.
   Static GitHub API IDN hosts and digit-separated Go template numbers remain
   guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN

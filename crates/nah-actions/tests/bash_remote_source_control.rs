@@ -39,6 +39,7 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
         "gh repo delete '[fe80::1%25lo]/owner/project' --yes",
         "gh repo delete '[fe80::1%25lo]:9/owner/project' --yes",
+        "gh repo delete '[fe80::1%25%6Co]:9/owner/project' --yes",
         "gh repo delete --yes=false owner/project",
         "glab repo delete",
         "glab repo delete project",
@@ -332,6 +333,8 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api -X DELETE 'projects/123#anything'",
         "gh api -X DELETE 'repos/owner/project#'",
         "gh api -X DELETE 'repos/owner/project#/issues'",
+        "gh api -X DELETE repos/%63li/%63li",
+        "glab api -X DELETE projects/%32%37%38%39%36%34",
     ] {
         assert!(deletes_repository(source), "{source}");
     }
@@ -523,6 +526,7 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh repo delete '[fe80::1%lo]:9/owner/project' --yes",
         "gh repo delete '[fe80::1%25]:9/owner/project' --yes",
         "gh repo delete '[fe80::1%25lo!]:9/owner/project' --yes",
+        "gh repo delete '[fe80::1%25%21]:9/owner/project' --yes",
         "gh repo delete '\u{308}invalid/owner/project' --yes",
         "gh repo delete '\u{94d}invalid/owner/project' --yes",
         "gh repo delete '\u{9cd}invalid/owner/project' --yes",
@@ -546,6 +550,8 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "gh api -f x=y repos/owner/project",
         "gh api -X DELETE repos/owner/project/issues",
         "gh api -X DELETE repos/owner/project/",
+        "gh api -X DELETE repos/owner%2Fproject/repository",
+        "gh api -X DELETE repos/%2E/%2E%2E",
         "gh api -X DELETE graphql",
         "gh api -X DELETE https://api.github.com/repos/owner/project",
         "gh api -X DELETE \"$ENDPOINT\"",
@@ -566,6 +572,8 @@ fn adjacent_or_unresolved_operations_do_not_claim_repository_deletion() {
         "glab api projects/123",
         "glab api -X DELETE projects/group/project",
         "glab api -X DELETE projects/group",
+        "glab api -X DELETE projects/%63li",
+        "glab api -X DELETE projects/%2E%2E",
         "glab api -X DELETE projects/group%2Fproject/issues",
         "glab api -X DELETE projects/group%2F%2E%2E",
         "glab api -X DELETE projects/group%2Fpro%GGject",

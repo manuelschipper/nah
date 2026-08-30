@@ -1778,7 +1778,7 @@ fn github_delete_endpoint(endpoint: &str) -> bool {
 }
 
 fn valid_github_endpoint_segment(segment: &str, placeholder: &str) -> bool {
-    segment == placeholder || valid_literal_segment(segment)
+    segment == placeholder || valid_endpoint_literal_segment(segment)
 }
 
 fn gitlab_delete_endpoint(endpoint: &str) -> bool {
@@ -1797,7 +1797,8 @@ fn gitlab_delete_endpoint(endpoint: &str) -> bool {
 
 fn valid_gitlab_project_identifier(identifier: &str) -> bool {
     if matches!(identifier, ":id" | ":fullpath")
-        || !identifier.is_empty() && identifier.bytes().all(|byte| byte.is_ascii_digit())
+        || !identifier.is_empty()
+            && percent_decoded_bytes_all(identifier, |byte| byte.is_ascii_digit())
     {
         return true;
     }
@@ -1807,7 +1808,7 @@ fn valid_gitlab_project_identifier(identifier: &str) -> bool {
             matches!(
                 component,
                 ":group" | ":namespace" | ":repo" | ":user" | ":username"
-            ) || valid_percent_encoded_literal_segment(component)
+            ) || valid_endpoint_literal_segment(component)
         })
 }
 
@@ -1827,10 +1828,19 @@ fn split_encoded_path(mut value: &str) -> Vec<&str> {
     }
 }
 
-fn valid_percent_encoded_literal_segment(segment: &str) -> bool {
-    let bytes = segment.as_bytes();
+fn valid_endpoint_literal_segment(segment: &str) -> bool {
     let mut decoded_len = 0;
     let mut only_dots = true;
+    let valid = percent_decoded_bytes_all(segment, |byte| {
+        decoded_len += 1;
+        only_dots &= byte == b'.';
+        valid_literal_byte(byte)
+    });
+    valid && decoded_len > 0 && !(only_dots && decoded_len <= 2)
+}
+
+fn percent_decoded_bytes_all(value: &str, mut predicate: impl FnMut(u8) -> bool) -> bool {
+    let bytes = value.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
         let byte = if bytes[index] == b'%' {
@@ -1847,13 +1857,11 @@ fn valid_percent_encoded_literal_segment(segment: &str) -> bool {
             index += 1;
             byte
         };
-        if !valid_literal_byte(byte) {
+        if !predicate(byte) {
             return false;
         }
-        decoded_len += 1;
-        only_dots &= byte == b'.';
     }
-    decoded_len > 0 && !(only_dots && decoded_len <= 2)
+    true
 }
 
 fn hex_value(byte: u8) -> Option<u8> {
@@ -1911,7 +1919,7 @@ fn valid_ipv6_address(address: &str) -> bool {
         .map_or((address, None), |(address, zone)| (address, Some(zone)));
     if zone.is_some_and(|zone| {
         zone.is_empty()
-            || !zone.bytes().all(|byte| {
+            || !percent_decoded_bytes_all(zone, |byte| {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
             })
     }) {
