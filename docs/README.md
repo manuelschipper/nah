@@ -6,6 +6,7 @@ leaves everything else to the runtime's normal approval flow. Start
 narrow and load only the topic needed for the current task.
 
 - [Start](start.md) — install nah and guard one agent.
+- [Windows](windows.md) — install, upgrade, or remove nah on Windows.
 - [Core concepts](concepts.md) — effects, verdicts, guards, and trust.
 - [CLI guide](cli.md) — the complete human and machine command map.
 - [Configuration](configuration.md) — shipped policy and trusted projects.

@@ -23,11 +23,7 @@ On x86-64 Windows:
 irm https://nahguard.ai/install.ps1 | iex
 ```
 
-The Windows release is unsigned and may show SmartScreen. ARM64 and package
-managers are unsupported. To uninstall, remove
-`%USERPROFILE%\AppData\Local\Programs\nah\nah.exe` (and `.old`, if present) and the exact
-`%USERPROFILE%\AppData\Local\Programs\nah` user PATH entry; there is no
-`nah uninstall` command.
+See `nah docs windows` for Windows support limits, upgrades, and removal.
 
 ## Inspect guards without installing a hook
 

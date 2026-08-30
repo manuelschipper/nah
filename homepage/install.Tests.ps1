@@ -6,7 +6,7 @@ param(
 
 BeforeAll {
 $installerPath = Join-Path $PSScriptRoot 'install.ps1'
-$removalDocumentationPath = Join-Path $PSScriptRoot '..\README.md'
+$removalDocumentationPath = Join-Path $PSScriptRoot '..\docs\windows.md'
 . $installerPath
 
 function New-NahTestRelease {
@@ -271,7 +271,7 @@ Describe 'nah Windows installer and release artifact' `
         $documentation = Get-Content -LiteralPath $removalDocumentationPath -Raw
         $procedure = [Regex]::Match(
             $documentation,
-            '(?s)### Uninstall on Windows\s+```powershell\s+(?<script>.*?)\s+```')
+            '(?s)<!-- nah:windows-uninstall:start -->\s+```powershell\s+(?<script>.*?)\s+```\s+<!-- nah:windows-uninstall:end -->')
         $procedure.Success | Should -BeTrue
         $procedurePath = Join-Path $TestDrive 'uninstall.ps1'
         [IO.File]::WriteAllText($procedurePath, $procedure.Groups['script'].Value)

@@ -118,40 +118,11 @@ nah supports Windows, macOS, and Linux.
 curl -fsSL nahguard.ai/install | sh
 ```
 
-On x86-64 Windows, run PowerShell:
+On x86-64 Windows PowerShell:
 
 ```powershell
 irm https://nahguard.ai/install.ps1 | iex
 ```
-
-The Windows binary is currently unsigned, so Windows may show a SmartScreen
-warning. ARM64 Windows, Winget, Chocolatey, Scoop, and other package-manager
-installs are not supported yet.
-Set `$env:NAH_VERSION` to a tag before installing to request that release.
-
-### Uninstall on Windows
-
-Remove the executable and the exact user PATH entry written by the installer:
-
-```powershell
-$installDirectory = Join-Path $env:USERPROFILE 'AppData\Local\Programs\nah'
-Remove-Item -LiteralPath (Join-Path $installDirectory 'nah.exe'), `
-    (Join-Path $installDirectory 'nah.exe.old') -Force -ErrorAction SilentlyContinue
-$pathEntry = '%USERPROFILE%\AppData\Local\Programs\nah'
-$environmentKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment', $true)
-try {
-    $rawPath = [string]$environmentKey.GetValue(
-        'Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-    $rawPath = (($rawPath -split ';') -ne $pathEntry) -join ';'
-    $environmentKey.SetValue(
-        'Path', $rawPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
-} finally {
-    $environmentKey.Dispose()
-}
-```
-
-Restart open terminals and coding agents after removal. nah does not provide
-an uninstall command for the executable.
 
 Point your agent to:
 

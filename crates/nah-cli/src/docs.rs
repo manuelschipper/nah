@@ -30,6 +30,12 @@ const TOPICS: &[Topic] = &[
         2_560
     ),
     topic!(
+        "windows",
+        "Install, upgrade, or remove nah on Windows.",
+        "../../../docs/windows.md",
+        3_072
+    ),
+    topic!(
         "concepts",
         "Understand verdicts, guards, and trust.",
         "../../../docs/concepts.md",
