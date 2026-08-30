@@ -129,10 +129,20 @@ fn kiro_root(home: &AbsolutePath, platform: Platform) -> Result<PathBuf, String>
         .map_err(|_| "invalid-kiro-home".to_owned())?;
     let canonical =
         std::fs::canonicalize(&configured).map_err(|_| "kiro-home-cannot-be-resolved")?;
-    if canonical != configured {
+    let canonical = canonical
+        .to_str()
+        .map(nah_observe::normalize_windows_observed_path)
+        .ok_or("invalid-kiro-home")?;
+    let configured = configured.to_str().ok_or("invalid-kiro-home")?;
+    let matches = if platform == Platform::Windows {
+        canonical.eq_ignore_ascii_case(configured)
+    } else {
+        canonical == configured
+    };
+    if !matches {
         return Err("kiro-home-symlink-unsupported".into());
     }
-    Ok(configured)
+    Ok(PathBuf::from(configured))
 }
 
 struct KiroHookPaths {

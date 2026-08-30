@@ -11,6 +11,13 @@ pub(super) fn absolute(path: &Path) -> AbsolutePath {
     AbsolutePath::new(host_platform(), path.to_string_lossy()).expect("absolute test path")
 }
 
+pub(super) fn canonical(path: &Path) -> String {
+    crate::io_paths::canonical_absolute(path)
+        .expect("canonical test path")
+        .as_str()
+        .to_owned()
+}
+
 pub(super) fn request(cwd: &Path, paths: &[(&str, &str)]) -> ObservationRequest {
     let mut queries = vec![
         ObservationQuery::Cwd {

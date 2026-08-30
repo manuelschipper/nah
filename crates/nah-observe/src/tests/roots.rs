@@ -1,4 +1,4 @@
-use super::support::{init_repo, request, run, value};
+use super::support::{canonical, init_repo, request, run, value};
 use crate::fulfill;
 #[cfg(unix)]
 use crate::fulfill_with_git;
@@ -53,12 +53,10 @@ fn linked_worktree_reports_distinct_project_and_main_roots() {
 
     assert_eq!(roots.len(), 2);
     assert!(roots.iter().any(|root| {
-        root.kind() == RootKind::Project
-            && root.path().as_str() == worktree.canonicalize().unwrap().to_str().unwrap()
+        root.kind() == RootKind::Project && root.path().as_str() == canonical(&worktree)
     }));
     assert!(roots.iter().any(|root| {
-        root.kind() == RootKind::WorktreeMain
-            && root.path().as_str() == main.canonicalize().unwrap().to_str().unwrap()
+        root.kind() == RootKind::WorktreeMain && root.path().as_str() == canonical(&main)
     }));
 }
 

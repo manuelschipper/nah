@@ -24,7 +24,7 @@ impl MemoCache {
         std::fs::create_dir_all(&self.directory).map_err(|_| CacheError::Io)?;
         let lock = self.lock()?;
         let path = self.directory.join(format!("{key}.json"));
-        let file = match File::open(&path) {
+        let file = match OpenOptions::new().read(true).write(true).open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(CacheError::Io),

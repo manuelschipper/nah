@@ -1,6 +1,8 @@
-use super::support::{init_repo, request, value};
+use super::support::{absolute, canonical, init_repo, request, value};
 use crate::fulfill;
-use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
+use nah_proto::ctx::SchemaVersion;
+#[cfg(unix)]
+use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::observation::{
     ObservationQuery, ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
     SymlinkTraversal,
@@ -33,15 +35,12 @@ fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
     };
     let descendants = inspected.descendants().unwrap();
     assert!(descendants.complete());
-    assert!(descendants.paths().iter().any(|path| {
-        path.as_str()
-            == repo
-                .join("src/nested/server.key")
-                .canonicalize()
-                .unwrap()
-                .to_str()
-                .unwrap()
-    }));
+    assert!(
+        descendants
+            .paths()
+            .iter()
+            .any(|path| { path.as_str() == canonical(&repo.join("src/nested/server.key")) })
+    );
 
     let mut directory = repo.join("deep");
     fs::create_dir(&directory).unwrap();
@@ -184,11 +183,7 @@ fn descendant_path_bytes_are_bounded() {
     let directory = temp.path().join("directory");
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("long-file-name"), "").unwrap();
-    let observed = PathObservation::new(
-        AbsolutePath::new(Platform::Linux, directory.to_str().unwrap()).unwrap(),
-        None,
-        PathKind::Directory,
-    );
+    let observed = PathObservation::new(absolute(&directory), None, PathKind::Directory);
     let mut budget = crate::descendants::Budget::limited_path_bytes(1);
     let descendants = crate::descendants::observe(&observed, SymlinkTraversal::None, &mut budget);
     assert!(!descendants.complete());

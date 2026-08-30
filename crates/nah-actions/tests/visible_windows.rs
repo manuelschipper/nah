@@ -148,6 +148,15 @@ fn top_level_and_nested_windows_shells_share_canonical_filesystem_effects() {
     let direct = filesystem_effects(direct_plan(VisibleCode::Cmd { source: cmd }, cmd), None);
     let nested = filesystem_effects(nested_plan(r#"cmd /c 'rd /s /q C:\Users\test'"#), None);
     assert_eq!(direct, nested);
+
+    let root = r"Remove-Item -LiteralPath C:\ -Recurse -Force";
+    assert_eq!(
+        filesystem_effects(
+            direct_plan(VisibleCode::PowerShell { source: root }, root),
+            None,
+        ),
+        [(FilesystemOperation::Delete, r"C:\".into(), true, false)]
+    );
 }
 
 #[test]

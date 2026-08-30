@@ -168,10 +168,17 @@ fn read_bounded<R: Read>(reader: Option<R>, cap: usize) -> BoundedOutput {
 
 fn decode_response(bytes: &[u8]) -> Result<ExtensionResponse, TransportRejectionCode> {
     let text = std::str::from_utf8(bytes).map_err(|_| TransportRejectionCode::InvalidUtf8)?;
-    if text.contains('\r') {
-        return Err(TransportRejectionCode::InvalidFraming);
-    }
-    let framed = text.strip_suffix('\n').unwrap_or(text);
+    let framed = if let Some(framed) = text.strip_suffix("\r\n") {
+        if framed.contains('\r') {
+            return Err(TransportRejectionCode::InvalidFraming);
+        }
+        framed
+    } else {
+        if text.contains('\r') {
+            return Err(TransportRejectionCode::InvalidFraming);
+        }
+        text.strip_suffix('\n').unwrap_or(text)
+    };
     if framed.is_empty()
         || framed.starts_with(char::is_whitespace)
         || framed.ends_with(char::is_whitespace)
@@ -442,5 +449,20 @@ pub(crate) fn outcome_code(outcome: &ConsultationOutcome) -> &'static str {
                 "rejected-transport:invalid-response-fields"
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_response;
+    use nah_proto::extension::TransportRejectionCode;
+
+    #[test]
+    fn response_framing_accepts_native_windows_line_endings() {
+        assert!(decode_response(b"{\"abstain\":true}\r\n").is_ok());
+        assert_eq!(
+            decode_response(b"{\"abstain\":true}\r\r\n"),
+            Err(TransportRejectionCode::InvalidFraming)
+        );
     }
 }
