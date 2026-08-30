@@ -43,6 +43,7 @@ impl Lowerer {
         stage: usize,
         classifications: &CommandClassifications,
         git_environment_override: bool,
+        remote_repository_delete: bool,
         mut filesystem_drafts: Vec<FilesystemDraft>,
         mut network_endpoints: Vec<NetworkEndpoint>,
         mut descriptor_flows: Vec<DescriptorFlow>,
@@ -379,6 +380,9 @@ impl Lowerer {
             git_operations.push(
                 SemanticCode::new(operation).expect("Git operations are validated constants"),
             );
+        }
+        if remote_repository_delete {
+            git_operations.push(SemanticCode::GIT_REMOTE_DELETE);
         }
         if !git_operations.is_empty() {
             self.complete = false;

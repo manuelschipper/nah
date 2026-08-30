@@ -140,6 +140,31 @@ fn inline_allows_only_the_reviewed_tree_sitter_dependencies() {
 }
 
 #[test]
+fn actions_allows_only_the_reviewed_idna_dependency() {
+    let allowed = PackageDeps {
+        name: "nah-actions".into(),
+        normal_deps: vec!["idna".into()],
+        build_deps: Vec::new(),
+        dev_deps: Vec::new(),
+        source_paths: Vec::new(),
+        build_scripts: Vec::new(),
+    };
+    assert!(pure_dependency_violations(&[allowed]).is_empty());
+
+    let forbidden = PackageDeps {
+        name: "nah-actions".into(),
+        normal_deps: vec!["url".into()],
+        build_deps: Vec::new(),
+        dev_deps: Vec::new(),
+        source_paths: Vec::new(),
+        build_scripts: Vec::new(),
+    };
+    let violations = pure_dependency_violations(&[forbidden]);
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].contains("url"));
+}
+
+#[test]
 fn composition_roots_reject_forbidden_edges() {
     let packages = vec![
         PackageDeps {

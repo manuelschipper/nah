@@ -47,6 +47,44 @@
   `-LiteralPath` bindings stay partial without fabricated filesystem effects.
   `-WhatIf` provider mutations and selector values leave later alias resolution
   unchanged.
+- **Remote repository deletion guard** — New default-on `git-remote-delete`
+  blocks exact whole-repository deletion through GitHub and GitLab CLI commands
+  and REST routes, including valid confirmation values, false-valued help flags,
+  GitHub and GitLab API fragments, and documented GitLab composite placeholders,
+  single-label GitHub Enterprise hosts, attached and separated GitHub API
+  short-option forms, disabled GitHub API pagination, percent-encoded GitHub
+  repository routes, and percent-encoded GitLab project paths, numeric IDs, and
+  group placeholders, plus GitHub's
+  `--allow-escape-sequences` output option and repeated or inherited boolean
+  flags whose final value restores destructive execution and port-qualified
+  GitHub Enterprise hosts. Parent-command help flags, GitHub field placeholders,
+  GitLab user placeholders, and API preflight flags now follow the providers'
+  effective behavior. GitHub's short `-h` remains a help request even when
+  assigned false. Glab short-option clusters remain guarded, while
+  conflicting API body modes delegate. GitHub include-prefixed short options
+  remain guarded, while invalid Glab output formats delegate. Empty or superseded
+  GitHub output filters now follow the provider's effective preflight behavior.
+  Invalid API hostnames, malformed GitHub API field, header, cache, and template
+  values, malformed Glab headers, and Glab fields that cannot be encoded as DELETE
+  query values delegate before the guard, as do duplicate form stdin sources and
+  pagination/input conflicts. Literal closing braces in valid GitHub templates,
+  normalized standard-system executable paths, including root-clamped parent
+  traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts, including
+  zone identifiers with percent-encoded bytes, remain guarded. GitHub template rune
+  literals, two-variable ranges, and the current `replace` helper remain guarded, as
+  does Glab's static `-R`/`--repo` selection,
+  including reviewed short-option clusters.
+  Static GitHub API IDN hosts and digit-separated Go template numbers remain
+  guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN
+  GitHub repository hosts with numeric ports, including IDNs with combining marks
+  across scripts,
+  while invalid GitHub header names delegate before the guard. GitLab API IDN hosts
+  and current GitHub template literals remain guarded, while duplicate GitHub API
+  scalar fields and invalid GitLab headers delegate.
+  Parent traversal after arbitrary absolute path prefixes also delegates instead of
+  acquiring standard-system executable identity.
+  Dynamic API option values, incompatible GitHub output options, branches, tags,
+  archives, renames, and transfers remain outside its scope.
 - **Project root filesystem guard** — New default-on `fs-project-root` blocks
   recursive deletion and known recursive permission changes selecting the exact
   project root or one of its three root-wide patterns.

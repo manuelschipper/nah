@@ -324,6 +324,25 @@ fn type_view_groups_each_family_once_with_live_checkboxes() {
 }
 
 #[test]
+fn remote_repository_delete_guard_renders_in_git_policy() {
+    let mut app = App::fixture();
+    app.guards.push(built_in_entry(
+        "git-remote-delete",
+        GuardFamily::Git,
+        true,
+        GuardStatus::Enabled,
+        None,
+    ));
+
+    let output = rendered(&app, 120, 30);
+    let git = output.find("GIT").unwrap();
+    let guard = output.find("[x] git-remote-delete").unwrap();
+    let secrets = output.find("SECRETS").unwrap();
+    assert!(git < guard);
+    assert!(guard < secrets);
+}
+
+#[test]
 fn state_view_groups_guards_by_applied_status() {
     let mut app = App::fixture();
     app.guard_view = GuardView::State;

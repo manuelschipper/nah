@@ -140,6 +140,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-hard-reset"
         | "git-metadata"
         | "git-recovery-destroy"
+        | "git-remote-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
         "secrets-env" | "secrets-exfil" | "secrets-keys" => GuardFamily::Secrets,
@@ -183,6 +184,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
+        }
+        "git-remote-delete" => {
+            "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
         }
         "git-rewrite-force" => {
             "Blocks history rewriting that explicitly bypasses safety or backup checks."
@@ -281,6 +285,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git reflog expire --all --expire=now",
             "git gc --prune=now",
             "git prune --expire=now",
+        ],
+        "git-remote-delete" => [
+            "gh repo delete owner/project --yes",
+            "glab repo delete group/project -y",
+            "gh api -X DELETE repos/{owner}/{repo}",
         ],
         "git-rewrite-force" => [
             "git filter-branch --force -- --all",

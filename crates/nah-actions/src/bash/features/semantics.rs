@@ -231,12 +231,32 @@ fn normalize_basename(program: &str, platform: Platform) -> String {
 }
 
 fn trusted_program_basename(program: &str, platform: Platform) -> Option<&str> {
-    if platform == Platform::Windows || program.contains('\\') {
+    if platform == Platform::Windows || program.contains('\\') || !program.starts_with('/') {
         return None;
     }
-    let (directory, basename) = program.rsplit_once('/')?;
-    (!basename.is_empty() && matches!(directory, "/bin" | "/sbin" | "/usr/bin" | "/usr/sbin"))
-        .then_some(basename)
+    let mut components = Vec::new();
+    for component in program.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                // Traversal after an arbitrary prefix may cross a symlink and select a
+                // different executable than lexical normalization would claim.
+                if !matches!(
+                    components.as_slice(),
+                    [] | ["usr"] | ["bin" | "sbin"] | ["usr", "bin" | "sbin"]
+                ) {
+                    return None;
+                }
+                // Absolute paths stay at the filesystem root when parent traversal passes it.
+                let _ = components.pop();
+            }
+            _ => components.push(component),
+        }
+    }
+    match components.as_slice() {
+        ["bin" | "sbin", basename] | ["usr", "bin" | "sbin", basename] => Some(*basename),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -245,11 +265,28 @@ mod tests {
 
     #[test]
     fn only_standard_qualified_programs_are_canonicalized() {
-        assert_eq!(
-            normalize_program("/usr/bin/chmod", Platform::Linux).as_deref(),
-            Some("chmod")
-        );
+        for program in [
+            "/usr/bin/chmod",
+            "/usr//bin/chmod",
+            "/usr/bin/./chmod",
+            "/usr/bin/../bin/chmod",
+            "/../../usr/bin/chmod",
+        ] {
+            assert_eq!(
+                normalize_program(program, Platform::Linux).as_deref(),
+                Some("chmod"),
+                "{program}"
+            );
+        }
         assert_eq!(normalize_program("/tmp/chmod", Platform::Linux), None);
+        assert_eq!(normalize_program("/../../tmp/chmod", Platform::Linux), None);
+        assert_eq!(
+            normalize_program(
+                "/tmp/probe/usr/bin/../../../../usr/bin/chmod",
+                Platform::Linux,
+            ),
+            None
+        );
         assert_eq!(normalize_program("./chmod", Platform::Linux), None);
         assert_eq!(
             normalize_program("CMD.EXE", Platform::Windows).as_deref(),

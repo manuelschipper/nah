@@ -108,6 +108,267 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ("git restore -- . --keep", "git-worktree-discard"),
         ("git switch --discard-changes main", "git-worktree-discard"),
         ("git switch -f --no-merge main", "git-worktree-discard"),
+        ("gh repo delete", "git-remote-delete"),
+        (
+            "gh repo delete github.example.com/owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete localhost/owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete localhost:9/owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete localhost./owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete '[::1]/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'bücher.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'bücher.invalid:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'bu\u{308}cher.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'हिन्दी.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'শক্তি.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'தமிழ்.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'ಕನ್ನಡ.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete 'శక్తి.invalid/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete '[fe80::1%25lo]:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete '[fe80::1%25%6Co]:9/owner/project' --yes",
+            "git-remote-delete",
+        ),
+        (
+            "/usr/bin/../bin/gh repo delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "/../../usr/bin/gh repo delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete owner/project --confirm=1",
+            "git-remote-delete",
+        ),
+        ("glab repo delete group/project -y", "git-remote-delete"),
+        (
+            "glab repo delete group/project -y=TRUE",
+            "git-remote-delete",
+        ),
+        (
+            "glab repo delete group/project -yh=false",
+            "git-remote-delete",
+        ),
+        (
+            "glab repo delete group/project -yRother/project",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -iRother/project -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        ("gh api -X DELETE repos/{owner}/{repo}", "git-remote-delete"),
+        ("gh api -X DELETE repos/%63li/%63li", "git-remote-delete"),
+        ("gh api -iXDELETE repos/owner/project", "git-remote-delete"),
+        (
+            "gh api -iiX DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api -ip corsair -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --paginate=false -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --allow-escape-sequences -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api -X DELETE 'repos/owner/project#/issues'",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --method DELETE projects/group%2Fproject",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/%67itlab-org%2Fcli",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/%32%37%38%39%36%34",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE 'projects/123#anything'",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/:namespace/:repo",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/:group%2F:repo",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/:group/:namespace/:repo",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete owner/project --yes --help=false",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo delete --help --help=false --yes owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --paginate --paginate=false -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --help=0 -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "gh --help=false repo delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "glab --help=0 api -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "gh repo --help=false delete owner/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "glab repo --help=false delete group/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "glab project --help=false delete group/project --yes",
+            "git-remote-delete",
+        ),
+        (
+            "gh api -X DELETE repos/owner/project -F ref={branch}",
+            "git-remote-delete",
+        ),
+        (
+            "glab api -X DELETE projects/:user%2F:repo",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --paginate=false -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --slurp=false -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --jq= --silent -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '' --verbose -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{$item := .}}{{$item}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname bücher.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname bu\u{308}cher.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname हिन्दी.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname শক্তি.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname தமிழ்.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --hostname ಕನ್ನಡ.example -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --hostname bücher.invalid -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "glab api --hostname bu\u{308}cher.invalid -X DELETE projects/123",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{1_000}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{0x1.fp2}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{1+2i}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
+        (
+            "gh api --template '{{$é := .}}{{$é}}' -X DELETE repos/owner/project",
+            "git-remote-delete",
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -206,6 +467,52 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "git checkout --no-patch --patch -- .",
         "git switch -f --no-merge --merge main",
         "git branch -D old",
+        "gh repo archive owner/project --yes",
+        "gh repo delete \"$REPOSITORY\" --yes",
+        "gh api -X DELETE repos/owner/project/issues",
+        "gh api --paginate -X DELETE repos/owner/project",
+        "gh api --paginate=true -X DELETE repos/owner/project",
+        "gh api --paginate=false --paginate -X DELETE repos/owner/project",
+        "gh api --header * -X DELETE repos/owner/project",
+        "glab api --input *.json -X DELETE projects/123",
+        "glab api --form a=b --field c=d -X DELETE projects/123",
+        "glab api --paginate=false --input /dev/null -X DELETE projects/123",
+        "glab api --form first=@- --form second=@- -X DELETE projects/123",
+        "glab api -F 'data={' -X DELETE projects/123",
+        "glab api -F 'data={\"audit\":true}' -X DELETE projects/123",
+        "glab api -f missingequals -X DELETE projects/123",
+        "glab api --output yaml -X DELETE projects/123",
+        "gh api --hostname bad/host -X DELETE repos/owner/project",
+        "gh api --hostname 'bad#host' -X DELETE repos/owner/project",
+        "gh api --hostname 'bad?host' -X DELETE repos/owner/project",
+        "gh api --hostname 'bad host' -X DELETE repos/owner/project",
+        "gh api -f invalid -X DELETE repos/owner/project",
+        "gh api -F invalid -X DELETE repos/owner/project",
+        "gh api -H invalid -X DELETE repos/owner/project",
+        "gh api --header ': value' -X DELETE repos/owner/project",
+        "gh api --cache invalid -X DELETE repos/owner/project",
+        "gh api --template '{{' -X DELETE repos/owner/project",
+        "gh api --template '{{break}}' -X DELETE repos/owner/project",
+        "gh api --template '{{08}}' -X DELETE repos/owner/project",
+        "gh api --template '{{1-}}' -X DELETE repos/owner/project",
+        "gh api -f a=1 -f a=2 -X DELETE repos/owner/project",
+        "gh api -f a=1 -F a=2 -X DELETE repos/owner/project",
+        "glab api -H invalid -X DELETE projects/123",
+        "glab api -H 'bad name:value' -X DELETE projects/123",
+        "glab api -H 'Content-Length:nope' -X DELETE projects/123",
+        "/tmp/probe/usr/bin/../../../../usr/bin/gh repo delete owner/project --yes",
+        "gh api --silent --verbose -X DELETE repos/owner/project",
+        "gh api --jq= --jq . --silent -X DELETE repos/owner/project",
+        "gh repo delete --help=false --help --yes owner/project",
+        "gh --help=false repo delete --help --yes owner/project",
+        "gh api -h=false -X DELETE repos/owner/project",
+        "gh repo --help delete owner/project --yes",
+        "glab project --help delete group/project --yes",
+        "glab api --paginate -X DELETE projects/123",
+        "gh api --slurp -X DELETE repos/owner/project",
+        "glab repo transfer group/project other",
+        "glab api -X DELETE projects/group/project",
+        "curl -X DELETE https://api.github.com/repos/owner/project",
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
