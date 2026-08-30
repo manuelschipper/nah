@@ -62,7 +62,8 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
         "nah-observe" => &["nah-proto"],
         "nah-policy" => &["nah-proto", "nah-inline"],
         "nah-extensions" => &["nah-proto"],
-        "nah-effinterp" => &["nah-proto"],
+        // The daemon reads the trusted roots `nah trust` persists.
+        "nah-effinterp" => &["nah-proto", "nah-extensions"],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[
@@ -336,7 +337,12 @@ pub fn path_dependency_violations(dependencies: &[PathDependency], root: &Path) 
 pub fn effinterp_revision_violations(manifest: &str, config: &str) -> Vec<String> {
     let config_rev = section_revision(config, "source.effinterp");
     let mut violations = Vec::new();
-    for dependency in ["effinterp-engine", "effinterp-proto"] {
+    for dependency in [
+        "effinterp-daemon",
+        "effinterp-engine",
+        "effinterp-proto",
+        "effinterp-repo",
+    ] {
         let dependency_rev = manifest.lines().find_map(|line| {
             let line = line.trim();
             line.starts_with(dependency)

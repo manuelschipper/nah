@@ -9,6 +9,8 @@ use nah_proto::tool::ToolCallInput;
 
 use crate::amp_adapter;
 use crate::antigravity_adapter;
+#[cfg(feature = "effinterp")]
+use crate::args::DaemonAction;
 use crate::args::{Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
 use crate::claude_adapter;
 use crate::cline_adapter;
@@ -120,6 +122,28 @@ fn run_with<R: Read, W: Write, E: Write>(
         Command::Why(args) => explain(&args.id, stdout, stderr),
         Command::Log(args) => list_log(args.count, args.json, args.blocked, stdout, stderr),
         Command::Docs(args) => emit_docs(args.topic.as_deref(), stdout, stderr),
+        // UNDOCUMENTED-EFFINTERP: dispatch the hidden daemon only in feature builds.
+        #[cfg(feature = "effinterp")]
+        Command::Daemon(args) => match args.action {
+            DaemonAction::Run(args) => nah_effinterp::run_daemon(
+                nah_effinterp::DaemonRunOptions {
+                    once: args.once,
+                    poll_seconds: args.poll,
+                    max_memory_mib: args.max_memory,
+                    max_files: args.max_files,
+                    include_main_files: args.include_main_files,
+                },
+                stderr,
+            ),
+            DaemonAction::Status => nah_effinterp::daemon_status(stdout, stderr),
+            DaemonAction::Stop => nah_effinterp::stop_daemon(stderr),
+            DaemonAction::Build(args) => nah_effinterp::build_daemon_snapshot(
+                &args.id,
+                args.max_memory,
+                args.include_main_files,
+                stderr,
+            ),
+        },
     }
 }
 

@@ -84,6 +84,11 @@ pub(crate) fn repo(temp: &Path) -> std::path::PathBuf {
     git(&repo, &["init", "-q"]);
     std::fs::create_dir(repo.join("src")).unwrap();
     std::fs::write(repo.join("src/lib.rs"), "pub fn demo() {}\n").unwrap();
+    std::fs::write(
+        repo.join("package.json"),
+        r#"{"scripts":{"clean":"rm -rf dist"}}"#,
+    )
+    .unwrap();
     git(&repo, &["add", "."]);
     git(
         &repo,

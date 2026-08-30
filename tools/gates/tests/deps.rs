@@ -108,14 +108,16 @@ fn effectinterp_source_replacement_rev_matches_manifest() {
 fn seeded_effectinterp_rev_mismatch_is_rejected() {
     let manifest = r#"
 [dependencies]
+effinterp-daemon = { git = "https://example.invalid/effectinterp", rev = "one" }
 effinterp-engine = { git = "https://example.invalid/effectinterp", rev = "one" }
 effinterp-proto = { git = "https://example.invalid/effectinterp", rev = "one" }
+effinterp-repo = { git = "https://example.invalid/effectinterp", rev = "one" }
 "#;
     let config = r#"
 [source.effinterp]
 rev = "two"
 "#;
-    assert_eq!(effinterp_revision_violations(manifest, config).len(), 2);
+    assert_eq!(effinterp_revision_violations(manifest, config).len(), 4);
 }
 
 #[test]
