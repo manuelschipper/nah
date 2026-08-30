@@ -8,7 +8,9 @@ use nah_cli::decide_with;
 use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
 use nah_proto::decision::{DecisionCore, Verdict};
 use serde_json::json;
-use support::{absolute, bash_path, call, ctx, host_platform, repo};
+#[cfg(unix)]
+use support::bash_path;
+use support::{absolute, call, ctx, host_platform, repo};
 
 fn decide(home: &Path, repo: &Path, tool: &str, input: serde_json::Value) -> DecisionCore {
     let disabled = Ctx::new(
@@ -239,6 +241,7 @@ fn native_tool_payload_cannot_forge_the_internal_critical_operation() {
     assert_eq!(decision.verdict(), Verdict::Delegate);
 }
 
+#[cfg(unix)]
 #[test]
 fn shell_state_indirection_cannot_hide_nah_authority_mutations() {
     let home_temp = tempfile::tempdir().unwrap();

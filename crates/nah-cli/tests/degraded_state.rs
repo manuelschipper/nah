@@ -180,16 +180,20 @@ fn damaged_shipped_state_falls_back_to_the_shipped_defaults() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let project = repo(&root);
+    let target = root.join(".ssh/authorized_keys");
     assert!(
-        nah(&root, &["guard", "disable", "fs-system-tree"], None)
+        nah(&root, &["guard", "disable", "fs-auth-identity"], None)
             .status
             .success()
     );
     let (disabled, _, _) = decide(
         &root,
         &project,
-        "Bash",
-        json!({"command":"rm -rf /usr/bin"}),
+        "Write",
+        json!({
+            "file_path": target,
+            "content": "key"
+        }),
     );
     assert_eq!(disabled.verdict(), Verdict::Delegate);
 
@@ -198,8 +202,11 @@ fn damaged_shipped_state_falls_back_to_the_shipped_defaults() {
     let (blocked, _, _) = decide(
         &root,
         &project,
-        "Bash",
-        json!({"command":"rm -rf /usr/bin"}),
+        "Write",
+        json!({
+            "file_path": target,
+            "content": "key"
+        }),
     );
     assert_eq!(blocked.verdict(), Verdict::Block);
     let (safe, _, _) = decide(&root, &project, "Read", json!({"file_path":"src/lib.rs"}));

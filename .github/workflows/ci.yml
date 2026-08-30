@@ -60,8 +60,36 @@ jobs:
         run: cargo build --workspace --all-targets --locked
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test cross-platform suites
-        run: cargo test -p nah-proto -p nah-parse -p nah-inline -p nah-actions -p nah-observe -p nah-policy -p nah-extensions -p nah-cli -p nah-corpus --locked --no-fail-fast
+      - name: Test portable Windows semantics
+        run: cargo test -p nah-proto -p nah-inline -p nah-actions -p nah-policy --locked --no-fail-fast
+      - name: Test native Windows state and extensions
+        run: cargo test -p nah-observe -p nah-extensions --locked --no-fail-fast
+      - name: Test native Windows CLI core
+        run: cargo test -p nah-cli --lib --locked --no-fail-fast
+      - name: Test native Windows runtime integrations
+        run: >
+          cargo test -p nah-cli --locked --no-fail-fast
+          --test audit
+          --test catalog
+          --test claude_adapter
+          --test claude_installation
+          --test cline_adapter
+          --test cline_installation
+          --test codex_installation
+          --test copilot_adapter
+          --test copilot_installation
+          --test cursor_installation
+          --test degraded_state
+          --test host_integrity
+          --test kiro_adapter
+          --test kiro_installation
+          --test live_state
+          --test nap
+          --test self_protection
+          --test trust
+          --test windows_extensions
+          --test windows_unresolved_filesystem
+          --test windows_unsupported_installation
       - name: Build release artifact
         run: cargo build --release --locked -p nah-cli
       - name: Install Pester

@@ -22,7 +22,10 @@ pub(crate) fn test_temp_path(path: &Path) -> std::path::PathBuf {
 }
 
 pub(crate) fn absolute(path: &Path) -> AbsolutePath {
-    AbsolutePath::new(host_platform(), path.to_str().unwrap()).unwrap()
+    let path = path.to_str().unwrap();
+    #[cfg(windows)]
+    let path = nah_observe::normalize_windows_observed_path(path);
+    AbsolutePath::new(host_platform(), path).unwrap()
 }
 
 pub(crate) const fn host_platform() -> Platform {

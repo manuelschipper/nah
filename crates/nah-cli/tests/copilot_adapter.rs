@@ -121,6 +121,7 @@ fn adapter_maps_cli_and_vscode_decisions() {
                 json!({"command":"Remove-Item -LiteralPath C:\\ -Recurse -Force"}),
             ),
         );
+        assert!(!powershell.stdout.is_empty(), "{powershell:?}");
         let output: Value = serde_json::from_slice(&powershell.stdout).unwrap();
         assert_eq!(output["permissionDecision"], "deny");
 

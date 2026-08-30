@@ -33,7 +33,7 @@ fn trust_command_persists_an_idempotent_canonical_root() {
     assert!(home.join(".nah/trust.json").is_file());
     assert!(!home.join(".config/nah").exists());
 
-    let home = absolute(&std::fs::canonicalize(home).unwrap());
+    let home = absolute(&support::test_temp_path(&home));
     let database = nah_extensions::TrustDatabase::load(
         &nah_extensions::trust_database_path(&home, host_platform()),
         host_platform(),
@@ -43,7 +43,7 @@ fn trust_command_persists_an_idempotent_canonical_root() {
     assert_eq!(roots.trusted_roots().len(), 1);
     assert_eq!(
         roots.trusted_roots()[0].path().as_str(),
-        std::fs::canonicalize(root).unwrap().to_str().unwrap()
+        support::test_temp_path(&root).to_str().unwrap()
     );
 }
 
@@ -82,7 +82,10 @@ fn trust_errors_name_the_requested_project_root() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(error.contains(missing.to_str().unwrap()), "{error}");
+    assert!(
+        error.contains(&format!("{:?}", missing.to_str().unwrap())),
+        "{error}"
+    );
     assert!(error.contains("choose an existing directory"), "{error}");
 
     let escaped = Command::new(env!("CARGO_BIN_EXE_nah"))
@@ -150,7 +153,7 @@ fn untrust_revokes_the_root_and_its_project_policy_attributions() {
             .contains("revoked 1 enabled project guard")
     );
 
-    let home = absolute(&std::fs::canonicalize(home).unwrap());
+    let home = absolute(&support::test_temp_path(&home));
     let trust = nah_extensions::TrustDatabase::load(
         &nah_extensions::trust_database_path(&home, host_platform()),
         host_platform(),
