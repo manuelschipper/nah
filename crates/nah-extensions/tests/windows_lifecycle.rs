@@ -13,7 +13,7 @@ use support::{absolute, finish_windows};
 #[test]
 fn generated_windows_template_activates_and_answers() {
     let launcher = Command::new("py")
-        .args(["-3", "--version"])
+        .args(["-3", "-S", "-c", "import json"])
         .status()
         .unwrap();
     assert!(launcher.success());
