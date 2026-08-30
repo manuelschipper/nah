@@ -16,13 +16,15 @@
 - **Windows host-state protection** — Windows path observations now normalize
   extended drive and UNC results, unsafe reparse paths fail closed, and
   `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
-  `nah.exe` path is also self-protected.
+  `nah.exe` path is also self-protected, and nap keys inherited under that
+  boundary remain usable.
 - **Unreadable decision log recovery** — `nah log` and the TUI archive an
   unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
   readable records, and warn instead of leaving decision browsing unavailable.
 - **Optional startup-management guard** — New default-off
-  `fs-startup-management` blocks reviewed persistent `systemctl`, `launchctl`,
-  and `crontab` mutations when enabled without changing startup-path defaults.
+  `fs-startup-management` blocks reviewed persistent `systemctl` on Linux,
+  `launchctl` on macOS, and `crontab` mutations on either when enabled without
+  changing startup-path defaults. Its documentation examples follow the host.
 - **`crontab -u` payload inspection** — Visible stdin installed for another
   user now receives the same nested-command and self-protection analysis as
   `crontab -`.

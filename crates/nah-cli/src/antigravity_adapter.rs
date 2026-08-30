@@ -319,14 +319,32 @@ fn deny(reason: &str) -> Value {
 mod tests {
     use super::*;
 
-    fn normalized(name: &str, args: Value) -> ToolCallInput {
+    fn native_path(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
+    fn native_paths(value: &mut Value) {
+        match value {
+            Value::String(path) if path.starts_with('/') => *path = native_path(path),
+            Value::Array(values) => values.iter_mut().for_each(native_paths),
+            Value::Object(object) => object.values_mut().for_each(native_paths),
+            _ => {}
+        }
+    }
+
+    fn normalized(name: &str, mut args: Value) -> ToolCallInput {
+        native_paths(&mut args);
         normalize(AntigravityHookInput {
             tool_call: AntigravityToolCall {
                 name: name.into(),
                 args,
             },
             conversation_id: "conversation-1".into(),
-            workspace_paths: vec!["/repo".into(), "/other".into()],
+            workspace_paths: vec![native_path("/repo"), native_path("/other")],
         })
         .unwrap()
     }
@@ -396,7 +414,7 @@ mod tests {
         ] {
             let call = normalized(name, args);
             assert_eq!(call.tool(), expected, "{name}");
-            assert_eq!(call.cwd(), cwd, "{name}");
+            assert_eq!(call.cwd(), native_path(cwd), "{name}");
             assert_eq!(call.session(), Some("conversation-1"));
         }
     }

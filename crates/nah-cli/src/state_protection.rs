@@ -137,7 +137,13 @@ mod windows {
         system: &[u8],
         administrators: &[u8],
     ) -> Result<(), StateProtectionError> {
-        if owner.is_null() || unsafe { EqualSid(owner, user.as_ptr().cast_mut().cast()) } == 0 {
+        if owner.is_null()
+            || [user, system, administrators]
+                .iter()
+                .all(|expected| unsafe {
+                    EqualSid(owner, expected.as_ptr().cast_mut().cast()) == 0
+                })
+        {
             return Err(StateProtectionError);
         }
         if dacl.is_null() {

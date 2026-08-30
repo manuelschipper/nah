@@ -466,12 +466,17 @@ mod tests {
 
     #[test]
     fn normalizes_legacy_and_current_tools() {
+        let shell = if cfg!(windows) {
+            "ClineWindowsShell"
+        } else {
+            "Bash"
+        };
         for (name, parameters, expected) in [
-            ("execute_command", json!({"command":"git status"}), "Bash"),
+            ("execute_command", json!({"command":"git status"}), shell),
             (
                 "run_commands",
                 json!({"commands":"[\"git status\",\"cargo test\"]"}),
-                "Bash",
+                shell,
             ),
             ("read_file", json!({"path":"src/lib.rs"}), "Read"),
             (
@@ -524,6 +529,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn structured_commands_include_every_argument() {
         let call = normalized(
@@ -620,7 +626,12 @@ mod tests {
                 },
             })
             .unwrap();
-            assert_eq!(call.tool(), name);
+            let expected = if cfg!(windows) && unsupported_shell(name, Platform::Windows) {
+                "ClineWindowsShell"
+            } else {
+                name
+            };
+            assert_eq!(call.tool(), expected);
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
         }

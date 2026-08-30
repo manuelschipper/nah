@@ -350,6 +350,21 @@ impl Error for NapError {}
 mod tests {
     use super::*;
 
+    fn test_path(temporary: &tempfile::TempDir) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let home = AbsolutePath::new(
+                Platform::Windows,
+                temporary.path().to_str().expect("Windows temp path"),
+            )
+            .unwrap();
+            crate::state_protection::ensure_nah_state_directory(&home, Platform::Windows).unwrap();
+            temporary.path().join(".nah/nap.json")
+        }
+        #[cfg(not(windows))]
+        temporary.path().join("nap.json")
+    }
+
     fn signed_state(
         v: u32,
         mode: NapMode,
@@ -375,7 +390,7 @@ mod tests {
     #[test]
     fn state_is_global_fixed_duration_and_expires_without_a_write() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("nap.json");
+        let path = test_path(&temp);
         let active = start_at(&path, NapMode::SelfProtection, 100).unwrap();
         assert_eq!(active.mode(), NapMode::SelfProtection);
         assert_eq!(active.expires_at(), 700);
@@ -391,7 +406,7 @@ mod tests {
     #[test]
     fn unsigned_tampered_and_invalid_state_fail_awake() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("nap.json");
+        let path = test_path(&temp);
         std::fs::write(
             &path,
             r#"{"v":1,"mode":"all","started_at":100,"expires_at":700}"#,
@@ -433,7 +448,7 @@ mod tests {
     #[test]
     fn replacing_only_the_key_or_signing_with_the_wrong_key_fails_awake() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("nap.json");
+        let path = test_path(&temp);
         start_at(&path, NapMode::All, 100).unwrap();
         let key_path = key_path(&path);
         let real_key = load_key(&key_path).unwrap().unwrap();

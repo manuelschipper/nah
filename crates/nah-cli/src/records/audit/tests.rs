@@ -16,6 +16,16 @@ use super::{
 };
 use crate::records::redaction::{AuditDiagnostics, AuditRecordV1};
 
+fn host_platform() -> Platform {
+    if cfg!(windows) {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::Macos
+    } else {
+        Platform::Linux
+    }
+}
+
 fn record(id: &str) -> AuditRecordV1 {
     record_with_warnings(id, &[])
 }
@@ -105,8 +115,9 @@ fn old_unavailable_record(id: &str, timestamp: &str) -> AuditRecordV1 {
 #[test]
 fn log_round_trips_and_finds_records() {
     let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let path = decision_log_path(&home, Platform::Linux);
+    let platform = host_platform();
+    let home = AbsolutePath::new(platform, temp.path().to_str().unwrap()).unwrap();
+    let path = decision_log_path(&home, platform);
     let log = DecisionLog::new(path.clone());
     let stream = ActionStream::new(
         Coverage::Full,
@@ -260,8 +271,9 @@ fn recent_and_blocked_tails_are_independent() {
 #[test]
 fn append_compacts_to_a_low_water_mark_and_then_grows_without_recompacting() {
     let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let path = decision_log_path(&home, Platform::Linux);
+    let platform = host_platform();
+    let home = AbsolutePath::new(platform, temp.path().to_str().unwrap()).unwrap();
+    let path = decision_log_path(&home, platform);
     let log = DecisionLog::new(path.clone());
     let new = record("decision-new");
     let old = record("decision-old");
