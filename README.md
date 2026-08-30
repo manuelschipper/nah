@@ -20,10 +20,6 @@
 curl -fsSL nahguard.ai/install | sh
 ```
 
-```powershell
-irm https://nahguard.ai/install.ps1 | iex
-```
-
 <p align="center">
   claude code &middot; codex &middot; cursor &middot; pi &middot;
   <a href="#install">+ 11 more</a>

@@ -249,16 +249,33 @@ section[id]{ scroll-margin-top:4.5rem; }
 }
 
 /* the one-liner install, right in the hero */
-.install-line{
+.hero-install{
   margin:1.7rem auto 0; width:100%; max-width:38rem;
-  display:flex; align-items:baseline; gap:.7rem;
   background:var(--paper-card);
   border:2px solid var(--rule-firm); border-radius:var(--wobble-sm);
   box-shadow:4px 5px 0 var(--rule);
-  padding:.8rem 1.15rem; font-size:18px; text-align:left;
+  font-size:18px; text-align:left; overflow:hidden;
 }
-.install-line .ps1{ color:var(--ink-soft); user-select:none; }
-.install-line code{ flex:1; min-width:0; white-space:nowrap; overflow-x:auto; }
+.install-tabs{
+  display:flex; gap:.25rem; padding:0 .65rem;
+  border-bottom:1.5px solid var(--rule);
+}
+.install-tab{
+  margin-bottom:-1.5px; padding:.65rem .55rem .55rem;
+  color:var(--pencil); background:transparent;
+  border:0; border-bottom:2px solid transparent;
+  font:600 12.5px/1.2 var(--mono); cursor:pointer;
+}
+.install-tab:hover{ color:var(--ink-soft); }
+.install-tab[aria-selected="true"]{ color:var(--ink); border-bottom-color:var(--ink); }
+.install-tab:focus-visible{ outline:2px solid var(--ink); outline-offset:-2px; }
+.install-panel[hidden]{ display:none; }
+.install-command-row{
+  display:flex; align-items:baseline; gap:.7rem;
+  padding:.8rem 1.15rem;
+}
+.install-command-row .ps1{ color:var(--ink-soft); user-select:none; }
+.install-command-row code{ flex:1; min-width:0; white-space:nowrap; overflow-x:auto; }
 .copy-btn.inline{ position:static; flex:none; }
 
 /* ---------------- the inked card ---------------- */
@@ -572,7 +589,7 @@ h2.claim::before{ content:""; }
 .rt span.nm{ font-size:11.5px; color:var(--ink-soft); letter-spacing:.04em; white-space:nowrap; }
 
 /* ---------------- install ---------------- */
-.install-card{ position:relative; margin-top:1.2rem; }
+.install-card{ position:relative; margin-top:1.2rem; overflow:hidden; }
 /* the human installs; the agent reads the docs and wires itself in */
 .step{ margin:1.6rem 0 0; color:var(--ink-soft); font-size:15px; }
 pre{
@@ -582,6 +599,7 @@ pre{
 /* the commands are the point of this section — set them at the walk
    pane's command size rather than footnote size */
 .install-card pre{ font-size:18px; line-height:1.6; padding:1.4rem 1.5rem; }
+.install-card .install-command-row{ padding:1.4rem 1.5rem; font-size:18px; line-height:1.6; }
 pre .c{ color:var(--pencil); }
 /* leaving stays subordinate to installing: bare pencil lines, no card */
 .leave-cmds{ margin:.5rem 0 0 1rem; padding:0; color:var(--pencil); font-size:14px; }
@@ -636,7 +654,8 @@ footer .fine a{ text-decoration-color:var(--rule); }
   .wsections section.wintro{ min-height:0; padding:0; }
 }
 @media (max-width:480px){
-  .install-line{ font-size:13px; padding:.7rem .8rem; gap:.45rem; }
+  .hero-install{ font-size:13px; }
+  .hero-install .install-command-row{ padding:.7rem .8rem; gap:.45rem; }
 }
 @media (max-width:640px){
   .kpis{ grid-template-columns:1fr 1fr; gap:1.4rem; }
@@ -689,10 +708,27 @@ footer .fine a{ text-decoration-color:var(--rule); }
         microsecond verdicts. no LLM. extensible.
       </p>
 
-      <div class="install-line">
-        <span class="ps1" aria-hidden="true">$</span>
-        <code id="install-one">curl -fsSL nahguard.ai/install | sh</code>
-        <button class="copy-btn inline" id="copy-hero" type="button" aria-label="copy the install command"></button>
+      <div class="hero-install" data-install-picker>
+        <div class="install-tabs" role="tablist" aria-label="installation platform">
+          <button class="install-tab" id="hero-tab-unix" type="button" role="tab"
+            aria-selected="true" aria-controls="hero-panel-unix">macOS / Linux</button>
+          <button class="install-tab" id="hero-tab-windows" type="button" role="tab"
+            aria-selected="false" aria-controls="hero-panel-windows" tabindex="-1">Windows</button>
+        </div>
+        <div class="install-panel" id="hero-panel-unix" role="tabpanel" aria-labelledby="hero-tab-unix">
+          <div class="install-command-row">
+            <span class="ps1" aria-hidden="true">$</span>
+            <code id="install-one">curl -fsSL nahguard.ai/install | sh</code>
+            <button class="copy-btn inline" id="copy-hero" type="button" aria-label="copy the macOS and Linux install command"></button>
+          </div>
+        </div>
+        <div class="install-panel" id="hero-panel-windows" role="tabpanel" aria-labelledby="hero-tab-windows" hidden>
+          <div class="install-command-row">
+            <span class="ps1" aria-hidden="true">PS&gt;</span>
+            <code id="install-one-windows">irm https://nahguard.ai/install.ps1 | iex</code>
+            <button class="copy-btn inline" id="copy-hero-windows" type="button" aria-label="copy the Windows install command"></button>
+          </div>
+        </div>
       </div>
       <p class="hero-runtimes">
         claude code · codex · <span class="rt-long">pi · opencode · </span><a href="#runtimes"><span class="rt-long">+ 10 more</span><span class="rt-short">+ 12 more</span></a>
@@ -899,17 +935,29 @@ footer .fine a{ text-decoration-color:var(--rule); }
 
     <section id="install">
       <h2 class="claim">Install.</h2>
-      <div class="card install-card">
-        <button class="copy-btn" id="copy" type="button" aria-label="copy the install command"></button>
-<pre id="install-cmds">curl -fsSL nahguard.ai/install | sh</pre>
+      <div class="card install-card" data-install-picker data-windows-note="windows-install-note">
+        <div class="install-tabs" role="tablist" aria-label="installation platform">
+          <button class="install-tab" id="install-tab-unix" type="button" role="tab"
+            aria-selected="true" aria-controls="install-panel-unix">macOS / Linux</button>
+          <button class="install-tab" id="install-tab-windows" type="button" role="tab"
+            aria-selected="false" aria-controls="install-panel-windows" tabindex="-1">Windows</button>
+        </div>
+        <div class="install-panel" id="install-panel-unix" role="tabpanel" aria-labelledby="install-tab-unix">
+          <div class="install-command-row">
+            <span class="ps1" aria-hidden="true">$</span>
+            <code id="install-cmds">curl -fsSL nahguard.ai/install | sh</code>
+            <button class="copy-btn inline" id="copy" type="button" aria-label="copy the macOS and Linux install command"></button>
+          </div>
+        </div>
+        <div class="install-panel" id="install-panel-windows" role="tabpanel" aria-labelledby="install-tab-windows" hidden>
+          <div class="install-command-row">
+            <span class="ps1" aria-hidden="true">PS&gt;</span>
+            <code id="install-windows">irm https://nahguard.ai/install.ps1 | iex</code>
+            <button class="copy-btn inline" id="copy-windows" type="button" aria-label="copy the Windows install command"></button>
+          </div>
+        </div>
       </div>
-
-      <p class="step">on x86-64 Windows PowerShell:</p>
-      <div class="card install-card">
-        <button class="copy-btn" id="copy-windows" type="button" aria-label="copy the Windows install command"></button>
-<pre id="install-windows">irm https://nahguard.ai/install.ps1 | iex</pre>
-      </div>
-      <p class="note">the Windows build is unsigned and may show a SmartScreen warning. ARM64 and package-manager installs are not supported.</p>
+      <p class="note" id="windows-install-note" hidden>the Windows build is unsigned and may show a SmartScreen warning. ARM64 and package-manager installs are not supported.</p>
 
       <p class="step">then tell your agent to run:</p>
       <div class="card install-card">
@@ -1521,11 +1569,36 @@ function wireCopy(btnId, srcId, stripComments){
   });
 }
 wireCopy("copy-hero", "install-one", false);
+wireCopy("copy-hero-windows", "install-one-windows", false);
 wireCopy("copy", "install-cmds", true);
 wireCopy("copy-windows", "install-windows", true);
 wireCopy("copy-docs", "docs-cmd", true);
 wireCopy("copy-threat", "threat-cmd", true);
 wireCopy("copy-mail", "mail-addr", false);
+
+document.querySelectorAll("[data-install-picker]").forEach(function(picker){
+  var tabs = Array.from(picker.querySelectorAll('[role="tab"]'));
+  function select(tab, focus){
+    tabs.forEach(function(item){
+      var selected = item === tab;
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+      item.tabIndex = selected ? 0 : -1;
+      document.getElementById(item.getAttribute("aria-controls")).hidden = !selected;
+    });
+    var note = document.getElementById(picker.getAttribute("data-windows-note"));
+    if (note) note.hidden = tab.id !== "install-tab-windows";
+    if (focus) tab.focus();
+  }
+  tabs.forEach(function(tab, index){
+    tab.addEventListener("click", function(){ select(tab, false); });
+    tab.addEventListener("keydown", function(event){
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      var step = event.key === "ArrowRight" ? 1 : -1;
+      select(tabs[(index + step + tabs.length) % tabs.length], true);
+    });
+  });
+});
 
 /* the hammock's word waits for the reader to reach the footer */
 (function(){

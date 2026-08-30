@@ -6,7 +6,8 @@
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
   that preserves expandable user PATH entries and replaces upgrades safely.
   `nah docs windows` now keeps install, upgrade, and removal details out of the
-  quick-start README.
+  quick-start README, and nahguard.ai presents both platform installers in one
+  tabbed control.
 - **Qualified Windows runtime integrations** — Claude Code, Codex, Cursor,
   GitHub Copilot, Cline, and Kiro now support native hook lifecycle and typed
   tools on Windows while ambiguous shell payloads stay partial. Copilot CLI
