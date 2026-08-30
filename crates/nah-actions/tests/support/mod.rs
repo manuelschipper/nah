@@ -286,7 +286,7 @@ fn facts_with_descendants_on(
                     inspect_descendants,
                     ..
                 } => {
-                    let resolved = lexically_normalized(requested);
+                    let resolved = lexically_normalized(platform, requested);
                     let child_cwd = key.starts_with("inline-child-cwd-");
                     let realpath = if child_cwd {
                         Some(absolute_on(platform, &resolved))
@@ -372,21 +372,24 @@ fn path_on(platform: Platform, value: &str) -> String {
     }
 }
 
-fn lexically_normalized(value: &str) -> String {
-    let mut normalized = std::path::PathBuf::new();
-    for component in std::path::Path::new(value).components() {
+fn lexically_normalized(platform: Platform, value: &str) -> String {
+    let value = value.replace('\\', "/");
+    let (root, remainder) = match platform {
+        Platform::Linux | Platform::Macos => ("/".to_owned(), value.trim_start_matches('/')),
+        Platform::Windows if value.as_bytes().get(1) == Some(&b':') => {
+            (value[..3].to_owned(), &value[3..])
+        }
+        Platform::Windows => ("//".to_owned(), value.trim_start_matches('/')),
+    };
+    let mut components = Vec::new();
+    for component in remainder.split('/') {
         match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
+            "" | "." => {}
+            ".." => {
+                components.pop();
             }
-            component => normalized.push(component.as_os_str()),
+            component => components.push(component),
         }
     }
-    let normalized = normalized.to_string_lossy().into_owned();
-    if normalized.is_empty() {
-        "/".into()
-    } else {
-        normalized
-    }
+    format!("{root}{}", components.join("/"))
 }
