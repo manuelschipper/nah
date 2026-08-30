@@ -228,6 +228,8 @@ fn api_request<'a>(
     let mut github_template = false;
     let mut github_verbose = false;
     let mut gitlab_form = false;
+    let mut gitlab_form_stdin_count = 0;
+    let mut gitlab_input = false;
     let mut gitlab_non_form_body = false;
     let mut after_options = false;
     let mut index = 0;
@@ -250,6 +252,9 @@ fn api_request<'a>(
             }
             if let Some((name, attached_value)) = options.value {
                 let value = attached_value.or_else(|| arguments.get(index + 1).copied())?;
+                if matches!(name, 'F' | 'f') && !valid_gitlab_field(value, name == 'F') {
+                    return None;
+                }
                 if name == 'X' {
                     method = Some(value);
                 }
@@ -316,6 +321,9 @@ fn api_request<'a>(
             if !api_value_option(name, provider) {
                 return None;
             }
+            if !valid_api_option_value(name, value, provider) {
+                return None;
+            }
             if provider == Provider::GitLab
                 && name == "--output"
                 && !matches!(value, "json" | "ndjson")
@@ -327,6 +335,8 @@ fn api_request<'a>(
             }
             if provider == Provider::GitLab {
                 gitlab_form |= name == "--form";
+                gitlab_form_stdin_count += usize::from(name == "--form" && value.ends_with("=@-"));
+                gitlab_input |= name == "--input";
                 gitlab_non_form_body |= matches!(name, "--field" | "--raw-field" | "--input");
             }
             if provider == Provider::GitHub {
@@ -342,6 +352,9 @@ fn api_request<'a>(
         }
         if !after_options && api_value_option(argument, provider) {
             let value = *arguments.get(index + 1)?;
+            if !valid_api_option_value(argument, value, provider) {
+                return None;
+            }
             if provider == Provider::GitLab
                 && argument == "--output"
                 && !matches!(value, "json" | "ndjson")
@@ -353,6 +366,9 @@ fn api_request<'a>(
             }
             if provider == Provider::GitLab {
                 gitlab_form |= argument == "--form";
+                gitlab_form_stdin_count +=
+                    usize::from(argument == "--form" && value.ends_with("=@-"));
+                gitlab_input |= argument == "--input";
                 gitlab_non_form_body |= matches!(argument, "--field" | "--raw-field" | "--input");
             }
             if provider == Provider::GitHub {
@@ -382,7 +398,9 @@ fn api_request<'a>(
         || paginate_requested == Some(true)
         || github_slurp_requested == Some(true)
         || github_output_options > 1
+        || provider == Provider::GitLab && paginate_requested.is_some() && gitlab_input
         || gitlab_form && gitlab_non_form_body
+        || gitlab_form_stdin_count > 1
     {
         return None;
     }
@@ -390,6 +408,194 @@ fn api_request<'a>(
         endpoint: endpoint?,
         method: method?,
     })
+}
+
+fn valid_api_option_value(name: &str, value: &str, provider: Provider) -> bool {
+    match (provider, name) {
+        (_, "--hostname") => valid_api_hostname(value),
+        (Provider::GitLab, "--field") => valid_gitlab_field(value, true),
+        (Provider::GitLab, "--raw-field") => valid_gitlab_field(value, false),
+        _ => true,
+    }
+}
+
+fn valid_api_hostname(hostname: &str) -> bool {
+    !hostname.trim().is_empty() && !hostname.contains(['/', ':'])
+}
+
+fn valid_gitlab_field(field: &str, parses_json: bool) -> bool {
+    let Some((_, value)) = field.split_once('=') else {
+        return false;
+    };
+    !parses_json || !value.starts_with(['[', '{']) || valid_json_value(value)
+}
+
+fn valid_json_value(value: &str) -> bool {
+    let mut parser = JsonParser {
+        remaining: value.as_bytes(),
+    };
+    parser.parse_value(0) && {
+        parser.skip_whitespace();
+        parser.remaining.is_empty()
+    }
+}
+
+struct JsonParser<'a> {
+    remaining: &'a [u8],
+}
+
+impl JsonParser<'_> {
+    fn parse_value(&mut self, depth: usize) -> bool {
+        if depth == 128 {
+            return false;
+        }
+        self.skip_whitespace();
+        match self.remaining.first() {
+            Some(b'"') => self.parse_string(),
+            Some(b'{') => self.parse_object(depth + 1),
+            Some(b'[') => self.parse_array(depth + 1),
+            Some(b't') => self.take(b"true"),
+            Some(b'f') => self.take(b"false"),
+            Some(b'n') => self.take(b"null"),
+            Some(b'-' | b'0'..=b'9') => self.parse_number(),
+            _ => false,
+        }
+    }
+
+    fn parse_object(&mut self, depth: usize) -> bool {
+        self.take(b"{");
+        self.skip_whitespace();
+        if self.take(b"}") {
+            return true;
+        }
+        loop {
+            if !self.parse_string() {
+                return false;
+            }
+            self.skip_whitespace();
+            if !self.take(b":") || !self.parse_value(depth) {
+                return false;
+            }
+            self.skip_whitespace();
+            if self.take(b"}") {
+                return true;
+            }
+            if !self.take(b",") {
+                return false;
+            }
+            self.skip_whitespace();
+        }
+    }
+
+    fn parse_array(&mut self, depth: usize) -> bool {
+        self.take(b"[");
+        self.skip_whitespace();
+        if self.take(b"]") {
+            return true;
+        }
+        loop {
+            if !self.parse_value(depth) {
+                return false;
+            }
+            self.skip_whitespace();
+            if self.take(b"]") {
+                return true;
+            }
+            if !self.take(b",") {
+                return false;
+            }
+        }
+    }
+
+    fn parse_string(&mut self) -> bool {
+        if !self.take(b"\"") {
+            return false;
+        }
+        while let Some((byte, rest)) = self.remaining.split_first() {
+            self.remaining = rest;
+            match byte {
+                b'"' => return true,
+                b'\\' => {
+                    let Some((escaped, rest)) = self.remaining.split_first() else {
+                        return false;
+                    };
+                    self.remaining = rest;
+                    if *escaped == b'u' {
+                        if self.remaining.len() < 4
+                            || !self.remaining[..4].iter().all(u8::is_ascii_hexdigit)
+                        {
+                            return false;
+                        }
+                        self.remaining = &self.remaining[4..];
+                    } else if !matches!(
+                        escaped,
+                        b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't'
+                    ) {
+                        return false;
+                    }
+                }
+                0..=0x1f => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn parse_number(&mut self) -> bool {
+        if self.remaining.first() == Some(&b'-') {
+            self.remaining = &self.remaining[1..];
+        }
+        match self.remaining.first() {
+            Some(b'0') => self.remaining = &self.remaining[1..],
+            Some(b'1'..=b'9') => {
+                self.take_digits();
+            }
+            _ => return false,
+        }
+        if self.remaining.first() == Some(&b'.') {
+            self.remaining = &self.remaining[1..];
+            if !self.take_digits() {
+                return false;
+            }
+        }
+        if matches!(self.remaining.first(), Some(b'e' | b'E')) {
+            self.remaining = &self.remaining[1..];
+            if matches!(self.remaining.first(), Some(b'+' | b'-')) {
+                self.remaining = &self.remaining[1..];
+            }
+            if !self.take_digits() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn take_digits(&mut self) -> bool {
+        let count = self
+            .remaining
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        self.remaining = &self.remaining[count..];
+        count > 0
+    }
+
+    fn skip_whitespace(&mut self) {
+        let count = self
+            .remaining
+            .iter()
+            .take_while(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+            .count();
+        self.remaining = &self.remaining[count..];
+    }
+
+    fn take(&mut self, expected: &[u8]) -> bool {
+        let Some(remaining) = self.remaining.strip_prefix(expected) else {
+            return false;
+        };
+        self.remaining = remaining;
+        true
+    }
 }
 
 fn api_boolean_option(argument: &str, provider: Provider) -> bool {

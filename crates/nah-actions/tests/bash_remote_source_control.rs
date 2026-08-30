@@ -256,6 +256,8 @@ fn exact_delete_api_routes_allow_reviewed_options_and_ordering() {
         "glab api -X DELETE projects/%67itlab-org%2Fcli",
         "glab api -X DELETE projects/gitlab-org%2F%63li",
         "glab api --field audit=true --input body.json -XDELETE projects/:id",
+        "glab api --form body=@- -X DELETE projects/123",
+        "glab api -F 'data={\"audit\":true}' -f reason=test -X DELETE projects/123",
         "glab api --silent projects/:fullpath --method DELETE",
         "glab api --method DELETE projects/:namespace%2F:repo",
         "glab api --method DELETE projects/:group%2F:repo",
@@ -304,6 +306,41 @@ fn gitlab_api_output_requires_a_supported_format() {
     for source in [
         "glab api --output yaml -X DELETE projects/123",
         "glab api --output=xml -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn invalid_api_values_and_preflight_conflicts_delegate_before_delete() {
+    for source in [
+        "glab api --paginate=false --input /dev/null -X DELETE projects/123",
+        "glab api --form first=@- --form second=@- -X DELETE projects/123",
+        "glab api --hostname bad/host -X DELETE projects/123",
+        "gh api --hostname bad/host -X DELETE repos/owner/project",
+        "glab api -F 'data={' -X DELETE projects/123",
+        "glab api -F 'data={bad}' -X DELETE projects/123",
+        "glab api -F 'data=[1,]' -X DELETE projects/123",
+        "glab api -f missingequals -X DELETE projects/123",
+    ] {
+        assert!(!deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn gitlab_typed_fields_require_valid_json() {
+    for source in [
+        "glab api -F 'data={\"items\":[null,true,false,-1.2e3]}' -X DELETE projects/123",
+        "glab api --field 'data=[\"line\\n\",\"\\u0041\"]' -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "glab api -F 'data={\"item\":1} trailing' -X DELETE projects/123",
+        "glab api -F 'data=[01]' -X DELETE projects/123",
+        "glab api -F 'data=[1.]' -X DELETE projects/123",
+        "glab api -F 'data=[\"\\x\"]' -X DELETE projects/123",
     ] {
         assert!(!deletes_repository(source), "{source}");
     }
