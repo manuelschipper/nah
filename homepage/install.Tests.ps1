@@ -399,22 +399,24 @@ Describe 'nah Windows installer and release artifact' `
 
         $env:PATH = "$env:PATH;$script:pythonLauncherDirectory"
         $created = Invoke-NahProcess -Executable $nah `
-            -Arguments @('guard', 'new', 'release-acceptance')
+            -Arguments @('guard', 'new', 'tool')
         $created.ExitCode | Should -Be 0
         (Invoke-NahProcess -Executable $nah `
-            -Arguments @('guard', 'enable', 'release-acceptance')).ExitCode | Should -Be 0
+            -Arguments @('guard', 'enable', 'tool')).ExitCode | Should -Be 0
         $customInput = @{
-            v = 1; tool = 'Bash'; cwd = $project
-            input = @{ command = 'release-acceptance destroy --all' }
+            v = 1; tool = 'Bash'; cwd = $env:USERPROFILE; session = 'release-acceptance'
+            input = @{ command = 'tool destroy --all' }
         } | ConvertTo-Json -Compress -Depth 8
         $custom = Invoke-NahProcess -Executable $nah -Arguments @('decide') -Payload $customInput
         $customAudit = $null
+        $customState = $null
         if ($custom.ExitCode -ne 1) {
             $customAudit = Invoke-NahProcess -Executable $nah -Arguments @('log', '--json', '-n', '1')
+            $customState = Invoke-NahProcess -Executable $nah -Arguments @('guards')
         }
         $custom.ExitCode | Should -Be 1 -Because (
             "stdout: $($custom.Stdout); stderr: $($custom.Stderr); " +
-            "audit: $($customAudit.Stdout)")
+            "audit: $($customAudit.Stdout); guards: $($customState.Stdout)")
         ($custom.Stdout | ConvertFrom-Json).verdict | Should -BeExactly 'block'
     }
 }
