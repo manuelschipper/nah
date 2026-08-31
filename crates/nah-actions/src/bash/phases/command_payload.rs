@@ -301,6 +301,8 @@ impl Lowerer {
                     let transparent_wrapper = execution == PayloadExecution::Isolated
                         && transparent
                         && static_program != Some("git");
+                    let scoped_path_assignments = execution.persists_state()
+                        && execution != PayloadExecution::CurrentShellDefaultPath;
                     if !execution.persists_state() {
                         self.prepare_isolated_environment(
                             program,
@@ -308,6 +310,13 @@ impl Lowerer {
                             assignments,
                             assignment_updates,
                         );
+                    } else if scoped_path_assignments {
+                        for ((name, _), update) in assignments.iter().zip(assignment_updates.iter())
+                        {
+                            if name == "PATH" {
+                                self.apply_assignment_update(name, update.clone(), false);
+                            }
+                        }
                     }
                     if execution == PayloadExecution::Isolated {
                         self.state.lookup = LookupState::default();
@@ -350,6 +359,13 @@ impl Lowerer {
                     if !execution.persists_state() {
                         self.state = parent_state;
                         self.ambient_variables = parent_ambient_variables;
+                    } else if scoped_path_assignments {
+                        let path_assignments = assignments
+                            .iter()
+                            .filter(|(name, _)| name == "PATH")
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        self.restore_function_assignment_scope(&parent_state, &path_assignments);
                     }
                     Some((lowered, transparent))
                 }

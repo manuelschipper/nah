@@ -258,13 +258,24 @@ fn visible_path_overrides_do_not_gain_infrastructure_tool_identity() {
         "export PATH=/tmp; terraform destroy",
         "PATH=/tmp sh -c 'terraform destroy'",
         "PATH=/tmp /usr/bin/timeout 1 terraform destroy",
+        "PATH=/tmp command terraform destroy",
+        "PATH=/tmp command -- terraform destroy",
+        "PATH=/tmp eval 'terraform destroy'",
+        "PATH=/tmp time terraform destroy",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
     }
 
-    assert!(destroys_whole_stack(
-        "PATH=/tmp; /usr/bin/terraform destroy"
-    ));
+    for source in [
+        "PATH=/tmp; /usr/bin/terraform destroy",
+        "command terraform destroy",
+        "command -- terraform destroy",
+        "PATH=/tmp command -p terraform destroy",
+        "eval 'terraform destroy'",
+        "time terraform destroy",
+    ] {
+        assert!(destroys_whole_stack(source), "{source}");
+    }
 }
 
 #[test]
