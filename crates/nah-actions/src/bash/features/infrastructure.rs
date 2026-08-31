@@ -2,6 +2,7 @@
 
 use nah_parse::Word;
 
+use crate::bash_model::VariableValue;
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
@@ -29,6 +30,7 @@ pub(crate) fn classify(
     program: &str,
     arguments: &[Word],
     assignments: &[(String, Word)],
+    environment: &[(String, VariableValue)],
     path_overridden: bool,
     qualified_program: bool,
 ) -> Option<Classification> {
@@ -39,7 +41,7 @@ pub(crate) fn classify(
         return Some(Classification::incomplete());
     }
     match program {
-        "terraform" | "tofu" => terraform(program, arguments, assignments),
+        "terraform" | "tofu" => terraform(program, arguments, assignments, environment),
         "pulumi" => pulumi(arguments),
         _ => None,
     }
@@ -49,6 +51,7 @@ fn terraform(
     program: &str,
     arguments: &[Word],
     assignments: &[(String, Word)],
+    environment: &[(String, VariableValue)],
 ) -> Option<Classification> {
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
@@ -69,14 +72,25 @@ fn terraform(
     };
     let mut command_arguments = Vec::new();
     for name in [command_variable, "TF_CLI_ARGS"] {
-        let Some((_, value)) = assignments
+        let value = if let Some((_, value)) = assignments
             .iter()
             .rev()
             .find(|(candidate, _)| candidate == name)
-        else {
-            continue;
+        {
+            static_word(value.raw(), value.substitutions().is_empty())
+        } else {
+            match environment
+                .iter()
+                .rev()
+                .find(|(candidate, _)| candidate == name)
+                .map(|(_, value)| value)
+            {
+                Some(VariableValue::Static(value)) => Some(value.clone()),
+                None | Some(VariableValue::Unset) => continue,
+                Some(VariableValue::Unknown) => None,
+            }
         };
-        let Some(value) = static_word(value.raw(), value.substitutions().is_empty()) else {
+        let Some(value) = value else {
             return Some(Classification::incomplete());
         };
         let Some(mut words) = terraform_cli_words(&value) else {
@@ -415,7 +429,7 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool, 
             continue;
         }
         if let Some(consumed) = pulumi_short_option_cluster(arguments, index, true) {
-            index += consumed?;
+            index += consumed.map(|(consumed, _)| consumed)?;
             continue;
         }
         if let Some(consumed) = pulumi_value_option(arguments, index, true) {
@@ -548,10 +562,20 @@ fn pulumi_destroy(
             index += consumed;
             continue;
         }
-        if options && let Some(consumed) = pulumi_short_option_cluster(arguments, index, false) {
-            let Ok(consumed) = consumed else {
+        if options && let Some(valid) = pulumi_optional_value(argument) {
+            if !valid {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
+        if options && let Some(cluster) = pulumi_short_option_cluster(arguments, index, false) {
+            let Ok((consumed, targets_resources)) = cluster else {
                 return Classification::incomplete();
             };
+            if targets_resources {
+                return Classification::complete(false);
+            }
             index += consumed;
             continue;
         }
@@ -560,13 +584,6 @@ fn pulumi_destroy(
                 return Classification::incomplete();
             };
             index += consumed;
-            continue;
-        }
-        if options && let Some(valid) = pulumi_optional_value(argument) {
-            if !valid {
-                return Classification::incomplete();
-            }
-            index += 1;
             continue;
         }
         if options && let Some(valid) = pulumi_boolean_option(argument, false) {
@@ -904,22 +921,25 @@ fn pulumi_short_option_cluster(
     arguments: &[String],
     index: usize,
     global_only: bool,
-) -> Option<Result<usize, ()>> {
+) -> Option<Result<(usize, bool), ()>> {
     let argument = &arguments[index];
     let cluster = argument.strip_prefix('-')?;
     if cluster.starts_with('-') || cluster.len() < 2 {
         return None;
     }
-    let boolean_flags = if global_only { "eQ" } else { "eQdfjy" };
+    let boolean_flags = if global_only { "eQ" } else { "eQdfjry" };
     if !boolean_flags.contains(cluster.chars().next().expect("nonempty cluster")) {
         return None;
     }
     let mut options = cluster.char_indices().peekable();
     while let Some((_, option)) = options.next() {
         if boolean_flags.contains(option) {
+            if option == 'r' {
+                continue;
+            }
             let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
             if let Some(value) = cluster[value_start..].strip_prefix('=') {
-                return Some(parse_go_bool(value).map(|_| 1).ok_or(()));
+                return Some(parse_go_bool(value).map(|_| (1, false)).ok_or(()));
             }
             continue;
         }
@@ -927,9 +947,6 @@ fn pulumi_short_option_cluster(
         let attached = cluster[value_start..]
             .strip_prefix('=')
             .unwrap_or(&cluster[value_start..]);
-        if option == 'r' && !global_only && attached.is_empty() {
-            return Some(Ok(1));
-        }
         let (consumed, value) = if attached.is_empty() {
             (2, arguments.get(index + 1)?.as_str())
         } else {
@@ -939,12 +956,16 @@ fn pulumi_short_option_cluster(
             'C' | 'c' | 'm' | 's' if !global_only || option == 'C' => !value.is_empty(),
             'v' => parse_pulumi_i32(value).is_some(),
             'p' if !global_only => parse_pulumi_i32(value).is_some(),
-            'r' if !global_only => parse_go_bool(value).is_some(),
+            't' | 'x' if !global_only => !value.is_empty(),
             _ => false,
         };
-        return Some(valid.then_some(consumed).ok_or(()));
+        return Some(
+            valid
+                .then_some((consumed, matches!(option, 't' | 'x')))
+                .ok_or(()),
+        );
     }
-    Some(Ok(1))
+    Some(Ok((1, false)))
 }
 
 fn pulumi_output_option(arguments: &[String], index: usize) -> Option<Result<usize, ()>> {
@@ -997,8 +1018,8 @@ fn pulumi_optional_value(argument: &str) -> Option<bool> {
     if argument == "-r" {
         return Some(true);
     }
-    if let Some(value) = argument.strip_prefix("-r") {
-        return Some(parse_go_bool(value.strip_prefix('=').unwrap_or(value)).is_some());
+    if let Some(value) = argument.strip_prefix("-r=") {
+        return Some(parse_go_bool(value).is_some());
     }
     if argument == "--suppress-permalink" {
         return Some(true);
@@ -1110,10 +1131,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 started = true;
             }
             ')' if !single_quoted && !double_quoted && !back_quoted => {
-                if !dollar_quoted {
-                    return None;
-                }
-                dollar_quoted = false;
+                dollar_quoted = !dollar_quoted;
                 word.push(character);
                 started = true;
             }
@@ -1187,5 +1205,9 @@ mod tests {
             Some(vec!["foo".into()])
         );
         assert_eq!(terraform_cli_words("-var foo(bar)"), None);
+        assert_eq!(
+            terraform_cli_words("-backup=))"),
+            Some(vec!["-backup=))".into()])
+        );
     }
 }

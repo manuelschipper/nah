@@ -183,6 +183,7 @@ impl Lowerer {
                 program,
                 &local_arguments,
                 assignments,
+                &self.visible_environment_variables(),
                 self.state.variables.iter().any(|binding| {
                     binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
                 }),
