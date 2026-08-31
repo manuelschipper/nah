@@ -4,15 +4,58 @@ use nah_proto::action::{ActionStream, EffectKind, InvocationEffect};
 use nah_proto::ctx::{AbsolutePath, ActivationProjection, Ctx, GuardScope, Platform};
 use nah_proto::exec_v1::ExecV1Request;
 use nah_proto::observation::{Observation, ObservationValue};
+#[cfg(feature = "effinterp")]
+use nah_proto::stream::{
+    ActionStream as EffinterpActionStream, ExecRequest as EffinterpExecRequest,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 
+#[cfg(not(feature = "effinterp"))]
 pub fn request(
     action_stream: &ActionStream,
     observation: &Observation,
 ) -> Result<ExecV1Request, String> {
+    let (cwd, roots) = request_observation(observation)?;
+    ExecV1Request::new(action_stream.clone(), cwd, roots).map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "effinterp")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ExtensionExecRequest {
+    Legacy(ExecV1Request),
+    Effinterp(Box<EffinterpExecRequest>),
+}
+
+#[cfg(feature = "effinterp")]
+pub fn request(
+    action_stream: &ActionStream,
+    effinterp_action_stream: Option<&EffinterpActionStream>,
+    observation: &Observation,
+) -> Result<ExtensionExecRequest, String> {
+    let (cwd, roots) = request_observation(observation)?;
+    match effinterp_action_stream {
+        Some(stream) => EffinterpExecRequest::new(stream.clone(), cwd, roots)
+            .map(|request| ExtensionExecRequest::Effinterp(Box::new(request))),
+        None => {
+            ExecV1Request::new(action_stream.clone(), cwd, roots).map(ExtensionExecRequest::Legacy)
+        }
+    }
+    .map_err(|error| error.to_string())
+}
+
+fn request_observation(
+    observation: &Observation,
+) -> Result<
+    (
+        nah_proto::observation::Observed<AbsolutePath>,
+        nah_proto::observation::Observed<Vec<nah_proto::observation::Root>>,
+    ),
+    String,
+> {
     let cwd = observation
         .facts()
         .iter()
@@ -27,14 +70,13 @@ pub fn request(
             ObservationValue::Roots { observed } => Some(observed.clone()),
             _ => None,
         });
-    ExecV1Request::new(
-        action_stream.clone(),
+    Ok((
         cwd.ok_or_else(|| "missing-cwd".to_owned())?,
         roots.ok_or_else(|| "missing-roots".to_owned())?,
-    )
-    .map_err(|error| error.to_string())
+    ))
 }
 
+#[cfg(not(feature = "effinterp"))]
 pub(crate) fn selected_extensions<'a>(
     catalog: &'a ActiveExtensionCatalog,
     ctx: &Ctx,
@@ -44,6 +86,23 @@ pub(crate) fn selected_extensions<'a>(
         .extensions()
         .iter()
         .filter(|extension| matches_activation(extension.projection(), ctx, action_stream))
+        .collect()
+}
+
+#[cfg(feature = "effinterp")]
+pub(crate) fn selected_extensions<'a>(
+    catalog: &'a ActiveExtensionCatalog,
+    ctx: &Ctx,
+    action_stream: &ActionStream,
+    effinterp_action_stream: Option<&EffinterpActionStream>,
+) -> Vec<&'a ExtensionBundle> {
+    catalog
+        .extensions()
+        .iter()
+        .filter(|extension| match effinterp_action_stream {
+            Some(stream) => matches_effinterp_activation(extension.projection(), ctx, stream),
+            None => matches_activation(extension.projection(), ctx, action_stream),
+        })
         .collect()
 }
 
@@ -65,12 +124,46 @@ fn matches_activation(
         })
 }
 
+#[cfg(feature = "effinterp")]
+fn matches_effinterp_activation(
+    activation: &ActivationProjection,
+    ctx: &Ctx,
+    action_stream: &EffinterpActionStream,
+) -> bool {
+    action_stream.plan().effects.iter().any(|effect| {
+        let nah_proto::stream::effinterp_proto::ResourceExpr::Concrete {
+            identity:
+                nah_proto::stream::effinterp_proto::ResourceIdentity::Process {
+                    executable, cwd, ..
+                },
+        } = &effect.resource
+        else {
+            return false;
+        };
+        let cwd = cwd.as_deref().and_then(|cwd| match cwd {
+            nah_proto::stream::effinterp_proto::ResourceExpr::Concrete {
+                identity: nah_proto::stream::effinterp_proto::ResourceIdentity::FsPath { path },
+            } => Some(path.as_str()),
+            _ => None,
+        });
+        matches_program_name(activation, executable, ctx.platform())
+            && matches_root_path(activation, ctx, cwd)
+    })
+}
+
 fn matches_program(
     extension: &ActivationProjection,
     invocation: &InvocationEffect,
     platform: Platform,
 ) -> bool {
-    let program = invocation.program();
+    matches_program_name(extension, invocation.program(), platform)
+}
+
+fn matches_program_name(
+    extension: &ActivationProjection,
+    program: &str,
+    platform: Platform,
+) -> bool {
     let standard_name = standard_program_name(program, platform);
     extension.match_programs().iter().any(|selector| {
         selector == program
@@ -84,6 +177,14 @@ fn matches_root(
     extension: &ActivationProjection,
     ctx: &Ctx,
     invocation_cwd: Option<&AbsolutePath>,
+) -> bool {
+    matches_root_path(extension, ctx, invocation_cwd.map(AbsolutePath::as_str))
+}
+
+fn matches_root_path(
+    extension: &ActivationProjection,
+    ctx: &Ctx,
+    invocation_cwd: Option<&str>,
 ) -> bool {
     if extension.identity().scope() == GuardScope::User {
         return true;
@@ -99,9 +200,8 @@ fn matches_root(
     else {
         return false;
     };
-    invocation_cwd.is_some_and(|cwd| {
-        path_contains(trusted_root.path().as_str(), cwd.as_str(), ctx.platform())
-    })
+    invocation_cwd
+        .is_some_and(|cwd| path_contains(trusted_root.path().as_str(), cwd, ctx.platform()))
 }
 
 fn standard_program_name(program: &str, platform: Platform) -> Option<String> {
@@ -159,7 +259,30 @@ fn path_contains(root: &str, candidate: &str, platform: Platform) -> bool {
     })
 }
 
+#[cfg(not(feature = "effinterp"))]
 pub(crate) fn memo_key(request: &ExecV1Request, ctx: &Ctx, extension: &ExtensionBundle) -> String {
+    memo_key_for(request, b"action-stream-v1\0", ctx, extension)
+}
+
+#[cfg(feature = "effinterp")]
+pub(crate) fn memo_key(
+    request: &ExtensionExecRequest,
+    ctx: &Ctx,
+    extension: &ExtensionBundle,
+) -> String {
+    let shape = match request {
+        ExtensionExecRequest::Legacy(_) => b"action-stream-v1\0".as_slice(),
+        ExtensionExecRequest::Effinterp(_) => b"effinterp-action-stream-v1\0".as_slice(),
+    };
+    memo_key_for(request, shape, ctx, extension)
+}
+
+fn memo_key_for(
+    request: &impl Serialize,
+    shape: &[u8],
+    ctx: &Ctx,
+    extension: &ExtensionBundle,
+) -> String {
     #[derive(Serialize)]
     struct RelevantCtx<'a> {
         activation: &'a ActivationProjection,
@@ -184,6 +307,7 @@ pub(crate) fn memo_key(request: &ExecV1Request, ctx: &Ctx, extension: &Extension
     };
     let mut hash = Sha256::new();
     hash.update(b"nah-exec-v1-memo-key\0");
+    hash.update(shape);
     for bytes in [
         serde_json::to_vec(request).expect("validated exec request serializes"),
         serde_json::to_vec(&relevant_ctx).expect("validated extension context serializes"),

@@ -42,7 +42,12 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [features]
-effinterp = ["dep:nah-effinterp", "nah-effinterp/engine"]
+effinterp = [
+    "dep:nah-effinterp",
+    "nah-effinterp/engine",
+    "nah-extensions/effinterp",
+    "nah-proto/effinterp",
+]
 
 [[bin]]
 name = "nah"

@@ -72,23 +72,35 @@ pub(crate) fn append_decision(
     runtime: Option<Runtime>,
     include_refusals: bool,
 ) -> Result<(), AuditError> {
+    let diagnostics = redaction::AuditDiagnostics::new(
+        result.warnings(),
+        result.consultations(),
+        result.diagnostics(),
+    )
+    .with_failures(result.failures())
+    .with_refusals(if include_refusals {
+        result.refusals()
+    } else {
+        &[]
+    });
+    #[cfg(not(feature = "effinterp"))]
     let record = redaction::AuditRecordV1::redact(
         tool_call,
         result.action_stream(),
         result.core(),
         envelope,
         runtime_name(runtime),
-        redaction::AuditDiagnostics::new(
-            result.warnings(),
-            result.consultations(),
-            result.diagnostics(),
-        )
-        .with_failures(result.failures())
-        .with_refusals(if include_refusals {
-            result.refusals()
-        } else {
-            &[]
-        }),
+        diagnostics,
+    );
+    #[cfg(feature = "effinterp")]
+    let record = redaction::AuditRecordV1::redact_with_plan(
+        tool_call,
+        result.action_stream(),
+        result.effinterp_action_stream(),
+        result.core(),
+        envelope,
+        runtime_name(runtime),
+        diagnostics,
     );
     DecisionLog::new(decision_log_path(ctx.home(), ctx.platform())).append(&record)
 }

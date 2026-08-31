@@ -9,7 +9,6 @@ use std::time::Duration;
 use std::os::windows::{io::AsRawHandle, process::CommandExt};
 
 use nah_proto::ctx::ActivationProjection;
-use nah_proto::exec_v1::ExecV1Request;
 use nah_proto::extension::{
     ConsultationOutcome, ExtensionConsultation, ExtensionResponse, TransportRejectionCode,
 };
@@ -52,7 +51,7 @@ pub(crate) struct ExecutionOutput {
     pub(crate) stderr: Option<String>,
 }
 
-pub(crate) fn execute(extension: &ExtensionBundle, request: &ExecV1Request) -> ExecutionOutput {
+pub(crate) fn execute(extension: &ExtensionBundle, request: &impl Serialize) -> ExecutionOutput {
     let activation = extension.projection().clone();
     let mut command = Command::new(extension.run());
     command

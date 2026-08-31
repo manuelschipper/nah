@@ -14,5 +14,8 @@ pub mod ctx;
 pub mod decision;
 pub mod exec_v1;
 pub mod extension;
+pub mod labels;
 pub mod observation;
+#[cfg(feature = "effinterp")]
+pub mod stream;
 pub mod tool;

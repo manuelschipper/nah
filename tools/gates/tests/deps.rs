@@ -145,7 +145,11 @@ fn seeded_forbidden_edges_are_rejected_by_live_validators() {
 fn proto_allows_only_its_reviewed_contract_dependencies() {
     let allowed = PackageDeps {
         name: "nah-proto".into(),
-        normal_deps: vec!["serde".into(), "serde_json".into()],
+        normal_deps: vec![
+            "effinterp-proto".into(),
+            "serde".into(),
+            "serde_json".into(),
+        ],
         build_deps: Vec::new(),
         dev_deps: Vec::new(),
         source_paths: Vec::new(),
