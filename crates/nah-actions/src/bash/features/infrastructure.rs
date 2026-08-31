@@ -1037,7 +1037,6 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
         "--skip-preview",
         "--suppress-outputs",
         "--suppress-progress",
-        "--suppress-stream-logs",
         "--target-dependents",
         "--urns",
         "--yes",
@@ -1070,17 +1069,14 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
     let mut words = Vec::new();
     let mut word = String::new();
     let mut started = false;
-    let mut redirection_fd = false;
     for character in value.chars() {
         if escaped {
             word.push(character);
             started = true;
-            redirection_fd = false;
             escaped = false;
             continue;
         }
         if character == '\\' {
-            redirection_fd = false;
             if single_quoted {
                 word.push(character);
                 started = true;
@@ -1096,7 +1092,6 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             } else if started {
                 words.push(std::mem::take(&mut word));
                 started = false;
-                redirection_fd = false;
             }
             continue;
         }
@@ -1105,7 +1100,6 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 back_quoted = !back_quoted;
                 word.push(character);
                 started = true;
-                redirection_fd = false;
             }
             '(' if !single_quoted && !double_quoted && !back_quoted => {
                 if dollar_quoted || !word.ends_with('$') {
@@ -1114,7 +1108,6 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 dollar_quoted = true;
                 word.push(character);
                 started = true;
-                redirection_fd = false;
             }
             ')' if !single_quoted && !double_quoted && !back_quoted => {
                 if !dollar_quoted {
@@ -1123,33 +1116,32 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 dollar_quoted = false;
                 word.push(character);
                 started = true;
-                redirection_fd = false;
             }
             '"' if !single_quoted && !dollar_quoted => {
                 double_quoted = !double_quoted;
                 started = true;
-                redirection_fd = false;
             }
             '\'' if !double_quoted && !dollar_quoted => {
                 single_quoted = !single_quoted;
                 started = true;
-                redirection_fd = false;
             }
             ';' | '&' | '|' | '<' | '>'
                 if !single_quoted && !double_quoted && !back_quoted && !dollar_quoted =>
             {
-                if matches!(character, '<' | '>') && redirection_fd {
+                // go-shellwords discards only a `>` file-descriptor prefix whose
+                // first byte is a digit. `<` keeps the current word as argv.
+                if character == '>'
+                    && word
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|byte| byte.is_ascii_digit())
+                {
                     word.clear();
                     started = false;
                 }
                 break;
             }
             _ => {
-                redirection_fd = if started {
-                    redirection_fd && character.is_ascii_digit()
-                } else {
-                    character.is_ascii_digit()
-                };
                 word.push(character);
                 started = true;
             }
@@ -1187,9 +1179,12 @@ mod tests {
             Some(vec!["-backup".into(), "`foo bar`".into()])
         );
         assert_eq!(terraform_cli_words("2>/tmp/log"), Some(Vec::new()));
+        assert_eq!(terraform_cli_words("2</tmp/log"), Some(vec!["2".into()]));
+        assert_eq!(terraform_cli_words("2foo>/tmp/log"), Some(Vec::new()));
+        assert_eq!(terraform_cli_words("\"2\">/tmp/log"), Some(Vec::new()));
         assert_eq!(
-            terraform_cli_words("\"2\">/tmp/log"),
-            Some(vec!["2".into()])
+            terraform_cli_words("foo>/tmp/log"),
+            Some(vec!["foo".into()])
         );
         assert_eq!(terraform_cli_words("-var foo(bar)"), None);
     }

@@ -73,6 +73,8 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS='-destroy' TF_CLI_ARGS_apply='-destroy=false' terraform apply",
         "TF_CLI_ARGS=';' terraform destroy",
         "TF_CLI_ARGS='2>/tmp/log' terraform destroy",
+        "TF_CLI_ARGS='2foo>/tmp/log' terraform destroy",
+        "TF_CLI_ARGS='\"2\">/tmp/log' terraform destroy",
         "TF_CLI_ARGS_destroy='-backup `foo bar`' terraform destroy",
         "TF_CLI_ARGS_destroy='-auto-approve' sudo terraform destroy",
         "env TF_CLI_ARGS_apply=-destroy terraform apply",
@@ -91,6 +93,8 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS_destroy='-var -v' terraform destroy",
         "TF_CLI_ARGS='-backup --version' terraform destroy",
         "TF_CLI_ARGS_apply='-var -v -destroy' terraform apply",
+        "TF_CLI_ARGS='2</tmp/log' terraform destroy",
+        "TF_CLI_ARGS='foo>/tmp/log' terraform destroy",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
     }
@@ -223,6 +227,7 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "pulumi destroy -j=false --output=default",
         "pulumi destroy --remote",
         "pulumi destroy --remote --remote-agent-pool-id pool",
+        "pulumi destroy --suppress-stream-logs",
         "pulumi destroy --override-env=dev",
         "pulumi destroy --help=false --help --yes",
         "pulumi destroy --version",
