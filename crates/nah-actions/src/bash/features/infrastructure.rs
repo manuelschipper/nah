@@ -86,11 +86,14 @@ fn terraform_subcommand(arguments: &[String]) -> TerraformCommand<'_> {
         if help_or_version(argument) {
             return TerraformCommand::NonExecuting;
         }
-        if let Some(consumed) = value_option(arguments, index, &["-chdir"]) {
-            let Ok(consumed) = consumed else {
+        if argument == "-chdir" || argument == "-chdir=" {
+            return TerraformCommand::Incomplete;
+        }
+        if let Some(directory) = argument.strip_prefix("-chdir=") {
+            if directory.is_empty() {
                 return TerraformCommand::Incomplete;
-            };
-            index += consumed;
+            }
+            index += 1;
             continue;
         }
         if argument.starts_with('-') {
@@ -118,7 +121,6 @@ fn terraform_destroy(subcommand: &str, arguments: &[String]) -> Classification {
         "-backup",
         "-deprecation",
         "-lock-timeout",
-        "-parallelism",
         "-state",
         "-state-out",
         "-var",
@@ -137,6 +139,7 @@ fn terraform_destroy(subcommand: &str, arguments: &[String]) -> Classification {
 
     let mut index = 0;
     let mut destroy = subcommand == "destroy";
+    let mut refresh_only = false;
     while let Some(argument) = arguments.get(index) {
         if help_or_version(argument) {
             return Classification::complete(false);
@@ -162,9 +165,7 @@ fn terraform_destroy(subcommand: &str, arguments: &[String]) -> Classification {
             let Some(value) = value else {
                 return Classification::incomplete();
             };
-            if value {
-                return Classification::complete(false);
-            }
+            refresh_only = value;
             index += 1;
             continue;
         }
@@ -176,6 +177,13 @@ fn terraform_destroy(subcommand: &str, arguments: &[String]) -> Classification {
                 return Classification::incomplete();
             }
             index += 1;
+            continue;
+        }
+        if let Some(consumed) = integer_value_option::<i64>(arguments, index, &["-parallelism"]) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            index += consumed;
             continue;
         }
         if let Some(consumed) = value_option(arguments, index, VALUE_OPTIONS) {
@@ -191,7 +199,7 @@ fn terraform_destroy(subcommand: &str, arguments: &[String]) -> Classification {
         // `apply` positional operands are opaque saved plans. `destroy` has no operands.
         return Classification::complete(false);
     }
-    Classification::complete(destroy)
+    Classification::complete(destroy && !refresh_only)
 }
 
 fn pulumi(arguments: &[Word]) -> Option<Classification> {
@@ -247,6 +255,7 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
     let mut index = 0;
     let mut operand = false;
     let mut options = true;
+    let mut selection_flags = [false; SELECTION_FLAGS.len()];
     while let Some(argument) = arguments.get(index) {
         if options && argument == "--" {
             options = false;
@@ -264,14 +273,20 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
             };
         }
         if options
-            && SELECTION_FLAGS.iter().any(|flag| {
-                argument == flag
-                    || argument
-                        .strip_prefix(flag)
-                        .is_some_and(|tail| tail.starts_with('='))
-            })
+            && let Some((flag_index, value)) =
+                SELECTION_FLAGS
+                    .iter()
+                    .enumerate()
+                    .find_map(|(flag_index, flag)| {
+                        boolean_option(argument, flag).map(|value| (flag_index, value))
+                    })
         {
-            return Classification::complete(false);
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            selection_flags[flag_index] = value;
+            index += 1;
+            continue;
         }
         if options && let Some(consumed) = pulumi_value_option(arguments, index, false) {
             let Ok(consumed) = consumed else {
@@ -300,7 +315,7 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
         operand = true;
         index += 1;
     }
-    Classification::complete(true)
+    Classification::complete(!selection_flags.into_iter().any(|selected| selected))
 }
 
 fn static_arguments(arguments: &[Word]) -> Option<Vec<String>> {
@@ -355,6 +370,23 @@ fn value_option(arguments: &[String], index: usize, names: &[&str]) -> Option<Re
     )
 }
 
+fn integer_value_option<T: std::str::FromStr>(
+    arguments: &[String],
+    index: usize,
+    names: &[&str],
+) -> Option<Result<usize, ()>> {
+    let consumed = match value_option(arguments, index, names)? {
+        Ok(consumed) => consumed,
+        Err(()) => return Some(Err(())),
+    };
+    let value = if consumed == 2 {
+        &arguments[index + 1]
+    } else {
+        arguments[index].split_once('=').expect("joined option").1
+    };
+    Some(value.parse::<T>().map(|_| consumed).map_err(|_| ()))
+}
+
 fn boolean_option(argument: &str, name: &str) -> Option<Option<bool>> {
     if argument == name {
         return Some(Some(true));
@@ -403,13 +435,11 @@ fn pulumi_value_option(
         "--config",
         "--config-file",
         "--message",
-        "--parallel",
         "--remote-agent-pool-id",
         "--remote-env",
         "--stack",
         "-c",
         "-m",
-        "-p",
         "-s",
     ];
     if let Some(result) = value_option(arguments, index, GLOBAL) {
@@ -418,7 +448,8 @@ fn pulumi_value_option(
     if global_only {
         None
     } else {
-        value_option(arguments, index, DESTROY)
+        integer_value_option::<i32>(arguments, index, &["--parallel", "-p"])
+            .or_else(|| value_option(arguments, index, DESTROY))
     }
 }
 
@@ -464,6 +495,7 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
         "--suppress-outputs",
         "--suppress-progress",
         "--suppress-stream-logs",
+        "--urns",
         "--yes",
         "-d",
         "-f",
