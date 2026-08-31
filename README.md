@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-26 guards, 23 on by default, covering five classes of disaster: **execution
+28 guards, 24 on by default, covering five classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**, and
 **infrastructure teardown**.
 
@@ -62,6 +62,8 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**, and
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-remote-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
+| `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
+| `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's

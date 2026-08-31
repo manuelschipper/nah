@@ -21,6 +21,8 @@ Built-in:
 - [x] git-remote-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
+- [ ] infra-container-prune
+- [x] infra-container-reset
 - [ ] infra-iac-destroy
 - [x] secrets-env
 - [x] secrets-exfil

@@ -1,27 +1,39 @@
-//! Classifies fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction.
+//! Classifies fully visible infrastructure teardown and container cleanup commands.
 
 use nah_parse::Word;
+use nah_proto::action::SemanticCode;
 
 use crate::bash_model::VariableValue;
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
-    pub(crate) destroys_whole_stack: bool,
+    pub(crate) system_state: Option<SemanticCode>,
 }
 
 impl Classification {
     const fn complete(destroys_whole_stack: bool) -> Self {
         Self {
             complete: true,
-            destroys_whole_stack,
+            system_state: if destroys_whole_stack {
+                Some(SemanticCode::INFRA_IAC_DESTROY)
+            } else {
+                None
+            },
+        }
+    }
+
+    const fn system_state(operation: SemanticCode) -> Self {
+        Self {
+            complete: true,
+            system_state: Some(operation),
         }
     }
 
     const fn incomplete() -> Self {
         Self {
             complete: false,
-            destroys_whole_stack: false,
+            system_state: None,
         }
     }
 }
@@ -34,17 +46,474 @@ pub(crate) fn classify(
     path_overridden: bool,
     qualified_program: bool,
 ) -> Option<Classification> {
-    if matches!(program, "terraform" | "tofu" | "pulumi")
-        && !qualified_program
+    if matches!(
+        program,
+        "docker" | "podman" | "terraform" | "tofu" | "pulumi"
+    ) && !qualified_program
         && (path_overridden || assignments.iter().any(|(name, _)| name == "PATH"))
     {
         return Some(Classification::incomplete());
     }
     match program {
+        "docker" | "podman" => container(program, arguments),
         "terraform" | "tofu" => terraform(program, arguments, assignments, environment),
         "pulumi" => pulumi(arguments),
         _ => None,
     }
+}
+
+#[derive(Clone, Copy)]
+enum ContainerCommand {
+    Reset,
+    SystemPrune,
+    VolumePrune,
+}
+
+enum ContainerSubcommand {
+    Relevant(ContainerCommand, usize),
+    Other,
+    NonExecuting,
+    Incomplete,
+}
+
+fn container(program: &str, arguments: &[Word]) -> Option<Classification> {
+    let Some(arguments) = static_arguments(arguments) else {
+        return Some(Classification::incomplete());
+    };
+    match container_subcommand(program, &arguments) {
+        ContainerSubcommand::Relevant(command, index) => {
+            Some(container_operation(program, command, &arguments[index..]))
+        }
+        ContainerSubcommand::Other => None,
+        ContainerSubcommand::NonExecuting => Some(Classification::complete(false)),
+        ContainerSubcommand::Incomplete => Some(Classification::incomplete()),
+    }
+}
+
+fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcommand {
+    let mut index = 0;
+    let mut options = true;
+    let mut help = false;
+    let mut version = false;
+    while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if options {
+            if let Some(consumed) =
+                container_global_option(program, arguments, index, &mut help, &mut version)
+            {
+                let Ok(consumed) = consumed else {
+                    return ContainerSubcommand::Incomplete;
+                };
+                index += consumed;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return ContainerSubcommand::Incomplete;
+            }
+        }
+        if help || version || matches!(argument.as_str(), "help" | "version") {
+            return ContainerSubcommand::NonExecuting;
+        }
+        let group = argument.as_str();
+        if !matches!(group, "system" | "volume") {
+            return ContainerSubcommand::Other;
+        }
+        index += 1;
+        let mut group_options = true;
+        while let Some(argument) = arguments.get(index) {
+            if group_options && argument == "--" {
+                group_options = false;
+                index += 1;
+                continue;
+            }
+            if group_options {
+                if let Some(value) = boolean_option(argument, "--help") {
+                    let Some(value) = value else {
+                        return ContainerSubcommand::Incomplete;
+                    };
+                    help = value;
+                    index += 1;
+                    continue;
+                }
+                if let Some(value) = boolean_option(argument, "--version") {
+                    let Some(value) = value else {
+                        return ContainerSubcommand::Incomplete;
+                    };
+                    version = value;
+                    index += 1;
+                    continue;
+                }
+                if let Some(result) = container_group_short_option(argument) {
+                    let Ok(parsed) = result else {
+                        return ContainerSubcommand::Incomplete;
+                    };
+                    if let Some(value) = parsed.help {
+                        help = value;
+                    }
+                    if let Some(value) = parsed.version {
+                        version = value;
+                    }
+                    index += 1;
+                    continue;
+                }
+                if argument.starts_with('-') {
+                    return ContainerSubcommand::Incomplete;
+                }
+            }
+            if help || version || matches!(argument.as_str(), "help" | "version") {
+                return ContainerSubcommand::NonExecuting;
+            }
+            let command = match (program, group, argument.as_str()) {
+                ("podman", "system", "reset") => ContainerCommand::Reset,
+                ("docker" | "podman", "system", "prune") => ContainerCommand::SystemPrune,
+                ("docker" | "podman", "volume", "prune") => ContainerCommand::VolumePrune,
+                _ => return ContainerSubcommand::Other,
+            };
+            return ContainerSubcommand::Relevant(command, index + 1);
+        }
+        return ContainerSubcommand::Incomplete;
+    }
+    if help || version {
+        ContainerSubcommand::NonExecuting
+    } else {
+        ContainerSubcommand::Incomplete
+    }
+}
+
+fn container_global_option(
+    program: &str,
+    arguments: &[String],
+    index: usize,
+    help: &mut bool,
+    version: &mut bool,
+) -> Option<Result<usize, ()>> {
+    let argument = &arguments[index];
+    if let Some(value) = boolean_option(argument, "--help") {
+        return Some(value.ok_or(()).map(|value| {
+            *help = value;
+            1
+        }));
+    }
+    if let Some(value) = boolean_option(argument, "--version") {
+        return Some(value.ok_or(()).map(|value| {
+            *version = value;
+            1
+        }));
+    }
+    let value_options: &[&str] = if program == "docker" {
+        &[
+            "--config",
+            "--context",
+            "--host",
+            "--log-level",
+            "--tlscacert",
+            "--tlscert",
+            "--tlskey",
+        ]
+    } else {
+        &[
+            "--connection",
+            "--identity",
+            "--log-level",
+            "--ssh",
+            "--tls-ca",
+            "--tls-cert",
+            "--tls-details",
+            "--tls-key",
+            "--url",
+        ]
+    };
+    if let Some(result) = value_option(arguments, index, value_options) {
+        return Some(result);
+    }
+    let boolean_options: &[&str] = if program == "docker" {
+        &["--debug", "--tls", "--tlsverify"]
+    } else {
+        &["--remote"]
+    };
+    if let Some(value) = boolean_options
+        .iter()
+        .find_map(|name| boolean_option(argument, name))
+    {
+        return Some(value.map(|_| 1).ok_or(()));
+    }
+    container_global_short_option(program, arguments, index).map(|result| {
+        result.map(|parsed| {
+            if let Some(value) = parsed.help {
+                *help = value;
+            }
+            if let Some(value) = parsed.version {
+                *version = value;
+            }
+            parsed.consumed
+        })
+    })
+}
+
+struct ContainerShortOption {
+    consumed: usize,
+    help: Option<bool>,
+    version: Option<bool>,
+}
+
+fn container_global_short_option(
+    program: &str,
+    arguments: &[String],
+    index: usize,
+) -> Option<Result<ContainerShortOption, ()>> {
+    let argument = &arguments[index];
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.is_empty() {
+        return None;
+    }
+    let (boolean_flags, value_flags) = if program == "docker" {
+        ("Dhv", "cHl")
+    } else {
+        ("hrv", "c")
+    };
+    let mut help = None;
+    let mut version = None;
+    let mut options = cluster.char_indices().peekable();
+    while let Some((_, option)) = options.next() {
+        let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
+        let remainder = &cluster[value_start..];
+        if boolean_flags.contains(option) {
+            let value = if let Some(value) = remainder.strip_prefix('=') {
+                let Some(value) = parse_go_bool(value) else {
+                    return Some(Err(()));
+                };
+                options = "".char_indices().peekable();
+                value
+            } else {
+                true
+            };
+            match option {
+                'h' => help = Some(value),
+                'v' => version = Some(value),
+                _ => {}
+            }
+            continue;
+        }
+        if value_flags.contains(option) {
+            let attached = remainder.strip_prefix('=').unwrap_or(remainder);
+            let consumed = if attached.is_empty() {
+                if arguments.get(index + 1).is_none_or(String::is_empty) {
+                    return Some(Err(()));
+                }
+                2
+            } else {
+                1
+            };
+            return Some(Ok(ContainerShortOption {
+                consumed,
+                help,
+                version,
+            }));
+        }
+        return Some(Err(()));
+    }
+    Some(Ok(ContainerShortOption {
+        consumed: 1,
+        help,
+        version,
+    }))
+}
+
+fn container_group_short_option(argument: &str) -> Option<Result<ContainerShortOption, ()>> {
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.is_empty() {
+        return None;
+    }
+    let mut help = None;
+    let mut version = None;
+    let mut options = cluster.char_indices().peekable();
+    while let Some((_, option)) = options.next() {
+        if !matches!(option, 'h' | 'v') {
+            return Some(Err(()));
+        }
+        let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
+        let remainder = &cluster[value_start..];
+        let value = if let Some(value) = remainder.strip_prefix('=') {
+            let Some(value) = parse_go_bool(value) else {
+                return Some(Err(()));
+            };
+            options = "".char_indices().peekable();
+            value
+        } else {
+            true
+        };
+        if option == 'h' {
+            help = Some(value);
+        } else {
+            version = Some(value);
+        }
+    }
+    Some(Ok(ContainerShortOption {
+        consumed: 1,
+        help,
+        version,
+    }))
+}
+
+#[derive(Default)]
+struct ContainerOptions {
+    all: bool,
+    dry_run: bool,
+    external: bool,
+    filtered: bool,
+    help: bool,
+    version: bool,
+    volumes: bool,
+}
+
+fn container_operation(
+    program: &str,
+    command: ContainerCommand,
+    arguments: &[String],
+) -> Classification {
+    let mut parsed = ContainerOptions::default();
+    let mut index = 0;
+    let mut options = true;
+    while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if !options {
+            return Classification::complete(false);
+        }
+        if let Some(value) = boolean_option(argument, "--help") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            parsed.help = value;
+            index += 1;
+            continue;
+        }
+        if let Some(value) = boolean_option(argument, "--version") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            parsed.version = value;
+            index += 1;
+            continue;
+        }
+        if let Some(consumed) = value_option(arguments, index, &["--filter"]) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            if matches!(command, ContainerCommand::Reset) {
+                return Classification::incomplete();
+            }
+            parsed.filtered = true;
+            index += consumed;
+            continue;
+        }
+        let allowed_long: &[&str] = match (program, command) {
+            ("docker", ContainerCommand::VolumePrune) => &["--all", "--force"],
+            ("docker", ContainerCommand::SystemPrune) => &["--all", "--force", "--volumes"],
+            ("podman", ContainerCommand::Reset) => &["--force"],
+            ("podman", ContainerCommand::VolumePrune) => &["--all", "--dry-run", "--force"],
+            ("podman", ContainerCommand::SystemPrune) => &[
+                "--all",
+                "--build",
+                "--dry-run",
+                "--external",
+                "--force",
+                "--volumes",
+            ],
+            _ => return Classification::incomplete(),
+        };
+        if let Some((name, value)) = allowed_long
+            .iter()
+            .find_map(|name| boolean_option(argument, name).map(|value| (*name, value)))
+        {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            match name {
+                "--all" => parsed.all = value,
+                "--dry-run" => parsed.dry_run = value,
+                "--external" => parsed.external = value,
+                "--volumes" => parsed.volumes = value,
+                _ => {}
+            }
+            index += 1;
+            continue;
+        }
+        if let Some(result) = container_command_short_options(argument, command) {
+            let Ok(updates) = result else {
+                return Classification::incomplete();
+            };
+            for (option, value) in updates {
+                match option {
+                    'a' => parsed.all = value,
+                    'h' => parsed.help = value,
+                    'v' => parsed.version = value,
+                    _ => {}
+                }
+            }
+            index += 1;
+            continue;
+        }
+        return Classification::incomplete();
+    }
+    if parsed.help || parsed.version || parsed.filtered || parsed.dry_run || parsed.external {
+        return Classification::complete(false);
+    }
+    match command {
+        ContainerCommand::Reset => {
+            Classification::system_state(SemanticCode::INFRA_CONTAINER_RESET)
+        }
+        ContainerCommand::VolumePrune if parsed.all => {
+            Classification::system_state(SemanticCode::INFRA_CONTAINER_PRUNE)
+        }
+        ContainerCommand::SystemPrune if parsed.volumes => {
+            Classification::system_state(SemanticCode::INFRA_CONTAINER_PRUNE)
+        }
+        ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => {
+            Classification::complete(false)
+        }
+    }
+}
+
+fn container_command_short_options(
+    argument: &str,
+    command: ContainerCommand,
+) -> Option<Result<Vec<(char, bool)>, ()>> {
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.is_empty() {
+        return None;
+    }
+    let allowed = match command {
+        ContainerCommand::Reset => "fhv",
+        ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => "afhv",
+    };
+    let mut updates = Vec::new();
+    let mut options = cluster.char_indices().peekable();
+    while let Some((_, option)) = options.next() {
+        if !allowed.contains(option) {
+            return Some(Err(()));
+        }
+        let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
+        let remainder = &cluster[value_start..];
+        let value = if let Some(value) = remainder.strip_prefix('=') {
+            let Some(value) = parse_go_bool(value) else {
+                return Some(Err(()));
+            };
+            options = "".char_indices().peekable();
+            value
+        } else {
+            true
+        };
+        updates.push((option, value));
+    }
+    Some(Ok(updates))
 }
 
 fn terraform(

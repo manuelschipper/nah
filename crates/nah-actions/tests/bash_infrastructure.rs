@@ -10,13 +10,25 @@ fn stream(source: &str) -> ActionStream {
 }
 
 fn destroys_whole_stack(source: &str) -> bool {
+    has_system_state(source, &SemanticCode::INFRA_IAC_DESTROY)
+}
+
+fn has_system_state(source: &str, expected: &SemanticCode) -> bool {
     stream(source).effects().iter().any(|effect| {
         matches!(
             effect.kind(),
             EffectKind::SystemState { operation }
-                if operation == &SemanticCode::INFRA_IAC_DESTROY
+                if operation == expected
         )
     })
+}
+
+fn resets_container_runtime(source: &str) -> bool {
+    has_system_state(source, &SemanticCode::INFRA_CONTAINER_RESET)
+}
+
+fn prunes_container_volumes(source: &str) -> bool {
+    has_system_state(source, &SemanticCode::INFRA_CONTAINER_PRUNE)
 }
 
 #[test]
@@ -314,5 +326,127 @@ fn adjacent_infrastructure_tools_and_subcommands_do_not_gain_destroy_evidence() 
         "pulumi stack rm dev --yes",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
+    }
+}
+
+#[test]
+fn podman_system_reset_is_recognized_independently_of_confirmation() {
+    for source in [
+        "podman system reset",
+        "podman system reset --force",
+        "podman system reset --force=false",
+        "podman system reset -f=false",
+        "printf 'y\\n' | podman system reset",
+        "sudo podman system reset -f",
+        "timeout 5 podman system reset",
+        "env podman system reset",
+        "command podman system reset",
+        "/bin/podman system reset",
+        "/sbin/podman system reset -f",
+        "/usr/bin/podman system reset",
+        "/usr/sbin/podman system reset",
+        "PATH=/tmp /usr/bin/podman system reset",
+    ] {
+        assert!(resets_container_runtime(source), "{source}");
+    }
+}
+
+#[test]
+fn container_prune_recognizes_only_the_four_broad_volume_forms() {
+    for source in [
+        "docker volume prune --all",
+        "docker volume prune -af",
+        "docker volume prune -af=false",
+        "docker system prune --volumes",
+        "docker system prune --all --volumes --force=false",
+        "podman volume prune --all",
+        "podman volume prune -fa",
+        "podman system prune --volumes",
+        "podman system prune --all --build --volumes -f",
+        "printf 'y\\n' | docker volume prune --all",
+        "sudo podman system prune --volumes",
+        "timeout 5 docker system prune --volumes",
+        "/bin/docker volume prune --all",
+        "/usr/bin/podman system prune --volumes",
+    ] {
+        assert!(prunes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn container_connection_options_and_terminators_preserve_classification() {
+    for source in [
+        "docker --context production volume prune --all",
+        "docker -cproduction system prune --volumes",
+        "docker -DH=tcp://daemon.example:2376 volume prune -a",
+        "docker --host ssh://operator@daemon.example system prune --volumes",
+        "docker --tlsverify=false --config=/tmp/docker volume prune --all",
+        "podman --connection production system reset",
+        "podman -cproduction volume prune --all",
+        "podman --url=ssh://operator@host/run/podman.sock system prune --volumes",
+        "podman --identity=/tmp/key --remote system reset",
+        "podman -rcproduction system reset",
+        "podman -- system -- reset --force",
+        "docker -- volume -- prune --all --",
+    ] {
+        assert!(
+            resets_container_runtime(source) || prunes_container_volumes(source),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn narrow_filtered_dry_run_dynamic_and_arbitrary_container_forms_stay_outside() {
+    for source in [
+        "docker volume prune",
+        "docker volume prune --all=false",
+        "docker volume prune -fa=false",
+        "docker system prune",
+        "docker system prune --volumes=false",
+        "docker volume prune --all --filter label=temporary",
+        "docker system prune --volumes --filter=until=24h",
+        "podman volume prune",
+        "podman volume prune --all --dry-run",
+        "podman system prune --volumes --dry-run",
+        "podman system prune --volumes --external",
+        "podman volume prune --all --filter all=true",
+        "podman system reset --help",
+        "podman --version system reset",
+        "podman --root /tmp system reset",
+        "docker --context volume prune --all",
+        "docker volume prune --all extra",
+        "docker volume prune \"$SCOPE\"",
+        "podman \"$GROUP\" reset",
+        "/usr/local/bin/docker volume prune --all",
+        "/opt/bin/podman system reset",
+        "PATH=/tmp docker volume prune --all",
+        "env PATH=/tmp podman system reset",
+    ] {
+        assert!(!resets_container_runtime(source), "{source}");
+        assert!(!prunes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn adjacent_container_cleanup_and_control_planes_stay_outside() {
+    for source in [
+        "docker volume rm named-volume",
+        "docker container rm -v app",
+        "docker compose down -v",
+        "docker image prune --all",
+        "docker builder prune --all",
+        "docker network prune",
+        "podman volume rm --all",
+        "podman container rm -v app",
+        "podman compose down -v",
+        "podman image prune --all",
+        "podman machine reset --force",
+        "podman kube down workload.yaml",
+        "kubectl delete namespace production",
+        "skopeo delete docker://registry.example/image:tag",
+    ] {
+        assert!(!resets_container_runtime(source), "{source}");
+        assert!(!prunes_container_volumes(source), "{source}");
     }
 }

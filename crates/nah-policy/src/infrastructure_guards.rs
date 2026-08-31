@@ -1,4 +1,4 @@
-//! Evaluates infrastructure guards from typed whole-stack effects.
+//! Evaluates infrastructure guards from typed system-state effects.
 
 use nah_proto::action::{ActionStream, EffectKind, SemanticCode};
 use nah_proto::ctx::PolicyCtx;
@@ -9,25 +9,41 @@ pub(crate) fn add(
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
-    const NAME: &str = "infra-iac-destroy";
-    if !policy_ctx
-        .enabled_shipped_guards()
-        .iter()
-        .any(|enabled| enabled == NAME)
-        || !action_stream.effects().iter().any(|effect| {
-            matches!(
-                effect.kind(),
-                EffectKind::SystemState { operation }
-                    if operation == &SemanticCode::INFRA_IAC_DESTROY
-            )
-        })
-    {
-        return Ok(false);
+    let mut added = false;
+    for (name, operation, message) in [
+        (
+            "infra-container-prune",
+            SemanticCode::INFRA_CONTAINER_PRUNE,
+            "infra-container-prune blocked broad unused-volume cleanup; narrow the cleanup or ask the operator to perform the reviewed prune",
+        ),
+        (
+            "infra-container-reset",
+            SemanticCode::INFRA_CONTAINER_RESET,
+            "infra-container-reset blocked a complete Podman runtime reset; keep the runtime state intact and ask the operator to perform any deliberate reset",
+        ),
+        (
+            "infra-iac-destroy",
+            SemanticCode::INFRA_IAC_DESTROY,
+            "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
+        ),
+    ] {
+        if !policy_ctx
+            .enabled_shipped_guards()
+            .iter()
+            .any(|enabled| enabled == name)
+            || !action_stream.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::SystemState { operation: candidate }
+                        if candidate == &operation
+                )
+            })
+        {
+            continue;
+        }
+        let guard = GuardAttribution::shipped(name)?;
+        contributions.push(GuardContribution::new(guard, message)?);
+        added = true;
     }
-    let guard = GuardAttribution::shipped(NAME)?;
-    contributions.push(GuardContribution::new(
-        guard,
-        "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
-    )?);
-    Ok(true)
+    Ok(added)
 }

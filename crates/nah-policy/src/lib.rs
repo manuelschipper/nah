@@ -54,6 +54,8 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-remote-delete",
     "git-rewrite-force",
     "git-worktree-discard",
+    "infra-container-prune",
+    "infra-container-reset",
     "infra-iac-destroy",
     "secrets-env",
     "secrets-exfil",

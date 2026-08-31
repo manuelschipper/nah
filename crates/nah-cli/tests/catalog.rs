@@ -357,6 +357,83 @@ fn infrastructure_destroy_is_factory_off_and_independently_configurable() {
 }
 
 #[test]
+fn container_reset_and_prune_keep_independent_factory_postures() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for command in ["podman system reset", "podman system reset --force"] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "infra-container-reset",
+            "{command}"
+        );
+    }
+    for command in [
+        "docker volume prune --all",
+        "docker system prune --volumes",
+        "podman volume prune --all",
+        "podman system prune --volumes",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "infra-container-prune"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    for command in [
+        "docker volume prune --all --force",
+        "docker system prune --volumes --force=false",
+        "podman volume prune --all -f",
+        "podman system prune --volumes",
+    ] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "infra-container-prune",
+            "{command}"
+        );
+    }
+    for command in [
+        "docker volume prune",
+        "docker system prune",
+        "podman volume prune --all --dry-run",
+        "podman system prune --volumes --filter label=temporary",
+        "podman machine reset --force",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "infra-container-reset"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, "podman system reset")["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "docker volume prune --all")["policy_attributions"][0]["name"],
+        "infra-container-prune"
+    );
+}
+
+#[test]
 fn project_can_enable_the_factory_off_infrastructure_guard() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Podman runtime reset guard** — New default-on `infra-container-reset`
+  blocks static `podman system reset` with or without force or a selected remote
+  connection because the command removes the complete runtime state.
+- **Optional broad container prune guard** — New default-off
+  `infra-container-prune` blocks reviewed unfiltered Docker and Podman prune
+  forms that select unused volumes broadly while narrow, filtered, dry-run,
+  and named-resource cleanup continues to delegate.
 - **Factory-default rule documented** — `nah docs configuration` now states
   why a built-in ships on or off: the command line's certainty decides, not
   the size of the possible damage.
