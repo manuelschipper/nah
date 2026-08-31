@@ -85,6 +85,12 @@ fn terraform(
         command_arguments.append(&mut words);
     }
     command_arguments.extend_from_slice(&arguments[command_index + 1..]);
+    if command_arguments
+        .iter()
+        .any(|argument| terraform_version(argument))
+    {
+        return Some(Classification::complete(false));
+    }
     Some(terraform_destroy(program, subcommand, &command_arguments))
 }
 
@@ -134,16 +140,8 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
         "-target",
         "-target-file",
     ];
-    const VALUE_OPTIONS: &[&str] = &["-backup", "-state", "-state-out", "-var", "-var-file"];
-    const BOOLEAN_OPTIONS: &[&str] = &[
-        "-auto-approve",
-        "-compact-warnings",
-        "-input",
-        "-json",
-        "-lock",
-        "-no-color",
-        "-refresh",
-    ];
+    const VALUE_OPTIONS: &[&str] = &["-backup", "-state", "-state-out", "-var-file"];
+    const BOOLEAN_OPTIONS: &[&str] = &["-auto-approve", "-input", "-json", "-lock", "-refresh"];
 
     let mut index = 0;
     let mut destroy = subcommand == "destroy";
@@ -168,13 +166,12 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             };
         }
         if let Some(value) = boolean_option(argument, "-destroy") {
-            if subcommand != "apply" {
-                return Classification::incomplete();
-            }
             let Some(value) = value else {
                 return Classification::incomplete();
             };
-            destroy = value;
+            if subcommand == "apply" {
+                destroy = value;
+            }
             index += 1;
             continue;
         }
@@ -196,7 +193,11 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             index += 1;
             continue;
         }
-        if let Some(consumed) = integer_value_option::<i64>(arguments, index, &["-parallelism"]) {
+        if matches!(argument.as_str(), "-compact-warnings" | "-no-color") {
+            index += 1;
+            continue;
+        }
+        if let Some(consumed) = go_integer_value_option(arguments, index, &["-parallelism"]) {
             let Ok((consumed, parallelism)) = consumed else {
                 return Classification::incomplete();
             };
@@ -219,6 +220,14 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             let Ok(consumed) = consumed else {
                 return Classification::incomplete();
             };
+            let value = if consumed == 2 {
+                &arguments[index + 1]
+            } else {
+                argument.split_once('=').expect("joined option").1
+            };
+            if !value.starts_with("module:") {
+                return Classification::incomplete();
+            }
             index += consumed;
             continue;
         }
@@ -240,6 +249,21 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
                 return Classification::incomplete();
             }
             index += 1;
+            continue;
+        }
+        if let Some(consumed) = value_option(arguments, index, &["-var"]) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            let value = if consumed == 2 {
+                &arguments[index + 1]
+            } else {
+                argument.split_once('=').expect("joined option").1
+            };
+            if !value.contains('=') {
+                return Classification::incomplete();
+            }
+            index += consumed;
             continue;
         }
         if let Some(consumed) = value_option(arguments, index, VALUE_OPTIONS) {
@@ -528,11 +552,11 @@ fn value_option(arguments: &[String], index: usize, names: &[&str]) -> Option<Re
     )
 }
 
-fn integer_value_option<T: std::str::FromStr>(
+fn go_integer_value_option(
     arguments: &[String],
     index: usize,
     names: &[&str],
-) -> Option<Result<(usize, T), ()>> {
+) -> Option<Result<(usize, i64), ()>> {
     let consumed = match value_option(arguments, index, names)? {
         Ok(consumed) => consumed,
         Err(()) => return Some(Err(())),
@@ -542,12 +566,7 @@ fn integer_value_option<T: std::str::FromStr>(
     } else {
         arguments[index].split_once('=').expect("joined option").1
     };
-    Some(
-        value
-            .parse::<T>()
-            .map(|value| (consumed, value))
-            .map_err(|_| ()),
-    )
+    Some(parse_go_i64(value).ok_or(()).map(|value| (consumed, value)))
 }
 
 fn duration_value_option(
@@ -697,6 +716,10 @@ fn pulumi_value_option(
 }
 
 fn parse_pulumi_i32(value: &str) -> Option<i32> {
+    i32::try_from(parse_go_i64(value)?).ok()
+}
+
+fn parse_go_i64(value: &str) -> Option<i64> {
     if !valid_go_integer_underscores(value) {
         return None;
     }
@@ -733,8 +756,7 @@ fn parse_pulumi_i32(value: &str) -> Option<i32> {
     }
     let digits = digits.replace('_', "");
     let magnitude = i64::from_str_radix(&digits, radix).ok()?;
-    let signed = if negative { -magnitude } else { magnitude };
-    i32::try_from(signed).ok()
+    Some(if negative { -magnitude } else { magnitude })
 }
 
 fn valid_go_integer_underscores(value: &str) -> bool {
@@ -927,14 +949,17 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
     let mut words = Vec::new();
     let mut word = String::new();
     let mut started = false;
+    let mut redirection_fd = false;
     for character in value.chars() {
         if escaped {
             word.push(character);
             started = true;
+            redirection_fd = false;
             escaped = false;
             continue;
         }
         if character == '\\' {
+            redirection_fd = false;
             if single_quoted {
                 word.push(character);
                 started = true;
@@ -950,6 +975,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             } else if started {
                 words.push(std::mem::take(&mut word));
                 started = false;
+                redirection_fd = false;
             }
             continue;
         }
@@ -958,6 +984,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 back_quoted = !back_quoted;
                 word.push(character);
                 started = true;
+                redirection_fd = false;
             }
             '(' if !single_quoted && !double_quoted && !back_quoted => {
                 if dollar_quoted || !word.ends_with('$') {
@@ -966,6 +993,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 dollar_quoted = true;
                 word.push(character);
                 started = true;
+                redirection_fd = false;
             }
             ')' if !single_quoted && !double_quoted && !back_quoted => {
                 if !dollar_quoted {
@@ -974,21 +1002,33 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                 dollar_quoted = false;
                 word.push(character);
                 started = true;
+                redirection_fd = false;
             }
             '"' if !single_quoted && !dollar_quoted => {
                 double_quoted = !double_quoted;
                 started = true;
+                redirection_fd = false;
             }
             '\'' if !double_quoted && !dollar_quoted => {
                 single_quoted = !single_quoted;
                 started = true;
+                redirection_fd = false;
             }
             ';' | '&' | '|' | '<' | '>'
                 if !single_quoted && !double_quoted && !back_quoted && !dollar_quoted =>
             {
+                if matches!(character, '<' | '>') && redirection_fd {
+                    word.clear();
+                    started = false;
+                }
                 break;
             }
             _ => {
+                redirection_fd = if started {
+                    redirection_fd && character.is_ascii_digit()
+                } else {
+                    character.is_ascii_digit()
+                };
                 word.push(character);
                 started = true;
             }
@@ -1024,6 +1064,11 @@ mod tests {
         assert_eq!(
             terraform_cli_words("-backup `foo bar`"),
             Some(vec!["-backup".into(), "`foo bar`".into()])
+        );
+        assert_eq!(terraform_cli_words("2>/tmp/log"), Some(Vec::new()));
+        assert_eq!(
+            terraform_cli_words("\"2\">/tmp/log"),
+            Some(vec!["2".into()])
         );
         assert_eq!(terraform_cli_words("-var foo(bar)"), None);
     }
