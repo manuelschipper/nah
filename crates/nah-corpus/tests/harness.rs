@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1521);
+    assert_eq!(summary.cases, 1548);
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 251),
             ("git.jsonl".to_owned(), 251),
-            ("infrastructure.jsonl".to_owned(), 135),
+            ("infrastructure.jsonl".to_owned(), 162),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
@@ -198,6 +198,19 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-iac-destroy.pulumi-factory-delegates",
         "infra-iac-destroy.pulumi-target-delegates",
         "infra-iac-destroy.pulumi-preview-only-delegates",
+        "infra-container-reset.podman-system-reset",
+        "infra-container-reset.factory-default",
+        "infra-container-reset.remote-connection",
+        "infra-container-reset.operation-version-delegates",
+        "infra-container-reset.root-terminator-delegates",
+        "infra-container-prune.docker-volume-all",
+        "infra-container-prune.factory-delegates",
+        "infra-container-prune.podman-system-volumes",
+        "infra-container-prune.operation-version-delegates",
+        "infra-container-prune.group-terminator-delegates",
+        "infra-container-prune.filter-delegates",
+        "infra-container-prune.dry-run-delegates",
+        "infra-container-prune.named-volume-control",
         "shell-resolution.ansi-c-program-threat",
         "shell-resolution.backslash-option-threat",
         "shell-resolution.parameter-default-root",

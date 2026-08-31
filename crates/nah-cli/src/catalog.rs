@@ -119,7 +119,10 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
             family: family(name),
             default_enabled: !matches!(
                 *name,
-                "fs-shell-profile" | "fs-startup-management" | "infra-iac-destroy"
+                "fs-shell-profile"
+                    | "fs-startup-management"
+                    | "infra-container-prune"
+                    | "infra-iac-destroy"
             ),
             behavior: behavior(name),
             examples: examples(name),
@@ -150,7 +153,9 @@ fn family(name: &str) -> GuardFamily {
         | "git-remote-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
-        "infra-iac-destroy" => GuardFamily::Infrastructure,
+        "infra-container-prune" | "infra-container-reset" | "infra-iac-destroy" => {
+            GuardFamily::Infrastructure
+        }
         "secrets-env" | "secrets-exfil" | "secrets-keys" => GuardFamily::Secrets,
         _ => unreachable!("every shipped guard has a family"),
     }
@@ -201,6 +206,12 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-worktree-discard" => {
             "Blocks project-wide checkout or restore and proven forced branch changes."
+        }
+        "infra-container-prune" => {
+            "Blocks broad unused-volume cleanup through reviewed Docker and Podman prune commands."
+        }
+        "infra-container-reset" => {
+            "Blocks Podman commands that reset the complete local or selected runtime state."
         }
         "infra-iac-destroy" => {
             "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction."
@@ -322,6 +333,16 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git switch --discard-changes main",
             "git restore .",
         ],
+        "infra-container-prune" => [
+            "docker volume prune --all",
+            "docker system prune --volumes",
+            "podman system prune --volumes",
+        ],
+        "infra-container-reset" => [
+            "podman system reset",
+            "podman system reset --force",
+            "podman --connection production system reset",
+        ],
         "infra-iac-destroy" => [
             "terraform destroy",
             "tofu apply -destroy -auto-approve",
@@ -393,9 +414,21 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "infra-container-prune")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "infra-container-reset")
+                .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "infra-iac-destroy")
                 .is_some_and(|state| !state.enabled())
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 3);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 4);
     }
 }

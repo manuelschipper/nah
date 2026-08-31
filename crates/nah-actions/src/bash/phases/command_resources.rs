@@ -295,8 +295,8 @@ impl Lowerer {
         }
         if let Some(infrastructure) = infrastructure {
             self.complete &= infrastructure.complete;
-            if infrastructure.destroys_whole_stack {
-                system_states.push(SemanticCode::INFRA_IAC_DESTROY);
+            if let Some(operation) = &infrastructure.system_state {
+                system_states.push(operation.clone());
             }
         }
         let (filesystem_endpoints, filesystem_flows) =

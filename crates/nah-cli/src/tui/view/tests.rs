@@ -343,34 +343,58 @@ fn remote_repository_delete_guard_renders_in_git_policy() {
 }
 
 #[test]
-fn infrastructure_guard_uses_type_state_and_project_views() {
+fn infrastructure_guards_use_type_state_and_project_views() {
     let mut app = App::fixture();
-    app.guards.push(built_in_entry(
-        "infra-iac-destroy",
-        GuardFamily::Infrastructure,
-        false,
-        GuardStatus::Disabled,
-        None,
-    ));
+    app.guards.extend([
+        built_in_entry(
+            "infra-container-prune",
+            GuardFamily::Infrastructure,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+        built_in_entry(
+            "infra-container-reset",
+            GuardFamily::Infrastructure,
+            true,
+            GuardStatus::Enabled,
+            None,
+        ),
+        built_in_entry(
+            "infra-iac-destroy",
+            GuardFamily::Infrastructure,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+    ]);
 
     let typed = rendered(&app, 120, 30);
     let infrastructure = typed.find("INFRASTRUCTURE").unwrap();
-    let guard = typed.find("[ ] infra-iac-destroy").unwrap();
+    let prune = typed.find("[ ] infra-container-prune").unwrap();
+    let reset = typed.find("[x] infra-container-reset").unwrap();
+    let iac = typed.find("[ ] infra-iac-destroy").unwrap();
     let secrets = typed.find("SECRETS").unwrap();
-    assert!(infrastructure < guard);
-    assert!(guard < secrets);
+    assert!(infrastructure < prune);
+    assert!(prune < reset);
+    assert!(reset < iac);
+    assert!(iac < secrets);
     assert_eq!(typed.matches("INFRASTRUCTURE").count(), 1);
 
     app.guard_view = GuardView::State;
     let state = rendered(&app, 120, 30);
+    let on = state.find("ON").unwrap();
+    let reset = state.find("[x] infra-container-reset").unwrap();
     let off = state.find("OFF").unwrap();
-    let guard = state.find("[ ] infra-iac-destroy").unwrap();
-    assert!(off < guard);
+    let prune = state.find("[ ] infra-container-prune").unwrap();
+    assert!(on < reset);
+    assert!(reset < off);
+    assert!(off < prune);
 
     app.guard_view = GuardView::Project;
-    assert!(!rendered(&app, 120, 30).contains("infra-iac-destroy"));
-    app.project_declared_guards = vec!["infra-iac-destroy".into()];
-    assert!(rendered(&app, 120, 30).contains("[ ] infra-iac-destroy"));
+    assert!(!rendered(&app, 120, 30).contains("infra-container-prune"));
+    app.project_declared_guards = vec!["infra-container-prune".into()];
+    assert!(rendered(&app, 120, 30).contains("[ ] infra-container-prune"));
 }
 
 #[test]

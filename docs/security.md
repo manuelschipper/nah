@@ -26,8 +26,10 @@ guard findings and understood protected-state changes outside maintenance.
   service/schedule/login/autostart/loader paths, static `systemctl` unit files,
   `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations.
   Shell-profile/startup-management default off.
-- Default-off `infra-iac-destroy` covers static Terraform/OpenTofu/Pulumi
-  whole-stack destruction.
+- `infra-container-reset` (on) blocks Podman full reset;
+  `infra-container-prune` (off), broad volume prune; `infra-iac-destroy` (off),
+  whole-stack IaC. Narrow/dry-run container and targeted/saved/ambient/other
+  IaC delegates.
 
 ## Not enforced
 
@@ -40,9 +42,6 @@ guard findings and understood protected-state changes outside maintenance.
 - Custom guards are trusted executables; nah does not sandbox them.
 - Other remote deletion tools/routes, unresolved targets, branches, tags,
   archives, renames, and transfers.
-- IaC gaps: targeted/excluded resources, saved plans, ambient `TF_CLI_ARGS*`,
-  Terragrunt/CloudFormation/CDK/CDKTF/provider CLIs.
-
 Unknown or opaque input delegates. Fail-closed uses native denial for malformed
 or no-decision input, but requires loaded nah to respond; missing hooks/binaries,
 runtime failure or bypass, and broken pipes remain outside.
