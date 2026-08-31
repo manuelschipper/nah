@@ -192,6 +192,18 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let registry = match &program {
+            ProgramDraft::Static(program) => crate::bash_registry::classify(
+                program,
+                &local_arguments,
+                assignments,
+                self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                }),
+                direct_program.is_some(),
+            ),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         if let Some(execution) = &classifications.execution {
             network_endpoints.extend(execution.network_endpoints.iter().cloned());
             descriptor_flows.extend(
@@ -310,6 +322,7 @@ impl Lowerer {
             stage,
             &classifications,
             infrastructure.as_ref(),
+            registry.as_ref(),
             git_environment_override,
             remote_repository_delete,
             filesystem_drafts,
@@ -393,6 +406,7 @@ impl Lowerer {
             || !git_operations.is_empty()
             || execution.is_some()
             || infrastructure.is_some()
+            || registry.is_some()
             || !matches!(&producer.stdout, StdoutDraft::Unknown)
             || !filesystem_drafts.is_empty()
             || !system_states.is_empty()

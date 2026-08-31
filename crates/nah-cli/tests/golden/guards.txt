@@ -24,6 +24,8 @@ Built-in:
 - [ ] infra-container-prune
 - [x] infra-container-reset
 - [ ] infra-iac-destroy
+- [ ] registry-publish
+- [x] registry-unpublish
 - [x] secrets-env
 - [x] secrets-exfil
 - [x] secrets-keys

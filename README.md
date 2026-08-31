@@ -31,9 +31,9 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-28 guards, 24 on by default, covering five classes of disaster: **execution
-hijacks**, **secret theft**, **filesystem destruction**, **git disasters**, and
-**infrastructure teardown**.
+30 guards, 25 on by default, covering six classes of disaster: **execution
+hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
+**infrastructure teardown**, and **package-registry operations**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -65,6 +65,8 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**, and
 | `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
+| `registry-publish` | Reviewed package publication commands. Off by default. |
+| `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.

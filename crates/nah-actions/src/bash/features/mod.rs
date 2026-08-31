@@ -21,6 +21,7 @@ pub(crate) mod lookup;
 pub(crate) mod model;
 pub(crate) mod network;
 pub(crate) mod project;
+pub(crate) mod registry;
 pub(crate) mod remote_source_control;
 pub(crate) mod rsync_options;
 pub(crate) mod self_protection;

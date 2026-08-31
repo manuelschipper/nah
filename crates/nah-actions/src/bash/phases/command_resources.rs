@@ -14,6 +14,7 @@ use crate::bash_git::{command_operation as git_command_operation, metadata_mutat
 use crate::bash_infrastructure::Classification as InfrastructureClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
 use crate::bash_model::{FilesystemDraft, ProgramDraft};
+use crate::bash_registry::Classification as RegistryClassification;
 use crate::bash_startup_persistence::operation as startup_management_operation;
 use crate::bash_state::known_cwd;
 use crate::bash_symlinks::{
@@ -44,6 +45,7 @@ impl Lowerer {
         stage: usize,
         classifications: &CommandClassifications,
         infrastructure: Option<&InfrastructureClassification>,
+        registry: Option<&RegistryClassification>,
         git_environment_override: bool,
         remote_repository_delete: bool,
         mut filesystem_drafts: Vec<FilesystemDraft>,
@@ -296,6 +298,12 @@ impl Lowerer {
         if let Some(infrastructure) = infrastructure {
             self.complete &= infrastructure.complete;
             if let Some(operation) = &infrastructure.system_state {
+                system_states.push(operation.clone());
+            }
+        }
+        if let Some(registry) = registry {
+            self.complete &= registry.complete;
+            if let Some(operation) = &registry.system_state {
                 system_states.push(operation.clone());
             }
         }

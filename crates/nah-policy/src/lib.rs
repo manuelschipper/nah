@@ -21,6 +21,7 @@ mod execution_guards;
 mod filesystem_guards;
 mod git_guards;
 mod infrastructure_guards;
+mod registry_guards;
 mod secret_guards;
 mod structural;
 
@@ -57,6 +58,8 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "infra-container-prune",
     "infra-container-reset",
     "infra-iac-destroy",
+    "registry-publish",
+    "registry-unpublish",
     "secrets-env",
     "secrets-exfil",
     "secrets-keys",
@@ -143,6 +146,8 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     let git_block = git_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let infrastructure_block =
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let registry_block =
+        registry_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let execution_block = execution_guards::add(
         language_safety_stream,
@@ -150,8 +155,12 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         policy_ctx,
         &mut contributions,
     )?;
-    let shipped_block =
-        filesystem_block || git_block || infrastructure_block || secret_block || execution_block;
+    let shipped_block = filesystem_block
+        || git_block
+        || infrastructure_block
+        || registry_block
+        || secret_block
+        || execution_block;
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 
     add_extension_guards(responses, &mut contributions)?;

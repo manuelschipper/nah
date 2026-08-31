@@ -398,6 +398,65 @@ fn infrastructure_guards_use_type_state_and_project_views() {
 }
 
 #[test]
+fn registry_guards_use_type_state_and_project_views() {
+    let mut app = App::fixture();
+    app.guards.extend([
+        built_in_entry(
+            "infra-iac-destroy",
+            GuardFamily::Infrastructure,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+        built_in_entry(
+            "registry-publish",
+            GuardFamily::Registry,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+        built_in_entry(
+            "registry-unpublish",
+            GuardFamily::Registry,
+            true,
+            GuardStatus::Enabled,
+            None,
+        ),
+    ]);
+
+    let typed = rendered(&app, 120, 40);
+    let infrastructure = typed.find("INFRASTRUCTURE").unwrap();
+    let registry = typed.find("REGISTRY").unwrap();
+    let publish = typed.find("[ ] registry-publish").unwrap();
+    let unpublish = typed.find("[x] registry-unpublish").unwrap();
+    let secrets = typed.find("SECRETS").unwrap();
+    assert!(infrastructure < registry);
+    assert!(registry < publish);
+    assert!(publish < unpublish);
+    assert!(unpublish < secrets);
+    assert_eq!(typed.matches("REGISTRY").count(), 1);
+
+    app.guard_view = GuardView::State;
+    let state = rendered(&app, 120, 30);
+    let on = state.find("ON").unwrap();
+    let unpublish = state.find("[x] registry-unpublish").unwrap();
+    let off = state.find("OFF").unwrap();
+    let publish = state.find("[ ] registry-publish").unwrap();
+    assert!(on < unpublish);
+    assert!(unpublish < off);
+    assert!(off < publish);
+
+    app.guard_view = GuardView::Project;
+    let project = rendered(&app, 120, 30);
+    assert!(!project.contains("registry-publish"));
+    assert!(!project.contains("registry-unpublish"));
+    app.project_declared_guards = vec!["registry-publish".into()];
+    let project = rendered(&app, 120, 30);
+    assert!(project.contains("[ ] registry-publish"));
+    assert!(!project.contains("registry-unpublish"));
+}
+
+#[test]
 fn state_view_groups_guards_by_applied_status() {
     let mut app = App::fixture();
     app.guard_view = GuardView::State;
