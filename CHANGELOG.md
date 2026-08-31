@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Factory-default rule documented** — `nah docs configuration` now states
+  why a built-in ships on or off: the command line's certainty decides, not
+  the size of the possible damage.
 - **Windows release and installer** — Releases now include a checksummed,
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
   that preserves expandable user PATH entries and replaces upgrades safely.

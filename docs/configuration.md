@@ -24,9 +24,12 @@ invocation through agent tool calls.
 
 ## Built-in guards
 
-Every built-in has its own factory default. `fs-shell-profile` and
-`fs-startup-management` ship off because routine tooling uses the files and
-commands they cover. All other current built-ins ship on. `nah guards` shows
+Every built-in has its own factory default, set by what the command line
+proves: on when the operation is irreversible or destroys an identity or
+recovery path and has no routine use; off, for opt-in, when it is also an
+everyday workflow that looks the same. `fs-shell-profile` and
+`fs-startup-management` ship off for that reason. All other current built-ins
+ship on. `nah guards` shows
 each live checkbox and guard name. The documentation view also shows factory
 status plus three examples:
 
