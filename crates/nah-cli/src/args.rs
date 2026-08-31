@@ -171,9 +171,6 @@ pub(crate) struct DaemonRunArgs {
 
     #[arg(long, default_value_t = 5_000)]
     pub(crate) max_files: u64,
-
-    #[arg(long)]
-    pub(crate) include_main_files: bool,
 }
 
 // UNDOCUMENTED-EFFINTERP: child-only build invocation settings.
@@ -184,9 +181,6 @@ pub(crate) struct DaemonBuildArgs {
 
     #[arg(long)]
     pub(crate) max_memory: u64,
-
-    #[arg(long)]
-    pub(crate) include_main_files: bool,
 }
 
 #[derive(Debug, Args)]

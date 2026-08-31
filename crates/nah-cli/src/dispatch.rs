@@ -131,18 +131,14 @@ fn run_with<R: Read, W: Write, E: Write>(
                     poll_seconds: args.poll,
                     max_memory_mib: args.max_memory,
                     max_files: args.max_files,
-                    include_main_files: args.include_main_files,
                 },
                 stderr,
             ),
             DaemonAction::Status => nah_effinterp::daemon_status(stdout, stderr),
             DaemonAction::Stop => nah_effinterp::stop_daemon(stderr),
-            DaemonAction::Build(args) => nah_effinterp::build_daemon_snapshot(
-                &args.id,
-                args.max_memory,
-                args.include_main_files,
-                stderr,
-            ),
+            DaemonAction::Build(args) => {
+                nah_effinterp::build_daemon_snapshot(&args.id, args.max_memory, stderr)
+            }
         },
     }
 }

@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use effinterp_daemon::{Daemon, RepositoryIdentity};
-use effinterp_proto::{AnalysisStatus, Subject};
+use effinterp_proto::AnalysisStatus;
 use effinterp_repo::{
-    CrawlLimits, Entrypoint, EntrypointKind, RepoIndex, UpdateOutcome, apply_changes, build_index,
-    reconcile_working_tree, validate_working_tree,
+    CrawlLimits, SkipCategory, UpdateOutcome, apply_changes, build_index, reconcile_working_tree,
+    validate_working_tree,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ const DEFAULT_MAX_MEMORY_MIB: u64 = 2_048;
 const DEFAULT_MAX_FILES: u64 = 5_000;
 // UNDOCUMENTED-EFFINTERP: stop waits only for the current atomic publication step.
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+// UNDOCUMENTED-EFFINTERP: the hidden daemon depends on Unix process and lock primitives.
+const UNIX_ONLY_ERROR: &str = "nah daemon: unavailable on non-Unix platforms";
 // UNDOCUMENTED-EFFINTERP: signal handlers only request shutdown at the next safe boundary.
 static TERMINATE: AtomicBool = AtomicBool::new(false);
 
@@ -36,7 +38,6 @@ pub struct DaemonRunOptions {
     pub poll_seconds: u64,
     pub max_memory_mib: u64,
     pub max_files: u64,
-    pub include_main_files: bool,
 }
 
 // UNDOCUMENTED-EFFINTERP: keep flag defaults in the daemon owner rather than the CLI wiring.
@@ -47,7 +48,6 @@ impl Default for DaemonRunOptions {
             poll_seconds: DEFAULT_POLL_SECONDS,
             max_memory_mib: DEFAULT_MAX_MEMORY_MIB,
             max_files: DEFAULT_MAX_FILES,
-            include_main_files: false,
         }
     }
 }
@@ -119,6 +119,10 @@ struct BuildCompletion {
 
 // UNDOCUMENTED-EFFINTERP: run the foreground publisher for every currently trusted root.
 pub fn run_daemon(options: DaemonRunOptions, stderr: &mut dyn Write) -> u8 {
+    if !cfg!(unix) {
+        let _ = writeln!(stderr, "{UNIX_ONLY_ERROR}");
+        return 2;
+    }
     if options.max_memory_mib == 0 || options.max_files == 0 {
         let _ = writeln!(stderr, "nah daemon: limits must be greater than zero");
         return 2;
@@ -169,7 +173,7 @@ pub fn run_daemon(options: DaemonRunOptions, stderr: &mut dyn Write) -> u8 {
         return 0;
     }
     if options.once {
-        poll_roots(&home, &mut roots, options, stderr);
+        reload_and_poll_roots(&home, &mut roots, options, stderr);
         return 0;
     }
 
@@ -178,13 +182,17 @@ pub fn run_daemon(options: DaemonRunOptions, stderr: &mut dyn Write) -> u8 {
         if TERMINATE.load(Ordering::SeqCst) {
             break;
         }
-        poll_roots(&home, &mut roots, options, stderr);
+        reload_and_poll_roots(&home, &mut roots, options, stderr);
     }
     0
 }
 
-// UNDOCUMENTED-EFFINTERP: print persisted and independently validated status without a daemon.
+// UNDOCUMENTED-EFFINTERP: print persisted status without opening snapshot storage.
 pub fn daemon_status(stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
+    if !cfg!(unix) {
+        let _ = writeln!(stderr, "{UNIX_ONLY_ERROR}");
+        return 2;
+    }
     let home = match home_directory() {
         Ok(home) => home,
         Err(error) => {
@@ -204,16 +212,7 @@ pub fn daemon_status(stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
         let canonical = std::fs::canonicalize(&stored_root).unwrap_or(stored_root.clone());
         let id = path_id(&canonical);
         let base = daemon_root_directory(&home, &id);
-        let mut status = load_root_status(&base.join("status.json"));
-        let config = base.join("daemon.json");
-        if config.is_file() {
-            let identity = repository_identity(&id);
-            match Daemon::open(&config).and_then(|daemon| daemon.current(&identity)) {
-                Ok(Some(current)) => set_current(&mut status, &current),
-                Ok(None) => {}
-                Err(error) => status.last_error = Some(error.to_string()),
-            }
-        }
+        let status = load_root_status(&base.join("status.json"));
         let age = status
             .last_poll_unix
             .map(|poll| format!("{}s", now.saturating_sub(poll)))
@@ -243,6 +242,10 @@ pub fn daemon_status(stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
 
 // UNDOCUMENTED-EFFINTERP: request graceful shutdown and wait for the advisory lock to release.
 pub fn stop_daemon(stderr: &mut dyn Write) -> u8 {
+    if !cfg!(unix) {
+        let _ = writeln!(stderr, "{UNIX_ONLY_ERROR}");
+        return 2;
+    }
     let home = match home_directory() {
         Ok(home) => home,
         Err(_) => return 1,
@@ -291,12 +294,11 @@ pub fn stop_daemon(stderr: &mut dyn Write) -> u8 {
 }
 
 // UNDOCUMENTED-EFFINTERP: child-only bounded build and atomic publication entry point.
-pub fn build_daemon_snapshot(
-    id: &str,
-    max_memory_mib: u64,
-    include_main_files: bool,
-    stderr: &mut dyn Write,
-) -> u8 {
+pub fn build_daemon_snapshot(id: &str, max_memory_mib: u64, stderr: &mut dyn Write) -> u8 {
+    if !cfg!(unix) {
+        let _ = writeln!(stderr, "{UNIX_ONLY_ERROR}");
+        return 2;
+    }
     if let Err(error) = apply_build_resource_limits(max_memory_mib) {
         let _ = writeln!(stderr, "nah daemon build: {error}");
         return 2;
@@ -316,9 +318,14 @@ pub fn build_daemon_snapshot(
             return 2;
         }
     };
-    let mut candidate = build_index(&root, limits);
-    if !include_main_files {
-        prune_compiled_main_entrypoints(&mut candidate);
+    let candidate = build_index(&root, limits);
+    if let Some(skip) = candidate
+        .skipped
+        .iter()
+        .find(|skip| skip.path == ".effinterp-root" && skip.category == SkipCategory::Failure)
+    {
+        let _ = writeln!(stderr, "nah daemon build: {}", skip.reason);
+        return 2;
     }
     let identity = repository_identity(id);
     match Daemon::open(&config_path)
@@ -343,47 +350,6 @@ fn read_build_target(config_path: &Path, id: &str) -> Result<(PathBuf, CrawlLimi
         .find(|repository| repository.repository_id == id && repository.worktree_id == "tree")
         .map(|repository| (repository.root, repository.limits))
         .ok_or_else(|| format!("daemon config has no repository {id}"))
-}
-
-/// Drops compiled-language program entries (Rust, Go, Java `main`) from a freshly
-/// built candidate so a repository full of them cannot dominate a published snapshot.
-///
-/// Unsupported: pre-analysis exclusion of compiled-language main files. effinterp's
-/// crawl exposes no discovery filter, so `--include-main-files` bounds what a snapshot
-/// contains, not what a build costs, until effinterpsddr-97 bounds that cost. The
-/// memory-capped build child is what protects the host in the meantime.
-// UNDOCUMENTED-EFFINTERP: keep the pruned candidate internally consistent before publication.
-fn prune_compiled_main_entrypoints(index: &mut RepoIndex) {
-    let pruned = index
-        .entrypoints
-        .iter()
-        .filter(|analyzed| is_compiled_main_entrypoint(&analyzed.entrypoint))
-        .map(|analyzed| analyzed.entrypoint.id.clone())
-        .collect::<Vec<_>>();
-    if pruned.is_empty() {
-        return;
-    }
-    index
-        .entrypoints
-        .retain(|analyzed| !is_compiled_main_entrypoint(&analyzed.entrypoint));
-    for id in &pruned {
-        index.composed.remove(id);
-        index
-            .derived_dependencies
-            .remove(&format!("entrypoint:{id}"));
-        index
-            .derived_dependencies
-            .remove(&format!("composition:{id}"));
-    }
-}
-
-// UNDOCUMENTED-EFFINTERP: the entrypoint kinds whose analysis effectinterp cannot yet bound.
-fn is_compiled_main_entrypoint(entrypoint: &Entrypoint) -> bool {
-    entrypoint.evidence.kind == EntrypointKind::MainFile
-        && matches!(
-            &entrypoint.subject,
-            Subject::Source { language, .. } if matches!(language.as_str(), "rust" | "go" | "java")
-        )
 }
 
 // UNDOCUMENTED-EFFINTERP: what a consumer learns by loading the snapshot published for a root.
@@ -481,6 +447,46 @@ fn prepare_roots(
             daemon_root
         })
         .collect()
+}
+
+// UNDOCUMENTED-EFFINTERP: refresh authorization before every poll and initialize new roots.
+fn reload_and_poll_roots(
+    home: &Path,
+    roots: &mut Vec<DaemonRoot>,
+    options: DaemonRunOptions,
+    stderr: &mut dyn Write,
+) {
+    let trusted_roots = match load_trusted_roots(home) {
+        Ok(roots) => roots,
+        Err(error) => {
+            let _ = writeln!(stderr, "nah daemon: cannot reload trusted roots: {error}");
+            return;
+        }
+    };
+    let mut previous = std::mem::take(roots);
+    let mut refreshed = Vec::with_capacity(trusted_roots.len());
+    for stored_root in trusted_roots {
+        if TERMINATE.load(Ordering::SeqCst) {
+            break;
+        }
+        let canonical = std::fs::canonicalize(&stored_root).unwrap_or_else(|_| stored_root.clone());
+        let id = path_id(&canonical);
+        if let Some(position) = previous.iter().position(|root| root.id == id && root.ready) {
+            refreshed.push(previous.remove(position));
+            continue;
+        }
+        previous.retain(|root| root.id != id);
+        let mut root = prepare_roots(home, vec![stored_root], options.max_files, stderr)
+            .pop()
+            .expect("one trusted root produces one daemon root");
+        if root.ready {
+            publish_with_child(home, &mut root, options, stderr);
+            let _ = save_root_status(&root);
+        }
+        refreshed.push(root);
+    }
+    *roots = refreshed;
+    poll_roots(home, roots, options, stderr);
 }
 
 // UNDOCUMENTED-EFFINTERP: reconcile every published index once per configured poll.
@@ -638,8 +644,11 @@ fn spawn_build_child(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    if options.include_main_files {
-        command.arg("--include-main-files");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+
+        command.process_group(0);
     }
     let child = command.spawn().map_err(|error| error.to_string())?;
     wait_for_build(child)
@@ -654,18 +663,27 @@ fn wait_for_build(mut child: Child) -> Result<BuildCompletion, String> {
     let started = Instant::now();
     let mut raw_status = 0;
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let mut termination_sent = false;
     loop {
         // SAFETY: wait4 receives this live child's pid and valid writable result pointers.
         let waited = unsafe {
             libc::wait4(
                 child.id() as libc::pid_t,
                 &mut raw_status,
-                0,
+                libc::WNOHANG,
                 usage.as_mut_ptr(),
             )
         };
-        if waited >= 0 {
+        if waited > 0 {
             break;
+        }
+        if waited == 0 {
+            if TERMINATE.load(Ordering::SeqCst) && !termination_sent {
+                terminate_process_group(child.id())?;
+                termination_sent = true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::Interrupted {
@@ -691,7 +709,7 @@ fn wait_for_build(mut child: Child) -> Result<BuildCompletion, String> {
     })
 }
 
-// UNDOCUMENTED-EFFINTERP: non-Unix builds still isolate work in a child process.
+// UNDOCUMENTED-EFFINTERP: keep the compile-only backend behind the Unix-only entry point.
 #[cfg(not(unix))]
 fn wait_for_build(child: Child) -> Result<BuildCompletion, String> {
     let started = Instant::now();
@@ -742,10 +760,10 @@ fn apply_build_resource_limits(max_memory_mib: u64) -> Result<(), String> {
     Ok(())
 }
 
-// UNDOCUMENTED-EFFINTERP: unsupported hosts still keep the build in a separate process.
+// UNDOCUMENTED-EFFINTERP: the Unix-only entry point never permits an uncapped build.
 #[cfg(not(unix))]
 fn apply_build_resource_limits(_max_memory_mib: u64) -> Result<(), String> {
-    Ok(())
+    Err("address-space limits are unavailable on this platform".to_owned())
 }
 
 // UNDOCUMENTED-EFFINTERP: load the exact canonical roots persisted by nah trust.
@@ -967,7 +985,7 @@ fn install_termination_handlers() {
     }
 }
 
-// UNDOCUMENTED-EFFINTERP: non-Unix builds retain polling behavior without POSIX signals.
+// UNDOCUMENTED-EFFINTERP: the Unix-only entry point never installs handlers on other hosts.
 #[cfg(not(unix))]
 fn install_termination_handlers() {}
 
@@ -985,12 +1003,28 @@ fn terminate_process(pid: u32) -> Result<(), String> {
     }
 }
 
+// UNDOCUMENTED-EFFINTERP: stop the isolated build and any subprocesses it started.
+#[cfg(unix)]
+fn terminate_process_group(pid: u32) -> Result<(), String> {
+    // SAFETY: the build child is its process-group leader, so a negative pid targets that group.
+    if unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGTERM) } == 0 {
+        Ok(())
+    } else {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(());
+        }
+        Err(format!("cannot signal daemon build: {error}"))
+    }
+}
+
 // UNDOCUMENTED-EFFINTERP: Windows shutdown support is outside the hidden Unix daemon seam.
 #[cfg(not(unix))]
 fn terminate_process(_pid: u32) -> Result<(), String> {
     Err("daemon stop is unavailable on this platform".to_owned())
 }
 
+// UNDOCUMENTED-EFFINTERP: focused contracts for daemon identity, limits, and failure isolation.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1005,7 +1039,6 @@ mod tests {
                 poll_seconds: 30,
                 max_memory_mib: 2_048,
                 max_files: 5_000,
-                include_main_files: false,
             }
         );
     }
