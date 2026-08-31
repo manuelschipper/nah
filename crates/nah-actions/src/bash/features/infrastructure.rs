@@ -1085,12 +1085,11 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
     let mut escaped = false;
     let mut single_quoted = false;
     let mut double_quoted = false;
-    let mut back_quoted = false;
-    let mut dollar_quoted = false;
     let mut words = Vec::new();
     let mut word = String::new();
     let mut started = false;
-    for character in value.chars() {
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
         if escaped {
             word.push(character);
             started = true;
@@ -1107,7 +1106,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             continue;
         }
         if character.is_ascii_whitespace() {
-            if single_quoted || double_quoted || back_quoted || dollar_quoted {
+            if single_quoted || double_quoted {
                 word.push(character);
                 started = true;
             } else if started {
@@ -1117,35 +1116,23 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             continue;
         }
         match character {
-            '`' if !single_quoted && !double_quoted && !dollar_quoted => {
-                back_quoted = !back_quoted;
-                word.push(character);
-                started = true;
+            '`' if !single_quoted => return None,
+            '(' | ')' if !single_quoted && !double_quoted => return None,
+            '$' if !single_quoted
+                && !double_quoted
+                && matches!(characters.peek(), Some('\'' | '"')) =>
+            {
+                return None;
             }
-            '(' if !single_quoted && !double_quoted && !back_quoted => {
-                if dollar_quoted || !word.ends_with('$') {
-                    return None;
-                }
-                dollar_quoted = true;
-                word.push(character);
-                started = true;
-            }
-            ')' if !single_quoted && !double_quoted && !back_quoted => {
-                dollar_quoted = !dollar_quoted;
-                word.push(character);
-                started = true;
-            }
-            '"' if !single_quoted && !dollar_quoted => {
+            '"' if !single_quoted => {
                 double_quoted = !double_quoted;
                 started = true;
             }
-            '\'' if !double_quoted && !dollar_quoted => {
+            '\'' if !double_quoted => {
                 single_quoted = !single_quoted;
                 started = true;
             }
-            ';' | '&' | '|' | '<' | '>'
-                if !single_quoted && !double_quoted && !back_quoted && !dollar_quoted =>
-            {
+            ';' | '&' | '|' | '<' | '>' if !single_quoted && !double_quoted => {
                 // go-shellwords discards only a `>` file-descriptor prefix whose
                 // first byte is a digit. `<` keeps the current word as argv.
                 if character == '>'
@@ -1165,7 +1152,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             }
         }
     }
-    if escaped || single_quoted || double_quoted || back_quoted || dollar_quoted {
+    if escaped || single_quoted || double_quoted {
         return None;
     }
     if started {
@@ -1192,10 +1179,7 @@ mod tests {
             Some(vec!["-target".into(), "resource".into()])
         );
         assert_eq!(terraform_cli_words("'-target"), None);
-        assert_eq!(
-            terraform_cli_words("-backup `foo bar`"),
-            Some(vec!["-backup".into(), "`foo bar`".into()])
-        );
+        assert_eq!(terraform_cli_words("-backup `foo bar`"), None);
         assert_eq!(terraform_cli_words("2>/tmp/log"), Some(Vec::new()));
         assert_eq!(terraform_cli_words("2</tmp/log"), Some(vec!["2".into()]));
         assert_eq!(terraform_cli_words("2foo>/tmp/log"), Some(Vec::new()));
@@ -1205,9 +1189,7 @@ mod tests {
             Some(vec!["foo".into()])
         );
         assert_eq!(terraform_cli_words("-var foo(bar)"), None);
-        assert_eq!(
-            terraform_cli_words("-backup=))"),
-            Some(vec!["-backup=))".into()])
-        );
+        assert_eq!(terraform_cli_words("-backup=))"), None);
+        assert_eq!(terraform_cli_words("-backup=$'state.tfstate'"), None);
     }
 }

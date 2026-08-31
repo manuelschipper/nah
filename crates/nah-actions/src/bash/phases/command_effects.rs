@@ -97,6 +97,7 @@ impl Lowerer {
             &redirects,
             builtin_target,
             terminal_help,
+            direct_program.is_some(),
             git_alias.as_ref(),
             tar_argument_variants.as_deref(),
             &assignment_updates,

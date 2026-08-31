@@ -12,11 +12,11 @@ use crate::bash_child_startup::child_shell;
 use crate::bash_content::{eval_payload, producer, redirect_content_target, tee_content_targets};
 use crate::bash_git_config::AliasAnalysis;
 use crate::bash_lookup::{LookupMode, LookupState};
-use crate::bash_model::{InvocationDraft, ProgramDraft, StdoutDraft};
+use crate::bash_model::{InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
 use crate::bash_state::{Cwd, current_pwd, known_cwd};
 use crate::bash_wrappers::{
     crontab_payload, executor_payloads, shell_payload, shell_string_wrapper_payload,
-    wrapper_payload,
+    wrapper_clears_environment, wrapper_payload,
 };
 use crate::paths::resolve_from_cwd;
 use crate::shell_word::static_word;
@@ -120,6 +120,7 @@ impl Lowerer {
         redirects: &[Redirect],
         builtin_target: bool,
         terminal_help: bool,
+        qualified_program: bool,
         git_alias: Option<&AliasAnalysis>,
         tar_argument_variants: Option<&[Vec<Word>]>,
         assignment_updates: &[AssignmentUpdate],
@@ -168,11 +169,26 @@ impl Lowerer {
             }
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
-        let payload = match program {
-            ProgramDraft::Static(program) => Some(program.as_str()),
-            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        let wrapper_identity_uncertain = matches!(program, ProgramDraft::Static(program)
+        if !qualified_program
+            && wrapper_clears_environment(program, local_arguments, "PATH")
+            && (assignments.iter().any(|(name, _)| name == "PATH")
+                || self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH"
+                        && !matches!(binding.value, VariableValue::Unset)
+                })));
+        if wrapper_identity_uncertain {
+            self.complete = false;
         }
-        .and_then(|program| {
+        let payload_program = if wrapper_identity_uncertain {
+            None
+        } else {
+            match program {
+                ProgramDraft::Static(program) => Some(program.as_str()),
+                ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+            }
+        };
+        let payload = payload_program.and_then(|program| {
             let shell_payload = if matches!(program, "eval" | "trap") && !builtin_target {
                 None
             } else {

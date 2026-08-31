@@ -75,8 +75,6 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS='2>/tmp/log' terraform destroy",
         "TF_CLI_ARGS='2foo>/tmp/log' terraform destroy",
         "TF_CLI_ARGS='\"2\">/tmp/log' terraform destroy",
-        "TF_CLI_ARGS_destroy='-backup `foo bar`' terraform destroy",
-        "TF_CLI_ARGS_destroy='-backup=))' terraform destroy",
         "TF_CLI_ARGS_destroy='-auto-approve' sudo terraform destroy",
         "env TF_CLI_ARGS_apply=-destroy terraform apply",
     ] {
@@ -96,6 +94,8 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS_apply='-var -v -destroy' terraform apply",
         "TF_CLI_ARGS='2</tmp/log' terraform destroy",
         "TF_CLI_ARGS='foo>/tmp/log' terraform destroy",
+        "TF_CLI_ARGS_destroy='-backup `foo bar`' terraform destroy",
+        "TF_CLI_ARGS_destroy='-backup=))' terraform destroy",
         "export TF_CLI_ARGS=-target=module.web; terraform destroy",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
@@ -281,6 +281,8 @@ fn env_clearing_drops_outer_prefix_state_before_wrapped_destroy() {
     }
 
     for source in [
+        "PATH=/definitely-not-a-real-directory env -i terraform destroy",
+        "PATH=/definitely-not-a-real-directory; env -i terraform destroy",
         "PATH=/tmp /usr/bin/env -i PATH=/tmp terraform destroy",
         "TF_CLI_ARGS=-target=module.web /usr/bin/env -i TF_CLI_ARGS=-target=module.web /usr/bin/terraform destroy",
     ] {
