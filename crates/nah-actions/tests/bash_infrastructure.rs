@@ -33,10 +33,13 @@ fn terraform_and_tofu_whole_stack_destroy_forms_are_recognized() {
         "terraform destroy -lock-timeout=1h30m",
         "terraform apply -refresh-only -refresh-only=false -destroy",
         "tofu destroy -show-sensitive -deprecation=all",
+        "terraform destroy --",
+        "tofu apply -destroy --",
         "/bin/terraform destroy",
         "/sbin/tofu apply -destroy",
         "/usr/bin/terraform destroy",
         "/usr/sbin/tofu destroy",
+        "PATH=/tmp /usr/bin/terraform destroy",
     ] {
         assert!(destroys_whole_stack(source), "{source}");
     }
@@ -51,6 +54,7 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS='-destroy' TF_CLI_ARGS_apply='-lock-timeout 5s' tofu apply",
         "TF_CLI_ARGS_apply='-refresh-only' terraform apply -refresh-only=false -destroy",
         "TF_CLI_ARGS='-destroy' TF_CLI_ARGS_apply='-destroy=false' terraform apply",
+        "TF_CLI_ARGS=';' terraform destroy",
         "TF_CLI_ARGS_destroy='-auto-approve' sudo terraform destroy",
         "env TF_CLI_ARGS_apply=-destroy terraform apply",
     ] {
@@ -89,10 +93,13 @@ fn pulumi_whole_stack_destroy_aliases_and_execution_flags_are_recognized() {
         "pulumi destroy --ignore-protect --yes",
         "pulumi destroy --target-dependents --yes",
         "pulumi destroy --target-dependents=false --yes",
+        "pulumi destroy --help=false --yes",
+        "pulumi destroy --help --help=false --yes",
         "pulumi destroy https://github.com/example/project",
         "timeout 5 pulumi destroy -yf",
         "/bin/pulumi destroy",
         "/usr/bin/pulumi down --yes",
+        "PATH=/tmp /usr/bin/pulumi destroy --yes",
     ] {
         assert!(destroys_whole_stack(source), "{source}");
     }
@@ -121,6 +128,9 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "terraform destroy -deprecation=all",
         "terraform -chdir environments/dev destroy",
         "tofu -chdir environments/dev apply -destroy",
+        "terraform -chdir=one -chdir=two destroy",
+        "terraform destroy -parallelism=-1",
+        "terraform apply -destroy -- saved.tfplan",
         "terraform apply -refresh-only=false -refresh-only -destroy",
         "terraform \"$COMMAND\"",
         "terraform destroy \"$OPTIONS\"",
@@ -136,6 +146,10 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "pulumi -v nope destroy",
         "pulumi --verbose=nope destroy",
         "pulumi --memprofilerate nope destroy",
+        "pulumi destroy --refresh=bogus --yes",
+        "pulumi --color=bogus destroy --yes",
+        "pulumi destroy --exclude-dependents=false --yes",
+        "pulumi destroy --help=false --help --yes",
         "pulumi destroy --unknown-selection=value",
         "pulumi destroy one two",
         "pulumi \"$COMMAND\"",

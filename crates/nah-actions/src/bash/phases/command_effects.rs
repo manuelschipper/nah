@@ -179,9 +179,12 @@ impl Lowerer {
         let remote_repository_delete = matches!(&program, ProgramDraft::Static(program)
             if deletes_repository(program, &local_arguments));
         let infrastructure = match &program {
-            ProgramDraft::Static(program) => {
-                crate::bash_infrastructure::classify(program, &local_arguments, assignments)
-            }
+            ProgramDraft::Static(program) => crate::bash_infrastructure::classify(
+                program,
+                &local_arguments,
+                assignments,
+                direct_program.is_some(),
+            ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
         if let Some(execution) = &classifications.execution {

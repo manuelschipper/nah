@@ -29,8 +29,10 @@ pub(crate) fn classify(
     program: &str,
     arguments: &[Word],
     assignments: &[(String, Word)],
+    qualified_program: bool,
 ) -> Option<Classification> {
     if matches!(program, "terraform" | "tofu" | "pulumi")
+        && !qualified_program
         && assignments.iter().any(|(name, _)| name == "PATH")
     {
         return Some(Classification::incomplete());
@@ -91,6 +93,7 @@ enum TerraformCommand<'a> {
 
 fn terraform_subcommand(arguments: &[String]) -> TerraformCommand<'_> {
     let mut index = 0;
+    let mut chdir = false;
     while let Some(argument) = arguments.get(index) {
         if help_or_version(argument) {
             return TerraformCommand::NonExecuting;
@@ -99,9 +102,10 @@ fn terraform_subcommand(arguments: &[String]) -> TerraformCommand<'_> {
             return TerraformCommand::Incomplete;
         }
         if let Some(directory) = argument.strip_prefix("-chdir=") {
-            if directory.is_empty() {
+            if directory.is_empty() || chdir {
                 return TerraformCommand::Incomplete;
             }
+            chdir = true;
             index += 1;
             continue;
         }
@@ -139,8 +143,17 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
 
     let mut index = 0;
     let mut destroy = subcommand == "destroy";
+    let mut options = true;
     let mut refresh_only = false;
     while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if !options {
+            return Classification::complete(false);
+        }
         if help_or_version(argument) {
             return Classification::complete(false);
         }
@@ -180,9 +193,12 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             continue;
         }
         if let Some(consumed) = integer_value_option::<i64>(arguments, index, &["-parallelism"]) {
-            let Ok(consumed) = consumed else {
+            let Ok((consumed, parallelism)) = consumed else {
                 return Classification::incomplete();
             };
+            if parallelism <= 0 {
+                return Classification::incomplete();
+            }
             index += consumed;
             continue;
         }
@@ -218,7 +234,7 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             index += consumed;
             continue;
         }
-        if argument.starts_with('-') || argument == "--" {
+        if argument.starts_with('-') {
             return Classification::incomplete();
         }
         // `apply` positional operands are opaque saved plans. `destroy` has no operands.
@@ -231,19 +247,29 @@ fn pulumi(arguments: &[Word]) -> Option<Classification> {
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
     };
-    let (subcommand, command_index) = match pulumi_subcommand(&arguments) {
+    let (subcommand, command_index, help) = match pulumi_subcommand(&arguments) {
         Ok(Some(subcommand)) => subcommand,
         Ok(None) => return None,
         Err(()) => return Some(Classification::incomplete()),
     };
-    Some(pulumi_destroy(subcommand, &arguments[command_index + 1..]))
+    Some(pulumi_destroy(
+        subcommand,
+        &arguments[command_index + 1..],
+        help,
+    ))
 }
 
-fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize)>, ()> {
+fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool)>, ()> {
     let mut index = 0;
+    let mut help = false;
     while let Some(argument) = arguments.get(index) {
-        if pulumi_help_or_version(argument) {
+        if pulumi_nonexecuting_option(argument) {
             return Ok(None);
+        }
+        if let Some(value) = pulumi_help_option(argument) {
+            help = value.ok_or(())?;
+            index += 1;
+            continue;
         }
         if let Some(consumed) = pulumi_value_option(arguments, index, true) {
             index += consumed?;
@@ -260,7 +286,7 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize)>, ()> 
             return Err(());
         }
         return match argument.as_str() {
-            "destroy" | "down" | "dn" => Ok(Some((argument, index))),
+            "destroy" | "down" | "dn" => Ok(Some((argument, index, help))),
             "version" => Ok(None),
             _ => Ok(None),
         };
@@ -268,13 +294,9 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize)>, ()> 
     Err(())
 }
 
-fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
+fn pulumi_destroy(_subcommand: &str, arguments: &[String], mut help: bool) -> Classification {
     const SELECTORS: &[&str] = &["--exclude", "--target", "-t", "-x"];
-    const SELECTION_FLAGS: &[&str] = &[
-        "--exclude-dependents",
-        "--exclude-protected",
-        "--preview-only",
-    ];
+    const SELECTION_FLAGS: &[&str] = &["--exclude-protected", "--preview-only"];
 
     let mut index = 0;
     let mut operand = false;
@@ -286,8 +308,16 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
             index += 1;
             continue;
         }
-        if options && pulumi_help_or_version(argument) {
+        if options && pulumi_nonexecuting_option(argument) {
             return Classification::complete(false);
+        }
+        if options && let Some(value) = pulumi_help_option(argument) {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            help = value;
+            index += 1;
+            continue;
         }
         if options && let Some(valid) = pulumi_selector(arguments, index, SELECTORS) {
             return if valid {
@@ -319,7 +349,10 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
             index += consumed;
             continue;
         }
-        if options && pulumi_optional_value(argument) {
+        if options && let Some(valid) = pulumi_optional_value(argument) {
+            if !valid {
+                return Classification::incomplete();
+            }
             index += 1;
             continue;
         }
@@ -339,7 +372,7 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String]) -> Classification {
         operand = true;
         index += 1;
     }
-    Classification::complete(!selection_flags.into_iter().any(|selected| selected))
+    Classification::complete(!help && !selection_flags.into_iter().any(|selected| selected))
 }
 
 fn static_arguments(arguments: &[Word]) -> Option<Vec<String>> {
@@ -356,11 +389,14 @@ fn help_or_version(argument: &str) -> bool {
     )
 }
 
-fn pulumi_help_or_version(argument: &str) -> bool {
-    matches!(
-        argument,
-        "-h" | "--help" | "-help" | "--version" | "-version"
-    )
+fn pulumi_nonexecuting_option(argument: &str) -> bool {
+    matches!(argument, "-help" | "--version" | "-version")
+}
+
+fn pulumi_help_option(argument: &str) -> Option<Option<bool>> {
+    ["--help", "-h"]
+        .iter()
+        .find_map(|name| boolean_option(argument, name))
 }
 
 fn option_name<'a>(argument: &str, names: &'a [&str]) -> Option<&'a str> {
@@ -398,7 +434,7 @@ fn integer_value_option<T: std::str::FromStr>(
     arguments: &[String],
     index: usize,
     names: &[&str],
-) -> Option<Result<usize, ()>> {
+) -> Option<Result<(usize, T), ()>> {
     let consumed = match value_option(arguments, index, names)? {
         Ok(consumed) => consumed,
         Err(()) => return Some(Err(())),
@@ -408,7 +444,12 @@ fn integer_value_option<T: std::str::FromStr>(
     } else {
         arguments[index].split_once('=').expect("joined option").1
     };
-    Some(value.parse::<T>().map(|_| consumed).map_err(|_| ()))
+    Some(
+        value
+            .parse::<T>()
+            .map(|value| (consumed, value))
+            .map_err(|_| ()),
+    )
 }
 
 fn duration_value_option(
@@ -506,7 +547,7 @@ fn pulumi_value_option(
     index: usize,
     global_only: bool,
 ) -> Option<Result<usize, ()>> {
-    const GLOBAL: &[&str] = &["--color", "--cwd", "--profiling", "--tracing", "-C"];
+    const GLOBAL: &[&str] = &["--cwd", "--profiling", "--tracing", "-C"];
     const DESTROY: &[&str] = &[
         "--config",
         "--config-file",
@@ -518,32 +559,53 @@ fn pulumi_value_option(
         "-m",
         "-s",
     ];
+    if let Some(result) = value_option(arguments, index, &["--color"]) {
+        return Some(result.and_then(|consumed| {
+            let value = if consumed == 2 {
+                &arguments[index + 1]
+            } else {
+                arguments[index].split_once('=').expect("joined option").1
+            };
+            matches!(value, "always" | "never" | "raw" | "auto")
+                .then_some(consumed)
+                .ok_or(())
+        }));
+    }
     if let Some(result) = value_option(arguments, index, GLOBAL) {
         return Some(result);
     }
     if let Some(result) =
         integer_value_option::<i32>(arguments, index, &["--memprofilerate", "--verbose", "-v"])
     {
-        return Some(result);
+        return Some(result.map(|(consumed, _)| consumed));
     }
     if global_only {
         None
     } else {
         integer_value_option::<i32>(arguments, index, &["--parallel", "-p"])
+            .map(|result| result.map(|(consumed, _)| consumed))
             .or_else(|| value_option(arguments, index, DESTROY))
     }
 }
 
-fn pulumi_optional_value(argument: &str) -> bool {
-    ["--refresh", "--suppress-permalink", "-r"]
-        .iter()
-        .any(|name| {
-            argument == *name
-                || argument
-                    .strip_prefix(*name)
-                    .and_then(|tail| tail.strip_prefix('='))
-                    .is_some_and(|value| !value.is_empty())
-        })
+fn pulumi_optional_value(argument: &str) -> Option<bool> {
+    for name in ["--refresh", "-r"] {
+        if argument == name {
+            return Some(true);
+        }
+        if let Some(value) = argument
+            .strip_prefix(name)
+            .and_then(|tail| tail.strip_prefix('='))
+        {
+            return Some(parse_go_bool(value).is_some());
+        }
+    }
+    if argument == "--suppress-permalink" {
+        return Some(true);
+    }
+    argument
+        .strip_prefix("--suppress-permalink=")
+        .map(|value| !value.is_empty())
 }
 
 fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
@@ -631,6 +693,7 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
                     started = false;
                 }
             }
+            (Quote::None, ';' | '&' | '|' | '<' | '>') => break,
             (Quote::None, '\\') | (Quote::Double, '\\') => escaped = true,
             (Quote::None, '\'') => {
                 quote = Quote::Single;
