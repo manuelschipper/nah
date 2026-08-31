@@ -130,6 +130,57 @@ pub(crate) enum Command {
     /// access or configuration. Start with `start`; use `extending`
     /// for the complete extension recipe.
     Docs(DocsArgs),
+
+    // UNDOCUMENTED-EFFINTERP: private snapshot publisher; no public product surface yet.
+    #[cfg(feature = "effinterp")]
+    #[command(hide = true)]
+    Daemon(DaemonArgs),
+}
+
+// UNDOCUMENTED-EFFINTERP: hidden daemon subcommand grammar.
+#[cfg(feature = "effinterp")]
+#[derive(Debug, Args)]
+pub(crate) struct DaemonArgs {
+    #[command(subcommand)]
+    pub(crate) action: DaemonAction,
+}
+
+// UNDOCUMENTED-EFFINTERP: hidden daemon lifecycle operations.
+#[cfg(feature = "effinterp")]
+#[derive(Debug, Subcommand)]
+pub(crate) enum DaemonAction {
+    Run(DaemonRunArgs),
+    Status,
+    Stop,
+    #[command(hide = true)]
+    Build(DaemonBuildArgs),
+}
+
+// UNDOCUMENTED-EFFINTERP: bounded daemon runtime settings.
+#[cfg(feature = "effinterp")]
+#[derive(Clone, Copy, Debug, Args)]
+pub(crate) struct DaemonRunArgs {
+    #[arg(long, hide = true)]
+    pub(crate) once: bool,
+
+    #[arg(long, default_value_t = 30)]
+    pub(crate) poll: u64,
+
+    #[arg(long, default_value_t = 2_048)]
+    pub(crate) max_memory: u64,
+
+    #[arg(long, default_value_t = 5_000)]
+    pub(crate) max_files: u64,
+}
+
+// UNDOCUMENTED-EFFINTERP: child-only build invocation settings.
+#[cfg(feature = "effinterp")]
+#[derive(Debug, Args)]
+pub(crate) struct DaemonBuildArgs {
+    pub(crate) id: String,
+
+    #[arg(long)]
+    pub(crate) max_memory: u64,
 }
 
 #[derive(Debug, Args)]

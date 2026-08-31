@@ -1,0 +1,12 @@
+[package]
+name = "effinterp-daemon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+effinterp-conformance = { path = "../effinterp-conformance" }
+effinterp-proto = { path = "../effinterp-proto" }
+effinterp-repo = { path = "../effinterp-repo" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"

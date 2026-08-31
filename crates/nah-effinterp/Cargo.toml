@@ -7,8 +7,31 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-engine = ["dep:effinterp-engine", "dep:effinterp-proto"]
+engine = [
+    "dep:effinterp-daemon",
+    "dep:effinterp-engine",
+    "dep:effinterp-proto",
+    "dep:effinterp-repo",
+    "dep:libc",
+    "dep:nah-extensions",
+    "dep:nah-proto",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:sha2",
+    "dep:tempfile",
+]
 
 [dependencies]
+effinterp-daemon = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
 effinterp-engine = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
 effinterp-proto = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
+effinterp-repo = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370", optional = true }
+nah-extensions = { path = "../nah-extensions", optional = true }
+nah-proto = { path = "../nah-proto", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+tempfile = { version = "3", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
