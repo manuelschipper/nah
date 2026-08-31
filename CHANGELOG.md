@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Optional whole-stack IaC destruction guard** — New default-off
+  `infra-iac-destroy` blocks fully visible Terraform, OpenTofu, and Pulumi
+  whole-stack teardown when enabled while targeted, excluded-resource,
+  preview-only, saved-plan, and unresolved forms continue to delegate.
 - **Windows release and installer** — Releases now include a checksummed,
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
   that preserves expandable user PATH entries and replaces upgrades safely.

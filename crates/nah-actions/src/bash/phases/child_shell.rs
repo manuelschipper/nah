@@ -295,8 +295,14 @@ impl Lowerer {
         let prefixes = assignments
             .iter()
             .filter(|(name, value)| {
-                matches!(name.as_str(), "TAR_OPTIONS" | "TAPE")
-                    && value.substitutions().is_empty()
+                matches!(
+                    name.as_str(),
+                    "TAR_OPTIONS"
+                        | "TAPE"
+                        | "TF_CLI_ARGS"
+                        | "TF_CLI_ARGS_apply"
+                        | "TF_CLI_ARGS_destroy"
+                ) && value.substitutions().is_empty()
                     && !wrapper_clears_environment(program, arguments, name)
             })
             .map(|(name, value)| format!("{name}={}", value.raw()))

@@ -343,6 +343,37 @@ fn remote_repository_delete_guard_renders_in_git_policy() {
 }
 
 #[test]
+fn infrastructure_guard_uses_type_state_and_project_views() {
+    let mut app = App::fixture();
+    app.guards.push(built_in_entry(
+        "infra-iac-destroy",
+        GuardFamily::Infrastructure,
+        false,
+        GuardStatus::Disabled,
+        None,
+    ));
+
+    let typed = rendered(&app, 120, 30);
+    let infrastructure = typed.find("INFRASTRUCTURE").unwrap();
+    let guard = typed.find("[ ] infra-iac-destroy").unwrap();
+    let secrets = typed.find("SECRETS").unwrap();
+    assert!(infrastructure < guard);
+    assert!(guard < secrets);
+    assert_eq!(typed.matches("INFRASTRUCTURE").count(), 1);
+
+    app.guard_view = GuardView::State;
+    let state = rendered(&app, 120, 30);
+    let off = state.find("OFF").unwrap();
+    let guard = state.find("[ ] infra-iac-destroy").unwrap();
+    assert!(off < guard);
+
+    app.guard_view = GuardView::Project;
+    assert!(!rendered(&app, 120, 30).contains("infra-iac-destroy"));
+    app.project_declared_guards = vec!["infra-iac-destroy".into()];
+    assert!(rendered(&app, 120, 30).contains("[ ] infra-iac-destroy"));
+}
+
+#[test]
 fn state_view_groups_guards_by_applied_status() {
     let mut app = App::fixture();
     app.guard_view = GuardView::State;

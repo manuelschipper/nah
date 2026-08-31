@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1386);
+    assert_eq!(summary.cases, 1422);
 }
 
 #[test]
@@ -80,6 +80,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 251),
             ("git.jsonl".to_owned(), 251),
+            ("infrastructure.jsonl".to_owned(), 36),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
@@ -189,6 +190,14 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-remote-delete.gh-ipv6-percent-encoded-zone-host",
         "git-remote-delete.dynamic-target-delegates",
         "git-remote-delete.gh-nested-endpoint-delegates",
+        "infra-iac-destroy.terraform-destroy",
+        "infra-iac-destroy.terraform-factory-delegates",
+        "infra-iac-destroy.terraform-cli-args-target-delegates",
+        "infra-iac-destroy.saved-plan-delegates",
+        "infra-iac-destroy.pulumi-destroy",
+        "infra-iac-destroy.pulumi-factory-delegates",
+        "infra-iac-destroy.pulumi-target-delegates",
+        "infra-iac-destroy.pulumi-preview-only-delegates",
         "shell-resolution.ansi-c-program-threat",
         "shell-resolution.backslash-option-threat",
         "shell-resolution.parameter-default-root",
