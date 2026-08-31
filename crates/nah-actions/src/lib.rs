@@ -103,7 +103,7 @@ impl SelfProtectionProjection {
         Self { protected_paths }
     }
 
-    fn protected_paths(&self) -> &[AbsolutePath] {
+    pub fn protected_paths(&self) -> &[AbsolutePath] {
         &self.protected_paths
     }
 }

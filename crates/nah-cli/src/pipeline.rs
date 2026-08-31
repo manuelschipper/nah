@@ -548,7 +548,7 @@ where
     };
     #[cfg(feature = "effinterp")]
     let (mut effinterp_shadow, effinterp_warning) = if effinterp_enabled && input.tool() == "Bash" {
-        match run_effinterp_shadow(input, &call_site, ctx, &mut observe) {
+        match run_effinterp_shadow(input, &call_site, ctx, self_protection, &mut observe) {
             Ok(shadow) => (Some(shadow), None),
             Err(error) => (None, Some(error)),
         }
@@ -1090,6 +1090,7 @@ fn run_effinterp_shadow<F>(
     input: &ToolCallInput,
     call_site: &nah_proto::tool::CallSite,
     ctx: &Ctx,
+    self_protection: &nah_actions::SelfProtectionProjection,
     observe: &mut F,
 ) -> Result<EffinterpShadow, String>
 where
@@ -1109,7 +1110,8 @@ where
     observation
         .bind(&request)
         .map_err(|_| "effinterp shadow observation mismatch")?;
-    let annotations = nah_effinterp::annotate(&plan, &observation, ctx);
+    let annotations =
+        nah_effinterp::annotate(&plan, &observation, ctx, self_protection.protected_paths());
     Ok(EffinterpShadow {
         plan,
         annotations,

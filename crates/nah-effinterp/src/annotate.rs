@@ -3,7 +3,7 @@
 use effinterp_proto::{AttrValue, Effect, Plan, ResourceExpr, ResourceIdentity};
 use nah_proto::action::{FilesystemOperation, PathScope};
 use nah_proto::action_v2::{EffectAnnotation, PathLabel};
-use nah_proto::ctx::Ctx;
+use nah_proto::ctx::{AbsolutePath, Ctx};
 use nah_proto::observation::{
     Observation, ObservationQuery, ObservationValue, Observed, PathKind, PathObservation, Root,
 };
@@ -17,11 +17,17 @@ use crate::labels::tier;
 use crate::observe::observation_path;
 
 /// Produce one positional annotation for every effect in the plan.
-pub fn annotate(plan: &Plan, observation: &Observation, ctx: &Ctx) -> Vec<EffectAnnotation> {
+/// `critical_paths` is the runtime self-protection projection for hook-wiring paths.
+pub fn annotate(
+    plan: &Plan,
+    observation: &Observation,
+    ctx: &Ctx,
+    critical_paths: &[AbsolutePath],
+) -> Vec<EffectAnnotation> {
     let roots = observed_roots(observation);
     plan.effects
         .iter()
-        .map(|effect| annotate_effect(plan, effect, observation, &roots, ctx))
+        .map(|effect| annotate_effect(plan, effect, observation, &roots, ctx, critical_paths))
         .collect()
 }
 
@@ -31,13 +37,20 @@ fn annotate_effect(
     observation: &Observation,
     roots: &[Root],
     ctx: &Ctx,
+    critical_paths: &[AbsolutePath],
 ) -> EffectAnnotation {
     if !effect.realm.is_host() {
         return EffectAnnotation::default();
     }
     match effect.operation.domain() {
         "filesystem" => EffectAnnotation {
-            path: Some(annotate_path(effect, observation, roots, ctx)),
+            path: Some(annotate_path(
+                effect,
+                observation,
+                roots,
+                ctx,
+                critical_paths,
+            )),
             runtime_cli: None,
         },
         "process" if effect.operation.as_str() == "process.exec" => EffectAnnotation {
@@ -53,6 +66,7 @@ fn annotate_path(
     observation: &Observation,
     roots: &[Root],
     ctx: &Ctx,
+    critical_paths: &[AbsolutePath],
 ) -> PathLabel {
     let (requested, pattern) = match &effect.resource {
         ResourceExpr::Concrete {
@@ -91,7 +105,7 @@ fn annotate_path(
         roots,
         &trusted_roots,
         ctx.home(),
-        &[],
+        critical_paths,
         ctx.platform(),
         pattern,
     );

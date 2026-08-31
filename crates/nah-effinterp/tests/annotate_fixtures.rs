@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use nah_effinterp::{annotate, request};
-use nah_proto::action_v2::EffectAnnotation;
+use nah_proto::action_v2::{EffectAnnotation, PathLabel};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     DescendantObservation, Observation, ObservationFact, ObservationQuery, ObservationRequest,
@@ -172,9 +172,16 @@ impl AnnotationFixture {
     }
 }
 
-fn annotations(name: &str) -> (Vec<EffectAnnotation>, Vec<EffectAnnotation>) {
+fn annotations(
+    name: &str,
+    critical_paths: &[&str],
+) -> (Vec<EffectAnnotation>, Vec<EffectAnnotation>) {
     let fixture = AnnotationFixture::load(name);
     let ctx = fixture.context();
+    let critical_paths = critical_paths
+        .iter()
+        .map(|path| fixture.absolute(path))
+        .collect::<Vec<_>>();
     let call_site = CallSite::new(fixture.context.platform, &fixture.observation.cwd).unwrap();
     let request = request(&fixture.plan, &call_site);
     let observation = fixture.observation(&request);
@@ -182,13 +189,13 @@ fn annotations(name: &str) -> (Vec<EffectAnnotation>, Vec<EffectAnnotation>) {
         .bind(&request)
         .unwrap_or_else(|error| panic!("fixture `{name}` observation does not bind: {error:?}"));
     (
-        annotate(&fixture.plan, &observation, &ctx),
+        annotate(&fixture.plan, &observation, &ctx, &critical_paths),
         fixture.expected,
     )
 }
 
 fn assert_fixture(name: &str) {
-    let (actual, expected) = annotations(name);
+    let (actual, expected) = annotations(name, &[]);
     assert_eq!(actual, expected, "{name}");
 }
 
@@ -205,6 +212,25 @@ fn project_dotenv_read_is_an_environment_secret() {
 #[test]
 fn nah_trust_state_write_is_critical() {
     assert_fixture("write-nah-trust");
+}
+
+#[test]
+fn runtime_hook_wiring_path_requires_the_critical_path_projection() {
+    let path = "/home/test/.claude/hooks/nah";
+    let (projected, expected) = annotations("write-claude-hook", &[path]);
+    assert_eq!(projected, expected);
+
+    let (unprojected, _) = annotations("write-claude-hook", &[]);
+    assert!(matches!(
+        unprojected.as_slice(),
+        [EffectAnnotation {
+            path: Some(PathLabel::Resolved {
+                protection: None,
+                ..
+            }),
+            runtime_cli: None,
+        }]
+    ));
 }
 
 #[test]
