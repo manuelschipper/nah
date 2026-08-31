@@ -8,6 +8,10 @@
 - **Optional package publish guard** — New default-off `registry-publish`
   blocks reviewed npm-compatible, Cargo, RubyGems, Python, and NuGet
   publication commands while supported dry-run forms continue to delegate.
+- **Registry option scope correction** — Package-runner child options now reach
+  the nested registry command, while missing values, version requests, and
+  unsupported Poetry or Flit operands delegate instead of producing registry
+  effects.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.

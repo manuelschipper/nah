@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1604);
+    assert_eq!(summary.cases, 1608);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
-            ("registry.jsonl".to_owned(), 56),
+            ("registry.jsonl".to_owned(), 60),
             ("secrets.jsonl".to_owned(), 100),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
@@ -224,9 +224,13 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "registry-publish.python-twine",
         "registry-publish.dotnet-nuget",
         "registry-publish.npm-dry-run-delegates",
+        "registry-publish.npx-child-options",
+        "registry-publish.pnpm-dlx-dry-run-delegates",
         "registry-boundary.cargo-yank-delegates",
         "registry-boundary.npm-deprecate-delegates",
         "registry-boundary.dynamic-target-delegates",
+        "registry-boundary.missing-option-value-delegates",
+        "registry-boundary.poetry-operand-delegates",
         "registry-boundary.unknown-option-delegates",
         "shell-resolution.ansi-c-program-threat",
         "shell-resolution.backslash-option-threat",

@@ -152,7 +152,7 @@ fn parse_options_with_boolean_values(
             index += 1;
             continue;
         }
-        if !options || !argument.starts_with('-') || argument == "-" {
+        if !options {
             if argument.is_empty() {
                 return Err(());
             }
@@ -160,61 +160,86 @@ fn parse_options_with_boolean_values(
             index += 1;
             continue;
         }
-        if let Some((name, value)) = split_joined_option(argument) {
-            if boolean_value_options.contains(&name) && parse_bool(value).is_some() {
-                parsed
-                    .options
-                    .push((name.to_owned(), Some(value.to_owned())));
-                index += 1;
-                continue;
+        let Some(consumed) = parse_option_at(
+            &mut parsed,
+            arguments,
+            index,
+            boolean_options,
+            value_options,
+            boolean_value_options,
+        )?
+        else {
+            if argument.is_empty() {
+                return Err(());
             }
-            if value_options.contains(&name) && !value.is_empty() {
-                parsed
-                    .options
-                    .push((name.to_owned(), Some(value.to_owned())));
-                index += 1;
-                continue;
-            }
-            return Err(());
-        }
-        if boolean_options.contains(&argument.as_str()) {
-            parsed.options.push((argument.clone(), None));
+            parsed.positionals.push(argument.clone());
             index += 1;
             continue;
-        }
-        if value_options.contains(&argument.as_str()) {
-            let value = arguments
-                .get(index + 1)
-                .filter(|value| !value.is_empty())
-                .ok_or(())?;
-            parsed.options.push((argument.clone(), Some(value.clone())));
-            index += 2;
-            continue;
-        }
-        if let Some((name, value)) = attached_short_value(argument, value_options) {
+        };
+        index += consumed;
+    }
+    Ok(parsed)
+}
+
+fn parse_option_at(
+    parsed: &mut ParsedOptions,
+    arguments: &[String],
+    index: usize,
+    boolean_options: &[&str],
+    value_options: &[&str],
+    boolean_value_options: &[&str],
+) -> Result<Option<usize>, ()> {
+    let argument = &arguments[index];
+    if !argument.starts_with('-') || argument == "-" {
+        return Ok(None);
+    }
+    if let Some((name, value)) = split_joined_option(argument) {
+        if boolean_value_options.contains(&name) && parse_bool(value).is_some() {
             parsed
                 .options
                 .push((name.to_owned(), Some(value.to_owned())));
-            index += 1;
-            continue;
+            return Ok(Some(1));
         }
-        if let Some(cluster) = argument
-            .strip_prefix('-')
-            .filter(|cluster| !cluster.starts_with('-'))
-            && cluster.len() > 1
-            && cluster
-                .chars()
-                .all(|flag| boolean_options.contains(&format!("-{flag}").as_str()))
-        {
+        if value_options.contains(&name) && !value.is_empty() {
             parsed
                 .options
-                .extend(cluster.chars().map(|flag| (format!("-{flag}"), None)));
-            index += 1;
-            continue;
+                .push((name.to_owned(), Some(value.to_owned())));
+            return Ok(Some(1));
         }
         return Err(());
     }
-    Ok(parsed)
+    if boolean_options.contains(&argument.as_str()) {
+        parsed.options.push((argument.clone(), None));
+        return Ok(Some(1));
+    }
+    if value_options.contains(&argument.as_str()) {
+        let value = arguments
+            .get(index + 1)
+            .filter(|value| !value.is_empty() && !value.starts_with('-'))
+            .ok_or(())?;
+        parsed.options.push((argument.clone(), Some(value.clone())));
+        return Ok(Some(2));
+    }
+    if let Some((name, value)) = attached_short_value(argument, value_options) {
+        parsed
+            .options
+            .push((name.to_owned(), Some(value.to_owned())));
+        return Ok(Some(1));
+    }
+    if let Some(cluster) = argument
+        .strip_prefix('-')
+        .filter(|cluster| !cluster.starts_with('-'))
+        && cluster.len() > 1
+        && cluster
+            .chars()
+            .all(|flag| boolean_options.contains(&format!("-{flag}").as_str()))
+    {
+        parsed
+            .options
+            .extend(cluster.chars().map(|flag| (format!("-{flag}"), None)));
+        return Ok(Some(1));
+    }
+    Err(())
 }
 
 fn split_joined_option(argument: &str) -> Option<(&str, &str)> {
@@ -313,7 +338,7 @@ fn npm(arguments: &[String]) -> Option<Classification> {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
     };
-    if help_requested(&parsed) {
+    if help_requested(&parsed) || parsed.present(&["-v"]) {
         return Some(Classification::control());
     }
     match parsed.positionals.as_slice() {
@@ -383,6 +408,16 @@ const PNPM_VALUE: &[&str] = &[
 ];
 
 fn pnpm(arguments: &[String]) -> Option<Classification> {
+    let wrapper = match parse_wrapper_command(arguments, PNPM_BOOLEAN, PNPM_VALUE) {
+        Ok(wrapper) => wrapper,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if help_requested(&wrapper.options) {
+        return Some(Classification::control());
+    }
+    if wrapper.program == Some("dlx") {
+        return package_wrapper(wrapper.arguments, PNPM_BOOLEAN, PNPM_VALUE);
+    }
     let parsed = match parsed_or_incomplete(arguments, PNPM_BOOLEAN, PNPM_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -396,7 +431,6 @@ fn pnpm(arguments: &[String]) -> Option<Classification> {
         } else {
             Classification::operation(SemanticCode::REGISTRY_PUBLISH)
         }),
-        [command, child, rest @ ..] if command == "dlx" => classify_static(child, rest),
         [command, ..] if command == "publish" || command == "dlx" => {
             Some(Classification::incomplete())
         }
@@ -461,7 +495,7 @@ fn bun(arguments: &[String]) -> Option<Classification> {
     if arguments.first().map(String::as_str) != Some("publish") {
         return None;
     }
-    simple_publish(arguments, BUN_BOOLEAN, BUN_VALUE, false, true)
+    simple_publish(arguments, BUN_BOOLEAN, BUN_VALUE, false, Some(1))
 }
 
 const CARGO_BOOLEAN: &[&str] = &[
@@ -729,7 +763,7 @@ const UV_VALUE: &[&str] = &[
 ];
 
 fn uv(arguments: &[String]) -> Option<Classification> {
-    simple_publish(arguments, UV_BOOLEAN, UV_VALUE, false, false)
+    simple_publish(arguments, UV_BOOLEAN, UV_VALUE, false, None)
 }
 
 const POETRY_BOOLEAN: &[&str] = &["-h", "--build", "--dry-run", "--help", "--skip-existing"];
@@ -746,7 +780,7 @@ const POETRY_VALUE: &[&str] = &[
 ];
 
 fn poetry(arguments: &[String]) -> Option<Classification> {
-    simple_publish(arguments, POETRY_BOOLEAN, POETRY_VALUE, true, false)
+    simple_publish(arguments, POETRY_BOOLEAN, POETRY_VALUE, true, Some(0))
 }
 
 const HATCH_BOOLEAN: &[&str] = &[
@@ -760,7 +794,7 @@ const HATCH_BOOLEAN: &[&str] = &[
 const HATCH_VALUE: &[&str] = &["-a", "-r", "-u", "--auth", "--repo", "--user"];
 
 fn hatch(arguments: &[String]) -> Option<Classification> {
-    simple_publish(arguments, HATCH_BOOLEAN, HATCH_VALUE, false, false)
+    simple_publish(arguments, HATCH_BOOLEAN, HATCH_VALUE, false, None)
 }
 
 const FLIT_BOOLEAN: &[&str] = &[
@@ -774,7 +808,7 @@ const FLIT_BOOLEAN: &[&str] = &[
 const FLIT_VALUE: &[&str] = &["--format", "--pypirc", "--repository"];
 
 fn flit(arguments: &[String]) -> Option<Classification> {
-    simple_publish(arguments, FLIT_BOOLEAN, FLIT_VALUE, true, false)
+    simple_publish(arguments, FLIT_BOOLEAN, FLIT_VALUE, true, Some(0))
 }
 
 fn simple_publish(
@@ -782,7 +816,7 @@ fn simple_publish(
     boolean_options: &[&str],
     value_options: &[&str],
     honors_dry_run: bool,
-    at_most_one_operand: bool,
+    maximum_operands: Option<usize>,
 ) -> Option<Classification> {
     let parsed = match parsed_or_incomplete(arguments, boolean_options, value_options) {
         Ok(parsed) => parsed,
@@ -797,7 +831,7 @@ fn simple_publish(
     if command != "publish" {
         return None;
     }
-    if at_most_one_operand && operands.len() > 1 {
+    if maximum_operands.is_some_and(|maximum| operands.len() > maximum) {
         return Some(Classification::incomplete());
     }
     Some(if honors_dry_run && parsed.boolean("--dry-run") {
@@ -915,20 +949,61 @@ fn package_wrapper(
     boolean_options: &[&str],
     value_options: &[&str],
 ) -> Option<Classification> {
-    let parsed = match parsed_or_incomplete(arguments, boolean_options, value_options) {
-        Ok(parsed) => parsed,
-        Err(classification) => return Some(classification),
+    let wrapper = match parse_wrapper_command(arguments, boolean_options, value_options) {
+        Ok(wrapper) => wrapper,
+        Err(()) => return Some(Classification::incomplete()),
     };
-    if help_requested(&parsed) {
+    if help_requested(&wrapper.options) {
         return Some(Classification::control());
     }
-    let [program, arguments @ ..] = parsed.positionals.as_slice() else {
+    let Some(program) = wrapper.program else {
         return Some(Classification::incomplete());
     };
     if !registry_program(program) {
         return None;
     }
-    classify_static(program, arguments)
+    classify_static(program, wrapper.arguments)
+}
+
+struct WrapperCommand<'a> {
+    options: ParsedOptions,
+    program: Option<&'a str>,
+    arguments: &'a [String],
+}
+
+fn parse_wrapper_command<'a>(
+    arguments: &'a [String],
+    boolean_options: &[&str],
+    value_options: &[&str],
+) -> Result<WrapperCommand<'a>, ()> {
+    let mut parsed = ParsedOptions::default();
+    let mut index = 0;
+    while let Some(argument) = arguments.get(index) {
+        if argument == "--" {
+            index += 1;
+            break;
+        }
+        let Some(consumed) = parse_option_at(
+            &mut parsed,
+            arguments,
+            index,
+            boolean_options,
+            value_options,
+            &[],
+        )?
+        else {
+            if argument.is_empty() {
+                return Err(());
+            }
+            break;
+        };
+        index += consumed;
+    }
+    Ok(WrapperCommand {
+        options: parsed,
+        program: arguments.get(index).map(String::as_str),
+        arguments: arguments.get(index + 1..).unwrap_or(&[]),
+    })
 }
 
 fn static_arguments(arguments: &[Word]) -> Option<Vec<String>> {
