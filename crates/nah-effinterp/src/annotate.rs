@@ -134,13 +134,9 @@ fn annotate_path(
 
 fn annotate_process(plan: &Plan, effect: &Effect, ctx: &Ctx) -> Option<String> {
     let ResourceExpr::Concrete {
-        identity:
-            ResourceIdentity::Process {
-                executable,
-                path,
-                argv,
-                ..
-            },
+        identity: ResourceIdentity::Process {
+            executable, argv, ..
+        },
     } = &effect.resource
     else {
         return None;
@@ -155,14 +151,8 @@ fn annotate_process(plan: &Plan, effect: &Effect, ctx: &Ctx) -> Option<String> {
         argv
     };
     let argv = literal_argv(argv)?;
-    let recognized = runtime_cli::classify(executable, &argv, ctx.home(), ctx.platform());
-    recognized
+    runtime_cli::classify(executable, &argv, ctx.home(), ctx.platform())
         .map(|runtime| runtime.as_str().to_owned())
-        .or_else(|| {
-            path.as_deref()
-                .filter(|path| tier::process_is_critical(path, ctx.home(), ctx.platform()))
-                .map(|_| "nah".to_owned())
-        })
 }
 
 fn literal_argv(argv: &[ResourceExpr]) -> Option<Vec<String>> {

@@ -113,6 +113,12 @@ fn runtime(program: &str) -> Option<RuntimeCli> {
 }
 
 fn runtime_mutation(program: &str, words: &[String]) -> bool {
+    let exact_or_child = |value: &str, parent: &str| {
+        value == parent
+            || value
+                .strip_prefix(parent)
+                .is_some_and(|suffix| suffix.starts_with(['.', '[']))
+    };
     let names_nah = |word: Option<&String>| {
         word.is_some_and(|word| matches!(word.as_str(), "nah" | "nah.ts" | "nah.json"))
     };
@@ -122,21 +128,53 @@ fn runtime_mutation(program: &str, words: &[String]) -> bool {
                 && matches!(parts[1].as_str(), "remove" | "rm")
                 && names_nah(parts.get(2))
         }),
-        "agy" | "antigravity" | "droid" => words.windows(3).any(|parts| {
+        "agy" => words.windows(3).any(|parts| {
             parts[0] == "plugin"
-                && matches!(parts[1].as_str(), "disable" | "remove" | "uninstall")
+                && matches!(parts[1].as_str(), "disable" | "uninstall")
                 && names_nah(parts.get(2))
         }),
+        "droid" => words.windows(3).any(|parts| {
+            parts[0] == "plugin"
+                && matches!(parts[1].as_str(), "remove" | "uninstall")
+                && names_nah(parts.get(2))
+        }),
+        "hermes" => {
+            words.windows(3).any(|parts| {
+                parts[0] == "hooks"
+                    && matches!(parts[1].as_str(), "revoke" | "remove" | "rm")
+                    && parts[2] == "nah hook hermes run"
+            }) || words.windows(3).any(|parts| {
+                parts[0] == "config"
+                    && matches!(parts[1].as_str(), "set" | "unset")
+                    && exact_or_child(&parts[2], "hooks.pre_tool_call")
+            })
+        }
         "copilot" => words.windows(3).any(|parts| {
             matches!(parts[0].as_str(), "plugin" | "plugins")
                 && matches!(parts[1].as_str(), "disable" | "remove" | "uninstall")
                 && names_nah(parts.get(2))
         }),
-        "openclaw" => words.windows(3).any(|parts| {
-            parts[0] == "plugins"
-                && matches!(parts[1].as_str(), "disable" | "uninstall")
-                && names_nah(parts.get(2))
-        }),
+        "openclaw" => {
+            words.windows(3).any(|parts| {
+                parts[0] == "plugins"
+                    && matches!(parts[1].as_str(), "disable" | "uninstall")
+                    && names_nah(parts.get(2))
+            }) || words.windows(4).any(|parts| {
+                parts[0] == "plugins"
+                    && parts[1] == "uninstall"
+                    && parts[2] == "--force"
+                    && names_nah(parts.get(3))
+            }) || words.windows(4).any(|parts| {
+                parts[0] == "config"
+                    && parts[1] == "set"
+                    && parts[2] == "plugins.enabled"
+                    && parts[3] == "false"
+            }) || words.windows(3).any(|parts| {
+                parts[0] == "config"
+                    && parts[1] == "unset"
+                    && exact_or_child(&parts[2], "plugins.entries.nah")
+            })
+        }
         _ => false,
     }
 }
@@ -156,8 +194,9 @@ fn runtime_launch_bypass(program: &str, words: &[String], home: &str, platform: 
     };
     match program {
         "claude" => has_option("--safe-mode") || has_option("--bare"),
-        "cline" => option_value("--config")
-            .is_some_and(|value| !same_path(value, &format!("{home}/.cline"), platform)),
+        "cline" => option_value("--config").is_some_and(|value| {
+            !value.is_empty() && !same_path(value, &format!("{home}/.cline"), platform)
+        }),
         "codex" => {
             words
                 .windows(2)
@@ -170,10 +209,11 @@ fn runtime_launch_bypass(program: &str, words: &[String], home: &str, platform: 
             } else {
                 ".config/devin/config.json"
             };
-            !same_path(value, &format!("{home}/{relative}"), platform)
+            !value.is_empty() && !same_path(value, &format!("{home}/{relative}"), platform)
         }),
         "droid" => option_value("--settings").is_some_and(|value| {
-            !same_path(value, &format!("{home}/.factory/settings.json"), platform)
+            !value.is_empty()
+                && !same_path(value, &format!("{home}/.factory/settings.json"), platform)
         }),
         "hermes" => has_option("--safe-mode") || has_option("--ignore-user-config"),
         "openclaw" => {

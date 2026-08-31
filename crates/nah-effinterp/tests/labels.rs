@@ -914,8 +914,38 @@ fn runtime_plugin_mutations_are_recognized() {
             RuntimeCli::Copilot,
         ),
         (
+            "hermes",
+            &["hooks", "revoke", "nah hook hermes run"][..],
+            RuntimeCli::Hermes,
+        ),
+        (
+            "hermes",
+            &["config", "unset", "hooks.pre_tool_call.0"][..],
+            RuntimeCli::Hermes,
+        ),
+        (
+            "hermes",
+            &["config", "set", "hooks.pre_tool_call.x"][..],
+            RuntimeCli::Hermes,
+        ),
+        (
             "openclaw",
             &["plugins", "uninstall", "nah", "--force"][..],
+            RuntimeCli::Openclaw,
+        ),
+        (
+            "openclaw",
+            &["plugins", "uninstall", "--force", "nah"][..],
+            RuntimeCli::Openclaw,
+        ),
+        (
+            "openclaw",
+            &["config", "set", "plugins.enabled", "false"][..],
+            RuntimeCli::Openclaw,
+        ),
+        (
+            "openclaw",
+            &["config", "unset", "plugins.entries.nah"][..],
             RuntimeCli::Openclaw,
         ),
     ] {
@@ -928,7 +958,11 @@ fn runtime_plugin_mutations_are_recognized() {
     for (program, arguments) in [
         ("amp", &["plugins", "add", "@owner/example"][..]),
         ("agy", &["plugin", "disable", "unsafe"][..]),
+        ("agy", &["plugin", "remove", "nah"][..]),
+        ("antigravity", &["plugin", "disable", "nah"][..]),
+        ("droid", &["plugin", "disable", "nah"][..]),
         ("droid", &["plugin", "list"][..]),
+        ("hermes", &["hooks", "revoke", "other-hook"][..]),
         ("copilot", &["plugin", "install", "unsafe@example"][..]),
         ("openclaw", &["plugins", "update", "nah"][..]),
     ] {
@@ -946,6 +980,7 @@ fn runtime_launch_bypasses_are_recognized() {
     for (program, arguments, expected) in [
         ("claude", &["--safe-mode"][..], RuntimeCli::Claude),
         ("claude", &["--bare"][..], RuntimeCli::Claude),
+        ("cline", &["--config", "/tmp/other"][..], RuntimeCli::Cline),
         ("codex", &["--disable", "hooks"][..], RuntimeCli::Codex),
         (
             "devin",
@@ -979,6 +1014,19 @@ fn runtime_launch_bypasses_are_recognized() {
         );
     }
     for (program, arguments) in [
+        ("cline", &["--config", ""][..]),
+        ("cline", &["--config="][..]),
+        ("cline", &["--config", "/home/test/.cline"][..]),
+        ("devin", &["--config", ""][..]),
+        (
+            "devin",
+            &["--config", "/home/test/.config/devin/config.json"][..],
+        ),
+        ("droid", &["--settings", ""][..]),
+        (
+            "droid",
+            &["--settings", "/home/test/.factory/settings.json"][..],
+        ),
         ("openclaw", &["--profile", "default"][..]),
         (
             "droid",
@@ -1001,6 +1049,7 @@ fn help_and_version_argv_never_recognize_a_runtime() {
         ("nah", &["trust", ".", "--help"][..]),
         ("nah", &["hook", "codex", "install", "--help"][..]),
         ("claude", &["--safe-mode", "--help"][..]),
+        ("hermes", &["--safe-mode", "--version"][..]),
         ("opencode", &["--pure", "--version"][..]),
     ] {
         assert_eq!(

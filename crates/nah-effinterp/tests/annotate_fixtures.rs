@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use effinterp_proto::{ResourceExpr, ResourceIdentity};
 use nah_effinterp::{annotate, request};
 use nah_proto::action_v2::{EffectAnnotation, PathLabel};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
@@ -241,4 +242,36 @@ fn container_realm_effects_carry_no_labels_while_host_effects_do() {
 #[test]
 fn a_filesystem_target_without_host_context_is_unresolved() {
     assert_fixture("unresolved-dir");
+}
+
+#[test]
+fn installed_nah_binary_with_read_only_argv_is_not_a_runtime_mutation() {
+    let mut fixture = AnnotationFixture::load("cat-dotenv");
+    fixture.plan.effects.truncate(1);
+    let ResourceExpr::Concrete {
+        identity:
+            ResourceIdentity::Process {
+                executable,
+                path,
+                argv,
+                ..
+            },
+    } = &mut fixture.plan.effects[0].resource
+    else {
+        panic!("fixture process effect is not concrete");
+    };
+    *executable = "nah".to_owned();
+    *path = Some("/home/test/.local/bin/nah".to_owned());
+    *argv = vec![ResourceExpr::Literal {
+        value: "docs".to_owned(),
+    }];
+
+    let ctx = fixture.context();
+    let call_site = CallSite::new(fixture.context.platform, &fixture.observation.cwd).unwrap();
+    let request = request(&fixture.plan, &call_site);
+    let observation = fixture.observation(&request);
+    assert_eq!(
+        annotate(&fixture.plan, &observation, &ctx, &[]),
+        vec![EffectAnnotation::default()]
+    );
 }
