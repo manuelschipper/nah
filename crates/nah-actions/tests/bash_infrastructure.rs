@@ -268,6 +268,27 @@ fn visible_path_overrides_do_not_gain_infrastructure_tool_identity() {
 }
 
 #[test]
+fn env_clearing_drops_outer_prefix_state_before_wrapped_destroy() {
+    for source in [
+        "PATH=/tmp /usr/bin/env -i terraform destroy",
+        "PATH=/tmp /usr/bin/env --ignore-environment pulumi destroy --yes",
+        "PATH=/tmp /usr/bin/env -u PATH tofu apply -destroy",
+        "TF_CLI_ARGS=-target=module.web /usr/bin/env -i /usr/bin/terraform destroy",
+        "TF_CLI_ARGS_destroy=-target=module.web /usr/bin/env -u TF_CLI_ARGS_destroy /usr/bin/terraform destroy",
+        "export TF_CLI_ARGS=-target=module.web; /usr/bin/env -i /usr/bin/terraform destroy",
+    ] {
+        assert!(destroys_whole_stack(source), "{source}");
+    }
+
+    for source in [
+        "PATH=/tmp /usr/bin/env -i PATH=/tmp terraform destroy",
+        "TF_CLI_ARGS=-target=module.web /usr/bin/env -i TF_CLI_ARGS=-target=module.web /usr/bin/terraform destroy",
+    ] {
+        assert!(!destroys_whole_stack(source), "{source}");
+    }
+}
+
+#[test]
 fn adjacent_infrastructure_tools_and_subcommands_do_not_gain_destroy_evidence() {
     for source in [
         "terragrunt destroy",

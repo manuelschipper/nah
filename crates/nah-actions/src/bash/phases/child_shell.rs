@@ -49,6 +49,9 @@ impl Lowerer {
         self.state.positional_zero = None;
         self.state.positionals.clear();
         for ((name, word), update) in assignments.iter().zip(updates.iter().cloned()) {
+            if program.is_some_and(|program| wrapper_clears_environment(program, arguments, name)) {
+                continue;
+            }
             self.apply_assignment_update(name, update, false);
             self.update_descriptor_assignment(name, word.raw());
             if let Some(binding) = self
