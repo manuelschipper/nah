@@ -85,6 +85,7 @@ fn terraform(
         command_arguments.append(&mut words);
     }
     command_arguments.extend_from_slice(&arguments[command_index + 1..]);
+    normalize_terraform_double_dash_options(&mut command_arguments);
     if command_arguments
         .iter()
         .any(|argument| terraform_version(argument))
@@ -141,12 +142,17 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
         "-target-file",
     ];
     const VALUE_OPTIONS: &[&str] = &["-backup", "-state", "-state-out", "-var-file"];
-    const BOOLEAN_OPTIONS: &[&str] = &["-auto-approve", "-input", "-json", "-lock", "-refresh"];
+    const BOOLEAN_OPTIONS: &[&str] = &["-auto-approve", "-input", "-lock"];
 
     let mut index = 0;
     let mut destroy = subcommand == "destroy";
+    let mut destroy_mode_flag = false;
     let mut options = true;
+    let mut refresh = true;
     let mut refresh_only = false;
+    let mut minimal_refresh = false;
+    let mut json = false;
+    let mut json_into = false;
     while let Some(argument) = arguments.get(index) {
         if options && argument == "--" {
             options = false;
@@ -171,6 +177,8 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             };
             if subcommand == "apply" {
                 destroy = value;
+            } else {
+                destroy_mode_flag = value;
             }
             index += 1;
             continue;
@@ -183,6 +191,32 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             index += 1;
             continue;
         }
+        if let Some(value) = boolean_option(argument, "-refresh") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            refresh = value;
+            index += 1;
+            continue;
+        }
+        if program == "terraform"
+            && let Some(value) = boolean_option(argument, "-minimal-refresh")
+        {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            minimal_refresh = value;
+            index += 1;
+            continue;
+        }
+        if let Some(value) = boolean_option(argument, "-json") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            json = value;
+            index += 1;
+            continue;
+        }
         if let Some(value) = BOOLEAN_OPTIONS
             .iter()
             .find_map(|name| boolean_option(argument, name))
@@ -191,6 +225,15 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
                 return Classification::incomplete();
             }
             index += 1;
+            continue;
+        }
+        if program == "terraform"
+            && let Some(consumed) = value_option(arguments, index, &["-policies"])
+        {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            index += consumed;
             continue;
         }
         if matches!(argument.as_str(), "-compact-warnings" | "-no-color") {
@@ -241,14 +284,29 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             continue;
         }
         if program == "tofu"
-            && let Some(value) = ["-concise", "-consolidate-errors"]
-                .iter()
-                .find_map(|name| boolean_option(argument, name))
+            && let Some(value) = [
+                "-concise",
+                "-consolidate-errors",
+                "-consolidate-warnings",
+                "-suppress-forget-errors",
+            ]
+            .iter()
+            .find_map(|name| boolean_option(argument, name))
         {
             if value.is_none() {
                 return Classification::incomplete();
             }
             index += 1;
+            continue;
+        }
+        if program == "tofu"
+            && let Some(consumed) = value_option(arguments, index, &["-json-into"])
+        {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            json_into = true;
+            index += consumed;
             continue;
         }
         if let Some(consumed) = value_option(arguments, index, &["-var"]) {
@@ -279,7 +337,18 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
         // `apply` positional operands are opaque saved plans. `destroy` has no operands.
         return Classification::complete(false);
     }
+    if destroy_mode_flag || minimal_refresh && !refresh || program == "tofu" && json && json_into {
+        return Classification::incomplete();
+    }
     Classification::complete(destroy && !refresh_only)
+}
+
+fn normalize_terraform_double_dash_options(arguments: &mut [String]) {
+    for argument in arguments {
+        if argument != "--" && argument.starts_with("--") {
+            argument.remove(0);
+        }
+    }
 }
 
 fn pulumi(arguments: &[Word]) -> Option<Classification> {
@@ -664,10 +733,18 @@ fn pulumi_value_option(
     index: usize,
     global_only: bool,
 ) -> Option<Result<usize, ()>> {
-    const GLOBAL: &[&str] = &["--cwd", "--profiling", "--tracing", "-C"];
+    const GLOBAL: &[&str] = &[
+        "--cwd",
+        "--otel-traces",
+        "--profiling",
+        "--tracing",
+        "--tracing-header",
+        "-C",
+    ];
     const DESTROY: &[&str] = &[
         "--config",
         "--config-file",
+        "--exec-kind",
         "--message",
         "--stack",
         "-c",
@@ -902,6 +979,7 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
     const DESTROY: &[&str] = &[
         "--config-path",
         "--continue-on-error",
+        "--copilot",
         "--debug",
         "--diff",
         "--neo",
