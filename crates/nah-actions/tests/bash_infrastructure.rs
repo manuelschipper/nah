@@ -30,7 +30,9 @@ fn terraform_and_tofu_whole_stack_destroy_forms_are_recognized() {
         "tofu -chdir=environments/dev apply -destroy -lock-timeout 30s",
         "terraform destroy -parallelism=4 -var region=local -var-file=dev.tfvars",
         "terraform destroy -parallelism 4",
+        "terraform destroy -lock-timeout=1h30m",
         "terraform apply -refresh-only -refresh-only=false -destroy",
+        "tofu destroy -show-sensitive -deprecation=all",
         "/bin/terraform destroy",
         "/sbin/tofu apply -destroy",
         "/usr/bin/terraform destroy",
@@ -48,6 +50,7 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS_apply='-destroy -auto-approve' terraform apply",
         "TF_CLI_ARGS='-destroy' TF_CLI_ARGS_apply='-lock-timeout 5s' tofu apply",
         "TF_CLI_ARGS_apply='-refresh-only' terraform apply -refresh-only=false -destroy",
+        "TF_CLI_ARGS='-destroy' TF_CLI_ARGS_apply='-destroy=false' terraform apply",
         "TF_CLI_ARGS_destroy='-auto-approve' sudo terraform destroy",
         "env TF_CLI_ARGS_apply=-destroy terraform apply",
     ] {
@@ -60,6 +63,7 @@ fn visible_terraform_cli_argument_assignments_are_folded() {
         "TF_CLI_ARGS_apply='-destroy -exclude module.keep' tofu apply",
         "TF_CLI_ARGS_destroy='-tar\"\"get module.web' terraform destroy",
         "TF_CLI_ARGS_destroy=\"$ARGS\" terraform destroy",
+        "TF_CLI_ARGS='-destroy=false' TF_CLI_ARGS_apply='-destroy' terraform apply",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
     }
@@ -74,6 +78,7 @@ fn pulumi_whole_stack_destroy_aliases_and_execution_flags_are_recognized() {
         "pulumi destroy --stack dev",
         "pulumi destroy -s=dev --remove --run-program",
         "pulumi -v 3 destroy",
+        "pulumi --memprofilerate=1 destroy",
         "pulumi --cwd /repo destroy --parallel=4",
         "pulumi destroy --parallel 4",
         "pulumi destroy --cwd=/repo --remote --remote-agent-pool-id pool",
@@ -81,6 +86,9 @@ fn pulumi_whole_stack_destroy_aliases_and_execution_flags_are_recognized() {
         "pulumi destroy --exclude-protected=false --yes",
         "pulumi destroy --preview-only --preview-only=false --yes",
         "pulumi destroy --urns --yes",
+        "pulumi destroy --ignore-protect --yes",
+        "pulumi destroy --target-dependents --yes",
+        "pulumi destroy --target-dependents=false --yes",
         "pulumi destroy https://github.com/example/project",
         "timeout 5 pulumi destroy -yf",
         "/bin/pulumi destroy",
@@ -108,6 +116,9 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "terraform destroy -parallelism",
         "terraform destroy -parallelism nope",
         "terraform destroy -parallelism=nope",
+        "terraform destroy -lock-timeout nope",
+        "terraform destroy -show-sensitive",
+        "terraform destroy -deprecation=all",
         "terraform -chdir environments/dev destroy",
         "tofu -chdir environments/dev apply -destroy",
         "terraform apply -refresh-only=false -refresh-only -destroy",
@@ -122,6 +133,9 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "pulumi destroy --stack",
         "pulumi destroy --parallel nope",
         "pulumi destroy --parallel=nope",
+        "pulumi -v nope destroy",
+        "pulumi --verbose=nope destroy",
+        "pulumi --memprofilerate nope destroy",
         "pulumi destroy --unknown-selection=value",
         "pulumi destroy one two",
         "pulumi \"$COMMAND\"",
@@ -129,6 +143,16 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "/tmp/terraform destroy",
         "./tofu apply -destroy",
         "/usr/local/bin/pulumi destroy",
+    ] {
+        assert!(!destroys_whole_stack(source), "{source}");
+    }
+}
+
+#[test]
+fn visible_path_overrides_do_not_gain_infrastructure_tool_identity() {
+    for source in [
+        "env PATH=/tmp/bin terraform destroy",
+        "env PATH=/tmp/bin pulumi destroy --yes",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
     }
