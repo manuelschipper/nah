@@ -53,6 +53,9 @@ fn terraform(
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
     };
+    if arguments.iter().any(|argument| terraform_version(argument)) {
+        return Some(Classification::complete(false));
+    }
     let (subcommand, command_index) = match terraform_subcommand(&arguments) {
         TerraformCommand::Relevant(subcommand, index) => (subcommand, index),
         TerraformCommand::Other => return None,
@@ -228,6 +231,17 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             index += 1;
             continue;
         }
+        if program == "tofu"
+            && let Some(value) = ["-concise", "-consolidate-errors"]
+                .iter()
+                .find_map(|name| boolean_option(argument, name))
+        {
+            if value.is_none() {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
         if let Some(consumed) = value_option(arguments, index, VALUE_OPTIONS) {
             let Ok(consumed) = consumed else {
                 return Classification::incomplete();
@@ -248,7 +262,7 @@ fn pulumi(arguments: &[Word]) -> Option<Classification> {
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
     };
-    let (subcommand, command_index, help) = match pulumi_subcommand(&arguments) {
+    let (subcommand, command_index, help, version) = match pulumi_subcommand(&arguments) {
         Ok(Some(subcommand)) => subcommand,
         Ok(None) => return None,
         Err(()) => return Some(Classification::incomplete()),
@@ -257,12 +271,14 @@ fn pulumi(arguments: &[Word]) -> Option<Classification> {
         subcommand,
         &arguments[command_index + 1..],
         help,
+        version,
     ))
 }
 
-fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool)>, ()> {
+fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool, bool)>, ()> {
     let mut index = 0;
     let mut help = false;
+    let mut version = false;
     while let Some(argument) = arguments.get(index) {
         if pulumi_nonexecuting_option(argument) {
             return Ok(None);
@@ -270,6 +286,15 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool)>
         if let Some(value) = pulumi_help_option(argument) {
             help = value.ok_or(())?;
             index += 1;
+            continue;
+        }
+        if let Some(value) = pulumi_version_option(argument) {
+            version = value.ok_or(())?;
+            index += 1;
+            continue;
+        }
+        if let Some(consumed) = pulumi_short_option_cluster(arguments, index, true) {
+            index += consumed?;
             continue;
         }
         if let Some(consumed) = pulumi_value_option(arguments, index, true) {
@@ -287,7 +312,7 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool)>
             return Err(());
         }
         return match argument.as_str() {
-            "destroy" | "down" | "dn" => Ok(Some((argument, index, help))),
+            "destroy" | "down" | "dn" => Ok(Some((argument, index, help, version))),
             "version" => Ok(None),
             _ => Ok(None),
         };
@@ -295,17 +320,33 @@ fn pulumi_subcommand(arguments: &[String]) -> Result<Option<(&str, usize, bool)>
     Err(())
 }
 
-fn pulumi_destroy(_subcommand: &str, arguments: &[String], mut help: bool) -> Classification {
+fn pulumi_destroy(
+    _subcommand: &str,
+    arguments: &[String],
+    mut help: bool,
+    mut version: bool,
+) -> Classification {
     const SELECTORS: &[&str] = &["--exclude", "--target", "-t", "-x"];
     const SELECTION_FLAGS: &[&str] = &["--exclude-protected", "--preview-only"];
 
     let mut index = 0;
-    let mut operand = false;
     let mut options = true;
     let mut selection_flags = [false; SELECTION_FLAGS.len()];
+    let mut exclude_protected_changed = false;
+    let mut ignore_protect_changed = false;
+    let mut json_changed = false;
+    let mut output_changed = false;
     while let Some(argument) = arguments.get(index) {
         if options && argument == "--" {
             options = false;
+            index += 1;
+            continue;
+        }
+        if options && let Some(value) = pulumi_version_option(argument) {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            version = value;
             index += 1;
             continue;
         }
@@ -339,8 +380,58 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String], mut help: bool) -> Cl
             let Some(value) = value else {
                 return Classification::incomplete();
             };
+            if flag_index == 0 {
+                exclude_protected_changed = true;
+                if ignore_protect_changed {
+                    return Classification::incomplete();
+                }
+            }
             selection_flags[flag_index] = value;
             index += 1;
+            continue;
+        }
+        if options && let Some(value) = boolean_option(argument, "--ignore-protect") {
+            if value.is_none() {
+                return Classification::incomplete();
+            }
+            ignore_protect_changed = true;
+            if exclude_protected_changed {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
+        if options
+            && let Some(value) = ["--json", "-j"]
+                .iter()
+                .find_map(|name| boolean_option(argument, name))
+        {
+            if value.is_none() {
+                return Classification::incomplete();
+            }
+            json_changed = true;
+            if output_changed {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
+        if options && let Some(consumed) = pulumi_output_option(arguments, index) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            output_changed = true;
+            if json_changed {
+                return Classification::incomplete();
+            }
+            index += consumed;
+            continue;
+        }
+        if options && let Some(consumed) = pulumi_short_option_cluster(arguments, index, false) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            index += consumed;
             continue;
         }
         if options && let Some(consumed) = pulumi_value_option(arguments, index, false) {
@@ -367,13 +458,11 @@ fn pulumi_destroy(_subcommand: &str, arguments: &[String], mut help: bool) -> Cl
         if options && argument.starts_with('-') {
             return Classification::incomplete();
         }
-        if operand {
-            return Classification::incomplete();
-        }
-        operand = true;
-        index += 1;
+        return Classification::incomplete();
     }
-    Classification::complete(!help && !selection_flags.into_iter().any(|selected| selected))
+    Classification::complete(
+        !help && !version && !selection_flags.into_iter().any(|selected| selected),
+    )
 }
 
 fn static_arguments(arguments: &[Word]) -> Option<Vec<String>> {
@@ -390,14 +479,22 @@ fn help_or_version(argument: &str) -> bool {
     )
 }
 
+fn terraform_version(argument: &str) -> bool {
+    matches!(argument, "-v" | "--version" | "-version")
+}
+
 fn pulumi_nonexecuting_option(argument: &str) -> bool {
-    matches!(argument, "-help" | "--version" | "-version")
+    matches!(argument, "-help" | "-version")
 }
 
 fn pulumi_help_option(argument: &str) -> Option<Option<bool>> {
     ["--help", "-h"]
         .iter()
         .find_map(|name| boolean_option(argument, name))
+}
+
+fn pulumi_version_option(argument: &str) -> Option<Option<bool>> {
+    boolean_option(argument, "--version")
 }
 
 fn option_name<'a>(argument: &str, names: &'a [&str]) -> Option<&'a str> {
@@ -580,9 +677,8 @@ fn pulumi_value_option(
         &["-v"],
     ) {
         return Some(
-            result.and_then(|(consumed, value)| {
-                value.parse::<i32>().map(|_| consumed).map_err(|_| ())
-            }),
+            result
+                .and_then(|(consumed, value)| parse_pulumi_i32(value).map(|_| consumed).ok_or(())),
         );
     }
     if global_only {
@@ -591,14 +687,137 @@ fn pulumi_value_option(
         pulumi_raw_value_option(arguments, index, &["--parallel", "-p"], &["-p"])
     {
         Some(
-            result.and_then(|(consumed, value)| {
-                value.parse::<i32>().map(|_| consumed).map_err(|_| ())
-            }),
+            result
+                .and_then(|(consumed, value)| parse_pulumi_i32(value).map(|_| consumed).ok_or(())),
         )
     } else {
         pulumi_raw_value_option(arguments, index, DESTROY, &["-c", "-m", "-s"])
             .map(|result| result.map(|(consumed, _)| consumed))
     }
+}
+
+fn parse_pulumi_i32(value: &str) -> Option<i32> {
+    if !valid_go_integer_underscores(value) {
+        return None;
+    }
+    let (negative, value) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    if value.is_empty() {
+        return None;
+    }
+    let (radix, digits) = if let Some(digits) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        (16, digits)
+    } else if let Some(digits) = value
+        .strip_prefix("0b")
+        .or_else(|| value.strip_prefix("0B"))
+    {
+        (2, digits)
+    } else if let Some(digits) = value
+        .strip_prefix("0o")
+        .or_else(|| value.strip_prefix("0O"))
+    {
+        (8, digits)
+    } else if value.len() > 1 && value.starts_with('0') {
+        (8, &value[1..])
+    } else {
+        (10, value)
+    };
+    if digits.is_empty() {
+        return None;
+    }
+    let digits = digits.replace('_', "");
+    let magnitude = i64::from_str_radix(&digits, radix).ok()?;
+    let signed = if negative { -magnitude } else { magnitude };
+    i32::try_from(signed).ok()
+}
+
+fn valid_go_integer_underscores(value: &str) -> bool {
+    let value = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let prefix_len = usize::from(
+        value.len() >= 2
+            && value.starts_with('0')
+            && matches!(value.as_bytes()[1], b'b' | b'B' | b'o' | b'O' | b'x' | b'X'),
+    ) * 2;
+    let mut digit_before = prefix_len > 0;
+    for character in value[prefix_len..].chars() {
+        if character == '_' {
+            if !digit_before {
+                return false;
+            }
+            digit_before = false;
+        } else {
+            digit_before = true;
+        }
+    }
+    digit_before
+}
+
+fn pulumi_short_option_cluster(
+    arguments: &[String],
+    index: usize,
+    global_only: bool,
+) -> Option<Result<usize, ()>> {
+    let argument = &arguments[index];
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.len() < 2 {
+        return None;
+    }
+    let boolean_flags = if global_only { "eQ" } else { "eQdfjy" };
+    if !boolean_flags.contains(cluster.chars().next().expect("nonempty cluster")) {
+        return None;
+    }
+    let mut options = cluster.char_indices().peekable();
+    while let Some((_, option)) = options.next() {
+        if boolean_flags.contains(option) {
+            let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
+            if let Some(value) = cluster[value_start..].strip_prefix('=') {
+                return Some(parse_go_bool(value).map(|_| 1).ok_or(()));
+            }
+            continue;
+        }
+        let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
+        let attached = cluster[value_start..]
+            .strip_prefix('=')
+            .unwrap_or(&cluster[value_start..]);
+        if option == 'r' && !global_only && attached.is_empty() {
+            return Some(Ok(1));
+        }
+        let (consumed, value) = if attached.is_empty() {
+            (2, arguments.get(index + 1)?.as_str())
+        } else {
+            (1, attached)
+        };
+        let valid = match option {
+            'C' | 'c' | 'm' | 's' if !global_only || option == 'C' => !value.is_empty(),
+            'v' => parse_pulumi_i32(value).is_some(),
+            'p' if !global_only => parse_pulumi_i32(value).is_some(),
+            'r' if !global_only => parse_go_bool(value).is_some(),
+            _ => false,
+        };
+        return Some(valid.then_some(consumed).ok_or(()));
+    }
+    Some(Ok(1))
+}
+
+fn pulumi_output_option(arguments: &[String], index: usize) -> Option<Result<usize, ()>> {
+    value_option(arguments, index, &["--output"]).map(|result| {
+        result.and_then(|consumed| {
+            let value = if consumed == 2 {
+                &arguments[index + 1]
+            } else {
+                arguments[index].split_once('=').expect("joined option").1
+            };
+            matches!(value, "default" | "json")
+                .then_some(consumed)
+                .ok_or(())
+        })
+    })
 }
 
 fn pulumi_raw_value_option<'a>(
@@ -663,8 +882,6 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
         "--continue-on-error",
         "--debug",
         "--diff",
-        "--json",
-        "--ignore-protect",
         "--neo",
         "--remove",
         "--run-program",
@@ -672,6 +889,8 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
         "--show-full-output",
         "--show-replacement-steps",
         "--show-sames",
+        "--skip-config-validation",
+        "--skip-plugin-pre-install",
         "--skip-preview",
         "--suppress-outputs",
         "--suppress-progress",
@@ -694,25 +913,17 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
             return Some(value.is_some());
         }
     }
-    if argument.starts_with('-') && !argument.starts_with("--") {
-        let flags = if global_only { "eQ" } else { "eQdfjy" };
-        return Some(argument[1..].chars().all(|flag| flags.contains(flag)));
-    }
     None
 }
 
 /// Terraform parses `TF_CLI_ARGS*` as shell-like words after the subcommand.
-/// This accepts only the quote and escape forms whose exact argv is visible.
+/// This accepts only shell-word forms whose exact argv is visible.
 fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
-    #[derive(Clone, Copy, Eq, PartialEq)]
-    enum Quote {
-        None,
-        Single,
-        Double,
-    }
-
-    let mut quote = Quote::None;
     let mut escaped = false;
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut back_quoted = false;
+    let mut dollar_quoted = false;
     let mut words = Vec::new();
     let mut word = String::new();
     let mut started = false;
@@ -723,31 +934,67 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
             escaped = false;
             continue;
         }
-        match (quote, character) {
-            (Quote::None, character) if character.is_ascii_whitespace() => {
-                if started {
-                    words.push(std::mem::take(&mut word));
-                    started = false;
+        if character == '\\' {
+            if single_quoted {
+                word.push(character);
+                started = true;
+            } else {
+                escaped = true;
+            }
+            continue;
+        }
+        if character.is_ascii_whitespace() {
+            if single_quoted || double_quoted || back_quoted || dollar_quoted {
+                word.push(character);
+                started = true;
+            } else if started {
+                words.push(std::mem::take(&mut word));
+                started = false;
+            }
+            continue;
+        }
+        match character {
+            '`' if !single_quoted && !double_quoted && !dollar_quoted => {
+                back_quoted = !back_quoted;
+                word.push(character);
+                started = true;
+            }
+            '(' if !single_quoted && !double_quoted && !back_quoted => {
+                if dollar_quoted || !word.ends_with('$') {
+                    return None;
                 }
-            }
-            (Quote::None, ';' | '&' | '|' | '<' | '>') => break,
-            (Quote::None, '\\') | (Quote::Double, '\\') => escaped = true,
-            (Quote::None, '\'') => {
-                quote = Quote::Single;
+                dollar_quoted = true;
+                word.push(character);
                 started = true;
             }
-            (Quote::None, '"') => {
-                quote = Quote::Double;
+            ')' if !single_quoted && !double_quoted && !back_quoted => {
+                if !dollar_quoted {
+                    return None;
+                }
+                dollar_quoted = false;
+                word.push(character);
                 started = true;
             }
-            (Quote::Single, '\'') | (Quote::Double, '"') => quote = Quote::None,
-            (_, character) => {
+            '"' if !single_quoted && !dollar_quoted => {
+                double_quoted = !double_quoted;
+                started = true;
+            }
+            '\'' if !double_quoted && !dollar_quoted => {
+                single_quoted = !single_quoted;
+                started = true;
+            }
+            ';' | '&' | '|' | '<' | '>'
+                if !single_quoted && !double_quoted && !back_quoted && !dollar_quoted =>
+            {
+                break;
+            }
+            _ => {
                 word.push(character);
                 started = true;
             }
         }
     }
-    if escaped || quote != Quote::None {
+    if escaped || single_quoted || double_quoted || back_quoted || dollar_quoted {
         return None;
     }
     if started {
@@ -774,5 +1021,10 @@ mod tests {
             Some(vec!["-target".into(), "resource".into()])
         );
         assert_eq!(terraform_cli_words("'-target"), None);
+        assert_eq!(
+            terraform_cli_words("-backup `foo bar`"),
+            Some(vec!["-backup".into(), "`foo bar`".into()])
+        );
+        assert_eq!(terraform_cli_words("-var foo(bar)"), None);
     }
 }
