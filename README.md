@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>expensive mistakes stop here</strong><br>
-  an extensible guard that blocks catastrophic agent actions
+  a guard that blocks catastrophic agent actions
 </p>
 
 <p align="center">
