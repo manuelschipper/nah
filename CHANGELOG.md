@@ -9,6 +9,9 @@
   `infra-container-prune` blocks reviewed unfiltered Docker and Podman prune
   forms that select unused volumes broadly while narrow, filtered, dry-run,
   and named-resource cleanup continues to delegate.
+- **Container option scope correction** — Reset and prune classification
+  delegates invalid inherited version flags and misplaced option terminators
+  instead of blocking commands the selected runtime rejects.
 - **Factory-default rule documented** — `nah docs configuration` now states
   why a built-in ships on or off: the command line's certainty decides, not
   the size of the possible damage.

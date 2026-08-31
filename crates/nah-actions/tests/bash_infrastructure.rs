@@ -374,7 +374,7 @@ fn container_prune_recognizes_only_the_four_broad_volume_forms() {
 }
 
 #[test]
-fn container_connection_options_and_terminators_preserve_classification() {
+fn container_connection_options_and_valid_terminators_preserve_classification() {
     for source in [
         "docker --context production volume prune --all",
         "docker -cproduction system prune --volumes",
@@ -386,8 +386,12 @@ fn container_connection_options_and_terminators_preserve_classification() {
         "podman --url=ssh://operator@host/run/podman.sock system prune --volumes",
         "podman --identity=/tmp/key --remote system reset",
         "podman -rcproduction system reset",
-        "podman -- system -- reset --force",
-        "docker -- volume -- prune --all --",
+        "docker -- volume prune --all",
+        "docker volume prune --all --",
+        "podman system reset --",
+        "podman volume prune --all --",
+        "docker volume --help=false prune --all",
+        "podman system reset --help=false",
     ] {
         assert!(
             resets_container_runtime(source) || prunes_container_volumes(source),
@@ -413,6 +417,14 @@ fn narrow_filtered_dry_run_dynamic_and_arbitrary_container_forms_stay_outside() 
         "podman volume prune --all --filter all=true",
         "podman system reset --help",
         "podman --version system reset",
+        "podman system reset --version=false",
+        "podman system -v=false reset --force",
+        "podman -- system reset --force",
+        "podman system -- reset --force",
+        "docker volume prune --all -v=false",
+        "docker system --version=false prune --volumes",
+        "docker -- volume -- prune --all --",
+        "docker volume -- prune --all",
         "podman --root /tmp system reset",
         "docker --context volume prune --all",
         "docker volume prune --all extra",

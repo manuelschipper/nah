@@ -97,6 +97,9 @@ fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcomm
     let mut version = false;
     while let Some(argument) = arguments.get(index) {
         if options && argument == "--" {
+            if program == "podman" {
+                return ContainerSubcommand::Incomplete;
+            }
             options = false;
             index += 1;
             continue;
@@ -123,46 +126,27 @@ fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcomm
             return ContainerSubcommand::Other;
         }
         index += 1;
-        let mut group_options = true;
         while let Some(argument) = arguments.get(index) {
-            if group_options && argument == "--" {
-                group_options = false;
+            if let Some(value) = boolean_option(argument, "--help") {
+                let Some(value) = value else {
+                    return ContainerSubcommand::Incomplete;
+                };
+                help = value;
                 index += 1;
                 continue;
             }
-            if group_options {
-                if let Some(value) = boolean_option(argument, "--help") {
-                    let Some(value) = value else {
-                        return ContainerSubcommand::Incomplete;
-                    };
-                    help = value;
-                    index += 1;
-                    continue;
-                }
-                if let Some(value) = boolean_option(argument, "--version") {
-                    let Some(value) = value else {
-                        return ContainerSubcommand::Incomplete;
-                    };
-                    version = value;
-                    index += 1;
-                    continue;
-                }
-                if let Some(result) = container_group_short_option(argument) {
-                    let Ok(parsed) = result else {
-                        return ContainerSubcommand::Incomplete;
-                    };
-                    if let Some(value) = parsed.help {
-                        help = value;
-                    }
-                    if let Some(value) = parsed.version {
-                        version = value;
-                    }
-                    index += 1;
-                    continue;
-                }
-                if argument.starts_with('-') {
+            if let Some(result) = container_group_short_option(argument) {
+                let Ok(parsed) = result else {
                     return ContainerSubcommand::Incomplete;
+                };
+                if let Some(value) = parsed.help {
+                    help = value;
                 }
+                index += 1;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return ContainerSubcommand::Incomplete;
             }
             if help || version || matches!(argument.as_str(), "help" | "version") {
                 return ContainerSubcommand::NonExecuting;
@@ -329,10 +313,9 @@ fn container_group_short_option(argument: &str) -> Option<Result<ContainerShortO
         return None;
     }
     let mut help = None;
-    let mut version = None;
     let mut options = cluster.char_indices().peekable();
     while let Some((_, option)) = options.next() {
-        if !matches!(option, 'h' | 'v') {
+        if option != 'h' {
             return Some(Err(()));
         }
         let value_start = options.peek().map_or(cluster.len(), |(index, _)| *index);
@@ -346,16 +329,12 @@ fn container_group_short_option(argument: &str) -> Option<Result<ContainerShortO
         } else {
             true
         };
-        if option == 'h' {
-            help = Some(value);
-        } else {
-            version = Some(value);
-        }
+        help = Some(value);
     }
     Some(Ok(ContainerShortOption {
         consumed: 1,
         help,
-        version,
+        version: None,
     }))
 }
 
@@ -366,7 +345,6 @@ struct ContainerOptions {
     external: bool,
     filtered: bool,
     help: bool,
-    version: bool,
     volumes: bool,
 }
 
@@ -392,14 +370,6 @@ fn container_operation(
                 return Classification::incomplete();
             };
             parsed.help = value;
-            index += 1;
-            continue;
-        }
-        if let Some(value) = boolean_option(argument, "--version") {
-            let Some(value) = value else {
-                return Classification::incomplete();
-            };
-            parsed.version = value;
             index += 1;
             continue;
         }
@@ -454,7 +424,6 @@ fn container_operation(
                 match option {
                     'a' => parsed.all = value,
                     'h' => parsed.help = value,
-                    'v' => parsed.version = value,
                     _ => {}
                 }
             }
@@ -463,7 +432,7 @@ fn container_operation(
         }
         return Classification::incomplete();
     }
-    if parsed.help || parsed.version || parsed.filtered || parsed.dry_run || parsed.external {
+    if parsed.help || parsed.filtered || parsed.dry_run || parsed.external {
         return Classification::complete(false);
     }
     match command {
@@ -491,8 +460,8 @@ fn container_command_short_options(
         return None;
     }
     let allowed = match command {
-        ContainerCommand::Reset => "fhv",
-        ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => "afhv",
+        ContainerCommand::Reset => "fh",
+        ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => "afh",
     };
     let mut updates = Vec::new();
     let mut options = cluster.char_indices().peekable();
