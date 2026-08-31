@@ -1009,7 +1009,7 @@ const CURL_UPLOAD_PLAN: &str = include_str!("curl_upload_endpoint_plan.json");
 #[cfg(feature = "effinterp")]
 #[test]
 fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
-    use nah_proto::stream::effinterp_proto::Plan;
+    use nah_proto::stream::effinterp_proto::{ExecutionRealm, Plan};
     use nah_proto::stream::{ActionStream as EffinterpActionStream, EffectAnnotation, PathLabel};
 
     let plan: Plan = serde_json::from_str(CURL_UPLOAD_PLAN).unwrap();
@@ -1080,6 +1080,50 @@ fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
     assert_eq!(value["effects"].as_array().unwrap().len(), 3);
     for secret in ["secret.key", "evil.example", "--data-binary"] {
         assert!(!serialized.contains(secret), "{serialized}");
+    }
+
+    for (realm, expected) in [
+        (
+            ExecutionRealm::Remote {
+                endpoint: "PLANTED_REMOTE_ENDPOINT".into(),
+            },
+            serde_json::json!({"realm": "remote"}),
+        ),
+        (
+            ExecutionRealm::Chroot {
+                host_root: Some("/PLANTED_CHROOT_ROOT".into()),
+            },
+            serde_json::json!({"realm": "chroot"}),
+        ),
+    ] {
+        let mut plan: Plan = serde_json::from_str(CURL_UPLOAD_PLAN).unwrap();
+        for node in &mut plan.execution_graph.nodes {
+            node.realm = realm.clone();
+        }
+        for effect in &mut plan.effects {
+            effect.realm = realm.clone();
+        }
+        for node in &mut plan.causality.nodes {
+            if node.execution.is_some() {
+                node.realm = realm.clone();
+            }
+        }
+        let annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+        let stream = EffinterpActionStream::new(plan, annotations).unwrap();
+        let record = AuditRecordV1::redact_with_plan(
+            &tool_call,
+            &legacy,
+            Some(&stream),
+            &core,
+            envelope.clone(),
+            "claude",
+            AuditDiagnostics::new(&[], &[], &[]),
+        );
+        let value = serde_json::to_value(record).unwrap();
+        let serialized = serde_json::to_string(&value).unwrap();
+
+        assert_eq!(value["plan"]["effects"][0]["realm"], expected);
+        assert!(!serialized.contains("PLANTED_"), "{serialized}");
     }
 }
 

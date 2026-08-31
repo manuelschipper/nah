@@ -166,10 +166,21 @@ enum RedactedSubject {
 
 #[cfg(feature = "effinterp")]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "realm", rename_all = "snake_case", deny_unknown_fields)]
+enum RedactedRealm {
+    Host,
+    Container { runtime: String },
+    Kubernetes,
+    Chroot,
+    Remote,
+}
+
+#[cfg(feature = "effinterp")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RedactedPlanEffect {
     operation: Operation,
-    realm: ExecutionRealm,
+    realm: RedactedRealm,
     modality: Modality,
     resource: RedactedResource,
     annotation: RedactedEffectAnnotation,
@@ -709,7 +720,7 @@ impl From<&EffinterpActionStream> for RedactedPlan {
             .zip(stream.annotations())
             .map(|(effect, annotation)| RedactedPlanEffect {
                 operation: effect.operation.clone(),
-                realm: effect.realm.clone(),
+                realm: RedactedRealm::from(&effect.realm),
                 modality: effect.modality,
                 resource: redact_resource(&effect.resource, annotation),
                 annotation: RedactedEffectAnnotation::from(annotation),
@@ -730,6 +741,21 @@ impl From<&EffinterpActionStream> for RedactedPlan {
             coverage: plan.coverage.clone(),
             effects,
             boundaries,
+        }
+    }
+}
+
+#[cfg(feature = "effinterp")]
+impl From<&ExecutionRealm> for RedactedRealm {
+    fn from(realm: &ExecutionRealm) -> Self {
+        match realm {
+            ExecutionRealm::Host => Self::Host,
+            ExecutionRealm::Container { runtime, .. } => Self::Container {
+                runtime: runtime.clone(),
+            },
+            ExecutionRealm::Kubernetes { .. } => Self::Kubernetes,
+            ExecutionRealm::Chroot { .. } => Self::Chroot,
+            ExecutionRealm::Remote { .. } => Self::Remote,
         }
     }
 }
