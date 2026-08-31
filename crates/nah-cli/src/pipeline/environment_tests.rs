@@ -422,6 +422,7 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
             },
             |_, _| ConsultedExtensions::default(),
             false,
+            false,
         );
         assert_eq!(calls, 2);
         assert_eq!(result.core().verdict(), expected);
@@ -463,6 +464,7 @@ fn runtime_self_protection_tracks_static_python_path_variables() {
                 }))
             },
             |_, _| ConsultedExtensions::default(),
+            false,
             false,
         );
         assert_eq!(result.core().verdict(), expected, "{command}");

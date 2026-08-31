@@ -81,6 +81,58 @@ impl DecisionLog {
         }
     }
 
+    pub(crate) fn tail_effinterp_gaps(&self, limit: usize) -> Result<LogTail, AuditError> {
+        match self.read_effinterp_gaps(limit) {
+            Err(AuditError::InvalidRecord) => {
+                let recovered_from = self.recover_invalid_log()?;
+                let mut tail = self.read_effinterp_gaps(limit)?;
+                tail.recovered_from = recovered_from;
+                Ok(tail)
+            }
+            result => result,
+        }
+    }
+
+    fn read_effinterp_gaps(&self, limit: usize) -> Result<LogTail, AuditError> {
+        if limit == 0 {
+            return Ok(LogTail {
+                records: vec![],
+                blocked_records: vec![],
+                failures: None,
+                recovered_from: None,
+            });
+        }
+        let file = match open_bounded(&self.path)? {
+            Some(file) => file,
+            None => {
+                return Ok(LogTail {
+                    records: vec![],
+                    blocked_records: vec![],
+                    failures: None,
+                    recovered_from: None,
+                });
+            }
+        };
+        let mut records = VecDeque::new();
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        while let Some(record) = next_record(&mut reader, &mut line)? {
+            if !record.effinterp_gap() {
+                continue;
+            }
+            if records.len() == limit {
+                records.pop_front();
+            }
+            records.push_back(record);
+        }
+        Ok(LogTail {
+            records: records.into(),
+            blocked_records: vec![],
+            failures: None,
+            recovered_from: None,
+        })
+    }
+
     fn read_tail_views_with_summary(
         &self,
         limit: usize,

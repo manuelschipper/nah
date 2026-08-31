@@ -1,0 +1,202 @@
+{
+  "context": {
+    "home": "/home/test",
+    "platform": "linux"
+  },
+  "expected": [
+    {},
+    {
+      "path": {
+        "kind": "resolved",
+        "path": "/repo/.env",
+        "scope": {
+          "kind": "project",
+          "root": "/repo"
+        },
+        "selects_home": false,
+        "selects_root": false,
+        "sensitivity": "environment-secret"
+      }
+    }
+  ],
+  "observation": {
+    "cwd": "/repo",
+    "paths": [
+      {
+        "kind": "file",
+        "realpath": "/repo/.env",
+        "requested": "/repo/.env",
+        "resolved": "/repo/.env"
+      }
+    ],
+    "roots": [
+      {
+        "kind": "project",
+        "path": "/repo"
+      }
+    ]
+  },
+  "plan": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_provenance_nodes": 65536,
+        "max_shell_function_depth": 8,
+        "max_source_bytes": 4194304
+      },
+      "model_set": "builtin:blake3:61c1192f9b70c53dc4bee47d1528fb1cbfc5b529a50c0a90f7080ceceea86750"
+    },
+    "causality": {
+      "coverage": "full",
+      "edges": [],
+      "nodes": []
+    },
+    "coverage": {
+      "filesystem": "full",
+      "process": "full"
+    },
+    "effects": [
+      {
+        "execution": 1,
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [],
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": ".env"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/repo"
+              }
+            },
+            "executable": "cat",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "modality": "may",
+        "operation": "filesystem.read",
+        "provenance": [],
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/repo/.env"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "evidence": [
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 1
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/repo"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "cwd": "/repo",
+            "kind": "shell",
+            "source": "cat .env"
+          }
+        },
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "cat"
+            },
+            {
+              "expr": "literal",
+              "value": ".env"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/repo"
+            }
+          },
+          "evidence": [
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 8,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "argv": [
+              "cat",
+              ".env"
+            ],
+            "cwd": "/repo",
+            "kind": "exec"
+          }
+        }
+      ]
+    },
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "cwd": "/repo",
+      "kind": "shell",
+      "source": "cat .env"
+    }
+  },
+  "v": 1
+}

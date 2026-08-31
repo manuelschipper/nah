@@ -7,7 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [features]
+effinterp = ["dep:effinterp-proto", "dep:nah-proto"]
 engine = [
+    "effinterp",
     "dep:effinterp-daemon",
     "dep:effinterp-engine",
     "dep:effinterp-proto",
@@ -35,3 +37,8 @@ tempfile = { version = "3", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
+
+[dev-dependencies]
+nah-proto = { path = "../nah-proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -63,7 +63,7 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
         "nah-policy" => &["nah-proto", "nah-inline"],
         "nah-extensions" => &["nah-proto"],
         // The daemon reads the trusted roots `nah trust` persists.
-        "nah-effinterp" => &["nah-proto", "nah-extensions"],
+        "nah-effinterp" => &["nah-proto", "nah-extensions", "nah-observe"],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[

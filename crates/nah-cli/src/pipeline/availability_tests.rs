@@ -174,6 +174,7 @@ fn inline_analyzer_failure_during_all_nap_delegates_with_typed_failure() {
         nah_policy::EnforcementMode::AllPaused,
         |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
         |_, _| panic!("all-nap calls must not consult extensions"),
+        false,
         true,
     );
 
@@ -213,6 +214,7 @@ fn shipped_effect_block_survives_an_inline_analyzer_failure() {
         nah_policy::EnforcementMode::Normal,
         |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
         |_, _| ConsultedExtensions::default(),
+        false,
         true,
     );
 

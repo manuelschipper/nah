@@ -58,6 +58,8 @@ pub(super) struct AuditRecordV1 {
     consultations: Vec<AuditConsultation>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     failures: Vec<AuditFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effinterp: Option<AuditEffinterp>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -86,6 +88,8 @@ struct AuditRecordWire {
     consultations: Vec<AuditConsultation>,
     #[serde(default)]
     failures: Vec<AuditFailure>,
+    #[serde(default)]
+    effinterp: Option<AuditEffinterp>,
 }
 
 #[derive(Deserialize)]
@@ -122,6 +126,7 @@ impl<'de> Deserialize<'de> for AuditRecordV1 {
             diagnostics: wire.diagnostics,
             consultations: wire.consultations,
             failures: wire.failures,
+            effinterp: wire.effinterp,
         })
     }
 }
@@ -265,12 +270,58 @@ struct AuditFailure {
     code: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditEffinterp {
+    engine_time_us: u64,
+    gap: bool,
+    effects: Vec<AuditEffinterpEffect>,
+    annotations: Vec<AuditEffinterpAnnotation>,
+    boundary_count: usize,
+    coverage: Vec<AuditEffinterpCoverage>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditEffinterpEffect {
+    operation: String,
+    resource: RedactedText,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditEffinterpAnnotation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sensitivity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    protection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_integrity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selects_root: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selects_home: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_cli: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditEffinterpCoverage {
+    domain: String,
+    level: String,
+}
+
 pub(super) struct AuditDiagnostics<'a> {
     warnings: &'a [String],
     consultations: &'a [ExtensionConsultation],
     stderr: &'a [ConsultationDiagnostic],
     failures: &'a [EvaluationFailure],
     refusals: &'a [AnalysisRefusal],
+    #[cfg(feature = "effinterp")]
+    effinterp: Option<&'a crate::pipeline::EffinterpShadow>,
 }
 
 impl<'a> AuditDiagnostics<'a> {
@@ -285,6 +336,8 @@ impl<'a> AuditDiagnostics<'a> {
             stderr,
             failures: &[],
             refusals: &[],
+            #[cfg(feature = "effinterp")]
+            effinterp: None,
         }
     }
 
@@ -295,6 +348,15 @@ impl<'a> AuditDiagnostics<'a> {
 
     pub(super) fn with_refusals(mut self, refusals: &'a [AnalysisRefusal]) -> Self {
         self.refusals = refusals;
+        self
+    }
+
+    #[cfg(feature = "effinterp")]
+    pub(super) fn with_effinterp(
+        mut self,
+        effinterp: Option<&'a crate::pipeline::EffinterpShadow>,
+    ) -> Self {
+        self.effinterp = effinterp;
         self
     }
 }
@@ -335,6 +397,10 @@ impl AuditRecordV1 {
         let outcome = AuditOutcome::Decision {
             core: redact_core(core),
         };
+        #[cfg(feature = "effinterp")]
+        let effinterp = diagnostics.effinterp.map(redact_effinterp);
+        #[cfg(not(feature = "effinterp"))]
+        let effinterp = None;
         Self {
             schema: Self::SCHEMA,
             v: SchemaVersion::V1,
@@ -352,6 +418,7 @@ impl AuditRecordV1 {
                 .collect(),
             consultations,
             failures: redact_failures(diagnostics.failures, diagnostics.refusals),
+            effinterp,
         }
     }
 
@@ -417,6 +484,7 @@ impl AuditRecordV1 {
                 .collect(),
             consultations: vec![],
             failures: redact_failures(failures, refusals),
+            effinterp: None,
         }
     }
 
@@ -446,6 +514,7 @@ impl AuditRecordV1 {
                 component: component.to_owned(),
                 code: code.to_owned(),
             }],
+            effinterp: None,
         }
     }
 
@@ -470,6 +539,10 @@ impl AuditRecordV1 {
 
     pub(super) fn evaluation_failed(&self) -> bool {
         matches!(self.outcome, AuditOutcome::Unavailable { .. }) || !self.failures.is_empty()
+    }
+
+    pub(super) fn effinterp_gap(&self) -> bool {
+        self.effinterp.as_ref().is_some_and(|stream| stream.gap)
     }
 
     pub(super) fn failure_component(&self) -> String {
@@ -574,6 +647,35 @@ impl AuditRecordV1 {
                 effect.id, effect.description.0
             ));
         }
+        if let Some(effinterp) = &self.effinterp {
+            lines.push(String::new());
+            lines.push(format!(
+                "effinterp: {}us{}",
+                effinterp.engine_time_us,
+                if effinterp.gap { " · gap" } else { "" }
+            ));
+            lines.push("effinterp effects:".into());
+            for effect in &effinterp.effects {
+                lines.push(format!("  {} {}", effect.operation, effect.resource.0));
+            }
+            if effinterp.boundary_count > 0 {
+                lines.push(format!(
+                    "effinterp boundaries: {}",
+                    effinterp.boundary_count
+                ));
+            }
+            if !effinterp.coverage.is_empty() {
+                lines.push(format!(
+                    "effinterp coverage: {}",
+                    effinterp
+                        .coverage
+                        .iter()
+                        .map(|coverage| format!("{}={}", coverage.domain, coverage.level))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ));
+            }
+        }
         for diagnostic in &self.diagnostics {
             lines.push(format!("diagnostic: {}", diagnostic.0));
         }
@@ -604,6 +706,118 @@ impl AuditRecordV1 {
             Some(verdict) => verdict_name(verdict),
             None => "unavailable",
         }
+    }
+}
+
+#[cfg(feature = "effinterp")]
+fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp {
+    use nah_proto::action::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
+    use nah_proto::action_v2::PathLabel;
+
+    let effects = shadow
+        .plan()
+        .effects
+        .iter()
+        .zip(shadow.annotations())
+        .map(|(effect, annotation)| {
+            let sensitive = matches!(
+                &annotation.path,
+                Some(PathLabel::Resolved { sensitivity, .. }) if sensitivity != &Sensitivity::None
+            );
+            let masks_resource = sensitive || effect.operation.domain() != "filesystem";
+            AuditEffinterpEffect {
+                operation: effect.operation.as_str().to_owned(),
+                resource: redact(
+                    &nah_effinterp::display_resource(&effect.resource),
+                    masks_resource,
+                ),
+            }
+        })
+        .collect();
+    let annotations = shadow
+        .annotations()
+        .iter()
+        .map(|annotation| match &annotation.path {
+            Some(PathLabel::Resolved {
+                scope,
+                sensitivity,
+                protection,
+                host_integrity,
+                selects_root,
+                selects_home,
+                ..
+            }) => AuditEffinterpAnnotation {
+                scope: Some(
+                    match scope {
+                        PathScope::Project { .. } => "project",
+                        PathScope::Home => "home",
+                        PathScope::System => "system",
+                        PathScope::OutsideProject => "outside-project",
+                    }
+                    .into(),
+                ),
+                sensitivity: Some(
+                    match sensitivity {
+                        Sensitivity::None => "none",
+                        Sensitivity::EnvironmentSecret => "environment-secret",
+                        Sensitivity::CredentialSecret => "credential-secret",
+                        Sensitivity::OtherSensitive => "other-sensitive",
+                    }
+                    .into(),
+                ),
+                protection: protection.map(|tier| {
+                    match tier {
+                        NahProtectionTier::Critical => "critical",
+                        NahProtectionTier::Permanent => "permanent",
+                        NahProtectionTier::Proposal => "proposal",
+                    }
+                    .into()
+                }),
+                host_integrity: host_integrity.map(|class| {
+                    match class {
+                        HostIntegrityClass::ShellProfile => "shell-profile",
+                        HostIntegrityClass::StartupPersistence => "startup-persistence",
+                        HostIntegrityClass::AuthIdentity => "auth-identity",
+                    }
+                    .into()
+                }),
+                selects_root: Some(*selects_root),
+                selects_home: Some(*selects_home),
+                runtime_cli: annotation.runtime_cli.clone(),
+            },
+            Some(PathLabel::Unresolved) | None => AuditEffinterpAnnotation {
+                scope: None,
+                sensitivity: None,
+                protection: None,
+                host_integrity: None,
+                selects_root: None,
+                selects_home: None,
+                runtime_cli: annotation.runtime_cli.clone(),
+            },
+        })
+        .collect();
+    let coverage = shadow
+        .plan()
+        .coverage
+        .0
+        .iter()
+        .map(|(domain, level)| AuditEffinterpCoverage {
+            domain: domain.0.clone(),
+            level: match level {
+                nah_effinterp::CoverageLevel::Full => "full",
+                nah_effinterp::CoverageLevel::Partial => "partial",
+                nah_effinterp::CoverageLevel::None => "none",
+            }
+            .into(),
+        })
+        .collect();
+    AuditEffinterp {
+        engine_time_us: shadow.engine_time_us(),
+        gap: shadow.gap(),
+        effects,
+        annotations,
+        boundary_count: shadow.plan().boundaries.len(),
+        coverage,
     }
 }
 

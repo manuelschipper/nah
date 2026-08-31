@@ -58,7 +58,7 @@ pub(crate) enum Command {
     /// invocation itself was invalid. Evaluation failures after valid input
     /// delegate unless another guard blocks. Humans should use
     /// `nah test <command>` instead.
-    Decide,
+    Decide(DecideArgs),
 
     /// Pause nah self-protection globally for ten minutes.
     ///
@@ -124,6 +124,11 @@ pub(crate) enum Command {
     /// for the full redacted explanation.
     Log(LogArgs),
 
+    // UNDOCUMENTED-EFFINTERP: hidden operator switch while shadowing is private.
+    #[cfg(feature = "effinterp")]
+    #[command(hide = true)]
+    Effinterp(EffinterpArgs),
+
     /// Read built-in documentation.
     ///
     /// With no topic, lists bounded documentation available without network
@@ -181,6 +186,29 @@ pub(crate) struct DaemonBuildArgs {
 
     #[arg(long)]
     pub(crate) max_memory: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Args)]
+pub(crate) struct DecideArgs {
+    // UNDOCUMENTED-EFFINTERP: force shadowing for this one call.
+    #[cfg(feature = "effinterp")]
+    #[arg(long, hide = true)]
+    pub(crate) effinterp: bool,
+}
+
+#[cfg(feature = "effinterp")]
+#[derive(Debug, Args)]
+pub(crate) struct EffinterpArgs {
+    #[command(subcommand)]
+    pub(crate) action: EffinterpAction,
+}
+
+#[cfg(feature = "effinterp")]
+#[derive(Clone, Copy, Debug, Subcommand)]
+pub(crate) enum EffinterpAction {
+    On,
+    Off,
+    Status,
 }
 
 #[derive(Debug, Args)]
@@ -297,6 +325,11 @@ pub(crate) struct HookRunArgs {
     /// Block when required safety evaluation cannot finish.
     #[arg(long)]
     pub(crate) fail_closed: bool,
+
+    // UNDOCUMENTED-EFFINTERP: force shadowing for this one hook call.
+    #[cfg(feature = "effinterp")]
+    #[arg(long, hide = true)]
+    pub(crate) effinterp: bool,
 }
 
 #[derive(Debug, Args)]
@@ -318,6 +351,11 @@ pub(crate) struct LogArgs {
     /// Emit one redacted `nah/audit/v1` JSON object per line.
     #[arg(long)]
     pub(crate) json: bool,
+
+    // UNDOCUMENTED-EFFINTERP: show only shadow stream disagreements.
+    #[cfg(feature = "effinterp")]
+    #[arg(long, hide = true, conflicts_with = "blocked")]
+    pub(crate) effinterp_gap: bool,
 }
 
 #[derive(Debug, Args)]
