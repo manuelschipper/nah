@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.4.0 — Aug 30, 2026
 
 - **Windows release and installer** — Releases now include a checksummed,
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer

@@ -9,9 +9,10 @@ Do not expand surrounding copy or refresh demos and recordings unless requested.
 ## Keep the changelog current
 
 `CHANGELOG.md` doubles as the news feed on nahguard.ai, so it is part of the
-product. Whenever you land a user-visible change — a guard added or changed,
-CLI or TUI behavior, a runtime adapter, a docs topic, a changed decision or
-message — add its entry in the same change.
+product. Whenever you land a material user-visible change — a guard added or
+changed, CLI or TUI behavior, a runtime adapter, a docs topic, a changed
+decision or message — add its entry in the same change. Trivial copy edits,
+typo fixes, and cosmetic cleanup do not need entries.
 
 ```markdown
 ## nah 1.1.0 — Aug 12, 2026
