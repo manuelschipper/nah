@@ -151,6 +151,7 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
     let mut refresh = true;
     let mut refresh_only = false;
     let mut minimal_refresh = false;
+    let mut allow_deferral = false;
     let mut json = false;
     let mut json_into = false;
     while let Some(argument) = arguments.get(index) {
@@ -206,6 +207,16 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
                 return Classification::incomplete();
             };
             minimal_refresh = value;
+            index += 1;
+            continue;
+        }
+        if program == "terraform"
+            && let Some(value) = boolean_option(argument, "-allow-deferral")
+        {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            allow_deferral = value;
             index += 1;
             continue;
         }
@@ -309,6 +320,16 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             index += consumed;
             continue;
         }
+        if program == "tofu"
+            && subcommand == "apply"
+            && let Some(consumed) = value_option(arguments, index, &["-lint"])
+        {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            index += consumed;
+            continue;
+        }
         if let Some(consumed) = value_option(arguments, index, &["-var"]) {
             let Ok(consumed) = consumed else {
                 return Classification::incomplete();
@@ -318,7 +339,10 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
             } else {
                 argument.split_once('=').expect("joined option").1
             };
-            if !value.contains('=') {
+            let Some((name, _)) = value.split_once('=') else {
+                return Classification::incomplete();
+            };
+            if name.ends_with(' ') {
                 return Classification::incomplete();
             }
             index += consumed;
@@ -337,7 +361,11 @@ fn terraform_destroy(program: &str, subcommand: &str, arguments: &[String]) -> C
         // `apply` positional operands are opaque saved plans. `destroy` has no operands.
         return Classification::complete(false);
     }
-    if destroy_mode_flag || minimal_refresh && !refresh || program == "tofu" && json && json_into {
+    if destroy_mode_flag
+        || allow_deferral
+        || minimal_refresh && !refresh
+        || program == "tofu" && json && json_into
+    {
         return Classification::incomplete();
     }
     Classification::complete(destroy && !refresh_only)
@@ -742,8 +770,10 @@ fn pulumi_value_option(
         "-C",
     ];
     const DESTROY: &[&str] = &[
+        "--client",
         "--config",
         "--config-file",
+        "--exec-agent",
         "--exec-kind",
         "--message",
         "--stack",
@@ -786,6 +816,19 @@ fn pulumi_value_option(
             result
                 .and_then(|(consumed, value)| parse_pulumi_i32(value).map(|_| consumed).ok_or(())),
         )
+    } else if let Some(result) = value_option(arguments, index, &["--override-env"]) {
+        Some(result.and_then(|consumed| {
+            let value = if consumed == 2 {
+                &arguments[index + 1]
+            } else {
+                arguments[index].split_once('=').expect("joined option").1
+            };
+            value
+                .split_once('=')
+                .filter(|(source, replacement)| !source.is_empty() && !replacement.is_empty())
+                .map(|_| consumed)
+                .ok_or(())
+        }))
     } else {
         pulumi_raw_value_option(arguments, index, DESTROY, &["-c", "-m", "-s"])
             .map(|result| result.map(|(consumed, _)| consumed))
