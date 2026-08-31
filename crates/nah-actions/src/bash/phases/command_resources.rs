@@ -11,6 +11,7 @@ use crate::bash_descriptor_paths::descriptor_reference_path_from_cwd;
 use crate::bash_descriptor_state::{DescriptorFlow, DescriptorState, NetworkEndpoint};
 use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
 use crate::bash_git::{command_operation as git_command_operation, metadata_mutation};
+use crate::bash_infrastructure::Classification as InfrastructureClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
 use crate::bash_model::{FilesystemDraft, ProgramDraft};
 use crate::bash_startup_persistence::operation as startup_management_operation;
@@ -42,6 +43,7 @@ impl Lowerer {
         redirected_descriptors: &DescriptorState,
         stage: usize,
         classifications: &CommandClassifications,
+        infrastructure: Option<&InfrastructureClassification>,
         git_environment_override: bool,
         remote_repository_delete: bool,
         mut filesystem_drafts: Vec<FilesystemDraft>,
@@ -290,6 +292,12 @@ impl Lowerer {
             && let Some(operation) = startup_management_operation(program, arguments, self.platform)
         {
             system_states.push(operation);
+        }
+        if let Some(infrastructure) = infrastructure {
+            self.complete &= infrastructure.complete;
+            if infrastructure.destroys_whole_stack {
+                system_states.push(SemanticCode::INFRA_IAC_DESTROY);
+            }
         }
         let (filesystem_endpoints, filesystem_flows) =
             self.descriptor_filesystem_effects(&filesystem_drafts, redirected_descriptors, stage);

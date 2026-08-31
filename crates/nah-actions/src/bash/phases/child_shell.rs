@@ -49,6 +49,9 @@ impl Lowerer {
         self.state.positional_zero = None;
         self.state.positionals.clear();
         for ((name, word), update) in assignments.iter().zip(updates.iter().cloned()) {
+            if program.is_some_and(|program| wrapper_clears_environment(program, arguments, name)) {
+                continue;
+            }
             self.apply_assignment_update(name, update, false);
             self.update_descriptor_assignment(name, word.raw());
             if let Some(binding) = self
@@ -295,8 +298,14 @@ impl Lowerer {
         let prefixes = assignments
             .iter()
             .filter(|(name, value)| {
-                matches!(name.as_str(), "TAR_OPTIONS" | "TAPE")
-                    && value.substitutions().is_empty()
+                matches!(
+                    name.as_str(),
+                    "TAR_OPTIONS"
+                        | "TAPE"
+                        | "TF_CLI_ARGS"
+                        | "TF_CLI_ARGS_apply"
+                        | "TF_CLI_ARGS_destroy"
+                ) && value.substitutions().is_empty()
                     && !wrapper_clears_environment(program, arguments, name)
             })
             .map(|(name, value)| format!("{name}={}", value.raw()))

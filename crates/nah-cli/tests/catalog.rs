@@ -307,6 +307,85 @@ fn startup_management_is_factory_off_and_independent() {
 }
 
 #[test]
+fn infrastructure_destroy_is_factory_off_and_independently_configurable() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for command in [
+        "terraform destroy",
+        "terraform destroy -auto-approve",
+        "pulumi destroy --yes --skip-preview",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "infra-iac-destroy"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    for command in ["tofu apply -destroy -auto-approve", "pulumi down -yf"] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "infra-iac-destroy",
+            "{command}"
+        );
+    }
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "infra-iac-destroy"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, "terraform destroy")["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "git reset --hard")["policy_attributions"][0]["name"],
+        "git-hard-reset"
+    );
+}
+
+#[test]
+fn project_can_enable_the_factory_off_infrastructure_guard() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(project.join(".nah")).unwrap();
+    std::fs::write(
+        project.join(".nah/project.toml"),
+        "enable-guards = [\"infra-iac-destroy\"]\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        decide(temp.path(), &project, "terraform destroy")["policy_attributions"][0]["name"],
+        "infra-iac-destroy"
+    );
+    assert_eq!(
+        decide(
+            temp.path(),
+            &project,
+            "terraform destroy -target module.web"
+        )["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "pulumi destroy --preview-only")["verdict"],
+        "delegate"
+    );
+}
+
+#[test]
 fn test_command_is_a_human_dry_run_and_does_not_write_an_audit_record() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

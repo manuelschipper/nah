@@ -379,8 +379,11 @@ fn type_view_orders_every_guard_once_by_family_then_custom_name() {
     startup.family = Some(catalog::GuardFamily::Filesystem);
     let mut profile = guard_entry(built_in("fs-shell-profile"), GuardStatus::Disabled);
     profile.family = Some(catalog::GuardFamily::Filesystem);
+    let mut infrastructure = guard_entry(built_in("infra-iac-destroy"), GuardStatus::Disabled);
+    infrastructure.family = Some(catalog::GuardFamily::Infrastructure);
     let user = guard_entry(custom("corp-api"), GuardStatus::Disabled);
-    app.guards.extend([auth, startup, profile, user]);
+    app.guards
+        .extend([auth, startup, profile, infrastructure, user]);
 
     assert_eq!(
         app.visible_guards()
@@ -392,8 +395,9 @@ fn type_view_orders_every_guard_once_by_family_then_custom_name() {
             (&app.guards[3].target, "fs-auth-identity"),
             (&app.guards[5].target, "fs-shell-profile"),
             (&app.guards[4].target, "fs-startup-persistence"),
+            (&app.guards[6].target, "infra-iac-destroy"),
             (&app.guards[2].target, "secrets-env"),
-            (&app.guards[6].target, "corp-api"),
+            (&app.guards[7].target, "corp-api"),
             (&app.guards[1].target, "corp-api"),
         ]
     );

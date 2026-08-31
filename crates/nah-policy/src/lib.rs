@@ -20,6 +20,7 @@ use nah_proto::extension::ValidatedExtensionResponse;
 mod execution_guards;
 mod filesystem_guards;
 mod git_guards;
+mod infrastructure_guards;
 mod secret_guards;
 mod structural;
 
@@ -53,6 +54,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-remote-delete",
     "git-rewrite-force",
     "git-worktree-discard",
+    "infra-iac-destroy",
     "secrets-env",
     "secrets-exfil",
     "secrets-keys",
@@ -137,6 +139,8 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         &mut contributions,
     )?;
     let git_block = git_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let infrastructure_block =
+        infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let execution_block = execution_guards::add(
         language_safety_stream,
@@ -144,7 +148,8 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         policy_ctx,
         &mut contributions,
     )?;
-    let shipped_block = filesystem_block || git_block || secret_block || execution_block;
+    let shipped_block =
+        filesystem_block || git_block || infrastructure_block || secret_block || execution_block;
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 
     add_extension_guards(responses, &mut contributions)?;

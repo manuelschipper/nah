@@ -37,6 +37,13 @@
       "env": {},
       "paths": [
         {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/usr/bin/terraform",
+          "requested": "/usr/bin/terraform",
+          "resolved": "/usr/bin/terraform"
+        },
+        {
           "exists": false,
           "kind": "missing",
           "requested": "/workspace/outside/script.sh",

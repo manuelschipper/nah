@@ -5,6 +5,10 @@
 - **Factory-default rule documented** — `nah docs configuration` now states
   why a built-in ships on or off: the command line's certainty decides, not
   the size of the possible damage.
+- **Optional whole-stack IaC destruction guard** — New default-off
+  `infra-iac-destroy` blocks fully visible Terraform, OpenTofu, and Pulumi
+  whole-stack teardown when enabled while targeted, excluded-resource,
+  preview-only, saved-plan, malformed, and unresolved forms continue to delegate.
 - **Windows release and installer** — Releases now include a checksummed,
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
   that preserves expandable user PATH entries and replaces upgrades safely.

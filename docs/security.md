@@ -21,15 +21,13 @@ guard findings and understood protected-state changes outside maintenance.
   expose unredacted modeled input and inline code.
 - Guards block modeled access to protected credential paths and visible flows
   from sensitive sources or network content into dangerous sinks.
-- `git-remote-delete` defaults on for exact GitHub/GitLab repo deletion
-  via CLI or REST.
-- `fs-auth-identity` blocks writes and deletes of reviewed login-authority,
-  identity, PAM, sudoers, and sshd paths. Default-off `fs-shell-profile`
-  applies that mutation policy to user shell profiles; `fs-startup-persistence`
-  protects reviewed service, schedule, login, autostart, and loader paths.
-- Default-off `fs-startup-management` covers static Linux `systemctl` unit-file
-  changes, macOS `launchctl` enable/disable or legacy `load`/`unload -w`, and
-  `crontab` install/removal.
+- `git-remote-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
+- Filesystem guards cover auth/identity (PAM, sudoers, sshd), shell profiles,
+  service/schedule/login/autostart/loader paths, static `systemctl` unit files,
+  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations.
+  Shell-profile/startup-management default off.
+- Default-off `infra-iac-destroy` covers static Terraform/OpenTofu/Pulumi
+  whole-stack destruction.
 
 ## Not enforced
 
@@ -42,6 +40,8 @@ guard findings and understood protected-state changes outside maintenance.
 - Custom guards are trusted executables; nah does not sandbox them.
 - Other remote deletion tools/routes, unresolved targets, branches, tags,
   archives, renames, and transfers.
+- IaC gaps: targeted/excluded resources, saved plans, ambient `TF_CLI_ARGS*`,
+  Terragrunt/CloudFormation/CDK/CDKTF/provider CLIs.
 
 Unknown or opaque input delegates. Fail-closed uses native denial for malformed
 or no-decision input, but requires loaded nah to respond; missing hooks/binaries,
