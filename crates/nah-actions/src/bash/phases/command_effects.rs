@@ -183,6 +183,9 @@ impl Lowerer {
                 program,
                 &local_arguments,
                 assignments,
+                self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                }),
                 direct_program.is_some(),
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,

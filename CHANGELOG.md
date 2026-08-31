@@ -6,11 +6,6 @@
   `infra-iac-destroy` blocks fully visible Terraform, OpenTofu, and Pulumi
   whole-stack teardown when enabled while targeted, excluded-resource,
   preview-only, saved-plan, malformed, and unresolved forms continue to delegate.
-- **IaC destroy classifier parity** — The optional IaC guard now recognizes
-  Terraform option terminators and literal injected separators, Pulumi
-  false-valued help, and standard-path executables despite `PATH` assignments;
-  invalid chdir, parallelism, refresh, color, and unsupported Pulumi options
-  delegate.
 - **Windows release and installer** — Releases now include a checksummed,
   pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
   that preserves expandable user PATH entries and replaces upgrades safely.

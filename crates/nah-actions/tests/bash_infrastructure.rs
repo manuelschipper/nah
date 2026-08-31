@@ -83,9 +83,14 @@ fn pulumi_whole_stack_destroy_aliases_and_execution_flags_are_recognized() {
         "pulumi destroy -s=dev --remove --run-program",
         "pulumi -v 3 destroy",
         "pulumi --memprofilerate=1 destroy",
-        "pulumi --cwd /repo destroy --parallel=4",
+        "pulumi -C/repo destroy --parallel=4",
         "pulumi destroy --parallel 4",
-        "pulumi destroy --cwd=/repo --remote --remote-agent-pool-id pool",
+        "pulumi destroy -sdev",
+        "pulumi destroy -p4",
+        "pulumi destroy -mmessage",
+        "pulumi destroy -cfoo=bar",
+        "pulumi -v3 destroy",
+        "pulumi destroy -rfalse",
         "pulumi destroy --preview-only=false --yes",
         "pulumi destroy --exclude-protected=false --yes",
         "pulumi destroy --preview-only --preview-only=false --yes",
@@ -149,6 +154,8 @@ fn targeted_excluded_preview_saved_plan_and_dynamic_forms_remain_outside() {
         "pulumi destroy --refresh=bogus --yes",
         "pulumi --color=bogus destroy --yes",
         "pulumi destroy --exclude-dependents=false --yes",
+        "pulumi destroy --remote",
+        "pulumi destroy --remote --remote-agent-pool-id pool",
         "pulumi destroy --help=false --help --yes",
         "pulumi destroy --unknown-selection=value",
         "pulumi destroy one two",
@@ -167,9 +174,17 @@ fn visible_path_overrides_do_not_gain_infrastructure_tool_identity() {
     for source in [
         "env PATH=/tmp/bin terraform destroy",
         "env PATH=/tmp/bin pulumi destroy --yes",
+        "PATH=/tmp; terraform destroy",
+        "export PATH=/tmp; terraform destroy",
+        "PATH=/tmp sh -c 'terraform destroy'",
+        "PATH=/tmp /usr/bin/timeout 1 terraform destroy",
     ] {
         assert!(!destroys_whole_stack(source), "{source}");
     }
+
+    assert!(destroys_whole_stack(
+        "PATH=/tmp; /usr/bin/terraform destroy"
+    ));
 }
 
 #[test]

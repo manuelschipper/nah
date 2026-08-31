@@ -29,11 +29,12 @@ pub(crate) fn classify(
     program: &str,
     arguments: &[Word],
     assignments: &[(String, Word)],
+    path_overridden: bool,
     qualified_program: bool,
 ) -> Option<Classification> {
     if matches!(program, "terraform" | "tofu" | "pulumi")
         && !qualified_program
-        && assignments.iter().any(|(name, _)| name == "PATH")
+        && (path_overridden || assignments.iter().any(|(name, _)| name == "PATH"))
     {
         return Some(Classification::incomplete());
     }
@@ -552,8 +553,6 @@ fn pulumi_value_option(
         "--config",
         "--config-file",
         "--message",
-        "--remote-agent-pool-id",
-        "--remote-env",
         "--stack",
         "-c",
         "-m",
@@ -571,34 +570,74 @@ fn pulumi_value_option(
                 .ok_or(())
         }));
     }
-    if let Some(result) = value_option(arguments, index, GLOBAL) {
-        return Some(result);
-    }
-    if let Some(result) =
-        integer_value_option::<i32>(arguments, index, &["--memprofilerate", "--verbose", "-v"])
-    {
+    if let Some(result) = pulumi_raw_value_option(arguments, index, GLOBAL, &["-C"]) {
         return Some(result.map(|(consumed, _)| consumed));
+    }
+    if let Some(result) = pulumi_raw_value_option(
+        arguments,
+        index,
+        &["--memprofilerate", "--verbose", "-v"],
+        &["-v"],
+    ) {
+        return Some(
+            result.and_then(|(consumed, value)| {
+                value.parse::<i32>().map(|_| consumed).map_err(|_| ())
+            }),
+        );
     }
     if global_only {
         None
+    } else if let Some(result) =
+        pulumi_raw_value_option(arguments, index, &["--parallel", "-p"], &["-p"])
+    {
+        Some(
+            result.and_then(|(consumed, value)| {
+                value.parse::<i32>().map(|_| consumed).map_err(|_| ())
+            }),
+        )
     } else {
-        integer_value_option::<i32>(arguments, index, &["--parallel", "-p"])
+        pulumi_raw_value_option(arguments, index, DESTROY, &["-c", "-m", "-s"])
             .map(|result| result.map(|(consumed, _)| consumed))
-            .or_else(|| value_option(arguments, index, DESTROY))
     }
 }
 
+fn pulumi_raw_value_option<'a>(
+    arguments: &'a [String],
+    index: usize,
+    names: &[&str],
+    shorthands: &[&str],
+) -> Option<Result<(usize, &'a str), ()>> {
+    if let Some(result) = value_option(arguments, index, names) {
+        return Some(result.map(|consumed| {
+            let value = if consumed == 2 {
+                arguments[index + 1].as_str()
+            } else {
+                arguments[index].split_once('=').expect("joined option").1
+            };
+            (consumed, value)
+        }));
+    }
+    let argument = &arguments[index];
+    shorthands.iter().find_map(|name| {
+        argument.strip_prefix(name).map(|value| {
+            let value = value.strip_prefix('=').unwrap_or(value);
+            (!value.is_empty()).then_some((1, value)).ok_or(())
+        })
+    })
+}
+
 fn pulumi_optional_value(argument: &str) -> Option<bool> {
-    for name in ["--refresh", "-r"] {
-        if argument == name {
-            return Some(true);
-        }
-        if let Some(value) = argument
-            .strip_prefix(name)
-            .and_then(|tail| tail.strip_prefix('='))
-        {
-            return Some(parse_go_bool(value).is_some());
-        }
+    if argument == "--refresh" {
+        return Some(true);
+    }
+    if let Some(value) = argument.strip_prefix("--refresh=") {
+        return Some(parse_go_bool(value).is_some());
+    }
+    if argument == "-r" {
+        return Some(true);
+    }
+    if let Some(value) = argument.strip_prefix("-r") {
+        return Some(parse_go_bool(value.strip_prefix('=').unwrap_or(value)).is_some());
     }
     if argument == "--suppress-permalink" {
         return Some(true);
@@ -627,8 +666,6 @@ fn pulumi_boolean_option(argument: &str, global_only: bool) -> Option<bool> {
         "--json",
         "--ignore-protect",
         "--neo",
-        "--remote",
-        "--remote-skip-install-dependencies",
         "--remove",
         "--run-program",
         "--show-config",
