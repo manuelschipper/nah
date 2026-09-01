@@ -367,6 +367,13 @@ fn infrastructure_guards_use_type_state_and_project_views() {
             GuardStatus::Disabled,
             None,
         ),
+        built_in_entry(
+            "infra-k8s-delete",
+            GuardFamily::Infrastructure,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
     ]);
 
     let typed = rendered(&app, 120, 30);
@@ -374,11 +381,13 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let prune = typed.find("[ ] infra-container-prune").unwrap();
     let reset = typed.find("[x] infra-container-reset").unwrap();
     let iac = typed.find("[ ] infra-iac-destroy").unwrap();
+    let k8s = typed.find("[ ] infra-k8s-delete").unwrap();
     let secrets = typed.find("SECRETS").unwrap();
     assert!(infrastructure < prune);
     assert!(prune < reset);
     assert!(reset < iac);
-    assert!(iac < secrets);
+    assert!(iac < k8s);
+    assert!(k8s < secrets);
     assert_eq!(typed.matches("INFRASTRUCTURE").count(), 1);
 
     app.guard_view = GuardView::State;
@@ -387,14 +396,18 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let reset = state.find("[x] infra-container-reset").unwrap();
     let off = state.find("OFF").unwrap();
     let prune = state.find("[ ] infra-container-prune").unwrap();
+    let k8s = state.find("[ ] infra-k8s-delete").unwrap();
     assert!(on < reset);
     assert!(reset < off);
     assert!(off < prune);
+    assert!(off < k8s);
 
     app.guard_view = GuardView::Project;
     assert!(!rendered(&app, 120, 30).contains("infra-container-prune"));
-    app.project_declared_guards = vec!["infra-container-prune".into()];
-    assert!(rendered(&app, 120, 30).contains("[ ] infra-container-prune"));
+    app.project_declared_guards = vec!["infra-k8s-delete".into()];
+    let project = rendered(&app, 120, 30);
+    assert!(project.contains("[ ] infra-k8s-delete"));
+    assert!(!project.contains("infra-container-prune"));
 }
 
 #[test]
