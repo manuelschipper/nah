@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1624);
+    assert_eq!(summary.cases, 1659);
 }
 
 #[test]
@@ -81,6 +81,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("filesystem.jsonl".to_owned(), 251),
             ("git.jsonl".to_owned(), 251),
             ("infrastructure.jsonl".to_owned(), 162),
+            ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
@@ -212,6 +213,13 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-container-prune.filter-delegates",
         "infra-container-prune.dry-run-delegates",
         "infra-container-prune.named-volume-control",
+        "infra-k8s-delete.namespace",
+        "infra-k8s-delete.persistent-volume",
+        "infra-k8s-delete.pods-all",
+        "infra-k8s-delete.mixed-kinds",
+        "infra-k8s-boundary.client-dry-run-delegates",
+        "infra-k8s-boundary.filename-delegates",
+        "infra-k8s-boundary.path-override-delegates",
         "registry-unpublish.npm-package-version",
         "registry-unpublish.factory-default",
         "registry-unpublish.gem-yank",

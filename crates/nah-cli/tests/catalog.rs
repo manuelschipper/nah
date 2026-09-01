@@ -357,6 +357,69 @@ fn infrastructure_destroy_is_factory_off_and_independently_configurable() {
 }
 
 #[test]
+fn kubernetes_delete_guard_is_factory_off_and_independently_configurable() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for command in [
+        "kubectl delete namespace production",
+        "kubectl delete pv old-data",
+        "kubectl delete pods --all",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "infra-k8s-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    for command in [
+        "kubectl delete namespace production",
+        "kubectl delete nodes worker-1",
+        "kubectl delete deployments -l preview=true",
+    ] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "infra-k8s-delete",
+            "{command}"
+        );
+    }
+    for command in [
+        "kubectl delete pod api",
+        "kubectl delete deployment/web",
+        "kubectl delete namespace production --dry-run=server",
+        "kubectl delete -f namespace.yaml",
+        "kubectl get pods --all-namespaces",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "infra-k8s-delete"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, "kubectl delete namespace production")["verdict"],
+        "delegate"
+    );
+}
+
+#[test]
 fn container_reset_and_prune_keep_independent_factory_postures() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

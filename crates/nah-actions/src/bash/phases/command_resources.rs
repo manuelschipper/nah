@@ -12,6 +12,7 @@ use crate::bash_descriptor_state::{DescriptorFlow, DescriptorState, NetworkEndpo
 use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
 use crate::bash_git::{command_operation as git_command_operation, metadata_mutation};
 use crate::bash_infrastructure::Classification as InfrastructureClassification;
+use crate::bash_kubernetes::Classification as KubernetesClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
 use crate::bash_model::{FilesystemDraft, ProgramDraft};
 use crate::bash_registry::Classification as RegistryClassification;
@@ -45,6 +46,7 @@ impl Lowerer {
         stage: usize,
         classifications: &CommandClassifications,
         infrastructure: Option<&InfrastructureClassification>,
+        kubernetes: Option<&KubernetesClassification>,
         registry: Option<&RegistryClassification>,
         git_environment_override: bool,
         remote_repository_delete: bool,
@@ -300,6 +302,10 @@ impl Lowerer {
             if let Some(operation) = &infrastructure.system_state {
                 system_states.push(operation.clone());
             }
+        }
+        if let Some(kubernetes) = kubernetes {
+            self.complete &= kubernetes.complete;
+            system_states.extend(kubernetes.system_states.iter().cloned());
         }
         if let Some(registry) = registry {
             self.complete &= registry.complete;

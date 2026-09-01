@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Optional kubectl deletion guard** — New default-off `infra-k8s-delete`
+  blocks static namespace, reviewed cluster-resource, and bulk reviewed
+  namespaced-resource deletion while named application resources, dry runs,
+  and selections outside visible argv continue to delegate.
 - **Package unpublish and control-transfer guard** — New default-on
   `registry-unpublish` blocks reviewed npm unpublish, irreversible RubyGems
   yank, and npm, Cargo, or RubyGems published-name owner changes, including
