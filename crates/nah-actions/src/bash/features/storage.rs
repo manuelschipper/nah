@@ -104,6 +104,7 @@ fn aws(arguments: &[String]) -> Classification {
             "--no-progress",
             "--no-sign-request",
             "--only-show-errors",
+            "--quiet",
             "--recursive",
             "--size-only",
             "--version",
@@ -114,7 +115,6 @@ fn aws(arguments: &[String]) -> Classification {
             "--cli-binary-format",
             "--cli-connect-timeout",
             "--cli-read-timeout",
-            "--delete-file",
             "--endpoint-url",
             "--exclude",
             "--include",
@@ -325,7 +325,7 @@ fn az(arguments: &[String]) -> Classification {
             "--subscription",
         ],
         "hy",
-        "o",
+        "gno",
     ) else {
         return Classification::incomplete();
     };
@@ -338,7 +338,7 @@ fn az(arguments: &[String]) -> Classification {
             if storage == "storage"
                 && container == "container"
                 && delete == "delete"
-                && parsed.has_value(&["--name", "--container-name"]) =>
+                && parsed.has_value(&["--name", "--container-name", "-n"]) =>
         {
             Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
         }
@@ -346,7 +346,7 @@ fn az(arguments: &[String]) -> Classification {
             if storage == "storage"
                 && account == "account"
                 && delete == "delete"
-                && parsed.value("--name").is_some() =>
+                && parsed.has_value(&["--name", "-n"]) =>
         {
             Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
         }
@@ -365,7 +365,7 @@ fn az(arguments: &[String]) -> Classification {
         [resource, delete]
             if matches!(resource.as_str(), "snapshot" | "disk")
                 && delete == "delete"
-                && parsed.value("--name").is_some() =>
+                && parsed.has_value(&["--name", "-n"]) =>
         {
             Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
         }
@@ -443,6 +443,7 @@ fn rclone(arguments: &[String]) -> Classification {
             "--checksum",
             "--dry-run",
             "--dryrun",
+            "--fast-list",
             "--help",
             "--ignore-existing",
             "--immutable",
@@ -564,6 +565,7 @@ fn rsync(arguments: &[String]) -> Classification {
             "--filter",
             "--include",
             "--include-from",
+            "--info",
             "--max-delete",
             "--password-file",
             "--port",
@@ -676,13 +678,17 @@ fn btrfs(arguments: &[String]) -> Classification {
 }
 
 fn restic(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let Ok(parsed) = parse_options_with_boolean_flags(
         arguments,
+        &[],
         &[
             "--dry-run",
             "--help",
+            "--json",
+            "--no-lock",
             "--prune",
             "--unsafe-allow-remove-all",
+            "--verbose",
             "--version",
         ],
         &[
@@ -745,8 +751,12 @@ fn borg(arguments: &[String]) -> Classification {
             "--force",
             "--help",
             "--list",
+            "--log-json",
+            "--progress",
             "--show-rc",
             "--show-version",
+            "--stats",
+            "--verbose",
             "--version",
             "--yes",
         ],
@@ -766,8 +776,8 @@ fn borg(arguments: &[String]) -> Classification {
             "--rsh",
             "--umask",
         ],
-        "fhlny",
-        "a",
+        "fhlnvy",
+        "ar",
     ) else {
         return Classification::incomplete();
     };
@@ -787,6 +797,8 @@ fn borg(arguments: &[String]) -> Classification {
                 Classification::control()
             } else if parsed.has_value(&["--glob-archives", "--match-archives", "-a"])
                 || operands.iter().any(|operand| operand.contains("::"))
+                || parsed.has_value(&["--repo", "-r"])
+                    && matches!(operands, [archive] if !archive.is_empty())
             {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             } else if matches!(operands, [repository] if !repository.is_empty()) {
@@ -847,8 +859,9 @@ fn duplicity(arguments: &[String]) -> Classification {
 }
 
 fn velero(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let Ok(parsed) = parse_options_with_boolean_flags(
         arguments,
+        &[],
         &["--all", "--confirm", "--help", "--version", "--yes"],
         &[
             "--context",
@@ -944,6 +957,24 @@ fn parse_options(
     short_flags: &str,
     short_values: &str,
 ) -> Result<ParsedOptions, ()> {
+    parse_options_with_boolean_flags(
+        arguments,
+        long_flags,
+        &[],
+        long_values,
+        short_flags,
+        short_values,
+    )
+}
+
+fn parse_options_with_boolean_flags(
+    arguments: &[String],
+    long_flags: &[&str],
+    long_boolean_flags: &[&str],
+    long_values: &[&str],
+    short_flags: &str,
+    short_values: &str,
+) -> Result<ParsedOptions, ()> {
     let mut parsed = ParsedOptions::default();
     let mut index = 0;
     let mut options = true;
@@ -959,6 +990,14 @@ fn parse_options(
                 .map_or((argument.as_str(), None), |(name, value)| {
                     (name, Some(value))
                 });
+            if long_boolean_flags.contains(&name) {
+                let enabled = attached.map_or(Some(true), parse_go_bool).ok_or(())?;
+                if enabled {
+                    parsed.flags.push(name.to_owned());
+                }
+                index += 1;
+                continue;
+            }
             if long_flags.contains(&name) {
                 if attached.is_some() {
                     return Err(());
@@ -1027,4 +1066,12 @@ fn parse_options(
         index += 1;
     }
     Ok(parsed)
+}
+
+fn parse_go_bool(value: &str) -> Option<bool> {
+    match value {
+        "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
+        "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
+        _ => None,
+    }
 }

@@ -422,13 +422,16 @@ fn infrastructure_guards_use_type_state_and_project_views() {
 
     app.guard_view = GuardView::Project;
     let project = rendered(&app, 120, 36);
+    assert!(!project.contains("infra-container-prune"));
     assert!(!project.contains("storage-recursive-delete"));
     assert!(!project.contains("storage-snapshot-delete"));
     app.project_declared_guards = vec![
+        "infra-container-prune".into(),
         "storage-recursive-delete".into(),
         "storage-snapshot-delete".into(),
     ];
     let project = rendered(&app, 120, 36);
+    assert!(project.contains("[ ] infra-container-prune"));
     assert!(project.contains("[ ] storage-recursive-delete"));
     assert!(project.contains("[ ] storage-snapshot-delete"));
 }
