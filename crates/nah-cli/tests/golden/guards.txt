@@ -29,6 +29,9 @@ Built-in:
 - [x] secrets-env
 - [x] secrets-exfil
 - [x] secrets-keys
+- [x] storage-destroy
+- [ ] storage-recursive-delete
+- [ ] storage-snapshot-delete
 
 Custom:
 No custom guards discovered. Create one with `nah guard new <name>`.

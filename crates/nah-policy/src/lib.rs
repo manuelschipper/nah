@@ -23,6 +23,7 @@ mod git_guards;
 mod infrastructure_guards;
 mod registry_guards;
 mod secret_guards;
+mod storage_guards;
 mod structural;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,6 +64,9 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "secrets-env",
     "secrets-exfil",
     "secrets-keys",
+    "storage-destroy",
+    "storage-recursive-delete",
+    "storage-snapshot-delete",
 ];
 
 /// Reduces shipped policy and already-validated extension responses.
@@ -149,6 +153,8 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     let registry_block =
         registry_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let storage_block =
+        storage_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let execution_block = execution_guards::add(
         language_safety_stream,
         inline_report,
@@ -160,6 +166,7 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         || infrastructure_block
         || registry_block
         || secret_block
+        || storage_block
         || execution_block;
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 

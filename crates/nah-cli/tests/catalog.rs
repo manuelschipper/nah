@@ -434,6 +434,83 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
 }
 
 #[test]
+fn storage_guards_keep_independent_factory_and_project_postures() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    let destroy = decide(temp.path(), &project, "borg delete /srv/backups/repo");
+    assert_eq!(destroy["verdict"], "block");
+    assert_eq!(destroy["policy_attributions"][0]["name"], "storage-destroy");
+    for command in [
+        "rclone sync . remote:mirror",
+        "restic forget --keep-daily 7 --prune",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "storage-recursive-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    let recursive = decide(temp.path(), &project, "rclone sync . remote:mirror");
+    assert_eq!(recursive["verdict"], "block");
+    assert_eq!(
+        recursive["policy_attributions"][0]["name"],
+        "storage-recursive-delete"
+    );
+    assert_eq!(
+        decide(
+            temp.path(),
+            &project,
+            "restic forget --keep-daily 7 --prune"
+        )["verdict"],
+        "delegate"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "storage-snapshot-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    let snapshot = decide(temp.path(), &project, "zfs destroy tank/data@snap");
+    assert_eq!(snapshot["verdict"], "block");
+    assert_eq!(
+        snapshot["policy_attributions"][0]["name"],
+        "storage-snapshot-delete"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "storage-destroy"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, "borg delete /srv/backups/repo")["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "aws s3 rm s3://bucket --recursive")["policy_attributions"]
+            [0]["name"],
+        "storage-recursive-delete"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "restic forget abc123")["policy_attributions"][0]["name"],
+        "storage-snapshot-delete"
+    );
+}
+
+#[test]
 fn project_can_enable_the_factory_off_infrastructure_guard() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

@@ -128,6 +128,8 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "infra-container-prune"
                     | "infra-iac-destroy"
                     | "registry-publish"
+                    | "storage-recursive-delete"
+                    | "storage-snapshot-delete"
             ),
             behavior: behavior(name),
             examples: examples(name),
@@ -158,9 +160,12 @@ fn family(name: &str) -> GuardFamily {
         | "git-remote-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
-        "infra-container-prune" | "infra-container-reset" | "infra-iac-destroy" => {
-            GuardFamily::Infrastructure
-        }
+        "infra-container-prune"
+        | "infra-container-reset"
+        | "infra-iac-destroy"
+        | "storage-destroy"
+        | "storage-recursive-delete"
+        | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-env" | "secrets-exfil" | "secrets-keys" => GuardFamily::Secrets,
         _ => unreachable!("every shipped guard has a family"),
@@ -191,7 +196,9 @@ fn behavior(name: &str) -> &'static str {
         "fs-startup-persistence" => {
             "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
         }
-        "fs-storage-destroy" => "Blocks definite logical-volume and storage-pool destruction.",
+        "fs-storage-destroy" => {
+            "Blocks definite logical-volume, storage-pool, and live ZFS dataset destruction."
+        }
         "fs-system-tree" => {
             "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree."
         }
@@ -221,6 +228,15 @@ fn behavior(name: &str) -> &'static str {
         }
         "infra-iac-destroy" => {
             "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction."
+        }
+        "storage-destroy" => {
+            "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
+        }
+        "storage-recursive-delete" => {
+            "Blocks reviewed broad remote deletion and destination-deleting synchronization. Single-object deletion, copy or overwrite, source-side rsync cleanup, opaque delete manifests and lifecycle JSON, replication and reversible protection settings, unobservable network mounts, version-dependent ZFS receive and Azure blob sync, and the deferred MinIO and s3cmd ecosystems stay outside because argv does not prove this guard's destructive destination scope."
+        }
+        "storage-snapshot-delete" => {
+            "Blocks reviewed snapshot, archive, volume, and retention deletion. Dry runs, creation, garbage collection after logical removal, nonrecursive ZFS rollback, Kubernetes backup-resource deletion, Velero restore deletion, AMI deregistration, Kopia, and database-backup semantics stay outside because they do not prove deletion of a recovery point in this modeled family."
         }
         "registry-publish" => {
             "Blocks reviewed package publication commands. Dry runs supported by npm, pnpm, Cargo, Poetry, and Flit remain outside the guard. Maven and Gradle do not prove the target repository; Hex, Dart, Deno, container, and chart publication are separate unmodeled scopes."
@@ -302,7 +318,7 @@ fn examples(name: &str) -> [&'static str; 3] {
         "fs-storage-destroy" => [
             "lvm lvremove vg/data",
             "lvm vgremove archive",
-            "zpool destroy tank",
+            "zfs destroy -r tank/data",
         ],
         "fs-system-tree" => ["rm -rf /", "chmod -R 000 /etc", "mv /* /tmp"],
         "git-clean-force" => [
@@ -359,6 +375,21 @@ fn examples(name: &str) -> [&'static str; 3] {
             "terraform destroy",
             "tofu apply -destroy -auto-approve",
             "pulumi destroy --yes --skip-preview",
+        ],
+        "storage-destroy" => [
+            "borg delete /srv/backups/repo",
+            "restic forget --unsafe-allow-remove-all --tag old",
+            "velero backup delete --all",
+        ],
+        "storage-recursive-delete" => [
+            "aws s3 rm s3://bucket/prefix --recursive",
+            "rclone sync build remote:site",
+            "rsync -a --delete dist/ host:/var/www/",
+        ],
+        "storage-snapshot-delete" => [
+            "zfs destroy tank/data@snap",
+            "restic forget --keep-daily 7 --prune",
+            "aws ec2 delete-snapshot --snapshot-id snap-1",
         ],
         "registry-publish" => ["npm publish", "cargo publish", "twine upload dist/*"],
         "registry-unpublish" => [
@@ -426,6 +457,24 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "storage-destroy")
+                .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "storage-recursive-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "storage-snapshot-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-shell-profile")
                 .is_some_and(|state| !state.enabled())
         );
@@ -459,6 +508,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 5);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 7);
     }
 }

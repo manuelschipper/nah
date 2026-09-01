@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1624);
+    assert_eq!(summary.cases, 1694);
 }
 
 #[test]
@@ -88,6 +88,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("secrets.jsonl".to_owned(), 100),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
+            ("storage.jsonl".to_owned(), 70),
             ("threat-model.jsonl".to_owned(), 27),
             ("windows.jsonl".to_owned(), 27),
         ]
@@ -212,6 +213,25 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-container-prune.filter-delegates",
         "infra-container-prune.dry-run-delegates",
         "infra-container-prune.named-volume-control",
+        "storage-destroy.borg-repository",
+        "storage-destroy.borg-factory-default",
+        "storage-destroy.restic-remove-all",
+        "storage-destroy.velero-all",
+        "storage-recursive.aws-sync",
+        "storage-recursive.factory-delegates",
+        "storage-recursive.rclone-sync",
+        "storage-recursive.rsync-remote-destination",
+        "storage-snapshot.zfs-destroy",
+        "storage-snapshot.factory-delegates",
+        "storage-snapshot.restic-retention",
+        "storage-snapshot.borg-archive",
+        "storage-boundary.empty-aws-bucket-delegates",
+        "storage-boundary.single-object-delegates",
+        "storage-boundary.opaque-delete-manifest-delegates",
+        "storage-boundary.rclone-dry-run-delegates",
+        "storage-boundary.zfs-dry-run-delegates",
+        "storage-boundary.dynamic-target-delegates",
+        "fs-storage-destroy.zfs-live-dataset",
         "registry-unpublish.npm-package-version",
         "registry-unpublish.factory-default",
         "registry-unpublish.gem-yank",

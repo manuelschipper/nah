@@ -17,6 +17,7 @@ use crate::bash_model::{FilesystemDraft, ProgramDraft};
 use crate::bash_registry::Classification as RegistryClassification;
 use crate::bash_startup_persistence::operation as startup_management_operation;
 use crate::bash_state::known_cwd;
+use crate::bash_storage::Classification as StorageClassification;
 use crate::bash_symlinks::{
     has_dynamic_content_selection, has_unresolved_selection, pattern_symlink_traversal,
     pattern_targets, recursive_symlink_traversal,
@@ -45,6 +46,7 @@ impl Lowerer {
         stage: usize,
         classifications: &CommandClassifications,
         infrastructure: Option<&InfrastructureClassification>,
+        storage: Option<&StorageClassification>,
         registry: Option<&RegistryClassification>,
         git_environment_override: bool,
         remote_repository_delete: bool,
@@ -298,6 +300,12 @@ impl Lowerer {
         if let Some(infrastructure) = infrastructure {
             self.complete &= infrastructure.complete;
             if let Some(operation) = &infrastructure.system_state {
+                system_states.push(operation.clone());
+            }
+        }
+        if let Some(storage) = storage {
+            self.complete &= storage.complete;
+            if let Some(operation) = &storage.system_state {
                 system_states.push(operation.clone());
             }
         }
