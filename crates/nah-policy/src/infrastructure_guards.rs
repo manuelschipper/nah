@@ -10,21 +10,30 @@ pub(crate) fn add(
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
     let mut added = false;
-    for (name, operation, message) in [
+    for (name, operations, message) in [
         (
             "infra-container-prune",
-            SemanticCode::INFRA_CONTAINER_PRUNE,
+            &[SemanticCode::INFRA_CONTAINER_PRUNE][..],
             "infra-container-prune blocked broad unused-volume cleanup; narrow the cleanup or ask the operator to perform the reviewed prune",
         ),
         (
             "infra-container-reset",
-            SemanticCode::INFRA_CONTAINER_RESET,
+            &[SemanticCode::INFRA_CONTAINER_RESET][..],
             "infra-container-reset blocked a complete Podman runtime reset; keep the runtime state intact and ask the operator to perform any deliberate reset",
         ),
         (
             "infra-iac-destroy",
-            SemanticCode::INFRA_IAC_DESTROY,
+            &[SemanticCode::INFRA_IAC_DESTROY][..],
             "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
+        ),
+        (
+            "infra-k8s-delete",
+            &[
+                SemanticCode::INFRA_K8S_NAMESPACE_DELETE,
+                SemanticCode::INFRA_K8S_CLUSTER_RESOURCE_DELETE,
+                SemanticCode::INFRA_K8S_BULK_RESOURCE_DELETE,
+            ][..],
+            "infra-k8s-delete blocked a reviewed broad Kubernetes deletion; narrow the selection or ask the operator to perform the cluster change",
         ),
     ] {
         if !policy_ctx
@@ -35,7 +44,7 @@ pub(crate) fn add(
                 matches!(
                     effect.kind(),
                     EffectKind::SystemState { operation: candidate }
-                        if candidate == &operation
+                        if operations.contains(candidate)
                 )
             })
         {

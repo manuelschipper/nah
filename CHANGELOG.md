@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Optional kubectl deletion guard** — New default-off `infra-k8s-delete`
+  blocks static namespace, reviewed cluster-resource, and bulk reviewed
+  namespaced-resource deletion while named application resources, dry runs,
+  and selections outside visible argv continue to delegate.
 - **Backup repository destruction guard** — New default-on `storage-destroy`
   blocks reviewed Borg repository deletion, Restic's explicit remove-all form,
   and Velero deletion selecting every backup.

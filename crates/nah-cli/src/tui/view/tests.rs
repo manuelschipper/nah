@@ -368,6 +368,13 @@ fn infrastructure_guards_use_type_state_and_project_views() {
             None,
         ),
         built_in_entry(
+            "infra-k8s-delete",
+            GuardFamily::Infrastructure,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+        built_in_entry(
             "storage-destroy",
             GuardFamily::Infrastructure,
             true,
@@ -395,6 +402,7 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let prune = typed.find("[ ] infra-container-prune").unwrap();
     let reset = typed.find("[x] infra-container-reset").unwrap();
     let iac = typed.find("[ ] infra-iac-destroy").unwrap();
+    let k8s = typed.find("[ ] infra-k8s-delete").unwrap();
     let storage_destroy = typed.find("[x] storage-destroy").unwrap();
     let recursive = typed.find("[ ] storage-recursive-delete").unwrap();
     let snapshot = typed.find("[ ] storage-snapshot-delete").unwrap();
@@ -402,7 +410,8 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     assert!(infrastructure < prune);
     assert!(prune < reset);
     assert!(reset < iac);
-    assert!(iac < storage_destroy);
+    assert!(iac < k8s);
+    assert!(k8s < storage_destroy);
     assert!(storage_destroy < recursive);
     assert!(recursive < snapshot);
     assert!(snapshot < secrets);
@@ -415,23 +424,28 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let storage_destroy = state.find("[x] storage-destroy").unwrap();
     let off = state.find("OFF").unwrap();
     let prune = state.find("[ ] infra-container-prune").unwrap();
+    let k8s = state.find("[ ] infra-k8s-delete").unwrap();
     assert!(on < reset);
     assert!(reset < storage_destroy);
     assert!(storage_destroy < off);
     assert!(off < prune);
+    assert!(off < k8s);
 
     app.guard_view = GuardView::Project;
     let project = rendered(&app, 120, 36);
     assert!(!project.contains("infra-container-prune"));
+    assert!(!project.contains("infra-k8s-delete"));
     assert!(!project.contains("storage-recursive-delete"));
     assert!(!project.contains("storage-snapshot-delete"));
     app.project_declared_guards = vec![
         "infra-container-prune".into(),
+        "infra-k8s-delete".into(),
         "storage-recursive-delete".into(),
         "storage-snapshot-delete".into(),
     ];
     let project = rendered(&app, 120, 36);
     assert!(project.contains("[ ] infra-container-prune"));
+    assert!(project.contains("[ ] infra-k8s-delete"));
     assert!(project.contains("[ ] storage-recursive-delete"));
     assert!(project.contains("[ ] storage-snapshot-delete"));
 }

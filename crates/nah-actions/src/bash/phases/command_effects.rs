@@ -192,6 +192,18 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let kubernetes = match &program {
+            ProgramDraft::Static(program) => crate::bash_kubernetes::classify(
+                program,
+                &local_arguments,
+                assignments,
+                self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                }),
+                direct_program.is_some(),
+            ),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         let registry = match &program {
             ProgramDraft::Static(program) => crate::bash_registry::classify(
                 program,
@@ -334,6 +346,7 @@ impl Lowerer {
             stage,
             &classifications,
             infrastructure.as_ref(),
+            kubernetes.as_ref(),
             storage.as_ref(),
             registry.as_ref(),
             git_environment_override,
@@ -419,6 +432,7 @@ impl Lowerer {
             || !git_operations.is_empty()
             || execution.is_some()
             || infrastructure.is_some()
+            || kubernetes.is_some()
             || storage.is_some()
             || registry.is_some()
             || !matches!(&producer.stdout, StdoutDraft::Unknown)

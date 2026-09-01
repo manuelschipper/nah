@@ -127,6 +127,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "fs-startup-management"
                     | "infra-container-prune"
                     | "infra-iac-destroy"
+                    | "infra-k8s-delete"
                     | "registry-publish"
                     | "storage-recursive-delete"
                     | "storage-snapshot-delete"
@@ -163,6 +164,7 @@ fn family(name: &str) -> GuardFamily {
         "infra-container-prune"
         | "infra-container-reset"
         | "infra-iac-destroy"
+        | "infra-k8s-delete"
         | "storage-destroy"
         | "storage-recursive-delete"
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
@@ -228,6 +230,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "infra-iac-destroy" => {
             "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction."
+        }
+        "infra-k8s-delete" => {
+            "Blocks static kubectl deletion of namespaces, reviewed cluster-scoped resources, and bulk selections of reviewed namespaced resources. Named application-resource deletion, client/server dry runs, manifest and kustomize input, raw requests, and unknown resource kinds remain outside the guard."
         }
         "storage-destroy" => {
             "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
@@ -376,6 +381,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "tofu apply -destroy -auto-approve",
             "pulumi destroy --yes --skip-preview",
         ],
+        "infra-k8s-delete" => [
+            "kubectl delete namespace production",
+            "kubectl delete pv old-data",
+            "kubectl delete pods --all",
+        ],
         "storage-destroy" => [
             "borg delete /srv/backups/repo",
             "restic forget --unsafe-allow-remove-all --tag old",
@@ -499,6 +509,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "infra-k8s-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "registry-publish")
                 .is_some_and(|state| !state.enabled())
         );
@@ -508,6 +524,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 7);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 8);
     }
 }

@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 33 guards span execution, secrets, filesystem, Git, infrastructure/storage/
+- 34 guards span execution, secrets, filesystem, Git, infrastructure/storage/
   backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
@@ -34,6 +34,11 @@ protected-state changes outside maintenance.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
   (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
   Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
+- `infra-k8s-delete` defaults off and blocks static namespace deletion,
+  reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
+  deletion through `kubectl`. Named application resources and client/server
+  dry runs delegate; manifest, kustomize, stdin, raw, dynamic, and unknown-kind
+  selections are partial and do not reach the guard.
 - `storage-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
 - `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.

@@ -192,6 +192,11 @@ impl SemanticCode {
     pub const INFRA_CONTAINER_PRUNE: Self = Self::borrowed("infra-container-prune");
     pub const INFRA_CONTAINER_RESET: Self = Self::borrowed("infra-container-reset");
     pub const INFRA_IAC_DESTROY: Self = Self::borrowed("infra-iac-destroy");
+    pub const INFRA_K8S_BULK_RESOURCE_DELETE: Self =
+        Self::borrowed("infra-k8s-bulk-resource-delete");
+    pub const INFRA_K8S_CLUSTER_RESOURCE_DELETE: Self =
+        Self::borrowed("infra-k8s-cluster-resource-delete");
+    pub const INFRA_K8S_NAMESPACE_DELETE: Self = Self::borrowed("infra-k8s-namespace-delete");
     pub const INTERPRETER_FILE: Self = Self::borrowed("interpreter-file");
     pub const INTERPRETER_INLINE: Self = Self::borrowed("interpreter-inline");
     pub const INTERPRETER_STDIN: Self = Self::borrowed("interpreter-stdin");

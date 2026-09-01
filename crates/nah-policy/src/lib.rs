@@ -59,6 +59,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "infra-container-prune",
     "infra-container-reset",
     "infra-iac-destroy",
+    "infra-k8s-delete",
     "registry-publish",
     "registry-unpublish",
     "secrets-env",

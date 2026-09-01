@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-33 guards, 26 on by default, covering six classes of disaster: **execution
+34 guards, 26 on by default, covering six classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, and **package-registry operations**.
 
@@ -65,6 +65,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
+| `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
 | `storage-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |

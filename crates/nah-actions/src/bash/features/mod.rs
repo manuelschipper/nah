@@ -15,6 +15,7 @@ pub(crate) mod git_config;
 pub(crate) mod git_operations;
 pub(crate) mod infrastructure;
 pub(crate) mod invocation;
+pub(crate) mod kubernetes;
 pub(crate) mod local_utilities;
 pub(crate) mod logical_storage;
 pub(crate) mod lookup;

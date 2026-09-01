@@ -80,3 +80,43 @@ fn infrastructure_guard_matches_only_its_system_state_code() {
         assert_eq!(decision.verdict(), Verdict::Delegate);
     }
 }
+
+#[test]
+fn kubernetes_guard_matches_each_reviewed_scope_when_enabled() {
+    for operation in [
+        SemanticCode::INFRA_K8S_NAMESPACE_DELETE,
+        SemanticCode::INFRA_K8S_CLUSTER_RESOURCE_DELETE,
+        SemanticCode::INFRA_K8S_BULK_RESOURCE_DELETE,
+    ] {
+        let stream = guarded_stream(EffectKind::SystemState { operation });
+        let enabled =
+            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", true), &[]).unwrap();
+        assert_eq!(enabled.verdict(), Verdict::Block);
+        assert_eq!(enabled.policy_attributions()[0].name(), "infra-k8s-delete");
+
+        let disabled =
+            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", false), &[]).unwrap();
+        assert_eq!(disabled.verdict(), Verdict::Delegate);
+    }
+}
+
+#[test]
+fn kubernetes_guard_requires_a_system_state_effect() {
+    for code in [
+        SemanticCode::INFRA_K8S_NAMESPACE_DELETE,
+        SemanticCode::INFRA_K8S_CLUSTER_RESOURCE_DELETE,
+        SemanticCode::INFRA_K8S_BULK_RESOURCE_DELETE,
+    ] {
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
+                EffectKind::known("kubectl", code.as_str()).expect("semantic code is valid"),
+            ]],
+            vec![],
+        )
+        .unwrap();
+        let decision =
+            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", true), &[]).unwrap();
+        assert_eq!(decision.verdict(), Verdict::Delegate);
+    }
+}
