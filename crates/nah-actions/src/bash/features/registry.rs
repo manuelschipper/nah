@@ -208,6 +208,13 @@ fn parse_option_at(
         }
         return Err(());
     }
+    if let Some(name) = argument.strip_prefix("--no-") {
+        let name = format!("--{name}");
+        if boolean_value_options.contains(&name.as_str()) {
+            parsed.options.push((name, Some("false".to_owned())));
+            return Ok(Some(1));
+        }
+    }
     if boolean_options.contains(&argument.as_str()) {
         parsed.options.push((argument.clone(), None));
         return Ok(Some(1));
@@ -540,6 +547,63 @@ const CARGO_VALUE: &[&str] = &[
     "--version",
 ];
 
+const CARGO_OWNER_BOOLEAN: &[&str] = &[
+    "-h",
+    "-q",
+    "-v",
+    "-V",
+    "--frozen",
+    "--help",
+    "--list",
+    "--locked",
+    "--offline",
+    "--quiet",
+];
+const CARGO_OWNER_VALUE: &[&str] = &[
+    "-a",
+    "-r",
+    "--add",
+    "--color",
+    "--config",
+    "--index",
+    "--registry",
+    "--remove",
+    "--token",
+];
+const CARGO_PUBLISH_BOOLEAN: &[&str] = &[
+    "-h",
+    "-q",
+    "-v",
+    "-V",
+    "--all-features",
+    "--allow-dirty",
+    "--dry-run",
+    "--frozen",
+    "--help",
+    "--keep-going",
+    "--locked",
+    "--no-default-features",
+    "--no-verify",
+    "--offline",
+    "--quiet",
+    "--versioned-dirs",
+];
+const CARGO_PUBLISH_VALUE: &[&str] = &[
+    "-F",
+    "-j",
+    "-p",
+    "--color",
+    "--config",
+    "--features",
+    "--index",
+    "--jobs",
+    "--manifest-path",
+    "--package",
+    "--registry",
+    "--target",
+    "--token",
+];
+
 fn cargo(arguments: &[String]) -> Option<Classification> {
     let arguments = if arguments
         .first()
@@ -552,7 +616,8 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
     if matches!(arguments, [flag] if matches!(flag.as_str(), "--version" | "-V")) {
         return Some(Classification::control());
     }
-    if cargo_subcommand(arguments).is_some_and(|command| {
+    let subcommand = cargo_subcommand(arguments);
+    if subcommand.is_some_and(|command| {
         matches!(
             command,
             "add" | "build" | "check" | "install" | "remove" | "run" | "test" | "uninstall"
@@ -560,7 +625,12 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
     }) {
         return None;
     }
-    let parsed = match parsed_or_incomplete(arguments, CARGO_BOOLEAN, CARGO_VALUE) {
+    let (boolean_options, value_options) = match subcommand {
+        Some("owner") => (CARGO_OWNER_BOOLEAN, CARGO_OWNER_VALUE),
+        Some("publish") => (CARGO_PUBLISH_BOOLEAN, CARGO_PUBLISH_VALUE),
+        _ => (CARGO_BOOLEAN, CARGO_VALUE),
+    };
+    let parsed = match parsed_or_incomplete(arguments, boolean_options, value_options) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
     };

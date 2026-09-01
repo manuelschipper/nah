@@ -33,10 +33,13 @@ fn npm_unpublish_and_owner_control_changes_are_recognized() {
         "npm unpublish left-pad",
         "npm unpublish left-pad@1.3.0",
         "npm unpublish left-pad@1.3.0 --force --otp=123456",
+        "npm unpublish left-pad@1.3.0 --no-dry-run",
+        "npm unpublish left-pad@1.3.0 --no-force",
         "npm --registry https://registry.npmjs.org unpublish -- left-pad",
         "npm owner add alice left-pad",
         "npm owner rm mallory left-pad --otp 123456",
         "npm owner add alice left-pad --dry-run",
+        "npm owner rm mallory left-pad --no-json",
     ] {
         assert!(unpublishes(source), "{source}");
     }
@@ -113,6 +116,7 @@ fn supported_publish_dry_runs_delegate_without_losing_recognition() {
         );
     }
     assert!(publishes("npm publish --dry-run=false"));
+    assert!(publishes("npm publish --no-dry-run"));
 }
 
 #[test]
@@ -203,6 +207,7 @@ fn dynamic_malformed_help_and_unknown_forms_do_not_claim_registry_effects() {
         "flit publish unexpected",
         "cargo publish --registry --help",
         "cargo publish --registry --dry-run",
+        "cargo publish --add alice",
         "npm publish --tag --dry-run",
         "npm unpublish left-pad --otp --help",
         "gem yank rack --version --dry-run",
@@ -215,5 +220,18 @@ fn dynamic_malformed_help_and_unknown_forms_do_not_claim_registry_effects() {
         "twine upload dist/* --help",
     ] {
         assert!(!publishes(source) && !unpublishes(source), "{source}");
+    }
+}
+
+#[test]
+fn cargo_owner_rejects_publish_options() {
+    for source in [
+        "cargo owner --package victim --help",
+        "cargo owner -p victim --add alice",
+        "cargo owner --allow-dirty --remove mallory victim",
+    ] {
+        let stream = stream(source);
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(!unpublishes(source), "{source}");
     }
 }

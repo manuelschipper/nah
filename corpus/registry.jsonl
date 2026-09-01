@@ -4,6 +4,7 @@
 {"v":1,"id":"registry-unpublish.npm-whole-package","command":"npm unpublish --force","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
 {"v":1,"id":"registry-unpublish.npm-registry-otp","command":"npm --registry https://registry.npmjs.org unpublish left-pad@1.3.0 --otp 123456","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
 {"v":1,"id":"registry-unpublish.npm-dry-run","command":"npm unpublish left-pad@1.3.0 --dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
+{"v":1,"id":"registry-unpublish.npm-negated-options","command":"npm owner rm mallory left-pad --no-dry-run --no-json","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish","coverage":"full"}}
 {"v":1,"id":"registry-unpublish.gem-yank","command":"gem yank rack -v 3.0.0","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
 {"v":1,"id":"registry-unpublish.gem-yank-options","command":"gem yank rack --version=3.0.0 --platform ruby --otp 123456 --host https://rubygems.org","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
 {"v":1,"id":"registry-unpublish.npm-owner-add","command":"npm owner add alice left-pad","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-unpublish"}}
@@ -35,6 +36,7 @@
 {"v":1,"id":"registry-publish.pnpm-dlx-wrapper","command":"pnpm dlx npm publish","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-publish"}}
 {"v":1,"id":"registry-publish.bunx-wrapper","command":"bunx npm publish","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-publish"}}
 {"v":1,"id":"registry-publish.npm-dry-run-delegates","command":"npm publish --dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
+{"v":1,"id":"registry-publish.npm-negated-dry-run","command":"npm publish --no-dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block","guard":"registry-publish","coverage":"full"}}
 {"v":1,"id":"registry-publish.pnpm-dry-run-delegates","command":"pnpm publish --dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-publish.cargo-dry-run-delegates","command":"cargo publish --dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-publish.poetry-dry-run-delegates","command":"poetry publish --dry-run","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
@@ -44,6 +46,7 @@
 {"v":1,"id":"registry-boundary.dotnet-delete-delegates","command":"dotnet nuget delete package 1.0.0","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-boundary.npm-owner-list-delegates","command":"npm owner ls left-pad","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-boundary.cargo-owner-list-delegates","command":"cargo owner --list crate-name","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
+{"v":1,"id":"registry-boundary.cargo-owner-publish-option-delegates","command":"cargo owner --package victim --help","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
 {"v":1,"id":"registry-boundary.gem-owner-list-delegates","command":"gem owner rack","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-boundary.npm-install-delegates","command":"npm install left-pad","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"registry-boundary.npm-uninstall-delegates","command":"npm uninstall left-pad","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}

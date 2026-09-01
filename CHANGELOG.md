@@ -12,6 +12,9 @@
   the nested registry command, while missing values, version requests, and
   unsupported Poetry or Flit operands delegate instead of producing registry
   effects.
+- **Registry boolean and command option correction** — Accepted npm `--no-*`
+  boolean modifiers retain registry classification, while Cargo owner and
+  publish reject options that belong only to the other command.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.
