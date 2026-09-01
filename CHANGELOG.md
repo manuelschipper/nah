@@ -4,24 +4,13 @@
 
 - **Package unpublish and control-transfer guard** — New default-on
   `registry-unpublish` blocks reviewed npm unpublish, irreversible RubyGems
-  yank, and npm, Cargo, or RubyGems published-name owner changes.
+  yank, and npm, Cargo, or RubyGems published-name owner changes, including
+  reviewed aliases, negated boolean options, and repeated mutation flags.
 - **Optional package publish guard** — New default-off `registry-publish`
   blocks reviewed npm-compatible, Cargo, RubyGems, Python, and NuGet
-  publication commands while supported dry-run forms continue to delegate.
-- **Registry option scope correction** — Package-runner child options now reach
-  the nested registry command, while missing values, version requests, and
-  unsupported Poetry or Flit operands delegate instead of producing registry
-  effects.
-- **Registry boolean and command option correction** — Accepted npm `--no-*`
-  boolean modifiers retain registry classification, while Cargo owner and
-  publish reject options that belong only to the other command.
-- **Registry repeated owner correction** — Repeated reviewed Cargo and
-  RubyGems owner add/remove options retain `registry-unpublish` classification.
-- **Registry npm owner alias correction** — npm's `author` command alias and
-  `owner remove` action retain `registry-unpublish` classification.
-- **Registry command-boundary correction** — Unrelated package-manager commands
-  retain full coverage, and npm owner changes inferred from the current package
-  receive `registry-unpublish` protection.
+  publication commands, including statically resolved package-runner forms;
+  supported dry-run and malformed forms delegate, and unrelated commands retain
+  full coverage.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.

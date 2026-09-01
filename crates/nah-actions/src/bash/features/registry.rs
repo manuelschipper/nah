@@ -120,13 +120,6 @@ impl ParsedOptions {
                 value.as_deref().map(parse_bool).unwrap_or(Some(true)) == Some(true)
             })
     }
-
-    fn value_count(&self, names: &[&str]) -> usize {
-        self.options
-            .iter()
-            .filter(|(name, _)| names.contains(&name.as_str()))
-            .count()
-    }
 }
 
 fn parse_options(
@@ -373,23 +366,6 @@ fn npm(arguments: &[String]) -> Option<Classification> {
         } else {
             Classification::operation(SemanticCode::REGISTRY_PUBLISH)
         }),
-        [command, ..]
-            if matches!(
-                command.as_str(),
-                "access"
-                    | "add"
-                    | "deprecate"
-                    | "install"
-                    | "org"
-                    | "pack"
-                    | "remove"
-                    | "team"
-                    | "token"
-                    | "uninstall"
-            ) =>
-        {
-            Some(Classification::control())
-        }
         [command, action, ..]
             if matches!(command.as_str(), "author" | "owner") && action == "ls" =>
         {
@@ -462,17 +438,7 @@ fn pnpm(arguments: &[String]) -> Option<Classification> {
         } else {
             Classification::operation(SemanticCode::REGISTRY_PUBLISH)
         }),
-        [command, ..] if command == "publish" || command == "dlx" => {
-            Some(Classification::incomplete())
-        }
-        [command, ..]
-            if matches!(
-                command.as_str(),
-                "add" | "install" | "pack" | "remove" | "uninstall"
-            ) =>
-        {
-            Some(Classification::control())
-        }
+        [command, ..] if command == "publish" => Some(Classification::incomplete()),
         _ => None,
     }
 }
@@ -523,9 +489,6 @@ fn yarn(arguments: &[String]) -> Option<Classification> {
         }
         [command, ..] if command == "publish" || command == "npm" => {
             Some(Classification::incomplete())
-        }
-        [command, ..] if matches!(command.as_str(), "add" | "install" | "pack" | "remove") => {
-            Some(Classification::control())
         }
         _ => None,
     }
@@ -693,9 +656,6 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
                 Some(Classification::incomplete())
             }
         }
-        [command, ..] if matches!(command.as_str(), "install" | "package" | "remove" | "yank") => {
-            Some(Classification::control())
-        }
         _ => None,
     }
 }
@@ -761,7 +721,7 @@ fn gem(arguments: &[String]) -> Option<Classification> {
         return Some(Classification::control());
     }
     match parsed.positionals.as_slice() {
-        [command, _] if command == "yank" && parsed.value_count(&["-v", "--version"]) == 1 => {
+        [command, _] if command == "yank" && parsed.present(&["-v", "--version"]) => {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
         [command, _]
@@ -773,14 +733,11 @@ fn gem(arguments: &[String]) -> Option<Classification> {
             Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
         }
         [command, ..] if matches!(command.as_str(), "owner" | "push" | "yank") => {
-            if command == "owner" && parsed.value_count(&["-a", "--add", "-r", "--remove"]) == 0 {
+            if command == "owner" && !parsed.present(&["-a", "--add", "-r", "--remove"]) {
                 Some(Classification::control())
             } else {
                 Some(Classification::incomplete())
             }
-        }
-        [command, ..] if matches!(command.as_str(), "install" | "uninstall") => {
-            Some(Classification::control())
         }
         _ => None,
     }
