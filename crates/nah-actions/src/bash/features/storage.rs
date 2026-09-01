@@ -575,7 +575,7 @@ fn rsync(arguments: &[String]) -> Classification {
     ) else {
         return Classification::incomplete();
     };
-    if parsed.non_executing() {
+    if parsed.any_flag(&["--help", "--version"]) {
         return Classification::control();
     }
     if parsed.positionals().len() < 2 {
@@ -650,7 +650,7 @@ pub(crate) fn zfs_live_dataset_destroy(arguments: &[Word]) -> bool {
 }
 
 fn parse_zfs(arguments: &[String]) -> Result<ParsedOptions, ()> {
-    parse_options(arguments, &["--help", "--version"], &[], "fnpRrv", "d")
+    parse_options(arguments, &["--help", "--version"], &[], "dfnpRrv", "")
 }
 
 fn btrfs(arguments: &[String]) -> Classification {

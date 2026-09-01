@@ -167,6 +167,8 @@ fn broad_remote_and_destination_deletion_emits_recursive_delete() {
         "rclone delete remote:old",
         "rclone sync . remote:mirror",
         "rsync -a --delete dist/ host:/var/www/",
+        "rsync -avh --delete dist/ host:/var/www/",
+        "rsync -ah --delete dist/ host:/var/www/",
         "rsync -a --del dist/ mirror/",
         "rsync -a --delete-before dist/ mirror/",
         "rsync -a --delete-during dist/ mirror/",
@@ -211,6 +213,7 @@ fn every_rsync_destination_delete_spelling_covers_local_and_remote_destinations(
 fn snapshot_and_retention_deletion_emits_snapshot_delete() {
     for source in [
         "zfs destroy tank/data@snap",
+        "zfs destroy -d tank/data@snap",
         "zfs destroy -R tank/data@a%b",
         "zfs destroy -- tank/data@snap",
         "zfs rollback -r tank/data@snap",
@@ -363,7 +366,9 @@ fn dynamic_malformed_and_untrusted_executable_forms_are_not_claimed() {
 fn live_zfs_dataset_destroy_uses_the_existing_logical_storage_code() {
     for source in [
         "zfs destroy tank/data",
+        "zfs destroy -d tank/data",
         "zfs destroy -r tank/data",
+        "zfs destroy -r -d tank/data",
         "zfs destroy -Rf tank/data",
     ] {
         assert!(

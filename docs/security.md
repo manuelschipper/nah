@@ -11,22 +11,29 @@ protected-state changes outside maintenance.
   backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
-- Analyzer/custom-guard failure adds no finding by default; `--fail-closed`
-  blocks failures/refusals. Completed failures enter the log when writable.
+- Analyzer/custom-guard failure adds no finding by default; other evidence
+  decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
+  live failures enter the redacted log when writable.
 - Understood nah-state/executable mutation or authority change blocks.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
   bypass launches.
-- The 8 MiB redacted log preserves up to 200 recent blocks on compaction.
-  `nah test --json` and custom guards may expose unredacted modeled input.
+- When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
+  on compaction. `nah test --json`/custom guards may expose unredacted
+  modeled input and inline code.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
 - `git-remote-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
-- `registry-unpublish` defaults on for reviewed unpublish/yank/owner changes;
-  `registry-publish` defaults off, and supported dry runs delegate.
-- Filesystem guards cover reviewed auth/identity, shell-profile, and startup
-  paths and commands; shell-profile/startup-management default off.
-- `infra-container-reset` is on; container prune and whole-stack IaC are off.
-  Narrow/dry-run container and targeted/other IaC delegates.
+- `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
+  published-name owner changes.
+- `registry-publish` defaults off for reviewed publishing; supported dry runs
+  delegate.
+- Filesystem guards cover auth/identity (PAM/sudoers/sshd), shell profiles,
+  service/schedule/login/autostart/loader paths, static `systemctl` units,
+  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
+  shell-profile/startup-management default off.
+- `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
+  (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
+  Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
 - `storage-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
 - `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
