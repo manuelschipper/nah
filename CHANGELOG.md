@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Package unpublish and control-transfer guard** — New default-on
+  `registry-unpublish` blocks reviewed npm unpublish, irreversible RubyGems
+  yank, and npm, Cargo, or RubyGems published-name owner changes, including
+  reviewed aliases, negated boolean options, and repeated mutation flags.
+- **Optional package publish guard** — New default-off `registry-publish`
+  blocks reviewed npm-compatible, Cargo, RubyGems, Python, and NuGet
+  publication commands, including statically resolved package-runner forms;
+  supported dry-run and malformed forms delegate, and unrelated commands retain
+  full coverage.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.

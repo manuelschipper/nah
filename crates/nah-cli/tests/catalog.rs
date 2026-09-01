@@ -463,6 +463,80 @@ fn project_can_enable_the_factory_off_infrastructure_guard() {
 }
 
 #[test]
+fn registry_guards_keep_independent_factory_and_project_postures() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+
+    for command in [
+        "npm unpublish left-pad@1.3.0",
+        "gem yank rack -v 3.0.0",
+        "npm owner rm mallory left-pad",
+    ] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "registry-unpublish",
+            "{command}"
+        );
+    }
+    for command in [
+        "npm publish",
+        "cargo publish",
+        "twine upload dist/*",
+        "gem push pkg.gem",
+    ] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    std::fs::create_dir(project.join(".nah")).unwrap();
+    std::fs::write(
+        project.join(".nah/project.toml"),
+        "enable-guards = [\"registry-publish\"]\n",
+    )
+    .unwrap();
+    for command in [
+        "npm publish",
+        "cargo publish",
+        "twine upload dist/*",
+        "gem push pkg.gem",
+    ] {
+        let decision = decide(temp.path(), &project, command);
+        assert_eq!(decision["verdict"], "block", "{command}");
+        assert_eq!(
+            decision["policy_attributions"][0]["name"], "registry-publish",
+            "{command}"
+        );
+    }
+    for command in ["npm publish --dry-run", "npm pack", "cargo package"] {
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate",
+            "{command}"
+        );
+    }
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "registry-unpublish"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, "npm unpublish left-pad")["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "npm publish")["policy_attributions"][0]["name"],
+        "registry-publish"
+    );
+}
+
+#[test]
 fn test_command_is_a_human_dry_run_and_does_not_write_an_audit_record() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

@@ -1,50 +1,54 @@
 # Security boundaries
 
-See `nah docs threat-model` for the adversary and trust assumptions.
+See `nah docs threat-model` for adversary/trust assumptions.
 
-nah evaluates only tool calls reaching a loaded adapter. It blocks definite
-guard findings and understood protected-state changes outside maintenance.
+nah evaluates calls reaching a loaded adapter and blocks definite findings and
+protected-state changes outside maintenance.
 
 ## Enforced
 
-- nah returns only block or delegate; no guard can authorize a call.
-- Project custom guards require trust and activation, which pins bundle bytes.
-- Analyzer or custom-guard failure adds no finding by default; other evidence
-  still decides. `--fail-closed` blocks explicit failures and bounded refusals.
-  Completed live failures enter the redacted audit log when writable.
-- Understood attempts to mutate nah state, its executable, or
-  authority-changing commands block.
-- Active adapters also protect understood changes to standard hook and loading
-  files, lifecycle/removal commands, and launches that skip them.
-- On compaction, the 8 MiB redacted log prioritizes up to 200 recent
-  blocks when space allows. `nah test --json` and custom guards may
-  expose unredacted modeled input and inline code.
-- Guards block modeled access to protected credential paths and visible flows
-  from sensitive sources or network content into dangerous sinks.
+- nah only blocks/delegates; guards never authorize.
+- Project guards need trust/activation and pin bundle bytes.
+- Analyzer/custom-guard failure adds no finding by default; other evidence
+  decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
+  live failures enter the redacted log when writable.
+- Understood nah-state/executable mutation or authority change blocks.
+- Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
+  bypass launches.
+- When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
+  on compaction. `nah test --json`/custom guards may expose unredacted
+  modeled input and inline code.
+- Guards block modeled protected-credential access and visible
+  sensitive/network-content flows to dangerous sinks.
 - `git-remote-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
-- Filesystem guards cover auth/identity (PAM, sudoers, sshd), shell profiles,
-  service/schedule/login/autostart/loader paths, static `systemctl` unit files,
-  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations.
-  Shell-profile/startup-management default off.
-- `infra-container-reset` (on) blocks Podman full reset;
-  `infra-container-prune` (off), broad volume prune; `infra-iac-destroy` (off),
-  whole-stack IaC. Narrow/dry-run container and targeted/saved/ambient/other
-  IaC delegates.
+- `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
+  published-name owner changes.
+- `registry-publish` defaults off for reviewed publishing; supported dry runs
+  delegate.
+- Filesystem guards cover auth/identity (PAM/sudoers/sshd), shell profiles,
+  service/schedule/login/autostart/loader paths, static `systemctl` units,
+  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
+  shell-profile/startup-management default off.
+- `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
+  (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
+  Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
 
 ## Not enforced
 
-- Runtime hook loading or trust, UI actions, approval or permission behavior,
-  hook deadlines, and configuration outside intercepted calls.
-- Unhooked, remote, or human tool calls; runtime bugs, trusted plugins, opaque
-  programs, and unobservable effects or filesystems.
+- Runtime hook/trust, UI, approvals/permissions, deadlines, and configuration
+  outside interception.
+- Unhooked/remote/human calls; runtime bugs/trusted plugins/opaque programs;
+  unobservable effects/filesystems.
 - Secret content under unclassified names; guards inspect paths and modeled
   effects, not arbitrary contents.
-- Custom guards are trusted executables; nah does not sandbox them.
-- Other remote deletion tools/routes, unresolved targets, branches, tags,
+- Custom guards are trusted, unsandboxed executables.
+- Other remote deletion routes, unresolved targets, branches, tags,
   archives, renames, and transfers.
-Unknown or opaque input delegates. Fail-closed uses native denial for malformed
-or no-decision input, but requires loaded nah to respond; missing hooks/binaries,
-runtime failure or bypass, and broken pipes remain outside.
+- Registry excludes reversible yanks/deprecations, listing/admin, ambiguous
+  targets, web/REST-only changes, and unmodeled ecosystems.
+Unknown/opaque input delegates. Fail-closed denies malformed/no-decision input
+only when loaded; missing hooks/binaries, runtime failure/bypass, and
+broken pipes remain outside.
 
 ## Delegate is not approval
 
