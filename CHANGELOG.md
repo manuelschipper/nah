@@ -17,6 +17,8 @@
   publish reject options that belong only to the other command.
 - **Registry repeated owner correction** — Repeated reviewed Cargo and
   RubyGems owner add/remove options retain `registry-unpublish` classification.
+- **Registry npm owner alias correction** — npm's `author` command alias and
+  `owner remove` action retain `registry-unpublish` classification.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.

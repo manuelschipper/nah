@@ -353,7 +353,8 @@ fn npm(arguments: &[String]) -> Option<Classification> {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
         [command, action, _, _]
-            if command == "owner" && matches!(action.as_str(), "add" | "rm") =>
+            if matches!(command.as_str(), "author" | "owner")
+                && matches!(action.as_str(), "add" | "remove" | "rm") =>
         {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
@@ -379,10 +380,17 @@ fn npm(arguments: &[String]) -> Option<Classification> {
         {
             Some(Classification::control())
         }
-        [command, action, ..] if command == "owner" && action == "ls" => {
+        [command, action, ..]
+            if matches!(command.as_str(), "author" | "owner") && action == "ls" =>
+        {
             Some(Classification::control())
         }
-        [command, ..] if matches!(command.as_str(), "unpublish" | "publish" | "owner") => {
+        [command, ..]
+            if matches!(
+                command.as_str(),
+                "author" | "owner" | "publish" | "unpublish"
+            ) =>
+        {
             Some(Classification::incomplete())
         }
         _ => None,
