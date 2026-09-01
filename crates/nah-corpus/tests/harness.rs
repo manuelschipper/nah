@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1615);
+    assert_eq!(summary.cases, 1623);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
-            ("registry.jsonl".to_owned(), 67),
+            ("registry.jsonl".to_owned(), 75),
             ("secrets.jsonl".to_owned(), 100),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
@@ -218,6 +218,7 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "registry-unpublish.npm-owner-remove",
         "registry-unpublish.npm-owner-remove-alias",
         "registry-unpublish.npm-author-alias",
+        "registry-unpublish.npm-owner-current-package",
         "registry-unpublish.cargo-owner-remove",
         "registry-unpublish.cargo-owner-multiple",
         "registry-unpublish.gem-owner-remove",
@@ -232,6 +233,14 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "registry-publish.pnpm-dlx-dry-run-delegates",
         "registry-boundary.cargo-yank-delegates",
         "registry-boundary.npm-deprecate-delegates",
+        "registry-boundary.npm-install-delegates",
+        "registry-boundary.cargo-command-options-delegate",
+        "registry-boundary.pnpm-command-options-delegate",
+        "registry-boundary.yarn-command-options-delegate",
+        "registry-boundary.gem-command-options-delegate",
+        "registry-boundary.dotnet-command-options-delegate",
+        "registry-boundary.uv-command-options-delegate",
+        "registry-boundary.poetry-command-options-delegate",
         "registry-boundary.dynamic-target-delegates",
         "registry-boundary.missing-option-value-delegates",
         "registry-boundary.poetry-operand-delegates",

@@ -336,6 +336,16 @@ const NPM_VALUE: &[&str] = &[
 ];
 
 fn npm(arguments: &[String]) -> Option<Classification> {
+    let command = match command_prefix(arguments, NPM_BOOLEAN, NPM_VALUE, NPM_BOOLEAN) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command
+        .program
+        .is_some_and(|command| !matches!(command, "author" | "owner" | "publish" | "unpublish"))
+    {
+        return None;
+    }
     let parsed = match parsed_or_incomplete_with_boolean_values(
         arguments,
         NPM_BOOLEAN,
@@ -352,7 +362,7 @@ fn npm(arguments: &[String]) -> Option<Classification> {
         [command] | [command, _] if command == "unpublish" => {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
-        [command, action, _, _]
+        [command, action, _] | [command, action, _, _]
             if matches!(command.as_str(), "author" | "owner")
                 && matches!(action.as_str(), "add" | "remove" | "rm") =>
         {
@@ -427,6 +437,12 @@ fn pnpm(arguments: &[String]) -> Option<Classification> {
         Ok(wrapper) => wrapper,
         Err(()) => return Some(Classification::incomplete()),
     };
+    if wrapper
+        .program
+        .is_some_and(|command| !matches!(command, "dlx" | "publish"))
+    {
+        return None;
+    }
     if help_requested(&wrapper.options) {
         return Some(Classification::control());
     }
@@ -472,6 +488,25 @@ const YARN_BOOLEAN: &[&str] = &[
 const YARN_VALUE: &[&str] = &["--access", "--new-version", "--otp", "--registry", "--tag"];
 
 fn yarn(arguments: &[String]) -> Option<Classification> {
+    let command = match command_prefix(arguments, YARN_BOOLEAN, YARN_VALUE, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command
+        .program
+        .is_some_and(|command| !matches!(command, "npm" | "publish"))
+    {
+        return None;
+    }
+    if command.program == Some("npm") {
+        let nested = match command_prefix(command.arguments, YARN_BOOLEAN, YARN_VALUE, &[]) {
+            Ok(command) => command,
+            Err(()) => return Some(Classification::incomplete()),
+        };
+        if nested.program.is_some_and(|command| command != "publish") {
+            return None;
+        }
+    }
     let parsed = match parsed_or_incomplete(arguments, YARN_BOOLEAN, YARN_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -625,12 +660,7 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
         return Some(Classification::control());
     }
     let subcommand = cargo_subcommand(arguments);
-    if subcommand.is_some_and(|command| {
-        matches!(
-            command,
-            "add" | "build" | "check" | "install" | "remove" | "run" | "test" | "uninstall"
-        )
-    }) {
+    if subcommand.is_some_and(|command| !matches!(command, "owner" | "publish")) {
         return None;
     }
     let (boolean_options, value_options) = match subcommand {
@@ -713,6 +743,16 @@ const GEM_VALUE: &[&str] = &[
 ];
 
 fn gem(arguments: &[String]) -> Option<Classification> {
+    let command = match command_prefix(arguments, GEM_BOOLEAN, GEM_VALUE, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command
+        .program
+        .is_some_and(|command| !matches!(command, "owner" | "push" | "yank"))
+    {
+        return None;
+    }
     let parsed = match parsed_or_incomplete(arguments, GEM_BOOLEAN, GEM_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -774,6 +814,13 @@ const TWINE_VALUE: &[&str] = &[
 ];
 
 fn twine(arguments: &[String]) -> Option<Classification> {
+    let command = match command_prefix(arguments, TWINE_BOOLEAN, TWINE_VALUE, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command.program.is_some_and(|command| command != "upload") {
+        return None;
+    }
     let parsed = match parsed_or_incomplete(arguments, TWINE_BOOLEAN, TWINE_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -894,6 +941,13 @@ fn simple_publish(
     honors_dry_run: bool,
     maximum_operands: Option<usize>,
 ) -> Option<Classification> {
+    let command = match command_prefix(arguments, boolean_options, value_options, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command.program.is_some_and(|command| command != "publish") {
+        return None;
+    }
     let parsed = match parsed_or_incomplete(arguments, boolean_options, value_options) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -938,6 +992,25 @@ const DOTNET_VALUE: &[&str] = &[
 ];
 
 fn dotnet(arguments: &[String]) -> Option<Classification> {
+    let group = match command_prefix(arguments, DOTNET_BOOLEAN, DOTNET_VALUE, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if group.program.is_some_and(|command| command != "nuget") {
+        return None;
+    }
+    if group.program == Some("nuget") {
+        let command = match command_prefix(group.arguments, DOTNET_BOOLEAN, DOTNET_VALUE, &[]) {
+            Ok(command) => command,
+            Err(()) => return Some(Classification::incomplete()),
+        };
+        if command
+            .program
+            .is_some_and(|command| !matches!(command, "delete" | "push"))
+        {
+            return None;
+        }
+    }
     let parsed = match parsed_or_incomplete(arguments, DOTNET_BOOLEAN, DOTNET_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -989,6 +1062,16 @@ fn nuget(arguments: &[String]) -> Option<Classification> {
             }
         })
         .collect::<Vec<_>>();
+    let command = match command_prefix(&normalized, NUGET_BOOLEAN, NUGET_VALUE, &[]) {
+        Ok(command) => command,
+        Err(()) => return Some(Classification::incomplete()),
+    };
+    if command
+        .program
+        .is_some_and(|command| !matches!(command, "delete" | "push"))
+    {
+        return None;
+    }
     let parsed = match parsed_or_incomplete(&normalized, NUGET_BOOLEAN, NUGET_VALUE) {
         Ok(parsed) => parsed,
         Err(classification) => return Some(classification),
@@ -1052,6 +1135,15 @@ fn parse_wrapper_command<'a>(
     boolean_options: &[&str],
     value_options: &[&str],
 ) -> Result<WrapperCommand<'a>, ()> {
+    command_prefix(arguments, boolean_options, value_options, &[])
+}
+
+fn command_prefix<'a>(
+    arguments: &'a [String],
+    boolean_options: &[&str],
+    value_options: &[&str],
+    boolean_value_options: &[&str],
+) -> Result<WrapperCommand<'a>, ()> {
     let mut parsed = ParsedOptions::default();
     let mut index = 0;
     while let Some(argument) = arguments.get(index) {
@@ -1065,7 +1157,7 @@ fn parse_wrapper_command<'a>(
             index,
             boolean_options,
             value_options,
-            &[],
+            boolean_value_options,
         )?
         else {
             if argument.is_empty() {

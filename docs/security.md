@@ -1,51 +1,53 @@
 # Security boundaries
 
-See `nah docs threat-model` for the adversary and trust assumptions.
+See `nah docs threat-model` for adversary/trust assumptions.
 
 nah evaluates calls reaching a loaded adapter and blocks definite findings and
 protected-state changes outside maintenance.
 
 ## Enforced
 
-- nah returns only block or delegate; no guard can authorize a call.
-- Project custom guards require trust and activation, which pins bundle bytes.
+- nah only blocks/delegates; guards never authorize.
+- Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
-  decides. `--fail-closed` blocks failures/refusals. Live failures enter the
-  redacted audit log when writable.
-- Understood attempts to mutate nah state, its executable, or
-  authority-changing commands block.
+  decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
+  live failures enter the redacted log when writable.
+- Understood nah-state/executable mutation or authority change blocks.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
-  launches that skip them.
-- The 8 MiB log retains up to 200 recent blocks when compacting. `nah test
-  --json` and custom guards may expose modeled input and inline code.
-- Guards block modeled access to protected credential paths and visible flows
-  from sensitive sources or network content into dangerous sinks.
+  bypass launches.
+- When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
+  on compaction. `nah test --json`/custom guards may expose unredacted
+  modeled input and inline code.
+- Guards block modeled protected-credential access and visible
+  sensitive/network-content flows to dangerous sinks.
 - `git-remote-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
-- `registry-publish` defaults off for reviewed package publication; supported
-  dry runs delegate.
-- Filesystem guards cover reviewed auth/identity, shell-profile, and startup
-  paths plus static systemd units, persistent launchctl, and crontab changes;
-  shell-profile and startup-management default off.
-- Infrastructure defaults: Podman reset on; broad volume prune and whole-stack
-  IaC off. Narrow/dry-run container and targeted or saved-plan IaC delegates.
+- `registry-publish` defaults off for reviewed publishing; supported dry runs
+  delegate.
+- Filesystem guards cover auth/identity (PAM/sudoers/sshd), shell profiles,
+  service/schedule/login/autostart/loader paths, static `systemctl` units,
+  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
+  shell-profile/startup-management default off.
+- `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
+  (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
+  Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
 
 ## Not enforced
 
-- Runtime hook/trust, UI, approvals, permissions, deadlines, and configuration
-  outside intercepted calls.
-- Unhooked, remote, or human tool calls; runtime bugs, trusted plugins, opaque
-  programs, and unobservable effects or filesystems.
+- Runtime hook/trust, UI, approvals/permissions, deadlines, and configuration
+  outside interception.
+- Unhooked/remote/human calls; runtime bugs/trusted plugins/opaque programs;
+  unobservable effects/filesystems.
 - Secret content under unclassified names; guards inspect paths and modeled
   effects, not arbitrary contents.
-- Custom guards are trusted executables; nah does not sandbox them.
-- Other remote deletion tools/routes, unresolved targets, branches, tags,
+- Custom guards are trusted, unsandboxed executables.
+- Other remote deletion routes, unresolved targets, branches, tags,
   archives, renames, and transfers.
-- Registry exclusions: reversible yanks/deprecations, listing/admin commands,
-  target-ambiguous tools, web/REST-only changes, and unmodeled ecosystems.
-Unknown or opaque input delegates. Fail-closed denies malformed/no-decision
-input only when loaded; missing hooks/binaries, runtime failure/bypass, and
+- Registry excludes reversible yanks/deprecations, listing/admin, ambiguous
+  targets, web/REST-only changes, and unmodeled ecosystems.
+Unknown/opaque input delegates. Fail-closed denies malformed/no-decision input
+only when loaded; missing hooks/binaries, runtime failure/bypass, and
 broken pipes remain outside.
 
 ## Delegate is not approval

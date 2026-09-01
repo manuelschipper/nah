@@ -37,11 +37,17 @@ fn npm_unpublish_and_owner_control_changes_are_recognized() {
         "npm unpublish left-pad@1.3.0 --no-force",
         "npm --registry https://registry.npmjs.org unpublish -- left-pad",
         "npm owner add alice left-pad",
+        "npm owner add alice",
         "npm owner rm mallory left-pad --otp 123456",
+        "npm owner rm mallory",
         "npm owner remove mallory left-pad --otp 123456",
+        "npm owner remove mallory",
         "npm author add alice left-pad",
+        "npm author add alice",
         "npm author rm mallory left-pad",
+        "npm author rm mallory",
         "npm author remove mallory left-pad",
+        "npm author remove mallory",
         "npm owner add alice left-pad --dry-run",
         "npm owner rm mallory left-pad --no-json",
     ] {
@@ -206,6 +212,47 @@ fn reversible_listing_and_adjacent_package_operations_delegate() {
 }
 
 #[test]
+fn unrelated_registry_program_commands_preserve_full_coverage() {
+    for source in [
+        "cargo fmt --all --check",
+        "cargo --color always fmt --all --check",
+        "cargo clippy --fix",
+        "cargo doc --open",
+        "cargo tree -d",
+        "cargo bench --bench x",
+        "npm ci --prefer-offline",
+        "npm run build --silent",
+        "npm install --save-dev typescript",
+        "npm --registry https://registry.npmjs.org install --save-dev typescript",
+        "npm ls --depth 0",
+        "pnpm install --frozen-lockfile",
+        "pnpm add -D vite",
+        "yarn install --frozen-lockfile",
+        "yarn npm audit --recursive",
+        "bun install --frozen-lockfile",
+        "gem install rails --no-document",
+        "gem --silent install rails --no-document",
+        "twine check dist/pkg.whl --strict",
+        "twine --disable-progress-bar check dist/pkg.whl --strict",
+        "dotnet test --no-build",
+        "dotnet restore --locked-mode",
+        "nuget restore solution.sln -NonInteractive",
+        "uv sync --frozen",
+        "uv --directory . sync --frozen",
+        "poetry install --no-root",
+        "hatch build --clean",
+        "flit build --format wheel",
+        "npx eslint . --fix",
+        "pnpm dlx eslint . --fix",
+        "bunx eslint . --fix",
+    ] {
+        let stream = stream(source);
+        assert_eq!(stream.coverage(), Coverage::Full, "{source}");
+        assert!(!publishes(source) && !unpublishes(source), "{source}");
+    }
+}
+
+#[test]
 fn dynamic_malformed_help_and_unknown_forms_do_not_claim_registry_effects() {
     for source in [
         "npm \"$COMMAND\" left-pad",
@@ -214,7 +261,7 @@ fn dynamic_malformed_help_and_unknown_forms_do_not_claim_registry_effects() {
         "gem yank rack -v \"$VERSION\"",
         "twine upload \"$FILES\"",
         "npm unpublish one two",
-        "npm owner rm mallory",
+        "npm owner rm",
         "npm owner foo mallory left-pad",
         "npm author foo mallory left-pad",
         "cargo owner --add",

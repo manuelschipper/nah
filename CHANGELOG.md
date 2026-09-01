@@ -19,6 +19,9 @@
   RubyGems owner add/remove options retain `registry-unpublish` classification.
 - **Registry npm owner alias correction** — npm's `author` command alias and
   `owner remove` action retain `registry-unpublish` classification.
+- **Registry command-boundary correction** — Unrelated package-manager commands
+  retain full coverage, and npm owner changes inferred from the current package
+  receive `registry-unpublish` protection.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.
