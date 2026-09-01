@@ -5,6 +5,9 @@ use nah_parse::Word;
 use crate::shell_word::static_word;
 
 pub(crate) fn logical_storage_destroy(program: &str, arguments: &[Word]) -> bool {
+    if program == "zfs" {
+        return crate::bash_storage::zfs_live_dataset_destroy(arguments);
+    }
     let Some(arguments) = arguments
         .iter()
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
@@ -34,7 +37,7 @@ pub(crate) fn logical_storage_destroy(program: &str, arguments: &[Word]) -> bool
 }
 
 pub(crate) fn models_logical_storage_command(program: &str) -> bool {
-    matches!(program, "lvremove" | "vgremove" | "lvm" | "zpool")
+    matches!(program, "lvremove" | "vgremove" | "lvm" | "zpool" | "zfs")
 }
 
 fn lvm_wrapped_remove(arguments: &[String]) -> bool {

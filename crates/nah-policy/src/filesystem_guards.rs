@@ -61,7 +61,7 @@ pub(crate) fn add(
         ),
         (
             FS_STORAGE_DESTROY,
-            "fs-storage-destroy blocked storage destruction; do not retry; report the exact volume or pool and operation to the operator",
+            "fs-storage-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",
         ),
         (
             FS_FORKBOMB,

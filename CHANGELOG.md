@@ -6,6 +6,20 @@
   blocks static namespace, reviewed cluster-resource, and bulk reviewed
   namespaced-resource deletion while named application resources, dry runs,
   and selections outside visible argv continue to delegate.
+- **Backup repository destruction guard** — New default-on `storage-destroy`
+  blocks reviewed Borg repository deletion, Restic's explicit remove-all form,
+  and Velero deletion selecting every backup.
+- **Optional recursive storage deletion guard** — New default-off
+  `storage-recursive-delete` blocks reviewed broad cloud deletion and
+  destination-deleting sync while dry runs, filters, retained-copy modes,
+  single objects, and empty-only namespace removal delegate.
+- **Optional snapshot deletion guard** — New default-off
+  `storage-snapshot-delete` blocks reviewed snapshot, archive, volume, and
+  retention deletion while creation, dry runs, and garbage collection of
+  already removed data delegate.
+- **Live ZFS dataset destruction coverage** — `fs-storage-destroy` now blocks
+  reviewed `zfs destroy` forms selecting a live dataset while snapshot targets
+  remain independently configurable.
 - **Package unpublish and control-transfer guard** — New default-on
   `registry-unpublish` blocks reviewed npm unpublish, irreversible RubyGems
   yank, and npm, Cargo, or RubyGems published-name owner changes, including

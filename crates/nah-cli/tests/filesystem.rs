@@ -317,7 +317,6 @@ fn non_destructive_storage_forms_do_not_trigger_catastrophic_guards() {
         "rsync -an --delete source/ /",
         "rsync --help --delete source/ /",
         "rsync --list-only --delete source/ /",
-        "rsync --delete source/ host:/",
         "lvremove --reportformat json",
         "lvremove -h vg/data",
         "lvremove --longhelp vg/data",

@@ -7,6 +7,8 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
+- 34 guards span execution, secrets, filesystem, Git, infrastructure/storage/
+  backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -37,6 +39,9 @@ protected-state changes outside maintenance.
   deletion through `kubectl`. Named application resources and client/server
   dry runs delegate; manifest, kustomize, stdin, raw, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
+- `storage-destroy` is on for whole Borg repos or all Restic/Velero backups.
+- `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
+- `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
 
 ## Not enforced
 
@@ -47,8 +52,8 @@ protected-state changes outside maintenance.
 - Secret content under unclassified names; guards inspect paths and modeled
   effects, not arbitrary contents.
 - Custom guards are trusted, unsandboxed executables.
-- Other remote deletion routes, unresolved targets, branches, tags,
-  archives, renames, and transfers.
+- Unmodeled remote deletion routes, unresolved targets, branches, tags,
+  renames, and transfers.
 - Registry excludes reversible yanks/deprecations, listing/admin, ambiguous
   targets, web/REST-only changes, and unmodeled ecosystems.
 Unknown/opaque input delegates. Fail-closed denies malformed/no-decision input

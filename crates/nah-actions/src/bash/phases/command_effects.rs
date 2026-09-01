@@ -216,6 +216,18 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let storage = match &program {
+            ProgramDraft::Static(program) => crate::bash_storage::classify(
+                program,
+                &local_arguments,
+                assignments,
+                self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                }),
+                direct_program.is_some(),
+            ),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         if let Some(execution) = &classifications.execution {
             network_endpoints.extend(execution.network_endpoints.iter().cloned());
             descriptor_flows.extend(
@@ -335,6 +347,7 @@ impl Lowerer {
             &classifications,
             infrastructure.as_ref(),
             kubernetes.as_ref(),
+            storage.as_ref(),
             registry.as_ref(),
             git_environment_override,
             remote_repository_delete,
@@ -420,6 +433,7 @@ impl Lowerer {
             || execution.is_some()
             || infrastructure.is_some()
             || kubernetes.is_some()
+            || storage.is_some()
             || registry.is_some()
             || !matches!(&producer.stdout, StdoutDraft::Unknown)
             || !filesystem_drafts.is_empty()
