@@ -1,7 +1,7 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{ActionStream, EffectKind, FilesystemOperation, SemanticCode};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, FilesystemOperation, SemanticCode};
 use support::{absolute, bash_plan, observe};
 
 fn stream(source: &str) -> ActionStream {
@@ -287,7 +287,7 @@ fn storage_controls_and_narrow_or_nonexecuting_forms_delegate() {
         "velero restore delete restore-1",
         "velero backup-location delete default",
         "kubectl delete backup backup-1",
-        "aws ec2 deregister-image --snapshot-id ami-1",
+        "aws ec2 deregister-image --image-id ami-1",
         "zfs snapshot tank/data@snap",
         "btrfs subvolume snapshot /data /snapshots/one",
         "restic backup /data",
@@ -312,6 +312,54 @@ fn storage_controls_and_narrow_or_nonexecuting_forms_delegate() {
             "{source}: {:?}",
             stream.effects()
         );
+    }
+}
+
+#[test]
+fn ordinary_storage_commands_and_explicit_boundaries_keep_full_coverage() {
+    for source in [
+        "aws s3 ls s3://bucket --summarize",
+        "aws sts get-caller-identity",
+        "gcloud auth login --brief",
+        "gsutil ls -L gs://bucket",
+        "az account show --only-show-errors",
+        "azcopy list https://account.blob.core.windows.net/container --properties LastModifiedTime",
+        "rclone lsd remote: --max-depth 1",
+        "zfs list -o name",
+        "zfs get all",
+        "btrfs filesystem show --raw",
+        "restic snapshots --compact",
+        "borg list /srv/repo --json",
+        "duplicity collection-status s3://bucket --verbosity info",
+        "velero backup get --output json",
+        "aws ec2 deregister-image --image-id ami-1",
+        "aws s3api put-bucket-lifecycle-configuration --bucket b --lifecycle-configuration file://lifecycle.json",
+    ] {
+        assert_eq!(stream(source).coverage(), Coverage::Full, "{source}");
+    }
+}
+
+#[test]
+fn malformed_storage_deletions_keep_partial_coverage() {
+    for source in [
+        "aws s3 sync src --delete",
+        "aws s3 rm s3://bucket --unknown-selection value --recursive",
+        "gcloud storage rm",
+        "gsutil rm",
+        "az storage container delete",
+        "azcopy sync src",
+        "rclone sync src",
+        "rclone sync src remote:dst --unknown-selection value",
+        "zfs destroy tank/data@snap --unknown-selection",
+        "zfs receive -F tank/data",
+        "btrfs subvolume delete",
+        "az storage blob sync --account-name prod --container site",
+        "restic forget",
+        "borg delete",
+        "duplicity remove-older-than 30D",
+        "velero backup delete",
+    ] {
+        assert_eq!(stream(source).coverage(), Coverage::Partial, "{source}");
     }
 }
 

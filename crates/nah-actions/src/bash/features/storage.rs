@@ -88,7 +88,7 @@ fn storage_program(program: &str) -> bool {
 }
 
 fn aws(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &[
             "--debug",
@@ -117,7 +117,9 @@ fn aws(arguments: &[String]) -> Classification {
             "--cli-read-timeout",
             "--endpoint-url",
             "--exclude",
+            "--image-id",
             "--include",
+            "--lifecycle-configuration",
             "--output",
             "--page-size",
             "--profile",
@@ -128,8 +130,9 @@ fn aws(arguments: &[String]) -> Classification {
         ],
         "",
         "",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("aws", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -191,18 +194,28 @@ fn aws(arguments: &[String]) -> Classification {
             if (service == "s3api"
                 && matches!(
                     command.as_str(),
-                    "delete-bucket" | "delete-objects" | "put-bucket-replication"
+                    "delete-bucket"
+                        | "delete-objects"
+                        | "put-bucket-lifecycle-configuration"
+                        | "put-bucket-replication"
                 ))
                 || (service == "ec2" && command == "deregister-image") =>
         {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        [service, command, ..]
+            if (service == "s3" && matches!(command.as_str(), "rb" | "rm" | "sync"))
+                || (service == "ec2"
+                    && matches!(command.as_str(), "delete-snapshot" | "delete-volume")) =>
+        {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
 fn gcloud(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &[
             "--delete-unmatched-destination-objects",
@@ -225,8 +238,9 @@ fn gcloud(arguments: &[String]) -> Classification {
         ],
         "qrR",
         "",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("gcloud", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -270,14 +284,26 @@ fn gcloud(arguments: &[String]) -> Classification {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             }
         }
-        _ => Classification::incomplete(),
+        [storage, command, ..]
+            if storage == "storage" && matches!(command.as_str(), "rm" | "rsync") =>
+        {
+            Classification::incomplete()
+        }
+        [compute, resource, delete, ..]
+            if compute == "compute"
+                && matches!(resource.as_str(), "snapshots" | "disks")
+                && delete == "delete" =>
+        {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
 fn gsutil(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(arguments, &["--help", "--version"], &[], "mqrRdn", "ouix")
-    else {
-        return Classification::incomplete();
+    let parsed = match parse_options(arguments, &["--help", "--version"], &[], "mqrRdn", "ouix") {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("gsutil", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -303,12 +329,13 @@ fn gsutil(arguments: &[String]) -> Classification {
             }
         }
         [command, ..] if command == "rb" => Classification::control(),
-        _ => Classification::incomplete(),
+        [command, ..] if matches!(command.as_str(), "rm" | "rsync") => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
 fn az(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &["--help", "--yes", "--version"],
         &[
@@ -326,8 +353,9 @@ fn az(arguments: &[String]) -> Classification {
         ],
         "hy",
         "gno",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("az", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -369,7 +397,23 @@ fn az(arguments: &[String]) -> Classification {
         {
             Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
         }
-        _ => Classification::incomplete(),
+        [storage, resource, delete, ..]
+            if storage == "storage"
+                && ((matches!(resource.as_str(), "container" | "account")
+                    && delete == "delete")
+                    || (resource == "blob" && delete == "delete-batch")) =>
+        {
+            Classification::incomplete()
+        }
+        [resource, delete, ..]
+            if matches!(resource.as_str(), "snapshot" | "disk") && delete == "delete" =>
+        {
+            Classification::incomplete()
+        }
+        [storage, blob, sync, ..] if storage == "storage" && blob == "blob" && sync == "sync" => {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
@@ -384,7 +428,7 @@ fn azcopy(arguments: &[String]) -> Classification {
             }
         })
         .collect::<Vec<_>>();
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         &arguments,
         &["--dry-run", "--help", "--version"],
         &[
@@ -399,8 +443,9 @@ fn azcopy(arguments: &[String]) -> Classification {
         ],
         "h",
         "",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("azcopy", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -431,12 +476,13 @@ fn azcopy(arguments: &[String]) -> Classification {
                 Classification::control()
             }
         }
-        _ => Classification::incomplete(),
+        [command, ..] if matches!(command.as_str(), "sync" | "rm") => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
 fn rclone(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &[
             "--backup",
@@ -474,8 +520,9 @@ fn rclone(arguments: &[String]) -> Classification {
         ],
         "hinPqv",
         "",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("rclone", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -524,12 +571,15 @@ fn rclone(arguments: &[String]) -> Classification {
         {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        [command, ..] if matches!(command.as_str(), "purge" | "delete" | "sync") => {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
 fn rsync(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &[
             "--archive",
@@ -574,8 +624,9 @@ fn rsync(arguments: &[String]) -> Classification {
         ],
         "abchlnopqrtuvxzDH",
         "e",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("rsync", &parsed),
     };
     if parsed.any_flag(&["--help", "--version"]) {
         return Classification::control();
@@ -611,8 +662,9 @@ fn rsync(arguments: &[String]) -> Classification {
 }
 
 fn zfs(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_zfs(arguments) else {
-        return Classification::incomplete();
+    let parsed = match parse_zfs(arguments) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("zfs", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -634,7 +686,7 @@ fn zfs(arguments: &[String]) -> Classification {
         {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
@@ -651,13 +703,14 @@ pub(crate) fn zfs_live_dataset_destroy(arguments: &[Word]) -> bool {
             && !parsed.any_flag(&["-n", "--help", "--version"]))
 }
 
-fn parse_zfs(arguments: &[String]) -> Result<ParsedOptions, ()> {
+fn parse_zfs(arguments: &[String]) -> Result<ParsedOptions, ParsedOptions> {
     parse_options(arguments, &["--help", "--version"], &[], "dfnpRrv", "")
 }
 
 fn btrfs(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(arguments, &["--help", "--version"], &[], "cCqv", "") else {
-        return Classification::incomplete();
+    let parsed = match parse_options(arguments, &["--help", "--version"], &[], "cCqv", "") {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("btrfs", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -673,12 +726,15 @@ fn btrfs(arguments: &[String]) -> Classification {
         {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        [group, command, ..] if group == "subvolume" && command == "delete" => {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
 fn restic(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options_with_boolean_flags(
+    let parsed = match parse_options_with_boolean_flags(
         arguments,
         &[],
         &[
@@ -716,8 +772,9 @@ fn restic(arguments: &[String]) -> Classification {
         ],
         "hqv",
         "opr",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("restic", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -737,12 +794,12 @@ fn restic(arguments: &[String]) -> Classification {
         [command, ..] if matches!(command.as_str(), "backup" | "prune") => {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
 fn borg(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &[
             "--cache-only",
@@ -778,8 +835,9 @@ fn borg(arguments: &[String]) -> Classification {
         ],
         "fhlnvy",
         "ar",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("borg", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -817,12 +875,12 @@ fn borg(arguments: &[String]) -> Classification {
         [command, ..] if matches!(command.as_str(), "compact" | "create") => {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
 fn duplicity(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options(
+    let parsed = match parse_options(
         arguments,
         &["--dry-run", "--force", "--help", "--version"],
         &[
@@ -835,8 +893,9 @@ fn duplicity(arguments: &[String]) -> Classification {
         ],
         "h",
         "",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("duplicity", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -854,12 +913,20 @@ fn duplicity(arguments: &[String]) -> Classification {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             }
         }
-        _ => Classification::incomplete(),
+        [command, ..]
+            if matches!(
+                command.as_str(),
+                "remove-older-than" | "remove-all-but-n-full" | "remove-all-inc-of-but-n-full"
+            ) =>
+        {
+            Classification::incomplete()
+        }
+        _ => Classification::control(),
     }
 }
 
 fn velero(arguments: &[String]) -> Classification {
-    let Ok(parsed) = parse_options_with_boolean_flags(
+    let parsed = match parse_options_with_boolean_flags(
         arguments,
         &[],
         &["--all", "--confirm", "--help", "--version", "--yes"],
@@ -872,8 +939,9 @@ fn velero(arguments: &[String]) -> Classification {
         ],
         "hy",
         "n",
-    ) else {
-        return Classification::incomplete();
+    ) {
+        Ok(parsed) => parsed,
+        Err(parsed) => return storage_parse_failure("velero", &parsed),
     };
     if parsed.non_executing() {
         return Classification::control();
@@ -893,7 +961,7 @@ fn velero(arguments: &[String]) -> Classification {
         {
             Classification::control()
         }
-        _ => Classification::incomplete(),
+        _ => Classification::control(),
     }
 }
 
@@ -950,13 +1018,70 @@ impl ParsedOptions {
     }
 }
 
+fn storage_parse_failure(program: &str, parsed: &ParsedOptions) -> Classification {
+    // Options on a resolved unrelated command are outside this guard's vocabulary, not an
+    // analysis gap. Deletion-capable and deliberately unresolved prefixes stay partial.
+    if storage_command_prefix_requires_parsing(program, parsed.positionals()) {
+        Classification::incomplete()
+    } else {
+        Classification::control()
+    }
+}
+
+fn storage_command_prefix_requires_parsing(program: &str, positions: &[String]) -> bool {
+    let commands: &[&[&str]] = match program {
+        "aws" => &[
+            &["s3", "rb"],
+            &["s3", "rm"],
+            &["s3", "sync"],
+            &["ec2", "delete-snapshot"],
+            &["ec2", "delete-volume"],
+        ],
+        "gcloud" => &[
+            &["storage", "rm"],
+            &["storage", "rsync"],
+            &["compute", "snapshots", "delete"],
+            &["compute", "disks", "delete"],
+        ],
+        "gsutil" => &[&["rm"], &["rsync"]],
+        "az" => &[
+            &["storage", "container", "delete"],
+            &["storage", "account", "delete"],
+            &["storage", "blob", "delete-batch"],
+            &["storage", "blob", "sync"],
+            &["snapshot", "delete"],
+            &["disk", "delete"],
+        ],
+        "azcopy" => &[&["sync"], &["rm"]],
+        "rclone" => &[&["purge"], &["delete"], &["sync"]],
+        "rsync" => return true,
+        "zfs" => &[&["destroy"], &["rollback"], &["receive"]],
+        "btrfs" => &[&["subvolume", "delete"]],
+        "restic" => &[&["forget"]],
+        "borg" => &[&["repo-delete"], &["delete"], &["prune"]],
+        "duplicity" => &[
+            &["remove-older-than"],
+            &["remove-all-but-n-full"],
+            &["remove-all-inc-of-but-n-full"],
+        ],
+        "velero" => &[&["backup", "delete"]],
+        _ => unreachable!("storage programs are matched before option parsing"),
+    };
+    commands.iter().any(|command| {
+        positions
+            .iter()
+            .zip(command.iter())
+            .all(|(position, segment)| position == segment)
+    })
+}
+
 fn parse_options(
     arguments: &[String],
     long_flags: &[&str],
     long_values: &[&str],
     short_flags: &str,
     short_values: &str,
-) -> Result<ParsedOptions, ()> {
+) -> Result<ParsedOptions, ParsedOptions> {
     parse_options_with_boolean_flags(
         arguments,
         long_flags,
@@ -974,7 +1099,7 @@ fn parse_options_with_boolean_flags(
     long_values: &[&str],
     short_flags: &str,
     short_values: &str,
-) -> Result<ParsedOptions, ()> {
+) -> Result<ParsedOptions, ParsedOptions> {
     let mut parsed = ParsedOptions::default();
     let mut index = 0;
     let mut options = true;
@@ -991,7 +1116,9 @@ fn parse_options_with_boolean_flags(
                     (name, Some(value))
                 });
             if long_boolean_flags.contains(&name) {
-                let enabled = attached.map_or(Some(true), parse_go_bool).ok_or(())?;
+                let Some(enabled) = attached.map_or(Some(true), parse_go_bool) else {
+                    return Err(parsed);
+                };
                 if enabled {
                     parsed.flags.push(name.to_owned());
                 }
@@ -1000,7 +1127,7 @@ fn parse_options_with_boolean_flags(
             }
             if long_flags.contains(&name) {
                 if attached.is_some() {
-                    return Err(());
+                    return Err(parsed);
                 }
                 parsed.flags.push(name.to_owned());
                 index += 1;
@@ -1011,19 +1138,24 @@ fn parse_options_with_boolean_flags(
                     value
                 } else {
                     index += 1;
-                    arguments.get(index).map(String::as_str).ok_or(())?
+                    let Some(value) = arguments.get(index).map(String::as_str) else {
+                        return Err(parsed);
+                    };
+                    value
                 };
                 if value.is_empty() {
-                    return Err(());
+                    return Err(parsed);
                 }
                 parsed.values.push((name.to_owned(), value.to_owned()));
                 index += 1;
                 continue;
             }
-            return Err(());
+            return Err(parsed);
         }
         if options && argument.starts_with('-') && argument != "-" {
-            let cluster = argument.strip_prefix('-').ok_or(())?;
+            let Some(cluster) = argument.strip_prefix('-') else {
+                return Err(parsed);
+            };
             if cluster.is_empty() {
                 parsed.positionals.push(argument.clone());
                 index += 1;
@@ -1044,23 +1176,26 @@ fn parse_options_with_boolean_flags(
                         .unwrap_or(&cluster[value_start..]);
                     let value = if attached.is_empty() {
                         index += 1;
-                        arguments.get(index).map(String::as_str).ok_or(())?
+                        let Some(value) = arguments.get(index).map(String::as_str) else {
+                            return Err(parsed);
+                        };
+                        value
                     } else {
                         attached
                     };
                     if value.is_empty() {
-                        return Err(());
+                        return Err(parsed);
                     }
                     parsed.values.push((format!("-{flag}"), value.to_owned()));
                     break;
                 }
-                return Err(());
+                return Err(parsed);
             }
             index += 1;
             continue;
         }
         if argument.is_empty() {
-            return Err(());
+            return Err(parsed);
         }
         parsed.positionals.push(argument.clone());
         index += 1;
