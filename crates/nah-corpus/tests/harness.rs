@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1611);
+    assert_eq!(summary.cases, 1613);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("local-utilities.jsonl".to_owned(), 53),
             ("native.jsonl".to_owned(), 15),
             ("project.jsonl".to_owned(), 22),
-            ("registry.jsonl".to_owned(), 63),
+            ("registry.jsonl".to_owned(), 65),
             ("secrets.jsonl".to_owned(), 100),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
@@ -217,7 +217,9 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "registry-unpublish.gem-yank",
         "registry-unpublish.npm-owner-remove",
         "registry-unpublish.cargo-owner-remove",
+        "registry-unpublish.cargo-owner-multiple",
         "registry-unpublish.gem-owner-remove",
+        "registry-unpublish.gem-owner-multiple",
         "registry-publish.npm",
         "registry-publish.factory-delegates",
         "registry-publish.twine",

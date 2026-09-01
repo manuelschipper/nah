@@ -15,6 +15,8 @@
 - **Registry boolean and command option correction** — Accepted npm `--no-*`
   boolean modifiers retain registry classification, while Cargo owner and
   publish reject options that belong only to the other command.
+- **Registry repeated owner correction** — Repeated reviewed Cargo and
+  RubyGems owner add/remove options retain `registry-unpublish` classification.
 - **Podman runtime reset guard** — New default-on `infra-container-reset`
   blocks static `podman system reset` with or without force or a selected remote
   connection because the command removes the complete runtime state.

@@ -644,8 +644,7 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
             Classification::operation(SemanticCode::REGISTRY_PUBLISH)
         }),
         [command] | [command, _]
-            if command == "owner"
-                && parsed.value_count(&["-a", "--add", "-r", "--remove"]) == 1 =>
+            if command == "owner" && parsed.present(&["-a", "--add", "-r", "--remove"]) =>
         {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
@@ -718,8 +717,7 @@ fn gem(arguments: &[String]) -> Option<Classification> {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }
         [command, _]
-            if command == "owner"
-                && parsed.value_count(&["-a", "--add", "-r", "--remove"]) == 1 =>
+            if command == "owner" && parsed.present(&["-a", "--add", "-r", "--remove"]) =>
         {
             Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
         }

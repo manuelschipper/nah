@@ -64,6 +64,21 @@ fn cargo_and_gem_owner_changes_and_gem_yank_are_recognized() {
 }
 
 #[test]
+fn repeated_cargo_and_gem_owner_changes_are_recognized() {
+    for source in [
+        "cargo owner --add alice --add bob crate-name",
+        "cargo owner -a alice -a bob crate-name",
+        "cargo owner --add=alice --add=bob crate-name",
+        "cargo owner --add alice --remove bob crate-name",
+        "gem owner rack -a alice -a bob",
+        "gem owner rack --add alice --add bob",
+        "gem owner rack -a alice -r bob",
+    ] {
+        assert!(unpublishes(source), "{source}");
+    }
+}
+
+#[test]
 fn every_reviewed_publish_cli_is_recognized() {
     for source in [
         "npm publish",
