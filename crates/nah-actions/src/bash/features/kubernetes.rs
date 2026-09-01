@@ -46,7 +46,7 @@ pub(crate) fn classify(
     let command_index = match kubectl_subcommand(&arguments) {
         Subcommand::Delete(index) => index,
         Subcommand::Other | Subcommand::NonExecuting => {
-            return Some(Classification::complete(Vec::new()));
+            return None;
         }
         Subcommand::Incomplete => return Some(Classification::incomplete(Vec::new())),
     };

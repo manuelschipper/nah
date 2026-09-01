@@ -169,6 +169,18 @@ fn named_application_deletes_and_unrelated_commands_are_full_delegates() {
 }
 
 #[test]
+fn unrelated_subcommands_with_nested_commands_remain_partial() {
+    for source in [
+        "kubectl exec pod -- rm -rf /",
+        "kubectl exec -it web -- bash -c \"rm -rf /home\"",
+        "kubectl run t --image=a -- sh -c \"rm -rf /\"",
+    ] {
+        assert_eq!(stream(source).coverage(), Coverage::Partial, "{source}");
+        assert!(kubernetes_codes(source).is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn inherited_connection_and_delete_options_do_not_make_deletion_safer() {
     for source in [
         "kubectl --context=production --cluster production --server https://cluster.example --kubeconfig /tmp/config --certificate-authority /tmp/ca --client-certificate /tmp/cert --client-key /tmp/key --token token --as operator --as-group admins --as-uid 1000 --as-user-extra scope=release --profile none --profile-output /tmp/profile --request-timeout 5s --namespace platform --v=6 delete namespace production --output name --force --grace-period 0 --cascade=foreground --wait=false --interactive=false",
