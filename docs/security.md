@@ -32,8 +32,10 @@ protected-state changes outside maintenance.
   `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
   shell-profile/startup-management default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
-  (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
-  Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
+  (off), broad volume prune and Compose `down`/`rm` volume removal;
+  `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,
+  and Compose excludes external volumes from `down -v`. Narrow/dry-run and named
+  container or volume removal, plus targeted/saved/ambient/other IaC, delegates.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server

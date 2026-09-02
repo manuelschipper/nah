@@ -401,6 +401,46 @@ fn container_connection_options_and_valid_terminators_preserve_classification() 
 }
 
 #[test]
+fn compose_volume_removal_is_recognized_across_entry_points_and_option_positions() {
+    for source in [
+        "docker compose down -v",
+        "podman compose down --volumes",
+        "docker-compose rm -v web",
+        "podman-compose rm worker --volumes",
+        "docker --context production compose --profile app down -v",
+        "podman --connection production compose -p demo rm api -v",
+        "docker-compose --env-file .env rm -fsv --stop-timeout 30 worker",
+        "podman-compose --project-name=demo down --volumes=false -v",
+        "docker compose --ansi=never --env-file .env --env-file=.env.local -f compose.yml --file=override.yml --parallel 2 --profile app --profile=worker --progress plain --project-directory . -p demo --project-name=renamed --all-resources --compatibility down --remove-orphans --rmi local --timeout 30 -v",
+        "/usr/bin/docker-compose down -v",
+    ] {
+        assert!(deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn compose_volume_removal_carve_outs_delegate() {
+    for source in [
+        "docker compose down",
+        "podman compose rm app",
+        "docker-compose down --volumes=false",
+        "podman-compose rm -v --volumes=false app",
+        "docker compose --dry-run down -v",
+        "podman compose down --dry-run --volumes",
+        "docker-compose --help down -v",
+        "podman-compose --version rm -v app",
+        "docker compose down --help -v",
+        "docker compose --unknown value down -v",
+        "podman-compose down --unknown -v",
+        "docker compose \"$(option)\" down -v",
+        "docker compose rm -- -v",
+        "PATH=/tmp docker-compose down -v",
+    ] {
+        assert!(!deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
 fn narrow_filtered_dry_run_dynamic_and_arbitrary_container_forms_stay_outside() {
     for source in [
         "docker volume prune",
@@ -445,13 +485,11 @@ fn adjacent_container_cleanup_and_control_planes_stay_outside() {
     for source in [
         "docker volume rm named-volume",
         "docker container rm -v app",
-        "docker compose down -v",
         "docker image prune --all",
         "docker builder prune --all",
         "docker network prune",
         "podman volume rm --all",
         "podman container rm -v app",
-        "podman compose down -v",
         "podman image prune --all",
         "podman machine reset --force",
         "podman kube down workload.yaml",
