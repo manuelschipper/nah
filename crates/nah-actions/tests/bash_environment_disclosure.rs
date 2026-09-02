@@ -53,9 +53,27 @@ fn named_credential_disclosure_forms_are_known_operations() {
         "declare -p VAULT_TOKEN",
         "command printenv GITHUB_TOKEN",
         "shopt -s expand_aliases\nalias reveal='printenv AWS_SESSION_TOKEN'\nreveal",
+    ] {
+        let actual = stream(source);
+        assert_eq!(actual.coverage(), Coverage::Full, "{source}");
+        assert!(
+            has_operation(&actual, "credential-disclosure"),
+            "{source}: {:?}",
+            actual.effects()
+        );
+    }
+}
+
+#[test]
+fn credential_value_expansions_are_known_operations() {
+    for source in [
         "echo $GITHUB_TOKEN",
         "echo \"${GITHUB_TOKEN}\"",
         "printf '%s\\n' \"${GITHUB_TOKEN:-missing}\"",
+        "GITHUB_TOKEN=\"$GITHUB_TOKEN\"; echo \"$GITHUB_TOKEN\"",
+        "command echo $GITHUB_TOKEN",
+        "builtin printf '%s' \"$GITHUB_TOKEN\"",
+        "exec echo $GITHUB_TOKEN",
     ] {
         let actual = stream(source);
         assert!(

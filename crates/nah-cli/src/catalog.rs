@@ -112,7 +112,7 @@ pub(crate) struct ShippedGuardDoc {
     pub(crate) family: GuardFamily,
     pub(crate) default_enabled: bool,
     pub(crate) behavior: &'static str,
-    pub(crate) examples: [&'static str; 3],
+    pub(crate) examples: Vec<&'static str>,
 }
 
 pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
@@ -258,8 +258,8 @@ fn behavior(name: &str) -> &'static str {
     }
 }
 
-fn examples(name: &str) -> [&'static str; 3] {
-    match name {
+fn examples(name: &str) -> Vec<&'static str> {
+    let mut examples = match name {
         "fs-auth-identity" => [
             "printf '%s\\n' 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys",
             "sed -i 's/^root:[^:]*/root:/' /etc/passwd",
@@ -416,8 +416,8 @@ fn examples(name: &str) -> [&'static str; 3] {
         ],
         "secrets-env" => [
             "cat .env",
-            "printenv AWS_SECRET_ACCESS_KEY",
-            "declare -p GITHUB_TOKEN",
+            "date --file .env",
+            "tar -cf out.tar --files-from=.env",
         ],
         "secrets-keys" => [
             "cat ~/.ssh/id_rsa",
@@ -426,6 +426,11 @@ fn examples(name: &str) -> [&'static str; 3] {
         ],
         _ => unreachable!("every shipped guard has agent-facing examples"),
     }
+    .to_vec();
+    if name == "secrets-env" {
+        examples.extend(["printenv AWS_SECRET_ACCESS_KEY", "declare -p GITHUB_TOKEN"]);
+    }
+    examples
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ use nah_parse::Word;
 
 use crate::bash_model::VariableValue;
 use crate::bash_state::VariableBinding;
+use crate::bash_wrappers::direct_wrapper_payload_start;
 use crate::shell_word::static_word;
 
 const CREDENTIAL_NAMES: &[&str] = &[
@@ -30,6 +31,20 @@ pub(crate) fn operation(
     local_variables: &[VariableBinding],
     ambient_variables: &[(String, VariableValue)],
 ) -> Option<&'static str> {
+    if let Some(start) = direct_wrapper_payload_start(program, resolved_arguments)
+        && let Some(wrapped_program) = resolved_arguments
+            .get(start)
+            .and_then(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
+    {
+        return operation(
+            &wrapped_program,
+            resolved_arguments.get(start + 1..).unwrap_or_default(),
+            source_arguments.get(start + 1..).unwrap_or_default(),
+            has_declaration_assignments,
+            local_variables,
+            ambient_variables,
+        );
+    }
     let arguments = resolved_arguments
         .iter()
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
@@ -227,7 +242,14 @@ fn credential_value_may_be_emitted(
     ambient_variables: &[(String, VariableValue)],
 ) -> bool {
     if let Some(binding) = local_variables.iter().find(|binding| binding.name == name) {
-        return matches!(binding.value, VariableValue::Unknown);
+        return matches!(binding.value, VariableValue::Unknown)
+            || matches!(&binding.value, VariableValue::Static(local_value)
+            if !local_value.is_empty()
+                && ambient_variables.iter().any(|(candidate, ambient_value)| {
+                    candidate == name
+                        && matches!(ambient_value, VariableValue::Static(ambient_value)
+                            if ambient_value == local_value)
+                }));
     }
     ambient_variables
         .iter()
