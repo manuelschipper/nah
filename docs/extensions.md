@@ -199,8 +199,8 @@ array including element zero, empty arguments, repeated flags, `--`, and
 from proving the final arguments, `argv` is absent and coverage is partial.
 Compare the array directly rather than joining it into a string.
 
-`environment-disclosure` and `credential-search` are extension-visible `known`
-operations. ActionStream stays v1.
+`environment-disclosure`, `credential-disclosure`, and `credential-search` are
+extension-visible `known` v1 operations.
 
 Each invocation includes `cwd` when nah can bind the visible requested working
 directory at that stage; it is absent when that directory is unresolved. When

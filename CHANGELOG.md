@@ -10,6 +10,9 @@
   `secrets-keys`; the old name remains a hidden alias so saved choices and guard
   commands keep working. Other unknown saved names warn without resetting
   unrelated overrides.
+- **Credential environment disclosure guard** — `secrets-env` now blocks
+  direct output of catalogued credential variables while bare environment
+  inspection remains delegated unless its output reaches a network sink.
 - **Windows support** — Releases now ship a tested, checksummed Windows x86-64
   archive and PowerShell installer. Claude Code, Codex, Cursor, GitHub Copilot,
   Cline, and Kiro support native Windows hooks, backed by typed PowerShell and

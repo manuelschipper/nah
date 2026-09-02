@@ -177,6 +177,7 @@ impl SemanticCode {
     pub const ANALYSIS_REFUSED: Self = Self::borrowed("analysis-refused");
     pub const CLOCK_SET: Self = Self::borrowed("clock-set");
     pub const CLEAN_FORCE: Self = Self::borrowed("clean-force");
+    pub const CREDENTIAL_DISCLOSURE: Self = Self::borrowed("credential-disclosure");
     pub const CREDENTIAL_SEARCH: Self = Self::borrowed("credential-search");
     pub const CRITICAL_MUTATION: Self = Self::borrowed("critical-mutation");
     pub const DECODE: Self = Self::borrowed("decode");

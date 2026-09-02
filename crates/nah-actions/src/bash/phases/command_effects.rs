@@ -324,7 +324,14 @@ impl Lowerer {
             None
         };
         let environment_disclosure = if let ProgramDraft::Static(program) = &program {
-            environment_disclosure_operation(program, &local_arguments, !assignments.is_empty())
+            environment_disclosure_operation(
+                program,
+                &local_arguments,
+                arguments,
+                !assignments.is_empty(),
+                &self.state.variables,
+                &self.ambient_variables,
+            )
         } else {
             None
         };
@@ -372,9 +379,11 @@ impl Lowerer {
             &local_arguments,
             words,
             argv,
-            local_utility
-                .as_ref()
-                .is_some_and(|lowering| lowering.complete && lowering.operation.is_none()),
+            local_utility.as_ref().is_some_and(|lowering| {
+                lowering.complete
+                    && lowering.operation.is_none()
+                    && environment_disclosure.is_none()
+            }),
             nah_mutation
                 .or_else(|| {
                     project
