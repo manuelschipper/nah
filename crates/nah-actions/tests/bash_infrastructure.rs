@@ -411,6 +411,10 @@ fn compose_volume_removal_is_recognized_across_entry_points_and_option_positions
         "podman --connection production compose -p demo rm api -v",
         "docker-compose --env-file .env rm -fsv --stop-timeout 30 worker",
         "podman-compose --project-name=demo down --volumes=false -v",
+        "docker compose down -v --dry-run=false",
+        "docker compose --dry-run=false down -v",
+        "podman compose down --dry-run=0 --volumes",
+        "docker-compose down -v --dry-run=false",
         "docker compose --ansi=never --env-file .env --env-file=.env.local -f compose.yml --file=override.yml --parallel 2 --profile app --profile=worker --progress plain --project-directory . -p demo --project-name=renamed --all-resources --compatibility down --remove-orphans --rmi local --timeout 30 -v",
         "/usr/bin/docker-compose down -v",
     ] {

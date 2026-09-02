@@ -221,10 +221,10 @@ fn compose_command_line(arguments: &[String]) -> Classification {
                 continue;
             }
             if let Some(value) = boolean_option(argument, "--dry-run") {
-                if value.is_none() {
+                let Some(value) = value else {
                     return Classification::incomplete();
-                }
-                dry_run = true;
+                };
+                dry_run = value;
                 index += 1;
                 continue;
             }
@@ -316,10 +316,10 @@ fn compose_volume_operation(
             continue;
         }
         if let Some(value) = boolean_option(argument, "--dry-run") {
-            if value.is_none() {
+            let Some(value) = value else {
                 return Classification::incomplete();
-            }
-            dry_run = true;
+            };
+            dry_run = value;
             index += 1;
             continue;
         }
