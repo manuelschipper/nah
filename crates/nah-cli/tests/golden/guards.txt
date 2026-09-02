@@ -21,8 +21,8 @@ Built-in:
 - [x] git-remote-repo-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
-- [ ] infra-container-prune
 - [x] infra-container-reset
+- [ ] infra-container-volume-delete
 - [ ] infra-iac-destroy
 - [ ] infra-k8s-delete
 - [ ] registry-publish

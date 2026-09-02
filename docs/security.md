@@ -31,7 +31,7 @@ protected-state changes outside maintenance.
   service/schedule/login/autostart/loader paths, static `systemctl` units,
   `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
   shell-profile/startup-management default off.
-- `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
+- `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
   Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,

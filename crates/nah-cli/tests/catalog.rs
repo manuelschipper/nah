@@ -627,7 +627,58 @@ fn kubernetes_delete_guard_is_factory_off_and_independently_configurable() {
 }
 
 #[test]
-fn container_reset_and_prune_keep_independent_factory_postures() {
+fn renamed_container_guard_accepts_old_state_and_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(temp.path().join(".nah")).unwrap();
+    std::fs::write(
+        temp.path().join(".nah/built-ins.json"),
+        "{\"v\":2,\"overrides\":{\"infra-container-prune\":true}}\n",
+    )
+    .unwrap();
+
+    let decision = decide(temp.path(), &project, "docker volume prune --all");
+    assert_eq!(decision["verdict"], "block");
+    assert_eq!(
+        decision["policy_attributions"][0]["name"],
+        "infra-container-volume-delete"
+    );
+
+    for (action, completed, expected) in [
+        (
+            "disable",
+            "disabled",
+            serde_json::json!({"infra-container-volume-delete": false}),
+        ),
+        (
+            "enable",
+            "enabled",
+            serde_json::json!({"infra-container-volume-delete": true}),
+        ),
+        ("reset", "reset", serde_json::json!({})),
+    ] {
+        let result = nah(
+            temp.path(),
+            &project,
+            &["guard", action, "infra-container-prune"],
+            None,
+        );
+        assert!(result.status.success(), "{result:?}");
+        assert_eq!(
+            result.stdout,
+            format!("{completed} guard infra-container-volume-delete\n").as_bytes()
+        );
+        assert!(!result.stderr.is_empty());
+        let saved: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["overrides"], expected);
+    }
+}
+
+#[test]
+fn container_reset_and_volume_delete_keep_independent_factory_postures() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
 
@@ -655,7 +706,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
     let enabled = nah(
         temp.path(),
         &project,
-        &["guard", "enable", "infra-container-prune"],
+        &["guard", "enable", "infra-container-volume-delete"],
         None,
     );
     assert!(enabled.status.success(), "{enabled:?}");
@@ -668,7 +719,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
         let decision = decide(temp.path(), &project, command);
         assert_eq!(decision["verdict"], "block", "{command}");
         assert_eq!(
-            decision["policy_attributions"][0]["name"], "infra-container-prune",
+            decision["policy_attributions"][0]["name"], "infra-container-volume-delete",
             "{command}"
         );
     }
@@ -699,7 +750,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
     );
     assert_eq!(
         decide(temp.path(), &project, "docker volume prune --all")["policy_attributions"][0]["name"],
-        "infra-container-prune"
+        "infra-container-volume-delete"
     );
 }
 

@@ -27,8 +27,8 @@ fn resets_container_runtime(source: &str) -> bool {
     has_system_state(source, &SemanticCode::INFRA_CONTAINER_RESET)
 }
 
-fn prunes_container_volumes(source: &str) -> bool {
-    has_system_state(source, &SemanticCode::INFRA_CONTAINER_PRUNE)
+fn deletes_container_volumes(source: &str) -> bool {
+    has_system_state(source, &SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn container_prune_recognizes_only_the_four_broad_volume_forms() {
         "/bin/docker volume prune --all",
         "/usr/bin/podman system prune --volumes",
     ] {
-        assert!(prunes_container_volumes(source), "{source}");
+        assert!(deletes_container_volumes(source), "{source}");
     }
 }
 
@@ -394,7 +394,7 @@ fn container_connection_options_and_valid_terminators_preserve_classification() 
         "podman system reset --help=false",
     ] {
         assert!(
-            resets_container_runtime(source) || prunes_container_volumes(source),
+            resets_container_runtime(source) || deletes_container_volumes(source),
             "{source}"
         );
     }
@@ -436,7 +436,7 @@ fn narrow_filtered_dry_run_dynamic_and_arbitrary_container_forms_stay_outside() 
         "env PATH=/tmp podman system reset",
     ] {
         assert!(!resets_container_runtime(source), "{source}");
-        assert!(!prunes_container_volumes(source), "{source}");
+        assert!(!deletes_container_volumes(source), "{source}");
     }
 }
 
@@ -459,6 +459,6 @@ fn adjacent_container_cleanup_and_control_planes_stay_outside() {
         "skopeo delete docker://registry.example/image:tag",
     ] {
         assert!(!resets_container_runtime(source), "{source}");
-        assert!(!prunes_container_volumes(source), "{source}");
+        assert!(!deletes_container_volumes(source), "{source}");
     }
 }
