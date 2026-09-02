@@ -237,8 +237,9 @@ impl App {
         // Decisions already recorded are not new arrivals.
         let seen_block_id = blocked_log.first().map(|record| record.id.clone());
         let (current_project, project_declared_guards) = current_project();
-        let mut guards = guard_entries()?;
+        let (mut guards, guard_diagnostics) = guard_entries()?;
         apply_project_declarations(&mut guards, &project_declared_guards);
+        let message = append_footer_warnings(message, guard_diagnostics);
         Ok(Self {
             screen: Screen::Guards,
             guards,
@@ -582,22 +583,35 @@ impl App {
 
         let total = self.pending.len();
         let mut applied = 0;
+        let mut warnings = Vec::new();
         while applied < total {
-            if let Err(error) = apply_guard_change(&self.pending[applied]) {
-                if applied > 0 {
-                    self.pending.drain(..applied);
+            match apply_guard_change(&self.pending[applied]) {
+                Ok(change_warnings) => warnings.extend(change_warnings),
+                Err(error) => {
+                    if applied > 0 {
+                        self.pending.drain(..applied);
+                    }
+                    self.error(format!(
+                        "applied {applied} of {total} changes; {} remain: {error}",
+                        self.pending.len()
+                    ));
+                    self.refresh();
+                    return;
                 }
-                self.error(format!(
-                    "applied {applied} of {total} changes; {} remain: {error}",
-                    self.pending.len()
-                ));
-                self.refresh();
-                return;
             }
             applied += 1;
         }
         self.pending.clear();
-        self.success(format!("{total} guard change(s) applied"));
+        warnings.sort();
+        warnings.dedup();
+        if warnings.is_empty() {
+            self.success(format!("{total} guard change(s) applied"));
+        } else {
+            self.warning(format!(
+                "{total} guard change(s) applied; {}",
+                warnings.join("; ")
+            ));
+        }
         self.refresh();
     }
 
@@ -757,11 +771,15 @@ impl App {
 
     pub(crate) fn refresh(&mut self) {
         let mut refresh_error = None;
+        let mut refresh_warning = None;
         (self.current_project, self.project_declared_guards) = current_project();
         match guard_entries() {
-            Ok(mut entries) => {
+            Ok((mut entries, diagnostics)) => {
                 apply_project_declarations(&mut entries, &self.project_declared_guards);
                 self.guards = entries;
+                if !diagnostics.is_empty() {
+                    refresh_warning = Some(diagnostics.join("; "));
+                }
             }
             Err(error) => refresh_error = Some(error),
         }
@@ -784,6 +802,8 @@ impl App {
         self.log_index = bounded(self.log_index, self.filtered_log().len());
         if let Some(error) = refresh_error {
             self.error(error);
+        } else if let Some(warning) = refresh_warning {
+            self.warning(warning);
         }
     }
 
@@ -1329,6 +1349,24 @@ fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {
             guard.status = GuardStatus::Enabled;
         }
     }
+}
+
+fn append_footer_warnings(message: Option<Message>, warnings: Vec<String>) -> Option<Message> {
+    if warnings.is_empty() {
+        return message;
+    }
+    let warning = warnings.join("; ");
+    Some(match message {
+        Some(mut message) => {
+            message.text.push_str("; ");
+            message.text.push_str(&warning);
+            message
+        }
+        None => Message {
+            kind: MessageKind::Warning,
+            text: warning,
+        },
+    })
 }
 
 fn guard_family_scope_rank(entry: &GuardEntry) -> (bool, usize) {

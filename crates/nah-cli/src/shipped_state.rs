@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::resolve_shipped_guard_from;
+
 const VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,11 +41,16 @@ impl ShippedState {
         }
     }
 
-    pub(crate) fn load(path: &Path, defaults: &[(&str, bool)]) -> Result<Self, ShippedStateError> {
+    /// Validates raw state before returning canonical overrides and sorted diagnostics.
+    pub(crate) fn load(
+        path: &Path,
+        defaults: &[(&str, bool)],
+        aliases: &[(&str, &str)],
+    ) -> Result<(Self, Vec<String>), ShippedStateError> {
         let mut file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::defaults());
+                return Ok((Self::defaults(), vec![]));
             }
             Err(_) => return Err(ShippedStateError::Io),
         };
@@ -60,39 +67,26 @@ impl ShippedState {
             1 => {
                 let state: ShippedStateV1 =
                     serde_json::from_value(value).map_err(|_| ShippedStateError::InvalidState)?;
-                if state.v != 1
-                    || state.disabled.windows(2).any(|pair| pair[0] >= pair[1])
-                    || state
-                        .disabled
-                        .iter()
-                        .any(|name| factory_default(defaults, name).is_none())
-                {
+                if state.v != 1 || state.disabled.windows(2).any(|pair| pair[0] >= pair[1]) {
                     return Err(ShippedStateError::InvalidState);
                 }
-                Ok(Self {
-                    overrides: state
-                        .disabled
-                        .into_iter()
-                        .map(|name| (name, false))
-                        .collect(),
-                })
+                canonicalize_overrides(
+                    state.disabled.into_iter().map(|name| (name, false)),
+                    defaults,
+                    aliases,
+                )
             }
             version if version == u64::from(VERSION) => {
                 let state: ShippedStateV2 =
                     serde_json::from_value(value).map_err(|_| ShippedStateError::InvalidState)?;
                 if state.v != VERSION
-                    || state.overrides.iter().any(|(name, enabled)| {
-                        factory_default(defaults, name).is_none_or(|default| default && *enabled)
-                    })
                     || serde_json::to_string(&state)
                         .map(|canonical| contents != format!("{canonical}\n"))
                         .unwrap_or(true)
                 {
                     return Err(ShippedStateError::InvalidState);
                 }
-                Ok(Self {
-                    overrides: state.overrides,
-                })
+                canonicalize_overrides(state.overrides, defaults, aliases)
             }
             _ => Err(ShippedStateError::UnsupportedVersion),
         }
@@ -151,11 +145,12 @@ impl ShippedState {
 pub(crate) fn set_enabled(
     path: &Path,
     defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
     name: &str,
     enabled: bool,
-) -> Result<(), ShippedStateError> {
+) -> Result<Vec<String>, ShippedStateError> {
     let default_enabled = factory_default(defaults, name).ok_or(ShippedStateError::UnknownGuard)?;
-    mutate(path, defaults, |state| {
+    mutate(path, defaults, aliases, |state| {
         state.set_enabled(name, enabled, default_enabled)
     })
 }
@@ -163,17 +158,19 @@ pub(crate) fn set_enabled(
 pub(crate) fn reset(
     path: &Path,
     defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
     name: &str,
-) -> Result<(), ShippedStateError> {
+) -> Result<Vec<String>, ShippedStateError> {
     factory_default(defaults, name).ok_or(ShippedStateError::UnknownGuard)?;
-    mutate(path, defaults, |state| state.reset(name))
+    mutate(path, defaults, aliases, |state| state.reset(name))
 }
 
 fn mutate(
     path: &Path,
     defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
     update: impl FnOnce(&mut ShippedState),
-) -> Result<(), ShippedStateError> {
+) -> Result<Vec<String>, ShippedStateError> {
     let parent = path.parent().ok_or(ShippedStateError::InvalidPath)?;
     std::fs::create_dir_all(parent).map_err(|_| ShippedStateError::Io)?;
     let mut options = OpenOptions::new();
@@ -188,9 +185,83 @@ fn mutate(
         .map_err(|_| ShippedStateError::Io)?;
     protect_file(&lock)?;
     lock.lock().map_err(|_| ShippedStateError::Io)?;
-    let mut state = ShippedState::load(path, defaults)?;
+    let (mut state, diagnostics) = ShippedState::load(path, defaults, aliases)?;
     update(&mut state);
-    state.save(path)
+    state.save(path)?;
+    Ok(diagnostics)
+}
+
+#[derive(Default)]
+struct CanonicalCandidates {
+    canonical: Option<bool>,
+    aliases: Vec<(String, bool)>,
+}
+
+fn canonicalize_overrides(
+    overrides: impl IntoIterator<Item = (String, bool)>,
+    defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
+) -> Result<(ShippedState, Vec<String>), ShippedStateError> {
+    let canonical_names = defaults.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    let mut candidates = BTreeMap::<String, CanonicalCandidates>::new();
+    let mut diagnostics = Vec::new();
+    for (name, enabled) in overrides {
+        match resolve_shipped_guard_from(&canonical_names, aliases, &name) {
+            Some(resolved) if resolved.renamed => {
+                candidates
+                    .entry(resolved.canonical_name.to_owned())
+                    .or_default()
+                    .aliases
+                    .push((name, enabled));
+            }
+            Some(resolved) => {
+                candidates
+                    .entry(resolved.canonical_name.to_owned())
+                    .or_default()
+                    .canonical = Some(enabled);
+            }
+            None => diagnostics.push(format!("unknown built-in guard `{name}` was ignored")),
+        }
+    }
+
+    let mut canonical = BTreeMap::new();
+    for (name, candidate) in candidates {
+        let enabled = if let Some(enabled) = candidate.canonical {
+            for (alias, _) in candidate.aliases {
+                diagnostics.push(format!(
+                    "saved setting for renamed built-in guard `{alias}` was ignored because `{name}` is also set"
+                ));
+            }
+            enabled
+        } else {
+            let Some(enabled) = candidate.aliases.first().map(|(_, enabled)| *enabled) else {
+                continue;
+            };
+            if candidate
+                .aliases
+                .iter()
+                .any(|(_, candidate_enabled)| *candidate_enabled != enabled)
+            {
+                return Err(ShippedStateError::InvalidState);
+            }
+            for (alias, _) in candidate.aliases {
+                diagnostics.push(format!("built-in guard `{alias}` was renamed to `{name}`"));
+            }
+            enabled
+        };
+        let default = factory_default(defaults, &name).ok_or(ShippedStateError::InvalidState)?;
+        if default && enabled {
+            return Err(ShippedStateError::InvalidState);
+        }
+        canonical.insert(name, enabled);
+    }
+    diagnostics.sort();
+    Ok((
+        ShippedState {
+            overrides: canonical,
+        },
+        diagnostics,
+    ))
 }
 
 fn factory_default(defaults: &[(&str, bool)], name: &str) -> Option<bool> {
@@ -289,14 +360,15 @@ mod tests {
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
                     barrier.wait();
-                    set_enabled(&path, &defaults, name, false).unwrap();
+                    set_enabled(&path, &defaults, &[], name, false).unwrap();
                 })
             })
             .collect::<Vec<_>>();
         for worker in workers {
             worker.join().unwrap();
         }
-        let state = ShippedState::load(&path, &defaults).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(diagnostics.is_empty());
         assert!(
             defaults
                 .iter()
@@ -305,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_unknown_and_future_state_fail_loudly() {
+    fn malformed_and_future_state_fail_while_unknown_names_are_diagnostic() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("built-ins.json");
         let defaults = [
@@ -315,13 +387,13 @@ mod tests {
         ];
         std::fs::write(&path, r#"{"v":3,"overrides":{}}"#).unwrap();
         assert_eq!(
-            ShippedState::load(&path, &defaults).unwrap_err(),
+            ShippedState::load(&path, &defaults, &[]).unwrap_err(),
             ShippedStateError::UnsupportedVersion
         );
         std::fs::write(&path, r#"{"v":1,"disabled":["unknown"]}"#).unwrap();
         assert_eq!(
-            ShippedState::load(&path, &defaults).unwrap_err(),
-            ShippedStateError::InvalidState
+            ShippedState::load(&path, &defaults, &[]).unwrap().1,
+            ["unknown built-in guard `unknown` was ignored"]
         );
         std::fs::write(
             &path,
@@ -329,7 +401,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            ShippedState::load(&path, &defaults).unwrap_err(),
+            ShippedState::load(&path, &defaults, &[]).unwrap_err(),
             ShippedStateError::InvalidState
         );
         std::fs::write(
@@ -338,12 +410,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            ShippedState::load(&path, &defaults).unwrap_err(),
+            ShippedState::load(&path, &defaults, &[]).unwrap_err(),
             ShippedStateError::InvalidState
         );
         std::fs::write(&path, r#"{"v":2,"overrides":{"fs-system-tree":true}}"#).unwrap();
         assert_eq!(
-            ShippedState::load(&path, &defaults).unwrap_err(),
+            ShippedState::load(&path, &defaults, &[]).unwrap_err(),
             ShippedStateError::InvalidState
         );
     }
@@ -358,28 +430,30 @@ mod tests {
             ("fs-system-tree", true),
         ];
 
-        let state = ShippedState::load(&path, &defaults).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(diagnostics.is_empty());
         assert!(state.is_enabled("fs-system-tree", true));
         assert!(state.is_enabled("fs-startup-persistence", true));
         assert!(!state.is_enabled("fs-shell-profile", false));
 
-        set_enabled(&path, &defaults, "fs-shell-profile", true).unwrap();
-        set_enabled(&path, &defaults, "fs-startup-persistence", false).unwrap();
-        set_enabled(&path, &defaults, "fs-system-tree", false).unwrap();
+        set_enabled(&path, &defaults, &[], "fs-shell-profile", true).unwrap();
+        set_enabled(&path, &defaults, &[], "fs-startup-persistence", false).unwrap();
+        set_enabled(&path, &defaults, &[], "fs-system-tree", false).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"v\":2,\"overrides\":{\"fs-shell-profile\":true,\"fs-startup-persistence\":false,\"fs-system-tree\":false}}\n"
         );
-        let state = ShippedState::load(&path, &defaults).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(diagnostics.is_empty());
         assert!(state.is_enabled("fs-shell-profile", false));
         assert!(!state.is_enabled("fs-startup-persistence", true));
         assert!(!state.is_enabled("fs-system-tree", true));
         assert!(state.is_explicitly_disabled("fs-startup-persistence"));
         assert!(state.is_explicitly_disabled("fs-system-tree"));
 
-        set_enabled(&path, &defaults, "fs-startup-persistence", true).unwrap();
-        reset(&path, &defaults, "fs-shell-profile").unwrap();
-        reset(&path, &defaults, "fs-system-tree").unwrap();
+        set_enabled(&path, &defaults, &[], "fs-startup-persistence", true).unwrap();
+        reset(&path, &defaults, &[], "fs-shell-profile").unwrap();
+        reset(&path, &defaults, &[], "fs-system-tree").unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"v\":2,\"overrides\":{}}\n"
@@ -392,13 +466,14 @@ mod tests {
         let path = temp.path().join("built-ins.json");
         let defaults = [("fs-shell-profile", false)];
 
-        set_enabled(&path, &defaults, "fs-shell-profile", false).unwrap();
+        set_enabled(&path, &defaults, &[], "fs-shell-profile", false).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"v\":2,\"overrides\":{\"fs-shell-profile\":false}}\n"
         );
-        let state = ShippedState::load(&path, &defaults).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(diagnostics.is_empty());
         assert!(state.is_explicitly_disabled("fs-shell-profile"));
     }
 
@@ -414,7 +489,8 @@ mod tests {
         ];
         std::fs::write(&path, r#"{"v":1,"disabled":["git-hard-reset"]}"#).unwrap();
 
-        let state = ShippedState::load(&path, &defaults).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(diagnostics.is_empty());
         assert!(state.is_enabled("git-clean-force", true));
         assert!(!state.is_enabled("git-hard-reset", true));
         assert!(!state.is_enabled("fs-shell-profile", false));
@@ -424,10 +500,99 @@ mod tests {
             r#"{"v":1,"disabled":["git-hard-reset"]}"#
         );
 
-        set_enabled(&path, &defaults, "fs-shell-profile", true).unwrap();
+        set_enabled(&path, &defaults, &[], "fs-shell-profile", true).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"v\":2,\"overrides\":{\"fs-shell-profile\":true,\"git-hard-reset\":false}}\n"
+        );
+    }
+
+    #[test]
+    fn aliases_canonicalize_v1_and_v2_state_with_sorted_diagnostics() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("built-ins.json");
+        let defaults = [("current", true), ("other", true)];
+        let aliases = [("old-current", "current"), ("older-current", "current")];
+
+        std::fs::write(&path, r#"{"v":1,"disabled":["old-current","other"]}"#).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &aliases).unwrap();
+        assert!(!state.is_enabled("current", true));
+        assert!(!state.is_enabled("other", true));
+        assert_eq!(diagnostics.len(), 1);
+
+        std::fs::write(
+            &path,
+            "{\"v\":2,\"overrides\":{\"current\":false,\"old-current\":true,\"unknown\":false}}\n",
+        )
+        .unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &aliases).unwrap();
+        assert!(!state.is_enabled("current", true));
+        assert_eq!(state.overrides.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.windows(2).all(|pair| pair[0] < pair[1]));
+
+        std::fs::write(&path, r#"{"v":1,"disabled":["other","old-current"]}"#).unwrap();
+        assert_eq!(
+            ShippedState::load(&path, &defaults, &aliases).unwrap_err(),
+            ShippedStateError::InvalidState
+        );
+        std::fs::write(
+            &path,
+            "{\"v\":2,\"overrides\":{\"older-current\":false,\"old-current\":false}}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            ShippedState::load(&path, &defaults, &aliases).unwrap_err(),
+            ShippedStateError::InvalidState
+        );
+    }
+
+    #[test]
+    fn historical_aliases_deduplicate_equal_values_and_reject_conflicts() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("built-ins.json");
+        let defaults = [("current", true)];
+        let aliases = [("old-current", "current"), ("older-current", "current")];
+
+        std::fs::write(
+            &path,
+            "{\"v\":2,\"overrides\":{\"old-current\":false,\"older-current\":false}}\n",
+        )
+        .unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &aliases).unwrap();
+        assert_eq!(state.overrides, BTreeMap::from([("current".into(), false)]));
+        assert_eq!(diagnostics.len(), 2);
+
+        std::fs::write(
+            &path,
+            "{\"v\":2,\"overrides\":{\"old-current\":false,\"older-current\":true}}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            ShippedState::load(&path, &defaults, &aliases).unwrap_err(),
+            ShippedStateError::InvalidState
+        );
+    }
+
+    #[test]
+    fn explicit_mutation_rewrites_aliases_and_drops_unknown_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("built-ins.json");
+        let defaults = [("current", true), ("default-off", false)];
+        let aliases = [("old-current", "current")];
+        std::fs::write(
+            &path,
+            "{\"v\":2,\"overrides\":{\"old-current\":false,\"unknown\":false}}\n",
+        )
+        .unwrap();
+
+        let diagnostics = set_enabled(&path, &defaults, &aliases, "default-off", true).unwrap();
+        assert_eq!(diagnostics.len(), 2);
+        let saved: ShippedStateV2 =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            saved.overrides,
+            BTreeMap::from([("current".into(), false), ("default-off".into(), true)])
         );
     }
 }

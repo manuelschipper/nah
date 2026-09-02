@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use nah_proto::ctx::{GuardIdentity, GuardScope};
 
-use crate::catalog::{GuardFamily, shipped_guards};
+use crate::catalog::{GuardFamily, resolve_shipped_guard};
 
 use super::{
     custom_guard_entries, disable_custom_guard, disable_custom_guard_scoped,
@@ -76,18 +76,25 @@ pub(crate) struct GuardChange {
     pub(crate) reset: bool,
 }
 
-pub(crate) fn guard_entries() -> Result<Vec<GuardEntry>, String> {
-    let mut entries = shipped_guard_entries()?;
+/// Result of one explicit guard mutation, named by its current identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GuardMutation {
+    pub(crate) canonical_name: String,
+    pub(crate) warnings: Vec<String>,
+}
+
+pub(crate) fn guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), String> {
+    let (mut entries, diagnostics) = shipped_guard_entries()?;
     entries.extend(custom_guard_entries()?);
-    Ok(entries)
+    Ok((entries, diagnostics))
 }
 
 pub(crate) fn set_guard_enabled(
     name: &str,
     enabled: bool,
     selector: &GuardSelector,
-) -> Result<(), String> {
-    if shipped_guards().contains(&name) {
+) -> Result<GuardMutation, String> {
+    if resolve_shipped_guard(name).is_some() {
         if selector != &GuardSelector::Any {
             Err(format!(
                 "built-in guard `{name}` is global; omit `--user` and `--project`"
@@ -100,18 +107,38 @@ pub(crate) fn set_guard_enabled(
             GuardSelector::Any => enable_custom_guard(name),
             _ => enable_custom_guard_scoped(name, selector),
         }
+        .map(|()| GuardMutation {
+            canonical_name: name.to_owned(),
+            warnings: vec![],
+        })
     } else {
         match selector {
             GuardSelector::Any => disable_custom_guard(name),
             _ => disable_custom_guard_scoped(name, selector),
         }
+        .map(|()| GuardMutation {
+            canonical_name: name.to_owned(),
+            warnings: vec![],
+        })
     }
+}
+
+pub(crate) fn reset_guard(name: &str, selector: &GuardSelector) -> Result<GuardMutation, String> {
+    if resolve_shipped_guard(name).is_none() {
+        return Err(format!("guard `{name}` was not found"));
+    }
+    if selector != &GuardSelector::Any {
+        return Err(format!(
+            "built-in guard `{name}` is global; omit `--user` and `--project`"
+        ));
+    }
+    reset_shipped_guard(name)
 }
 
 pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> {
     match &change.target {
         GuardTarget::BuiltIn { name } => {
-            if shipped_guards().contains(&name.as_str()) {
+            if resolve_shipped_guard(name).is_some() {
                 Ok(())
             } else {
                 Err(format!("guard `{name}` was not found"))
@@ -128,18 +155,23 @@ pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> 
     }
 }
 
-pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<(), String> {
+pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<Vec<String>, String> {
     match &change.target {
-        GuardTarget::BuiltIn { name } if change.reset => reset_shipped_guard(name),
-        GuardTarget::BuiltIn { name } => set_shipped_guard(name, change.enabled),
+        GuardTarget::BuiltIn { name } if change.reset => {
+            reset_shipped_guard(name).map(|mutation| mutation.warnings)
+        }
+        GuardTarget::BuiltIn { name } => {
+            set_shipped_guard(name, change.enabled).map(|mutation| mutation.warnings)
+        }
         GuardTarget::Custom { identity } if change.enabled => enable_guard_identity(
             identity,
             change
                 .expected_hash
                 .as_deref()
                 .ok_or_else(|| "reviewed guard files hash is unavailable".to_owned())?,
-        ),
-        GuardTarget::Custom { identity } => disable_guard_identity(identity),
+        )
+        .map(|()| vec![]),
+        GuardTarget::Custom { identity } => disable_guard_identity(identity).map(|()| vec![]),
     }
 }
 

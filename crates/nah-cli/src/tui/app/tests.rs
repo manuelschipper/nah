@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn shipped_state_diagnostics_use_the_footer_warning_surface() {
+    let message = append_footer_warnings(None, vec!["renamed guard".into()]).unwrap();
+
+    assert_eq!(message.kind, MessageKind::Warning);
+    assert!(!message.text.is_empty());
+}
+
+#[test]
 fn runtime_status_names_show_the_preserved_failure_policy() {
     assert_eq!(status_name(RuntimeHookStatus::WiringCurrent), "fail-open");
     assert_eq!(
