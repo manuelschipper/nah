@@ -56,7 +56,10 @@ pub fn shipped_guards() -> &'static [&'static str] {
 }
 
 /// Historical shipped guard names accepted only as lookups.
-const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[("git-remote-delete", "git-remote-repo-delete")];
+const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[
+    ("git-remote-delete", "git-remote-repo-delete"),
+    ("secrets-keys", "secrets-credentials"),
+];
 
 /// Canonical shipped guard identity returned from a current or historical name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -254,7 +257,7 @@ fn family(name: &str) -> GuardFamily {
         | "storage-recursive-delete"
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
-        "secrets-env" | "secrets-exfil" | "secrets-keys" => GuardFamily::Secrets,
+        "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -336,7 +339,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "secrets-exfil" => "Blocks a visible flow from a sensitive source to a network stage.",
         "secrets-env" => "Blocks reads of .env files and sensitive basenames.",
-        "secrets-keys" => "Blocks reads or writes of private-key and credential-store paths.",
+        "secrets-credentials" => {
+            "Blocks reads or writes of private-key and credential-store paths."
+        }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
 }
@@ -502,7 +507,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "date --file .env",
             "tar -cf out.tar --files-from=.env",
         ],
-        "secrets-keys" => [
+        "secrets-credentials" => [
             "cat ~/.ssh/id_rsa",
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
@@ -596,6 +601,14 @@ mod tests {
                 .iter()
                 .all(|(source, _)| reserved_shipped_names().contains(source))
         );
+        assert_eq!(
+            resolve_shipped_guard("secrets-keys"),
+            Some(ResolvedShippedGuard {
+                canonical_name: "secrets-credentials",
+                renamed: true,
+            })
+        );
+        assert!(!rows.contains(&"secrets-keys"));
     }
 
     #[test]

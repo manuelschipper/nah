@@ -13,7 +13,7 @@ use support::{filesystem, guard_policy, guarded_stream, project_scope};
 fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
     for (guard, sensitivity, target, scope, operations) in [
         (
-            "secrets-keys",
+            "secrets-credentials",
             Sensitivity::CredentialSecret,
             "/home/test/.ssh/id_rsa",
             PathScope::Home,
@@ -50,7 +50,7 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
             PathScope::Home,
             sensitivity,
         ));
-        for guard in ["secrets-keys", "secrets-env"] {
+        for guard in ["secrets-credentials", "secrets-env"] {
             assert_eq!(
                 nah_policy::decide(&stream, &guard_policy(guard, true), &[])
                     .unwrap()
@@ -63,7 +63,7 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
 }
 
 #[test]
-fn secrets_keys_deletion_delegates_cross_platform() {
+fn secrets_credentials_deletion_delegates_cross_platform() {
     let stream = guarded_stream(EffectKind::Filesystem {
         effect: FilesystemEffect {
             operation: FilesystemOperation::Delete,
@@ -79,7 +79,7 @@ fn secrets_keys_deletion_delegates_cross_platform() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&stream, &guard_policy("secrets-keys", true), &[])
+        nah_policy::decide(&stream, &guard_policy("secrets-credentials", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Delegate
