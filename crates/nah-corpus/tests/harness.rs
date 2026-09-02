@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1732);
+    assert_eq!(summary.cases, 1754);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 251),
-            ("git.jsonl".to_owned(), 251),
+            ("git.jsonl".to_owned(), 273),
             ("infrastructure.jsonl".to_owned(), 162),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
@@ -193,6 +193,28 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-remote-repo-delete.gh-ipv6-percent-encoded-zone-host",
         "git-remote-repo-delete.dynamic-target-delegates",
         "git-remote-repo-delete.gh-nested-endpoint-delegates",
+        "git-remote-resource-delete.gh-release",
+        "git-remote-resource-delete.gh-secret",
+        "git-remote-resource-delete.gh-cache-all",
+        "git-remote-resource-delete.glab-release",
+        "git-remote-resource-delete.glab-ssh-key",
+        "git-remote-resource-delete.gh-api-hook",
+        "git-remote-resource-delete.gh-api-gist",
+        "git-remote-resource-delete.glab-api-variable",
+        "git-remote-resource-delete.gh-factory-delegates",
+        "git-remote-resource-delete.glab-api-factory-delegates",
+        "git-remote-resource-delete.interactive-delegates",
+        "git-remote-resource-delete.dynamic-target-delegates",
+        "git-remote-resource-delete.unknown-option-delegates",
+        "git-remote-resource-delete.help-delegates",
+        "git-remote-resource-delete.archive-delegates",
+        "git-remote-resource-delete.visibility-edit-delegates",
+        "git-remote-resource-delete.run-cancel-delegates",
+        "git-remote-resource-delete.workflow-disable-delegates",
+        "git-remote-resource-delete.set-delegates",
+        "git-remote-resource-delete.list-delegates",
+        "git-remote-resource-delete.unknown-api-route-delegates",
+        "git-remote-resource-delete.non-delete-api-method-delegates",
         "infra-iac-destroy.terraform-destroy",
         "infra-iac-destroy.terraform-factory-delegates",
         "infra-iac-destroy.terraform-cli-args-target-delegates",

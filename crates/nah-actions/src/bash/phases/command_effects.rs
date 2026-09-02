@@ -18,7 +18,7 @@ use crate::bash_git::command_operation as git_command_operation;
 use crate::bash_invocation::invocation;
 use crate::bash_logical_storage::models_logical_storage_command;
 use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue};
-use crate::bash_remote_source_control::deletes_repository;
+use crate::bash_remote_source_control::classify_remote_deletion;
 use crate::bash_self_protection::{
     EnvironmentVariables, environment_operation as nah_environment_operation,
     hardlink_operation as nah_hardlink_operation, inspection_operation as nah_inspection_operation,
@@ -177,8 +177,10 @@ impl Lowerer {
         if git_environment_override {
             classifications.git = None;
         }
-        let remote_repository_delete = matches!(&program, ProgramDraft::Static(program)
-            if deletes_repository(program, &local_arguments));
+        let remote_deletion = match &program {
+            ProgramDraft::Static(program) => classify_remote_deletion(program, &local_arguments),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         let infrastructure = match &program {
             ProgramDraft::Static(program) => crate::bash_infrastructure::classify(
                 program,
@@ -350,7 +352,7 @@ impl Lowerer {
             storage.as_ref(),
             registry.as_ref(),
             git_environment_override,
-            remote_repository_delete,
+            remote_deletion,
             filesystem_drafts,
             network_endpoints,
             descriptor_flows,

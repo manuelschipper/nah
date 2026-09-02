@@ -167,6 +167,48 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 }
 
 #[test]
+fn remote_resource_delete_is_factory_off_and_independent() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let resource = "gh release delete v1.2.3 --yes";
+    let repository = "gh repo delete owner/project --yes";
+
+    assert_eq!(
+        decide(temp.path(), &project, resource)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, repository)["verdict"],
+        "block"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "git-remote-resource-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, resource)["policy_attributions"][0]["name"],
+        "git-remote-resource-delete"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "git-remote-repo-delete"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, repository)["verdict"],
+        "delegate"
+    );
+    assert_eq!(decide(temp.path(), &project, resource)["verdict"], "block");
+}
+
+#[test]
 fn remote_repository_guard_alias_preserves_saved_choices_and_commands() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

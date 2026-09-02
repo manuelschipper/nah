@@ -54,6 +54,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-metadata",
     "git-recovery-destroy",
     "git-remote-repo-delete",
+    "git-remote-resource-delete",
     "git-rewrite-force",
     "git-worktree-discard",
     "infra-container-prune",

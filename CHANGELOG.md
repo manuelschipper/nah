@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Hosted Git resource deletion guard** — Optional
+  `git-remote-resource-delete` blocks statically targeted GitHub and GitLab
+  release, issue, secret, variable, key, hook, environment, gist, and Actions
+  cache deletion through reviewed CLI commands and REST routes.
 - **Guard rename compatibility** — `git-remote-delete` is now
   `git-remote-repo-delete`; saved choices and guard commands still accept the old
   name as a hidden compatibility alias, while unknown saved names warn without

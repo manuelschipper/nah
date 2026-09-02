@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 34 guards span execution, secrets, filesystem, Git, infrastructure/storage/
+- 35 guards span execution, secrets, filesystem, Git, infrastructure/storage/
   backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
@@ -23,6 +23,8 @@ protected-state changes outside maintenance.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
 - `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
+- `git-remote-resource-delete` defaults off for statically targeted release,
+  issue, secret, variable, key, hook, environment, gist, and Actions-cache deletion.
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs

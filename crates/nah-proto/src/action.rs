@@ -188,6 +188,7 @@ impl SemanticCode {
     pub const FORK_BOMB: Self = Self::borrowed("fork-bomb");
     pub const FORCE_PUSH: Self = Self::borrowed("force-push");
     pub const GIT_REMOTE_REPO_DELETE: Self = Self::borrowed("git-remote-repo-delete");
+    pub const GIT_REMOTE_RESOURCE_DELETE: Self = Self::borrowed("git-remote-resource-delete");
     pub const HARD_RESET: Self = Self::borrowed("hard-reset");
     pub const INFRA_CONTAINER_PRUNE: Self = Self::borrowed("infra-container-prune");
     pub const INFRA_CONTAINER_RESET: Self = Self::borrowed("infra-container-reset");
