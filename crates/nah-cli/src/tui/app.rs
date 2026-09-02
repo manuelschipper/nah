@@ -802,7 +802,15 @@ impl App {
         self.log_index = bounded(self.log_index, self.filtered_log().len());
         if let Some(error) = refresh_error {
             self.error(error);
-        } else if let Some(warning) = refresh_warning {
+        } else if let Some(warning) = refresh_warning
+            && !matches!(
+                self.message,
+                Some(Message {
+                    kind: MessageKind::Error,
+                    ..
+                })
+            )
+        {
             self.warning(warning);
         }
     }

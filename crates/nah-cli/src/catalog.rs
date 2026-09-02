@@ -56,7 +56,8 @@ pub fn shipped_guards() -> &'static [&'static str] {
 }
 
 /// Historical shipped guard names accepted only as lookups.
-const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[];
+const SHIPPED_GUARD_ALIASES: &[(&str, &str)] =
+    &[("infra-container-prune", "infra-container-volume-delete")];
 
 /// Canonical shipped guard identity returned from a current or historical name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -210,7 +211,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                 *name,
                 "fs-shell-profile"
                     | "fs-startup-management"
-                    | "infra-container-prune"
+                    | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
                     | "registry-publish"
@@ -246,7 +247,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-remote-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
-        "infra-container-prune"
+        "infra-container-volume-delete"
         | "infra-container-reset"
         | "infra-iac-destroy"
         | "infra-k8s-delete"
@@ -307,7 +308,7 @@ fn behavior(name: &str) -> &'static str {
         "git-worktree-discard" => {
             "Blocks project-wide checkout or restore and proven forced branch changes."
         }
-        "infra-container-prune" => {
+        "infra-container-volume-delete" => {
             "Blocks broad unused-volume cleanup through reviewed Docker and Podman prune commands."
         }
         "infra-container-reset" => {
@@ -451,7 +452,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git switch --discard-changes main",
             "git restore .",
         ],
-        "infra-container-prune" => [
+        "infra-container-volume-delete" => [
             "docker volume prune --all",
             "docker system prune --volumes",
             "podman system prune --volumes",
@@ -649,7 +650,7 @@ mod tests {
         assert!(
             states
                 .iter()
-                .find(|state| state.name() == "infra-container-prune")
+                .find(|state| state.name() == "infra-container-volume-delete")
                 .is_some_and(|state| !state.enabled())
         );
         assert!(

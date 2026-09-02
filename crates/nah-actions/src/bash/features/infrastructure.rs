@@ -440,10 +440,10 @@ fn container_operation(
             Classification::system_state(SemanticCode::INFRA_CONTAINER_RESET)
         }
         ContainerCommand::VolumePrune if parsed.all => {
-            Classification::system_state(SemanticCode::INFRA_CONTAINER_PRUNE)
+            Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
         }
         ContainerCommand::SystemPrune if parsed.volumes => {
-            Classification::system_state(SemanticCode::INFRA_CONTAINER_PRUNE)
+            Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
         }
         ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => {
             Classification::complete(false)

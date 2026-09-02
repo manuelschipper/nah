@@ -62,8 +62,8 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-remote-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
-| `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
+| `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
 | `storage-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
