@@ -78,7 +78,7 @@ fn every_shipped_guard_blocks_end_to_end() {
         "exec-obfuscated",
         "exec-network-shell",
         "secrets-env",
-        "secrets-keys",
+        "secrets-credentials",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();

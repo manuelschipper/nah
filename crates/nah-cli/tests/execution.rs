@@ -141,7 +141,7 @@ fn shipped_guards_inspect_language_safety_calls_after_the_public_limit() {
                 "node -e \"const fs=require('fs');{benign_javascript};fs.writeFileSync('{}', 'x')\"",
                 credentials.display()
             ),
-            "secrets-keys",
+            "secrets-credentials",
             credentials,
         ),
     ];

@@ -42,7 +42,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
 | `secrets-env` | Reads of `.env` files and sensitive basenames. |
-| `secrets-keys` | Reads or writes of private-key and credential-store paths. |
+| `secrets-credentials` | Reads or writes of private-key and credential-store paths. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |

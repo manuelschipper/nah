@@ -164,6 +164,97 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 }
 
 #[test]
+fn renamed_credential_guard_preserves_state_and_canonicalizes_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(temp.path().join(".nah")).unwrap();
+    std::fs::write(
+        temp.path().join(".nah/built-ins.json"),
+        "{\"v\":2,\"overrides\":{\"fs-shell-profile\":true,\"secrets-keys\":false}}\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        decide(temp.path(), &project, "cat ~/.ssh/id_rsa")["verdict"],
+        "delegate"
+    );
+    let guards = nah(temp.path(), &project, &["guards"], None);
+    assert!(guards.status.success(), "{guards:?}");
+    assert!(!guards.stderr.is_empty());
+    let listed_names = String::from_utf8(guards.stdout)
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.split_once("] ").map(|(_, name)| name.to_owned()))
+        .collect::<Vec<_>>();
+    assert!(
+        listed_names
+            .iter()
+            .any(|name| name == "secrets-credentials")
+    );
+    assert!(!listed_names.iter().any(|name| name == "secrets-keys"));
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "secrets-keys"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(enabled.stdout, b"enabled guard secrets-credentials\n");
+    assert!(!enabled.stderr.is_empty());
+    let saved: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["overrides"],
+        serde_json::json!({"fs-shell-profile": true})
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "cat ~/.ssh/id_rsa")["policy_attributions"][0]["name"],
+        "secrets-credentials"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "secrets-keys"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(disabled.stdout, b"disabled guard secrets-credentials\n");
+    let saved: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["overrides"],
+        serde_json::json!({"fs-shell-profile": true, "secrets-credentials": false})
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "cat ~/.ssh/id_rsa")["verdict"],
+        "delegate"
+    );
+
+    let reset = nah(
+        temp.path(),
+        &project,
+        &["guard", "reset", "secrets-keys"],
+        None,
+    );
+    assert!(reset.status.success(), "{reset:?}");
+    assert_eq!(reset.stdout, b"reset guard secrets-credentials\n");
+    let saved: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["overrides"],
+        serde_json::json!({"fs-shell-profile": true})
+    );
+}
+
+#[test]
 fn unknown_saved_names_preserve_valid_overrides_and_leave_on_mutation() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
