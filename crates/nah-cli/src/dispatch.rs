@@ -41,6 +41,7 @@ use crate::pipeline::{EvaluationFailure, decide_live_with_self_protection, faile
 use crate::prime_agent_adapter;
 use crate::records;
 use crate::runtime::{FailurePolicy, Runtime};
+use crate::xi_adapter;
 
 const CLI_USAGE_ERROR: u8 = 4;
 
@@ -280,6 +281,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
     match entry.status {
         Ok(status) => {
             let runtime_name = runtime.cli_name();
+            let docs_topic = entry.docs_topic;
             match status {
                 RuntimeHookStatus::WiringCurrent => {
                     let _ = writeln!(stdout, "{}: wiring current", entry.name);
@@ -292,7 +294,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         stdout,
                         "guarantee: runtime approval remains authoritative when nah cannot decide"
                     );
-                    let _ = writeln!(stdout, "verify: nah docs runtime-{runtime_name}");
+                    let _ = writeln!(stdout, "verify: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::WiringCurrentFailClosed => {
                     let _ = writeln!(stdout, "{}: wiring current", entry.name);
@@ -305,12 +307,12 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         stdout,
                         "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
                     );
-                    let _ = writeln!(stdout, "verify: nah docs runtime-{runtime_name}");
+                    let _ = writeln!(stdout, "verify: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::NotConfigured => {
                     let _ = writeln!(stdout, "{}: not configured", entry.name);
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
-                    let _ = writeln!(stdout, "docs: nah docs runtime-{runtime_name}");
+                    let _ = writeln!(stdout, "docs: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::NeedsReinstall => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
@@ -320,7 +322,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         "guarantee: runtime approval remains authoritative when nah cannot decide"
                     );
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
-                    let _ = writeln!(stdout, "docs: nah docs runtime-{runtime_name}");
+                    let _ = writeln!(stdout, "docs: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::NeedsReinstallFailClosed => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
@@ -330,7 +332,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
                     );
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
-                    let _ = writeln!(stdout, "docs: nah docs runtime-{runtime_name}");
+                    let _ = writeln!(stdout, "docs: nah docs {docs_topic}");
                 }
             }
             0
@@ -374,6 +376,7 @@ fn run_runtime_hook<R: Read, W: Write, E: Write>(
         Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Pi => pi_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::PrimeAgent => prime_agent_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Xi => xi_adapter::run(stdin, stdout, stderr, failure_policy),
     }
 }
 

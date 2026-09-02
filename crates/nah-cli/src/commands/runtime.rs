@@ -17,9 +17,10 @@ use super::{
     mutate_antigravity_hook, mutate_claude_hook, mutate_cline_hook, mutate_codex_hook,
     mutate_copilot_hook, mutate_cursor_hook, mutate_devin_hook, mutate_droid_hook,
     mutate_hermes_hook, mutate_kiro_hook, mutate_openclaw_hook, mutate_opencode_hook,
-    mutate_pi_hook, mutate_prime_agent_hook, openclaw_hook_status, openclaw_self_protection_paths,
-    opencode_hook_status, opencode_self_protection_paths, pi_hook_status, pi_self_protection_paths,
-    prime_agent_hook_status, prime_agent_self_protection_paths,
+    mutate_pi_hook, mutate_prime_agent_hook, mutate_xi_hook, openclaw_hook_status,
+    openclaw_self_protection_paths, opencode_hook_status, opencode_self_protection_paths,
+    pi_hook_status, pi_self_protection_paths, prime_agent_hook_status,
+    prime_agent_self_protection_paths, xi_hook_status, xi_self_protection_paths,
 };
 
 type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
@@ -139,6 +140,7 @@ pub(crate) fn runtime_entry(runtime: Runtime) -> RuntimeEntry {
         Runtime::OpenCode => opencode_hook_status,
         Runtime::Pi => pi_hook_status,
         Runtime::PrimeAgent => prime_agent_hook_status,
+        Runtime::Xi => xi_hook_status,
     };
     RuntimeEntry {
         runtime,
@@ -179,6 +181,7 @@ pub(crate) fn set_runtime_configured(
         Runtime::OpenCode => mutate_opencode_hook(install, failure_policy),
         Runtime::Pi => mutate_pi_hook(install, failure_policy),
         Runtime::PrimeAgent => mutate_prime_agent_hook(install, failure_policy),
+        Runtime::Xi => mutate_xi_hook(install, failure_policy),
     }
 }
 
@@ -201,6 +204,7 @@ pub(crate) fn runtime_self_protection(
         Runtime::OpenCode => opencode_self_protection_paths(),
         Runtime::Pi => pi_self_protection_paths(),
         Runtime::PrimeAgent => prime_agent_self_protection_paths(),
+        Runtime::Xi => xi_self_protection_paths(),
     }?;
     let platform = crate::live_state::host_platform();
     let protected_paths = protected_paths
@@ -254,6 +258,7 @@ mod tests {
             Runtime::Droid,
             Runtime::Hermes,
             Runtime::OpenCode,
+            Runtime::Xi,
         ] {
             assert_eq!(
                 runtime_entry(runtime).status,

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Xi integration** — `nah hook xi install` wires Xi's global `before-bash`
+  hook so every model-proposed shell command receives typed Bash analysis.
 - **Optional kubectl deletion guard** — New default-off `infra-k8s-delete`
   blocks static namespace, reviewed cluster-resource, and bulk reviewed
   namespaced-resource deletion while named application resources, dry runs,

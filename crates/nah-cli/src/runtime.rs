@@ -45,6 +45,7 @@ pub(crate) enum Runtime {
     Pi,
     #[value(name = "prime-agent")]
     PrimeAgent,
+    Xi,
 }
 
 impl Runtime {
@@ -66,6 +67,7 @@ impl Runtime {
             Self::OpenCode => "opencode",
             Self::Pi => "pi",
             Self::PrimeAgent => "prime-agent",
+            Self::Xi => "xi",
         }
     }
 
@@ -86,6 +88,7 @@ impl Runtime {
             Self::OpenCode => "OpenCode",
             Self::Pi => "Pi",
             Self::PrimeAgent => "Prime Agent",
+            Self::Xi => "Xi",
         }
     }
 
@@ -106,6 +109,7 @@ impl Runtime {
             Self::OpenCode => "runtime-opencode",
             Self::Pi => "runtime-pi",
             Self::PrimeAgent => "runtime-prime-agent",
+            Self::Xi => "runtimes",
         }
     }
 }
@@ -126,12 +130,14 @@ mod tests {
     }
 
     #[test]
-    fn every_runtime_owns_matching_docs_metadata() {
+    fn every_runtime_owns_docs_metadata() {
         for runtime in Runtime::value_variants() {
-            assert_eq!(
-                runtime.docs_topic(),
+            let expected = if *runtime == Runtime::Xi {
+                "runtimes".to_owned()
+            } else {
                 format!("runtime-{}", runtime.cli_name())
-            );
+            };
+            assert_eq!(runtime.docs_topic(), expected);
             assert!(!runtime.display_name().is_empty());
         }
     }

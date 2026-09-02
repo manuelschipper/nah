@@ -1013,7 +1013,7 @@ fn every_stamped_runtime_renders_in_its_column() {
         .map(|runtime| runtime.cli_name())
         .chain(std::iter::once("unknown"))
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 16, "{names:?}");
+    assert_eq!(names.len(), 17, "{names:?}");
 
     let mut app = App::fixture();
     app.screen = Screen::Log;
@@ -1027,7 +1027,7 @@ fn every_stamped_runtime_renders_in_its_column() {
         })
         .collect();
 
-    let output = rendered(&app, 100, 24);
+    let output = rendered(&app, 100, 25);
     for name in names {
         assert!(output.contains(name), "{name}:\n{output}");
     }
@@ -1035,7 +1035,7 @@ fn every_stamped_runtime_renders_in_its_column() {
     // A name longer than any adapter stamps today clips at the pane edge
     // rather than breaking the row.
     app.log[0].runtime = "a-runtime-named-well-past-the-column".into();
-    let output = rendered(&app, 100, 24);
+    let output = rendered(&app, 100, 25);
     assert!(output.contains("a-runtime-named"), "{output}");
     assert!(output.contains("claude"), "{output}");
 }

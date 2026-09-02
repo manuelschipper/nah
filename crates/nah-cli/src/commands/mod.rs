@@ -24,6 +24,7 @@ mod runtime;
 mod shipped_guard;
 mod test;
 mod trust;
+mod xi_installation;
 
 pub(crate) use amp_installation::{amp_hook_status, amp_self_protection_paths, mutate_amp_hook};
 pub(crate) use antigravity_installation::{
@@ -90,3 +91,4 @@ pub(crate) use trust::{
     GuardProposals, TrustedProject, canonical_project_root, guard_proposals, trust_root,
     trusted_projects, untrust_root,
 };
+pub(crate) use xi_installation::{mutate_xi_hook, xi_hook_status, xi_self_protection_paths};
