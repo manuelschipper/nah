@@ -56,7 +56,7 @@ pub fn shipped_guards() -> &'static [&'static str] {
 }
 
 /// Historical shipped guard names accepted only as lookups.
-const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[];
+const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[("git-remote-delete", "git-remote-repo-delete")];
 
 /// Canonical shipped guard identity returned from a current or historical name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -243,7 +243,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-hard-reset"
         | "git-metadata"
         | "git-recovery-destroy"
-        | "git-remote-delete"
+        | "git-remote-repo-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
         "infra-container-prune"
@@ -298,7 +298,7 @@ fn behavior(name: &str) -> &'static str {
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
         }
-        "git-remote-delete" => {
+        "git-remote-repo-delete" => {
             "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
         }
         "git-rewrite-force" => {
@@ -436,7 +436,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git gc --prune=now",
             "git prune --expire=now",
         ],
-        "git-remote-delete" => [
+        "git-remote-repo-delete" => [
             "gh repo delete owner/project --yes",
             "glab repo delete group/project -y",
             "gh api -X DELETE repos/{owner}/{repo}",
@@ -584,6 +584,13 @@ mod tests {
             .map(|guard| guard.name)
             .collect::<Vec<_>>();
         assert_eq!(rows, shipped_guards());
+        assert_eq!(
+            resolve_shipped_guard("git-remote-delete"),
+            Some(ResolvedShippedGuard {
+                canonical_name: "git-remote-repo-delete",
+                renamed: true,
+            })
+        );
         assert!(
             shipped_guard_aliases()
                 .iter()

@@ -269,7 +269,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
     let mut app = App::fixture();
     app.guards.extend([
         guard_entry(built_in("fs-system-tree"), GuardStatus::Disabled),
-        guard_entry(built_in("git-remote-delete"), GuardStatus::Disabled),
+        guard_entry(built_in("git-remote-repo-delete"), GuardStatus::Disabled),
         guard_entry(custom("vendor-sync"), GuardStatus::Enabled),
         guard_entry(
             custom("vanished"),
@@ -289,7 +289,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
             ("corp-api", false),
             ("secrets-env", true),
             ("fs-system-tree", true),
-            ("git-remote-delete", true),
+            ("git-remote-repo-delete", true),
             ("vendor-sync", false),
             ("vanished", false),
         ]
