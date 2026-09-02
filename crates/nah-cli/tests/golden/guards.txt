@@ -11,8 +11,8 @@ Built-in:
 - [ ] fs-shell-profile
 - [ ] fs-startup-management
 - [x] fs-startup-persistence
-- [x] fs-storage-destroy
 - [x] fs-system-tree
+- [x] fs-volume-destroy
 - [x] git-clean-force
 - [x] git-force-push
 - [x] git-hard-reset
@@ -30,7 +30,7 @@ Built-in:
 - [x] secrets-credentials
 - [x] secrets-env
 - [x] secrets-exfil
-- [x] storage-destroy
+- [x] storage-backup-destroy
 - [ ] storage-recursive-delete
 - [ ] storage-snapshot-delete
 

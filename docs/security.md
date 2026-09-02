@@ -39,7 +39,7 @@ protected-state changes outside maintenance.
   deletion through `kubectl`. Named application resources and client/server
   dry runs delegate; manifest, kustomize, stdin, raw, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
-- `storage-destroy` is on for whole Borg repos or all Restic/Velero backups.
+- `storage-backup-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
 - `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
 

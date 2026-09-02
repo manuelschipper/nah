@@ -57,9 +57,11 @@ pub fn shipped_guards() -> &'static [&'static str] {
 
 /// Historical shipped guard names accepted only as lookups.
 const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[
+    ("fs-storage-destroy", "fs-volume-destroy"),
     ("git-remote-delete", "git-remote-repo-delete"),
     ("infra-container-prune", "infra-container-volume-delete"),
     ("secrets-keys", "secrets-credentials"),
+    ("storage-destroy", "storage-backup-destroy"),
 ];
 
 /// Canonical shipped guard identity returned from a current or historical name.
@@ -240,8 +242,8 @@ fn family(name: &str) -> GuardFamily {
         | "fs-shell-profile"
         | "fs-startup-management"
         | "fs-startup-persistence"
-        | "fs-storage-destroy"
-        | "fs-system-tree" => GuardFamily::Filesystem,
+        | "fs-system-tree"
+        | "fs-volume-destroy" => GuardFamily::Filesystem,
         "git-clean-force"
         | "git-force-push"
         | "git-hard-reset"
@@ -254,7 +256,7 @@ fn family(name: &str) -> GuardFamily {
         | "infra-container-reset"
         | "infra-iac-destroy"
         | "infra-k8s-delete"
-        | "storage-destroy"
+        | "storage-backup-destroy"
         | "storage-recursive-delete"
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
@@ -287,7 +289,7 @@ fn behavior(name: &str) -> &'static str {
         "fs-startup-persistence" => {
             "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
         }
-        "fs-storage-destroy" => {
+        "fs-volume-destroy" => {
             "Blocks definite logical-volume, storage-pool, and live ZFS dataset destruction."
         }
         "fs-system-tree" => {
@@ -323,7 +325,7 @@ fn behavior(name: &str) -> &'static str {
         "infra-k8s-delete" => {
             "Blocks static kubectl deletion of namespaces, reviewed cluster-scoped resources, and bulk selections of reviewed namespaced resources. Named application-resource deletion, client/server dry runs, manifest and kustomize input, raw requests, and unknown resource kinds remain outside the guard."
         }
-        "storage-destroy" => {
+        "storage-backup-destroy" => {
             "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
         }
         "storage-recursive-delete" => {
@@ -413,7 +415,7 @@ fn examples(name: &str) -> Vec<&'static str> {
             "rm ~/.config/systemd/user/backup.service",
             "truncate -s 0 /etc/crontab",
         ],
-        "fs-storage-destroy" => [
+        "fs-volume-destroy" => [
             "lvm lvremove vg/data",
             "lvm vgremove archive",
             "zfs destroy -r tank/data",
@@ -479,7 +481,7 @@ fn examples(name: &str) -> Vec<&'static str> {
             "kubectl delete pv old-data",
             "kubectl delete pods --all",
         ],
-        "storage-destroy" => [
+        "storage-backup-destroy" => [
             "borg delete /srv/backups/repo",
             "restic forget --unsafe-allow-remove-all --tag old",
             "velero backup delete --all",
@@ -597,13 +599,19 @@ mod tests {
             .map(|guard| guard.name)
             .collect::<Vec<_>>();
         assert_eq!(rows, shipped_guards());
-        assert_eq!(
-            resolve_shipped_guard("git-remote-delete"),
-            Some(ResolvedShippedGuard {
-                canonical_name: "git-remote-repo-delete",
-                renamed: true,
-            })
-        );
+        for (source, target) in [
+            ("fs-storage-destroy", "fs-volume-destroy"),
+            ("git-remote-delete", "git-remote-repo-delete"),
+            ("storage-destroy", "storage-backup-destroy"),
+        ] {
+            assert_eq!(
+                resolve_shipped_guard(source),
+                Some(ResolvedShippedGuard {
+                    canonical_name: target,
+                    renamed: true,
+                })
+            );
+        }
         assert!(
             shipped_guard_aliases()
                 .iter()
@@ -653,7 +661,7 @@ mod tests {
         assert!(
             states
                 .iter()
-                .find(|state| state.name() == "storage-destroy")
+                .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
         assert!(

@@ -784,7 +784,7 @@ fn restic(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") {
                 Classification::control()
             } else if parsed.flag("--unsafe-allow-remove-all") {
-                Classification::operation(SemanticCode::STORAGE_DESTROY)
+                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
             } else if !snapshots.is_empty() || parsed.has_prefix_value("--keep-") {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             } else {
@@ -845,7 +845,7 @@ fn borg(arguments: &[String]) -> Classification {
     match parsed.positionals() {
         [command, operands @ ..] if command == "repo-delete" => {
             if operands.is_empty() {
-                Classification::operation(SemanticCode::STORAGE_DESTROY)
+                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
             } else {
                 Classification::incomplete()
             }
@@ -860,7 +860,7 @@ fn borg(arguments: &[String]) -> Classification {
             {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             } else if matches!(operands, [repository] if !repository.is_empty()) {
-                Classification::operation(SemanticCode::STORAGE_DESTROY)
+                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
             } else {
                 Classification::incomplete()
             }
@@ -949,7 +949,7 @@ fn velero(arguments: &[String]) -> Classification {
     match parsed.positionals() {
         [backup, delete, names @ ..] if backup == "backup" && delete == "delete" => {
             if parsed.flag("--all") {
-                Classification::operation(SemanticCode::STORAGE_DESTROY)
+                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
             } else if !names.is_empty() || parsed.value("--selector").is_some() {
                 Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
             } else {

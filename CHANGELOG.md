@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- **Guard rename compatibility** — `git-remote-delete` is now
-  `git-remote-repo-delete`; saved choices and guard commands still accept the old
-  name as a hidden compatibility alias, while unknown saved names warn without
-  resetting unrelated overrides.
+- **Guard rename compatibility** — `fs-storage-destroy` is now
+  `fs-volume-destroy`, and `git-remote-delete` is now `git-remote-repo-delete`;
+  saved choices and guard commands still accept the old names as hidden
+  compatibility aliases, while unknown saved names warn without resetting
+  unrelated overrides.
 - **Clear credential guard name** — `secrets-credentials` replaces
   `secrets-keys`; the old name remains a hidden alias so saved choices and guard
   commands keep working. Other unknown saved names warn without resetting
@@ -22,9 +23,9 @@
   teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning
   (`infra-container-volume-delete`, optional), and Podman runtime reset
   (`infra-container-reset`, enabled by default).
-- **Storage destruction guards** — `storage-destroy` blocks broad backup
+- **Storage destruction guards** — `storage-backup-destroy` blocks broad backup
   repository destruction by default. Optional guards cover recursive cloud
-  storage deletion and snapshot deletion, while `fs-storage-destroy` now also
+  storage deletion and snapshot deletion, while `fs-volume-destroy` now also
   covers live ZFS datasets.
 - **Package registry guards** — `registry-unpublish` blocks package unpublishing
   and published-name ownership changes by default; optional `registry-publish`

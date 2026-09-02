@@ -222,7 +222,7 @@ impl SemanticCode {
     pub const SHELL_PATTERN: Self = Self::borrowed("shell-pattern");
     pub const SHELL_STDIN: Self = Self::borrowed("shell-stdin");
     pub const STARTUP_MANAGEMENT: Self = Self::borrowed("fs-startup-management");
-    pub const STORAGE_DESTROY: Self = Self::borrowed("storage-destroy");
+    pub const STORAGE_BACKUP_DESTROY: Self = Self::borrowed("storage-backup-destroy");
     pub const STORAGE_RECURSIVE_DELETE: Self = Self::borrowed("storage-recursive-delete");
     pub const STORAGE_SNAPSHOT_DELETE: Self = Self::borrowed("storage-snapshot-delete");
     pub const STORAGE_WRITE: Self = Self::borrowed("storage-write");

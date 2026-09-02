@@ -120,7 +120,7 @@ fn storage_no_act_modes_emit_no_raw_write_and_active_controls_still_do() {
 }
 
 #[test]
-fn whole_backup_repository_deletion_emits_storage_destroy() {
+fn whole_backup_repository_deletion_emits_storage_backup_destroy() {
     for source in [
         "borg delete /srv/backups/repo",
         "borg delete --force /srv/backups/repo",
@@ -140,7 +140,7 @@ fn whole_backup_repository_deletion_emits_storage_destroy() {
         "/usr/bin/velero backup delete --all",
     ] {
         assert!(
-            has_system_state(source, &SemanticCode::STORAGE_DESTROY),
+            has_system_state(source, &SemanticCode::STORAGE_BACKUP_DESTROY),
             "{source}: {:?}",
             stream(source).effects()
         );
@@ -304,7 +304,7 @@ fn storage_controls_and_narrow_or_nonexecuting_forms_delegate() {
                 EffectKind::SystemState { operation }
                     if matches!(
                         operation.as_str(),
-                        "storage-destroy"
+                        "storage-backup-destroy"
                             | "storage-recursive-delete"
                             | "storage-snapshot-delete"
                     )
@@ -418,7 +418,7 @@ fn dynamic_malformed_and_untrusted_executable_forms_are_not_claimed() {
         "/opt/aws s3 rm s3://bucket --recursive",
     ] {
         assert!(
-            !has_system_state(source, &SemanticCode::STORAGE_DESTROY)
+            !has_system_state(source, &SemanticCode::STORAGE_BACKUP_DESTROY)
                 && !has_system_state(source, &SemanticCode::STORAGE_RECURSIVE_DELETE)
                 && !has_system_state(source, &SemanticCode::STORAGE_SNAPSHOT_DELETE),
             "{source}: {:?}",

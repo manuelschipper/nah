@@ -48,7 +48,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
-| `fs-storage-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
+| `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
 | `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
 | `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
@@ -66,7 +66,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
-| `storage-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
+| `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |
 | `registry-publish` | Reviewed package publication commands. Off by default. |
