@@ -164,6 +164,61 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 }
 
 #[test]
+fn unknown_saved_names_preserve_valid_overrides_and_leave_on_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(temp.path().join(".nah")).unwrap();
+    std::fs::write(
+        temp.path().join(".nah/built-ins.json"),
+        "{\"v\":2,\"overrides\":{\"git-hard-reset\":false,\"retired-guard\":false}}\n",
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {"command": "git reset --hard"},
+        "cwd": project,
+    })
+    .to_string();
+    let decided = nah(temp.path(), &project, &["decide"], Some(&payload));
+    assert!(!decided.stderr.is_empty());
+    let decision: serde_json::Value = serde_json::from_slice(&decided.stdout).unwrap();
+    assert_eq!(decision["verdict"], "delegate");
+    let guards = nah(temp.path(), &project, &["guards"], None);
+    assert!(guards.status.success(), "{guards:?}");
+    assert!(!guards.stderr.is_empty());
+    let guards = String::from_utf8(guards.stdout).unwrap();
+    let listed_names = guards
+        .lines()
+        .filter_map(|line| line.split_once("] ").map(|(_, name)| name))
+        .collect::<Vec<_>>();
+    let expected_names = include_str!("golden/guards.txt")
+        .lines()
+        .filter_map(|line| line.split_once("] ").map(|(_, name)| name))
+        .collect::<Vec<_>>();
+    assert_eq!(listed_names, expected_names);
+
+    let reset = nah(
+        temp.path(),
+        &project,
+        &["guard", "reset", "git-hard-reset"],
+        None,
+    );
+    assert!(reset.status.success(), "{reset:?}");
+    assert!(!reset.stderr.is_empty());
+    let saved: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["overrides"], serde_json::json!({}));
+    assert_eq!(
+        decide(temp.path(), &project, "git reset --hard")["verdict"],
+        "block"
+    );
+}
+
+#[test]
 fn explicit_global_disable_beats_a_project_enablement() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

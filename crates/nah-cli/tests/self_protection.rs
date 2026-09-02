@@ -61,6 +61,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         "nah trust .",
         "nah untrust .",
         "nah guard disable fs-system-tree",
+        "nah guard reset fs-system-tree",
         "git -c 'alias.off=!nah guard disable fs-system-tree' off",
         "nah guard disable fs-system-tree",
         "cargo uninstall nah",

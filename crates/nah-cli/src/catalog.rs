@@ -1,5 +1,7 @@
 //! Shipped policy catalog projection used by live and frozen contexts.
 
+use std::collections::BTreeSet;
+
 use nah_proto::ctx::ShippedGuardState;
 
 use crate::shipped_state::ShippedState;
@@ -51,6 +53,89 @@ impl GuardFamily {
 
 pub fn shipped_guards() -> &'static [&'static str] {
     nah_policy::SHIPPED_GUARDS
+}
+
+/// Historical shipped guard names accepted only as lookups.
+const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[];
+
+/// Canonical shipped guard identity returned from a current or historical name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedShippedGuard<'a> {
+    pub(crate) canonical_name: &'a str,
+    pub(crate) renamed: bool,
+}
+
+pub(crate) fn shipped_guard_aliases() -> &'static [(&'static str, &'static str)] {
+    validate_shipped_guard_aliases(shipped_guards(), SHIPPED_GUARD_ALIASES)
+        .expect("shipped guard aliases are valid");
+    SHIPPED_GUARD_ALIASES
+}
+
+/// Resolves one current or direct historical shipped guard name.
+pub(crate) fn resolve_shipped_guard(name: &str) -> Option<ResolvedShippedGuard<'static>> {
+    resolve_shipped_guard_from(shipped_guards(), shipped_guard_aliases(), name)
+}
+
+/// Names custom guards cannot claim, including historical shipped names.
+pub(crate) fn reserved_shipped_names() -> Vec<&'static str> {
+    shipped_guards()
+        .iter()
+        .copied()
+        .chain(shipped_guard_aliases().iter().map(|(source, _)| *source))
+        .collect()
+}
+
+/// Shared resolver seam used with production and synthetic alias registries.
+pub(crate) fn resolve_shipped_guard_from<'a>(
+    canonical_names: &'a [&'a str],
+    aliases: &'a [(&'a str, &'a str)],
+    name: &str,
+) -> Option<ResolvedShippedGuard<'a>> {
+    if let Some(canonical_name) = canonical_names.iter().find(|canonical| **canonical == name) {
+        return Some(ResolvedShippedGuard {
+            canonical_name,
+            renamed: false,
+        });
+    }
+    aliases
+        .iter()
+        .find(|(source, _)| *source == name)
+        .map(|(_, target)| ResolvedShippedGuard {
+            canonical_name: target,
+            renamed: true,
+        })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShippedGuardAliasError {
+    DuplicateSource,
+    SourceIsCanonical,
+    ChainedAlias,
+    MissingTarget,
+}
+
+fn validate_shipped_guard_aliases(
+    canonical_names: &[&str],
+    aliases: &[(&str, &str)],
+) -> Result<(), ShippedGuardAliasError> {
+    let mut sources = BTreeSet::new();
+    for (source, _) in aliases {
+        if !sources.insert(*source) {
+            return Err(ShippedGuardAliasError::DuplicateSource);
+        }
+        if canonical_names.contains(source) {
+            return Err(ShippedGuardAliasError::SourceIsCanonical);
+        }
+    }
+    for (_, target) in aliases {
+        if sources.contains(target) {
+            return Err(ShippedGuardAliasError::ChainedAlias);
+        }
+        if !canonical_names.contains(target) {
+            return Err(ShippedGuardAliasError::MissingTarget);
+        }
+    }
+    Ok(())
 }
 
 pub fn shipped_guard_states() -> Vec<ShippedGuardState> {
@@ -431,6 +516,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn synthetic_alias_registry_resolves_only_direct_historical_names() {
+        let canonical = ["current-a", "current-b"];
+        let aliases = [("old-a", "current-a"), ("older-a", "current-a")];
+
+        assert_eq!(validate_shipped_guard_aliases(&canonical, &aliases), Ok(()));
+        assert_eq!(
+            resolve_shipped_guard_from(&canonical, &aliases, "old-a"),
+            Some(ResolvedShippedGuard {
+                canonical_name: "current-a",
+                renamed: true,
+            })
+        );
+        assert_eq!(
+            resolve_shipped_guard_from(&canonical, &aliases, "current-b"),
+            Some(ResolvedShippedGuard {
+                canonical_name: "current-b",
+                renamed: false,
+            })
+        );
+        assert_eq!(
+            resolve_shipped_guard_from(&canonical, &aliases, "unknown"),
+            None
+        );
+    }
+
+    #[test]
+    fn synthetic_alias_registry_rejects_each_invalid_shape() {
+        let canonical = ["current-a", "current-b"];
+        assert_eq!(
+            validate_shipped_guard_aliases(
+                &canonical,
+                &[("old", "current-a"), ("old", "current-b")]
+            ),
+            Err(ShippedGuardAliasError::DuplicateSource)
+        );
+        assert_eq!(
+            validate_shipped_guard_aliases(&canonical, &[("current-a", "current-b")]),
+            Err(ShippedGuardAliasError::SourceIsCanonical)
+        );
+        assert_eq!(
+            validate_shipped_guard_aliases(&canonical, &[("old", "older"), ("older", "current-a")]),
+            Err(ShippedGuardAliasError::ChainedAlias)
+        );
+        assert_eq!(
+            validate_shipped_guard_aliases(&canonical, &[("old", "missing")]),
+            Err(ShippedGuardAliasError::MissingTarget)
+        );
+        assert_eq!(
+            validate_shipped_guard_aliases(&canonical, &[("old", "older"), ("older", "old")]),
+            Err(ShippedGuardAliasError::ChainedAlias)
+        );
+    }
+
+    #[test]
     fn every_registered_guard_has_agent_facing_documentation() {
         for name in shipped_names() {
             assert!(!behavior(name).is_empty());
@@ -439,10 +578,29 @@ mod tests {
     }
 
     #[test]
+    fn aliases_are_reserved_lookups_without_catalog_rows() {
+        let rows = shipped_guard_docs()
+            .into_iter()
+            .map(|guard| guard.name)
+            .collect::<Vec<_>>();
+        assert_eq!(rows, shipped_guards());
+        assert!(
+            shipped_guard_aliases()
+                .iter()
+                .all(|(source, _)| reserved_shipped_names().contains(source))
+        );
+    }
+
+    #[test]
     fn live_defaults_apply_each_shipped_guard_posture() {
         let temp = tempfile::tempdir().unwrap();
-        let state =
-            ShippedState::load(&temp.path().join("missing.json"), &shipped_defaults()).unwrap();
+        let (state, diagnostics) = ShippedState::load(
+            &temp.path().join("missing.json"),
+            &shipped_defaults(),
+            shipped_guard_aliases(),
+        )
+        .unwrap();
+        assert!(diagnostics.is_empty());
         let states = configured_guard_states(&state);
 
         assert_eq!(states.len(), shipped_guards().len());

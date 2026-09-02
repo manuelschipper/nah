@@ -85,6 +85,7 @@ fn only_known_nah_state_mutations_are_structural() {
         "nah trust /repo",
         "nah untrust /repo",
         "nah guard enable fs-system-tree",
+        "nah guard reset fs-system-tree",
         "cargo uninstall nah",
         "cargo uninstall nah-cli",
         "cargo uninstall --package nah-cli",

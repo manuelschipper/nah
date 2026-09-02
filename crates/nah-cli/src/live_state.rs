@@ -2,7 +2,9 @@
 
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, TrustProjection};
 
-use crate::catalog::{configured_guard_states, shipped_defaults, shipped_names};
+use crate::catalog::{
+    configured_guard_states, reserved_shipped_names, shipped_defaults, shipped_guard_aliases,
+};
 use crate::nap::{self, ActiveNap};
 use crate::shipped_state::{ShippedState, state_path};
 use crate::state_protection::ensure_nah_state_directory;
@@ -44,7 +46,7 @@ pub(crate) fn load() -> Result<LiveState, String> {
                 (nah_extensions::ActivationDatabase::empty(), true)
             }
         };
-    let reserved_names = shipped_names();
+    let reserved_names = reserved_shipped_names();
     let extensions = match nah_extensions::load_active_extensions(
         &home,
         platform,
@@ -63,9 +65,15 @@ pub(crate) fn load() -> Result<LiveState, String> {
         warnings.push("one or more activated extension guards could not be loaded".into());
     }
     let extension_state_unavailable = activation_state_unavailable || activated_bundle_unavailable;
-    let shipped_state = match ShippedState::load(&state_path(&home, platform), &shipped_defaults())
-    {
-        Ok(shipped_state) => shipped_state,
+    let shipped_state = match ShippedState::load(
+        &state_path(&home, platform),
+        &shipped_defaults(),
+        shipped_guard_aliases(),
+    ) {
+        Ok((shipped_state, diagnostics)) => {
+            warnings.extend(diagnostics);
+            shipped_state
+        }
         Err(error) => {
             warnings.push(format!("{error}; shipped defaults apply"));
             ShippedState::defaults()

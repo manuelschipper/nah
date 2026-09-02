@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nah_proto::ctx::{ActivationProjection, GuardIdentity, GuardScope};
 
-use crate::catalog::shipped_names;
+use crate::catalog::reserved_shipped_names;
 use crate::live_state::{home, host_platform};
 
 use super::{
@@ -17,7 +17,7 @@ pub(crate) fn new_guard(
     name: &str,
     selector: &GuardSelector,
 ) -> Result<std::path::PathBuf, String> {
-    if shipped_names().contains(&name) {
+    if reserved_shipped_names().contains(&name) {
         return Err(format!(
             "guard name `{name}` is reserved; choose another name"
         ));
@@ -96,7 +96,7 @@ fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> 
     let trust = nah_extensions::TrustDatabase::load(&trust_path, platform)
         .and_then(|database| database.projection())
         .map_err(|error| error.to_string())?;
-    let reserved_names = shipped_names();
+    let reserved_names = reserved_shipped_names();
     nah_extensions::discover_bundles(&home, platform, &trust, &reserved_names)
         .map(|(bundles, _)| bundles)
         .map_err(|error| error.to_string())
@@ -364,7 +364,7 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
         &nah_extensions::activation_database_path(&home, platform),
     )
     .map_err(|error| error.to_string())?;
-    let reserved_names = shipped_names();
+    let reserved_names = reserved_shipped_names();
     let (bundles, _) = nah_extensions::discover_bundles(&home, platform, &trust, &reserved_names)
         .map_err(|error| error.to_string())?;
 

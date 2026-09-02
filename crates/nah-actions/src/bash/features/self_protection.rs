@@ -268,7 +268,7 @@ fn operation_for_values_at(
             Some("critical-mutation")
         }
         [kind, command, ..]
-            if kind == "guard" && matches!(command.as_str(), "enable" | "disable") =>
+            if kind == "guard" && matches!(command.as_str(), "enable" | "disable" | "reset") =>
         {
             Some("critical-mutation")
         }

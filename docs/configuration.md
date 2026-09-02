@@ -24,14 +24,10 @@ invocation through agent tool calls.
 
 ## Built-in guards
 
-Every built-in has its own factory default, set by what the command line
-proves: on when the operation is irreversible or destroys an identity or
-recovery path and has no routine use; off, for opt-in, when it is also an
-everyday workflow that looks the same. `fs-shell-profile` and
-`fs-startup-management` ship off for that reason. All other current built-ins
-ship on. `nah guards` shows
-each live checkbox and guard name. The documentation view also shows factory
-status plus three examples:
+Factory defaults follow proven risk: irreversible commands without routine
+use ship on; lookalike everyday workflows require opt-in. `fs-shell-profile`
+and `fs-startup-management` ship off; all other current built-ins ship on.
+`nah guards` shows live state and `nah docs guards` adds defaults and examples:
 
 ```sh
 nah guards
@@ -45,16 +41,18 @@ nah guard disable git-hard-reset
 nah guard enable corp-api --user
 ```
 
-Disabling a guard removes only that rule; another guard may still block, and
-anything no guard blocks delegates to the runtime. Structural self-protection
-has no persistent disable switch. If custom guards share a name across scopes,
-select one with `--user` or `--project <root>`; built-ins are global.
+Disabling removes only that rule; another guard may still block, and otherwise
+the call delegates. Structural self-protection has no persistent switch. Scope
+same-named custom guards with `--user` or `--project <root>`; built-ins are
+global.
 
-Global built-in choices are stored in `~/.nah/built-ins.json`. State v2 keeps
-sorted explicit overrides; missing names use their compiled factory defaults.
-Nah reads the previous v1 disabled-name file without rewriting it and writes v2
-on the next guard change. `D` in the TUI restores shipped settings: built-ins
-return to their factory posture and custom guards are disabled.
+Global choices live in `~/.nah/built-ins.json`. V2 stores sorted explicit
+overrides; missing names use factory defaults. Nah reads v1 without rewriting
+and writes v2 on the next guard change. Registered old names work in saved
+v1/v2 state and `guard enable`, `disable`, or `reset`; Nah warns, preserves the
+choice under its current name, and rewrites only current names on the next
+change. Unknown saved names warn and are dropped alone. Malformed or conflicting
+state still fails. TUI `D` restores built-in defaults and disables custom guards.
 
 Configuration can only add or remove blocks; it cannot authorize a tool call.
 

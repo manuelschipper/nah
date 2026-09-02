@@ -60,8 +60,9 @@ pub(crate) use droid_installation::{
 #[cfg(feature = "effinterp")]
 pub(crate) use effinterp::{configure as configure_effinterp, status as effinterp_status};
 pub(crate) use guard_config::{
-    GuardChange, GuardEntry, GuardSelector, GuardStatus, GuardTarget, apply_guard_change,
-    guard_entries, scope_name, set_guard_enabled, validate_guard_change,
+    GuardChange, GuardEntry, GuardMutation, GuardSelector, GuardStatus, GuardTarget,
+    apply_guard_change, guard_entries, reset_guard, scope_name, set_guard_enabled,
+    validate_guard_change,
 };
 pub(crate) use hermes_installation::{
     hermes_hook_status, hermes_self_protection_paths, mutate_hermes_hook,

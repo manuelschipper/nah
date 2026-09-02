@@ -260,6 +260,10 @@ pub(crate) enum GuardAction {
     /// Run `nah guards` to find enabled names. Use `--user` or
     /// `--project <root>` when custom guards in multiple scopes share a name.
     Disable(GuardTargetArgs),
+    /// Restore one built-in guard to its factory default.
+    ///
+    /// Built-in guards are global, so scope flags are not accepted.
+    Reset(GuardTargetArgs),
 }
 
 #[derive(Debug, Args)]
@@ -402,6 +406,7 @@ mod tests {
             vec!["nah", "guard", "enable", "corp", "--user"],
             vec!["nah", "guard", "disable", "fs-home"],
             vec!["nah", "guard", "disable", "corp", "--project", "/repo"],
+            vec!["nah", "guard", "reset", "fs-home"],
             vec!["nah", "guard", "new", "corp"],
             vec!["nah", "guard", "new", "corp", "--project", "/repo"],
             vec!["nah", "hook", "antigravity", "install"],

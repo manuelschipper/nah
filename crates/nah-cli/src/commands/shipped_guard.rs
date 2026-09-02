@@ -2,39 +2,90 @@
 
 use std::fmt::Write;
 
-use crate::catalog::{shipped_defaults, shipped_guard_docs, shipped_guards};
+use crate::catalog::{
+    ResolvedShippedGuard, resolve_shipped_guard, shipped_defaults, shipped_guard_aliases,
+    shipped_guard_docs,
+};
 use crate::live_state::{home, host_platform};
 use crate::shipped_state::{ShippedState, reset, set_enabled, state_path};
 
-use super::{GuardEntry, GuardStatus, GuardTarget};
+use super::{GuardEntry, GuardMutation, GuardStatus, GuardTarget};
 
-pub(crate) fn set_shipped_guard(name: &str, enabled: bool) -> Result<(), String> {
-    if !shipped_guards().contains(&name) {
-        return Err(format!("guard `{name}` was not found"));
-    }
+pub(crate) fn set_shipped_guard(name: &str, enabled: bool) -> Result<GuardMutation, String> {
+    let resolved =
+        resolve_shipped_guard(name).ok_or_else(|| format!("guard `{name}` was not found"))?;
     let platform = host_platform();
     let home = home(platform)?;
-    set_enabled(
+    set_shipped_guard_at(
         &state_path(&home, platform),
         &shipped_defaults(),
+        shipped_guard_aliases(),
         name,
+        resolved,
         enabled,
     )
-    .map_err(|error| error.to_string())
 }
 
-pub(crate) fn reset_shipped_guard(name: &str) -> Result<(), String> {
-    if !shipped_guards().contains(&name) {
-        return Err(format!("guard `{name}` was not found"));
-    }
+pub(crate) fn reset_shipped_guard(name: &str) -> Result<GuardMutation, String> {
+    let resolved =
+        resolve_shipped_guard(name).ok_or_else(|| format!("guard `{name}` was not found"))?;
     let platform = host_platform();
     let home = home(platform)?;
-    reset(&state_path(&home, platform), &shipped_defaults(), name)
-        .map_err(|error| error.to_string())
+    reset_shipped_guard_at(
+        &state_path(&home, platform),
+        &shipped_defaults(),
+        shipped_guard_aliases(),
+        name,
+        resolved,
+    )
 }
 
-pub(crate) fn list_shipped_guards(docs: bool) -> Result<String, String> {
-    let entries = shipped_guard_entries()?;
+fn set_shipped_guard_at(
+    path: &std::path::Path,
+    defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
+    requested_name: &str,
+    resolved: ResolvedShippedGuard<'_>,
+    enabled: bool,
+) -> Result<GuardMutation, String> {
+    let warnings = set_enabled(path, defaults, aliases, resolved.canonical_name, enabled)
+        .map_err(|error| error.to_string())?;
+    Ok(shipped_guard_mutation(requested_name, resolved, warnings))
+}
+
+fn reset_shipped_guard_at(
+    path: &std::path::Path,
+    defaults: &[(&str, bool)],
+    aliases: &[(&str, &str)],
+    requested_name: &str,
+    resolved: ResolvedShippedGuard<'_>,
+) -> Result<GuardMutation, String> {
+    let warnings = reset(path, defaults, aliases, resolved.canonical_name)
+        .map_err(|error| error.to_string())?;
+    Ok(shipped_guard_mutation(requested_name, resolved, warnings))
+}
+
+fn shipped_guard_mutation(
+    requested_name: &str,
+    resolved: ResolvedShippedGuard<'_>,
+    mut warnings: Vec<String>,
+) -> GuardMutation {
+    if resolved.renamed {
+        warnings.push(format!(
+            "built-in guard `{requested_name}` was renamed to `{}`",
+            resolved.canonical_name
+        ));
+    }
+    warnings.sort();
+    warnings.dedup();
+    GuardMutation {
+        canonical_name: resolved.canonical_name.to_owned(),
+        warnings,
+    }
+}
+
+pub(crate) fn list_shipped_guards(docs: bool) -> Result<(String, Vec<String>), String> {
+    let (entries, diagnostics) = shipped_guard_entries()?;
     let mut output = if docs {
         "Built-in:\n\nExamples are non-exhaustive. Inspect them with `nah test <command>`; do not execute them directly.\n\n".to_owned()
     } else {
@@ -76,15 +127,19 @@ pub(crate) fn list_shipped_guards(docs: bool) -> Result<String, String> {
             .expect("writing to a string succeeds");
         }
     }
-    Ok(output)
+    Ok((output, diagnostics))
 }
 
-pub(crate) fn shipped_guard_entries() -> Result<Vec<GuardEntry>, String> {
+pub(crate) fn shipped_guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), String> {
     let platform = host_platform();
     let home = home(platform)?;
-    let state = ShippedState::load(&state_path(&home, platform), &shipped_defaults())
-        .map_err(|error| error.to_string())?;
-    Ok(shipped_guard_docs()
+    let (state, diagnostics) = ShippedState::load(
+        &state_path(&home, platform),
+        &shipped_defaults(),
+        shipped_guard_aliases(),
+    )
+    .map_err(|error| error.to_string())?;
+    let entries = shipped_guard_docs()
         .into_iter()
         .map(|guard| GuardEntry {
             target: GuardTarget::BuiltIn {
@@ -108,5 +163,41 @@ pub(crate) fn shipped_guard_entries() -> Result<Vec<GuardEntry>, String> {
             match_programs: vec![],
             current_hash: None,
         })
-        .collect())
+        .collect();
+    Ok((entries, diagnostics))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::catalog::resolve_shipped_guard_from;
+
+    use super::*;
+
+    #[test]
+    fn synthetic_alias_mutations_report_and_save_the_canonical_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("built-ins.json");
+        let defaults = [("current", true)];
+        let aliases = [("old-current", "current")];
+        let canonical_names = ["current"];
+        let resolved = resolve_shipped_guard_from(&canonical_names, &aliases, "old-current")
+            .expect("synthetic alias resolves");
+
+        let mutation =
+            set_shipped_guard_at(&path, &defaults, &aliases, "old-current", resolved, false)
+                .unwrap();
+        assert_eq!(mutation.canonical_name, "current");
+        assert_eq!(mutation.warnings.len(), 1);
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["overrides"], serde_json::json!({"current": false}));
+
+        let reset =
+            reset_shipped_guard_at(&path, &defaults, &aliases, "old-current", resolved).unwrap();
+        assert_eq!(reset.canonical_name, "current");
+        assert_eq!(reset.warnings.len(), 1);
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["overrides"], serde_json::json!({}));
+    }
 }

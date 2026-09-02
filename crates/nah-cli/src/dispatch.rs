@@ -20,7 +20,7 @@ use crate::code_input::CodeInput;
 use crate::codex_adapter;
 use crate::commands::{
     GuardSelector, RuntimeHookStatus, list_custom_guards, list_shipped_guards, new_guard,
-    runtime_entry, runtime_self_protection, set_guard_enabled, set_runtime_configured,
+    reset_guard, runtime_entry, runtime_self_protection, set_guard_enabled, set_runtime_configured,
     test_command, trust_root, untrust_root,
 };
 #[cfg(feature = "effinterp")]
@@ -219,16 +219,23 @@ fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stde
             }
         };
     }
-    let (enabled, action_name, args) = match action {
-        GuardAction::Enable(args) => (true, "enabled", args),
-        GuardAction::Disable(args) => (false, "disabled", args),
+    let (action_name, args, enabled) = match action {
+        GuardAction::Enable(args) => ("enabled", args, Some(true)),
+        GuardAction::Disable(args) => ("disabled", args, Some(false)),
+        GuardAction::Reset(args) => ("reset", args, None),
         GuardAction::New(_) => unreachable!(),
     };
     let selector = guard_selector(&args);
-    let result = set_guard_enabled(&args.name, enabled, &selector);
+    let result = enabled.map_or_else(
+        || reset_guard(&args.name, &selector),
+        |enabled| set_guard_enabled(&args.name, enabled, &selector),
+    );
     match result {
-        Ok(()) => {
-            let _ = writeln!(stdout, "{action_name} guard {}", args.name);
+        Ok(mutation) => {
+            let _ = writeln!(stdout, "{action_name} guard {}", mutation.canonical_name);
+            for warning in mutation.warnings {
+                let _ = writeln!(stderr, "nah: {warning}");
+            }
             0
         }
         Err(error) => {
@@ -673,8 +680,11 @@ fn wake<W: Write, E: Write>(stdout: &mut W, stderr: &mut E) -> u8 {
 
 fn emit_catalog<W: Write, E: Write>(docs: bool, stdout: &mut W, stderr: &mut E) -> u8 {
     match (list_shipped_guards(docs), list_custom_guards()) {
-        (Ok(shipped), Ok(custom)) => {
+        (Ok((shipped, warnings)), Ok(custom)) => {
             let _ = write!(stdout, "{shipped}{custom}");
+            for warning in warnings {
+                let _ = writeln!(stderr, "nah: {warning}");
+            }
             0
         }
         (Err(error), _) | (_, Err(error)) => {
