@@ -270,7 +270,7 @@ fn compose_command_line(arguments: &[String]) -> Classification {
                 return Classification::incomplete();
             }
         }
-        if help || version || matches!(argument.as_str(), "help" | "version") {
+        if help || matches!(argument.as_str(), "help" | "version") {
             return Classification::complete(false);
         }
         let command = match argument.as_str() {
