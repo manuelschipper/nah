@@ -375,7 +375,7 @@ fn infrastructure_guards_use_type_state_and_project_views() {
             None,
         ),
         built_in_entry(
-            "storage-destroy",
+            "storage-backup-destroy",
             GuardFamily::Infrastructure,
             true,
             GuardStatus::Enabled,
@@ -403,7 +403,7 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let reset = typed.find("[x] infra-container-reset").unwrap();
     let iac = typed.find("[ ] infra-iac-destroy").unwrap();
     let k8s = typed.find("[ ] infra-k8s-delete").unwrap();
-    let storage_destroy = typed.find("[x] storage-destroy").unwrap();
+    let storage_backup_destroy = typed.find("[x] storage-backup-destroy").unwrap();
     let recursive = typed.find("[ ] storage-recursive-delete").unwrap();
     let snapshot = typed.find("[ ] storage-snapshot-delete").unwrap();
     let secrets = typed.find("SECRETS").unwrap();
@@ -411,8 +411,8 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     assert!(prune < reset);
     assert!(reset < iac);
     assert!(iac < k8s);
-    assert!(k8s < storage_destroy);
-    assert!(storage_destroy < recursive);
+    assert!(k8s < storage_backup_destroy);
+    assert!(storage_backup_destroy < recursive);
     assert!(recursive < snapshot);
     assert!(snapshot < secrets);
     assert_eq!(typed.matches("INFRASTRUCTURE").count(), 1);
@@ -421,13 +421,13 @@ fn infrastructure_guards_use_type_state_and_project_views() {
     let state = rendered(&app, 120, 36);
     let on = state.find("ON").unwrap();
     let reset = state.find("[x] infra-container-reset").unwrap();
-    let storage_destroy = state.find("[x] storage-destroy").unwrap();
+    let storage_backup_destroy = state.find("[x] storage-backup-destroy").unwrap();
     let off = state.find("OFF").unwrap();
     let prune = state.find("[ ] infra-container-prune").unwrap();
     let k8s = state.find("[ ] infra-k8s-delete").unwrap();
     assert!(on < reset);
-    assert!(reset < storage_destroy);
-    assert!(storage_destroy < off);
+    assert!(reset < storage_backup_destroy);
+    assert!(storage_backup_destroy < off);
     assert!(off < prune);
     assert!(off < k8s);
 

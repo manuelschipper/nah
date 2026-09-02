@@ -16,7 +16,7 @@ const FS_PROJECT_ROOT: &str = "fs-project-root";
 const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
 const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
-const FS_STORAGE_DESTROY: &str = "fs-storage-destroy";
+const FS_VOLUME_DESTROY: &str = "fs-volume-destroy";
 const FS_FORKBOMB: &str = "fs-forkbomb";
 
 pub(crate) fn add(
@@ -60,8 +60,8 @@ pub(crate) fn add(
             "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
         ),
         (
-            FS_STORAGE_DESTROY,
-            "fs-storage-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",
+            FS_VOLUME_DESTROY,
+            "fs-volume-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",
         ),
         (
             FS_FORKBOMB,
@@ -166,7 +166,7 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
                 )
             }
-            (FS_STORAGE_DESTROY, EffectKind::SystemState { operation }) => {
+            (FS_VOLUME_DESTROY, EffectKind::SystemState { operation }) => {
                 operation == &SemanticCode::LOGICAL_STORAGE_DESTROY
             }
             (FS_FORKBOMB, EffectKind::SystemState { operation }) => {

@@ -46,8 +46,8 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-shell-profile",
     "fs-startup-management",
     "fs-startup-persistence",
-    "fs-storage-destroy",
     "fs-system-tree",
+    "fs-volume-destroy",
     "git-clean-force",
     "git-force-push",
     "git-hard-reset",
@@ -65,7 +65,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "secrets-env",
     "secrets-exfil",
     "secrets-keys",
-    "storage-destroy",
+    "storage-backup-destroy",
     "storage-recursive-delete",
     "storage-snapshot-delete",
 ];

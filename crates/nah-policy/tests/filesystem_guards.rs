@@ -725,23 +725,23 @@ fn fs_forkbomb_blocks_positive_shell_fork_bomb_evidence() {
 }
 
 #[test]
-fn fs_storage_destroy_blocks_only_typed_logical_destruction() {
+fn fs_volume_destroy_blocks_only_typed_logical_destruction() {
     let destructive = guarded_stream(EffectKind::SystemState {
         operation: nah_proto::action::SemanticCode::LOGICAL_STORAGE_DESTROY,
     });
     let decision =
-        nah_policy::decide(&destructive, &guard_policy("fs-storage-destroy", true), &[]).unwrap();
+        nah_policy::decide(&destructive, &guard_policy("fs-volume-destroy", true), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(
         decision.policy_attributions()[0].name(),
-        "fs-storage-destroy"
+        "fs-volume-destroy"
     );
 
     let inspect = guarded_stream(EffectKind::SystemState {
         operation: nah_proto::action::SemanticCode::new("storage-inspect").unwrap(),
     });
     assert_eq!(
-        nah_policy::decide(&inspect, &guard_policy("fs-storage-destroy", true), &[])
+        nah_policy::decide(&inspect, &guard_policy("fs-volume-destroy", true), &[])
             .unwrap()
             .verdict(),
         Verdict::Delegate

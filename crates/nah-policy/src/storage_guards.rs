@@ -12,9 +12,9 @@ pub(crate) fn add(
     let mut added = false;
     for (name, operation, message) in [
         (
-            "storage-destroy",
-            SemanticCode::STORAGE_DESTROY,
-            "storage-destroy blocked deletion of a complete backup repository or every selected backup; keep the recovery set intact and ask the operator to perform any deliberate repository removal",
+            "storage-backup-destroy",
+            SemanticCode::STORAGE_BACKUP_DESTROY,
+            "storage-backup-destroy blocked deletion of a complete backup repository or every selected backup; keep the recovery set intact and ask the operator to perform any deliberate repository removal",
         ),
         (
             "storage-recursive-delete",
