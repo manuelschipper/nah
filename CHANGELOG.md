@@ -2,171 +2,41 @@
 
 ## Unreleased
 
-- **Xi integration** — `nah hook xi install` wires Xi's global `before-bash`
-  hook so every model-proposed shell command receives typed Bash analysis.
-- **Optional kubectl deletion guard** — New default-off `infra-k8s-delete`
-  blocks static namespace, reviewed cluster-resource, and bulk reviewed
-  namespaced-resource deletion while named application resources, dry runs,
-  and selections outside visible argv continue to delegate.
-- **Backup repository destruction guard** — New default-on `storage-destroy`
-  blocks reviewed Borg repository deletion, Restic's explicit remove-all form,
-  and Velero deletion selecting every backup.
-- **Optional recursive storage deletion guard** — New default-off
-  `storage-recursive-delete` blocks reviewed broad cloud deletion and
-  destination-deleting sync while dry runs, filters, retained-copy modes,
-  single objects, and empty-only namespace removal delegate.
-- **Optional snapshot deletion guard** — New default-off
-  `storage-snapshot-delete` blocks reviewed snapshot, archive, volume, and
-  retention deletion while creation, dry runs, and garbage collection of
-  already removed data delegate.
-- **Live ZFS dataset destruction coverage** — `fs-storage-destroy` now blocks
-  reviewed `zfs destroy` forms selecting a live dataset while snapshot targets
-  remain independently configurable.
-- **Package unpublish and control-transfer guard** — New default-on
-  `registry-unpublish` blocks reviewed npm unpublish, irreversible RubyGems
-  yank, and npm, Cargo, or RubyGems published-name owner changes, including
-  reviewed aliases, negated boolean options, and repeated mutation flags.
-- **Optional package publish guard** — New default-off `registry-publish`
-  blocks reviewed npm-compatible, Cargo, RubyGems, Python, and NuGet
-  publication commands, including statically resolved package-runner forms;
-  supported dry-run and malformed forms delegate, and unrelated commands retain
-  full coverage.
-- **Podman runtime reset guard** — New default-on `infra-container-reset`
-  blocks static `podman system reset` with or without force or a selected remote
-  connection because the command removes the complete runtime state.
-- **Optional broad container prune guard** — New default-off
-  `infra-container-prune` blocks reviewed unfiltered Docker and Podman prune
-  forms that select unused volumes broadly while narrow, filtered, dry-run,
-  and named-resource cleanup continues to delegate.
-- **Container option scope correction** — Reset and prune classification
-  delegates invalid inherited version flags and misplaced option terminators
-  instead of blocking commands the selected runtime rejects.
-- **Factory-default rule documented** — `nah docs configuration` now states
-  why a built-in ships on or off: the command line's certainty decides, not
-  the size of the possible damage.
-- **Optional whole-stack IaC destruction guard** — New default-off
-  `infra-iac-destroy` blocks fully visible Terraform, OpenTofu, and Pulumi
-  whole-stack teardown when enabled while targeted, excluded-resource,
-  preview-only, saved-plan, malformed, and unresolved forms continue to delegate.
-- **Windows release and installer** — Releases now include a checksummed,
-  pre-publication-tested x86-64 MSVC ZIP and an unsigned PowerShell installer
-  that preserves expandable user PATH entries and replaces upgrades safely.
-  `nah docs windows` now keeps install, upgrade, and removal details out of the
-  quick-start README, and nahguard.ai presents both platform installers in one
-  tabbed control.
-- **Qualified Windows runtime integrations** — Claude Code, Codex, Cursor,
-  GitHub Copilot, Cline, and Kiro now support native hook lifecycle and typed
-  tools on Windows while ambiguous shell payloads stay partial. Copilot CLI
-  PowerShell calls now retain their typed analysis through dispatch. Amp,
-  Factory Droid, Hermes, and OpenCode now fail installation before writes and
-  report not configured.
-- **Windows custom guards** — exec/v1 guards now use one deterministic Windows
-  entrypoint, generate a `py -3` template, and terminate full descendant trees
-  after each consultation. Native line endings and memo-cache hits are handled
-  without rejecting valid responses. Generated Python guards skip site
-  initialization, and Windows consultations allow 1.5 seconds so cold process
-  startup does not reject a working guard.
-- **Windows host-state protection** — Windows path observations now normalize
-  extended drive and UNC results, unsafe reparse paths fail closed, and
-  `%USERPROFILE%\.nah` uses a private inheritable DACL. The release-installed
-  `nah.exe` path is also self-protected, nap keys inherited under that boundary
-  remain usable, and concurrent trust updates tolerate transient Windows
-  filesystem contention.
-- **Runtime self-protection failure isolation** — A runtime wiring-path failure
-  remains visible without suppressing independent guard decisions, so a proven
-  unrelated disaster still blocks while the adapter reports incomplete evaluation.
-- **Unreadable decision log recovery** — `nah log` and the TUI archive an
-  unreadable `~/.nah/audit.jsonl` under `~/.nah/old_logs`, retain its latest
-  readable records, and warn instead of leaving decision browsing unavailable.
-- **Optional startup-management guard** — New default-off
-  `fs-startup-management` blocks reviewed persistent `systemctl` on Linux,
-  `launchctl` on macOS, and `crontab` mutations on either when enabled without
-  changing startup-path defaults. Its documentation examples follow the host.
-- **`crontab -u` payload inspection** — Visible stdin installed for another
-  user now receives the same nested-command and self-protection analysis as
-  `crontab -`.
-- **PowerShell and cmd effects** — Top-level and nested Windows shell source now
-  lowers reviewed static filesystem, network, redirection, and exact child argv
-  through the existing typed effects. Dynamic and multi-target forms stay
-  partial; escaped non-ASCII paths remain exact and `~` resolves to the declared
-  home. Unknown `-WhatIf` values, lookalike variables, platform-specific aliases,
-  path globs, and cmd directory semantics avoid resolved effects they cannot prove.
-  Comment markers inside bare words stay literal, and `del /s` retains its recursive
-  file scope. Quoted segments no longer make a following variable exact, unambiguous
-  parameter prefixes such as `-Rec` bind like their full names, and `del` on an
-  observed directory reports an unresolved deletion instead of dropping the effect.
-  PowerShell redirects remain visible when `>` is attached to the preceding word.
-  Line continuations stay partial without fabricated effects, and parameter prefixes
-  must remain unambiguous against PowerShell's common parameters. `cmd` numeric output
-  streams retain their static redirection writes. Executable-suffixed cmd names stay
-  external, and PowerShell alias removal invalidates later alias resolution through
-  every supported `Remove-Item` spelling and Alias-provider root path. `Set-Item`
-  provider rebinding also invalidates later alias resolution. Surplus positional
-  `Remove-Item` and `Move-Item` bindings stay partial. Conflicting `-Path` and
-  `-LiteralPath` bindings stay partial without fabricated filesystem effects.
-  `-WhatIf` provider mutations and selector values leave later alias resolution
-  unchanged.
-- **Remote repository deletion guard** — New default-on `git-remote-delete`
-  blocks exact whole-repository deletion through GitHub and GitLab CLI commands
-  and REST routes, including valid confirmation values, false-valued help flags,
-  GitHub and GitLab API fragments, and documented GitLab composite placeholders,
-  single-label GitHub Enterprise hosts, attached and separated GitHub API
-  short-option forms, disabled GitHub API pagination, percent-encoded GitHub
-  repository routes, and percent-encoded GitLab project paths, numeric IDs, and
-  group placeholders, plus GitHub's
-  `--allow-escape-sequences` output option and repeated or inherited boolean
-  flags whose final value restores destructive execution and port-qualified
-  GitHub Enterprise hosts. Parent-command help flags, GitHub field placeholders,
-  GitLab user placeholders, and API preflight flags now follow the providers'
-  effective behavior. GitHub's short `-h` remains a help request even when
-  assigned false. Glab short-option clusters remain guarded, while
-  conflicting API body modes delegate. GitHub include-prefixed short options
-  remain guarded, while invalid Glab output formats delegate. Empty or superseded
-  GitHub output filters now follow the provider's effective preflight behavior.
-  Invalid API hostnames, malformed GitHub API field, header, cache, and template
-  values, malformed Glab headers, and Glab fields that cannot be encoded as DELETE
-  query values delegate before the guard, as do duplicate form stdin sources and
-  pagination/input conflicts. Literal closing braces in valid GitHub templates,
-  normalized standard-system executable paths, including root-clamped parent
-  traversal, and trailing-dot or bracketed IPv6 GitHub Enterprise hosts, including
-  zone identifiers with percent-encoded bytes, remain guarded. GitHub template rune
-  literals, two-variable ranges, and the current `replace` helper remain guarded, as
-  does Glab's static `-R`/`--repo` selection,
-  including reviewed short-option clusters.
-  Static GitHub API IDN hosts and digit-separated Go template numbers remain
-  guarded, as do IPv4-mapped IPv6 and precomposed or canonically decomposed IDN
-  GitHub repository hosts with numeric ports, including IDNs with combining marks
-  across scripts,
-  while invalid GitHub header names delegate before the guard. GitLab API IDN hosts
-  and current GitHub template literals remain guarded, while duplicate GitHub API
-  scalar fields and invalid GitLab headers delegate.
-  Parent traversal after arbitrary absolute path prefixes also delegates instead of
-  acquiring standard-system executable identity.
-  Dynamic API option values, incompatible GitHub output options, branches, tags,
-  archives, renames, and transfers remain outside its scope.
-- **Project root filesystem guard** — New default-on `fs-project-root` blocks
-  recursive deletion and known recursive permission changes selecting the exact
-  project root or one of its three root-wide patterns.
-- **Inbound `scp` and `rsync` destinations** — Remote downloads with an
-  unresolved local destination no longer look like sensitive uploads.
-- **Authentication and identity guard** — New default-on `fs-auth-identity`
-  blocks visible writes and deletes of reviewed login authority, identity,
-  privilege, PAM, sudoers, sshd, and Windows identity-database paths.
-- **Optional shell-profile guard** — New default-off `fs-shell-profile` blocks
-  mutations to reviewed user shell profiles when enabled without interrupting
-  routine shell installers and dotfile tooling at factory posture.
-- **Startup-persistence guard** — Default-on `fs-startup-persistence` blocks
-  mutations to reviewed service, schedule, login, autostart, and loader startup
-  paths while excluding routine user shell profiles.
-- **Mixed built-in defaults** — Guard state now preserves per-guard factory
-  defaults and explicit global overrides, with operator disables taking
+- **Windows support** — Releases now ship a tested, checksummed Windows x86-64
+  archive and PowerShell installer. Claude Code, Codex, Cursor, GitHub Copilot,
+  Cline, and Kiro support native Windows hooks, backed by typed PowerShell and
+  cmd analysis plus Windows-safe custom guards and host state.
+- **Infrastructure destruction guards** — New guards cover Kubernetes deletion
+  (`infra-k8s-delete`, optional), whole-stack Terraform, OpenTofu, and Pulumi
+  teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning
+  (`infra-container-prune`, optional), and Podman runtime reset
+  (`infra-container-reset`, enabled by default).
+- **Storage destruction guards** — `storage-destroy` blocks broad backup
+  repository destruction by default. Optional guards cover recursive cloud
+  storage deletion and snapshot deletion, while `fs-storage-destroy` now also
+  covers live ZFS datasets.
+- **Package registry guards** — `registry-unpublish` blocks package unpublishing
+  and published-name ownership changes by default; optional `registry-publish`
+  covers publication across npm-compatible registries, Cargo, RubyGems, Python,
+  and NuGet.
+- **Remote repository deletion guard** — Default-on `git-remote-delete` blocks
+  exact whole-repository deletion through GitHub and GitLab CLI commands and
+  REST routes while leaving branches, tags, archives, renames, and transfers
+  outside its scope.
+- **Host and project guards** — New default-on guards protect project roots,
+  authentication and identity files, and startup-persistence paths. Optional
+  guards cover shell profiles and persistent startup-management commands.
+- **Resilient decisions and logs** — Runtime wiring failures no longer suppress
+  independent guard decisions, and `nah log` plus the TUI recover readable
+  history from a damaged audit log instead of leaving browsing unavailable.
+- **Mixed built-in defaults** — Guard state now preserves each guard's factory
+  default and explicit global overrides, with operator disables taking
   precedence over project enablement.
-- **Focused guard browsing** — The TUI now cycles between Type, applied State,
-  and current Project views without a filter modal, and `nah guards` omits
-  factory labels from its live-state listing.
+- **Focused guard browsing** — The TUI now cycles directly between Type,
+  applied State, and current Project views; `nah guards` reports only applied
+  state instead of mixing in factory labels.
 - **Simpler shipped guard attribution** — `nah/decide/v1` and `nah/audit/v1`
-  shipped attributions now contain only the kind discriminator and guard name.
-  Extension memo entries miss once and are replaced through normal cache use.
+  now identify shipped guards with only their kind and guard name.
 
 ## nah 1.3.1 — Aug 13, 2026
 
