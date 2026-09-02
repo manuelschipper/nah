@@ -79,7 +79,10 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 
     for (guard, command) in [
         ("git-clean-force", "git clean -f"),
-        ("git-remote-delete", "gh repo delete owner/project --yes"),
+        (
+            "git-remote-repo-delete",
+            "gh repo delete owner/project --yes",
+        ),
         ("git-worktree-discard", "git restore ."),
     ] {
         assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
@@ -161,6 +164,64 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
             0o600
         );
     }
+}
+
+#[test]
+fn remote_repository_guard_alias_preserves_saved_choices_and_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(temp.path().join(".nah")).unwrap();
+    let state_path = temp.path().join(".nah/built-ins.json");
+    std::fs::write(
+        &state_path,
+        "{\"v\":2,\"overrides\":{\"git-remote-delete\":false}}\n",
+    )
+    .unwrap();
+    let command = "gh repo delete owner/project --yes";
+
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+
+    let reset = nah(
+        temp.path(),
+        &project,
+        &["guard", "reset", "git-remote-delete"],
+        None,
+    );
+    assert!(reset.status.success(), "{reset:?}");
+    assert_eq!(reset.stdout, b"reset guard git-remote-repo-delete\n");
+    assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "git-remote-delete"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(disabled.stdout, b"disabled guard git-remote-repo-delete\n");
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+    let saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+    assert_eq!(
+        saved["overrides"],
+        serde_json::json!({"git-remote-repo-delete": false})
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "git-remote-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(enabled.stdout, b"enabled guard git-remote-repo-delete\n");
+    assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
 }
 
 #[test]

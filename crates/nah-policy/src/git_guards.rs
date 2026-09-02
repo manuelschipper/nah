@@ -42,9 +42,9 @@ pub(crate) fn add(
             "git-recovery-destroy blocked deletion of Git recovery history; keep reflogs and recovery refs; ask the operator to verify they are no longer needed",
         ),
         (
-            "git-remote-delete",
-            &SemanticCode::GIT_REMOTE_DELETE,
-            "git-remote-delete blocked deletion of an entire hosted repository; preserve the hosted project and ask the operator to verify any whole-repository deletion",
+            "git-remote-repo-delete",
+            &SemanticCode::GIT_REMOTE_REPO_DELETE,
+            "git-remote-repo-delete blocked deletion of an entire hosted repository; preserve the hosted project and ask the operator to verify any whole-repository deletion",
         ),
         (
             "git-worktree-discard",

@@ -60,7 +60,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
-| `git-remote-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
+| `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
 | `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |

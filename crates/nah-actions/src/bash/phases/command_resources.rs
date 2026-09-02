@@ -412,7 +412,7 @@ impl Lowerer {
             );
         }
         if remote_repository_delete {
-            git_operations.push(SemanticCode::GIT_REMOTE_DELETE);
+            git_operations.push(SemanticCode::GIT_REMOTE_REPO_DELETE);
         }
         if !git_operations.is_empty() {
             self.complete = false;

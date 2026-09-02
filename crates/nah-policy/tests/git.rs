@@ -14,7 +14,7 @@ fn git_guards_block_only_their_one_sentence_operation() {
         ("git-force-push", "force-push"),
         ("git-hard-reset", "hard-reset"),
         ("git-recovery-destroy", "recovery-destroy"),
-        ("git-remote-delete", "git-remote-delete"),
+        ("git-remote-repo-delete", "git-remote-repo-delete"),
         ("git-rewrite-force", "rewrite-force"),
         ("git-worktree-discard", "worktree-discard"),
     ] {

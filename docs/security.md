@@ -22,7 +22,7 @@ protected-state changes outside maintenance.
   modeled input and inline code.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
-- `git-remote-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
+- `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs

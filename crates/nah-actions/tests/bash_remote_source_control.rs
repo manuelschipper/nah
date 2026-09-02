@@ -9,7 +9,7 @@ fn deletes_repository(source: &str) -> bool {
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     stream.effects().iter().any(|effect| {
         matches!(effect.kind(), EffectKind::Git { operation }
-            if operation.as_str() == "git-remote-delete")
+            if operation.as_str() == "git-remote-repo-delete")
     })
 }
 
@@ -479,7 +479,7 @@ fn gitlab_typed_fields_require_valid_delete_query_values() {
 }
 
 #[test]
-fn wrappers_and_reviewed_executable_paths_retain_remote_delete_identity() {
+fn wrappers_and_reviewed_executable_paths_retain_remote_repository_delete_identity() {
     for source in [
         "sudo gh repo delete owner/project --yes",
         "env glab repo delete group/project -y",
