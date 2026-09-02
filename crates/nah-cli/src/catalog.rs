@@ -250,7 +250,9 @@ fn behavior(name: &str) -> &'static str {
             "Blocks reviewed package unpublish, irreversible RubyGems yank, and npm, Cargo, or RubyGems published-name owner changes. Reversible Cargo yank and npm deprecation, listing and non-identity administration, target-dependent NuGet deletion, web-only PyPI and pub.dev operations, restorable GitHub Packages deletion, and dependency installation or removal remain outside both registry guards."
         }
         "secrets-exfil" => "Blocks a visible flow from a sensitive source to a network stage.",
-        "secrets-env" => "Blocks reads of .env files and sensitive basenames.",
+        "secrets-env" => {
+            "Blocks reads of .env files and sensitive basenames, plus direct output of catalogued credential environment variables."
+        }
         "secrets-keys" => "Blocks reads or writes of private-key and credential-store paths.",
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
@@ -414,8 +416,8 @@ fn examples(name: &str) -> [&'static str; 3] {
         ],
         "secrets-env" => [
             "cat .env",
-            "date --file .env",
-            "tar -cf out.tar --files-from=.env",
+            "printenv AWS_SECRET_ACCESS_KEY",
+            "declare -p GITHUB_TOKEN",
         ],
         "secrets-keys" => [
             "cat ~/.ssh/id_rsa",

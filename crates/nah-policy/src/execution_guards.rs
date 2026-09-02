@@ -139,7 +139,9 @@ fn reaches(action_stream: &ActionStream, source: &StageId, sink: &StageId) -> bo
 }
 
 fn sensitive_source(action_stream: &ActionStream, stage: &StageId) -> bool {
-    if stage_has_operation(action_stream, stage, &SemanticCode::ENVIRONMENT_DISCLOSURE) {
+    if stage_has_operation(action_stream, stage, &SemanticCode::ENVIRONMENT_DISCLOSURE)
+        || stage_has_operation(action_stream, stage, &SemanticCode::CREDENTIAL_DISCLOSURE)
+    {
         return true;
     }
     let move_source = action_stream.effects().iter().any(|effect| {

@@ -69,6 +69,21 @@
         }
       ]
     },
+    "credential-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "AWS_SECRET_ACCESS_KEY": "fixture-aws-secret",
+        "GITHUB_TOKEN": "fixture-github-token"
+      },
+      "paths": [],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
     "project-root-linux-v1": {
       "platform": "linux",
       "cwd": "/workspace/project",

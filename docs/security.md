@@ -69,10 +69,11 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-Credential guards classify modeled paths and effects, not contents. They
-protect credential paths, auth stores, keychains, and caches. Cloud CLI use
-alone does not imply file access. `secrets-env` blocks `.env` reads, including
-copies, but not creation or replacement.
+Credential guards classify modeled paths and effects, not arbitrary contents.
+They protect credential paths, auth stores, keychains, and caches. Cloud CLI
+use alone does not imply file access. `secrets-env` blocks `.env` reads,
+including copies, and direct output of catalogued credential environment
+variables, but not environment presence checks, `.env` creation, or replacement.
 
 Network guards follow visible data and code through modeled shell pipes,
 redirects, archives, links, and transfers. Opaque behavior and prior provenance

@@ -41,7 +41,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `exec-decoded` | Execution reached from a visible decode stage. |
 | `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
-| `secrets-env` | Reads of `.env` files and sensitive basenames. |
+| `secrets-env` | Reads of `.env` files and sensitive basenames, plus direct output of catalogued credential environment variables. |
 | `secrets-keys` | Reads or writes of private-key and credential-store paths. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
