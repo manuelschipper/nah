@@ -18,6 +18,7 @@ Built-in:
 - [x] git-hard-reset
 - [x] git-metadata
 - [x] git-recovery-destroy
+- [ ] git-ref-delete
 - [x] git-remote-repo-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard

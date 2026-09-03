@@ -212,6 +212,7 @@ impl SemanticCode {
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");
+    pub const REF_DELETE: Self = Self::borrowed("ref-delete");
     pub const REGISTRY_PUBLISH: Self = Self::borrowed("registry-publish");
     pub const REGISTRY_UNPUBLISH: Self = Self::borrowed("registry-unpublish");
     pub const REMOVE: Self = Self::borrowed("remove");

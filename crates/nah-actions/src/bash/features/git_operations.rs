@@ -71,10 +71,18 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
         "show" => ("show", false),
         "cat-file" => ("cat-file", false),
         "blame" => ("blame", false),
-        "branch" if !complete || branch_mentions_list(&values) || branch_is_list(&values) => {
+        "branch"
+            if (!complete && !branch_mentions_delete(&values))
+                || branch_mentions_list(&values)
+                || branch_is_list(&values) =>
+        {
             ("branch-list", branch_is_list(&values))
         }
-        "tag" if !complete || tag_mentions_list(&values) || tag_is_list(&values) => {
+        "tag"
+            if (!complete && !tag_mentions_delete(&values))
+                || tag_mentions_list(&values)
+                || tag_is_list(&values) =>
+        {
             ("tag-list", tag_is_list(&values))
         }
         "rev-parse" => (
@@ -85,7 +93,7 @@ pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
         "remote" if !complete || remote_is_list(&values) => ("remote-list", complete),
         "add" => ("add", add_files(&values).is_some()),
         "commit" => ("commit", commit_is_reviewed(&values)),
-        "stash" if !stash_deletes_entries(&values) => ("stash", !has_help(&values)),
+        "stash" if !stash_deletes_entries(arguments) => ("stash", !has_help(&values)),
         "clean" => ("clean", mutations.is_some()),
         "switch" => ("switch", switch_is_reviewed(&values)),
         "checkout" if !complete || checkout_creates_branch(&values) => {
@@ -515,6 +523,15 @@ fn branch_mentions_list(arguments: &[&str]) -> bool {
     })
 }
 
+fn branch_mentions_delete(arguments: &[&str]) -> bool {
+    arguments.iter().any(|argument| {
+        matches!(*argument, "--delete" | "-d" | "-D")
+            || argument.starts_with('-')
+                && !argument.starts_with("--")
+                && argument[1..].chars().any(|flag| matches!(flag, 'd' | 'D'))
+    })
+}
+
 fn tag_is_list(arguments: &[&str]) -> bool {
     if arguments.is_empty() {
         return true;
@@ -534,6 +551,12 @@ fn tag_mentions_list(arguments: &[&str]) -> bool {
     arguments
         .iter()
         .any(|argument| matches!(*argument, "--list" | "-l"))
+}
+
+fn tag_mentions_delete(arguments: &[&str]) -> bool {
+    arguments
+        .iter()
+        .any(|argument| matches!(*argument, "--delete" | "-d"))
 }
 
 fn remote_is_list(arguments: &[&str]) -> bool {
@@ -664,8 +687,13 @@ fn commit_is_reviewed(arguments: &[&str]) -> bool {
     has_message
 }
 
-fn stash_deletes_entries(arguments: &[&str]) -> bool {
-    matches!(arguments.first().copied(), Some("drop" | "clear"))
+pub(crate) fn stash_deletes_entries(arguments: &[Word]) -> bool {
+    arguments.first().is_some_and(|argument| {
+        matches!(
+            static_word(argument.raw(), argument.substitutions().is_empty()).as_deref(),
+            Some("drop" | "clear")
+        )
+    })
 }
 
 fn switch_is_reviewed(arguments: &[&str]) -> bool {
