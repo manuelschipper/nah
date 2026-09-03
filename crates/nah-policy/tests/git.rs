@@ -13,6 +13,7 @@ fn git_guards_block_only_their_one_sentence_operation() {
         ("git-metadata", "metadata-mutation"),
         ("git-force-push", "force-push"),
         ("git-hard-reset", "hard-reset"),
+        ("git-history-rewrite", "history-rewrite"),
         ("git-recovery-destroy", "recovery-destroy"),
         ("git-remote-repo-delete", "git-remote-repo-delete"),
         ("git-rewrite-force", "rewrite-force"),

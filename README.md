@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-35 guards, 26 on by default, covering six classes of disaster: **execution
+36 guards, 26 on by default, covering six classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, and **package-registry operations**.
 
@@ -58,6 +58,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
+| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |

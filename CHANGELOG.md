@@ -31,10 +31,11 @@
   and published-name ownership changes by default; optional `registry-publish`
   covers publication across npm-compatible registries, Cargo, RubyGems, Python,
   and NuGet.
-- **Remote repository deletion guard** — Default-on `git-remote-delete` blocks
-  exact whole-repository deletion through GitHub and GitLab CLI commands and
-  REST routes while leaving branches, tags, archives, renames, and transfers
-  outside its scope.
+- **Git safety guards** — Default-on `git-remote-repo-delete` blocks exact
+  whole-repository deletion through GitHub and GitLab CLI commands and REST
+  routes. Optional `git-history-rewrite` covers rebases, unforced filtering,
+  recovery expiry, aggressive or pruning garbage collection, and leased force
+  pushes while preserving recovery and inspection commands.
 - **Host and project guards** — New default-on guards protect project roots,
   authentication and identity files, and startup-persistence paths. Optional
   guards cover recursive deletion outside the project, shell profiles, and
