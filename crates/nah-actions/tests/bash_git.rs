@@ -152,8 +152,10 @@ fn git_ref_deletes_lower_to_one_semantic_operation() {
         "git update-ref -d refs/heads/topic",
         "git update-ref --delete \"$REF\"",
         "git worktree remove -f \"$PATH\"",
+        "git worktree remove -ff old",
         "git worktree prune --expire now",
         "git submodule deinit vendor/library",
+        "git submodule deinit -q vendor/library",
         "git submodule --quiet deinit -- \"$PATH\"",
         "timeout 5 git worktree remove old",
     ] {

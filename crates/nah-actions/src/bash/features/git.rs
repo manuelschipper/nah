@@ -72,7 +72,7 @@ fn target_count(arguments: &[Word], valid_option: impl Fn(&str) -> bool) -> Opti
         } else if argument.is_empty() {
             return None;
         } else if !after_separator && argument.starts_with('-') {
-            if !valid_option(&argument) {
+            if !valid_option(&argument) && !bundled_short_flags(&argument, &valid_option) {
                 return None;
             }
         } else {
@@ -80,6 +80,14 @@ fn target_count(arguments: &[Word], valid_option: impl Fn(&str) -> bool) -> Opti
         }
     }
     Some(targets)
+}
+
+/// Accepts bundled short options such as `-ff` when each letter is a valid `-{flag}`.
+fn bundled_short_flags(argument: &str, valid_option: impl Fn(&str) -> bool) -> bool {
+    argument
+        .strip_prefix('-')
+        .filter(|flags| !argument.starts_with("--") && !flags.is_empty())
+        .is_some_and(|flags| flags.chars().all(|flag| valid_option(&format!("-{flag}"))))
 }
 
 fn branch_deletes_refs(arguments: &[Word]) -> bool {
@@ -378,7 +386,10 @@ fn submodule_deinits(arguments: &[Word]) -> bool {
         return false;
     }
     target_count(&arguments[index + 1..], |argument| {
-        matches!(argument, "-f" | "--force" | "--no-force")
+        matches!(
+            argument,
+            "-f" | "--force" | "--no-force" | "-q" | "--quiet" | "--no-quiet"
+        )
     })
     .is_some_and(|targets| targets > 0)
 }
