@@ -1,6 +1,8 @@
 use nah_actions::{AnalysisInput, VisibleCode, finalize, plan};
 use nah_parse::normalize;
-use nah_proto::action::{Coverage, EffectKind, FilesystemOperation, InvocationEffect};
+use nah_proto::action::{
+    Coverage, EffectKind, FilesystemOperation, InvocationEffect, SemanticCode,
+};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationRequest,
@@ -633,5 +635,34 @@ fn exact_external_windows_argv_reuses_existing_invocation_lowering() {
         EffectKind::Filesystem { effect }
             if effect.operation == FilesystemOperation::Write
                 && effect.target.as_str() == r"C:\payload"
+    )));
+}
+
+#[test]
+fn powershell_host_power_calls_map_to_known_invocations() {
+    for source in ["Stop-Computer", "Restart-Computer -WhatIf:$false"] {
+        let plan = direct_plan(VisibleCode::Pwsh { source }, source);
+        let observation = observe(plan.observation_request(), None);
+        let stream = finalize(plan, observation);
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation == &SemanticCode::HOST_POWER
+            )),
+            "{source}"
+        );
+    }
+
+    let source = "Restart-Computer -WhatIf";
+    let plan = direct_plan(VisibleCode::Pwsh { source }, source);
+    let observation = observe(plan.observation_request(), None);
+    let stream = finalize(plan, observation);
+    assert!(stream.effects().iter().all(|effect| !matches!(
+        effect.kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::Known { operation, .. }
+        } if operation == &SemanticCode::HOST_POWER
     )));
 }
