@@ -48,7 +48,7 @@ pub(crate) fn classify(
 ) -> Option<Classification> {
     if matches!(
         program,
-        "docker" | "podman" | "terraform" | "tofu" | "pulumi"
+        "docker" | "podman" | "docker-compose" | "podman-compose" | "terraform" | "tofu" | "pulumi"
     ) && !qualified_program
         && (path_overridden || assignments.iter().any(|(name, _)| name == "PATH"))
     {
@@ -56,6 +56,7 @@ pub(crate) fn classify(
     }
     match program {
         "docker" | "podman" => container(program, arguments),
+        "docker-compose" | "podman-compose" => compose(arguments),
         "terraform" | "tofu" => terraform(program, arguments, assignments, environment),
         "pulumi" => pulumi(arguments),
         _ => None,
@@ -71,6 +72,7 @@ enum ContainerCommand {
 
 enum ContainerSubcommand {
     Relevant(ContainerCommand, usize),
+    Compose(usize),
     Other,
     NonExecuting,
     Incomplete,
@@ -84,6 +86,7 @@ fn container(program: &str, arguments: &[Word]) -> Option<Classification> {
         ContainerSubcommand::Relevant(command, index) => {
             Some(container_operation(program, command, &arguments[index..]))
         }
+        ContainerSubcommand::Compose(index) => compose_command_line(&arguments[index..]),
         ContainerSubcommand::Other => None,
         ContainerSubcommand::NonExecuting => Some(Classification::complete(false)),
         ContainerSubcommand::Incomplete => Some(Classification::incomplete()),
@@ -122,6 +125,9 @@ fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcomm
             return ContainerSubcommand::NonExecuting;
         }
         let group = argument.as_str();
+        if group == "compose" {
+            return ContainerSubcommand::Compose(index + 1);
+        }
         if !matches!(group, "system" | "volume") {
             return ContainerSubcommand::Other;
         }
@@ -166,6 +172,239 @@ fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcomm
     } else {
         ContainerSubcommand::Incomplete
     }
+}
+
+fn compose(arguments: &[Word]) -> Option<Classification> {
+    let Some(arguments) = static_arguments(arguments) else {
+        return Some(Classification::incomplete());
+    };
+    compose_command_line(&arguments)
+}
+
+#[derive(Clone, Copy)]
+enum ComposeCommand {
+    Down,
+    Rm,
+}
+
+fn compose_command_line(arguments: &[String]) -> Option<Classification> {
+    const VALUE_OPTIONS: &[&str] = &[
+        "--ansi",
+        "--env-file",
+        "-f",
+        "--file",
+        "--parallel",
+        "--profile",
+        "--progress",
+        "--project-directory",
+        "-p",
+        "--project-name",
+    ];
+
+    let mut index = 0;
+    let mut options = true;
+    let mut dry_run = false;
+    let mut help = false;
+    let mut version = false;
+    while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if options {
+            if let Some(consumed) = value_option(arguments, index, VALUE_OPTIONS) {
+                let Ok(consumed) = consumed else {
+                    return Some(Classification::incomplete());
+                };
+                index += consumed;
+                continue;
+            }
+            if let Some(value) = boolean_option(argument, "--dry-run") {
+                let Some(value) = value else {
+                    return Some(Classification::incomplete());
+                };
+                dry_run = value;
+                index += 1;
+                continue;
+            }
+            if let Some((name, value)) = ["--help", "--version"]
+                .iter()
+                .find_map(|name| boolean_option(argument, name).map(|value| (*name, value)))
+            {
+                let Some(value) = value else {
+                    return Some(Classification::incomplete());
+                };
+                match name {
+                    "--help" => help = value,
+                    "--version" => version = value,
+                    _ => unreachable!("reviewed Compose root options are exhaustive"),
+                }
+                index += 1;
+                continue;
+            }
+            if let Some(value) = ["--all-resources", "--compatibility"]
+                .iter()
+                .find_map(|name| boolean_option(argument, name))
+            {
+                if value.is_none() {
+                    return Some(Classification::incomplete());
+                }
+                index += 1;
+                continue;
+            }
+            if let Some(result) = compose_global_short_option(arguments, index) {
+                let Ok(parsed) = result else {
+                    return Some(Classification::incomplete());
+                };
+                if let Some(value) = parsed.help {
+                    help = value;
+                }
+                if let Some(value) = parsed.version {
+                    version = value;
+                }
+                index += parsed.consumed;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return Some(Classification::incomplete());
+            }
+        }
+        if help || matches!(argument.as_str(), "help" | "version") {
+            return Some(Classification::complete(false));
+        }
+        let command = match argument.as_str() {
+            "down" => ComposeCommand::Down,
+            "rm" => ComposeCommand::Rm,
+            _ => return None,
+        };
+        return Some(compose_volume_operation(
+            command,
+            &arguments[index + 1..],
+            dry_run,
+        ));
+    }
+    if help || version {
+        Some(Classification::complete(false))
+    } else {
+        Some(Classification::incomplete())
+    }
+}
+
+fn compose_global_short_option(
+    arguments: &[String],
+    index: usize,
+) -> Option<Result<ContainerShortOption, ()>> {
+    container_cli_short_option(arguments, index, "hv", "fp")
+}
+
+fn compose_volume_operation(
+    command: ComposeCommand,
+    arguments: &[String],
+    global_dry_run: bool,
+) -> Classification {
+    let mut index = 0;
+    let mut options = true;
+    let mut dry_run = global_dry_run;
+    let mut help = false;
+    let mut version = false;
+    let mut volumes = false;
+    while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if !options {
+            index += 1;
+            continue;
+        }
+        if let Some(value) = boolean_option(argument, "--dry-run") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            dry_run = value;
+            index += 1;
+            continue;
+        }
+        if let Some((name, value)) = ["--help", "--version", "--volumes"]
+            .iter()
+            .find_map(|name| boolean_option(argument, name).map(|value| (*name, value)))
+        {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            match name {
+                "--help" => help = value,
+                "--version" => version = value,
+                "--volumes" => volumes = value,
+                _ => unreachable!("reviewed Compose command options are exhaustive"),
+            }
+            index += 1;
+            continue;
+        }
+        let flag_options: &[&str] = match command {
+            ComposeCommand::Down => &["--remove-orphans"],
+            ComposeCommand::Rm => &["--force", "--stop"],
+        };
+        if let Some(value) = flag_options
+            .iter()
+            .find_map(|name| boolean_option(argument, name))
+        {
+            if value.is_none() {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
+        let value_options: &[&str] = match command {
+            ComposeCommand::Down => &["--rmi", "--timeout", "-t"],
+            ComposeCommand::Rm => &["--stop-timeout", "-t"],
+        };
+        if let Some(consumed) = value_option(arguments, index, value_options) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            index += consumed;
+            continue;
+        }
+        if let Some(result) = compose_command_short_options(argument, command) {
+            let Ok(updates) = result else {
+                return Classification::incomplete();
+            };
+            for (option, value) in updates {
+                match option {
+                    'h' => help = value,
+                    'v' => volumes = value,
+                    _ => {}
+                }
+            }
+            index += 1;
+            continue;
+        }
+        if argument.starts_with('-') {
+            return Classification::incomplete();
+        }
+        index += 1;
+    }
+    if help || version || dry_run {
+        Classification::complete(false)
+    } else if volumes {
+        Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
+    } else {
+        Classification::complete(false)
+    }
+}
+
+fn compose_command_short_options(
+    argument: &str,
+    command: ComposeCommand,
+) -> Option<Result<Vec<(char, bool)>, ()>> {
+    let allowed = match command {
+        ComposeCommand::Down => "hv",
+        ComposeCommand::Rm => "fhsv",
+    };
+    container_command_boolean_short_options(argument, allowed)
 }
 
 fn container_global_option(
@@ -249,16 +488,25 @@ fn container_global_short_option(
     arguments: &[String],
     index: usize,
 ) -> Option<Result<ContainerShortOption, ()>> {
-    let argument = &arguments[index];
-    let cluster = argument.strip_prefix('-')?;
-    if cluster.starts_with('-') || cluster.is_empty() {
-        return None;
-    }
     let (boolean_flags, value_flags) = if program == "docker" {
         ("Dhv", "cHl")
     } else {
         ("hrv", "c")
     };
+    container_cli_short_option(arguments, index, boolean_flags, value_flags)
+}
+
+fn container_cli_short_option(
+    arguments: &[String],
+    index: usize,
+    boolean_flags: &str,
+    value_flags: &str,
+) -> Option<Result<ContainerShortOption, ()>> {
+    let argument = &arguments[index];
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.is_empty() {
+        return None;
+    }
     let mut help = None;
     let mut version = None;
     let mut options = cluster.char_indices().peekable();
@@ -455,14 +703,21 @@ fn container_command_short_options(
     argument: &str,
     command: ContainerCommand,
 ) -> Option<Result<Vec<(char, bool)>, ()>> {
-    let cluster = argument.strip_prefix('-')?;
-    if cluster.starts_with('-') || cluster.is_empty() {
-        return None;
-    }
     let allowed = match command {
         ContainerCommand::Reset => "fh",
         ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => "afh",
     };
+    container_command_boolean_short_options(argument, allowed)
+}
+
+fn container_command_boolean_short_options(
+    argument: &str,
+    allowed: &str,
+) -> Option<Result<Vec<(char, bool)>, ()>> {
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.is_empty() {
+        return None;
+    }
     let mut updates = Vec::new();
     let mut options = cluster.char_indices().peekable();
     while let Some((_, option)) = options.next() {

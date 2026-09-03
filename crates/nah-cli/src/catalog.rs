@@ -314,7 +314,7 @@ fn behavior(name: &str) -> &'static str {
             "Blocks project-wide checkout or restore and proven forced branch changes."
         }
         "infra-container-volume-delete" => {
-            "Blocks broad unused-volume cleanup through reviewed Docker and Podman prune commands."
+            "Blocks broad unused-volume pruning and explicit Compose volume removal through reviewed Docker and Podman commands."
         }
         "infra-container-reset" => {
             "Blocks Podman commands that reset the complete local or selected runtime state."
@@ -463,8 +463,8 @@ fn examples(name: &str) -> Vec<&'static str> {
         ],
         "infra-container-volume-delete" => [
             "docker volume prune --all",
-            "docker system prune --volumes",
-            "podman system prune --volumes",
+            "docker compose down -v",
+            "podman-compose rm -v worker",
         ],
         "infra-container-reset" => [
             "podman system reset",

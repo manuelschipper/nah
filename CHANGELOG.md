@@ -20,9 +20,9 @@
   cmd analysis plus Windows-safe custom guards and host state.
 - **Infrastructure destruction guards** — New guards cover Kubernetes deletion
   (`infra-k8s-delete`, optional), whole-stack Terraform, OpenTofu, and Pulumi
-  teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning
-  (`infra-container-volume-delete`, optional), and Podman runtime reset
-  (`infra-container-reset`, enabled by default).
+  teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning plus
+  Compose volume removal (`infra-container-volume-delete`, optional), and Podman
+  runtime reset (`infra-container-reset`, enabled by default).
 - **Storage destruction guards** — `storage-backup-destroy` blocks broad backup
   repository destruction by default. Optional guards cover recursive cloud
   storage deletion and snapshot deletion, while `fs-volume-destroy` now also

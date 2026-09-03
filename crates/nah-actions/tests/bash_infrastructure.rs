@@ -1,7 +1,7 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{ActionStream, EffectKind, SemanticCode};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
 use support::{bash_plan, observe};
 
 fn stream(source: &str) -> ActionStream {
@@ -401,6 +401,79 @@ fn container_connection_options_and_valid_terminators_preserve_classification() 
 }
 
 #[test]
+fn compose_volume_removal_is_recognized_across_entry_points_and_option_positions() {
+    for source in [
+        "docker compose down -v",
+        "podman compose down --volumes",
+        "docker-compose rm -v web",
+        "podman-compose rm worker --volumes",
+        "docker --context production compose --profile app down -v",
+        "podman --connection production compose -p demo rm api -v",
+        "docker-compose --env-file .env rm -fsv --stop-timeout 30 worker",
+        "podman-compose --project-name=demo down --volumes=false -v",
+        "docker compose down -v --dry-run=false",
+        "docker compose --dry-run=false down -v",
+        "podman compose down --dry-run=0 --volumes",
+        "docker-compose down -v --dry-run=false",
+        "docker compose -v down --volumes",
+        "docker compose --version down --volumes",
+        "docker compose --version rm --volumes",
+        "podman compose -v down --volumes",
+        "docker-compose -v down --volumes",
+        "docker-compose --version down --volumes",
+        "podman-compose -v rm --volumes app",
+        "docker compose --ansi=never --env-file .env --env-file=.env.local -f compose.yml --file=override.yml --parallel 2 --profile app --profile=worker --progress plain --project-directory . -p demo --project-name=renamed --all-resources --compatibility down --remove-orphans --rmi local --timeout 30 -v",
+        "/usr/bin/docker-compose down -v",
+    ] {
+        assert!(deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn compose_volume_removal_carve_outs_delegate() {
+    for source in [
+        "docker compose down",
+        "podman compose rm app",
+        "docker-compose down --volumes=false",
+        "podman-compose rm -v --volumes=false app",
+        "docker compose --dry-run down -v",
+        "podman compose down --dry-run --volumes",
+        "docker-compose --help down -v",
+        "podman-compose --version",
+        "docker compose down --help -v",
+        "docker compose --unknown value down -v",
+        "podman-compose down --unknown -v",
+        "docker compose \"$(option)\" down -v",
+        "docker compose rm -- -v",
+        "PATH=/tmp docker-compose down -v",
+    ] {
+        assert!(!deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn compose_nested_commands_remain_partial_and_refuse_analysis() {
+    for source in [
+        "docker compose run --rm app rm -rf /data",
+        "docker compose exec app rm -rf /data",
+        "podman compose run app rm -rf /data",
+        "docker-compose run --rm app rm -rf /data",
+        "podman-compose exec app rm -rf /data",
+    ] {
+        let actual = stream(source);
+        assert_eq!(actual.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            actual.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::SystemState { operation }
+                    if operation == &SemanticCode::ANALYSIS_REFUSED
+            )),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn narrow_filtered_dry_run_dynamic_and_arbitrary_container_forms_stay_outside() {
     for source in [
         "docker volume prune",
@@ -445,13 +518,11 @@ fn adjacent_container_cleanup_and_control_planes_stay_outside() {
     for source in [
         "docker volume rm named-volume",
         "docker container rm -v app",
-        "docker compose down -v",
         "docker image prune --all",
         "docker builder prune --all",
         "docker network prune",
         "podman volume rm --all",
         "podman container rm -v app",
-        "podman compose down -v",
         "podman image prune --all",
         "podman machine reset --force",
         "podman kube down workload.yaml",
