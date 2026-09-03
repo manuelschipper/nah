@@ -1,7 +1,7 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{ActionStream, EffectKind, SemanticCode};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
 use support::{bash_plan, observe};
 
 fn stream(source: &str) -> ActionStream {
@@ -448,6 +448,28 @@ fn compose_volume_removal_carve_outs_delegate() {
         "PATH=/tmp docker-compose down -v",
     ] {
         assert!(!deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn compose_nested_commands_remain_partial_and_refuse_analysis() {
+    for source in [
+        "docker compose run --rm app rm -rf /data",
+        "docker compose exec app rm -rf /data",
+        "podman compose run app rm -rf /data",
+        "docker-compose run --rm app rm -rf /data",
+        "podman-compose exec app rm -rf /data",
+    ] {
+        let actual = stream(source);
+        assert_eq!(actual.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            actual.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::SystemState { operation }
+                    if operation == &SemanticCode::ANALYSIS_REFUSED
+            )),
+            "{source}"
+        );
     }
 }
 

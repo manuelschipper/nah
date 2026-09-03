@@ -86,7 +86,7 @@ fn container(program: &str, arguments: &[Word]) -> Option<Classification> {
         ContainerSubcommand::Relevant(command, index) => {
             Some(container_operation(program, command, &arguments[index..]))
         }
-        ContainerSubcommand::Compose(index) => Some(compose_command_line(&arguments[index..])),
+        ContainerSubcommand::Compose(index) => compose_command_line(&arguments[index..]),
         ContainerSubcommand::Other => None,
         ContainerSubcommand::NonExecuting => Some(Classification::complete(false)),
         ContainerSubcommand::Incomplete => Some(Classification::incomplete()),
@@ -178,7 +178,7 @@ fn compose(arguments: &[Word]) -> Option<Classification> {
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
     };
-    Some(compose_command_line(&arguments))
+    compose_command_line(&arguments)
 }
 
 #[derive(Clone, Copy)]
@@ -187,7 +187,7 @@ enum ComposeCommand {
     Rm,
 }
 
-fn compose_command_line(arguments: &[String]) -> Classification {
+fn compose_command_line(arguments: &[String]) -> Option<Classification> {
     const VALUE_OPTIONS: &[&str] = &[
         "--ansi",
         "--env-file",
@@ -215,14 +215,14 @@ fn compose_command_line(arguments: &[String]) -> Classification {
         if options {
             if let Some(consumed) = value_option(arguments, index, VALUE_OPTIONS) {
                 let Ok(consumed) = consumed else {
-                    return Classification::incomplete();
+                    return Some(Classification::incomplete());
                 };
                 index += consumed;
                 continue;
             }
             if let Some(value) = boolean_option(argument, "--dry-run") {
                 let Some(value) = value else {
-                    return Classification::incomplete();
+                    return Some(Classification::incomplete());
                 };
                 dry_run = value;
                 index += 1;
@@ -233,7 +233,7 @@ fn compose_command_line(arguments: &[String]) -> Classification {
                 .find_map(|name| boolean_option(argument, name).map(|value| (*name, value)))
             {
                 let Some(value) = value else {
-                    return Classification::incomplete();
+                    return Some(Classification::incomplete());
                 };
                 match name {
                     "--help" => help = value,
@@ -248,14 +248,14 @@ fn compose_command_line(arguments: &[String]) -> Classification {
                 .find_map(|name| boolean_option(argument, name))
             {
                 if value.is_none() {
-                    return Classification::incomplete();
+                    return Some(Classification::incomplete());
                 }
                 index += 1;
                 continue;
             }
             if let Some(result) = compose_global_short_option(arguments, index) {
                 let Ok(parsed) = result else {
-                    return Classification::incomplete();
+                    return Some(Classification::incomplete());
                 };
                 if let Some(value) = parsed.help {
                     help = value;
@@ -267,23 +267,27 @@ fn compose_command_line(arguments: &[String]) -> Classification {
                 continue;
             }
             if argument.starts_with('-') {
-                return Classification::incomplete();
+                return Some(Classification::incomplete());
             }
         }
         if help || matches!(argument.as_str(), "help" | "version") {
-            return Classification::complete(false);
+            return Some(Classification::complete(false));
         }
         let command = match argument.as_str() {
             "down" => ComposeCommand::Down,
             "rm" => ComposeCommand::Rm,
-            _ => return Classification::complete(false),
+            _ => return None,
         };
-        return compose_volume_operation(command, &arguments[index + 1..], dry_run);
+        return Some(compose_volume_operation(
+            command,
+            &arguments[index + 1..],
+            dry_run,
+        ));
     }
     if help || version {
-        Classification::complete(false)
+        Some(Classification::complete(false))
     } else {
-        Classification::incomplete()
+        Some(Classification::incomplete())
     }
 }
 
