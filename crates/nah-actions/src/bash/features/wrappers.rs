@@ -66,18 +66,7 @@ pub(crate) fn wrapper_payload(program: &str, arguments: &[Word]) -> Option<Strin
         return tmux_payload(arguments);
     }
     let start = match program {
-        "command" => match arguments.first().map(Word::raw) {
-            Some("-p") | Some("--") => 1,
-            Some(argument) if argument.starts_with('-') => return None,
-            Some(_) => 0,
-            None => return None,
-        },
-        "builtin" => match arguments.first().map(Word::raw) {
-            Some("--") => 1,
-            Some(argument) if argument.starts_with('-') => return None,
-            Some(_) => 0,
-            None => return None,
-        },
+        "command" | "builtin" | "exec" => direct_wrapper_payload_start(program, arguments)?,
         "coproc" => match arguments.first().map(Word::raw) {
             Some(argument) if !argument.starts_with('-') => 0,
             _ => return None,
@@ -96,7 +85,6 @@ pub(crate) fn wrapper_payload(program: &str, arguments: &[Word]) -> Option<Strin
         "strace" => strace_command_start(arguments)?,
         "systemd-run" => systemd_run_command_start(arguments)?,
         "unshare" => unshare_command_start(arguments)?,
-        "exec" => exec_command_start(arguments)?,
         "nice" => nice_command_start(arguments)?,
         "nohup" => match arguments.first().map(Word::raw) {
             Some("--") if arguments.len() > 1 => 1,
@@ -122,6 +110,25 @@ pub(crate) fn wrapper_payload(program: &str, arguments: &[Word]) -> Option<Strin
             .collect::<Vec<_>>()
             .join(" ")
     })
+}
+
+pub(crate) fn direct_wrapper_payload_start(program: &str, arguments: &[Word]) -> Option<usize> {
+    match program {
+        "command" => match arguments.first().map(Word::raw) {
+            Some("-p") | Some("--") => Some(1),
+            Some(argument) if argument.starts_with('-') => None,
+            Some(_) => Some(0),
+            None => None,
+        },
+        "builtin" => match arguments.first().map(Word::raw) {
+            Some("--") => Some(1),
+            Some(argument) if argument.starts_with('-') => None,
+            Some(_) => Some(0),
+            None => None,
+        },
+        "exec" => exec_command_start(arguments),
+        _ => None,
+    }
 }
 
 /// Decodes wrappers that pass a string to a shell rather than executing the

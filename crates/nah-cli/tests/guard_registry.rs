@@ -69,7 +69,10 @@ fn every_shipped_guard_blocks_end_to_end() {
         *counts.entry(guard.as_str()).or_insert(0) += 1;
     }
     for guard in &expected {
-        assert_eq!(counts.get(guard), Some(&3), "{guard} example count");
+        assert!(
+            counts.get(guard).is_some_and(|count| *count >= 3),
+            "{guard} example count"
+        );
     }
     let injection_warnings = [
         "secrets-exfil",

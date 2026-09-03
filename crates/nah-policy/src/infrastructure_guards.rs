@@ -12,14 +12,14 @@ pub(crate) fn add(
     let mut added = false;
     for (name, operations, message) in [
         (
-            "infra-container-prune",
-            &[SemanticCode::INFRA_CONTAINER_PRUNE][..],
-            "infra-container-prune blocked broad unused-volume cleanup; narrow the cleanup or ask the operator to perform the reviewed prune",
-        ),
-        (
             "infra-container-reset",
             &[SemanticCode::INFRA_CONTAINER_RESET][..],
             "infra-container-reset blocked a complete Podman runtime reset; keep the runtime state intact and ask the operator to perform any deliberate reset",
+        ),
+        (
+            "infra-container-volume-delete",
+            &[SemanticCode::INFRA_CONTAINER_VOLUME_DELETE][..],
+            "infra-container-volume-delete blocked broad unused-volume cleanup; narrow the cleanup or ask the operator to perform the reviewed prune",
         ),
         (
             "infra-iac-destroy",

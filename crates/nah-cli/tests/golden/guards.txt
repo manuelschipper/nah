@@ -6,13 +6,14 @@ Built-in:
 - [x] fs-auth-identity
 - [x] fs-forkbomb
 - [x] fs-home
+- [ ] fs-outside-workspace-delete
 - [x] fs-project-root
 - [x] fs-raw-device
 - [ ] fs-shell-profile
 - [ ] fs-startup-management
 - [x] fs-startup-persistence
-- [x] fs-storage-destroy
 - [x] fs-system-tree
+- [x] fs-volume-destroy
 - [x] git-clean-force
 - [x] git-force-push
 - [x] git-hard-reset
@@ -22,8 +23,8 @@ Built-in:
 - [ ] git-remote-resource-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
-- [ ] infra-container-prune
 - [x] infra-container-reset
+- [ ] infra-container-volume-delete
 - [ ] infra-iac-destroy
 - [ ] infra-k8s-delete
 - [ ] registry-publish
@@ -31,9 +32,10 @@ Built-in:
 - [x] secrets-credentials
 - [x] secrets-env
 - [x] secrets-exfil
-- [x] storage-destroy
+- [x] storage-backup-destroy
 - [ ] storage-recursive-delete
 - [ ] storage-snapshot-delete
+- [x] sys-power
 
 Custom:
 No custom guards discovered. Create one with `nah guard new <name>`.

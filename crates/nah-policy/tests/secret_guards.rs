@@ -3,7 +3,8 @@
 mod support;
 
 use nah_proto::action::{
-    EffectKind, FilesystemEffect, FilesystemOperation, PathScope, Sensitivity,
+    ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, PathScope,
+    Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -60,6 +61,33 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
             );
         }
     }
+}
+
+#[test]
+fn secrets_env_blocks_named_credential_disclosure_but_not_whole_environment_inspection() {
+    let operation = |program, operation| {
+        ActionStream::new(
+            Coverage::Full,
+            vec![vec![EffectKind::known(program, operation).unwrap()]],
+            vec![],
+        )
+        .unwrap()
+    };
+    let credential = operation("echo", "credential-disclosure");
+    assert_eq!(
+        nah_policy::decide(&credential, &guard_policy("secrets-env", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Block
+    );
+
+    let environment = operation("env", "environment-disclosure");
+    assert_eq!(
+        nah_policy::decide(&environment, &guard_policy("secrets-env", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
 }
 
 #[test]

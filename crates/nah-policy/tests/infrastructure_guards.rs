@@ -25,7 +25,10 @@ fn infrastructure_destroy_requires_its_enabled_guard() {
 #[test]
 fn container_guards_require_their_matching_enabled_code() {
     for (name, operation) in [
-        ("infra-container-prune", SemanticCode::INFRA_CONTAINER_PRUNE),
+        (
+            "infra-container-volume-delete",
+            SemanticCode::INFRA_CONTAINER_VOLUME_DELETE,
+        ),
         ("infra-container-reset", SemanticCode::INFRA_CONTAINER_RESET),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
@@ -39,10 +42,16 @@ fn container_guards_require_their_matching_enabled_code() {
 }
 
 #[test]
-fn container_reset_and_prune_guards_are_isolated() {
+fn container_reset_and_volume_delete_guards_are_isolated() {
     for (enabled, operation) in [
-        ("infra-container-prune", SemanticCode::INFRA_CONTAINER_RESET),
-        ("infra-container-reset", SemanticCode::INFRA_CONTAINER_PRUNE),
+        (
+            "infra-container-volume-delete",
+            SemanticCode::INFRA_CONTAINER_RESET,
+        ),
+        (
+            "infra-container-reset",
+            SemanticCode::INFRA_CONTAINER_VOLUME_DELETE,
+        ),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let decision = nah_policy::decide(&stream, &guard_policy(enabled, true), &[]).unwrap();

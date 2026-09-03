@@ -261,21 +261,27 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         EffectKind::known("curl", "network-transfer").unwrap(),
         EffectKind::network(None),
     ];
-    let environment = ActionStream::new(
-        Coverage::Full,
-        vec![
-            vec![EffectKind::known("env", "environment-disclosure").unwrap()],
-            sink.clone(),
-        ],
-        vec![FlowOrdinals::new(0, 1)],
-    )
-    .unwrap();
-    assert_eq!(
-        nah_policy::decide(&environment, &guard_policy("secrets-exfil", true), &[])
-            .unwrap()
-            .verdict(),
-        Verdict::Block
-    );
+    for (program, operation) in [
+        ("env", "environment-disclosure"),
+        ("echo", "credential-disclosure"),
+    ] {
+        let source = ActionStream::new(
+            Coverage::Full,
+            vec![
+                vec![EffectKind::known(program, operation).unwrap()],
+                sink.clone(),
+            ],
+            vec![FlowOrdinals::new(0, 1)],
+        )
+        .unwrap();
+        assert_eq!(
+            nah_policy::decide(&source, &guard_policy("secrets-exfil", true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Block,
+            "{operation}"
+        );
+    }
 
     let recursive_read = |target: &str, selects_root: bool| EffectKind::Filesystem {
         effect: FilesystemEffect {

@@ -14,6 +14,7 @@ pub(crate) enum GuardFamily {
     Infrastructure,
     Registry,
     Secrets,
+    System,
 }
 
 impl GuardFamily {
@@ -25,6 +26,7 @@ impl GuardFamily {
             Self::Infrastructure => "INFRASTRUCTURE",
             Self::Registry => "REGISTRY",
             Self::Secrets => "SECRETS",
+            Self::System => "SYSTEM",
         }
     }
 
@@ -36,6 +38,7 @@ impl GuardFamily {
             Self::Infrastructure => "infrastructure",
             Self::Registry => "registry",
             Self::Secrets => "secrets",
+            Self::System => "system",
         }
     }
 
@@ -47,6 +50,7 @@ impl GuardFamily {
             Self::Infrastructure => 3,
             Self::Registry => 4,
             Self::Secrets => 5,
+            Self::System => 6,
         }
     }
 }
@@ -57,8 +61,11 @@ pub fn shipped_guards() -> &'static [&'static str] {
 
 /// Historical shipped guard names accepted only as lookups.
 const SHIPPED_GUARD_ALIASES: &[(&str, &str)] = &[
+    ("fs-storage-destroy", "fs-volume-destroy"),
     ("git-remote-delete", "git-remote-repo-delete"),
+    ("infra-container-prune", "infra-container-volume-delete"),
     ("secrets-keys", "secrets-credentials"),
+    ("storage-destroy", "storage-backup-destroy"),
 ];
 
 /// Canonical shipped guard identity returned from a current or historical name.
@@ -200,7 +207,7 @@ pub(crate) struct ShippedGuardDoc {
     pub(crate) family: GuardFamily,
     pub(crate) default_enabled: bool,
     pub(crate) behavior: &'static str,
-    pub(crate) examples: [&'static str; 3],
+    pub(crate) examples: Vec<&'static str>,
 }
 
 pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
@@ -212,9 +219,10 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
             default_enabled: !matches!(
                 *name,
                 "fs-shell-profile"
+                    | "fs-outside-workspace-delete"
                     | "fs-startup-management"
                     | "git-remote-resource-delete"
-                    | "infra-container-prune"
+                    | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
                     | "registry-publish"
@@ -235,13 +243,14 @@ fn family(name: &str) -> GuardFamily {
         "fs-auth-identity"
         | "fs-forkbomb"
         | "fs-home"
+        | "fs-outside-workspace-delete"
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
         | "fs-startup-management"
         | "fs-startup-persistence"
-        | "fs-storage-destroy"
-        | "fs-system-tree" => GuardFamily::Filesystem,
+        | "fs-system-tree"
+        | "fs-volume-destroy" => GuardFamily::Filesystem,
         "git-clean-force"
         | "git-force-push"
         | "git-hard-reset"
@@ -251,15 +260,16 @@ fn family(name: &str) -> GuardFamily {
         | "git-remote-resource-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
-        "infra-container-prune"
+        "infra-container-volume-delete"
         | "infra-container-reset"
         | "infra-iac-destroy"
         | "infra-k8s-delete"
-        | "storage-destroy"
+        | "storage-backup-destroy"
         | "storage-recursive-delete"
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
+        "sys-power" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -277,6 +287,9 @@ fn behavior(name: &str) -> &'static str {
         "exec-remote" => "Blocks execution of a payload visibly obtained from the network.",
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
+        "fs-outside-workspace-delete" => {
+            "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
+        }
         "fs-project-root" => {
             "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
         }
@@ -288,7 +301,7 @@ fn behavior(name: &str) -> &'static str {
         "fs-startup-persistence" => {
             "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
         }
-        "fs-storage-destroy" => {
+        "fs-volume-destroy" => {
             "Blocks definite logical-volume, storage-pool, and live ZFS dataset destruction."
         }
         "fs-system-tree" => {
@@ -315,8 +328,8 @@ fn behavior(name: &str) -> &'static str {
         "git-worktree-discard" => {
             "Blocks project-wide checkout or restore and proven forced branch changes."
         }
-        "infra-container-prune" => {
-            "Blocks broad unused-volume cleanup through reviewed Docker and Podman prune commands."
+        "infra-container-volume-delete" => {
+            "Blocks broad unused-volume pruning and explicit Compose volume removal through reviewed Docker and Podman commands."
         }
         "infra-container-reset" => {
             "Blocks Podman commands that reset the complete local or selected runtime state."
@@ -327,7 +340,7 @@ fn behavior(name: &str) -> &'static str {
         "infra-k8s-delete" => {
             "Blocks static kubectl deletion of namespaces, reviewed cluster-scoped resources, and bulk selections of reviewed namespaced resources. Named application-resource deletion, client/server dry runs, manifest and kustomize input, raw requests, and unknown resource kinds remain outside the guard."
         }
-        "storage-destroy" => {
+        "storage-backup-destroy" => {
             "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
         }
         "storage-recursive-delete" => {
@@ -343,16 +356,21 @@ fn behavior(name: &str) -> &'static str {
             "Blocks reviewed package unpublish, irreversible RubyGems yank, and npm, Cargo, or RubyGems published-name owner changes. Reversible Cargo yank and npm deprecation, listing and non-identity administration, target-dependent NuGet deletion, web-only PyPI and pub.dev operations, restorable GitHub Packages deletion, and dependency installation or removal remain outside both registry guards."
         }
         "secrets-exfil" => "Blocks a visible flow from a sensitive source to a network stage.",
-        "secrets-env" => "Blocks reads of .env files and sensitive basenames.",
+        "secrets-env" => {
+            "Blocks reads of .env files and sensitive basenames, plus direct output of catalogued credential environment variables."
+        }
         "secrets-credentials" => {
             "Blocks reads or writes of private-key and credential-store paths."
+        }
+        "sys-power" => {
+            "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
         }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
 }
 
-fn examples(name: &str) -> [&'static str; 3] {
-    match name {
+fn examples(name: &str) -> Vec<&'static str> {
+    let mut examples = match name {
         "fs-auth-identity" => [
             "printf '%s\\n' 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys",
             "sed -i 's/^root:[^:]*/root:/' /etc/passwd",
@@ -384,6 +402,11 @@ fn examples(name: &str) -> [&'static str; 3] {
             "bomb() { bomb | bomb & }; bomb",
         ],
         "fs-home" => ["rm -rf ~", "chmod -R 000 ~", "find ~ -delete"],
+        "fs-outside-workspace-delete" => [
+            "rm -rf /srv/data",
+            "rm -rf /opt/old-build",
+            "rm -rf /home/other/archive",
+        ],
         "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
@@ -415,7 +438,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "rm ~/.config/systemd/user/backup.service",
             "truncate -s 0 /etc/crontab",
         ],
-        "fs-storage-destroy" => [
+        "fs-volume-destroy" => [
             "lvm lvremove vg/data",
             "lvm vgremove archive",
             "zfs destroy -r tank/data",
@@ -466,10 +489,10 @@ fn examples(name: &str) -> [&'static str; 3] {
             "git switch --discard-changes main",
             "git restore .",
         ],
-        "infra-container-prune" => [
+        "infra-container-volume-delete" => [
             "docker volume prune --all",
-            "docker system prune --volumes",
-            "podman system prune --volumes",
+            "docker compose down -v",
+            "podman-compose rm -v worker",
         ],
         "infra-container-reset" => [
             "podman system reset",
@@ -486,7 +509,7 @@ fn examples(name: &str) -> [&'static str; 3] {
             "kubectl delete pv old-data",
             "kubectl delete pods --all",
         ],
-        "storage-destroy" => [
+        "storage-backup-destroy" => [
             "borg delete /srv/backups/repo",
             "restic forget --unsafe-allow-remove-all --tag old",
             "velero backup delete --all",
@@ -522,8 +545,24 @@ fn examples(name: &str) -> [&'static str; 3] {
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
         ],
+        "sys-power" => {
+            if cfg!(windows) {
+                [
+                    "Stop-Computer",
+                    "Restart-Computer -Force",
+                    "Restart-Computer -ComputerName localhost",
+                ]
+            } else {
+                ["shutdown -h now", "sudo reboot", "systemctl suspend"]
+            }
+        }
         _ => unreachable!("every shipped guard has agent-facing examples"),
     }
+    .to_vec();
+    if name == "secrets-env" {
+        examples.extend(["printenv AWS_SECRET_ACCESS_KEY", "declare -p GITHUB_TOKEN"]);
+    }
+    examples
 }
 
 #[cfg(test)]
@@ -593,19 +632,36 @@ mod tests {
     }
 
     #[test]
+    fn sys_power_uses_the_default_on_system_catalog_family() {
+        let guard = shipped_guard_docs()
+            .into_iter()
+            .find(|guard| guard.name == "sys-power")
+            .unwrap();
+        assert_eq!(guard.family, GuardFamily::System);
+        assert!(guard.default_enabled);
+        assert_eq!(guard.examples.len(), 3);
+    }
+
+    #[test]
     fn aliases_are_reserved_lookups_without_catalog_rows() {
         let rows = shipped_guard_docs()
             .into_iter()
             .map(|guard| guard.name)
             .collect::<Vec<_>>();
         assert_eq!(rows, shipped_guards());
-        assert_eq!(
-            resolve_shipped_guard("git-remote-delete"),
-            Some(ResolvedShippedGuard {
-                canonical_name: "git-remote-repo-delete",
-                renamed: true,
-            })
-        );
+        for (source, target) in [
+            ("fs-storage-destroy", "fs-volume-destroy"),
+            ("git-remote-delete", "git-remote-repo-delete"),
+            ("storage-destroy", "storage-backup-destroy"),
+        ] {
+            assert_eq!(
+                resolve_shipped_guard(source),
+                Some(ResolvedShippedGuard {
+                    canonical_name: target,
+                    renamed: true,
+                })
+            );
+        }
         assert!(
             shipped_guard_aliases()
                 .iter()
@@ -643,6 +699,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-outside-workspace-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -661,7 +723,7 @@ mod tests {
         assert!(
             states
                 .iter()
-                .find(|state| state.name() == "storage-destroy")
+                .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
         assert!(
@@ -679,13 +741,19 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "sys-power")
+                .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-shell-profile")
                 .is_some_and(|state| !state.enabled())
         );
         assert!(
             states
                 .iter()
-                .find(|state| state.name() == "infra-container-prune")
+                .find(|state| state.name() == "infra-container-volume-delete")
                 .is_some_and(|state| !state.enabled())
         );
         assert!(
@@ -718,6 +786,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 9);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
     }
 }

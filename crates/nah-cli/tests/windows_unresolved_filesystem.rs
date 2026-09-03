@@ -162,14 +162,21 @@ fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace
 }
 
 #[test]
-fn windows_static_destructive_target_keeps_its_exact_effect() {
+fn windows_static_destructive_target_reaches_outside_workspace_guard() {
     let command = "rm -rf D:/victim";
     let result = decide_with(
         &windows_input(r"C:\repo", command),
         &windows_context(),
         |request| Ok(observed(request)),
     );
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
+    assert_eq!(result.core().verdict(), Verdict::Block);
+    assert!(
+        result
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|attribution| attribution.name() == "fs-outside-workspace-delete")
+    );
     assert!(result.action_stream().effects().iter().any(|effect| {
         matches!(
             effect.kind(),

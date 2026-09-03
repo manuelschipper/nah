@@ -25,6 +25,7 @@ mod registry_guards;
 mod secret_guards;
 mod storage_guards;
 mod structural;
+mod system_guards;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnforcementMode {
@@ -41,13 +42,14 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-auth-identity",
     "fs-forkbomb",
     "fs-home",
+    "fs-outside-workspace-delete",
     "fs-project-root",
     "fs-raw-device",
     "fs-shell-profile",
     "fs-startup-management",
     "fs-startup-persistence",
-    "fs-storage-destroy",
     "fs-system-tree",
+    "fs-volume-destroy",
     "git-clean-force",
     "git-force-push",
     "git-hard-reset",
@@ -57,8 +59,8 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-remote-resource-delete",
     "git-rewrite-force",
     "git-worktree-discard",
-    "infra-container-prune",
     "infra-container-reset",
+    "infra-container-volume-delete",
     "infra-iac-destroy",
     "infra-k8s-delete",
     "registry-publish",
@@ -66,9 +68,10 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "secrets-credentials",
     "secrets-env",
     "secrets-exfil",
-    "storage-destroy",
+    "storage-backup-destroy",
     "storage-recursive-delete",
     "storage-snapshot-delete",
+    "sys-power",
 ];
 
 /// Reduces shipped policy and already-validated extension responses.
@@ -157,6 +160,7 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let storage_block =
         storage_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let system_block = system_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let execution_block = execution_guards::add(
         language_safety_stream,
         inline_report,
@@ -169,6 +173,7 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         || registry_block
         || secret_block
         || storage_block
+        || system_block
         || execution_block;
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 

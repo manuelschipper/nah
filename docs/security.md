@@ -7,14 +7,14 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 35 guards span execution, secrets, filesystem, Git, infrastructure/storage/
-  backup, and registries; 26 default on.
+- 37 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
   decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
   live failures enter the redacted log when writable.
-- Understood nah-state/executable mutation or authority change blocks.
+- Understood nah-state/executable mutation, authority change, or reviewed
+  host-power action blocks.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
   bypass launches.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
@@ -23,25 +23,25 @@ protected-state changes outside maintenance.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
 - `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
-- `git-remote-resource-delete` defaults off for statically targeted release,
-  issue, secret, variable, key, hook, environment, gist, and Actions-cache deletion.
+- Optional `git-remote-resource-delete` covers reviewed static hosted-resource deletion.
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs
   delegate.
-- Filesystem guards cover auth/identity (PAM/sudoers/sshd), shell profiles,
-  service/schedule/login/autostart/loader paths, static `systemctl` units,
-  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
-  shell-profile/startup-management default off.
-- `infra-container-reset` (on) blocks Podman reset; `infra-container-prune`
-  (off), broad volume prune; `infra-iac-destroy` (off), whole-stack IaC.
-  Narrow/dry-run container and targeted/saved/ambient/other IaC delegates.
+- Filesystem guards cover auth/identity, shell profiles, startup paths/commands,
+  and recursive deletion outside the project; `fs-outside-workspace-delete`,
+  shell-profile, and startup-management default off.
+- `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
+  (off), broad volume prune and Compose `down`/`rm` volume removal;
+  `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,
+  and Compose excludes external volumes from `down -v`. Narrow/dry-run and named
+  container or volume removal, plus targeted/saved/ambient/other IaC, delegates.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server
   dry runs delegate; manifest, kustomize, stdin, raw, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
-- `storage-destroy` is on for whole Borg repos or all Restic/Velero backups.
+- `storage-backup-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
 - `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
 
@@ -71,10 +71,12 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-Credential guards classify modeled paths and effects, not contents.
+Credential guards classify modeled paths and effects, not arbitrary contents.
 `secrets-credentials` protects credential paths, auth stores, keychains, and
 caches. Cloud CLI use alone does not imply file access. `secrets-env` blocks
-`.env` reads, including copies, but not creation or replacement.
+`.env` reads, including copies, and direct output of catalogued credential
+environment variables, but not environment presence checks, `.env` creation,
+or replacement.
 
 Network guards follow visible data and code through modeled shell pipes,
 redirects, archives, links, and transfers. Opaque behavior and prior provenance

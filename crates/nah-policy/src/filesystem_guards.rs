@@ -10,13 +10,14 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
+const FS_OUTSIDE_WORKSPACE_DELETE: &str = "fs-outside-workspace-delete";
 const FS_SHELL_PROFILE: &str = "fs-shell-profile";
 const FS_STARTUP_MANAGEMENT: &str = "fs-startup-management";
 const FS_PROJECT_ROOT: &str = "fs-project-root";
 const FS_STARTUP_PERSISTENCE: &str = "fs-startup-persistence";
 const FS_AUTH_IDENTITY: &str = "fs-auth-identity";
 const FS_RAW_DEVICE: &str = "fs-raw-device";
-const FS_STORAGE_DESTROY: &str = "fs-storage-destroy";
+const FS_VOLUME_DESTROY: &str = "fs-volume-destroy";
 const FS_FORKBOMB: &str = "fs-forkbomb";
 
 pub(crate) fn add(
@@ -40,6 +41,10 @@ pub(crate) fn add(
             "fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change",
         ),
         (
+            FS_OUTSIDE_WORKSPACE_DELETE,
+            "fs-outside-workspace-delete blocked recursive deletion outside the active project; narrow the target to the project or a reviewed temporary root; ask the operator to perform any broader cleanup",
+        ),
+        (
             FS_PROJECT_ROOT,
             "fs-project-root blocked a destructive operation on the project root; name the exact files or subtree; ask the operator to perform any project-wide change",
         ),
@@ -60,8 +65,8 @@ pub(crate) fn add(
             "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
         ),
         (
-            FS_STORAGE_DESTROY,
-            "fs-storage-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",
+            FS_VOLUME_DESTROY,
+            "fs-volume-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",
         ),
         (
             FS_FORKBOMB,
@@ -118,6 +123,15 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         filesystem.recursive,
                     )
             }
+            (FS_OUTSIDE_WORKSPACE_DELETE, EffectKind::Filesystem { effect: filesystem }) => {
+                filesystem.operation == FilesystemOperation::Delete
+                    && filesystem.recursive
+                    && matches!(
+                        &filesystem.scope,
+                        PathScope::Home | PathScope::System | PathScope::OutsideProject
+                    )
+                    && !is_reviewed_temporary_root(filesystem.target.as_str())
+            }
             (FS_PROJECT_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
                 if let PathScope::Project { root } = &filesystem.scope {
                     (filesystem.selects_root
@@ -166,7 +180,7 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
                 )
             }
-            (FS_STORAGE_DESTROY, EffectKind::SystemState { operation }) => {
+            (FS_VOLUME_DESTROY, EffectKind::SystemState { operation }) => {
                 operation == &SemanticCode::LOGICAL_STORAGE_DESTROY
             }
             (FS_FORKBOMB, EffectKind::SystemState { operation }) => {
@@ -219,6 +233,31 @@ fn destructive_tree_operation(
                         } if operation == &SemanticCode::PERMISSION_CHANGE
                     )
             }))
+}
+
+fn is_reviewed_temporary_root(target: &str) -> bool {
+    if ["/tmp", "/private/tmp", "/var/tmp"].iter().any(|root| {
+        target == *root
+            || target
+                .strip_prefix(root)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    }) {
+        return true;
+    }
+
+    let target = target.replace('\\', "/").to_ascii_lowercase();
+    let bytes = target.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'/' {
+        return false;
+    }
+    let components = target[3..]
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+    components.starts_with(&["windows", "temp"])
+        || components
+            .windows(3)
+            .any(|components| components == ["appdata", "local", "temp"])
 }
 
 fn pattern_selects_project_root(target: &str, root: &str) -> bool {

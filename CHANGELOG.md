@@ -6,26 +6,30 @@
   `git-remote-resource-delete` blocks statically targeted GitHub and GitLab
   release, issue, secret, variable, key, hook, environment, gist, and Actions
   cache deletion through reviewed CLI commands and REST routes.
-- **Guard rename compatibility** — `git-remote-delete` is now
-  `git-remote-repo-delete`; saved choices and guard commands still accept the old
-  name as a hidden compatibility alias, while unknown saved names warn without
-  resetting unrelated overrides.
+- **Guard rename compatibility** — `fs-storage-destroy` is now
+  `fs-volume-destroy`, and `git-remote-delete` is now `git-remote-repo-delete`;
+  saved choices and guard commands still accept the old names as hidden
+  compatibility aliases, while unknown saved names warn without resetting
+  unrelated overrides.
 - **Clear credential guard name** — `secrets-credentials` replaces
   `secrets-keys`; the old name remains a hidden alias so saved choices and guard
   commands keep working. Other unknown saved names warn without resetting
   unrelated overrides.
+- **Credential environment disclosure guard** — `secrets-env` now blocks
+  direct output of catalogued credential variables while bare environment
+  inspection remains delegated unless its output reaches a network sink.
 - **Windows support** — Releases now ship a tested, checksummed Windows x86-64
   archive and PowerShell installer. Claude Code, Codex, Cursor, GitHub Copilot,
   Cline, and Kiro support native Windows hooks, backed by typed PowerShell and
   cmd analysis plus Windows-safe custom guards and host state.
 - **Infrastructure destruction guards** — New guards cover Kubernetes deletion
   (`infra-k8s-delete`, optional), whole-stack Terraform, OpenTofu, and Pulumi
-  teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning
-  (`infra-container-prune`, optional), and Podman runtime reset
-  (`infra-container-reset`, enabled by default).
-- **Storage destruction guards** — `storage-destroy` blocks broad backup
+  teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning plus
+  Compose volume removal (`infra-container-volume-delete`, optional), and Podman
+  runtime reset (`infra-container-reset`, enabled by default).
+- **Storage destruction guards** — `storage-backup-destroy` blocks broad backup
   repository destruction by default. Optional guards cover recursive cloud
-  storage deletion and snapshot deletion, while `fs-storage-destroy` now also
+  storage deletion and snapshot deletion, while `fs-volume-destroy` now also
   covers live ZFS datasets.
 - **Package registry guards** — `registry-unpublish` blocks package unpublishing
   and published-name ownership changes by default; optional `registry-publish`
@@ -35,9 +39,11 @@
   exact whole-repository deletion through GitHub and GitLab CLI commands and
   REST routes while leaving branches, tags, archives, renames, and transfers
   outside its scope.
-- **Host and project guards** — New default-on guards protect project roots,
-  authentication and identity files, and startup-persistence paths. Optional
-  guards cover shell profiles and persistent startup-management commands.
+- **Host and project guards** — New default-on `sys-power` blocks reviewed host
+  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  project roots, authentication and identity files, and startup-persistence
+  paths; optional guards cover recursive deletion outside the project, shell
+  profiles, and persistent startup management.
 - **Resilient decisions and logs** — Runtime wiring failures no longer suppress
   independent guard decisions, and `nah log` plus the TUI recover readable
   history from a damaged audit log instead of leaving browsing unavailable.

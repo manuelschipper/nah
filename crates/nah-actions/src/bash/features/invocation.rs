@@ -15,7 +15,7 @@ pub(crate) fn invocation(
     words: Vec<String>,
     argv: Option<Vec<String>>,
     local_utility: bool,
-    semantic_operation: Option<&'static str>,
+    semantic_operation: Option<SemanticCode>,
     evals_substitution: bool,
     direct_execution: bool,
     pattern_program: bool,
@@ -39,14 +39,18 @@ pub(crate) fn invocation(
         };
     };
     let lexical_program = lexical_program.unwrap_or(program);
-    if semantic_operation == Some("critical-mutation") {
+    if semantic_operation.as_ref().is_some_and(|operation| {
+        operation == &SemanticCode::CRITICAL_MUTATION || operation == &SemanticCode::HOST_POWER
+    }) {
         return InvocationDraft::Known {
-            program: if pattern_program {
+            program: if pattern_program
+                && semantic_operation.as_ref() == Some(&SemanticCode::CRITICAL_MUTATION)
+            {
                 "shell".to_owned()
             } else {
                 lexical_program.to_owned()
             },
-            operation: SemanticCode::CRITICAL_MUTATION,
+            operation: semantic_operation.expect("matched priority semantic operation"),
             words,
             argv,
         };
@@ -84,8 +88,7 @@ pub(crate) fn invocation(
     if let Some(operation) = semantic_operation {
         return InvocationDraft::Known {
             program: lexical_program.to_owned(),
-            operation: SemanticCode::new(operation)
-                .expect("semantic operations are validated constants"),
+            operation,
             words,
             argv,
         };

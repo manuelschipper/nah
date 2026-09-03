@@ -9,7 +9,10 @@ use support::{guard_policy, guarded_stream};
 #[test]
 fn each_storage_guard_requires_its_matching_enabled_code() {
     for (name, operation) in [
-        ("storage-destroy", SemanticCode::STORAGE_DESTROY),
+        (
+            "storage-backup-destroy",
+            SemanticCode::STORAGE_BACKUP_DESTROY,
+        ),
         (
             "storage-recursive-delete",
             SemanticCode::STORAGE_RECURSIVE_DELETE,
@@ -32,14 +35,26 @@ fn each_storage_guard_requires_its_matching_enabled_code() {
 #[test]
 fn storage_guards_are_independent() {
     for (enabled, operation) in [
-        ("storage-destroy", SemanticCode::STORAGE_RECURSIVE_DELETE),
-        ("storage-destroy", SemanticCode::STORAGE_SNAPSHOT_DELETE),
-        ("storage-recursive-delete", SemanticCode::STORAGE_DESTROY),
+        (
+            "storage-backup-destroy",
+            SemanticCode::STORAGE_RECURSIVE_DELETE,
+        ),
+        (
+            "storage-backup-destroy",
+            SemanticCode::STORAGE_SNAPSHOT_DELETE,
+        ),
+        (
+            "storage-recursive-delete",
+            SemanticCode::STORAGE_BACKUP_DESTROY,
+        ),
         (
             "storage-recursive-delete",
             SemanticCode::STORAGE_SNAPSHOT_DELETE,
         ),
-        ("storage-snapshot-delete", SemanticCode::STORAGE_DESTROY),
+        (
+            "storage-snapshot-delete",
+            SemanticCode::STORAGE_BACKUP_DESTROY,
+        ),
         (
             "storage-snapshot-delete",
             SemanticCode::STORAGE_RECURSIVE_DELETE,
@@ -62,11 +77,14 @@ fn storage_guards_match_only_system_state_evidence() {
         ),
         (
             EffectKind::Git {
-                operation: SemanticCode::STORAGE_DESTROY,
+                operation: SemanticCode::STORAGE_BACKUP_DESTROY,
             },
             false,
         ),
-        (EffectKind::known("borg", "storage-destroy").unwrap(), true),
+        (
+            EffectKind::known("borg", "storage-backup-destroy").unwrap(),
+            true,
+        ),
     ] {
         let stream = if invocation {
             ActionStream::new(Coverage::Partial, vec![vec![effect]], vec![]).unwrap()
@@ -74,7 +92,8 @@ fn storage_guards_match_only_system_state_evidence() {
             guarded_stream(effect)
         };
         let decision =
-            nah_policy::decide(&stream, &guard_policy("storage-destroy", true), &[]).unwrap();
+            nah_policy::decide(&stream, &guard_policy("storage-backup-destroy", true), &[])
+                .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate);
     }
 }

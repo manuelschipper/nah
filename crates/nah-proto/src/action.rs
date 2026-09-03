@@ -177,6 +177,7 @@ impl SemanticCode {
     pub const ANALYSIS_REFUSED: Self = Self::borrowed("analysis-refused");
     pub const CLOCK_SET: Self = Self::borrowed("clock-set");
     pub const CLEAN_FORCE: Self = Self::borrowed("clean-force");
+    pub const CREDENTIAL_DISCLOSURE: Self = Self::borrowed("credential-disclosure");
     pub const CREDENTIAL_SEARCH: Self = Self::borrowed("credential-search");
     pub const CRITICAL_MUTATION: Self = Self::borrowed("critical-mutation");
     pub const DECODE: Self = Self::borrowed("decode");
@@ -190,7 +191,8 @@ impl SemanticCode {
     pub const GIT_REMOTE_REPO_DELETE: Self = Self::borrowed("git-remote-repo-delete");
     pub const GIT_REMOTE_RESOURCE_DELETE: Self = Self::borrowed("git-remote-resource-delete");
     pub const HARD_RESET: Self = Self::borrowed("hard-reset");
-    pub const INFRA_CONTAINER_PRUNE: Self = Self::borrowed("infra-container-prune");
+    pub const HOST_POWER: Self = Self::borrowed("host-power");
+    pub const INFRA_CONTAINER_VOLUME_DELETE: Self = Self::borrowed("infra-container-volume-delete");
     pub const INFRA_CONTAINER_RESET: Self = Self::borrowed("infra-container-reset");
     pub const INFRA_IAC_DESTROY: Self = Self::borrowed("infra-iac-destroy");
     pub const INFRA_K8S_BULK_RESOURCE_DELETE: Self =
@@ -222,7 +224,7 @@ impl SemanticCode {
     pub const SHELL_PATTERN: Self = Self::borrowed("shell-pattern");
     pub const SHELL_STDIN: Self = Self::borrowed("shell-stdin");
     pub const STARTUP_MANAGEMENT: Self = Self::borrowed("fs-startup-management");
-    pub const STORAGE_DESTROY: Self = Self::borrowed("storage-destroy");
+    pub const STORAGE_BACKUP_DESTROY: Self = Self::borrowed("storage-backup-destroy");
     pub const STORAGE_RECURSIVE_DELETE: Self = Self::borrowed("storage-recursive-delete");
     pub const STORAGE_SNAPSHOT_DELETE: Self = Self::borrowed("storage-snapshot-delete");
     pub const STORAGE_WRITE: Self = Self::borrowed("storage-write");

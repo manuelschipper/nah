@@ -31,9 +31,10 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-35 guards, 26 on by default, covering six classes of disaster: **execution
+37 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
-**infrastructure, storage, and backup teardown**, and **package-registry operations**.
+**infrastructure, storage, and backup teardown**, **package-registry operations**,
+and **host power actions**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -41,14 +42,15 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `exec-decoded` | Execution reached from a visible decode stage. |
 | `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
-| `secrets-env` | Reads of `.env` files and sensitive basenames. |
+| `secrets-env` | Reads of `.env` files and sensitive basenames, plus direct output of catalogued credential environment variables. |
 | `secrets-credentials` | Reads or writes of private-key and credential-store paths. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
+| `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
 | `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
-| `fs-storage-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
+| `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
 | `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
 | `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
@@ -63,15 +65,16 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
-| `infra-container-prune` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
+| `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
-| `storage-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
+| `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |
 | `registry-publish` | Reviewed package publication commands. Off by default. |
 | `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
+| `sys-power` | Fully visible local host shutdown, reboot, halt, and suspend actions. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.

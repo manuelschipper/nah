@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1754);
+    assert_eq!(summary.cases, 1783);
 }
 
 #[test]
@@ -78,20 +78,20 @@ fn current_corpus_file_counts_are_pinned() {
         actual,
         [
             ("execution-flows.jsonl".to_owned(), 296),
-            ("filesystem.jsonl".to_owned(), 251),
+            ("filesystem.jsonl".to_owned(), 256),
             ("git.jsonl".to_owned(), 273),
-            ("infrastructure.jsonl".to_owned(), 162),
+            ("infrastructure.jsonl".to_owned(), 174),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
-            ("native.jsonl".to_owned(), 15),
+            ("native.jsonl".to_owned(), 17),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 76),
-            ("secrets.jsonl".to_owned(), 100),
+            ("secrets.jsonl".to_owned(), 108),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("storage.jsonl".to_owned(), 73),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 27),
+            ("windows.jsonl".to_owned(), 29),
         ]
     );
 }
@@ -228,14 +228,14 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-container-reset.remote-connection",
         "infra-container-reset.operation-version-delegates",
         "infra-container-reset.root-terminator-delegates",
-        "infra-container-prune.docker-volume-all",
-        "infra-container-prune.factory-delegates",
-        "infra-container-prune.podman-system-volumes",
-        "infra-container-prune.operation-version-delegates",
-        "infra-container-prune.group-terminator-delegates",
-        "infra-container-prune.filter-delegates",
-        "infra-container-prune.dry-run-delegates",
-        "infra-container-prune.named-volume-control",
+        "infra-container-volume-delete.docker-volume-all",
+        "infra-container-volume-delete.factory-delegates",
+        "infra-container-volume-delete.podman-system-volumes",
+        "infra-container-volume-delete.operation-version-delegates",
+        "infra-container-volume-delete.group-terminator-delegates",
+        "infra-container-volume-delete.filter-delegates",
+        "infra-container-volume-delete.dry-run-delegates",
+        "infra-container-volume-delete.named-volume-control",
         "infra-k8s-delete.namespace",
         "infra-k8s-delete.persistent-volume",
         "infra-k8s-delete.pods-all",
@@ -243,10 +243,10 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-k8s-boundary.client-dry-run-delegates",
         "infra-k8s-boundary.filename-delegates",
         "infra-k8s-boundary.path-override-delegates",
-        "storage-destroy.borg-repository",
-        "storage-destroy.borg-factory-default",
-        "storage-destroy.restic-remove-all",
-        "storage-destroy.velero-all",
+        "storage-backup-destroy.borg-repository",
+        "storage-backup-destroy.borg-factory-default",
+        "storage-backup-destroy.restic-remove-all",
+        "storage-backup-destroy.velero-all",
         "storage-recursive.aws-sync",
         "storage-recursive.factory-delegates",
         "storage-recursive.rclone-sync",
@@ -261,7 +261,7 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "storage-boundary.rclone-dry-run-delegates",
         "storage-boundary.zfs-dry-run-delegates",
         "storage-boundary.dynamic-target-delegates",
-        "fs-storage-destroy.zfs-live-dataset",
+        "fs-volume-destroy.zfs-live-dataset",
         "registry-unpublish.npm-package-version",
         "registry-unpublish.factory-default",
         "registry-unpublish.gem-yank",

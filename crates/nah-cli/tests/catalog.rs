@@ -209,61 +209,70 @@ fn remote_resource_delete_is_factory_off_and_independent() {
 }
 
 #[test]
-fn remote_repository_guard_alias_preserves_saved_choices_and_commands() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
-    std::fs::create_dir(temp.path().join(".nah")).unwrap();
-    let state_path = temp.path().join(".nah/built-ins.json");
-    std::fs::write(
-        &state_path,
-        "{\"v\":2,\"overrides\":{\"git-remote-delete\":false}}\n",
-    )
-    .unwrap();
-    let command = "gh repo delete owner/project --yes";
+fn renamed_guard_aliases_preserve_saved_choices_and_commands() {
+    for (alias, canonical, command) in [
+        (
+            "fs-storage-destroy",
+            "fs-volume-destroy",
+            "lvm lvremove vg/data",
+        ),
+        (
+            "git-remote-delete",
+            "git-remote-repo-delete",
+            "gh repo delete owner/project --yes",
+        ),
+        (
+            "storage-destroy",
+            "storage-backup-destroy",
+            "borg delete /srv/backups/repo",
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let project = repo(temp.path());
+        std::fs::create_dir(temp.path().join(".nah")).unwrap();
+        let state_path = temp.path().join(".nah/built-ins.json");
+        std::fs::write(
+            &state_path,
+            format!("{{\"v\":2,\"overrides\":{{\"{alias}\":false}}}}\n"),
+        )
+        .unwrap();
 
-    assert_eq!(
-        decide(temp.path(), &project, command)["verdict"],
-        "delegate"
-    );
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate"
+        );
 
-    let reset = nah(
-        temp.path(),
-        &project,
-        &["guard", "reset", "git-remote-delete"],
-        None,
-    );
-    assert!(reset.status.success(), "{reset:?}");
-    assert_eq!(reset.stdout, b"reset guard git-remote-repo-delete\n");
-    assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+        let reset = nah(temp.path(), &project, &["guard", "reset", alias], None);
+        assert!(reset.status.success(), "{reset:?}");
+        assert_eq!(
+            reset.stdout,
+            format!("reset guard {canonical}\n").as_bytes()
+        );
+        assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
 
-    let disabled = nah(
-        temp.path(),
-        &project,
-        &["guard", "disable", "git-remote-delete"],
-        None,
-    );
-    assert!(disabled.status.success(), "{disabled:?}");
-    assert_eq!(disabled.stdout, b"disabled guard git-remote-repo-delete\n");
-    assert_eq!(
-        decide(temp.path(), &project, command)["verdict"],
-        "delegate"
-    );
-    let saved: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
-    assert_eq!(
-        saved["overrides"],
-        serde_json::json!({"git-remote-repo-delete": false})
-    );
+        let disabled = nah(temp.path(), &project, &["guard", "disable", alias], None);
+        assert!(disabled.status.success(), "{disabled:?}");
+        assert_eq!(
+            disabled.stdout,
+            format!("disabled guard {canonical}\n").as_bytes()
+        );
+        assert_eq!(
+            decide(temp.path(), &project, command)["verdict"],
+            "delegate"
+        );
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+        assert_eq!(saved["overrides"].as_object().unwrap().len(), 1);
+        assert_eq!(saved["overrides"][canonical], false);
 
-    let enabled = nah(
-        temp.path(),
-        &project,
-        &["guard", "enable", "git-remote-delete"],
-        None,
-    );
-    assert!(enabled.status.success(), "{enabled:?}");
-    assert_eq!(enabled.stdout, b"enabled guard git-remote-repo-delete\n");
-    assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+        let enabled = nah(temp.path(), &project, &["guard", "enable", alias], None);
+        assert!(enabled.status.success(), "{enabled:?}");
+        assert_eq!(
+            enabled.stdout,
+            format!("enabled guard {canonical}\n").as_bytes()
+        );
+        assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
+    }
 }
 
 #[test]
@@ -669,7 +678,58 @@ fn kubernetes_delete_guard_is_factory_off_and_independently_configurable() {
 }
 
 #[test]
-fn container_reset_and_prune_keep_independent_factory_postures() {
+fn renamed_container_guard_accepts_old_state_and_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    std::fs::create_dir(temp.path().join(".nah")).unwrap();
+    std::fs::write(
+        temp.path().join(".nah/built-ins.json"),
+        "{\"v\":2,\"overrides\":{\"infra-container-prune\":true}}\n",
+    )
+    .unwrap();
+
+    let decision = decide(temp.path(), &project, "docker volume prune --all");
+    assert_eq!(decision["verdict"], "block");
+    assert_eq!(
+        decision["policy_attributions"][0]["name"],
+        "infra-container-volume-delete"
+    );
+
+    for (action, completed, expected) in [
+        (
+            "disable",
+            "disabled",
+            serde_json::json!({"infra-container-volume-delete": false}),
+        ),
+        (
+            "enable",
+            "enabled",
+            serde_json::json!({"infra-container-volume-delete": true}),
+        ),
+        ("reset", "reset", serde_json::json!({})),
+    ] {
+        let result = nah(
+            temp.path(),
+            &project,
+            &["guard", action, "infra-container-prune"],
+            None,
+        );
+        assert!(result.status.success(), "{result:?}");
+        assert_eq!(
+            result.stdout,
+            format!("{completed} guard infra-container-volume-delete\n").as_bytes()
+        );
+        assert!(!result.stderr.is_empty());
+        let saved: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["overrides"], expected);
+    }
+}
+
+#[test]
+fn container_reset_and_volume_delete_keep_independent_factory_postures() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
 
@@ -697,7 +757,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
     let enabled = nah(
         temp.path(),
         &project,
-        &["guard", "enable", "infra-container-prune"],
+        &["guard", "enable", "infra-container-volume-delete"],
         None,
     );
     assert!(enabled.status.success(), "{enabled:?}");
@@ -710,7 +770,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
         let decision = decide(temp.path(), &project, command);
         assert_eq!(decision["verdict"], "block", "{command}");
         assert_eq!(
-            decision["policy_attributions"][0]["name"], "infra-container-prune",
+            decision["policy_attributions"][0]["name"], "infra-container-volume-delete",
             "{command}"
         );
     }
@@ -741,7 +801,7 @@ fn container_reset_and_prune_keep_independent_factory_postures() {
     );
     assert_eq!(
         decide(temp.path(), &project, "docker volume prune --all")["policy_attributions"][0]["name"],
-        "infra-container-prune"
+        "infra-container-volume-delete"
     );
 }
 
@@ -752,7 +812,10 @@ fn storage_guards_keep_independent_factory_and_project_postures() {
 
     let destroy = decide(temp.path(), &project, "borg delete /srv/backups/repo");
     assert_eq!(destroy["verdict"], "block");
-    assert_eq!(destroy["policy_attributions"][0]["name"], "storage-destroy");
+    assert_eq!(
+        destroy["policy_attributions"][0]["name"],
+        "storage-backup-destroy"
+    );
     for command in [
         "rclone sync . remote:mirror",
         "restic forget --keep-daily 7 --prune",
@@ -803,7 +866,7 @@ fn storage_guards_keep_independent_factory_and_project_postures() {
     let disabled = nah(
         temp.path(),
         &project,
-        &["guard", "disable", "storage-destroy"],
+        &["guard", "disable", "storage-backup-destroy"],
         None,
     );
     assert!(disabled.status.success(), "{disabled:?}");
