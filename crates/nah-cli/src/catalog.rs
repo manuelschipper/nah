@@ -14,6 +14,7 @@ pub(crate) enum GuardFamily {
     Infrastructure,
     Registry,
     Secrets,
+    System,
 }
 
 impl GuardFamily {
@@ -25,6 +26,7 @@ impl GuardFamily {
             Self::Infrastructure => "INFRASTRUCTURE",
             Self::Registry => "REGISTRY",
             Self::Secrets => "SECRETS",
+            Self::System => "SYSTEM",
         }
     }
 
@@ -36,6 +38,7 @@ impl GuardFamily {
             Self::Infrastructure => "infrastructure",
             Self::Registry => "registry",
             Self::Secrets => "secrets",
+            Self::System => "system",
         }
     }
 
@@ -47,6 +50,7 @@ impl GuardFamily {
             Self::Infrastructure => 3,
             Self::Registry => 4,
             Self::Secrets => 5,
+            Self::System => 6,
         }
     }
 }
@@ -265,6 +269,7 @@ fn family(name: &str) -> GuardFamily {
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
+        "sys-power" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -356,6 +361,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "secrets-credentials" => {
             "Blocks reads or writes of private-key and credential-store paths."
+        }
+        "sys-power" => {
+            "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
         }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
@@ -537,6 +545,17 @@ fn examples(name: &str) -> Vec<&'static str> {
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
         ],
+        "sys-power" => {
+            if cfg!(windows) {
+                [
+                    "Stop-Computer",
+                    "Restart-Computer -Force",
+                    "Restart-Computer -ComputerName localhost",
+                ]
+            } else {
+                ["shutdown -h now", "sudo reboot", "systemctl suspend"]
+            }
+        }
         _ => unreachable!("every shipped guard has agent-facing examples"),
     }
     .to_vec();
@@ -610,6 +629,17 @@ mod tests {
             assert!(!behavior(name).is_empty());
             assert!(examples(name).iter().all(|example| !example.is_empty()));
         }
+    }
+
+    #[test]
+    fn sys_power_uses_the_default_on_system_catalog_family() {
+        let guard = shipped_guard_docs()
+            .into_iter()
+            .find(|guard| guard.name == "sys-power")
+            .unwrap();
+        assert_eq!(guard.family, GuardFamily::System);
+        assert!(guard.default_enabled);
+        assert_eq!(guard.examples.len(), 3);
     }
 
     #[test]
@@ -707,6 +737,12 @@ mod tests {
                 .iter()
                 .find(|state| state.name() == "storage-snapshot-delete")
                 .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "sys-power")
+                .is_some_and(ShippedGuardState::enabled)
         );
         assert!(
             states

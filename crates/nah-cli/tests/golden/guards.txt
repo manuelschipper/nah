@@ -35,6 +35,7 @@ Built-in:
 - [x] storage-backup-destroy
 - [ ] storage-recursive-delete
 - [ ] storage-snapshot-delete
+- [x] sys-power
 
 Custom:
 No custom guards discovered. Create one with `nah guard new <name>`.

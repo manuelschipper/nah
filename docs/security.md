@@ -7,14 +7,14 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 36 guards span execution, secrets, filesystem, Git, infrastructure/storage/
-  backup, and registries; 26 default on.
+- 37 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
   decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
   live failures enter the redacted log when writable.
-- Understood nah-state/executable mutation or authority change blocks.
+- Understood nah-state/executable mutation, authority change, or reviewed
+  host-power action blocks.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
   bypass launches.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks

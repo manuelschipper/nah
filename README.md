@@ -31,9 +31,10 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-36 guards, 26 on by default, covering six classes of disaster: **execution
+37 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
-**infrastructure, storage, and backup teardown**, and **package-registry operations**.
+**infrastructure, storage, and backup teardown**, **package-registry operations**,
+and **host power actions**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -73,6 +74,7 @@ hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |
 | `registry-publish` | Reviewed package publication commands. Off by default. |
 | `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
+| `sys-power` | Fully visible local host shutdown, reboot, halt, and suspend actions. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.
