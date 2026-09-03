@@ -145,6 +145,7 @@ impl LanguageEffectDraftTarget<'_> {
             let operation = match call.kind() {
                 LanguageCallKind::DirectFile => SemanticCode::DIRECT_FILE,
                 LanguageCallKind::EvaluatedShell => SemanticCode::EVALUATED_SHELL,
+                LanguageCallKind::HostPower => SemanticCode::HOST_POWER,
                 LanguageCallKind::LocalUtility => SemanticCode::LOCAL_UTILITY,
                 LanguageCallKind::NetworkTransfer => SemanticCode::NETWORK_TRANSFER,
             };

@@ -13,6 +13,7 @@ pub(crate) mod flow;
 pub(crate) mod git;
 pub(crate) mod git_config;
 pub(crate) mod git_operations;
+pub(crate) mod host_power;
 pub(crate) mod infrastructure;
 pub(crate) mod invocation;
 pub(crate) mod kubernetes;

@@ -35,9 +35,10 @@
   exact whole-repository deletion through GitHub and GitLab CLI commands and
   REST routes while leaving branches, tags, archives, renames, and transfers
   outside its scope.
-- **Host and project guards** — New default-on guards protect project roots,
-  authentication and identity files, and startup-persistence paths. Optional
-  guards cover shell profiles and persistent startup-management commands.
+- **Host and project guards** — New default-on `sys-power` blocks reviewed host
+  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  project roots, authentication and identity files, and startup-persistence
+  paths; optional guards cover shell profiles and persistent startup management.
 - **Resilient decisions and logs** — Runtime wiring failures no longer suppress
   independent guard decisions, and `nah log` plus the TUI recover readable
   history from a damaged audit log instead of leaving browsing unavailable.
