@@ -10,6 +10,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
+const FS_OUTSIDE_WORKSPACE_DELETE: &str = "fs-outside-workspace-delete";
 const FS_SHELL_PROFILE: &str = "fs-shell-profile";
 const FS_STARTUP_MANAGEMENT: &str = "fs-startup-management";
 const FS_PROJECT_ROOT: &str = "fs-project-root";
@@ -38,6 +39,10 @@ pub(crate) fn add(
         (
             FS_HOME,
             "fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change",
+        ),
+        (
+            FS_OUTSIDE_WORKSPACE_DELETE,
+            "fs-outside-workspace-delete blocked recursive deletion outside the active project; narrow the target to the project or a reviewed temporary root; ask the operator to perform any broader cleanup",
         ),
         (
             FS_PROJECT_ROOT,
@@ -117,6 +122,15 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                         filesystem.operation,
                         filesystem.recursive,
                     )
+            }
+            (FS_OUTSIDE_WORKSPACE_DELETE, EffectKind::Filesystem { effect: filesystem }) => {
+                filesystem.operation == FilesystemOperation::Delete
+                    && filesystem.recursive
+                    && matches!(
+                        &filesystem.scope,
+                        PathScope::Home | PathScope::System | PathScope::OutsideProject
+                    )
+                    && !is_reviewed_temporary_root(filesystem.target.as_str())
             }
             (FS_PROJECT_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
                 if let PathScope::Project { root } = &filesystem.scope {
@@ -219,6 +233,31 @@ fn destructive_tree_operation(
                         } if operation == &SemanticCode::PERMISSION_CHANGE
                     )
             }))
+}
+
+fn is_reviewed_temporary_root(target: &str) -> bool {
+    if ["/tmp", "/private/tmp", "/var/tmp"].iter().any(|root| {
+        target == *root
+            || target
+                .strip_prefix(root)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    }) {
+        return true;
+    }
+
+    let target = target.replace('\\', "/").to_ascii_lowercase();
+    let bytes = target.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'/' {
+        return false;
+    }
+    let components = target[3..]
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+    components.starts_with(&["windows", "temp"])
+        || components
+            .windows(3)
+            .any(|components| components == ["appdata", "local", "temp"])
 }
 
 fn pattern_selects_project_root(target: &str, root: &str) -> bool {

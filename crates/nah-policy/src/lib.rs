@@ -41,6 +41,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "fs-auth-identity",
     "fs-forkbomb",
     "fs-home",
+    "fs-outside-workspace-delete",
     "fs-project-root",
     "fs-raw-device",
     "fs-shell-profile",

@@ -425,6 +425,30 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "/srv/data",
+          "resolved": "/srv/data"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "../sibling",
+          "resolved": "/workspace/sibling"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/sibling",
+          "resolved": "/workspace/sibling"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/../sibling",
+          "resolved": "/workspace/sibling"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "/tmp/unobserved",
           "resolved": "/tmp/unobserved"
         },
