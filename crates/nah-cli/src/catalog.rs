@@ -216,6 +216,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                 *name,
                 "fs-shell-profile"
                     | "fs-startup-management"
+                    | "git-path-discard"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
@@ -248,6 +249,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-force-push"
         | "git-hard-reset"
         | "git-metadata"
+        | "git-path-discard"
         | "git-recovery-destroy"
         | "git-remote-repo-delete"
         | "git-rewrite-force"
@@ -300,6 +302,9 @@ fn behavior(name: &str) -> &'static str {
         "git-hard-reset" => "Blocks Git hard resets.",
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
+        }
+        "git-path-discard" => {
+            "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
@@ -455,6 +460,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git filter-branch --force -- --all",
             "git filter-repo --force",
             "sudo git filter-repo --force",
+        ],
+        "git-path-discard" => [
+            "git checkout -- src/lib.rs",
+            "git restore src/lib.rs",
+            "git show HEAD:src/lib.rs > src/lib.rs",
         ],
         "git-worktree-discard" => [
             "git checkout -f",
@@ -661,6 +671,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "git-path-discard")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -718,6 +734,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 8);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 9);
     }
 }

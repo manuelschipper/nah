@@ -2,7 +2,9 @@
 
 mod support;
 
-use nah_proto::action::{ActionStream, Coverage, EffectKind, FilesystemOperation};
+use nah_proto::action::{
+    ActionStream, Coverage, EffectKind, FilesystemOperation, PathScope, SemanticCode,
+};
 use nah_proto::decision::Verdict;
 use support::{filesystem, guard_policy, guarded_stream, project_scope};
 
@@ -13,6 +15,7 @@ fn git_guards_block_only_their_one_sentence_operation() {
         ("git-metadata", "metadata-mutation"),
         ("git-force-push", "force-push"),
         ("git-hard-reset", "hard-reset"),
+        ("git-path-discard", "path-discard"),
         ("git-recovery-destroy", "recovery-destroy"),
         ("git-remote-repo-delete", "git-remote-repo-delete"),
         ("git-rewrite-force", "rewrite-force"),
@@ -35,6 +38,94 @@ fn git_guards_block_only_their_one_sentence_operation() {
         let disabled = nah_policy::decide(&stream, &guard_policy(guard, false), &[]).unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{guard}");
     }
+}
+
+#[test]
+fn path_discard_matches_same_stage_show_read_and_write_of_one_project_path() {
+    for (read_target, write_target, scope, expected) in [
+        ("/repo/file", "/repo/file", project_scope(), Verdict::Block),
+        (
+            "/repo/source",
+            "/repo/destination",
+            project_scope(),
+            Verdict::Delegate,
+        ),
+        ("/repo", "/repo", project_scope(), Verdict::Delegate),
+        (
+            "/outside/file",
+            "/outside/file",
+            PathScope::OutsideProject,
+            Verdict::Delegate,
+        ),
+    ] {
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![
+                EffectKind::opaque("git").unwrap(),
+                EffectKind::Git {
+                    operation: SemanticCode::new("show").unwrap(),
+                },
+                filesystem(
+                    FilesystemOperation::Read,
+                    read_target,
+                    scope.clone(),
+                    nah_proto::action::Sensitivity::None,
+                ),
+                filesystem(
+                    FilesystemOperation::Write,
+                    write_target,
+                    scope,
+                    nah_proto::action::Sensitivity::None,
+                ),
+            ]],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy("git-path-discard", true), &[])
+                .unwrap()
+                .verdict(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn path_discard_does_not_join_show_effects_across_stages() {
+    let stream = ActionStream::new(
+        Coverage::Partial,
+        vec![
+            vec![
+                EffectKind::opaque("git").unwrap(),
+                EffectKind::Git {
+                    operation: SemanticCode::new("show").unwrap(),
+                },
+                filesystem(
+                    FilesystemOperation::Read,
+                    "/repo/file",
+                    project_scope(),
+                    nah_proto::action::Sensitivity::None,
+                ),
+            ],
+            vec![
+                EffectKind::opaque("redirect").unwrap(),
+                filesystem(
+                    FilesystemOperation::Write,
+                    "/repo/file",
+                    project_scope(),
+                    nah_proto::action::Sensitivity::None,
+                ),
+            ],
+        ],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        nah_policy::decide(&stream, &guard_policy("git-path-discard", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
 }
 
 #[test]
