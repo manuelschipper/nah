@@ -210,6 +210,7 @@ impl SemanticCode {
     pub const NETWORK_SHELL: Self = Self::borrowed("network-shell");
     pub const NETWORK_TRANSFER: Self = Self::borrowed("network-transfer");
     pub const NULL_COMMAND: Self = Self::borrowed("null-command");
+    pub const PATH_DISCARD: Self = Self::borrowed("path-discard");
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");

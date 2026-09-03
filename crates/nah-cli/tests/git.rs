@@ -108,6 +108,10 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ("git restore -- . --keep", "git-worktree-discard"),
         ("git switch --discard-changes main", "git-worktree-discard"),
         ("git switch -f --no-merge main", "git-worktree-discard"),
+        ("git checkout -f -- src/lib.rs", "git-path-discard"),
+        ("git restore src/lib.rs", "git-path-discard"),
+        ("git restore src/lib.rs > .", "git-path-discard"),
+        ("git show HEAD:src/lib.rs > src/lib.rs", "git-path-discard"),
         ("gh repo delete", "git-remote-repo-delete"),
         (
             "gh repo delete github.example.com/owner/project --yes",
@@ -469,9 +473,6 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         "git clean -f .git",
         "git checkout -f main",
         "git checkout HEAD HEAD -- .",
-        "git checkout -f -- src/lib.rs",
-        "git restore src/lib.rs",
-        "git restore src/lib.rs > .",
         "git restore ':/'",
         "git switch -f main other",
         "git checkout -f --no-merge --merge",
@@ -710,7 +711,6 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
         ("git tag v1", Coverage::Full),
         ("git remote -v", Coverage::Full),
         ("git checkout main", Coverage::Full),
-        ("git restore src/lib.rs", Coverage::Full),
         ("git stash push", Coverage::Full),
         ("git stash apply", Coverage::Full),
         ("git diff --output=patch.txt", Coverage::Partial),
@@ -737,6 +737,28 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), coverage, "{command}");
+    }
+
+    for (command, coverage) in [
+        ("git restore src/lib.rs", Coverage::Full),
+        ("git show HEAD:src/lib.rs > src/lib.rs", Coverage::Partial),
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert_eq!(result.core().coverage(), coverage, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "git-path-discard"),
+            "{command}: {:?}",
+            result.core().policy_attributions()
+        );
     }
 
     for command in [
