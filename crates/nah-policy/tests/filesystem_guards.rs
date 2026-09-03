@@ -8,7 +8,8 @@ use nah_proto::action::{
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
-use support::{guard_policy, guarded_stream, path};
+use nah_proto::observation::ProjectGuardDeclaration;
+use support::{context, guard_policy, guarded_stream, path};
 
 fn unresolved_stream(
     invocation: EffectKind,
@@ -71,6 +72,29 @@ fn project_effect(
             selects_home: false,
             recursive,
             pattern,
+        },
+    }
+}
+
+fn scoped_filesystem_effect(
+    platform: Platform,
+    target: &str,
+    scope: PathScope,
+    operation: FilesystemOperation,
+    recursive: bool,
+) -> EffectKind {
+    EffectKind::Filesystem {
+        effect: FilesystemEffect {
+            operation,
+            target: AbsolutePath::new(platform, target).unwrap(),
+            scope,
+            sensitivity: Sensitivity::None,
+            protection: None,
+            host_integrity: None,
+            selects_root: false,
+            selects_home: false,
+            recursive,
+            pattern: false,
         },
     }
 }
@@ -308,6 +332,204 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
     let decision = nah_policy::decide(&stream, &guard_policy("fs-home", true), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-home");
+}
+
+#[test]
+fn fs_outside_workspace_delete_blocks_only_concrete_recursive_deletes_outside_project() {
+    for (target, scope) in [
+        ("/home/test/Downloads/old-build", PathScope::Home),
+        ("/etc/old-config", PathScope::System),
+        ("/srv/data", PathScope::OutsideProject),
+    ] {
+        let stream = guarded_stream(scoped_filesystem_effect(
+            Platform::Linux,
+            target,
+            scope,
+            FilesystemOperation::Delete,
+            true,
+        ));
+        let decision = nah_policy::decide(
+            &stream,
+            &guard_policy("fs-outside-workspace-delete", true),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(decision.verdict(), Verdict::Block, "{target}");
+        assert_eq!(
+            decision.policy_attributions()[0].name(),
+            "fs-outside-workspace-delete"
+        );
+    }
+
+    for effect in [
+        project_effect(
+            Platform::Linux,
+            "/repo",
+            "/repo/build",
+            FilesystemOperation::Delete,
+            true,
+            false,
+        ),
+        scoped_filesystem_effect(
+            Platform::Linux,
+            "/srv/data",
+            PathScope::OutsideProject,
+            FilesystemOperation::Delete,
+            false,
+        ),
+        scoped_filesystem_effect(
+            Platform::Linux,
+            "/srv/data",
+            PathScope::OutsideProject,
+            FilesystemOperation::Write,
+            true,
+        ),
+    ] {
+        let decision = nah_policy::decide(
+            &guarded_stream(effect),
+            &guard_policy("fs-outside-workspace-delete", true),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(decision.verdict(), Verdict::Delegate);
+        assert!(decision.policy_attributions().is_empty());
+    }
+
+    let unresolved = unresolved_stream(
+        EffectKind::known("rm", "delete").unwrap(),
+        FilesystemOperation::Delete,
+        true,
+    );
+    assert_eq!(
+        nah_policy::decide(
+            &unresolved,
+            &guard_policy("fs-outside-workspace-delete", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
+        Verdict::Delegate
+    );
+}
+
+#[test]
+fn fs_outside_workspace_delete_excludes_only_reviewed_temporary_roots() {
+    for (platform, target) in [
+        (Platform::Linux, "/tmp"),
+        (Platform::Linux, "/tmp/old-build"),
+        (Platform::Macos, "/private/tmp"),
+        (Platform::Macos, "/private/tmp/old-build"),
+        (Platform::Linux, "/var/tmp"),
+        (Platform::Linux, "/var/tmp/old-build"),
+        (Platform::Windows, r"C:\Users\test\AppData\Local\Temp"),
+        (
+            Platform::Windows,
+            r"c:\Users\test\APPDATA\local\TEMP\old-build",
+        ),
+        (Platform::Windows, r"C:\Windows\Temp"),
+        (Platform::Windows, "d:/WINDOWS/TEMP/old-build"),
+    ] {
+        let stream = guarded_stream(scoped_filesystem_effect(
+            platform,
+            target,
+            PathScope::OutsideProject,
+            FilesystemOperation::Delete,
+            true,
+        ));
+        assert_eq!(
+            nah_policy::decide(
+                &stream,
+                &guard_policy("fs-outside-workspace-delete", true),
+                &[],
+            )
+            .unwrap()
+            .verdict(),
+            Verdict::Delegate,
+            "{target}"
+        );
+    }
+
+    for (platform, target) in [
+        (Platform::Linux, "/tmp-old"),
+        (Platform::Linux, "/private/tmp-old"),
+        (Platform::Linux, "/var/tmp-old"),
+        (Platform::Windows, r"C:\Users\test\AppData\Local\Temp-old"),
+        (Platform::Windows, r"C:\Windows\Temp-old"),
+    ] {
+        let stream = guarded_stream(scoped_filesystem_effect(
+            platform,
+            target,
+            PathScope::OutsideProject,
+            FilesystemOperation::Delete,
+            true,
+        ));
+        assert_eq!(
+            nah_policy::decide(
+                &stream,
+                &guard_policy("fs-outside-workspace-delete", true),
+                &[],
+            )
+            .unwrap()
+            .verdict(),
+            Verdict::Block,
+            "{target}"
+        );
+    }
+}
+
+#[test]
+fn fs_outside_workspace_delete_preserves_home_and_system_guard_attribution() {
+    let policy = context(
+        &[
+            ("fs-system-tree", true),
+            ("fs-home", true),
+            ("fs-outside-workspace-delete", true),
+        ],
+        vec![],
+        ProjectGuardDeclaration::Absent,
+    )
+    .1;
+    for (target, scope, selects_home, expected) in [
+        (
+            "/etc",
+            PathScope::System,
+            false,
+            ["fs-system-tree", "fs-outside-workspace-delete"],
+        ),
+        (
+            "/home/test",
+            PathScope::Home,
+            true,
+            ["fs-home", "fs-outside-workspace-delete"],
+        ),
+    ] {
+        let stream = guarded_stream(EffectKind::Filesystem {
+            effect: FilesystemEffect {
+                operation: FilesystemOperation::Delete,
+                target: path(target),
+                scope,
+                sensitivity: Sensitivity::None,
+                protection: None,
+                host_integrity: None,
+                selects_root: false,
+                selects_home,
+                recursive: true,
+                pattern: false,
+            },
+        });
+        let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+        assert_eq!(decision.verdict(), Verdict::Block);
+        assert_eq!(decision.policy_attributions().len(), expected.len());
+        for guard in expected {
+            assert!(
+                decision
+                    .policy_attributions()
+                    .iter()
+                    .any(|attribution| attribution.name() == guard),
+                "{guard}"
+            );
+        }
+    }
 }
 
 #[test]
