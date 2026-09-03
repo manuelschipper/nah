@@ -524,7 +524,10 @@ fn has_no_side_effect(subcommand: &str, arguments: &[Word]) -> bool {
             option_before_separator(arguments, "--dry-run")
                 || option_before_separator(arguments, "--analyze")
         }
-        "reflog" => option_before_separator(arguments, "--dry-run"),
+        "reflog" => {
+            option_before_separator(arguments, "--dry-run")
+                || short_option_before_separator(arguments, 'n')
+        }
         "prune" => {
             option_before_separator(arguments, "--dry-run")
                 || short_option_before_separator(arguments, 'n')

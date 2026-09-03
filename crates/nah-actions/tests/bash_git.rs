@@ -91,6 +91,7 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         "git reflog show",
         "git reflog show expire",
         "git reflog expire --dry-run --all --expire=now",
+        "git reflog expire -n --all --expire=now",
         "git reflog delete HEAD@{0}",
         "git gc -- --prune=now",
         "git push --dry-run --force origin main",

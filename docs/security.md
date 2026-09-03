@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 35 guards span execution, secrets, filesystem, Git, infrastructure/storage/
+- 36 guards span execution, secrets, filesystem, Git, infrastructure/storage/
   backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.

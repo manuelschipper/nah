@@ -64,6 +64,7 @@
 {"v":1,"id":"git-rewrite-force.help-file-value","command":"git filter-repo --force --replace-text --help","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-rewrite-force"}}
 {"v":1,"id":"git-routine.filter-repo-dry-run-force-delegates","command":"git filter-repo --dry-run --force","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"git-routine.reflog-expire-dry-run-delegates","command":"git reflog expire --dry-run --expire=now --all","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
+{"v":1,"id":"git-routine.reflog-expire-short-dry-run-delegates","command":"git reflog expire -n --expire=now --all","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"git-metadata.write-index-delegates","command":"echo safe > .git/index","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"git-recovery-destroy.gc-prune-all","command":"git gc --prune=all","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-recovery-destroy"}}
 {"v":1,"id":"git-recovery-destroy.gc-prune-epoch","command":"git gc --prune=0","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"block","guard":"git-recovery-destroy"}}
