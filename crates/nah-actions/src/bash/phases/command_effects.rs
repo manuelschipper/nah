@@ -228,6 +228,23 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let host_power = match &program {
+            ProgramDraft::Static(program) => crate::bash_host_power::operation(
+                program,
+                &local_arguments,
+                assignments.iter().any(|(name, _)| name == "PATH")
+                    || self.state.variables.iter().any(|binding| {
+                        binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                    }),
+                direct_program.is_some(),
+                crate::shell_word::has_unmodeled_expansion(name)
+                    || arguments
+                        .iter()
+                        .any(|argument| crate::shell_word::has_unmodeled_expansion(argument.raw())),
+            ),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
+        let host_power_command = host_power.is_some();
         if let Some(execution) = &classifications.execution {
             network_endpoints.extend(execution.network_endpoints.iter().cloned());
             descriptor_flows.extend(
@@ -384,23 +401,29 @@ impl Lowerer {
                     && lowering.operation.is_none()
                     && environment_disclosure.is_none()
             }),
-            nah_mutation
-                .or_else(|| {
-                    project
-                        .as_ref()
-                        .filter(|lowering| lowering.complete)
-                        .map(|lowering| lowering.operation)
-                })
-                .or_else(|| {
-                    git.as_ref()
-                        .filter(|lowering| lowering.complete)
-                        .map(|lowering| lowering.operation)
-                })
-                .or(environment_disclosure)
-                .or(local_operation)
-                .or_else(|| execution.as_ref().and_then(|lowering| lowering.operation))
-                .or(network_shell_redirect.then_some("network-shell"))
-                .or(nah_inspection),
+            host_power.or_else(|| {
+                nah_mutation
+                    .or_else(|| {
+                        project
+                            .as_ref()
+                            .filter(|lowering| lowering.complete)
+                            .map(|lowering| lowering.operation)
+                    })
+                    .or_else(|| {
+                        git.as_ref()
+                            .filter(|lowering| lowering.complete)
+                            .map(|lowering| lowering.operation)
+                    })
+                    .or(environment_disclosure)
+                    .or(local_operation)
+                    .or_else(|| execution.as_ref().and_then(|lowering| lowering.operation))
+                    .or(network_shell_redirect.then_some("network-shell"))
+                    .or(nah_inspection)
+                    .map(|operation| {
+                        SemanticCode::new(operation)
+                            .expect("semantic operations are validated constants")
+                    })
+            }),
             matches!(&program, ProgramDraft::Static(program) if program == "eval")
                 && lowered_substitutions.iter().any(|(substitution, _)| {
                     matches!(
@@ -444,6 +467,7 @@ impl Lowerer {
             || kubernetes.is_some()
             || storage.is_some()
             || registry.is_some()
+            || host_power_command
             || !matches!(&producer.stdout, StdoutDraft::Unknown)
             || !filesystem_drafts.is_empty()
             || !system_states.is_empty()

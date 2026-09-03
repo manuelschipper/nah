@@ -14,6 +14,7 @@ pub(crate) enum GuardFamily {
     Infrastructure,
     Registry,
     Secrets,
+    System,
 }
 
 impl GuardFamily {
@@ -25,6 +26,7 @@ impl GuardFamily {
             Self::Infrastructure => "INFRASTRUCTURE",
             Self::Registry => "REGISTRY",
             Self::Secrets => "SECRETS",
+            Self::System => "SYSTEM",
         }
     }
 
@@ -36,6 +38,7 @@ impl GuardFamily {
             Self::Infrastructure => "infrastructure",
             Self::Registry => "registry",
             Self::Secrets => "secrets",
+            Self::System => "system",
         }
     }
 
@@ -47,6 +50,7 @@ impl GuardFamily {
             Self::Infrastructure => 3,
             Self::Registry => 4,
             Self::Secrets => 5,
+            Self::System => 6,
         }
     }
 }
@@ -215,6 +219,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
             default_enabled: !matches!(
                 *name,
                 "fs-shell-profile"
+                    | "fs-outside-workspace-delete"
                     | "fs-startup-management"
                     | "git-ref-delete"
                     | "infra-container-volume-delete"
@@ -238,6 +243,7 @@ fn family(name: &str) -> GuardFamily {
         "fs-auth-identity"
         | "fs-forkbomb"
         | "fs-home"
+        | "fs-outside-workspace-delete"
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
@@ -263,6 +269,7 @@ fn family(name: &str) -> GuardFamily {
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
+        "sys-power" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -280,6 +287,9 @@ fn behavior(name: &str) -> &'static str {
         "exec-remote" => "Blocks execution of a payload visibly obtained from the network.",
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
+        "fs-outside-workspace-delete" => {
+            "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
+        }
         "fs-project-root" => {
             "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
         }
@@ -352,6 +362,9 @@ fn behavior(name: &str) -> &'static str {
         "secrets-credentials" => {
             "Blocks reads or writes of private-key and credential-store paths."
         }
+        "sys-power" => {
+            "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
+        }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
 }
@@ -389,6 +402,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "bomb() { bomb | bomb & }; bomb",
         ],
         "fs-home" => ["rm -rf ~", "chmod -R 000 ~", "find ~ -delete"],
+        "fs-outside-workspace-delete" => [
+            "rm -rf /srv/data",
+            "rm -rf /opt/old-build",
+            "rm -rf /home/other/archive",
+        ],
         "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
@@ -527,6 +545,17 @@ fn examples(name: &str) -> Vec<&'static str> {
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
         ],
+        "sys-power" => {
+            if cfg!(windows) {
+                [
+                    "Stop-Computer",
+                    "Restart-Computer -Force",
+                    "Restart-Computer -ComputerName localhost",
+                ]
+            } else {
+                ["shutdown -h now", "sudo reboot", "systemctl suspend"]
+            }
+        }
         _ => unreachable!("every shipped guard has agent-facing examples"),
     }
     .to_vec();
@@ -603,6 +632,17 @@ mod tests {
     }
 
     #[test]
+    fn sys_power_uses_the_default_on_system_catalog_family() {
+        let guard = shipped_guard_docs()
+            .into_iter()
+            .find(|guard| guard.name == "sys-power")
+            .unwrap();
+        assert_eq!(guard.family, GuardFamily::System);
+        assert!(guard.default_enabled);
+        assert_eq!(guard.examples.len(), 3);
+    }
+
+    #[test]
     fn aliases_are_reserved_lookups_without_catalog_rows() {
         let rows = shipped_guard_docs()
             .into_iter()
@@ -659,6 +699,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-outside-workspace-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -691,6 +737,12 @@ mod tests {
                 .iter()
                 .find(|state| state.name() == "storage-snapshot-delete")
                 .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "sys-power")
+                .is_some_and(ShippedGuardState::enabled)
         );
         assert!(
             states
@@ -734,6 +786,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 9);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
     }
 }

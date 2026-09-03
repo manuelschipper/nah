@@ -33,11 +33,14 @@
   and NuGet.
 - **Git deletion guards** — Default-on `git-remote-repo-delete` blocks exact
   whole-repository deletion through GitHub and GitLab CLI commands and REST
-  routes, while optional `git-ref-delete` covers reviewed ref, stash, and
-  worktree deletion.
-- **Host and project guards** — New default-on guards protect project roots,
-  authentication and identity files, and startup-persistence paths. Optional
-  guards cover shell profiles and persistent startup-management commands.
+  routes while leaving branches, tags, archives, renames, and transfers outside
+  its scope; optional `git-ref-delete` covers reviewed ref, stash, and worktree
+  deletion.
+- **Host and project guards** — New default-on `sys-power` blocks reviewed host
+  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  project roots, authentication and identity files, and startup-persistence
+  paths; optional guards cover recursive deletion outside the project, shell
+  profiles, and persistent startup management.
 - **Resilient decisions and logs** — Runtime wiring failures no longer suppress
   independent guard decisions, and `nah log` plus the TUI recover readable
   history from a damaged audit log instead of leaving browsing unavailable.
