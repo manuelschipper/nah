@@ -215,6 +215,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
             default_enabled: !matches!(
                 *name,
                 "fs-shell-profile"
+                    | "fs-outside-workspace-delete"
                     | "fs-startup-management"
                     | "git-path-discard"
                     | "infra-container-volume-delete"
@@ -238,6 +239,7 @@ fn family(name: &str) -> GuardFamily {
         "fs-auth-identity"
         | "fs-forkbomb"
         | "fs-home"
+        | "fs-outside-workspace-delete"
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
@@ -280,6 +282,9 @@ fn behavior(name: &str) -> &'static str {
         "exec-remote" => "Blocks execution of a payload visibly obtained from the network.",
         "fs-forkbomb" => "Blocks structurally recognized shell fork-bomb patterns.",
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
+        "fs-outside-workspace-delete" => {
+            "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
+        }
         "fs-project-root" => {
             "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
         }
@@ -389,6 +394,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "bomb() { bomb | bomb & }; bomb",
         ],
         "fs-home" => ["rm -rf ~", "chmod -R 000 ~", "find ~ -delete"],
+        "fs-outside-workspace-delete" => [
+            "rm -rf /srv/data",
+            "rm -rf /opt/old-build",
+            "rm -rf /home/other/archive",
+        ],
         "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
@@ -659,6 +669,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-outside-workspace-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -734,6 +750,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 9);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
     }
 }

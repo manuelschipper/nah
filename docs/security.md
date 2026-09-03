@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 35 guards span execution, secrets, filesystem, Git, infrastructure/storage/
+- 36 guards span execution, secrets, filesystem, Git, infrastructure/storage/
   backup, and registries; 26 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
@@ -27,10 +27,9 @@ protected-state changes outside maintenance.
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs
   delegate.
-- Filesystem guards cover auth/identity (PAM/sudoers/sshd), shell profiles,
-  service/schedule/login/autostart/loader paths, static `systemctl` units,
-  `launchctl` enable/disable/load/unload `-w`, and `crontab` mutations;
-  shell-profile/startup-management default off.
+- Filesystem guards cover auth/identity, shell profiles, startup paths/commands,
+  and recursive deletion outside the project; `fs-outside-workspace-delete`,
+  shell-profile, and startup-management default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune and Compose `down`/`rm` volume removal;
   `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,

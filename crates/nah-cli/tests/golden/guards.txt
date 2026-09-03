@@ -6,6 +6,7 @@ Built-in:
 - [x] fs-auth-identity
 - [x] fs-forkbomb
 - [x] fs-home
+- [ ] fs-outside-workspace-delete
 - [x] fs-project-root
 - [x] fs-raw-device
 - [ ] fs-shell-profile
