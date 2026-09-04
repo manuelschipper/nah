@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 41 guards span seven security classes; 27 default on.
+- 42 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -22,7 +22,8 @@ protected-state changes outside maintenance.
   modeled input and inline code.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
-- `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
+- Hosted Git guards cover exact repositories (on) and reviewed static
+  resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs

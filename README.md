@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-41 guards, 27 on by default, covering seven classes of disaster: **execution
+42 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power and service-stop actions**.
@@ -67,6 +67,7 @@ and **host power and service-stop actions**.
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
+| `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |

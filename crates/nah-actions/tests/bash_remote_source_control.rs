@@ -5,11 +5,19 @@ use nah_proto::action::EffectKind;
 use support::{bash_plan, observe};
 
 fn deletes_repository(source: &str) -> bool {
+    has_remote_deletion(source, "git-remote-repo-delete")
+}
+
+fn deletes_resource(source: &str) -> bool {
+    has_remote_deletion(source, "git-remote-resource-delete")
+}
+
+fn has_remote_deletion(source: &str, expected: &str) -> bool {
     let plan = bash_plan(source);
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     stream.effects().iter().any(|effect| {
         matches!(effect.kind(), EffectKind::Git { operation }
-            if operation.as_str() == "git-remote-repo-delete")
+            if operation.as_str() == expected)
     })
 }
 
@@ -54,6 +62,113 @@ fn repository_delete_commands_cover_current_explicit_and_confirmed_targets() {
         "glab project delete group/project",
     ] {
         assert!(deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn resource_delete_commands_cover_static_github_and_gitlab_targets() {
+    for source in [
+        "gh release delete v1.2.3 --cleanup-tag --yes",
+        "gh gist delete 0123456789abcdef --yes",
+        "gh issue delete 42 --yes -R owner/project",
+        "gh secret delete DEPLOY_TOKEN --app actions --env production",
+        "gh secret remove CODESPACE_TOKEN --user",
+        "gh variable delete API_ORIGIN --org example",
+        "gh ssh-key delete 123 --yes",
+        "gh gpg-key delete 456 -y",
+        "gh repo deploy-key delete 789 -R owner/project",
+        "gh cache delete 1234",
+        "gh cache delete cache-key --ref refs/heads/main",
+        "gh cache delete --all --succeed-on-no-caches",
+        "glab release delete v1.2.3 --with-tag -y",
+        "glab variable delete DEPLOY_ENV --scope production",
+        "glab variable remove GROUP_TOKEN -g example",
+        "glab ssh-key delete 123 --page 1 --per-page 30",
+        "glab deploy-key delete 456 -R group/project",
+    ] {
+        assert!(deletes_resource(source), "{source}");
+        assert!(!deletes_repository(source), "{source}");
+    }
+}
+
+#[test]
+fn resource_delete_commands_delegate_interactive_dynamic_and_adjacent_forms() {
+    for source in [
+        "gh release delete",
+        "gh gist delete",
+        "gh issue delete",
+        "gh secret delete",
+        "gh variable delete",
+        "gh ssh-key delete",
+        "gh gpg-key delete",
+        "gh repo deploy-key delete",
+        "gh cache delete",
+        "glab release delete",
+        "glab variable delete",
+        "glab ssh-key delete",
+        "glab deploy-key delete",
+        "gh release delete \"$TAG\" --yes",
+        "glab variable delete \"$KEY\"",
+        "gh issue delete 42 --unknown",
+        "glab release delete v1.2.3 --unknown",
+        "gh cache delete --succeed-on-no-caches",
+        "gh cache delete cache-key --all",
+        "gh release delete v1.2.3 --help",
+        "glab ssh-key delete 123 -h",
+        "gh release list",
+        "gh secret set DEPLOY_TOKEN",
+        "glab variable list",
+        "gh repo archive owner/project --yes",
+        "gh repo edit owner/project --visibility private",
+        "gh run cancel 123",
+        "gh workflow disable deploy.yml",
+    ] {
+        assert!(!deletes_resource(source), "{source}");
+    }
+}
+
+#[test]
+fn resource_delete_api_routes_are_exact_and_distinct_from_repository_deletion() {
+    for source in [
+        "gh api -X DELETE repos/{owner}/{repo}/releases/123",
+        "gh api -X DELETE /repos/owner/project/hooks/123",
+        "gh api -X DELETE repos/owner/project/keys/123",
+        "gh api -X DELETE repos/owner/project/actions/secrets/DEPLOY_TOKEN",
+        "gh api -X DELETE repos/owner/project/actions/variables/API_ORIGIN",
+        "gh api -X DELETE repos/owner/project/environments/production",
+        "gh api -X DELETE gists/0123456789abcdef",
+        "gh api -X DELETE user/keys/123",
+        "glab api -X DELETE projects/123/releases/v1.2.3",
+        "glab api -X DELETE projects/group%2Fproject/hooks/123",
+        "glab api -X DELETE projects/:id/variables/DEPLOY_ENV",
+        "glab api -X DELETE projects/123/protected_branches/main",
+        "glab api -X DELETE /projects/123/deploy_keys/456",
+    ] {
+        assert!(deletes_resource(source), "{source}");
+        assert!(!deletes_repository(source), "{source}");
+    }
+
+    for source in [
+        "gh api -X DELETE repos/owner/project/releases",
+        "gh api -X DELETE repos/owner/project/issues/42",
+        "gh api -X DELETE repos/owner/project/actions/caches/123",
+        "gh api -X DELETE orgs/example/hooks/123",
+        "gh api -X GET repos/owner/project/releases/123",
+        "gh api -X DELETE \"$ENDPOINT\"",
+        "glab api -X DELETE projects/123/releases",
+        "glab api -X DELETE projects/123/issues/42",
+        "glab api -X DELETE projects/123/repository/branches/main",
+        "glab api -X POST projects/123/hooks/456",
+    ] {
+        assert!(!deletes_resource(source), "{source}");
+    }
+
+    for source in [
+        "gh api -X DELETE repos/{owner}/{repo}",
+        "glab api -X DELETE projects/123",
+    ] {
+        assert!(deletes_repository(source), "{source}");
+        assert!(!deletes_resource(source), "{source}");
     }
 }
 

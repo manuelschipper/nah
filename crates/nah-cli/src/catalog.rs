@@ -225,6 +225,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "git-ref-delete"
                     | "git-path-discard"
                     | "git-history-rewrite"
+                    | "git-remote-resource-delete"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
@@ -265,6 +266,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-recovery-destroy"
         | "git-ref-delete"
         | "git-remote-repo-delete"
+        | "git-remote-resource-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
         "infra-container-volume-delete"
@@ -337,6 +339,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-remote-repo-delete" => {
             "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
+        }
+        "git-remote-resource-delete" => {
+            "Blocks statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes."
         }
         "git-rewrite-force" => {
             "Blocks history rewriting that explicitly bypasses safety or backup checks."
@@ -503,6 +508,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "gh repo delete owner/project --yes",
             "glab repo delete group/project -y",
             "gh api -X DELETE repos/{owner}/{repo}",
+        ],
+        "git-remote-resource-delete" => [
+            "gh release delete v1.2.3 --yes",
+            "glab variable delete DEPLOY_ENV",
+            "gh api -X DELETE repos/{owner}/{repo}/hooks/123",
         ],
         "git-rewrite-force" => [
             "git filter-branch --force -- --all",
@@ -797,6 +807,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "git-remote-resource-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -866,6 +882,15 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 14);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 15);
+        for (name, default_enabled) in shipped_defaults() {
+            assert_eq!(
+                states
+                    .iter()
+                    .find(|state| state.name() == name)
+                    .map(ShippedGuardState::enabled),
+                Some(default_enabled)
+            );
+        }
     }
 }

@@ -270,6 +270,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
     app.guards.extend([
         guard_entry(built_in("fs-system-tree"), GuardStatus::Disabled),
         guard_entry(built_in("git-remote-repo-delete"), GuardStatus::Disabled),
+        guard_entry(built_in("git-remote-resource-delete"), GuardStatus::Enabled),
         guard_entry(custom("vendor-sync"), GuardStatus::Enabled),
         guard_entry(
             custom("vanished"),
@@ -290,6 +291,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
             ("secrets-env", true),
             ("fs-system-tree", true),
             ("git-remote-repo-delete", true),
+            ("git-remote-resource-delete", false),
             ("vendor-sync", false),
             ("vanished", false),
         ]
@@ -305,7 +307,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
         app.message,
         Some(Message {
             kind: MessageKind::Info,
-            text: "restore shipped settings staged: 6 change(s); Enter to apply".into(),
+            text: "restore shipped settings staged: 7 change(s); Enter to apply".into(),
         })
     );
 }

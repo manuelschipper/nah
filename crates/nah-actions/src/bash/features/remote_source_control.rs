@@ -1,31 +1,37 @@
-//! Recognizes exact whole-repository deletion through reviewed GitHub and GitLab CLI syntax.
+//! Recognizes exact hosted repository and resource deletion through reviewed GitHub and GitLab CLI syntax.
 
 use nah_parse::Word;
 
 use crate::shell_word::{has_unmodeled_expansion, static_word};
 
-pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
+/// Distinguishes whole-repository deletion from deletion of a hosted Git resource.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RemoteDeletion {
+    Repository,
+    Resource,
+}
+
+pub(crate) fn classify_remote_deletion(
+    program: &str,
+    arguments: &[Word],
+) -> Option<RemoteDeletion> {
     let provider = match program {
         "gh" => Provider::GitHub,
         "glab" => Provider::GitLab,
-        _ => return false,
+        _ => return None,
     };
     let arguments = arguments
         .iter()
         .map(static_remote_argument)
         .collect::<Option<Vec<_>>>();
-    let Some(arguments) = arguments else {
-        return false;
-    };
+    let arguments = arguments?;
     let arguments = if provider == Provider::GitLab {
-        let Some((arguments, repo_override)) = gitlab_repo_override(&arguments) else {
-            return false;
-        };
+        let (arguments, repo_override) = gitlab_repo_override(&arguments)?;
         if repo_override
             .as_deref()
             .is_some_and(|target| !valid_gitlab_repository(target))
         {
-            return false;
+            return None;
         }
         arguments
     } else {
@@ -43,14 +49,20 @@ pub(crate) fn deletes_repository(program: &str, arguments: &[Word]) -> bool {
     }
     let arguments = &arguments[command_index..];
     match provider {
-        Provider::GitHub => {
-            github_repo_delete(arguments, help_requested)
-                || github_api_delete(arguments, help_requested)
-        }
-        Provider::GitLab => {
-            gitlab_repo_delete(arguments, help_requested)
-                || gitlab_api_delete(arguments, help_requested)
-        }
+        Provider::GitHub => github_repo_delete(arguments, help_requested)
+            .then_some(RemoteDeletion::Repository)
+            .or_else(|| {
+                github_resource_delete(arguments, help_requested)
+                    .then_some(RemoteDeletion::Resource)
+            })
+            .or_else(|| github_api_delete(arguments, help_requested)),
+        Provider::GitLab => gitlab_repo_delete(arguments, help_requested)
+            .then_some(RemoteDeletion::Repository)
+            .or_else(|| {
+                gitlab_resource_delete(arguments, help_requested)
+                    .then_some(RemoteDeletion::Resource)
+            })
+            .or_else(|| gitlab_api_delete(arguments, help_requested)),
     }
 }
 
@@ -269,22 +281,348 @@ fn valid_gitlab_repository(target: &str) -> bool {
     !segments.is_empty() && segments.into_iter().all(valid_literal_segment)
 }
 
-fn github_api_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
-    let Some(arguments) = arguments.strip_prefix(&["api"]) else {
+fn github_resource_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
+    targeted_resource_delete(
+        arguments,
+        &["release"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &["--cleanup-tag", "-y", "--yes"],
+        &["-R", "--repo"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["gist"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &["--yes"],
+        &[],
+    ) || targeted_resource_delete(
+        arguments,
+        &["issue"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &["--yes"],
+        &["-R", "--repo"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["secret"],
+        &["delete", "remove"],
+        Provider::GitHub,
+        help_requested,
+        &["-u", "--user"],
+        &["-a", "--app", "-e", "--env", "-o", "--org", "-R", "--repo"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["variable"],
+        &["delete", "remove"],
+        Provider::GitHub,
+        help_requested,
+        &[],
+        &["-e", "--env", "-o", "--org", "-R", "--repo"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["ssh-key"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &["-y", "--yes"],
+        &[],
+    ) || targeted_resource_delete(
+        arguments,
+        &["gpg-key"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &["-y", "--yes"],
+        &[],
+    ) || targeted_resource_delete(
+        arguments,
+        &["repo", "deploy-key"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+        &[],
+        &["-R", "--repo"],
+    ) || github_cache_delete(arguments, help_requested)
+}
+
+fn gitlab_resource_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
+    targeted_resource_delete(
+        arguments,
+        &["release"],
+        &["delete"],
+        Provider::GitLab,
+        help_requested,
+        &["-t", "--with-tag", "-y", "--yes"],
+        &[],
+    ) || targeted_resource_delete(
+        arguments,
+        &["variable"],
+        &["delete", "remove"],
+        Provider::GitLab,
+        help_requested,
+        &[],
+        &["-g", "--group", "-s", "--scope"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["ssh-key"],
+        &["delete"],
+        Provider::GitLab,
+        help_requested,
+        &[],
+        &["-p", "--page", "-P", "--per-page"],
+    ) || targeted_resource_delete(
+        arguments,
+        &["deploy-key"],
+        &["delete"],
+        Provider::GitLab,
+        help_requested,
+        &[],
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn targeted_resource_delete(
+    arguments: &[&str],
+    parents: &[&str],
+    actions: &[&str],
+    provider: Provider,
+    help_requested: Option<bool>,
+    boolean_options: &'static [&'static str],
+    value_options: &'static [&'static str],
+) -> bool {
+    let Some((arguments, help_requested)) =
+        resource_delete_command(arguments, parents, actions, provider, help_requested)
+    else {
         return false;
     };
-    api_request(arguments, Provider::GitHub, help_requested).is_some_and(|request| {
-        request.method.eq_ignore_ascii_case("DELETE") && github_delete_endpoint(request.endpoint)
+    parse_resource_delete_options(
+        arguments,
+        provider,
+        help_requested,
+        boolean_options,
+        value_options,
+    )
+    .is_some_and(|parsed| parsed.positionals.len() == 1)
+}
+
+fn github_cache_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
+    let Some((arguments, help_requested)) = resource_delete_command(
+        arguments,
+        &["cache"],
+        &["delete"],
+        Provider::GitHub,
+        help_requested,
+    ) else {
+        return false;
+    };
+    let Some(parsed) = parse_resource_delete_options(
+        arguments,
+        Provider::GitHub,
+        help_requested,
+        &["-a", "--all", "--succeed-on-no-caches"],
+        &["-r", "--ref", "-R", "--repo"],
+    ) else {
+        return false;
+    };
+    let all = parsed.boolean(&["-a", "--all"]);
+    let succeed_on_no_caches = parsed.boolean(&["--succeed-on-no-caches"]);
+    all && parsed.positionals.is_empty()
+        || !succeed_on_no_caches && !all && parsed.positionals.len() == 1
+}
+
+fn resource_delete_command<'a>(
+    mut arguments: &'a [&'a str],
+    parents: &[&str],
+    actions: &[&str],
+    provider: Provider,
+    mut help_requested: Option<bool>,
+) -> Option<(&'a [&'a str], Option<bool>)> {
+    for expected in parents {
+        while let Some(value) = arguments
+            .first()
+            .and_then(|argument| help_flag(argument, provider))
+        {
+            help_requested = Some(value);
+            arguments = &arguments[1..];
+        }
+        let (actual, rest) = arguments.split_first()?;
+        if actual != expected {
+            return None;
+        }
+        arguments = rest;
+    }
+    while let Some(value) = arguments
+        .first()
+        .and_then(|argument| help_flag(argument, provider))
+    {
+        help_requested = Some(value);
+        arguments = &arguments[1..];
+    }
+    let (action, arguments) = arguments.split_first()?;
+    actions
+        .contains(action)
+        .then_some((arguments, help_requested))
+}
+
+struct ParsedResourceDelete<'a> {
+    positionals: Vec<&'a str>,
+    booleans: Vec<(&'static str, bool)>,
+}
+
+impl ParsedResourceDelete<'_> {
+    fn boolean(&self, names: &[&str]) -> bool {
+        self.booleans
+            .iter()
+            .rev()
+            .find(|(name, _)| names.contains(name))
+            .is_some_and(|(_, value)| *value)
+    }
+}
+
+fn parse_resource_delete_options<'a>(
+    arguments: &'a [&'a str],
+    provider: Provider,
+    mut help_requested: Option<bool>,
+    boolean_options: &'static [&'static str],
+    value_options: &'static [&'static str],
+) -> Option<ParsedResourceDelete<'a>> {
+    let mut parsed = ParsedResourceDelete {
+        positionals: Vec::new(),
+        booleans: Vec::new(),
+    };
+    let mut repo_override = None;
+    let mut after_options = false;
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index];
+        if !after_options && argument == "--" {
+            after_options = true;
+            index += 1;
+            continue;
+        }
+        if !after_options {
+            if let Some(value) = help_flag(argument, provider) {
+                help_requested = Some(value);
+                index += 1;
+                continue;
+            }
+            if let Some((name, value)) = boolean_options
+                .iter()
+                .find_map(|name| boolean_flag(argument, name).map(|value| (*name, value)))
+            {
+                parsed.booleans.push((name, value));
+                index += 1;
+                continue;
+            }
+            if let Some(options) =
+                resource_short_boolean_options(argument, provider, boolean_options)
+            {
+                for option in options {
+                    if option == "-h" {
+                        help_requested = Some(true);
+                    } else {
+                        parsed.booleans.push((option, true));
+                    }
+                }
+                index += 1;
+                continue;
+            }
+            if let Some((name, value, consumed)) =
+                resource_value_option(arguments, index, value_options)
+            {
+                if matches!(name, "-R" | "--repo") {
+                    repo_override = Some(value);
+                }
+                index += consumed;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return None;
+            }
+        }
+        if argument.is_empty() {
+            return None;
+        }
+        parsed.positionals.push(argument);
+        index += 1;
+    }
+    if help_requested == Some(true)
+        || repo_override.is_some_and(|target| match provider {
+            Provider::GitHub => !valid_github_repository(target),
+            Provider::GitLab => !valid_gitlab_repository(target),
+        })
+    {
+        None
+    } else {
+        Some(parsed)
+    }
+}
+
+fn resource_short_boolean_options(
+    argument: &str,
+    provider: Provider,
+    boolean_options: &'static [&'static str],
+) -> Option<Vec<&'static str>> {
+    let cluster = argument.strip_prefix('-')?;
+    if cluster.starts_with('-') || cluster.len() <= 1 || cluster.contains('=') {
+        return None;
+    }
+    cluster
+        .chars()
+        .map(|flag| {
+            boolean_options
+                .iter()
+                .copied()
+                .find(|option| option.len() == 2 && option.ends_with(flag))
+                .or_else(|| (flag == 'h' && provider == Provider::GitLab).then_some("-h"))
+        })
+        .collect()
+}
+
+fn resource_value_option<'a, 'b>(
+    arguments: &'a [&'a str],
+    index: usize,
+    value_options: &'b [&'b str],
+) -> Option<(&'b str, &'a str, usize)> {
+    let argument = arguments[index];
+    if let Some(name) = value_options.iter().copied().find(|name| *name == argument) {
+        let value = *arguments.get(index + 1)?;
+        return (!value.is_empty()).then_some((name, value, 2));
+    }
+    value_options.iter().find_map(|name| {
+        let value = if name.starts_with("--") {
+            argument.strip_prefix(name)?.strip_prefix('=')?
+        } else {
+            argument
+                .strip_prefix(name)?
+                .strip_prefix('=')
+                .unwrap_or_else(|| argument.strip_prefix(name).expect("prefix already matched"))
+        };
+        (!value.is_empty()).then_some((*name, value, 1))
     })
 }
 
-fn gitlab_api_delete(arguments: &[&str], help_requested: Option<bool>) -> bool {
-    let Some(arguments) = arguments.strip_prefix(&["api"]) else {
-        return false;
-    };
-    api_request(arguments, Provider::GitLab, help_requested).is_some_and(|request| {
-        request.method.eq_ignore_ascii_case("DELETE") && gitlab_delete_endpoint(request.endpoint)
-    })
+fn github_api_delete(arguments: &[&str], help_requested: Option<bool>) -> Option<RemoteDeletion> {
+    let arguments = arguments.strip_prefix(&["api"])?;
+    let request = api_request(arguments, Provider::GitHub, help_requested)?;
+    request
+        .method
+        .eq_ignore_ascii_case("DELETE")
+        .then(|| github_delete_endpoint(request.endpoint))?
+}
+
+fn gitlab_api_delete(arguments: &[&str], help_requested: Option<bool>) -> Option<RemoteDeletion> {
+    let arguments = arguments.strip_prefix(&["api"])?;
+    let request = api_request(arguments, Provider::GitLab, help_requested)?;
+    request
+        .method
+        .eq_ignore_ascii_case("DELETE")
+        .then(|| gitlab_delete_endpoint(request.endpoint))?
 }
 
 struct ApiRequest<'a> {
@@ -1766,33 +2104,77 @@ fn glab_short_options(argument: &str) -> Option<GlabShortOptions<'_>> {
     Some(options)
 }
 
-fn github_delete_endpoint(endpoint: &str) -> bool {
+fn github_delete_endpoint(endpoint: &str) -> Option<RemoteDeletion> {
     let path = endpoint
         .split_once(['?', '#'])
         .map_or(endpoint, |(path, _)| path);
     let path = path.strip_prefix('/').unwrap_or(path);
     let segments = path.split('/').collect::<Vec<_>>();
-    matches!(segments.as_slice(), ["repos", owner, repository]
-        if valid_github_endpoint_segment(owner, "{owner}")
-            && valid_github_endpoint_segment(repository, "{repo}"))
+    match segments.as_slice() {
+        ["repos", owner, repository]
+            if valid_github_endpoint_segment(owner, "{owner}")
+                && valid_github_endpoint_segment(repository, "{repo}") =>
+        {
+            Some(RemoteDeletion::Repository)
+        }
+        ["repos", owner, repository, resource, target]
+            if valid_github_endpoint_segment(owner, "{owner}")
+                && valid_github_endpoint_segment(repository, "{repo}")
+                && matches!(resource, &"releases" | &"hooks" | &"keys" | &"environments")
+                && valid_endpoint_literal_segment(target) =>
+        {
+            Some(RemoteDeletion::Resource)
+        }
+        ["repos", owner, repository, "actions", resource, target]
+            if valid_github_endpoint_segment(owner, "{owner}")
+                && valid_github_endpoint_segment(repository, "{repo}")
+                && matches!(resource, &"secrets" | &"variables")
+                && valid_endpoint_literal_segment(target) =>
+        {
+            Some(RemoteDeletion::Resource)
+        }
+        ["gists", target] | ["user", "keys", target] if valid_endpoint_literal_segment(target) => {
+            Some(RemoteDeletion::Resource)
+        }
+        _ => None,
+    }
 }
 
 fn valid_github_endpoint_segment(segment: &str, placeholder: &str) -> bool {
     segment == placeholder || valid_endpoint_literal_segment(segment)
 }
 
-fn gitlab_delete_endpoint(endpoint: &str) -> bool {
+fn gitlab_delete_endpoint(endpoint: &str) -> Option<RemoteDeletion> {
     let path = endpoint
         .split_once(['?', '#'])
         .map_or(endpoint, |(path, _)| path);
     let path = path.strip_prefix('/').unwrap_or(path);
-    let Some(identifier) = path.strip_prefix("projects/") else {
-        return false;
-    };
-    if matches!(identifier, ":namespace/:repo" | ":group/:namespace/:repo") {
-        return true;
+    if let Some(identifier) = path.strip_prefix("projects/")
+        && !identifier.contains('/')
+        && valid_gitlab_project_identifier(identifier)
+    {
+        return Some(RemoteDeletion::Repository);
     }
-    !identifier.contains('/') && valid_gitlab_project_identifier(identifier)
+    if matches!(
+        path,
+        "projects/:namespace/:repo" | "projects/:group/:namespace/:repo"
+    ) {
+        return Some(RemoteDeletion::Repository);
+    }
+    let segments = path.split('/').collect::<Vec<_>>();
+    match segments.as_slice() {
+        ["projects", project, resource, target]
+            if valid_gitlab_project_identifier(project)
+                && matches!(
+                    resource,
+                    &"releases" | &"hooks" | &"variables" | &"protected_branches" | &"deploy_keys"
+                )
+                && valid_endpoint_literal_segment(target) =>
+        {
+            Some(RemoteDeletion::Resource)
+        }
+        _ => None,
+    }
 }
 
 fn valid_gitlab_project_identifier(identifier: &str) -> bool {

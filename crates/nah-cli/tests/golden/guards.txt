@@ -24,6 +24,7 @@ Built-in:
 - [x] git-recovery-destroy
 - [ ] git-ref-delete
 - [x] git-remote-repo-delete
+- [ ] git-remote-resource-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
 - [x] infra-container-reset
