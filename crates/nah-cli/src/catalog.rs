@@ -223,6 +223,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "fs-startup-management"
                     | "git-path-discard"
                     | "git-protected-push"
+                    | "git-history-rewrite"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
@@ -255,6 +256,7 @@ fn family(name: &str) -> GuardFamily {
         "git-clean-force"
         | "git-force-push"
         | "git-hard-reset"
+        | "git-history-rewrite"
         | "git-metadata"
         | "git-path-discard"
         | "git-protected-push"
@@ -312,6 +314,9 @@ fn behavior(name: &str) -> &'static str {
         "git-clean-force" => "Blocks an effective forced Git clean selecting the project root.",
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
         "git-hard-reset" => "Blocks Git hard resets.",
+        "git-history-rewrite" => {
+            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes."
+        }
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
         }
@@ -468,6 +473,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git reset --hard",
             "git reset --hard HEAD~1",
             "sudo git -C . reset --hard",
+        ],
+        "git-history-rewrite" => [
+            "git rebase main",
+            "git filter-repo --invert-paths --path secret",
+            "git push --force-with-lease",
         ],
         "git-metadata" => [
             "rm -rf .git/objects",
@@ -796,6 +806,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 11);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 12);
     }
 }

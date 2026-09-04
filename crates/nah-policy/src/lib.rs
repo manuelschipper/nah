@@ -53,6 +53,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "git-clean-force",
     "git-force-push",
     "git-hard-reset",
+    "git-history-rewrite",
     "git-metadata",
     "git-path-discard",
     "git-protected-push",

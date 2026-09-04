@@ -17,6 +17,7 @@ Built-in:
 - [x] git-clean-force
 - [x] git-force-push
 - [x] git-hard-reset
+- [ ] git-history-rewrite
 - [x] git-metadata
 - [ ] git-path-discard
 - [ ] git-protected-push

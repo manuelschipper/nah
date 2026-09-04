@@ -37,8 +37,26 @@ pub(crate) fn command_operation(program: &str, arguments: &[Word]) -> Option<&'s
         "gc" if gc_destroys_recovery(&parsed, arguments) => Some("recovery-destroy"),
         "prune" if immediate_expiry(arguments, "--expire") => Some("recovery-destroy"),
         "reflog" if destroys_all_reflog_recovery(arguments) => Some("recovery-destroy"),
+        "rebase" if rebase_rewrites_history(arguments) => Some("history-rewrite"),
+        "filter-branch" | "filter-repo" => Some("history-rewrite"),
+        "reflog" if reflog_expires(arguments) => Some("history-rewrite"),
+        "gc" if gc_rewrites_history(arguments) => Some("history-rewrite"),
         _ => None,
     }
+}
+
+fn rebase_rewrites_history(arguments: &[Word]) -> bool {
+    arguments
+        .iter()
+        .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
+        .take_while(|argument| argument.as_deref() != Some("--"))
+        .flatten()
+        .all(|argument| {
+            !matches!(
+                argument.as_str(),
+                "--abort" | "--quit" | "--show-current-patch"
+            )
+        })
 }
 
 fn clean_force(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {
@@ -335,7 +353,9 @@ pub(crate) fn metadata_mutation(
 fn push_operation(arguments: &[Word]) -> Option<&'static str> {
     let mut before_separator = true;
     let mut explicit_force = false;
+    let mut mirror = false;
     let mut all_refs_leased = false;
+    let mut force_with_lease = false;
     let mut leased_refs = Vec::new();
     let mut forced_refs = Vec::new();
     let mut repository = false;
@@ -364,7 +384,6 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
             if arguments.get(index + 1).is_none() {
                 protected_parse = false;
             }
-            repository |= argument == "--repo";
             index += 2;
             continue;
         }
@@ -375,11 +394,33 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
             continue;
         }
         if before_separator {
-            explicit_force |= matches!(argument.as_str(), "--force" | "--mirror")
-                || push_short_switch(&argument, 'f');
-            dry_run |= argument == "--dry-run" || push_short_switch(&argument, 'n');
-            all_refs_leased |= argument == "--force-with-lease";
-            if let Some(lease) = argument.strip_prefix("--force-with-lease=") {
+            match argument.as_str() {
+                "--force" => explicit_force = true,
+                "--no-force" => explicit_force = false,
+                "--mirror" => mirror = true,
+                "--no-mirror" => mirror = false,
+                "--dry-run" => dry_run = true,
+                "--no-dry-run" => dry_run = false,
+                "--force-with-lease" => {
+                    all_refs_leased = true;
+                    force_with_lease = true;
+                }
+                "--no-force-with-lease" => {
+                    all_refs_leased = false;
+                    force_with_lease = false;
+                    leased_refs.clear();
+                }
+                argument if argument.starts_with('-') && !argument.starts_with("--") => {
+                    explicit_force |= push_short_switch(argument, 'f');
+                    dry_run |= push_short_switch(argument, 'n');
+                }
+                _ => {}
+            }
+            if let Some(lease) = argument
+                .strip_prefix("--force-with-lease=")
+                .filter(|lease| !lease.is_empty())
+            {
+                force_with_lease = true;
                 leased_refs.push(lease.split(':').next().unwrap_or(lease).to_owned());
             }
         }
@@ -395,7 +436,6 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
         }
         if protected_parse && before_separator {
             if argument.starts_with("--repo=") {
-                repository = true;
                 index += 1;
                 continue;
             }
@@ -428,21 +468,17 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
                         match flags[position] as char {
                             'd' => delete = true,
                             'v' | 'q' | 'n' | 'f' | 'u' | '4' | '6' => {}
-                            'o' => {
-                                if position + 1 == flags.len() {
-                                    if arguments.get(index + 1).is_none() {
-                                        protected_parse = false;
-                                    }
-                                    index += 1;
-                                }
-                                break;
-                            }
+                            'o' => break,
                             _ => protected_parse = false,
                         }
                         position += 1;
                     }
                 }
                 _ if !repository => repository = true,
+                "tag" => {
+                    index += 2;
+                    continue;
+                }
                 _ => protected_destination |= protected_push_refspec(&argument),
             }
             index += 1;
@@ -451,6 +487,9 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
         if protected_parse {
             if !repository {
                 repository = true;
+            } else if argument == "tag" {
+                index += 2;
+                continue;
             } else {
                 protected_destination |= protected_push_refspec(&argument);
             }
@@ -461,6 +500,7 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
         return None;
     }
     if explicit_force
+        || mirror
         || forced_refs
             .iter()
             .any(|forced| !all_refs_leased && !leased_refs.iter().any(|leased| leased == forced))
@@ -468,6 +508,8 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
         Some("force-push")
     } else if protected_parse && protected_destination && !delete && !all {
         Some("protected-push")
+    } else if force_with_lease {
+        Some("history-rewrite")
     } else {
         None
     }
@@ -489,7 +531,7 @@ fn protected_push_refspec(argument: &str) -> bool {
 fn push_option_takes_value(argument: &str) -> bool {
     matches!(
         argument,
-        "--repo" | "--receive-pack" | "--exec" | "--recurse-submodules" | "--push-option"
+        "--repo" | "--receive-pack" | "--exec" | "--recurse-submodules" | "-o" | "--push-option"
     )
 }
 
@@ -544,13 +586,44 @@ fn gc_destroys_recovery(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {
     }
 }
 
+fn gc_rewrites_history(arguments: &[Word]) -> bool {
+    let mut aggressive = false;
+    let mut non_immediate_prune = false;
+    for word in arguments {
+        let Some(argument) = static_word(word.raw(), word.substitutions().is_empty()) else {
+            aggressive = false;
+            non_immediate_prune = false;
+            continue;
+        };
+        if argument == "--" {
+            break;
+        }
+        match argument.as_str() {
+            "--aggressive" => aggressive = true,
+            "--no-aggressive" => aggressive = false,
+            "--prune" | "--no-prune" => non_immediate_prune = false,
+            argument if argument.starts_with("--prune=") => {
+                let value = argument
+                    .strip_prefix("--prune=")
+                    .expect("matched prune value");
+                non_immediate_prune = !value.is_empty() && !immediate_value(value);
+            }
+            _ => {}
+        }
+    }
+    aggressive || non_immediate_prune
+}
+
 fn has_no_side_effect(subcommand: &str, arguments: &[Word]) -> bool {
     match subcommand {
         "filter-repo" => {
             option_before_separator(arguments, "--dry-run")
                 || option_before_separator(arguments, "--analyze")
         }
-        "reflog" => option_before_separator(arguments, "--dry-run"),
+        "reflog" => {
+            option_before_separator(arguments, "--dry-run")
+                || short_option_before_separator(arguments, 'n')
+        }
         "prune" => {
             option_before_separator(arguments, "--dry-run")
                 || short_option_before_separator(arguments, 'n')
@@ -560,12 +633,17 @@ fn has_no_side_effect(subcommand: &str, arguments: &[Word]) -> bool {
 }
 
 fn destroys_all_reflog_recovery(arguments: &[Word]) -> bool {
+    reflog_expires(arguments)
+        && option_before_separator(arguments, "--all")
+        && (immediate_expiry(arguments, "--expire")
+            || immediate_expiry(arguments, "--expire-unreachable"))
+}
+
+fn reflog_expires(arguments: &[Word]) -> bool {
     arguments.first().is_some_and(|argument| {
         static_word(argument.raw(), argument.substitutions().is_empty()).as_deref()
             == Some("expire")
-    }) && option_before_separator(arguments, "--all")
-        && (immediate_expiry(arguments, "--expire")
-            || immediate_expiry(arguments, "--expire-unreachable"))
+    })
 }
 
 /// Git spells the same immediate expiry three ways.
