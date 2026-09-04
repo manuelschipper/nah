@@ -1,4 +1,4 @@
-//! Classifies reviewed secret-store deletion commands.
+//! Classifies reviewed secret-store value reads and deletion commands.
 
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
@@ -7,6 +7,7 @@ use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) known_invocation: Option<SemanticCode>,
     pub(crate) system_state: Option<SemanticCode>,
 }
 
@@ -14,13 +15,23 @@ impl Classification {
     const fn deletion() -> Self {
         Self {
             complete: true,
+            known_invocation: None,
             system_state: Some(SemanticCode::SECRETS_STORE_DELETE),
+        }
+    }
+
+    const fn read() -> Self {
+        Self {
+            complete: true,
+            known_invocation: Some(SemanticCode::SECRETS_STORE_READ),
+            system_state: None,
         }
     }
 
     const fn control() -> Self {
         Self {
             complete: true,
+            known_invocation: None,
             system_state: None,
         }
     }
@@ -28,6 +39,7 @@ impl Classification {
     const fn incomplete() -> Self {
         Self {
             complete: false,
+            known_invocation: None,
             system_state: None,
         }
     }
@@ -83,7 +95,6 @@ fn vault(arguments: &[String]) -> Classification {
             "-h",
             "-help",
             "--help",
-            "-version",
             "--version",
             "-disable-redirects",
             "-non-interactive",
@@ -106,7 +117,9 @@ fn vault(arguments: &[String]) -> Classification {
             "-mount",
             "-namespace",
             "-ns",
+            "-snapshot-id",
             "-tls-server-name",
+            "-version",
             "-versions",
             "-wrap-ttl",
         ],
@@ -120,6 +133,10 @@ fn vault(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [kv, get, path] if kv == "kv" && get == "get" && valid_operand(path) => {
+            Classification::read()
+        }
+        [read, path] if read == "read" && valid_operand(path) => Classification::read(),
         [kv, delete, path] if kv == "kv" && delete == "delete" && valid_operand(path) => {
             Classification::deletion()
         }
@@ -144,13 +161,15 @@ fn vault(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if vault_delete_prefix(positions) => Classification::incomplete(),
+        positions if vault_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn vault_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [kv, delete, ..] if kv == "kv" && matches!(delete.as_str(), "delete" | "destroy"))
+fn vault_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [read, ..] if read == "read")
+        || matches!(positions, [kv, action, ..]
+            if kv == "kv" && matches!(action.as_str(), "get" | "delete" | "destroy"))
         || matches!(positions, [kv, metadata, delete, ..] if kv == "kv" && metadata == "metadata" && delete == "delete")
         || matches!(positions, [secrets, disable, ..] if secrets == "secrets" && disable == "disable")
 }
@@ -172,9 +191,13 @@ fn aws(arguments: &[String]) -> Classification {
             "--no-cli-pager",
             "--no-force-delete-without-recovery",
             "--no-paginate",
+            "--no-recursive",
             "--no-sign-request",
+            "--no-with-decryption",
             "--no-verify-ssl",
+            "--recursive",
             "--version",
+            "--with-decryption",
         ],
         &[
             "--ca-bundle",
@@ -184,14 +207,20 @@ fn aws(arguments: &[String]) -> Classification {
             "--color",
             "--endpoint-url",
             "--name",
+            "--max-items",
             "--output",
+            "--page-size",
+            "--path",
             "--profile",
             "--query",
             "--recovery-window-in-days",
             "--region",
             "--secret-id",
+            "--starting-token",
+            "--version-id",
+            "--version-stage",
         ],
-        &["--names"],
+        &["--names", "--parameter-filters"],
     ) {
         Ok(parsed) => parsed,
         Err(parsed) => return secret_store_parse_failure("aws", &parsed),
@@ -205,6 +234,48 @@ fn aws(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [service, command]
+            if service == "secretsmanager"
+                && command == "get-secret-value"
+                && parsed.value("--secret-id").is_some_and(valid_operand) =>
+        {
+            Classification::read()
+        }
+        [service, command]
+            if service == "ssm"
+                && command == "get-parameter"
+                && parsed.value("--name").is_some_and(valid_operand) =>
+        {
+            if aws_decryption_requested(&parsed) {
+                Classification::read()
+            } else {
+                Classification::control()
+            }
+        }
+        [service, command]
+            if service == "ssm"
+                && command == "get-parameters"
+                && parsed.values("--names").is_some_and(|values| {
+                    !values.is_empty() && values.iter().all(|value| valid_operand(value))
+                }) =>
+        {
+            if aws_decryption_requested(&parsed) {
+                Classification::read()
+            } else {
+                Classification::control()
+            }
+        }
+        [service, command]
+            if service == "ssm"
+                && command == "get-parameters-by-path"
+                && parsed.value("--path").is_some_and(valid_operand) =>
+        {
+            if aws_decryption_requested(&parsed) {
+                Classification::read()
+            } else {
+                Classification::control()
+            }
+        }
         [service, command]
             if service == "secretsmanager"
                 && command == "delete-secret"
@@ -228,14 +299,29 @@ fn aws(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if aws_delete_prefix(positions) => Classification::incomplete(),
+        positions if aws_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn aws_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [service, command, ..] if service == "secretsmanager" && command == "delete-secret")
-        || matches!(positions, [service, command, ..] if service == "ssm" && matches!(command.as_str(), "delete-parameter" | "delete-parameters"))
+fn aws_decryption_requested(parsed: &ParsedOptions) -> bool {
+    parsed
+        .flags
+        .iter()
+        .rev()
+        .find(|(name, _)| matches!(name.as_str(), "--with-decryption" | "--no-with-decryption"))
+        .is_some_and(|(name, enabled)| name == "--with-decryption" && *enabled)
+}
+
+fn aws_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [service, command, ..]
+        if service == "secretsmanager"
+            && matches!(command.as_str(), "get-secret-value" | "delete-secret"))
+        || matches!(positions, [service, command, ..]
+            if service == "ssm"
+                && matches!(command.as_str(),
+                    "get-parameter" | "get-parameters" | "get-parameters-by-path"
+                        | "delete-parameter" | "delete-parameters"))
 }
 
 fn gcloud(arguments: &[String]) -> Classification {
@@ -258,6 +344,7 @@ fn gcloud(arguments: &[String]) -> Classification {
             "--format",
             "--impersonate-service-account",
             "--location",
+            "--out-file",
             "--project",
             "--secret",
             "--trace-token",
@@ -272,6 +359,15 @@ fn gcloud(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [secrets, versions, access, version]
+            if secrets == "secrets"
+                && versions == "versions"
+                && access == "access"
+                && valid_operand(version)
+                && parsed.value("--secret").is_some_and(valid_operand) =>
+        {
+            Classification::read()
+        }
         [secrets, delete, name]
             if secrets == "secrets" && delete == "delete" && valid_operand(name) =>
         {
@@ -286,13 +382,15 @@ fn gcloud(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if gcloud_delete_prefix(positions) => Classification::incomplete(),
+        positions if gcloud_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn gcloud_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [secrets, delete, ..] if secrets == "secrets" && delete == "delete")
+fn gcloud_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [secrets, versions, access, ..]
+        if secrets == "secrets" && versions == "versions" && access == "access")
+        || matches!(positions, [secrets, delete, ..] if secrets == "secrets" && delete == "delete")
         || matches!(positions, [secrets, versions, destroy, ..] if secrets == "secrets" && versions == "versions" && destroy == "destroy")
 }
 
@@ -305,14 +403,17 @@ fn azure(arguments: &[String]) -> Classification {
             "--help",
             "--no-wait",
             "--only-show-errors",
+            "--overwrite",
             "--verbose",
-            "--version",
             "--yes",
             "-y",
         ],
         &[
             "-g",
             "--id",
+            "--encoding",
+            "--file",
+            "-f",
             "--location",
             "-n",
             "--name",
@@ -322,6 +423,8 @@ fn azure(arguments: &[String]) -> Classification {
             "--resource-group",
             "--subscription",
             "--vault-name",
+            "--version",
+            "-v",
         ],
         &[],
     ) {
@@ -332,6 +435,25 @@ fn azure(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [keyvault, secret, action]
+            if keyvault == "keyvault"
+                && secret == "secret"
+                && action == "show"
+                && azure_object_selected(&parsed) =>
+        {
+            Classification::read()
+        }
+        [keyvault, secret, action]
+            if keyvault == "keyvault"
+                && secret == "secret"
+                && action == "download"
+                && azure_object_selected(&parsed)
+                && parsed
+                    .value_any(&["--file", "-f"])
+                    .is_some_and(valid_operand) =>
+        {
+            Classification::read()
+        }
         [keyvault, resource, action]
             if keyvault == "keyvault"
                 && matches!(resource.as_str(), "secret" | "key" | "certificate")
@@ -347,7 +469,7 @@ fn azure(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if azure_delete_prefix(positions) => Classification::incomplete(),
+        positions if azure_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
@@ -367,8 +489,12 @@ fn azure_vault_selected(parsed: &ParsedOptions) -> bool {
             .is_some_and(valid_operand)
 }
 
-fn azure_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [keyvault, resource, action, ..]
+fn azure_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [keyvault, secret, action, ..]
+        if keyvault == "keyvault"
+            && secret == "secret"
+            && matches!(action.as_str(), "show" | "download"))
+        || matches!(positions, [keyvault, resource, action, ..]
         if keyvault == "keyvault"
             && matches!(resource.as_str(), "secret" | "key" | "certificate")
             && matches!(action.as_str(), "delete" | "purge"))
@@ -384,12 +510,15 @@ fn doppler(arguments: &[String]) -> Classification {
             "-h",
             "--help",
             "--json",
+            "--no-file",
             "--no-check-version",
             "--no-interactive",
             "--no-prompt",
             "--no-read-env",
             "--no-timeout",
             "--no-verify-tls",
+            "--only-names",
+            "--plain",
             "--raw",
             "--silent",
             "--version",
@@ -405,11 +534,13 @@ fn doppler(arguments: &[String]) -> Classification {
             "--config-dir",
             "--configuration",
             "--dashboard-host",
+            "--dynamic-ttl",
             "--dns-resolver-address",
             "--dns-resolver-proto",
             "--dns-resolver-timeout",
             "-e",
             "--environment",
+            "--format",
             "-p",
             "--project",
             "--scope",
@@ -426,6 +557,23 @@ fn doppler(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [secrets] if secrets == "secrets" && !parsed.flag("--only-names") => Classification::read(),
+        [secrets, get, names @ ..]
+            if secrets == "secrets"
+                && get == "get"
+                && !names.is_empty()
+                && names.iter().all(|name| valid_operand(name))
+                && !parsed.flag("--only-names") =>
+        {
+            Classification::read()
+        }
+        [secrets, download] if secrets == "secrets" && download == "download" => {
+            if parsed.flag("--no-file") {
+                Classification::read()
+            } else {
+                Classification::control()
+            }
+        }
         [secrets, delete, names @ ..]
             if secrets == "secrets"
                 && delete == "delete"
@@ -465,13 +613,15 @@ fn doppler(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if doppler_delete_prefix(positions) => Classification::incomplete(),
+        positions if doppler_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn doppler_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [resource, delete, ..]
+fn doppler_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [secrets, action, ..]
+        if secrets == "secrets" && matches!(action.as_str(), "get" | "download"))
+        || matches!(positions, [resource, delete, ..]
         if matches!(resource.as_str(), "secrets" | "configs" | "environments" | "projects")
             && delete == "delete")
 }
@@ -483,16 +633,23 @@ fn infisical(arguments: &[String]) -> Classification {
             "--expand",
             "-h",
             "--help",
+            "--include-imports",
             "--plain",
+            "--raw-value",
+            "--secret-overriding",
             "--silent",
             "--version",
         ],
         &[
             "--domain",
             "--env",
+            "--format",
             "--name",
+            "--output-file",
             "--path",
             "--projectId",
+            "--tags",
+            "--template",
             "--token",
         ],
         &[],
@@ -504,6 +661,16 @@ fn infisical(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [secrets] if secrets == "secrets" => Classification::read(),
+        [secrets, get, names @ ..]
+            if secrets == "secrets"
+                && get == "get"
+                && !names.is_empty()
+                && names.iter().all(|name| valid_operand(name)) =>
+        {
+            Classification::read()
+        }
+        [export] if export == "export" => Classification::read(),
         [secrets, delete, names @ ..]
             if secrets == "secrets"
                 && delete == "delete"
@@ -520,13 +687,15 @@ fn infisical(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if infisical_delete_prefix(positions) => Classification::incomplete(),
+        positions if infisical_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn infisical_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [secrets, delete, ..] if secrets == "secrets" && delete == "delete")
+fn infisical_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [export, ..] if export == "export")
+        || matches!(positions, [secrets, get, ..] if secrets == "secrets" && get == "get")
+        || matches!(positions, [secrets, delete, ..] if secrets == "secrets" && delete == "delete")
         || matches!(positions, [secrets, folders, delete, ..]
             if secrets == "secrets" && folders == "folders" && delete == "delete")
 }
@@ -538,16 +707,26 @@ fn one_password(arguments: &[String]) -> Classification {
             "--archive",
             "--cache",
             "--debug",
+            "--force",
+            "-f",
             "-h",
             "--help",
+            "--include-archive",
             "--iso-timestamps",
             "--no-color",
+            "--no-newline",
+            "-n",
+            "--otp",
+            "--reveal",
+            "--share-link",
             "--version",
         ],
         &[
             "--account",
             "--config",
             "--encoding",
+            "--fields",
+            "--file-mode",
             "--format",
             "--in-file",
             "-i",
@@ -565,6 +744,22 @@ fn one_password(arguments: &[String]) -> Classification {
         return Classification::control();
     }
     match parsed.positionals.as_slice() {
+        [read, reference] if read == "read" && valid_operand(reference) => Classification::read(),
+        [item, get, target] if item == "item" && get == "get" && valid_operand(target) => {
+            if parsed.flag("--reveal")
+                || parsed.flag("--otp")
+                || parsed.value("--fields").is_some_and(valid_operand)
+            {
+                Classification::read()
+            } else {
+                Classification::control()
+            }
+        }
+        [document, get, target]
+            if document == "document" && get == "get" && valid_operand(target) =>
+        {
+            Classification::read()
+        }
         [resource, delete, target]
             if matches!(resource.as_str(), "item" | "document")
                 && delete == "delete"
@@ -577,13 +772,16 @@ fn one_password(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        positions if one_password_delete_prefix(positions) => Classification::incomplete(),
+        positions if one_password_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
 }
 
-fn one_password_delete_prefix(positions: &[String]) -> bool {
-    matches!(positions, [resource, delete, ..]
+fn one_password_classified_prefix(positions: &[String]) -> bool {
+    matches!(positions, [read, ..] if read == "read")
+        || matches!(positions, [resource, get, ..]
+            if matches!(resource.as_str(), "item" | "document") && get == "get")
+        || matches!(positions, [resource, delete, ..]
         if matches!(resource.as_str(), "item" | "document" | "vault") && delete == "delete")
 }
 
@@ -602,18 +800,30 @@ fn secret_store_parse_failure(program: &str, parsed: &ParsedOptions) -> Classifi
 fn secret_store_command_prefix(program: &str, positions: &[String]) -> bool {
     let commands: &[&[&str]] = match program {
         "vault" => &[
+            &["kv", "get"],
+            &["read"],
             &["kv", "delete"],
             &["kv", "destroy"],
             &["kv", "metadata", "delete"],
             &["secrets", "disable"],
         ],
         "aws" => &[
+            &["secretsmanager", "get-secret-value"],
+            &["ssm", "get-parameter"],
+            &["ssm", "get-parameters"],
+            &["ssm", "get-parameters-by-path"],
             &["secretsmanager", "delete-secret"],
             &["ssm", "delete-parameter"],
             &["ssm", "delete-parameters"],
         ],
-        "gcloud" => &[&["secrets", "delete"], &["secrets", "versions", "destroy"]],
+        "gcloud" => &[
+            &["secrets", "versions", "access"],
+            &["secrets", "delete"],
+            &["secrets", "versions", "destroy"],
+        ],
         "az" => &[
+            &["keyvault", "secret", "show"],
+            &["keyvault", "secret", "download"],
             &["keyvault", "secret", "delete"],
             &["keyvault", "secret", "purge"],
             &["keyvault", "key", "delete"],
@@ -624,13 +834,25 @@ fn secret_store_command_prefix(program: &str, positions: &[String]) -> bool {
             &["keyvault", "purge"],
         ],
         "doppler" => &[
+            &["secrets"],
+            &["secrets", "get"],
+            &["secrets", "download"],
             &["secrets", "delete"],
             &["configs", "delete"],
             &["environments", "delete"],
             &["projects", "delete"],
         ],
-        "infisical" => &[&["secrets", "delete"], &["secrets", "folders", "delete"]],
+        "infisical" => &[
+            &["secrets"],
+            &["secrets", "get"],
+            &["export"],
+            &["secrets", "delete"],
+            &["secrets", "folders", "delete"],
+        ],
         "op" => &[
+            &["read"],
+            &["item", "get"],
+            &["document", "get"],
             &["item", "delete"],
             &["document", "delete"],
             &["vault", "delete"],
@@ -649,13 +871,17 @@ fn secret_store_command_prefix(program: &str, positions: &[String]) -> bool {
 #[derive(Default)]
 struct ParsedOptions {
     positionals: Vec<String>,
-    flags: Vec<String>,
+    flags: Vec<(String, bool)>,
     values: Vec<(String, Vec<String>)>,
 }
 
 impl ParsedOptions {
     fn flag(&self, name: &str) -> bool {
-        self.flags.iter().any(|candidate| candidate == name)
+        self.flags
+            .iter()
+            .rev()
+            .find(|(candidate, _)| candidate == name)
+            .is_some_and(|(_, enabled)| *enabled)
     }
 
     fn value(&self, name: &str) -> Option<&str> {
@@ -677,15 +903,13 @@ impl ParsedOptions {
     }
 
     fn non_executing(&self) -> bool {
-        self.flags.iter().any(|flag| {
-            matches!(
-                flag.as_str(),
-                "-h" | "-help" | "--help" | "-version" | "--version" | "-v"
-            )
-        }) || self
-            .positionals
-            .first()
-            .is_some_and(|position| matches!(position.as_str(), "help" | "version"))
+        ["-h", "-help", "--help", "-version", "--version", "-v"]
+            .iter()
+            .any(|name| self.flag(name))
+            || self
+                .positionals
+                .first()
+                .is_some_and(|position| matches!(position.as_str(), "help" | "version"))
     }
 }
 
@@ -717,9 +941,7 @@ fn parse_options(
                     Some("false") => false,
                     Some(_) => return Err(parsed),
                 };
-                if enabled {
-                    parsed.flags.push(name.to_owned());
-                }
+                parsed.flags.push((name.to_owned(), enabled));
                 index += 1;
                 continue;
             }

@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1861);
+    assert_eq!(summary.cases, 1872);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("native.jsonl".to_owned(), 22),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 76),
-            ("secrets.jsonl".to_owned(), 120),
+            ("secrets.jsonl".to_owned(), 131),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("storage.jsonl".to_owned(), 73),
@@ -283,7 +283,18 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "secrets-store-delete.infisical-folder",
         "secrets-store-delete.onepassword-vault",
         "secrets-store-delete.factory-delegates",
-        "secrets-store-boundary.vault-read-delegates",
+        "secrets-store-read.vault",
+        "secrets-store-read.onepassword",
+        "secrets-store-read.doppler",
+        "secrets-store-read.infisical",
+        "secrets-store-read.aws",
+        "secrets-store-read.gcloud",
+        "secrets-store-read.azure",
+        "secrets-store-read.factory-delegates",
+        "secrets-store-boundary.run-delegates",
+        "secrets-store-boundary.inject-delegates",
+        "secrets-store-boundary.name-only-delegates",
+        "secrets-store-read.factory-exfil",
         "secrets-store-boundary.onepassword-archive-delegates",
         "fs-volume-destroy.zfs-live-dataset",
         "registry-unpublish.npm-package-version",

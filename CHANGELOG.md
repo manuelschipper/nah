@@ -13,9 +13,10 @@
   unrelated overrides.
 - **Secrets guards** — `secrets-credentials` replaces `secrets-keys` with a
   hidden compatibility alias, `secrets-env` now blocks direct output of
-  catalogued credential variables, and optional `secrets-store-delete` covers
-  reviewed recoverable and permanent deletion across common secret-manager
-  CLIs while preserving read and 1Password archive workflows.
+  catalogued credential variables, optional `secrets-store-read` covers
+  reviewed value reads across common secret-manager CLIs while preserving
+  run, inject, and concealed listing workflows, and optional
+  `secrets-store-delete` covers reviewed recoverable and permanent deletion.
 - **Windows support** — Releases now ship a tested, checksummed Windows x86-64
   archive and PowerShell installer. Claude Code, Codex, Cursor, GitHub Copilot,
   Cline, and Kiro support native Windows hooks, backed by typed PowerShell and

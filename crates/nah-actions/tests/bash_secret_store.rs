@@ -1,7 +1,7 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
+use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationEffect, SemanticCode};
 use support::{bash_plan, observe};
 
 fn stream(source: &str) -> ActionStream {
@@ -15,6 +15,17 @@ fn has_secret_store_delete(stream: &ActionStream) -> bool {
             effect.kind(),
             EffectKind::SystemState { operation }
                 if operation == &SemanticCode::SECRETS_STORE_DELETE
+        )
+    })
+}
+
+fn has_secret_store_read(stream: &ActionStream) -> bool {
+    stream.effects().iter().any(|effect| {
+        matches!(
+            effect.kind(),
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::SECRETS_STORE_READ
         )
     })
 }
@@ -59,31 +70,69 @@ fn reviewed_secret_store_deletions_emit_typed_evidence() {
 }
 
 #[test]
-fn reviewed_read_control_and_non_executing_forms_delegate() {
+fn reviewed_secret_store_value_reads_emit_typed_evidence() {
     for source in [
-        "vault kv get -mount=secret service/api",
+        "vault kv get -mount=secret -version=2 service/api",
+        "vault read -field=password secret/data/service/api",
+        "aws secretsmanager get-secret-value --secret-id service/api --version-stage AWSCURRENT",
+        "aws ssm get-parameter --name /service/api --with-decryption",
+        "aws ssm get-parameters --names /service/api /service/db --with-decryption",
+        "aws ssm get-parameters-by-path --path /service --recursive --with-decryption",
+        "gcloud secrets versions access latest --secret=service-api",
+        "az keyvault secret show --vault-name prod --name service-api",
+        "az keyvault secret download --vault-name prod --name service-api --file secret.txt",
+        "doppler secrets --project service --only-names --only-names=false",
+        "doppler secrets get API_TOKEN DATABASE_URL --plain --project service --config prod",
+        "doppler secrets download --no-file --format=json",
+        "infisical secrets --projectId project --env prod",
+        "infisical secrets get API_TOKEN DATABASE_URL --plain --projectId project --env prod",
+        "infisical export --projectId project --env prod --format=json",
+        "op read -n op://prod/service/password",
+        "op item get item-id --vault prod --reveal",
+        "op item get item-id --fields label=password",
+        "op item get item-id --otp",
+        "op document get document-id --vault prod",
+    ] {
+        let actual = stream(source);
+        assert!(
+            has_secret_store_read(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+        assert_eq!(actual.coverage(), Coverage::Full, "{source}");
+    }
+}
+
+#[test]
+fn concealed_control_and_non_executing_forms_do_not_emit_secret_store_evidence() {
+    for source in [
         "vault kv list -mount=secret service",
+        "vault kv metadata get -mount=secret service/api",
+        "vault status",
         "vault kv undelete -mount=secret -versions=2 service/api",
         "vault token revoke token",
         "vault lease revoke lease-id",
         "vault kv delete -output-curl-string -mount=secret service/api",
         "vault kv destroy -output-policy -mount=secret -versions=2 service/api",
         "vault -unknown status",
-        "aws secretsmanager get-secret-value --secret-id service/api",
+        "aws ssm get-parameter --name /service/api",
+        "aws ssm get-parameter --name /service/api --with-decryption --no-with-decryption",
+        "aws ssm get-parameter --name /service/api --with-decryption --with-decryption=false",
         "aws secretsmanager list-secrets",
         "aws secretsmanager delete-secret --secret-id service/api --generate-cli-skeleton input",
-        "gcloud secrets versions access latest --secret=service-api",
+        "gcloud secrets versions list service-api",
         "az keyvault secret list --vault-name prod",
-        "doppler secrets get API_TOKEN --project service --config prod",
+        "az keyvault key show --vault-name prod --name signing",
         "doppler secrets --only-names --project service",
+        "doppler secrets --only-names=false --only-names --project service",
+        "doppler secrets download --project service",
+        "doppler secrets download --no-file=false --project service",
         "doppler --print-config secrets download",
-        "infisical secrets get API_TOKEN --projectId project --env prod",
-        "infisical secrets --recursive --env prod",
+        "infisical secrets folders get --path /service",
         "infisical --unknown export",
-        "infisical export --projectId project --env prod",
         "op item get item-id --vault prod",
+        "op item get item-id --share-link",
         "op --unknown item get item-id",
-        "op read op://prod/service/password",
         "op inject -i template -o output",
         "op item delete item-id --vault prod --archive",
         "op vault delete vault-id --archive",
@@ -92,6 +141,11 @@ fn reviewed_read_control_and_non_executing_forms_delegate() {
         let actual = stream(source);
         assert!(
             !has_secret_store_delete(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+        assert!(
+            !has_secret_store_read(&actual),
             "{source}: {:?}",
             actual.effects()
         );
@@ -105,6 +159,11 @@ fn reviewed_read_control_and_non_executing_forms_delegate() {
         let actual = stream(source);
         assert!(
             !has_secret_store_delete(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+        assert!(
+            !has_secret_store_read(&actual),
             "{source}: {:?}",
             actual.effects()
         );
@@ -124,6 +183,11 @@ fn secret_injection_runners_keep_opaque_nested_commands_partial() {
             "{source}: {:?}",
             actual.effects()
         );
+        assert!(
+            !has_secret_store_read(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
         assert_eq!(actual.coverage(), Coverage::Partial, "{source}");
         assert!(
             actual.effects().iter().any(|effect| {
@@ -140,8 +204,11 @@ fn secret_injection_runners_keep_opaque_nested_commands_partial() {
 }
 
 #[test]
-fn ambiguous_secret_store_deletions_remain_partial() {
+fn ambiguous_secret_store_operations_remain_partial() {
     for source in [
+        "vault kv get",
+        "vault read",
+        "vault kv get --unknown service/api",
         "vault kv delete",
         "vault kv destroy -mount=secret service/api",
         "vault kv delete --unknown service/api",
@@ -149,19 +216,32 @@ fn ambiguous_secret_store_deletions_remain_partial() {
         "aws secretsmanager delete-secret --secret-id -",
         "aws ssm delete-parameters --names",
         "aws secretsmanager delete-secret --filter service/api --secret-id service/api",
+        "aws secretsmanager get-secret-value",
+        "aws ssm get-parameter --name - --with-decryption",
         "gcloud secrets delete",
         "gcloud secrets delete one two",
         "gcloud secrets delete service-api --filter=labels.env=prod",
         "gcloud secrets versions destroy 7",
+        "gcloud secrets versions access latest",
         "az keyvault secret delete --vault-name prod",
         "az keyvault secret delete --vault-name prod --name -",
         "az keyvault delete",
+        "az keyvault secret show --vault-name prod",
+        "az keyvault secret download --vault-name prod --name service-api",
+        "doppler secrets get",
+        "doppler secrets get API_TOKEN --output yaml",
         "doppler secrets delete",
         "doppler projects delete --filter team service",
         "doppler projects delete --project -",
         "infisical secrets delete",
         "infisical secrets folders delete --path /service",
         "infisical secrets folders delete --path /service --name -",
+        "infisical secrets get",
+        "infisical secrets --recursive --env prod",
+        "infisical export --unknown-format yaml",
+        "op read",
+        "op document get",
+        "op item get item-id --fields",
         "op item delete",
         "op vault delete --vault prod",
         "vault kv delete \"$SECRET_PATH\"",
@@ -175,6 +255,11 @@ fn ambiguous_secret_store_deletions_remain_partial() {
         let actual = stream(source);
         assert!(
             !has_secret_store_delete(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+        assert!(
+            !has_secret_store_read(&actual),
             "{source}: {:?}",
             actual.effects()
         );

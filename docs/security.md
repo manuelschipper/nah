@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 44 guards span seven security classes; 27 default on.
+- 45 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -20,9 +20,9 @@ protected-state changes outside maintenance.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
   on compaction. `nah test --json`/custom guards may expose unredacted
   modeled input and inline code.
-- Guards block modeled credential access and visible sensitive/network flows to
-  dangerous sinks. Optional `secrets-store-delete` covers recoverable,
-  permanent, and whole-store deletion; archive/non-executing forms delegate.
+- Credential and network-flow guards block modeled access to dangerous sinks.
+  `secrets-store-read` is optional, but its evidence feeds default-on
+  `secrets-exfil`.
 - Hosted Git guards cover exact repositories (on) and reviewed static
   resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
@@ -73,11 +73,12 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-Credential guards model paths/effects. `secrets-credentials` covers paths/stores;
-cloud CLIs aren't file access.
-`secrets-env` blocks `.env` reads/copies and credential-variable output, not
-presence checks or `.env` creation/replacement. `secrets-store-delete` covers
-reviewed deletion shapes, not reads.
+`secrets-credentials` covers paths/stores, not cloud CLIs; `secrets-env` covers
+`.env` reads/copies and credential-variable output, not presence checks or
+creation/replacement. `secrets-store-read` covers
+reviewed value reads, excluding run/inject and concealed listings;
+`secrets-store-delete` covers reviewed deletions, excluding
+archive/non-executing forms.
 
 Network guards follow visible data/code through modeled shell flows. Opaque and
 prior provenance remain boundaries. Unresolved/bounded analysis is partial;

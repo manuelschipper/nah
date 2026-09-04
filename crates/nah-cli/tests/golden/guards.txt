@@ -38,6 +38,7 @@ Built-in:
 - [x] secrets-env
 - [x] secrets-exfil
 - [ ] secrets-store-delete
+- [ ] secrets-store-read
 - [x] storage-backup-destroy
 - [ ] storage-recursive-delete
 - [ ] storage-snapshot-delete

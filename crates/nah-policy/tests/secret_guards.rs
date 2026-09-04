@@ -141,3 +141,36 @@ fn secrets_store_delete_requires_its_matching_enabled_code() {
         );
     }
 }
+
+#[test]
+fn secrets_store_read_requires_its_matching_enabled_code() {
+    let stream = ActionStream::new(
+        Coverage::Full,
+        vec![vec![
+            EffectKind::known("vault", "secrets-store-read").unwrap(),
+        ]],
+        vec![],
+    )
+    .unwrap();
+    let enabled =
+        nah_policy::decide(&stream, &guard_policy("secrets-store-read", true), &[]).unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(
+        enabled.policy_attributions()[0].name(),
+        "secrets-store-read"
+    );
+
+    let disabled =
+        nah_policy::decide(&stream, &guard_policy("secrets-store-read", false), &[]).unwrap();
+    assert_eq!(disabled.verdict(), Verdict::Delegate);
+
+    for guard in ["secrets-credentials", "secrets-env", "secrets-store-delete"] {
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Delegate,
+            "{guard}"
+        );
+    }
+}
