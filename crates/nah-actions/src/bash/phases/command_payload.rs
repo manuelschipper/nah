@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use nah_parse::{Redirect, Word};
-use nah_proto::action::{FilesystemOperation, SemanticCode};
+use nah_proto::action::FilesystemOperation;
 
 use super::{
     AssignmentUpdate, CommandContext, InjectedOrigins, Lowered, Lowerer, PayloadExecution,
@@ -454,7 +454,7 @@ impl Lowerer {
                                     let permission_change = matches!(
                                         &self.stages[*stage].invocation,
                                         InvocationDraft::Known { operation, .. }
-                                            if operation == &SemanticCode::PERMISSION_CHANGE
+                                            if operation.is_permission_change()
                                     );
                                     if permission_change {
                                         for filesystem in &mut self.stages[*stage].filesystems {

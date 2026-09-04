@@ -2,7 +2,7 @@ mod support;
 
 use nah_actions::finalize;
 use nah_proto::action::{
-    Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, Sensitivity,
+    Coverage, EffectKind, FilesystemOperation, HostIntegrityClass, InvocationEffect, Sensitivity,
 };
 use nah_proto::observation::ObservationFailure;
 use support::{Change, absolute, bash_plan, observation_with, observe, observe_with_path_error};
@@ -284,6 +284,90 @@ fn filesystem_and_fork_bomb_evidence_survives_partial_lowering() {
                 if effect.target == absolute("/private/home/test") && effect.selects_home
         )
     }));
+}
+
+#[test]
+fn chmod_modes_distinguish_only_provable_permission_weakening() {
+    for source in [
+        "chmod 777 file",
+        "chmod 00002 file",
+        "chmod 4755 file",
+        "chmod 02755 file",
+        "chmod o+w file",
+        "chmod a=rw file",
+        "chmod ug+s file",
+        "chmod a=rxs file",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation.as_str() == "permission-weaken"
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Filesystem { effect }
+                    if effect.operation == FilesystemOperation::Write
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        "chmod 755 file",
+        "chmod 01755 file",
+        "chmod u+x file",
+        "chmod o-w file",
+        "chmod u-s file",
+        "chmod +w file",
+        "chmod u+r,+w file",
+        "chmod o+w-w file",
+        "chmod --reference=reference file",
+        "chmod \"$MODE\" file",
+        "chmod u++w file",
+        "chmod o+uw file",
+        "chmod 12 file",
+        "chmod 888 file",
+        "chown user file",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. }
+                } if operation.as_str() == "permission-change"
+            )),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    let source = "find / -exec chmod 777 '{}' +";
+    let plan = bash_plan(source);
+    let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+    assert!(stream.effects().iter().any(|effect| matches!(
+        effect.kind(),
+        EffectKind::Invocation {
+            invocation: InvocationEffect::Known { operation, .. }
+        } if operation.as_str() == "permission-weaken"
+    )));
+    assert!(stream.effects().iter().any(|effect| matches!(
+        effect.kind(),
+        EffectKind::Filesystem { effect }
+            if effect.operation == FilesystemOperation::Write
+                && effect.target == absolute("/")
+                && effect.recursive
+    )));
 }
 
 #[test]
