@@ -218,6 +218,7 @@ impl SemanticCode {
     pub const REGISTRY_UNPUBLISH: Self = Self::borrowed("registry-unpublish");
     pub const REMOVE: Self = Self::borrowed("remove");
     pub const REWRITE_FORCE: Self = Self::borrowed("rewrite-force");
+    pub const SERVICE_STOP: Self = Self::borrowed("sys-service-stop");
     pub const SHELL_INLINE: Self = Self::borrowed("shell-inline");
     pub const SHELL_INTERACTIVE: Self = Self::borrowed("shell-interactive");
     pub const SHELL_FILE: Self = Self::borrowed("shell-file");

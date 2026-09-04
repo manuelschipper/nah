@@ -36,7 +36,9 @@
   routes, while optional `git-path-discard` covers definite named-path checkout,
   restore, and same-path `git show` overwrites.
 - **Host and project guards** — New default-on `sys-power` blocks reviewed host
-  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  shutdown, reboot, halt, and suspend actions. Optional `sys-service-stop` covers
+  explicit service shutdown, target isolation, Podman stop-all, and the exact
+  `docker stop $(docker ps -q)` flow. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
   paths; optional guards cover recursive deletion outside the project, shell
   profiles, and persistent startup management.

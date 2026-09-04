@@ -14,11 +14,19 @@ fn stream(source: &str, platform: Platform) -> ActionStream {
 }
 
 fn manages_startup(source: &str, platform: Platform) -> bool {
+    has_system_state(source, platform, &SemanticCode::STARTUP_MANAGEMENT)
+}
+
+fn stops_service(source: &str, platform: Platform) -> bool {
+    has_system_state(source, platform, &SemanticCode::SERVICE_STOP)
+}
+
+fn has_system_state(source: &str, platform: Platform, expected: &SemanticCode) -> bool {
     stream(source, platform).effects().iter().any(|effect| {
         matches!(
             effect.kind(),
             EffectKind::SystemState { operation }
-                if operation == &SemanticCode::STARTUP_MANAGEMENT
+                if operation == expected
         )
     })
 }
@@ -201,4 +209,108 @@ fn crontab_read_editor_test_dynamic_and_malformed_forms_remain_outside() {
             "unexpected startup-management effect for {source}"
         );
     }
+}
+
+#[test]
+fn linux_service_stop_forms_are_recognized() {
+    for source in [
+        "systemctl stop sshd",
+        "systemctl kill sshd",
+        "systemctl isolate rescue.target",
+        "systemctl stop sshd nginx",
+        "systemctl --user --quiet stop backup.service",
+        "systemctl -- stop sshd",
+        "service docker stop",
+        "service 'sshd' stop",
+        "sudo systemctl stop sshd",
+        "/bin/systemctl stop sshd",
+        "/usr/sbin/systemctl isolate emergency.target",
+    ] {
+        assert!(
+            stops_service(source, Platform::Linux),
+            "expected service-stop effect for {source}"
+        );
+        assert!(
+            !manages_startup(source, Platform::Linux),
+            "service-stop must not also be startup-management for {source}"
+        );
+    }
+}
+
+#[test]
+fn service_stop_carve_outs_remain_outside() {
+    for source in [
+        "systemctl stop",
+        "systemctl start sshd",
+        "systemctl restart sshd",
+        "systemctl reload sshd",
+        "systemctl daemon-reload",
+        "systemctl status sshd",
+        "systemctl --help stop sshd",
+        "systemctl stop --help",
+        "systemctl --dry-run stop sshd",
+        "systemctl --runtime stop sshd",
+        "systemctl --root /mnt stop sshd",
+        "systemctl --image /tmp/root.raw stop sshd",
+        "systemctl stop *.service",
+        "systemctl stop \"$UNIT\"",
+        "systemctl isolate",
+        "service docker start",
+        "service docker restart",
+        "service docker stop extra",
+        "service --status-all",
+        "service stop docker",
+        "/tmp/systemctl stop sshd",
+    ] {
+        assert!(
+            !stops_service(source, Platform::Linux),
+            "unexpected service-stop effect for {source}"
+        );
+    }
+    assert!(!stops_service("systemctl stop sshd", Platform::Macos));
+    assert!(!stops_service("service docker stop", Platform::Macos));
+}
+
+#[test]
+fn macos_launchctl_stop_forms_are_recognized() {
+    for source in [
+        "launchctl stop com.example.backup",
+        "launchctl bootout system/com.example.backup",
+        "launchctl bootout gui/501/com.example.backup",
+        "/bin/launchctl stop com.example.backup",
+    ] {
+        assert!(
+            stops_service(source, Platform::Macos),
+            "expected service-stop effect for {source}"
+        );
+        assert!(
+            !manages_startup(source, Platform::Macos),
+            "service-stop must not also be startup-management for {source}"
+        );
+    }
+}
+
+#[test]
+fn launchctl_restart_and_malformed_stop_forms_remain_outside() {
+    for source in [
+        "launchctl start com.example.backup",
+        "launchctl kickstart -k system/com.example.backup",
+        "launchctl kickstart system/com.example.backup",
+        "launchctl stop",
+        "launchctl stop -x com.example.backup",
+        "launchctl bootout",
+        "launchctl bootout system",
+        "launchctl bootout system/com.example.backup extra",
+        "launchctl stop \"$LABEL\"",
+        "/tmp/launchctl stop com.example.backup",
+    ] {
+        assert!(
+            !stops_service(source, Platform::Macos),
+            "unexpected service-stop effect for {source}"
+        );
+    }
+    assert!(!stops_service(
+        "launchctl stop com.example.backup",
+        Platform::Linux
+    ));
 }

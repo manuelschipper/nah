@@ -72,6 +72,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "storage-recursive-delete",
     "storage-snapshot-delete",
     "sys-power",
+    "sys-service-stop",
 ];
 
 /// Reduces shipped policy and already-validated extension responses.

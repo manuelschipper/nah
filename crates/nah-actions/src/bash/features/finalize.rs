@@ -87,6 +87,7 @@ pub(crate) fn finalize(
             complete = false;
         }
     }
+    promote_container_stop_all(&mut draft_stages, &draft_flows);
     add_observed_identity_flows(&draft_stages, observation, platform, &mut draft_flows);
     if mark_observed_network_reads(&mut draft_stages, &draft_flows) {
         complete = false;
@@ -406,6 +407,103 @@ pub(crate) fn finalize(
         .map(|(from, to)| FlowOrdinals::new(from, to))
         .collect();
     Some((complete, stages, flows))
+}
+
+fn promote_container_stop_all(stages: &mut [StageDraft], flows: &[(usize, usize)]) {
+    for outer in 0..stages.len() {
+        if !exact_container_stop_substitution(&stages[outer]) {
+            continue;
+        }
+        let sources = flows
+            .iter()
+            .filter_map(|(from, to)| (*to == outer).then_some(*from))
+            .collect::<Vec<_>>();
+        let [inner] = sources.as_slice() else {
+            continue;
+        };
+        if stage_program(&stages[*inner]) != stage_program(&stages[outer])
+            || !exact_container_ps_quiet(&stages[*inner])
+        {
+            continue;
+        }
+        if !stages[outer]
+            .system_states
+            .contains(&SemanticCode::SERVICE_STOP)
+        {
+            stages[outer].system_states.push(SemanticCode::SERVICE_STOP);
+        }
+    }
+}
+
+fn exact_container_stop_substitution(stage: &StageDraft) -> bool {
+    if !matches!(stage_program(stage), Some("docker" | "podman")) {
+        return false;
+    }
+    let Some(arguments) = invocation_arguments(stage) else {
+        return false;
+    };
+    let (command, target) = match arguments {
+        [command, target] => (command.as_str(), target.as_str()),
+        [command, dash, target] if dash == "--" => (command.as_str(), target.as_str()),
+        _ => return false,
+    };
+    matches!(command, "stop" | "kill") && command_substitution_word(target)
+}
+
+fn exact_container_ps_quiet(stage: &StageDraft) -> bool {
+    if !matches!(stage_program(stage), Some("docker" | "podman")) {
+        return false;
+    }
+    let Some(arguments) = invocation_arguments(stage) else {
+        return false;
+    };
+    let Some((command, rest)) = arguments.split_first() else {
+        return false;
+    };
+    command == "ps"
+        && rest
+            .iter()
+            .all(|argument| matches!(argument.as_str(), "-q" | "--quiet"))
+        && rest
+            .iter()
+            .any(|argument| matches!(argument.as_str(), "-q" | "--quiet"))
+}
+
+fn invocation_arguments(stage: &StageDraft) -> Option<&[String]> {
+    let words = match &stage.invocation {
+        InvocationDraft::Known { words, argv, .. }
+        | InvocationDraft::Opaque { words, argv, .. }
+        | InvocationDraft::CodeExecution { words, argv, .. } => argv.as_deref().unwrap_or(words),
+        InvocationDraft::Native { .. } => return None,
+    };
+    words.split_first().map(|(_, arguments)| arguments)
+}
+
+fn stage_program(stage: &StageDraft) -> Option<&str> {
+    match &stage.invocation {
+        InvocationDraft::Known { program, .. } | InvocationDraft::CodeExecution { program, .. } => {
+            Some(program)
+        }
+        InvocationDraft::Opaque {
+            program: ProgramDraft::Static(program),
+            ..
+        } => Some(program),
+        InvocationDraft::Opaque {
+            program: ProgramDraft::Env { .. } | ProgramDraft::Unresolved,
+            ..
+        }
+        | InvocationDraft::Native { .. } => None,
+    }
+}
+
+fn command_substitution_word(raw: &str) -> bool {
+    let raw = if raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"') {
+        &raw[1..raw.len() - 1]
+    } else {
+        raw
+    };
+    raw.len() >= 3 && raw.starts_with("$(") && raw.ends_with(')')
+        || raw.len() >= 2 && raw.starts_with('`') && raw.ends_with('`')
 }
 
 #[derive(Clone)]
