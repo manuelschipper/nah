@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 37 guards span seven security classes; 27 default on.
+- 40 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -22,15 +22,16 @@ protected-state changes outside maintenance.
   modeled input and inline code.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
-- `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
-- Optional `git-remote-resource-delete` covers reviewed static hosted-resource deletion.
+- Hosted Git guards cover exact repositories (on) and reviewed static
+  resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs
   delegate.
 - Filesystem guards cover auth/identity, shell profiles, startup paths/commands,
-  and recursive deletion outside the project; `fs-outside-workspace-delete`,
-  shell-profile, and startup-management default off.
+  recursive deletion outside the project, and provable world-write or
+  setuid/setgid `chmod` modes; `fs-outside-workspace-delete`,
+  `fs-permission-weaken`, shell-profile, and startup-management default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune and Compose `down`/`rm` volume removal;
   `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,

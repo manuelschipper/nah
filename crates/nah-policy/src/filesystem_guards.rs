@@ -11,6 +11,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
 const FS_OUTSIDE_WORKSPACE_DELETE: &str = "fs-outside-workspace-delete";
+const FS_PERMISSION_WEAKEN: &str = "fs-permission-weaken";
 const FS_SHELL_PROFILE: &str = "fs-shell-profile";
 const FS_STARTUP_MANAGEMENT: &str = "fs-startup-management";
 const FS_PROJECT_ROOT: &str = "fs-project-root";
@@ -43,6 +44,10 @@ pub(crate) fn add(
         (
             FS_OUTSIDE_WORKSPACE_DELETE,
             "fs-outside-workspace-delete blocked recursive deletion outside the active project; narrow the target to the project or a reviewed temporary root; ask the operator to perform any broader cleanup",
+        ),
+        (
+            FS_PERMISSION_WEAKEN,
+            "fs-permission-weaken blocked a chmod mode that provably grants world-write or setuid/setgid permission; use a narrower mode or ask the operator to perform the permission change",
         ),
         (
             FS_PROJECT_ROOT,
@@ -132,6 +137,12 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                     )
                     && !is_reviewed_temporary_root(filesystem.target.as_str())
             }
+            (
+                FS_PERMISSION_WEAKEN,
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { operation, .. },
+                },
+            ) => operation == &SemanticCode::PERMISSION_WEAKEN,
             (FS_PROJECT_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
                 if let PathScope::Project { root } = &filesystem.scope {
                     (filesystem.selects_root
@@ -230,7 +241,7 @@ fn destructive_tree_operation(
                         candidate.kind(),
                         EffectKind::Invocation {
                             invocation: InvocationEffect::Known { operation, .. }
-                        } if operation == &SemanticCode::PERMISSION_CHANGE
+                        } if operation.is_permission_change()
                     )
             }))
 }

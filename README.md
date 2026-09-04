@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-37 guards, 27 on by default, covering seven classes of disaster: **execution
+40 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power actions**.
@@ -48,6 +48,7 @@ and **host power actions**.
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
+| `fs-permission-weaken` | `chmod` modes that provably grant world-write or setuid/setgid permission. Off by default. |
 | `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
@@ -59,8 +60,10 @@ and **host power actions**.
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
+| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
+| `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |

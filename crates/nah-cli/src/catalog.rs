@@ -220,7 +220,10 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                 *name,
                 "fs-shell-profile"
                     | "fs-outside-workspace-delete"
+                    | "fs-permission-weaken"
                     | "fs-startup-management"
+                    | "git-path-discard"
+                    | "git-history-rewrite"
                     | "git-remote-resource-delete"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
@@ -244,6 +247,7 @@ fn family(name: &str) -> GuardFamily {
         | "fs-forkbomb"
         | "fs-home"
         | "fs-outside-workspace-delete"
+        | "fs-permission-weaken"
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
@@ -254,7 +258,9 @@ fn family(name: &str) -> GuardFamily {
         "git-clean-force"
         | "git-force-push"
         | "git-hard-reset"
+        | "git-history-rewrite"
         | "git-metadata"
+        | "git-path-discard"
         | "git-recovery-destroy"
         | "git-remote-repo-delete"
         | "git-remote-resource-delete"
@@ -290,6 +296,9 @@ fn behavior(name: &str) -> &'static str {
         "fs-outside-workspace-delete" => {
             "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
         }
+        "fs-permission-weaken" => {
+            "Blocks chmod modes that provably grant world-write or setuid/setgid permission."
+        }
         "fs-project-root" => {
             "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
         }
@@ -310,8 +319,14 @@ fn behavior(name: &str) -> &'static str {
         "git-clean-force" => "Blocks an effective forced Git clean selecting the project root.",
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
         "git-hard-reset" => "Blocks Git hard resets.",
+        "git-history-rewrite" => {
+            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes."
+        }
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
+        }
+        "git-path-discard" => {
+            "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
@@ -407,6 +422,7 @@ fn examples(name: &str) -> Vec<&'static str> {
             "rm -rf /opt/old-build",
             "rm -rf /home/other/archive",
         ],
+        "fs-permission-weaken" => ["chmod 777 file", "chmod o+w file", "chmod u+s file"],
         "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
@@ -459,6 +475,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git reset --hard HEAD~1",
             "sudo git -C . reset --hard",
         ],
+        "git-history-rewrite" => [
+            "git rebase main",
+            "git filter-repo --invert-paths --path secret",
+            "git push --force-with-lease",
+        ],
         "git-metadata" => [
             "rm -rf .git/objects",
             "echo corrupt > .git/objects/aa",
@@ -483,6 +504,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git filter-branch --force -- --all",
             "git filter-repo --force",
             "sudo git filter-repo --force",
+        ],
+        "git-path-discard" => [
+            "git checkout -- src/lib.rs",
+            "git restore src/lib.rs",
+            "git show HEAD:src/lib.rs > src/lib.rs",
         ],
         "git-worktree-discard" => [
             "git checkout -f",
@@ -705,6 +731,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-permission-weaken")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -712,6 +744,12 @@ mod tests {
             states
                 .iter()
                 .find(|state| state.name() == "fs-startup-management")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "git-path-discard")
                 .is_some_and(|state| !state.enabled())
         );
         assert!(
@@ -786,6 +824,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 13);
     }
 }

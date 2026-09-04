@@ -147,7 +147,8 @@ pub(crate) struct FilesystemDraft {
     pub(crate) cwd_relative: bool,
     pub(crate) operation: FilesystemOperation,
     // A Git guard is emitted only if this exact projected mutation resolves
-    // to the project root. Redirects and other same-stage effects stay untagged.
+    // to the project root or a concrete named project path. Redirects and
+    // other same-stage effects stay untagged.
     pub(crate) git_guard: Option<SemanticCode>,
     pub(crate) recursive: bool,
     pub(crate) symlink_traversal: SymlinkTraversal,

@@ -67,6 +67,7 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     assert!(docs.contains("# git-hard-reset\n\nStatus: enabled"));
     assert!(docs.contains("# fs-shell-profile\n\nStatus: disabled\n\nDefault: disabled"));
     assert!(docs.contains("# git-clean-force\n\nStatus: enabled"));
+    assert!(docs.contains("# git-path-discard\n\nStatus: disabled\n\nDefault: disabled"));
     assert!(docs.contains("# git-worktree-discard\n\nStatus: enabled"));
     assert!(
         docs.contains(

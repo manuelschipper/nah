@@ -307,6 +307,8 @@ pub(crate) fn finalize(
                     &scope,
                     nah_proto::action::PathScope::Project { root } if root == &target
                 );
+                let selects_project =
+                    matches!(&scope, nah_proto::action::PathScope::Project { .. });
                 let selects_home = selects_home(target.as_str(), home.as_str(), platform, false)
                     || selects_home(&filesystem.requested, home.as_str(), platform, false);
                 if filesystem.operation == FilesystemOperation::Delete && !conditional_execution {
@@ -353,6 +355,14 @@ pub(crate) fn finalize(
                     && !stage.git_operations.contains(operation)
                 {
                     stage.git_operations.push(operation.clone());
+                }
+                if !selects_root
+                    && !filesystem.pattern
+                    && selects_project
+                    && filesystem.git_guard.as_ref() == Some(&SemanticCode::WORKTREE_DISCARD)
+                    && !stage.git_operations.contains(&SemanticCode::PATH_DISCARD)
+                {
+                    stage.git_operations.push(SemanticCode::PATH_DISCARD);
                 }
                 effects.extend(effects_with_sensitivities(effect, &sensitivities));
             }

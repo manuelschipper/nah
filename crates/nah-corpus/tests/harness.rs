@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1783);
+    assert_eq!(summary.cases, 1807);
 }
 
 #[test]
@@ -78,8 +78,8 @@ fn current_corpus_file_counts_are_pinned() {
         actual,
         [
             ("execution-flows.jsonl".to_owned(), 296),
-            ("filesystem.jsonl".to_owned(), 256),
-            ("git.jsonl".to_owned(), 273),
+            ("filesystem.jsonl".to_owned(), 263),
+            ("git.jsonl".to_owned(), 290),
             ("infrastructure.jsonl".to_owned(), 174),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
@@ -111,6 +111,13 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "ordinary-workflow.npm-test",
         "ordinary-workflow.pytest",
         "ordinary-workflow.uv-pytest",
+        "git-path-discard.checkout-named",
+        "git-path-discard.restore-named",
+        "git-path-discard.show-overwrite",
+        "git-path-discard.show-different-targets-delegates",
+        "git-path-discard.factory-delegates",
+        "git-path-discard.named-restore-cannot-borrow-root-redirect",
+        "git-path-discard.subdir-restore",
         "git-remote-repo-delete.gh-current",
         "git-remote-repo-delete.glab-current",
         "git-remote-repo-delete.gh-api-placeholders",

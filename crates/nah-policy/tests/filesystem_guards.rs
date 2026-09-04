@@ -256,7 +256,7 @@ fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_a
         (FilesystemOperation::Write, "/var", PathScope::System, true),
     ] {
         let invocation = if operation == FilesystemOperation::Write {
-            EffectKind::known("chmod", "permission-change").unwrap()
+            EffectKind::known("chmod", "permission-weaken").unwrap()
         } else {
             EffectKind::opaque("bash").unwrap()
         };
@@ -332,6 +332,98 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
     let decision = nah_policy::decide(&stream, &guard_policy("fs-home", true), &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-home");
+
+    let permission = ActionStream::new(
+        Coverage::Partial,
+        vec![vec![
+            EffectKind::known("chmod", "permission-weaken").unwrap(),
+            EffectKind::Filesystem {
+                effect: FilesystemEffect {
+                    operation: FilesystemOperation::Write,
+                    target: path("/home/test"),
+                    scope: PathScope::Home,
+                    sensitivity: Sensitivity::None,
+                    protection: None,
+                    host_integrity: None,
+                    selects_root: false,
+                    selects_home: true,
+                    recursive: true,
+                    pattern: false,
+                },
+            },
+        ]],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        nah_policy::decide(&permission, &guard_policy("fs-home", true), &[])
+            .unwrap()
+            .verdict(),
+        Verdict::Block
+    );
+}
+
+#[test]
+fn permission_weaken_is_optional_and_can_overlap_a_tree_guard() {
+    let stream = ActionStream::new(
+        Coverage::Full,
+        vec![vec![
+            EffectKind::known("chmod", "permission-weaken").unwrap(),
+            EffectKind::Filesystem {
+                effect: FilesystemEffect {
+                    operation: FilesystemOperation::Write,
+                    target: path("/etc"),
+                    scope: PathScope::System,
+                    sensitivity: Sensitivity::None,
+                    protection: None,
+                    host_integrity: None,
+                    selects_root: false,
+                    selects_home: false,
+                    recursive: true,
+                    pattern: false,
+                },
+            },
+        ]],
+        vec![],
+    )
+    .unwrap();
+    let policy = context(
+        &[("fs-permission-weaken", true), ("fs-system-tree", true)],
+        vec![],
+        ProjectGuardDeclaration::Absent,
+    )
+    .1;
+    let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+    assert_eq!(decision.verdict(), Verdict::Block);
+    assert_eq!(
+        decision
+            .policy_attributions()
+            .iter()
+            .map(|attribution| attribution.name())
+            .collect::<Vec<_>>(),
+        ["fs-permission-weaken", "fs-system-tree"]
+    );
+
+    assert_eq!(
+        nah_policy::decide(&stream, &guard_policy("fs-permission-weaken", false), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
+    let ordinary = ActionStream::new(
+        Coverage::Full,
+        vec![vec![
+            EffectKind::known("chmod", "permission-change").unwrap(),
+        ]],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        nah_policy::decide(&ordinary, &guard_policy("fs-permission-weaken", true), &[],)
+            .unwrap()
+            .verdict(),
+        Verdict::Delegate
+    );
 }
 
 #[test]
@@ -575,10 +667,16 @@ fn fs_project_root_blocks_recursive_deletes_of_exact_roots_and_root_wide_pattern
 
 #[test]
 fn fs_project_root_blocks_same_stage_recursive_permission_changes_for_every_known_tool() {
-    for tool in ["chmod", "chown", "chgrp", "setfacl"] {
+    for (tool, operation) in [
+        ("chmod", "permission-weaken"),
+        ("chmod", "permission-change"),
+        ("chown", "permission-change"),
+        ("chgrp", "permission-change"),
+        ("setfacl", "permission-change"),
+    ] {
         assert_project_root_block(
             vec![vec![
-                EffectKind::known(tool, "permission-change").unwrap(),
+                EffectKind::known(tool, operation).unwrap(),
                 project_effect(
                     Platform::Linux,
                     "/repo",
@@ -722,6 +820,11 @@ fn unbounded_destructive_tree_effects_select_both_root_and_home_guards() {
             ),
             unresolved_stream(
                 EffectKind::known("chmod", "permission-change").unwrap(),
+                FilesystemOperation::Write,
+                true,
+            ),
+            unresolved_stream(
+                EffectKind::known("chmod", "permission-weaken").unwrap(),
                 FilesystemOperation::Write,
                 true,
             ),
