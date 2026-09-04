@@ -638,10 +638,11 @@ fn secret_store_command_prefix(program: &str, positions: &[String]) -> bool {
         _ => unreachable!("secret-store programs are matched before option parsing"),
     };
     commands.iter().any(|command| {
-        positions
-            .iter()
-            .zip(command.iter())
-            .all(|(position, segment)| position == segment)
+        positions.len() >= command.len()
+            && positions
+                .iter()
+                .zip(command.iter())
+                .all(|(position, segment)| position == segment)
     })
 }
 
