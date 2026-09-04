@@ -214,7 +214,9 @@ impl SemanticCode {
     pub const PATH_DISCARD: Self = Self::borrowed("path-discard");
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
+    pub const PERMISSION_WEAKEN: Self = Self::borrowed("permission-weaken");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");
+    pub const REF_DELETE: Self = Self::borrowed("ref-delete");
     pub const REGISTRY_PUBLISH: Self = Self::borrowed("registry-publish");
     pub const REGISTRY_UNPUBLISH: Self = Self::borrowed("registry-unpublish");
     pub const REMOVE: Self = Self::borrowed("remove");
@@ -244,6 +246,12 @@ impl SemanticCode {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Returns whether the semantic operation is a permission change, including
+    /// the narrower permission-weakening classification.
+    pub fn is_permission_change(&self) -> bool {
+        self == &Self::PERMISSION_CHANGE || self == &Self::PERMISSION_WEAKEN
     }
 }
 

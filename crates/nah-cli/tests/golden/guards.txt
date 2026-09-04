@@ -7,6 +7,7 @@ Built-in:
 - [x] fs-forkbomb
 - [x] fs-home
 - [ ] fs-outside-workspace-delete
+- [ ] fs-permission-weaken
 - [x] fs-project-root
 - [x] fs-raw-device
 - [ ] fs-shell-profile
@@ -21,6 +22,7 @@ Built-in:
 - [x] git-metadata
 - [ ] git-path-discard
 - [x] git-recovery-destroy
+- [ ] git-ref-delete
 - [x] git-remote-repo-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
