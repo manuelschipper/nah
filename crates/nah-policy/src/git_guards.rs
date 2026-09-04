@@ -37,6 +37,11 @@ pub(crate) fn add(
             "git-hard-reset blocked git reset --hard; inspect the diff and preserve wanted work; use a targeted restore or ask the operator to perform the full reset",
         ),
         (
+            "git-history-rewrite",
+            &SemanticCode::HISTORY_REWRITE,
+            "git-history-rewrite blocked a Git history rewrite; inspect the affected refs, use an abort or dry-run mode when available, or ask the operator to verify the rewrite",
+        ),
+        (
             "git-rewrite-force",
             &SemanticCode::REWRITE_FORCE,
             "git-rewrite-force blocked a forced history rewrite; remove the force bypass and preview the rewrite; ask the operator to verify the affected history",

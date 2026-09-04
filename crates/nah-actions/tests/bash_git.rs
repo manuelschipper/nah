@@ -33,6 +33,14 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
             "git push --force-with-lease=other origin +main",
             "force-push",
         ),
+        (
+            "git push --force-with-lease --no-force-with-lease origin +main",
+            "force-push",
+        ),
+        (
+            "git push --repo --force-with-lease origin +main",
+            "force-push",
+        ),
         ("git reset --hard", "hard-reset"),
         ("git reset --hard \"$REV\"", "hard-reset"),
         ("git filter-branch -f -- --all", "rewrite-force"),
@@ -73,25 +81,18 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
     for source in [
         "rm -rf .git/index",
         "rm -rf .git/hooks/pre-commit",
-        "git push --force-with-lease",
-        "git push --force-with-lease=main",
-        "git push --force-with-lease origin +main",
-        "git push --force-with-lease=main origin +main",
         "git push -- --force",
         "git -- push --force",
         "git reset --soft HEAD~1",
         "git reset -- --hard",
-        "git filter-branch -- --all",
-        "git filter-repo --invert-paths --path secret",
         "git filter-repo --dry-run --force",
         "git filter-repo --analyze",
         "git filter-repo --version",
         "git reflog show",
         "git reflog show expire",
-        "git reflog expire --all",
         "git reflog expire --dry-run --all --expire=now",
+        "git reflog expire -n --all --expire=now",
         "git reflog delete HEAD@{0}",
-        "git gc --prune=2.weeks.ago",
         "git gc -- --prune=now",
         "git push --dry-run --force origin main",
         "git push -nf origin main",
@@ -135,6 +136,93 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
                 .effects()
                 .iter()
                 .any(|effect| matches!(effect.kind(), EffectKind::Git { .. })),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
+    for source in [
+        "git rebase main",
+        "git rebase --continue",
+        "git rebase --skip",
+        "git rebase -- --abort",
+        "git filter-branch -- --all",
+        "git filter-repo --invert-paths --path secret",
+        "git reflog expire --all",
+        "git gc --aggressive",
+        "git gc --prune=2.weeks.ago",
+        "git gc --no-prune --aggressive",
+        "git push --force-with-lease",
+        "git push --force-with-lease=main origin +main",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        let operations = stream
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect.kind() {
+                EffectKind::Git { operation } => Some(operation.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            operations,
+            ["history-rewrite"],
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for (source, operation) in [
+        ("git filter-repo --force", "rewrite-force"),
+        ("git reflog expire --all --expire=now", "recovery-destroy"),
+        ("git gc --aggressive --prune=now", "recovery-destroy"),
+        ("git push --force-with-lease --force", "force-push"),
+        (
+            "git push --force-with-lease=other origin +main",
+            "force-push",
+        ),
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        let operations = stream
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect.kind() {
+                EffectKind::Git { operation } => Some(operation.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(operations, [operation], "{source}: {:?}", stream.effects());
+    }
+
+    for source in [
+        "git rebase --abort",
+        "git rebase --quit",
+        "git rebase --show-current-patch",
+        "git rebase --help",
+        "git filter-repo --dry-run --force",
+        "git filter-repo --analyze",
+        "git filter-branch --help",
+        "git reflog expire --dry-run --all",
+        "git gc",
+        "git gc --prune=2.weeks.ago --no-prune",
+        "git push --force-with-lease --no-force-with-lease",
+        "git commit --amend -m update",
+        "git cherry-pick topic",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "history-rewrite")
+            }),
             "{source}: {:?}",
             stream.effects()
         );
