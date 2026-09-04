@@ -4,6 +4,7 @@ use nah_parse::Word;
 use nah_proto::action::SemanticCode;
 
 use crate::bash_execution::execution_spec;
+use crate::bash_filesystem::chmod_weakens_permissions;
 use crate::bash_model::{InvocationDraft, ProgramDraft};
 use crate::shell_word::static_word;
 
@@ -124,7 +125,11 @@ pub(crate) fn invocation(
         "chmod" | "chown" | "chgrp" | "setfacl" => {
             return InvocationDraft::Known {
                 program: lexical_program.to_owned(),
-                operation: SemanticCode::PERMISSION_CHANGE,
+                operation: if program == "chmod" && chmod_weakens_permissions(arguments) {
+                    SemanticCode::PERMISSION_WEAKEN
+                } else {
+                    SemanticCode::PERMISSION_CHANGE
+                },
                 words,
                 argv,
             };
