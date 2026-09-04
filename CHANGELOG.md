@@ -39,11 +39,12 @@
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
   aggressive or pruning garbage collection, and leased force pushes while
   preserving recovery and inspection commands.
-- **Host and project guards** — New default-on `sys-power` blocks reviewed host
+- **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
   paths; optional guards cover recursive deletion outside the project, shell
-  profiles, and persistent startup management.
+  profiles, persistent startup management, and `fs-permission-weaken` for
+  provable world-writable or setuid/setgid `chmod` modes.
 - **Resilient decisions and logs** — Runtime wiring failures no longer suppress
   independent guard decisions, and `nah log` plus the TUI recover readable
   history from a damaged audit log instead of leaving browsing unavailable.
