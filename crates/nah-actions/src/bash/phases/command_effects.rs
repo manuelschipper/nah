@@ -422,23 +422,27 @@ impl Lowerer {
                     && environment_disclosure.is_none()
             }),
             host_power.or_else(|| {
-                nah_mutation
-                    .or_else(|| {
-                        project
-                            .as_ref()
-                            .filter(|lowering| lowering.complete)
-                            .map(|lowering| lowering.operation)
-                    })
-                    .or_else(|| {
-                        git.as_ref()
-                            .filter(|lowering| lowering.complete)
-                            .map(|lowering| lowering.operation)
-                    })
-                    .or(environment_disclosure)
-                    .or(local_operation)
-                    .or_else(|| execution.as_ref().and_then(|lowering| lowering.operation))
-                    .or(network_shell_redirect.then_some("network-shell"))
-                    .or(nah_inspection)
+                secret_store
+                    .as_ref()
+                    .and_then(|classification| classification.known_invocation.as_ref())
+                    .map(SemanticCode::as_str)
+                    .or(nah_mutation
+                        .or_else(|| {
+                            project
+                                .as_ref()
+                                .filter(|lowering| lowering.complete)
+                                .map(|lowering| lowering.operation)
+                        })
+                        .or_else(|| {
+                            git.as_ref()
+                                .filter(|lowering| lowering.complete)
+                                .map(|lowering| lowering.operation)
+                        })
+                        .or(environment_disclosure)
+                        .or(local_operation)
+                        .or_else(|| execution.as_ref().and_then(|lowering| lowering.operation))
+                        .or(network_shell_redirect.then_some("network-shell"))
+                        .or(nah_inspection))
                     .map(|operation| {
                         SemanticCode::new(operation)
                             .expect("semantic operations are validated constants")
@@ -487,7 +491,9 @@ impl Lowerer {
             || kubernetes.is_some()
             || storage.is_some()
             || secret_store.as_ref().is_some_and(|classification| {
-                classification.system_state.is_some() || !classification.complete
+                classification.known_invocation.is_some()
+                    || classification.system_state.is_some()
+                    || !classification.complete
             })
             || registry.is_some()
             || host_power_command

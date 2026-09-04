@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-44 guards, 27 on by default, covering seven classes of disaster: **execution
+45 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power and service-stop actions**.
@@ -46,6 +46,7 @@ and **host power and service-stop actions**.
 | `secrets-credentials` | Reads or writes of private-key and credential-store paths. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `secrets-store-delete` | Reviewed secret, version, folder, configuration, project, and vault deletion across common secret-manager CLIs. Off by default. |
+| `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. Off by default. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |

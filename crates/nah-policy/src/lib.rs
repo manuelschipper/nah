@@ -74,6 +74,7 @@ pub const SHIPPED_GUARDS: &[&str] = &[
     "secrets-env",
     "secrets-exfil",
     "secrets-store-delete",
+    "secrets-store-read",
     "storage-backup-destroy",
     "storage-recursive-delete",
     "storage-snapshot-delete",

@@ -264,6 +264,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
     for (program, operation) in [
         ("env", "environment-disclosure"),
         ("echo", "credential-disclosure"),
+        ("vault", "secrets-store-read"),
     ] {
         let source = ActionStream::new(
             Coverage::Full,
