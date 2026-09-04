@@ -237,6 +237,10 @@ impl Interpreter<'_, '_> {
             CanonicalCommand::CurlAlias => self.web_request(&raw_command, command_arguments, false),
             CanonicalCommand::InvokeExpression => self.invoke_expression(command_arguments),
             CanonicalCommand::StartProcess => self.start_process(command_arguments),
+            CanonicalCommand::StopComputer => self.host_power("stop-computer", command_arguments),
+            CanonicalCommand::RestartComputer => {
+                self.host_power("restart-computer", command_arguments)
+            }
             CanonicalCommand::NoEffect => self.emit(
                 LanguageCallKind::LocalUtility,
                 &raw_command,
@@ -470,6 +474,23 @@ impl Interpreter<'_, '_> {
         }
     }
 
+    fn host_power(&mut self, callable: &str, tokens: &[Token]) {
+        let arguments = parse_arguments(tokens, host_power_parameter);
+        let what_if = effective_what_if(tokens);
+        self.emit(
+            if what_if == Some(false) {
+                LanguageCallKind::HostPower
+            } else {
+                LanguageCallKind::LocalUtility
+            },
+            callable,
+            tokens.iter(),
+            Vec::new(),
+            None,
+            arguments.complete && what_if.is_some(),
+        );
+    }
+
     fn external(&mut self, command: &Token, arguments: &[Token]) {
         let complete = command.exact && arguments.iter().all(|argument| argument.exact);
         self.emit(
@@ -647,6 +668,8 @@ enum CanonicalCommand {
     CurlAlias,
     InvokeExpression,
     StartProcess,
+    StopComputer,
+    RestartComputer,
     NoEffect,
     External,
 }
@@ -669,6 +692,8 @@ fn canonical_command(command: &str, platform: Platform) -> CanonicalCommand {
         "curl" | "wget" => CanonicalCommand::CurlAlias,
         "invoke-expression" | "iex" => CanonicalCommand::InvokeExpression,
         "start-process" | "saps" | "start" => CanonicalCommand::StartProcess,
+        "stop-computer" => CanonicalCommand::StopComputer,
+        "restart-computer" => CanonicalCommand::RestartComputer,
         "write-output" | "echo" | "write-host" => CanonicalCommand::NoEffect,
         _ => CanonicalCommand::External,
     }
@@ -1235,6 +1260,41 @@ fn start_process_parameter(name: &str) -> Option<(&'static str, bool)> {
     )
 }
 
+fn host_power_parameter(name: &str) -> Option<(&'static str, bool)> {
+    parameter(
+        name,
+        &["asjob", "force", "wait", "whatif", "confirm"],
+        &[
+            "computername",
+            "credential",
+            "wsmanauthentication",
+            "dcomauthentication",
+            "impersonation",
+            "protocol",
+            "throttlelimit",
+            "timeout",
+            "for",
+            "delay",
+        ],
+    )
+}
+
+fn effective_what_if(tokens: &[Token]) -> Option<bool> {
+    let mut value = false;
+    for token in tokens {
+        let Some(parameter) = token.value.strip_prefix('-') else {
+            continue;
+        };
+        let (name, attached) = parameter
+            .split_once(':')
+            .map_or((parameter, None), |(name, value)| (name, Some(value)));
+        if host_power_parameter(&name.to_ascii_lowercase()) == Some(("whatif", true)) {
+            value = static_switch_value(attached)?;
+        }
+    }
+    Some(value)
+}
+
 /// Binds a written PowerShell parameter name to the modeled parameter it
 /// names, reporting whether that parameter is a switch (`true`) or takes a
 /// value (`false`). PowerShell also binds an unambiguous parameter-name prefix
@@ -1517,6 +1577,8 @@ fn command_names(command: CanonicalCommand) -> impl Iterator<Item = &'static str
         CanonicalCommand::InvokeRestMethod => &["invoke-restmethod", "irm"],
         CanonicalCommand::InvokeExpression => &["invoke-expression", "iex"],
         CanonicalCommand::StartProcess => &["start-process", "saps", "start"],
+        CanonicalCommand::StopComputer => &["stop-computer"],
+        CanonicalCommand::RestartComputer => &["restart-computer"],
         _ => &[],
     };
     names.iter().copied()
@@ -1617,5 +1679,46 @@ mod tests {
         );
         assert!(analysis.draft().calls().is_empty());
         assert!(!analysis.draft().complete());
+    }
+
+    #[test]
+    fn computer_power_cmdlets_emit_host_power_calls() {
+        for code in [
+            "Stop-Computer",
+            "Stop-Computer -Force -ComputerName localhost",
+            "Restart-Computer",
+            "Restart-Computer -WhatIf:$false",
+        ] {
+            let analysis = analysis("pwsh", code);
+            assert!(
+                analysis
+                    .draft()
+                    .calls()
+                    .iter()
+                    .any(|call| call.kind() == LanguageCallKind::HostPower),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_if_and_dynamic_power_commands_do_not_emit_host_power_calls() {
+        for code in [
+            "Stop-Computer -WhatIf",
+            "Restart-Computer -WhatIf:$true",
+            "Restart-Computer -WhatIf:$enabled",
+            "$command = 'Stop-Computer'; & $command",
+            "function Stop-Computer {}; Stop-Computer",
+        ] {
+            let analysis = analysis("pwsh", code);
+            assert!(
+                analysis
+                    .draft()
+                    .calls()
+                    .iter()
+                    .all(|call| call.kind() != LanguageCallKind::HostPower),
+                "{code}"
+            );
+        }
     }
 }

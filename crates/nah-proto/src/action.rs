@@ -191,6 +191,7 @@ impl SemanticCode {
     pub const GIT_REMOTE_REPO_DELETE: Self = Self::borrowed("git-remote-repo-delete");
     pub const HARD_RESET: Self = Self::borrowed("hard-reset");
     pub const HISTORY_REWRITE: Self = Self::borrowed("history-rewrite");
+    pub const HOST_POWER: Self = Self::borrowed("host-power");
     pub const INFRA_CONTAINER_VOLUME_DELETE: Self = Self::borrowed("infra-container-volume-delete");
     pub const INFRA_CONTAINER_RESET: Self = Self::borrowed("infra-container-reset");
     pub const INFRA_IAC_DESTROY: Self = Self::borrowed("infra-iac-destroy");
@@ -210,6 +211,7 @@ impl SemanticCode {
     pub const NETWORK_SHELL: Self = Self::borrowed("network-shell");
     pub const NETWORK_TRANSFER: Self = Self::borrowed("network-transfer");
     pub const NULL_COMMAND: Self = Self::borrowed("null-command");
+    pub const PATH_DISCARD: Self = Self::borrowed("path-discard");
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");

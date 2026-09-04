@@ -14,6 +14,7 @@ pub(crate) enum GuardFamily {
     Infrastructure,
     Registry,
     Secrets,
+    System,
 }
 
 impl GuardFamily {
@@ -25,6 +26,7 @@ impl GuardFamily {
             Self::Infrastructure => "INFRASTRUCTURE",
             Self::Registry => "REGISTRY",
             Self::Secrets => "SECRETS",
+            Self::System => "SYSTEM",
         }
     }
 
@@ -36,6 +38,7 @@ impl GuardFamily {
             Self::Infrastructure => "infrastructure",
             Self::Registry => "registry",
             Self::Secrets => "secrets",
+            Self::System => "system",
         }
     }
 
@@ -47,6 +50,7 @@ impl GuardFamily {
             Self::Infrastructure => 3,
             Self::Registry => 4,
             Self::Secrets => 5,
+            Self::System => 6,
         }
     }
 }
@@ -217,6 +221,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                 "fs-shell-profile"
                     | "fs-outside-workspace-delete"
                     | "fs-startup-management"
+                    | "git-path-discard"
                     | "git-history-rewrite"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
@@ -252,6 +257,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-hard-reset"
         | "git-history-rewrite"
         | "git-metadata"
+        | "git-path-discard"
         | "git-recovery-destroy"
         | "git-remote-repo-delete"
         | "git-rewrite-force"
@@ -265,6 +271,7 @@ fn family(name: &str) -> GuardFamily {
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
+        "sys-power" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -311,6 +318,9 @@ fn behavior(name: &str) -> &'static str {
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
         }
+        "git-path-discard" => {
+            "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
+        }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
         }
@@ -356,6 +366,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "secrets-credentials" => {
             "Blocks reads or writes of private-key and credential-store paths."
+        }
+        "sys-power" => {
+            "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
         }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
@@ -476,6 +489,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git filter-repo --force",
             "sudo git filter-repo --force",
         ],
+        "git-path-discard" => [
+            "git checkout -- src/lib.rs",
+            "git restore src/lib.rs",
+            "git show HEAD:src/lib.rs > src/lib.rs",
+        ],
         "git-worktree-discard" => [
             "git checkout -f",
             "git switch --discard-changes main",
@@ -537,6 +555,17 @@ fn examples(name: &str) -> Vec<&'static str> {
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
         ],
+        "sys-power" => {
+            if cfg!(windows) {
+                [
+                    "Stop-Computer",
+                    "Restart-Computer -Force",
+                    "Restart-Computer -ComputerName localhost",
+                ]
+            } else {
+                ["shutdown -h now", "sudo reboot", "systemctl suspend"]
+            }
+        }
         _ => unreachable!("every shipped guard has agent-facing examples"),
     }
     .to_vec();
@@ -610,6 +639,17 @@ mod tests {
             assert!(!behavior(name).is_empty());
             assert!(examples(name).iter().all(|example| !example.is_empty()));
         }
+    }
+
+    #[test]
+    fn sys_power_uses_the_default_on_system_catalog_family() {
+        let guard = shipped_guard_docs()
+            .into_iter()
+            .find(|guard| guard.name == "sys-power")
+            .unwrap();
+        assert_eq!(guard.family, GuardFamily::System);
+        assert!(guard.default_enabled);
+        assert_eq!(guard.examples.len(), 3);
     }
 
     #[test]
@@ -687,6 +727,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "git-path-discard")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -701,6 +747,12 @@ mod tests {
                 .iter()
                 .find(|state| state.name() == "storage-snapshot-delete")
                 .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "sys-power")
+                .is_some_and(ShippedGuardState::enabled)
         );
         assert!(
             states
@@ -744,6 +796,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 11);
     }
 }

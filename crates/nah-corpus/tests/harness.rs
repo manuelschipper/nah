@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1770);
+    assert_eq!(summary.cases, 1778);
 }
 
 #[test]
@@ -79,11 +79,11 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 256),
-            ("git.jsonl".to_owned(), 264),
+            ("git.jsonl".to_owned(), 268),
             ("infrastructure.jsonl".to_owned(), 174),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
-            ("native.jsonl".to_owned(), 15),
+            ("native.jsonl".to_owned(), 17),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 76),
             ("secrets.jsonl".to_owned(), 108),
@@ -91,7 +91,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("shell-resolution.jsonl".to_owned(), 81),
             ("storage.jsonl".to_owned(), 73),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 27),
+            ("windows.jsonl".to_owned(), 29),
         ]
     );
 }
@@ -111,6 +111,13 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "ordinary-workflow.npm-test",
         "ordinary-workflow.pytest",
         "ordinary-workflow.uv-pytest",
+        "git-path-discard.checkout-named",
+        "git-path-discard.restore-named",
+        "git-path-discard.show-overwrite",
+        "git-path-discard.show-different-targets-delegates",
+        "git-path-discard.factory-delegates",
+        "git-path-discard.named-restore-cannot-borrow-root-redirect",
+        "git-path-discard.subdir-restore",
         "git-remote-repo-delete.gh-current",
         "git-remote-repo-delete.glab-current",
         "git-remote-repo-delete.gh-api-placeholders",

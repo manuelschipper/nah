@@ -156,6 +156,7 @@ impl LanguageDraft {
 pub enum LanguageCallKind {
     DirectFile,
     EvaluatedShell,
+    HostPower,
     LocalUtility,
     NetworkTransfer,
 }
