@@ -26,6 +26,7 @@ pub(crate) mod project;
 pub(crate) mod registry;
 pub(crate) mod remote_source_control;
 pub(crate) mod rsync_options;
+pub(crate) mod secret_store;
 pub(crate) mod self_protection;
 pub(crate) mod semantics;
 pub(crate) mod socat;

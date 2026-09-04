@@ -228,6 +228,18 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let secret_store = match &program {
+            ProgramDraft::Static(program) => crate::bash_secret_store::classify(
+                program,
+                &local_arguments,
+                assignments,
+                self.state.variables.iter().any(|binding| {
+                    binding.name == "PATH" && !matches!(binding.value, VariableValue::Unset)
+                }),
+                direct_program.is_some(),
+            ),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        };
         let host_power = match &program {
             ProgramDraft::Static(program) => crate::bash_host_power::operation(
                 program,
@@ -359,7 +371,7 @@ impl Lowerer {
             root_move_destination_key,
             network_endpoints,
             descriptor_flows,
-            system_states,
+            mut system_states,
             git_operations,
         } = self.lower_command_resources(
             &program,
@@ -379,6 +391,12 @@ impl Lowerer {
             network_endpoints,
             descriptor_flows,
         );
+        if let Some(secret_store) = &secret_store {
+            self.complete &= secret_store.complete;
+            if let Some(operation) = &secret_store.system_state {
+                system_states.push(operation.clone());
+            }
+        }
         let CommandClassifications {
             local_utility,
             project,
@@ -466,6 +484,7 @@ impl Lowerer {
             || infrastructure.is_some()
             || kubernetes.is_some()
             || storage.is_some()
+            || secret_store.is_some()
             || registry.is_some()
             || host_power_command
             || !matches!(&producer.stdout, StdoutDraft::Unknown)
