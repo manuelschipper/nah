@@ -27,6 +27,11 @@ pub(crate) fn add(
             "git-path-discard blocked a named-path working-tree discard; inspect git diff and stash wanted work before replacing the path",
         ),
         (
+            "git-protected-push",
+            &SemanticCode::PROTECTED_PUSH,
+            "git-protected-push blocked a push whose explicit refspec targets main or master; push a feature branch and use a pull request instead",
+        ),
+        (
             "git-force-push",
             &SemanticCode::FORCE_PUSH,
             "git-force-push blocked a force push without lease protection; fetch and review remote changes; ask the operator to verify the refs before using --force-with-lease",
@@ -60,6 +65,11 @@ pub(crate) fn add(
             "git-remote-repo-delete",
             &SemanticCode::GIT_REMOTE_REPO_DELETE,
             "git-remote-repo-delete blocked deletion of an entire hosted repository; preserve the hosted project and ask the operator to verify any whole-repository deletion",
+        ),
+        (
+            "git-remote-resource-delete",
+            &SemanticCode::GIT_REMOTE_RESOURCE_DELETE,
+            "git-remote-resource-delete blocked deleting a hosted Git resource; keep it and ask the operator to perform the reviewed removal",
         ),
         (
             "git-worktree-discard",

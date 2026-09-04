@@ -51,6 +51,53 @@ fn sys_power_is_a_shipped_guard() {
     assert!(nah_policy::SHIPPED_GUARDS.contains(&"sys-power"));
 }
 
+#[test]
+fn sys_service_stop_requires_its_enabled_guard() {
+    let stream = guarded_stream(EffectKind::SystemState {
+        operation: SemanticCode::SERVICE_STOP,
+    });
+
+    let enabled =
+        nah_policy::decide(&stream, &guard_policy("sys-service-stop", true), &[]).unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(enabled.policy_attributions()[0].name(), "sys-service-stop");
+
+    let disabled =
+        nah_policy::decide(&stream, &guard_policy("sys-service-stop", false), &[]).unwrap();
+    assert_eq!(disabled.verdict(), Verdict::Delegate);
+}
+
+#[test]
+fn sys_service_stop_matches_only_the_system_state_operation() {
+    for effect in [
+        EffectKind::known("systemctl", SemanticCode::SERVICE_STOP.as_str()).unwrap(),
+        EffectKind::opaque("systemctl").unwrap(),
+    ] {
+        let decision = nah_policy::decide(
+            &invocation_stream(effect),
+            &guard_policy("sys-service-stop", true),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(decision.verdict(), Verdict::Delegate);
+    }
+
+    let decision = nah_policy::decide(
+        &guarded_stream(EffectKind::SystemState {
+            operation: SemanticCode::STARTUP_MANAGEMENT,
+        }),
+        &guard_policy("sys-service-stop", true),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(decision.verdict(), Verdict::Delegate);
+}
+
+#[test]
+fn sys_service_stop_is_a_shipped_guard() {
+    assert!(nah_policy::SHIPPED_GUARDS.contains(&"sys-service-stop"));
+}
+
 fn invocation_stream(effect: EffectKind) -> ActionStream {
     ActionStream::new(Coverage::Partial, vec![vec![effect]], vec![]).unwrap()
 }

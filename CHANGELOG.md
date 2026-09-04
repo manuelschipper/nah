@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Hosted Git resource deletion guard** — Optional
+  `git-remote-resource-delete` blocks statically targeted GitHub and GitLab
+  release, issue, secret, variable, key, hook, environment, gist, and Actions
+  cache deletion through reviewed CLI commands and REST routes.
 - **Guard rename compatibility** — `fs-storage-destroy` is now
   `fs-volume-destroy`, and `git-remote-delete` is now `git-remote-repo-delete`;
   saved choices and guard commands still accept the old names as hidden
@@ -35,10 +39,14 @@
   deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
-  aggressive or pruning garbage collection, and leased force pushes while
-  preserving recovery and inspection commands.
+  aggressive or pruning garbage collection, and leased force pushes except
+  those with an explicit static refspec targeting `main` or `master`, while
+  preserving recovery and inspection commands; optional `git-protected-push`
+  covers explicit-refspec pushes to `main` or `master`.
 - **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
-  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  shutdown, reboot, halt, and suspend actions. Optional `sys-service-stop` covers
+  explicit service shutdown, target isolation, Podman stop-all, and the exact
+  `docker stop $(docker ps -q)` flow. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
   paths; optional guards cover recursive deletion outside the project, shell
   profiles, persistent startup management, and `fs-permission-weaken` for

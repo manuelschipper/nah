@@ -72,6 +72,7 @@ enum ContainerCommand {
 
 enum ContainerSubcommand {
     Relevant(ContainerCommand, usize),
+    StopAll(usize),
     Compose(usize),
     Other,
     NonExecuting,
@@ -86,6 +87,7 @@ fn container(program: &str, arguments: &[Word]) -> Option<Classification> {
         ContainerSubcommand::Relevant(command, index) => {
             Some(container_operation(program, command, &arguments[index..]))
         }
+        ContainerSubcommand::StopAll(index) => Some(podman_stop_all(&arguments[index..])),
         ContainerSubcommand::Compose(index) => compose_command_line(&arguments[index..]),
         ContainerSubcommand::Other => None,
         ContainerSubcommand::NonExecuting => Some(Classification::complete(false)),
@@ -127,6 +129,13 @@ fn container_subcommand(program: &str, arguments: &[String]) -> ContainerSubcomm
         let group = argument.as_str();
         if group == "compose" {
             return ContainerSubcommand::Compose(index + 1);
+        }
+        if matches!(group, "stop" | "kill") {
+            return if program == "podman" {
+                ContainerSubcommand::StopAll(index + 1)
+            } else {
+                ContainerSubcommand::Other
+            };
         }
         if !matches!(group, "system" | "volume") {
             return ContainerSubcommand::Other;
@@ -594,6 +603,102 @@ struct ContainerOptions {
     filtered: bool,
     help: bool,
     volumes: bool,
+}
+
+fn podman_stop_all(arguments: &[String]) -> Classification {
+    let mut all = false;
+    let mut help = false;
+    let mut selector = false;
+    let mut operand = false;
+    let mut index = 0;
+    let mut options = true;
+    while let Some(argument) = arguments.get(index) {
+        if options && argument == "--" {
+            options = false;
+            index += 1;
+            continue;
+        }
+        if !options {
+            operand = true;
+            index += 1;
+            continue;
+        }
+        if let Some(value) = boolean_option(argument, "--help") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            help = value;
+            index += 1;
+            continue;
+        }
+        if let Some(value) = boolean_option(argument, "--all") {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            all = value;
+            index += 1;
+            continue;
+        }
+        if argument == "-a" {
+            all = true;
+            index += 1;
+            continue;
+        }
+        if let Some(value) = ["--ignore", "-i"]
+            .iter()
+            .find_map(|name| boolean_option(argument, name))
+        {
+            if value.is_none() {
+                return Classification::incomplete();
+            }
+            index += 1;
+            continue;
+        }
+        if let Some(value) = ["--latest", "-l"]
+            .iter()
+            .find_map(|name| boolean_option(argument, name))
+        {
+            let Some(value) = value else {
+                return Classification::incomplete();
+            };
+            selector |= value;
+            index += 1;
+            continue;
+        }
+        if let Some(consumed) = value_option(
+            arguments,
+            index,
+            &[
+                "--filter",
+                "-f",
+                "--cidfile",
+                "--time",
+                "-t",
+                "--timeout",
+                "--signal",
+                "-s",
+            ],
+        ) {
+            let Ok(consumed) = consumed else {
+                return Classification::incomplete();
+            };
+            if option_name(argument, &["--filter", "-f", "--cidfile"]).is_some() {
+                selector = true;
+            }
+            index += consumed;
+            continue;
+        }
+        if argument.starts_with('-') {
+            return Classification::incomplete();
+        }
+        operand = true;
+        index += 1;
+    }
+    if help || selector || operand || !all {
+        Classification::complete(false)
+    } else {
+        Classification::system_state(SemanticCode::SERVICE_STOP)
+    }
 }
 
 fn container_operation(

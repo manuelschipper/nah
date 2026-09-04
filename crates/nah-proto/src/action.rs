@@ -189,6 +189,7 @@ impl SemanticCode {
     pub const FORK_BOMB: Self = Self::borrowed("fork-bomb");
     pub const FORCE_PUSH: Self = Self::borrowed("force-push");
     pub const GIT_REMOTE_REPO_DELETE: Self = Self::borrowed("git-remote-repo-delete");
+    pub const GIT_REMOTE_RESOURCE_DELETE: Self = Self::borrowed("git-remote-resource-delete");
     pub const HARD_RESET: Self = Self::borrowed("hard-reset");
     pub const HISTORY_REWRITE: Self = Self::borrowed("history-rewrite");
     pub const HOST_POWER: Self = Self::borrowed("host-power");
@@ -215,12 +216,14 @@ impl SemanticCode {
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
     pub const PERMISSION_WEAKEN: Self = Self::borrowed("permission-weaken");
+    pub const PROTECTED_PUSH: Self = Self::borrowed("protected-push");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");
     pub const REF_DELETE: Self = Self::borrowed("ref-delete");
     pub const REGISTRY_PUBLISH: Self = Self::borrowed("registry-publish");
     pub const REGISTRY_UNPUBLISH: Self = Self::borrowed("registry-unpublish");
     pub const REMOVE: Self = Self::borrowed("remove");
     pub const REWRITE_FORCE: Self = Self::borrowed("rewrite-force");
+    pub const SERVICE_STOP: Self = Self::borrowed("sys-service-stop");
     pub const SHELL_INLINE: Self = Self::borrowed("shell-inline");
     pub const SHELL_INTERACTIVE: Self = Self::borrowed("shell-interactive");
     pub const SHELL_FILE: Self = Self::borrowed("shell-file");

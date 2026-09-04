@@ -41,6 +41,36 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
             "git push --repo --force-with-lease origin +main",
             "force-push",
         ),
+        ("git push origin main", "protected-push"),
+        ("git push origin HEAD:master", "protected-push"),
+        ("git push origin feature:refs/heads/main", "protected-push"),
+        (
+            "git push --set-upstream origin refs/heads/master",
+            "protected-push",
+        ),
+        (
+            "git push --push-option ci.skip origin feature:main",
+            "protected-push",
+        ),
+        (
+            "git push --push-option --force origin main",
+            "protected-push",
+        ),
+        (
+            "git push --push-option --dry-run origin main",
+            "protected-push",
+        ),
+        ("git push -o ci.skip origin main", "protected-push"),
+        ("git push -- \"$REMOTE\" main", "protected-push"),
+        (
+            "git push --force-with-lease origin +feature:main",
+            "protected-push",
+        ),
+        ("git push --force-with-lease origin +main", "protected-push"),
+        (
+            "git push --force-with-lease=main origin +main",
+            "protected-push",
+        ),
         ("git reset --hard", "hard-reset"),
         ("git reset --hard \"$REV\"", "hard-reset"),
         ("git filter-branch -f -- --all", "rewrite-force"),
@@ -81,6 +111,18 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
     for source in [
         "rm -rf .git/index",
         "rm -rf .git/hooks/pre-commit",
+        "git push",
+        "git push origin",
+        "git push origin HEAD",
+        "git push origin main:feature",
+        "git push --all origin",
+        "git push origin \"$REF\"",
+        "git push --push-option main origin feature",
+        "git push --repo origin main",
+        "git push --repo=origin main",
+        "git push origin tag main",
+        "git push --dry-run origin main",
+        "git push --set-upstream --help origin main",
         "git push -- --force",
         "git -- push --force",
         "git reset --soft HEAD~1",
@@ -147,7 +189,7 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
         "git gc --prune=2.weeks.ago",
         "git gc --no-prune --aggressive",
         "git push --force-with-lease",
-        "git push --force-with-lease=main origin +main",
+        "git push --force-with-lease=feature origin +feature",
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");

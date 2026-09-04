@@ -59,13 +59,14 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "git-force-push",
         ),
         ("git push --force-with-lease", "git-history-rewrite"),
+        ("git push origin main", "git-protected-push"),
         (
             "git push --force-with-lease origin +main",
-            "git-history-rewrite",
+            "git-protected-push",
         ),
         (
             "git push --force-with-lease=main origin +main",
-            "git-history-rewrite",
+            "git-protected-push",
         ),
         ("git reset --hard", "git-hard-reset"),
         ("git -c 'alias.wipe=reset --hard' wipe", "git-hard-reset"),
