@@ -9,25 +9,43 @@ pub(crate) fn add(
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
-    if !policy_ctx
-        .enabled_shipped_guards()
-        .iter()
-        .any(|enabled| enabled == "sys-power")
-        || !action_stream.effects().iter().any(|effect| {
-            matches!(
-                effect.kind(),
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. }
-                } if operation == &SemanticCode::HOST_POWER
-            )
-        })
-    {
-        return Ok(false);
+    let mut added = false;
+    for (name, matched, message) in [
+        (
+            "sys-power",
+            action_stream.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::Invocation {
+                        invocation: InvocationEffect::Known { operation, .. }
+                    } if operation == &SemanticCode::HOST_POWER
+                )
+            }),
+            "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
+        ),
+        (
+            "sys-service-stop",
+            action_stream.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::SystemState { operation }
+                        if operation == &SemanticCode::SERVICE_STOP
+                )
+            }),
+            "sys-service-stop blocked a reviewed service or stop-all container shutdown; keep the service or containers running and ask the operator to perform any intentional stop",
+        ),
+    ] {
+        if !policy_ctx
+            .enabled_shipped_guards()
+            .iter()
+            .any(|enabled| enabled == name)
+            || !matched
+        {
+            continue;
+        }
+        let guard = GuardAttribution::shipped(name)?;
+        contributions.push(GuardContribution::new(guard, message)?);
+        added = true;
     }
-    let guard = GuardAttribution::shipped("sys-power")?;
-    contributions.push(GuardContribution::new(
-        guard,
-        "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
-    )?);
-    Ok(true)
+    Ok(added)
 }

@@ -226,12 +226,14 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "git-path-discard"
                     | "git-protected-push"
                     | "git-history-rewrite"
+                    | "git-remote-resource-delete"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
                     | "registry-publish"
                     | "storage-recursive-delete"
                     | "storage-snapshot-delete"
+                    | "sys-service-stop"
             ),
             behavior: behavior(name),
             examples: examples(name),
@@ -266,6 +268,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-recovery-destroy"
         | "git-ref-delete"
         | "git-remote-repo-delete"
+        | "git-remote-resource-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
         "infra-container-volume-delete"
@@ -277,7 +280,7 @@ fn family(name: &str) -> GuardFamily {
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
         "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
-        "sys-power" => GuardFamily::System,
+        "sys-power" | "sys-service-stop" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
 }
@@ -342,6 +345,9 @@ fn behavior(name: &str) -> &'static str {
         "git-remote-repo-delete" => {
             "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
         }
+        "git-remote-resource-delete" => {
+            "Blocks statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes."
+        }
         "git-rewrite-force" => {
             "Blocks history rewriting that explicitly bypasses safety or backup checks."
         }
@@ -384,6 +390,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "sys-power" => {
             "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
+        }
+        "sys-service-stop" => {
+            "Blocks reviewed service shutdown, target isolation, Podman stop-all, and the exact docker or podman stop-all listing flow."
         }
         _ => unreachable!("every shipped guard has agent-facing documentation"),
     }
@@ -510,6 +519,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "glab repo delete group/project -y",
             "gh api -X DELETE repos/{owner}/{repo}",
         ],
+        "git-remote-resource-delete" => [
+            "gh release delete v1.2.3 --yes",
+            "glab variable delete DEPLOY_ENV",
+            "gh api -X DELETE repos/{owner}/{repo}/hooks/123",
+        ],
         "git-rewrite-force" => [
             "git filter-branch --force -- --all",
             "git filter-repo --force",
@@ -590,6 +604,27 @@ fn examples(name: &str) -> Vec<&'static str> {
                 ]
             } else {
                 ["shutdown -h now", "sudo reboot", "systemctl suspend"]
+            }
+        }
+        "sys-service-stop" => {
+            if cfg!(windows) {
+                [
+                    "podman stop --all",
+                    "podman kill --all",
+                    "docker stop $(docker ps -q)",
+                ]
+            } else if cfg!(target_os = "macos") {
+                [
+                    "launchctl stop com.example.backup",
+                    "launchctl bootout system/com.example.backup",
+                    "podman stop --all",
+                ]
+            } else {
+                [
+                    "systemctl stop sshd",
+                    "systemctl isolate rescue.target",
+                    "service docker stop",
+                ]
             }
         }
         _ => unreachable!("every shipped guard has agent-facing examples"),
@@ -675,6 +710,17 @@ mod tests {
             .unwrap();
         assert_eq!(guard.family, GuardFamily::System);
         assert!(guard.default_enabled);
+        assert_eq!(guard.examples.len(), 3);
+    }
+
+    #[test]
+    fn sys_service_stop_uses_the_optional_system_catalog_family() {
+        let guard = shipped_guard_docs()
+            .into_iter()
+            .find(|guard| guard.name == "sys-service-stop")
+            .unwrap();
+        assert_eq!(guard.family, GuardFamily::System);
+        assert!(!guard.default_enabled);
         assert_eq!(guard.examples.len(), 3);
     }
 
@@ -771,6 +817,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "git-remote-resource-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "storage-backup-destroy")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -791,6 +843,12 @@ mod tests {
                 .iter()
                 .find(|state| state.name() == "sys-power")
                 .is_some_and(ShippedGuardState::enabled)
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "sys-service-stop")
+                .is_some_and(|state| !state.enabled())
         );
         assert!(
             states

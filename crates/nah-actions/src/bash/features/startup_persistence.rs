@@ -1,4 +1,5 @@
-//! Recognizes reviewed static commands that persist startup configuration.
+//! Recognizes reviewed static commands that persist startup configuration or
+//! stop running services.
 
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
@@ -18,13 +19,15 @@ pub(crate) fn operation(
     arguments: &[Word],
     platform: Platform,
 ) -> Option<SemanticCode> {
-    let mutation = match (platform, program) {
-        (Platform::Linux, "systemctl") => systemctl_mutation(arguments),
-        (Platform::Macos, "launchctl") => launchctl_mutation(arguments),
-        (Platform::Linux | Platform::Macos, "crontab") => crontab_mutation(arguments).is_some(),
-        _ => false,
-    };
-    mutation.then_some(SemanticCode::STARTUP_MANAGEMENT)
+    match (platform, program) {
+        (Platform::Linux, "systemctl") => systemctl_operation(arguments),
+        (Platform::Linux, "service") => service_stop_operation(arguments),
+        (Platform::Macos, "launchctl") => launchctl_operation(arguments),
+        (Platform::Linux | Platform::Macos, "crontab") => crontab_mutation(arguments)
+            .is_some()
+            .then_some(SemanticCode::STARTUP_MANAGEMENT),
+        _ => None,
+    }
 }
 
 fn exact_arguments(arguments: &[Word]) -> Option<Vec<String>> {
@@ -40,10 +43,8 @@ fn exact_arguments(arguments: &[Word]) -> Option<Vec<String>> {
         .collect()
 }
 
-fn systemctl_mutation(arguments: &[Word]) -> bool {
-    let Some(arguments) = exact_arguments(arguments) else {
-        return false;
-    };
+fn systemctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
+    let arguments = exact_arguments(arguments)?;
     let mut command = None;
     let mut operands = Vec::new();
     let mut after_options = false;
@@ -76,7 +77,7 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
             || argument == "--image"
             || argument.starts_with("--image=")
         {
-            return false;
+            return None;
         }
         if matches!(
             argument,
@@ -116,7 +117,7 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
                 .get(index)
                 .is_none_or(|value| value.is_empty() || value.starts_with('-'))
             {
-                return false;
+                return None;
             }
             edit_option = true;
             index += 1;
@@ -136,7 +137,7 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
                 .get(index)
                 .is_none_or(|value| value.is_empty() || value.starts_with('-'))
             {
-                return false;
+                return None;
             }
             preset_option = true;
             index += 1;
@@ -156,7 +157,7 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
                 .get(index)
                 .is_none_or(|value| value.is_empty() || value.starts_with('-'))
             {
-                return false;
+                return None;
             }
             index += 1;
             continue;
@@ -170,7 +171,7 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
             continue;
         }
         if argument.starts_with('-') {
-            return false;
+            return None;
         }
         if command.is_none() {
             command = Some(argument);
@@ -180,40 +181,56 @@ fn systemctl_mutation(arguments: &[Word]) -> bool {
         index += 1;
     }
     if operands.iter().any(|operand| operand.is_empty()) {
-        return false;
+        return None;
     }
-    let Some(command) = command else {
-        return false;
-    };
+    let command = command?;
     if edit_option && command != "edit"
         || preset_option && !matches!(command, "preset" | "preset-all")
         || now && !matches!(command, "enable" | "disable" | "reenable" | "mask")
     {
-        return false;
+        return None;
     }
     match command {
         "enable" | "disable" | "reenable" | "preset" | "mask" | "unmask" | "link" | "revert" => {
-            !operands.is_empty()
+            (!operands.is_empty()).then_some(SemanticCode::STARTUP_MANAGEMENT)
         }
-        "preset-all" => operands.is_empty(),
-        "add-wants" | "add-requires" => operands.len() >= 2,
-        "set-default" => operands.len() == 1,
-        "edit" => stdin && !operands.is_empty(),
-        _ => false,
+        "preset-all" => operands
+            .is_empty()
+            .then_some(SemanticCode::STARTUP_MANAGEMENT),
+        "add-wants" | "add-requires" => {
+            (operands.len() >= 2).then_some(SemanticCode::STARTUP_MANAGEMENT)
+        }
+        "set-default" => (operands.len() == 1).then_some(SemanticCode::STARTUP_MANAGEMENT),
+        "edit" => (stdin && !operands.is_empty()).then_some(SemanticCode::STARTUP_MANAGEMENT),
+        "stop" | "kill" | "isolate" => (!operands.is_empty()).then_some(SemanticCode::SERVICE_STOP),
+        _ => None,
     }
 }
 
-fn launchctl_mutation(arguments: &[Word]) -> bool {
-    let Some(arguments) = exact_arguments(arguments) else {
-        return false;
-    };
-    let Some((command, arguments)) = arguments.split_first() else {
-        return false;
-    };
+fn service_stop_operation(arguments: &[Word]) -> Option<SemanticCode> {
+    let arguments = exact_arguments(arguments)?;
+    match arguments.as_slice() {
+        [name, command] if !name.is_empty() && !name.starts_with('-') && command == "stop" => {
+            Some(SemanticCode::SERVICE_STOP)
+        }
+        _ => None,
+    }
+}
+
+fn launchctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
+    let arguments = exact_arguments(arguments)?;
+    let (command, arguments) = arguments.split_first()?;
     match command.as_str() {
-        "enable" | "disable" => matches!(arguments, [target] if service_target(target)),
-        "load" | "unload" => launchctl_legacy_mutation(arguments),
-        _ => false,
+        "enable" | "disable" => matches!(arguments, [target] if service_target(target))
+            .then_some(SemanticCode::STARTUP_MANAGEMENT),
+        "load" | "unload" => {
+            launchctl_legacy_mutation(arguments).then_some(SemanticCode::STARTUP_MANAGEMENT)
+        }
+        "stop" => matches!(arguments, [label] if !label.is_empty() && !label.starts_with('-'))
+            .then_some(SemanticCode::SERVICE_STOP),
+        "bootout" => matches!(arguments, [target] if service_target(target))
+            .then_some(SemanticCode::SERVICE_STOP),
+        _ => None,
     }
 }
 

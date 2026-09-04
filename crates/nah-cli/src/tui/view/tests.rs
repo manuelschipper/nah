@@ -324,22 +324,33 @@ fn type_view_groups_each_family_once_with_live_checkboxes() {
 }
 
 #[test]
-fn remote_repository_delete_guard_renders_in_git_policy() {
+fn remote_delete_guards_render_in_git_policy() {
     let mut app = App::fixture();
-    app.guards.push(built_in_entry(
-        "git-remote-repo-delete",
-        GuardFamily::Git,
-        true,
-        GuardStatus::Enabled,
-        None,
-    ));
+    app.guards.extend([
+        built_in_entry(
+            "git-remote-repo-delete",
+            GuardFamily::Git,
+            true,
+            GuardStatus::Enabled,
+            None,
+        ),
+        built_in_entry(
+            "git-remote-resource-delete",
+            GuardFamily::Git,
+            false,
+            GuardStatus::Disabled,
+            None,
+        ),
+    ]);
 
     let output = rendered(&app, 120, 30);
     let git = output.find("GIT").unwrap();
-    let guard = output.find("[x] git-remote-repo-delete").unwrap();
+    let repository = output.find("[x] git-remote-repo-delete").unwrap();
+    let resource = output.find("[ ] git-remote-resource-delete").unwrap();
     let secrets = output.find("SECRETS").unwrap();
-    assert!(git < guard);
-    assert!(guard < secrets);
+    assert!(git < repository);
+    assert!(repository < resource);
+    assert!(resource < secrets);
 }
 
 #[test]

@@ -168,6 +168,48 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
 }
 
 #[test]
+fn remote_resource_delete_is_factory_off_and_independent() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let resource = "gh release delete v1.2.3 --yes";
+    let repository = "gh repo delete owner/project --yes";
+
+    assert_eq!(
+        decide(temp.path(), &project, resource)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, repository)["verdict"],
+        "block"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "git-remote-resource-delete"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, resource)["policy_attributions"][0]["name"],
+        "git-remote-resource-delete"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "git-remote-repo-delete"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, repository)["verdict"],
+        "delegate"
+    );
+    assert_eq!(decide(temp.path(), &project, resource)["verdict"], "block");
+}
+
+#[test]
 fn renamed_guard_aliases_preserve_saved_choices_and_commands() {
     for (alias, canonical, command) in [
         (
@@ -520,6 +562,59 @@ fn startup_management_is_factory_off_and_independent() {
     assert_eq!(
         decide(temp.path(), &project, &persistence)["policy_attributions"][0]["name"],
         "fs-startup-persistence"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn sys_service_stop_is_factory_off_and_independently_configurable() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let command = if cfg!(target_os = "macos") {
+        "launchctl stop com.example.backup"
+    } else {
+        "systemctl stop sshd"
+    };
+
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "shutdown -h now")["policy_attributions"][0]["name"],
+        "sys-power"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "sys-service-stop"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, command)["policy_attributions"][0]["name"],
+        "sys-service-stop"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "sys-service-stop"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{\"sys-service-stop\":false}}\n"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "shutdown -h now")["policy_attributions"][0]["name"],
+        "sys-power"
     );
 }
 

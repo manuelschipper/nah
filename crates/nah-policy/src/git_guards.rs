@@ -67,6 +67,11 @@ pub(crate) fn add(
             "git-remote-repo-delete blocked deletion of an entire hosted repository; preserve the hosted project and ask the operator to verify any whole-repository deletion",
         ),
         (
+            "git-remote-resource-delete",
+            &SemanticCode::GIT_REMOTE_RESOURCE_DELETE,
+            "git-remote-resource-delete blocked deleting a hosted Git resource; keep it and ask the operator to perform the reviewed removal",
+        ),
+        (
             "git-worktree-discard",
             &SemanticCode::WORKTREE_DISCARD,
             "git-worktree-discard blocked a project-wide working-tree discard; inspect git diff, stash wanted work, use a named restore, or ask the operator to perform the broad discard",

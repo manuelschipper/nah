@@ -31,10 +31,10 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-41 guards, 27 on by default, covering seven classes of disaster: **execution
+43 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
-and **host power actions**.
+and **host power and service-stop actions**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -68,6 +68,7 @@ and **host power actions**.
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
+| `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
@@ -79,6 +80,7 @@ and **host power actions**.
 | `registry-publish` | Reviewed package publication commands. Off by default. |
 | `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
 | `sys-power` | Fully visible local host shutdown, reboot, halt, and suspend actions. |
+| `sys-service-stop` | Reviewed service shutdown, target isolation, Podman stop-all, and the exact `docker stop $(docker ps -q)` flow. Off by default. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.

@@ -7,14 +7,14 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 41 guards span seven security classes; 27 default on.
+- 43 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
   decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
   live failures enter the redacted log when writable.
-- Understood nah-state/executable mutation, authority change, or reviewed
-  host-power action blocks.
+- Understood nah-state/executable/authority changes and host power block;
+  optional `sys-service-stop` covers service and stop-all container shutdown.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
   bypass launches.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
@@ -22,15 +22,16 @@ protected-state changes outside maintenance.
   modeled input and inline code.
 - Guards block modeled protected-credential access and visible
   sensitive/network-content flows to dangerous sinks.
-- `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
+- Hosted Git guards cover exact repositories (on) and reviewed static
+  resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
   published-name owner changes.
 - `registry-publish` defaults off for reviewed publishing; supported dry runs
   delegate.
-- Filesystem guards cover auth/identity, shell profiles, startup paths/commands,
-  recursive deletion outside the project, and provable world-write or
-  setuid/setgid `chmod` modes; `fs-outside-workspace-delete`,
-  `fs-permission-weaken`, shell-profile, and startup-management default off.
+- Filesystem guards cover auth/identity, profiles, startup, outside-project
+  recursive deletion, and provable world-write or setuid/setgid `chmod`;
+  profile, startup-management, outside-workspace, and permission-weaken guards
+  default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune and Compose `down`/`rm` volume removal;
   `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,

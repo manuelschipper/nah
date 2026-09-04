@@ -16,6 +16,7 @@ use crate::bash_kubernetes::Classification as KubernetesClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
 use crate::bash_model::{FilesystemDraft, ProgramDraft};
 use crate::bash_registry::Classification as RegistryClassification;
+use crate::bash_remote_source_control::RemoteDeletion;
 use crate::bash_startup_persistence::operation as startup_management_operation;
 use crate::bash_state::known_cwd;
 use crate::bash_storage::Classification as StorageClassification;
@@ -51,7 +52,7 @@ impl Lowerer {
         storage: Option<&StorageClassification>,
         registry: Option<&RegistryClassification>,
         git_environment_override: bool,
-        remote_repository_delete: bool,
+        remote_deletion: Option<RemoteDeletion>,
         mut filesystem_drafts: Vec<FilesystemDraft>,
         mut network_endpoints: Vec<NetworkEndpoint>,
         mut descriptor_flows: Vec<DescriptorFlow>,
@@ -411,8 +412,11 @@ impl Lowerer {
                 SemanticCode::new(operation).expect("Git operations are validated constants"),
             );
         }
-        if remote_repository_delete {
-            git_operations.push(SemanticCode::GIT_REMOTE_REPO_DELETE);
+        if let Some(remote_deletion) = remote_deletion {
+            git_operations.push(match remote_deletion {
+                RemoteDeletion::Repository => SemanticCode::GIT_REMOTE_REPO_DELETE,
+                RemoteDeletion::Resource => SemanticCode::GIT_REMOTE_RESOURCE_DELETE,
+            });
         }
         if !git_operations.is_empty() {
             self.complete = false;
