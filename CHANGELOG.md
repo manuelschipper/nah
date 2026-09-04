@@ -33,11 +33,12 @@
   and NuGet.
 - **Git safety guards** — Default-on `git-remote-repo-delete` blocks exact
   whole-repository deletion through GitHub and GitLab CLI commands and REST
-  routes. Optional `git-path-discard` covers definite named-path checkout,
-  restore, and same-path `git show` overwrites; optional `git-history-rewrite`
-  covers rebases, unforced filtering, recovery expiry, aggressive or pruning
-  garbage collection, and leased force pushes while preserving recovery and
-  inspection commands.
+  routes; optional `git-ref-delete` covers reviewed ref, stash, and worktree
+  deletion, while optional `git-path-discard` covers definite named-path
+  checkout, restore, and same-path `git show` overwrites. Optional
+  `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
+  aggressive or pruning garbage collection, and leased force pushes while
+  preserving recovery and inspection commands.
 - **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
