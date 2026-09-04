@@ -59,7 +59,7 @@ and **host power actions**.
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
-| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes. Off by default. |
+| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes except those with an explicit static refspec targeting `main` or `master`. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |

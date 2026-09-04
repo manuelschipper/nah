@@ -36,7 +36,8 @@
   routes. Optional `git-path-discard` covers definite named-path checkout,
   restore, and same-path `git show` overwrites; optional `git-history-rewrite`
   covers rebases, unforced filtering, recovery expiry, aggressive or pruning
-  garbage collection, and leased force pushes while preserving recovery and
+  garbage collection, and leased force pushes except those with an explicit
+  static refspec targeting `main` or `master`, while preserving recovery and
   inspection commands; and optional `git-protected-push` covers explicit-refspec
   pushes to `main` or `master`.
 - **Host and project guards** — New default-on `sys-power` blocks reviewed host
