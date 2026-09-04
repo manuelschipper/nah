@@ -33,18 +33,20 @@
   and NuGet.
 - **Git safety guards** — Default-on `git-remote-repo-delete` blocks exact
   whole-repository deletion through GitHub and GitLab CLI commands and REST
-  routes. Optional `git-path-discard` covers definite named-path checkout,
-  restore, and same-path `git show` overwrites; optional `git-history-rewrite`
-  covers rebases, unforced filtering, recovery expiry, aggressive or pruning
-  garbage collection, and leased force pushes except those with an explicit
-  static refspec targeting `main` or `master`, while preserving recovery and
-  inspection commands; and optional `git-protected-push` covers explicit-refspec
-  pushes to `main` or `master`.
-- **Host and project guards** — New default-on `sys-power` blocks reviewed host
+  routes; optional `git-ref-delete` covers reviewed ref, stash, and worktree
+  deletion, while optional `git-path-discard` covers definite named-path
+  checkout, restore, and same-path `git show` overwrites. Optional
+  `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
+  aggressive or pruning garbage collection, and leased force pushes except
+  those with an explicit static refspec targeting `main` or `master`, while
+  preserving recovery and inspection commands; optional `git-protected-push`
+  covers explicit-refspec pushes to `main` or `master`.
+- **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
   paths; optional guards cover recursive deletion outside the project, shell
-  profiles, and persistent startup management.
+  profiles, persistent startup management, and `fs-permission-weaken` for
+  provable world-writable or setuid/setgid `chmod` modes.
 - **Resilient decisions and logs** — Runtime wiring failures no longer suppress
   independent guard decisions, and `nah log` plus the TUI recover readable
   history from a damaged audit log instead of leaving browsing unavailable.

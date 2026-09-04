@@ -220,7 +220,9 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                 *name,
                 "fs-shell-profile"
                     | "fs-outside-workspace-delete"
+                    | "fs-permission-weaken"
                     | "fs-startup-management"
+                    | "git-ref-delete"
                     | "git-path-discard"
                     | "git-protected-push"
                     | "git-history-rewrite"
@@ -246,6 +248,7 @@ fn family(name: &str) -> GuardFamily {
         | "fs-forkbomb"
         | "fs-home"
         | "fs-outside-workspace-delete"
+        | "fs-permission-weaken"
         | "fs-project-root"
         | "fs-raw-device"
         | "fs-shell-profile"
@@ -261,6 +264,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-path-discard"
         | "git-protected-push"
         | "git-recovery-destroy"
+        | "git-ref-delete"
         | "git-remote-repo-delete"
         | "git-rewrite-force"
         | "git-worktree-discard" => GuardFamily::Git,
@@ -293,6 +297,9 @@ fn behavior(name: &str) -> &'static str {
         "fs-home" => "Blocks deletion or recursive permission changes selecting the home root.",
         "fs-outside-workspace-delete" => {
             "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
+        }
+        "fs-permission-weaken" => {
+            "Blocks chmod modes that provably grant world-write or setuid/setgid permission."
         }
         "fs-project-root" => {
             "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
@@ -328,6 +335,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
+        }
+        "git-ref-delete" => {
+            "Blocks reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion."
         }
         "git-remote-repo-delete" => {
             "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
@@ -417,6 +427,7 @@ fn examples(name: &str) -> Vec<&'static str> {
             "rm -rf /opt/old-build",
             "rm -rf /home/other/archive",
         ],
+        "fs-permission-weaken" => ["chmod 777 file", "chmod o+w file", "chmod u+s file"],
         "fs-project-root" => ["rm -rf .", "rm -rf *", "chmod -R 000 ."],
         "fs-raw-device" => [
             "dd if=/dev/zero of=/dev/sda",
@@ -488,6 +499,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git reflog expire --all --expire=now",
             "git gc --prune=now",
             "git prune --expire=now",
+        ],
+        "git-ref-delete" => [
+            "git branch -D old",
+            "git stash clear",
+            "git push origin :old",
         ],
         "git-remote-repo-delete" => [
             "gh repo delete owner/project --yes",
@@ -725,6 +741,12 @@ mod tests {
         assert!(
             states
                 .iter()
+                .find(|state| state.name() == "fs-permission-weaken")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
                 .find(|state| state.name() == "fs-startup-persistence")
                 .is_some_and(ShippedGuardState::enabled)
         );
@@ -738,6 +760,12 @@ mod tests {
             states
                 .iter()
                 .find(|state| state.name() == "git-path-discard")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "git-ref-delete")
                 .is_some_and(|state| !state.enabled())
         );
         assert!(

@@ -115,8 +115,6 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         "git push origin",
         "git push origin HEAD",
         "git push origin main:feature",
-        "git push origin :main",
-        "git push origin --delete main",
         "git push --all origin",
         "git push origin \"$REF\"",
         "git push --push-option main origin feature",
@@ -143,11 +141,7 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         "git push --dry-run --mirror origin",
         "git push -n --mirror origin",
         "git clone --mirror origin local.git",
-        "git push origin --delete old",
-        "git push --delete \"$REMOTE\" \"$REF\"",
-        "git push origin :old",
         "git push --prune origin",
-        "git push -vd origin old",
         "git prune",
         "git prune --expire=2.weeks.ago",
         "echo safe > .git/index",
@@ -163,14 +157,9 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         "git prune -n",
         "git prune --help",
         "git reflog \"$ACTION\"",
-        "git stash drop 'stash@{0}'",
-        "git stash clear",
         "git worktree list",
-        "git worktree remove \"$PATH\"",
-        "git worktree prune",
         "git worktree prune --dry-run",
         "git worktree -- remove old",
-        "timeout 5 git worktree remove old",
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
@@ -266,6 +255,119 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
         assert!(
             !stream.effects().iter().any(|effect| {
                 matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "history-rewrite")
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn git_ref_deletes_lower_to_one_semantic_operation() {
+    for source in [
+        "git branch -d topic",
+        "git branch -D \"$BRANCH\"",
+        "git branch -vrd one two",
+        "git branch --delete -- topic",
+        "git tag -d v1",
+        "git tag --delete \"$TAG\"",
+        "git stash drop 'stash@{0}'",
+        "git stash drop --quiet \"$STASH\"",
+        "git stash clear",
+        "git push --delete origin old",
+        "git push origin --delete old",
+        "git push -vd \"$REMOTE\" \"$REF\"",
+        "git push origin :old",
+        "git push :main",
+        "git update-ref -d refs/heads/topic",
+        "git update-ref --delete \"$REF\"",
+        "git worktree remove -f \"$PATH\"",
+        "git worktree remove -ff old",
+        "git worktree prune --expire now",
+        "git submodule deinit vendor/library",
+        "git submodule deinit -q vendor/library",
+        "git submodule --quiet deinit -- \"$PATH\"",
+        "timeout 5 git worktree remove old",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        let operations = stream
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect.kind() {
+                EffectKind::Git { operation } => Some(operation.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            operations,
+            ["ref-delete"],
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+}
+
+#[test]
+fn git_ref_delete_rejects_nonexecuting_and_invalid_shapes() {
+    for source in [
+        "git branch -d",
+        "git branch --delete --list old",
+        "git branch -m old new",
+        "git branch -M old new",
+        "git branch -c old new",
+        "git branch -C old new",
+        "git branch \"$FLAG\" old",
+        "git branch topic",
+        "git tag -d",
+        "git tag --list --delete v1",
+        "git tag v1",
+        "git stash drop one two",
+        "git stash clear extra",
+        "git stash push",
+        "git stash apply",
+        "git stash pop",
+        "git stash \"$ACTION\"",
+        "git push --delete origin",
+        "git push --dry-run --delete origin old",
+        "git push -nd origin old",
+        "git push --delete origin :old",
+        "git push :",
+        "git push origin main",
+        "git push -- --delete",
+        "git update-ref -d",
+        "git update-ref --stdin",
+        "git update-ref -d refs/heads/topic old extra",
+        "git update-ref \"$FLAG\" refs/heads/topic",
+        "git worktree remove",
+        "git worktree remove one two",
+        "git worktree prune --dry-run",
+        "git worktree prune -n",
+        "git worktree prune --expire",
+        "git worktree add ../topic",
+        "git worktree list",
+        "git worktree \"$ACTION\" old",
+        "git submodule deinit",
+        "git submodule deinit -f",
+        "git submodule deinit --all",
+        "git submodule update --init",
+        "git submodule \"$ACTION\" vendor/library",
+        "git remote remove origin",
+        "git branch -D old --help",
+        "git tag -d v1 --help",
+        "git stash clear --help",
+        "git push --delete origin old --help",
+        "git update-ref -d refs/heads/topic --help",
+        "git worktree remove old --help",
+        "git submodule deinit vendor/library --help",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        assert!(
+            !stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "ref-delete")
             }),
             "{source}: {:?}",
             stream.effects()

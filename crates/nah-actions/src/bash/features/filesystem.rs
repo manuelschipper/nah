@@ -14,6 +14,137 @@ use crate::{bash_tar, bash_transforms};
 /// its keychain subcommands lower to a read of this directory.
 const KEYCHAIN_DIRECTORY: &str = "~/Library/Keychains";
 
+/// Returns whether a static chmod mode provably grants world-write or
+/// setuid/setgid permission.
+pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
+    let mut mode = None;
+    let mut after_options = false;
+    for argument in arguments {
+        let argument = static_word(argument.raw(), argument.substitutions().is_empty());
+        let Some(argument) = argument.as_deref() else {
+            if mode.is_none() {
+                return false;
+            }
+            continue;
+        };
+        if !after_options && argument == "--" {
+            after_options = true;
+            continue;
+        }
+        if !after_options && (argument == "--reference" || argument.starts_with("--reference=")) {
+            return false;
+        }
+        if !after_options && matches!(argument, "--help" | "--version") {
+            return false;
+        }
+        if !after_options && argument.starts_with("--") {
+            if !matches!(
+                argument,
+                "--changes"
+                    | "--dereference"
+                    | "--no-dereference"
+                    | "--no-preserve-root"
+                    | "--preserve-root"
+                    | "--quiet"
+                    | "--recursive"
+                    | "--silent"
+                    | "--verbose"
+            ) {
+                return false;
+            }
+            continue;
+        }
+        if !after_options && argument.starts_with('-') {
+            if !argument.strip_prefix('-').is_some_and(|flags| {
+                !flags.is_empty()
+                    && flags
+                        .chars()
+                        .all(|flag| matches!(flag, 'c' | 'f' | 'h' | 'H' | 'L' | 'P' | 'R' | 'v'))
+            }) {
+                return false;
+            }
+            continue;
+        }
+        if mode.is_none() {
+            mode = Some(argument.to_owned());
+        }
+    }
+    mode.is_some_and(|mode| chmod_mode_weakens_permissions(&mode))
+}
+
+fn chmod_mode_weakens_permissions(mode: &str) -> bool {
+    if (3..=5).contains(&mode.len()) && mode.bytes().all(|byte| matches!(byte, b'0'..=b'7')) {
+        let normalized = mode.trim_start_matches('0');
+        if normalized.len() > 4 {
+            return false;
+        }
+        let other_write = matches!(mode.as_bytes().last(), Some(b'2' | b'3' | b'6' | b'7'));
+        let special = (normalized.len() == 4)
+            .then(|| normalized.as_bytes()[0])
+            .is_some_and(|digit| matches!(digit, b'2'..=b'7'));
+        return other_write || special;
+    }
+    symbolic_mode_weakens_permissions(mode).unwrap_or(false)
+}
+
+fn symbolic_mode_weakens_permissions(mode: &str) -> Option<bool> {
+    let mut other_write = None;
+    let mut user_setid = None;
+    let mut group_setid = None;
+    for clause in mode.split(',') {
+        let who_end = clause
+            .find(|character: char| !matches!(character, 'u' | 'g' | 'o' | 'a'))
+            .unwrap_or(clause.len());
+        if who_end == 0 {
+            return None;
+        }
+        let (who, mut actions) = clause.split_at(who_end);
+        if actions.is_empty() {
+            return None;
+        }
+        while !actions.is_empty() {
+            let operation = actions.as_bytes()[0];
+            if !matches!(operation, b'+' | b'-' | b'=') {
+                return None;
+            }
+            actions = &actions[1..];
+            let permission_end = actions.find(['+', '-', '=']).unwrap_or(actions.len());
+            let (permissions, remaining) = actions.split_at(permission_end);
+            if !permissions
+                .chars()
+                .all(|permission| matches!(permission, 'r' | 'w' | 'x' | 'X' | 's' | 't'))
+                && !matches!(permissions, "u" | "g" | "o")
+            {
+                return None;
+            }
+            if who.contains(['o', 'a']) {
+                apply_symbolic_permission(&mut other_write, operation, permissions.contains('w'));
+            }
+            if who.contains(['u', 'a']) {
+                apply_symbolic_permission(&mut user_setid, operation, permissions.contains('s'));
+            }
+            if who.contains(['g', 'a']) {
+                apply_symbolic_permission(&mut group_setid, operation, permissions.contains('s'));
+            }
+            actions = remaining;
+        }
+    }
+    Some(
+        matches!(other_write, Some(true))
+            || matches!(user_setid, Some(true))
+            || matches!(group_setid, Some(true)),
+    )
+}
+
+fn apply_symbolic_permission(state: &mut Option<bool>, operation: u8, selected: bool) {
+    match operation {
+        b'+' if selected => *state = Some(true),
+        b'-' if selected => *state = Some(false),
+        b'=' => *state = Some(selected),
+        _ => {}
+    }
+}
+
 pub(crate) fn command_filesystems(
     program: &str,
     arguments: &[Word],

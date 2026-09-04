@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-39 guards, 27 on by default, covering seven classes of disaster: **execution
+41 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power actions**.
@@ -48,6 +48,7 @@ and **host power actions**.
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
+| `fs-permission-weaken` | `chmod` modes that provably grant world-write or setuid/setgid permission. Off by default. |
 | `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
@@ -65,6 +66,7 @@ and **host power actions**.
 | `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |
 | `git-protected-push` | Pushes whose explicit static refspec targets `main` or `master`. Bare pushes remain outside this guard. Off by default. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
+| `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
