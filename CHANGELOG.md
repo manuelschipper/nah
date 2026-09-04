@@ -11,13 +11,11 @@
   saved choices and guard commands still accept the old names as hidden
   compatibility aliases, while unknown saved names warn without resetting
   unrelated overrides.
-- **Clear credential guard name** — `secrets-credentials` replaces
-  `secrets-keys`; the old name remains a hidden alias so saved choices and guard
-  commands keep working. Other unknown saved names warn without resetting
-  unrelated overrides.
-- **Credential environment disclosure guard** — `secrets-env` now blocks
-  direct output of catalogued credential variables while bare environment
-  inspection remains delegated unless its output reaches a network sink.
+- **Secrets guards** — `secrets-credentials` replaces `secrets-keys` with a
+  hidden compatibility alias, `secrets-env` now blocks direct output of
+  catalogued credential variables, and optional `secrets-store-delete` covers
+  reviewed recoverable and permanent deletion across common secret-manager
+  CLIs while preserving read and 1Password archive workflows.
 - **Windows support** — Releases now ship a tested, checksummed Windows x86-64
   archive and PowerShell installer. Claude Code, Codex, Cursor, GitHub Copilot,
   Cline, and Kiro support native Windows hooks, backed by typed PowerShell and

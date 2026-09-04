@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 43 guards span seven security classes; 27 default on.
+- 44 guards span seven security classes; 27 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -20,8 +20,9 @@ protected-state changes outside maintenance.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
   on compaction. `nah test --json`/custom guards may expose unredacted
   modeled input and inline code.
-- Guards block modeled protected-credential access and visible
-  sensitive/network-content flows to dangerous sinks.
+- Guards block modeled credential access and visible sensitive/network flows to
+  dangerous sinks. Optional `secrets-store-delete` covers recoverable,
+  permanent, and whole-store deletion; archive/non-executing forms delegate.
 - Hosted Git guards cover exact repositories (on) and reviewed static
   resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
@@ -52,8 +53,8 @@ protected-state changes outside maintenance.
   outside interception.
 - Unhooked/remote/human calls; runtime bugs/trusted plugins/opaque programs;
   unobservable effects/filesystems.
-- Secret content under unclassified names; guards inspect paths and modeled
-  effects, not arbitrary contents.
+- Secret content under unclassified names: guards inspect paths/effects, not contents.
+- Secret-store gaps: KMS/access removal, REST, dynamic/unreviewed syntax.
 - Custom guards are trusted, unsandboxed executables.
 - Unmodeled remote deletion routes, unresolved targets, branches, tags,
   renames, and transfers.
@@ -72,17 +73,16 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-Credential guards classify modeled paths and effects, not arbitrary contents.
-`secrets-credentials` protects credential paths, auth stores, keychains, and
-caches. Cloud CLI use alone does not imply file access. `secrets-env` blocks
-`.env` reads, including copies, and direct output of catalogued credential
-environment variables, but not environment presence checks, `.env` creation,
-or replacement.
+Credential guards model paths/effects. `secrets-credentials` covers paths/stores;
+cloud CLIs aren't file access.
+`secrets-env` blocks `.env` reads/copies and credential-variable output, not
+presence checks or `.env` creation/replacement. `secrets-store-delete` covers
+reviewed deletion shapes, not reads.
 
-Network guards follow visible data and code through modeled shell pipes,
-redirects, archives, links, and transfers. Opaque behavior and prior provenance
-remain boundaries. Unresolved or bounded analysis is partial; uncertainty alone
-does not block. Recognized danger still reaches guards. See `nah docs guards`.
+Network guards follow visible data/code through modeled shell flows. Opaque and
+prior provenance remain boundaries. Unresolved/bounded analysis is partial;
+uncertainty doesn't block; recognized danger still reaches guards.
+See `nah docs guards`.
 
 PowerShell and cmd lower reviewed operations and exact argv into typed effects;
 unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous

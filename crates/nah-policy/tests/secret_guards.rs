@@ -4,7 +4,7 @@ mod support;
 
 use nah_proto::action::{
     ActionStream, Coverage, EffectKind, FilesystemEffect, FilesystemOperation, PathScope,
-    Sensitivity,
+    SemanticCode, Sensitivity,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -112,4 +112,32 @@ fn secrets_credentials_deletion_delegates_cross_platform() {
             .verdict(),
         Verdict::Delegate
     );
+}
+
+#[test]
+fn secrets_store_delete_requires_its_matching_enabled_code() {
+    let stream = guarded_stream(EffectKind::SystemState {
+        operation: SemanticCode::SECRETS_STORE_DELETE,
+    });
+    let enabled =
+        nah_policy::decide(&stream, &guard_policy("secrets-store-delete", true), &[]).unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(
+        enabled.policy_attributions()[0].name(),
+        "secrets-store-delete"
+    );
+
+    let disabled =
+        nah_policy::decide(&stream, &guard_policy("secrets-store-delete", false), &[]).unwrap();
+    assert_eq!(disabled.verdict(), Verdict::Delegate);
+
+    for guard in ["secrets-credentials", "secrets-env"] {
+        assert_eq!(
+            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
+                .unwrap()
+                .verdict(),
+            Verdict::Delegate,
+            "{guard}"
+        );
+    }
 }

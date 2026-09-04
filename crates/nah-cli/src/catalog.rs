@@ -231,6 +231,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
                     | "registry-publish"
+                    | "secrets-store-delete"
                     | "storage-recursive-delete"
                     | "storage-snapshot-delete"
                     | "sys-service-stop"
@@ -279,7 +280,9 @@ fn family(name: &str) -> GuardFamily {
         | "storage-recursive-delete"
         | "storage-snapshot-delete" => GuardFamily::Infrastructure,
         "registry-publish" | "registry-unpublish" => GuardFamily::Registry,
-        "secrets-credentials" | "secrets-env" | "secrets-exfil" => GuardFamily::Secrets,
+        "secrets-credentials" | "secrets-env" | "secrets-exfil" | "secrets-store-delete" => {
+            GuardFamily::Secrets
+        }
         "sys-power" | "sys-service-stop" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
     }
@@ -387,6 +390,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "secrets-credentials" => {
             "Blocks reads or writes of private-key and credential-store paths."
+        }
+        "secrets-store-delete" => {
+            "Blocks reviewed Vault, AWS Secrets Manager and SSM, Google Cloud Secret Manager, Azure Key Vault, Doppler, Infisical, and 1Password deletion. Recoverable deletes such as an AWS recovery window and permanent destroy or purge, including AWS `--force-delete-without-recovery`, are both in scope; the flag changes recovery, not eligibility. Whole-store removal is also in scope. 1Password archive, help and non-executing output, reads, dynamic targets, unknown selection options, KMS scheduling, access removal, and arbitrary REST calls stay outside."
         }
         "sys-power" => {
             "Blocks fully visible local host shutdown, reboot, halt, and suspend actions."
@@ -594,6 +600,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "cat ~/.ssh/id_rsa",
             "cat ~/.aws/credentials",
             "cat /etc/shadow",
+        ],
+        "secrets-store-delete" => [
+            "vault kv destroy -mount=secret -versions=2 service/api",
+            "aws secretsmanager delete-secret --secret-id service/api --recovery-window-in-days 14",
+            "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
         ],
         "sys-power" => {
             if cfg!(windows) {
@@ -892,6 +903,13 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
+        assert!(
+            states
+                .iter()
+                .find(|state| state.name() == "secrets-store-delete")
+                .is_some_and(|state| !state.enabled())
+        );
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 17);
         for (name, default_enabled) in shipped_defaults() {
             assert_eq!(
                 states
