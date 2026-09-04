@@ -31,6 +31,10 @@ fn deletes_container_volumes(source: &str) -> bool {
     has_system_state(source, &SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
 }
 
+fn stops_all_containers(source: &str) -> bool {
+    has_system_state(source, &SemanticCode::SERVICE_STOP)
+}
+
 #[test]
 fn terraform_and_tofu_whole_stack_destroy_forms_are_recognized() {
     for source in [
@@ -531,5 +535,74 @@ fn adjacent_container_cleanup_and_control_planes_stay_outside() {
     ] {
         assert!(!resets_container_runtime(source), "{source}");
         assert!(!deletes_container_volumes(source), "{source}");
+    }
+}
+
+#[test]
+fn podman_stop_all_forms_are_recognized() {
+    for source in [
+        "podman stop --all",
+        "podman stop -a",
+        "podman kill --all",
+        "podman stop --all --ignore",
+        "podman stop --all --time 10",
+        "podman kill --all --signal TERM",
+        "sudo podman stop --all",
+        "timeout 5 podman kill --all",
+        "/usr/bin/podman stop --all",
+    ] {
+        assert!(stops_all_containers(source), "{source}");
+    }
+}
+
+#[test]
+fn named_docker_and_filtered_podman_stops_stay_outside() {
+    for source in [
+        "podman stop web",
+        "podman kill web",
+        "podman stop --all web",
+        "podman stop --all --filter name=web",
+        "podman stop --latest",
+        "podman stop --all --help",
+        "podman stop --all=false",
+        "docker stop --all",
+        "docker kill --all",
+        "docker stop web",
+        "docker kill web",
+        "PATH=/tmp podman stop --all",
+    ] {
+        assert!(!stops_all_containers(source), "{source}");
+    }
+}
+
+#[test]
+fn exact_docker_ps_stop_all_flow_is_promoted() {
+    for source in [
+        "docker stop $(docker ps -q)",
+        "docker stop \"$(docker ps -q)\"",
+        "docker kill $(docker ps --quiet)",
+        "docker stop -- $(docker ps -q)",
+        "podman stop $(podman ps -q)",
+        "podman kill $(podman ps --quiet)",
+        "docker stop `docker ps -q`",
+    ] {
+        assert!(stops_all_containers(source), "{source}");
+    }
+}
+
+#[test]
+fn filtered_dynamic_and_extra_stop_all_substitutions_stay_outside() {
+    for source in [
+        "docker stop $(docker ps -q --filter status=running)",
+        "docker stop $(docker ps -aq)",
+        "docker stop $(docker ps -q) web",
+        "docker stop web $(docker ps -q)",
+        "docker stop $(echo web)",
+        "docker stop $CID",
+        "docker stop $(docker ps)",
+        "podman stop $(podman ps -q --filter name=web)",
+        "docker stop $(docker ps -q) $(docker ps -q)",
+    ] {
+        assert!(!stops_all_containers(source), "{source}");
     }
 }

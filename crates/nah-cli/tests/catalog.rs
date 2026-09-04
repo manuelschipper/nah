@@ -523,6 +523,59 @@ fn startup_management_is_factory_off_and_independent() {
     );
 }
 
+#[cfg(not(windows))]
+#[test]
+fn sys_service_stop_is_factory_off_and_independently_configurable() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let command = if cfg!(target_os = "macos") {
+        "launchctl stop com.example.backup"
+    } else {
+        "systemctl stop sshd"
+    };
+
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "shutdown -h now")["policy_attributions"][0]["name"],
+        "sys-power"
+    );
+
+    let enabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "enable", "sys-service-stop"],
+        None,
+    );
+    assert!(enabled.status.success(), "{enabled:?}");
+    assert_eq!(
+        decide(temp.path(), &project, command)["policy_attributions"][0]["name"],
+        "sys-service-stop"
+    );
+
+    let disabled = nah(
+        temp.path(),
+        &project,
+        &["guard", "disable", "sys-service-stop"],
+        None,
+    );
+    assert!(disabled.status.success(), "{disabled:?}");
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join(".nah/built-ins.json")).unwrap(),
+        "{\"v\":2,\"overrides\":{\"sys-service-stop\":false}}\n"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, command)["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(temp.path(), &project, "shutdown -h now")["policy_attributions"][0]["name"],
+        "sys-power"
+    );
+}
+
 #[test]
 fn infrastructure_destroy_is_factory_off_and_independently_configurable() {
     let temp = tempfile::tempdir().unwrap();

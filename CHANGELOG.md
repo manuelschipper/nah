@@ -40,7 +40,9 @@
   aggressive or pruning garbage collection, and leased force pushes while
   preserving recovery and inspection commands.
 - **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
-  shutdown, reboot, halt, and suspend actions. Other default-on guards protect
+  shutdown, reboot, halt, and suspend actions. Optional `sys-service-stop` covers
+  explicit service shutdown, target isolation, Podman stop-all, and the exact
+  `docker stop $(docker ps -q)` flow. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence
   paths; optional guards cover recursive deletion outside the project, shell
   profiles, persistent startup management, and `fs-permission-weaken` for
