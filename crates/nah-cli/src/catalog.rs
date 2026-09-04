@@ -824,6 +824,14 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 13);
+        for (name, default_enabled) in shipped_defaults() {
+            assert_eq!(
+                states
+                    .iter()
+                    .find(|state| state.name() == name)
+                    .map(ShippedGuardState::enabled),
+                Some(default_enabled)
+            );
+        }
     }
 }
