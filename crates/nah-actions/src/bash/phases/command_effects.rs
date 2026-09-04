@@ -484,7 +484,9 @@ impl Lowerer {
             || infrastructure.is_some()
             || kubernetes.is_some()
             || storage.is_some()
-            || secret_store.is_some()
+            || secret_store.as_ref().is_some_and(|classification| {
+                classification.system_state.is_some() || !classification.complete
+            })
             || registry.is_some()
             || host_power_command
             || !matches!(&producer.stdout, StdoutDraft::Unknown)

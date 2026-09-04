@@ -20,8 +20,8 @@ protected-state changes outside maintenance.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
   on compaction. `nah test --json`/custom guards may expose unredacted
   modeled input and inline code.
-- Secret guards block modeled credential access and sensitive/network flows.
-  Optional `secrets-store-delete` covers reviewed recoverable delete, permanent
+- Guards block modeled credential access and sensitive/network flows to
+  dangerous sinks. Optional `secrets-store-delete` covers recoverable deletes,
   destroy/purge, and whole-store removal; 1Password archive/non-executing forms
   delegate.
 - `git-remote-repo-delete` defaults on for GitHub/GitLab CLI/REST repo deletion.
@@ -53,8 +53,8 @@ protected-state changes outside maintenance.
   outside interception.
 - Unhooked/remote/human calls; runtime bugs/trusted plugins/opaque programs;
   unobservable effects/filesystems.
-- Unclassified secret content; secret-store KMS scheduling, access removal,
-  REST calls, dynamic targets, and unreviewed CLI syntax.
+- Secret content under unclassified names: guards inspect paths/effects, not contents.
+- Secret-store gaps: KMS/access removal, REST, dynamic/unreviewed syntax.
 - Custom guards are trusted, unsandboxed executables.
 - Unmodeled remote deletion routes, unresolved targets, branches, tags,
   renames, and transfers.
@@ -73,16 +73,16 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-Credential guards use modeled paths and effects, not arbitrary content.
-`secrets-credentials` covers credential paths/stores; cloud CLI use is not local
-file access. `secrets-env` blocks `.env` reads and credential-variable output,
-not presence checks or writes.
-`secrets-store-delete` matches reviewed CLI deletion shapes; reads do not reach
-it.
+Credential guards model paths/effects. `secrets-credentials` covers paths/stores;
+cloud CLIs aren't file access.
+`secrets-env` blocks `.env` reads/copies and credential-variable output, not
+presence checks or `.env` creation/replacement. `secrets-store-delete` covers
+reviewed deletion shapes, not reads.
 
-Network guards follow visible data and code through modeled pipes, redirects,
-archives, links, and transfers. Opaque or prior provenance stays out of scope;
-partial analysis does not block by itself. See `nah docs guards`.
+Network guards follow visible data/code through modeled shell flows. Opaque and
+prior provenance remain boundaries. Unresolved/bounded analysis is partial;
+uncertainty doesn't block; recognized danger still reaches guards.
+See `nah docs guards`.
 
 PowerShell and cmd lower reviewed operations and exact argv into typed effects;
 unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous
