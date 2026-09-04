@@ -18,6 +18,7 @@ Built-in:
 - [x] git-force-push
 - [x] git-hard-reset
 - [x] git-metadata
+- [ ] git-path-discard
 - [x] git-recovery-destroy
 - [ ] git-ref-delete
 - [x] git-remote-repo-delete

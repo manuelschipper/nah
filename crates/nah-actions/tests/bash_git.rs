@@ -246,7 +246,7 @@ fn git_ref_delete_rejects_nonexecuting_and_invalid_shapes() {
 }
 
 #[test]
-fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
+fn destructive_clean_and_discard_evidence_is_bounded() {
     for (source, operation) in [
         ("git clean -f", "clean-force"),
         ("git clean -fdx", "clean-force"),
@@ -272,7 +272,12 @@ fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
         ("git checkout -- . --keep", "worktree-discard"),
         ("git checkout --no-patch -- .", "worktree-discard"),
         ("git checkout HEAD .", "worktree-discard"),
+        ("git checkout -f -- src/lib.rs", "path-discard"),
+        ("git checkout HEAD -- src/lib.rs", "path-discard"),
         ("git restore -- . --keep", "worktree-discard"),
+        ("git restore src/lib.rs", "path-discard"),
+        ("git restore --staged --worktree src/lib.rs", "path-discard"),
+        ("git restore src/lib.rs > .", "path-discard"),
         ("git switch -f main", "worktree-discard"),
         ("git switch -f --no-merge main", "worktree-discard"),
         ("git switch --discard-changes main", "worktree-discard"),
@@ -284,6 +289,34 @@ fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
         assert!(stream.effects().iter().any(|effect| {
             matches!(effect.kind(), EffectKind::Git { operation: actual } if actual.as_str() == operation)
         }), "{source}: {:?}", stream.effects());
+        if operation == "path-discard" {
+            assert!(
+                stream.effects().iter().all(|effect| {
+                    !matches!(effect.kind(), EffectKind::Git { operation: actual }
+                    if actual.as_str() == "worktree-discard")
+                }),
+                "{source}: {:?}",
+                stream.effects()
+            );
+        }
+    }
+
+    for source in [
+        "git checkout -- .",
+        "git restore .",
+        "git checkout -f",
+        "git switch -f main",
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(
+            stream.effects().iter().all(|effect| {
+                !matches!(effect.kind(), EffectKind::Git { operation }
+                if operation.as_str() == "path-discard")
+            }),
+            "{source}: {:?}",
+            stream.effects()
+        );
     }
 
     for source in [
@@ -298,7 +331,6 @@ fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
         "git clean -f \"$PATH\"",
         "git -c clean.requireForce=maybe clean",
         "git checkout -f main",
-        "git checkout -f -- src/lib.rs",
         "git checkout -bf",
         "git switch -C main",
         "git switch --force-create main",
@@ -316,13 +348,15 @@ fn destructive_clean_and_worktree_discard_evidence_is_bounded() {
         "git clean .git",
         "git clean -f .git",
         "git clean -- . -f",
-        "git restore src/lib.rs > .",
+        "git restore 'src/*'",
+        "git restore \"$PATH\"",
+        "GIT_WORK_TREE=/tmp/alternate git restore src/lib.rs",
     ] {
         let plan = bash_plan(source);
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
         assert!(
             !stream.effects().iter().any(|effect| {
-                matches!(effect.kind(), EffectKind::Git { operation } if matches!(operation.as_str(), "clean-force" | "worktree-discard"))
+                matches!(effect.kind(), EffectKind::Git { operation } if matches!(operation.as_str(), "clean-force" | "worktree-discard" | "path-discard"))
             }),
             "{source}: {:?}",
             stream.effects()
