@@ -41,8 +41,10 @@
   deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
-  aggressive or pruning garbage collection, and leased force pushes while
-  preserving recovery and inspection commands.
+  aggressive or pruning garbage collection, and leased force pushes except
+  those with an explicit static refspec targeting `main` or `master`, while
+  preserving recovery and inspection commands; optional `git-protected-push`
+  covers explicit-refspec pushes to `main` or `master`.
 - **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Optional `sys-service-stop` covers
   explicit service shutdown, target isolation, Podman stop-all, and the exact

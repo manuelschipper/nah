@@ -224,6 +224,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "fs-startup-management"
                     | "git-ref-delete"
                     | "git-path-discard"
+                    | "git-protected-push"
                     | "git-history-rewrite"
                     | "git-remote-resource-delete"
                     | "infra-container-volume-delete"
@@ -263,6 +264,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-history-rewrite"
         | "git-metadata"
         | "git-path-discard"
+        | "git-protected-push"
         | "git-recovery-destroy"
         | "git-ref-delete"
         | "git-remote-repo-delete"
@@ -323,13 +325,16 @@ fn behavior(name: &str) -> &'static str {
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
         "git-hard-reset" => "Blocks Git hard resets.",
         "git-history-rewrite" => {
-            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes."
+            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes except those with an explicit static refspec targeting `main` or `master`."
         }
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
         }
         "git-path-discard" => {
             "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
+        }
+        "git-protected-push" => {
+            "Blocks Git pushes whose explicit static refspec destination is `main` or `master`; bare pushes are outside this guard."
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
@@ -478,6 +483,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git push --force",
             "git push origin +main",
             "git push --force-with-lease=other origin +main",
+        ],
+        "git-protected-push" => [
+            "git push origin main",
+            "git push origin HEAD:master",
+            "git push --force-with-lease origin +feature:main",
         ],
         "git-hard-reset" => [
             "git reset --hard",
@@ -882,7 +892,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 15);
         for (name, default_enabled) in shipped_defaults() {
             assert_eq!(
                 states

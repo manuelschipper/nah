@@ -16,6 +16,7 @@ fn git_guards_block_only_their_one_sentence_operation() {
         ("git-force-push", "force-push"),
         ("git-hard-reset", "hard-reset"),
         ("git-path-discard", "path-discard"),
+        ("git-protected-push", "protected-push"),
         ("git-history-rewrite", "history-rewrite"),
         ("git-recovery-destroy", "recovery-destroy"),
         ("git-ref-delete", "ref-delete"),

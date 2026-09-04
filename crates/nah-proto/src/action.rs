@@ -216,6 +216,7 @@ impl SemanticCode {
     pub const PERMANENT_MUTATION: Self = Self::borrowed("permanent-mutation");
     pub const PERMISSION_CHANGE: Self = Self::borrowed("permission-change");
     pub const PERMISSION_WEAKEN: Self = Self::borrowed("permission-weaken");
+    pub const PROTECTED_PUSH: Self = Self::borrowed("protected-push");
     pub const RECOVERY_DESTROY: Self = Self::borrowed("recovery-destroy");
     pub const REF_DELETE: Self = Self::borrowed("ref-delete");
     pub const REGISTRY_PUBLISH: Self = Self::borrowed("registry-publish");

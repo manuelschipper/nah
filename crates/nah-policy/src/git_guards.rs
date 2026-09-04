@@ -27,6 +27,11 @@ pub(crate) fn add(
             "git-path-discard blocked a named-path working-tree discard; inspect git diff and stash wanted work before replacing the path",
         ),
         (
+            "git-protected-push",
+            &SemanticCode::PROTECTED_PUSH,
+            "git-protected-push blocked a push whose explicit refspec targets main or master; push a feature branch and use a pull request instead",
+        ),
+        (
             "git-force-push",
             &SemanticCode::FORCE_PUSH,
             "git-force-push blocked a force push without lease protection; fetch and review remote changes; ask the operator to verify the refs before using --force-with-lease",

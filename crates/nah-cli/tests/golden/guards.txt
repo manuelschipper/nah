@@ -21,6 +21,7 @@ Built-in:
 - [ ] git-history-rewrite
 - [x] git-metadata
 - [ ] git-path-discard
+- [ ] git-protected-push
 - [x] git-recovery-destroy
 - [ ] git-ref-delete
 - [x] git-remote-repo-delete
