@@ -25,7 +25,7 @@ pub(crate) fn command_operation(program: &str, arguments: &[Word]) -> Option<&'s
         "clean" if clean_force(&parsed, arguments) => Some("clean-force"),
         "checkout" if forced_checkout(arguments) => Some("worktree-discard"),
         "switch" if forced_switch(arguments) => Some("worktree-discard"),
-        "push" if force_push(arguments) => Some("force-push"),
+        "push" => push_operation(arguments),
         "reset" if option_before_separator(arguments, "--hard") => Some("hard-reset"),
         "filter-repo" if option_before_separator(arguments, "--force") => Some("rewrite-force"),
         "filter-branch"
@@ -332,25 +332,52 @@ pub(crate) fn metadata_mutation(
         })
 }
 
-fn force_push(arguments: &[Word]) -> bool {
+fn push_operation(arguments: &[Word]) -> Option<&'static str> {
     let mut before_separator = true;
     let mut explicit_force = false;
     let mut all_refs_leased = false;
     let mut leased_refs = Vec::new();
     let mut forced_refs = Vec::new();
-    for argument in arguments
-        .iter()
-        .filter_map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
-    {
+    let mut repository = false;
+    let mut delete = false;
+    let mut all = false;
+    let mut protected_destination = false;
+    let mut protected_parse = true;
+    let mut dry_run = false;
+    let mut index = 0;
+    while let Some(word) = arguments.get(index) {
+        let Some(argument) = static_word(word.raw(), word.substitutions().is_empty()) else {
+            if before_separator {
+                protected_parse = false;
+            } else if protected_parse && !repository {
+                repository = true;
+            }
+            index += 1;
+            continue;
+        };
         if argument == "--" {
             before_separator = false;
+            index += 1;
+            continue;
+        }
+        if before_separator && push_option_takes_value(&argument) {
+            if arguments.get(index + 1).is_none() {
+                protected_parse = false;
+            }
+            repository |= argument == "--repo";
+            index += 2;
+            continue;
+        }
+        if before_separator && push_short_option_takes_value(&argument) {
+            explicit_force |= push_short_switch(&argument, 'f');
+            dry_run |= push_short_switch(&argument, 'n');
+            index += 2;
             continue;
         }
         if before_separator {
             explicit_force |= matches!(argument.as_str(), "--force" | "--mirror")
-                || (argument.starts_with('-')
-                    && !argument.starts_with("--")
-                    && argument[1..].contains('f'));
+                || push_short_switch(&argument, 'f');
+            dry_run |= argument == "--dry-run" || push_short_switch(&argument, 'n');
             all_refs_leased |= argument == "--force-with-lease";
             if let Some(lease) = argument.strip_prefix("--force-with-lease=") {
                 leased_refs.push(lease.split(':').next().unwrap_or(lease).to_owned());
@@ -366,11 +393,120 @@ fn force_push(arguments: &[Word]) -> bool {
                     .to_owned(),
             );
         }
+        if protected_parse && before_separator {
+            if argument.starts_with("--repo=") {
+                repository = true;
+                index += 1;
+                continue;
+            }
+            if [
+                "--receive-pack=",
+                "--exec=",
+                "--recurse-submodules=",
+                "--push-option=",
+            ]
+            .iter()
+            .any(|option| argument.starts_with(option))
+            {
+                index += 1;
+                continue;
+            }
+            match argument.as_str() {
+                "--all" | "--branches" => all = true,
+                "--no-all" | "--no-branches" => all = false,
+                "--delete" => delete = true,
+                "--no-delete" => delete = false,
+                argument
+                    if push_switch_option(argument)
+                        || argument.starts_with("--force-with-lease=")
+                        || argument.starts_with("--signed=") => {}
+                argument if argument.starts_with("--") => protected_parse = false,
+                argument if argument.starts_with('-') && argument != "-" => {
+                    let flags = &argument.as_bytes()[1..];
+                    let mut position = 0;
+                    while position < flags.len() {
+                        match flags[position] as char {
+                            'd' => delete = true,
+                            'v' | 'q' | 'n' | 'f' | 'u' | '4' | '6' => {}
+                            'o' => {
+                                if position + 1 == flags.len() {
+                                    if arguments.get(index + 1).is_none() {
+                                        protected_parse = false;
+                                    }
+                                    index += 1;
+                                }
+                                break;
+                            }
+                            _ => protected_parse = false,
+                        }
+                        position += 1;
+                    }
+                }
+                _ if !repository => repository = true,
+                _ => protected_destination |= protected_push_refspec(&argument),
+            }
+            index += 1;
+            continue;
+        }
+        if protected_parse {
+            if !repository {
+                repository = true;
+            } else {
+                protected_destination |= protected_push_refspec(&argument);
+            }
+        }
+        index += 1;
     }
-    explicit_force
+    if dry_run {
+        return None;
+    }
+    if explicit_force
         || forced_refs
             .iter()
             .any(|forced| !all_refs_leased && !leased_refs.iter().any(|leased| leased == forced))
+    {
+        Some("force-push")
+    } else if protected_parse && protected_destination && !delete && !all {
+        Some("protected-push")
+    } else {
+        None
+    }
+}
+
+fn protected_push_refspec(argument: &str) -> bool {
+    let refspec = argument.strip_prefix('+').unwrap_or(argument);
+    let destination = match refspec.split_once(':') {
+        Some(("", _)) => return false,
+        Some((_, destination)) => destination,
+        None => refspec,
+    };
+    matches!(
+        destination,
+        "main" | "master" | "refs/heads/main" | "refs/heads/master"
+    )
+}
+
+fn push_option_takes_value(argument: &str) -> bool {
+    matches!(
+        argument,
+        "--repo" | "--receive-pack" | "--exec" | "--recurse-submodules" | "--push-option"
+    )
+}
+
+fn push_short_switch(argument: &str, switch: char) -> bool {
+    argument.starts_with('-')
+        && !argument.starts_with("--")
+        && argument.as_bytes()[1..]
+            .iter()
+            .take_while(|flag| **flag != b'o')
+            .any(|flag| *flag as char == switch)
+}
+
+fn push_short_option_takes_value(argument: &str) -> bool {
+    argument
+        .strip_prefix('-')
+        .filter(|flags| !flags.is_empty() && !flags.starts_with('-'))
+        .is_some_and(|flags| flags.find('o') == Some(flags.len() - 1))
 }
 
 fn gc_destroys_recovery(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {
@@ -410,10 +546,6 @@ fn gc_destroys_recovery(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {
 
 fn has_no_side_effect(subcommand: &str, arguments: &[Word]) -> bool {
     match subcommand {
-        "push" => {
-            option_before_separator(arguments, "--dry-run")
-                || short_option_before_separator(arguments, 'n')
-        }
         "filter-repo" => {
             option_before_separator(arguments, "--dry-run")
                 || option_before_separator(arguments, "--analyze")
@@ -517,6 +649,12 @@ fn has_help(subcommand: &str, arguments: &[Word]) -> bool {
         if argument == "--" {
             return false;
         }
+        if subcommand == "push"
+            && (push_option_takes_value(argument) || push_short_option_takes_value(argument))
+        {
+            index += 2;
+            continue;
+        }
         if matches!(argument, "-h" | "--help") {
             return true;
         }
@@ -537,18 +675,7 @@ fn has_help(subcommand: &str, arguments: &[Word]) -> bool {
 
 fn git_switch_option(subcommand: &str, argument: &str) -> bool {
     match subcommand {
-        "push" => matches!(
-            argument,
-            "--force"
-                | "--force-with-lease"
-                | "--mirror"
-                | "--dry-run"
-                | "--delete"
-                | "--prune"
-                | "--porcelain"
-                | "--atomic"
-                | "--no-verify"
-        ),
+        "push" => push_switch_option(argument),
         "reset" => matches!(
             argument,
             "--hard" | "--soft" | "--mixed" | "--merge" | "--keep"
@@ -563,6 +690,44 @@ fn git_switch_option(subcommand: &str, argument: &str) -> bool {
         ),
         _ => false,
     }
+}
+
+fn push_switch_option(argument: &str) -> bool {
+    let option = argument
+        .strip_prefix("--no-")
+        .or_else(|| argument.strip_prefix("--"));
+    option.is_some_and(|option| {
+        matches!(
+            option,
+            "verbose"
+                | "quiet"
+                | "all"
+                | "branches"
+                | "mirror"
+                | "delete"
+                | "tags"
+                | "dry-run"
+                | "porcelain"
+                | "force"
+                | "force-with-lease"
+                | "force-if-includes"
+                | "thin"
+                | "set-upstream"
+                | "progress"
+                | "prune"
+                | "verify"
+                | "follow-tags"
+                | "signed"
+                | "atomic"
+                | "ipv4"
+                | "ipv6"
+        ) || argument.strip_prefix("--no-").is_some_and(|_| {
+            matches!(
+                option,
+                "repo" | "receive-pack" | "exec" | "recurse-submodules" | "push-option"
+            )
+        })
+    })
 }
 
 #[cfg(test)]

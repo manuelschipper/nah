@@ -19,6 +19,7 @@ Built-in:
 - [x] git-hard-reset
 - [x] git-metadata
 - [ ] git-path-discard
+- [ ] git-protected-push
 - [x] git-recovery-destroy
 - [x] git-remote-repo-delete
 - [x] git-rewrite-force

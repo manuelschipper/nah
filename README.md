@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-37 guards, 27 on by default, covering seven classes of disaster: **execution
+38 guards, 27 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power actions**.
@@ -62,6 +62,7 @@ and **host power actions**.
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |
+| `git-protected-push` | Pushes whose explicit static refspec targets `main` or `master`. Bare pushes remain outside this guard. Off by default. |
 | `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |

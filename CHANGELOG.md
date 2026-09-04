@@ -34,7 +34,8 @@
 - **Git destruction guards** — Default-on `git-remote-repo-delete` blocks exact
   whole-repository deletion through GitHub and GitLab CLI commands and REST
   routes, while optional `git-path-discard` covers definite named-path checkout,
-  restore, and same-path `git show` overwrites.
+  restore, and same-path `git show` overwrites and `git-protected-push` covers
+  explicit-refspec pushes to `main` or `master`.
 - **Host and project guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Other default-on guards protect
   project roots, authentication and identity files, and startup-persistence

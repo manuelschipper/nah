@@ -222,6 +222,7 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "fs-outside-workspace-delete"
                     | "fs-startup-management"
                     | "git-path-discard"
+                    | "git-protected-push"
                     | "infra-container-volume-delete"
                     | "infra-iac-destroy"
                     | "infra-k8s-delete"
@@ -256,6 +257,7 @@ fn family(name: &str) -> GuardFamily {
         | "git-hard-reset"
         | "git-metadata"
         | "git-path-discard"
+        | "git-protected-push"
         | "git-recovery-destroy"
         | "git-remote-repo-delete"
         | "git-rewrite-force"
@@ -315,6 +317,9 @@ fn behavior(name: &str) -> &'static str {
         }
         "git-path-discard" => {
             "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
+        }
+        "git-protected-push" => {
+            "Blocks Git pushes whose explicit static refspec destination is `main` or `master`; bare pushes are outside this guard."
         }
         "git-recovery-destroy" => {
             "Blocks immediate repository-wide destruction of Git recovery history."
@@ -453,6 +458,11 @@ fn examples(name: &str) -> Vec<&'static str> {
             "git push --force",
             "git push origin +main",
             "git push --force-with-lease=other origin +main",
+        ],
+        "git-protected-push" => [
+            "git push origin main",
+            "git push origin HEAD:master",
+            "git push --force-with-lease origin +feature:main",
         ],
         "git-hard-reset" => [
             "git reset --hard",
@@ -786,6 +796,6 @@ mod tests {
                 .find(|state| state.name() == "registry-unpublish")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 10);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 11);
     }
 }
