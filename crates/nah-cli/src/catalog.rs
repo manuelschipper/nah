@@ -331,7 +331,7 @@ fn behavior(name: &str) -> &'static str {
         "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
         "git-hard-reset" => "Blocks Git hard resets.",
         "git-history-rewrite" => {
-            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes except those with an explicit static refspec targeting `main` or `master`."
+            "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`."
         }
         "git-metadata" => {
             "Blocks destructive writes or deletion selecting durable Git history metadata."
@@ -509,7 +509,7 @@ fn examples(name: &str) -> Vec<&'static str> {
         "git-history-rewrite" => [
             "git rebase main",
             "git filter-repo --invert-paths --path secret",
-            "git push --force-with-lease",
+            "git push --force-with-lease origin main",
         ],
         "git-metadata" => [
             "rm -rf .git/objects",

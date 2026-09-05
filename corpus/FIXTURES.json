@@ -1,6 +1,42 @@
 {
   "v": 1,
   "ctx_fixtures": {
+    "git-history-only-linux-v1": {
+      "shipped_guards": {
+        "states": [
+          {
+            "name": "git-history-rewrite",
+            "enabled": true
+          },
+          {
+            "name": "git-protected-push",
+            "enabled": false
+          }
+        ]
+      },
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    },
+    "git-protected-only-linux-v1": {
+      "shipped_guards": {
+        "states": [
+          {
+            "name": "git-history-rewrite",
+            "enabled": false
+          },
+          {
+            "name": "git-protected-push",
+            "enabled": true
+          }
+        ]
+      },
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    },
     "default-linux-v1": {
       "shipped_guards": "all-enabled",
       "extensions": [],

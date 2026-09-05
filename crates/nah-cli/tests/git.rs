@@ -447,6 +447,104 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         );
     }
 
+    // A disabled protected-push guard must not hide leased history rewrites.
+    for history in [false, true] {
+        for protected in [false, true] {
+            let states = nah_cli::shipped_guard_states()
+                .into_iter()
+                .map(|state| match state.name() {
+                    "git-history-rewrite" => {
+                        nah_proto::ctx::ShippedGuardState::new(state.name(), history).unwrap()
+                    }
+                    "git-protected-push" => {
+                        nah_proto::ctx::ShippedGuardState::new(state.name(), protected).unwrap()
+                    }
+                    _ => state,
+                })
+                .collect();
+            let context = nah_proto::ctx::Ctx::new(
+                support::host_platform(),
+                support::absolute(&root),
+                states,
+                vec![],
+                nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
+            )
+            .unwrap();
+            for (command, applicable) in [
+                (
+                    "git push --force-with-lease origin main",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                (
+                    "git push --force-with-lease origin +feature:main",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                (
+                    "git push --force-with-lease=refs/heads/master origin +HEAD:refs/heads/master",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                ("git push origin main", vec!["git-protected-push"]),
+                (
+                    "git push --force-with-lease origin feature",
+                    vec!["git-history-rewrite"],
+                ),
+                ("git push --force-with-lease", vec!["git-history-rewrite"]),
+                (
+                    "git push --force-with-lease origin \"$REF\"",
+                    vec!["git-history-rewrite"],
+                ),
+                (
+                    "git push --force-with-lease --force origin main",
+                    vec!["git-force-push"],
+                ),
+                (
+                    "git push --force-with-lease=other origin +main",
+                    vec!["git-force-push"],
+                ),
+                ("git push --force-with-lease --dry-run origin main", vec![]),
+                ("git push --force-with-lease --help origin main", vec![]),
+                ("git push --force-with-lease --version origin main", vec![]),
+                (
+                    "git push --force-with-lease --no-force-with-lease origin main",
+                    vec!["git-protected-push"],
+                ),
+            ] {
+                let expected = applicable
+                    .into_iter()
+                    .filter(|name| match *name {
+                        "git-history-rewrite" => history,
+                        "git-protected-push" => protected,
+                        _ => true,
+                    })
+                    .collect::<std::collections::BTreeSet<_>>();
+                let result = decide_with(
+                    &call("Bash", json!({"command": command}), &repo),
+                    &context,
+                    |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+                );
+                let actual = result
+                    .core()
+                    .policy_attributions()
+                    .iter()
+                    .map(|guard| guard.name())
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(
+                    actual, expected,
+                    "{command}: history={history}, protected={protected}"
+                );
+                assert_eq!(
+                    result.core().verdict(),
+                    if expected.is_empty() {
+                        Verdict::Delegate
+                    } else {
+                        Verdict::Block
+                    },
+                    "{command}"
+                );
+            }
+        }
+    }
+
     for command in [
         "rm -rf .git/index",
         "rm -rf .git/objects/../index",

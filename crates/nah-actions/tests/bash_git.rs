@@ -108,6 +108,33 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         );
     }
 
+    for destination in [
+        "main",
+        "master",
+        "refs/heads/main",
+        "refs/heads/master",
+        "+feature:main",
+        "+HEAD:refs/heads/master",
+    ] {
+        let source = format!("git push --force-with-lease origin {destination}");
+        let plan = bash_plan(&source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        let operations = stream
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect.kind() {
+                EffectKind::Git { operation } => Some(operation.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            operations,
+            std::collections::BTreeSet::from(["history-rewrite", "protected-push"]),
+            "{source}"
+        );
+    }
+
     for source in [
         "rm -rf .git/index",
         "rm -rf .git/hooks/pre-commit",

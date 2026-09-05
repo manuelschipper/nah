@@ -42,6 +42,58 @@ fn git_guards_block_only_their_one_sentence_operation() {
         let disabled = nah_policy::decide(&stream, &guard_policy(guard, false), &[]).unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{guard}");
     }
+
+    let stream = ActionStream::new(
+        Coverage::Partial,
+        vec![vec![
+            EffectKind::opaque("git").unwrap(),
+            EffectKind::Git {
+                operation: SemanticCode::PROTECTED_PUSH,
+            },
+            EffectKind::Git {
+                operation: SemanticCode::HISTORY_REWRITE,
+            },
+        ]],
+        vec![],
+    )
+    .unwrap();
+    for history in [false, true] {
+        for protected in [false, true] {
+            let policy = support::context(
+                &[
+                    ("git-history-rewrite", history),
+                    ("git-protected-push", protected),
+                ],
+                vec![],
+                nah_proto::observation::ProjectGuardDeclaration::Absent,
+            )
+            .1;
+            let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+            let expected = [
+                ("git-history-rewrite", history),
+                ("git-protected-push", protected),
+            ]
+            .into_iter()
+            .filter_map(|(name, enabled)| enabled.then_some(name))
+            .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                decision
+                    .policy_attributions()
+                    .iter()
+                    .map(|guard| guard.name())
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected
+            );
+            assert_eq!(
+                decision.verdict(),
+                if expected.is_empty() {
+                    Verdict::Delegate
+                } else {
+                    Verdict::Block
+                }
+            );
+        }
+    }
 }
 
 #[test]
