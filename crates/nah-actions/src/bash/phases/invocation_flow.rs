@@ -5,7 +5,7 @@ use nah_parse::{Redirect, Substitution, Syntax, Word};
 use super::{AliasInvocation, CommandContext, InjectedOrigins, Lowered, Lowerer};
 use crate::bash_content::substitution_output;
 use crate::bash_lookup::{
-    AliasSnapshot, Certainty as LookupCertainty, FunctionPresence, LookupMode, LookupTarget,
+    AliasSnapshot, FunctionPresence, LookupCertainty, LookupMode, LookupTarget,
     Update as LookupUpdate,
 };
 use crate::bash_model::ResolvedWord;

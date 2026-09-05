@@ -4,7 +4,7 @@ use nah_parse::{Redirect, UnmodeledStateExpansion, Word};
 
 use crate::bash_content::substitution_output;
 use crate::bash_descriptors::exact_descriptor_alias_name;
-use crate::bash_lookup::Certainty as LookupCertainty;
+use crate::bash_lookup::LookupCertainty;
 use crate::bash_model::{ProgramDraft, ResolvedWord, VariableValue};
 use crate::bash_state::{BindingAttribute, current_pwd, known_cwd};
 use crate::paths::resolve_from_cwd;

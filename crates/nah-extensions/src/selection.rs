@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 
 #[cfg(not(feature = "effinterp"))]
-pub fn request(
+pub fn exec_request(
     action_stream: &ActionStream,
     observation: &Observation,
 ) -> Result<ExecV1Request, String> {
@@ -31,7 +31,7 @@ pub enum ExtensionExecRequest {
 }
 
 #[cfg(feature = "effinterp")]
-pub fn request(
+pub fn exec_request(
     action_stream: &ActionStream,
     effinterp_action_stream: Option<&EffinterpActionStream>,
     observation: &Observation,

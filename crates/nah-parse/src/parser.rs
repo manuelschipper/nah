@@ -74,7 +74,9 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-pub fn syntax_is_clean(source: &str) -> Result<bool, ParseError> {
+/// Returns whether the normalized syntax model is complete.
+/// False includes valid Bash constructs outside the complete normalized model.
+pub fn normalized_syntax_is_complete(source: &str) -> Result<bool, ParseError> {
     Ok(normalize(source)?.complete())
 }
 

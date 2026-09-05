@@ -14,7 +14,7 @@ use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 use crate::cache::MemoCache;
 #[cfg(feature = "effinterp")]
 use crate::selection::ExtensionExecRequest;
-use crate::selection::{memo_key, request, selected_extensions};
+use crate::selection::{exec_request, memo_key, selected_extensions};
 use crate::transport::{decode_cache_entry, encode_cache_entry, execute, outcome_code};
 
 #[cfg(not(feature = "effinterp"))]
@@ -98,7 +98,7 @@ pub fn consult_extensions(
         #[cfg(feature = "effinterp")]
         effinterp_action_stream,
     );
-    let request = match request(
+    let request = match exec_request(
         action_stream,
         #[cfg(feature = "effinterp")]
         effinterp_action_stream,

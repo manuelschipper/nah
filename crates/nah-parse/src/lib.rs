@@ -16,5 +16,6 @@ pub use model::{
     Substitution, Syntax, UnmodeledStateExpansion, Word,
 };
 pub use parser::{
-    MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, ParseError, ParseLimit, normalize, syntax_is_clean,
+    MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, ParseError, ParseLimit, normalize,
+    normalized_syntax_is_complete,
 };

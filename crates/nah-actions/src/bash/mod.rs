@@ -480,8 +480,8 @@ impl Lowerer {
     }
 
     fn merged_state(&mut self, states: &[ShellState]) -> ShellState {
-        let (state, origins_saturated) = merge_states(states, &self.function_bodies);
-        if origins_saturated {
+        let (state, merge_refused) = merge_states(states, &self.function_bodies);
+        if merge_refused {
             self.complete = false;
             self.analysis_refused = true;
         }
