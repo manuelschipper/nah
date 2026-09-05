@@ -232,7 +232,6 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "infra-k8s-delete"
                     | "registry-publish"
                     | "secrets-store-delete"
-                    | "secrets-store-read"
                     | "storage-recursive-delete"
                     | "storage-snapshot-delete"
                     | "sys-service-stop"
@@ -924,9 +923,9 @@ mod tests {
             states
                 .iter()
                 .find(|state| state.name() == "secrets-store-read")
-                .is_some_and(|state| !state.enabled())
+                .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 18);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 17);
         for (name, default_enabled) in shipped_defaults() {
             assert_eq!(
                 states

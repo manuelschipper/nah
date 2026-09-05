@@ -15,6 +15,13 @@
       "platform": "linux",
       "trust": []
     },
+    "factory-secrets-read-disabled-linux-v1": {
+      "shipped_guards": "factory-defaults-without-secrets-store-read",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    },
     "default-windows-v1": {
       "shipped_guards": "all-enabled",
       "extensions": [],
