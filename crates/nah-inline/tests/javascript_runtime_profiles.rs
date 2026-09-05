@@ -53,6 +53,115 @@ fn runtime_profiles_are_explicit_and_obsolete_names_are_not_supported() {
 }
 
 #[test]
+fn runtime_receiver_mutations_invalidate_ordinary_aliases_and_dynamic_globals() {
+    for (profile, setup, receiver, call) in [
+        ("node", "", "process", "process.chdir('/tmp')"),
+        ("deno-eval-js", "", "Deno", "Deno.remove('/tmp/a')"),
+        (
+            "deno-eval-js",
+            "const receiver = Deno.Command;",
+            "receiver",
+            "new receiver('true').spawn()",
+        ),
+        (
+            "deno-eval-js",
+            "const receiver = new Deno.Command('true');",
+            "receiver",
+            "receiver.spawn()",
+        ),
+        ("bun-js", "", "Bun", "Bun.write('/tmp/a', 'text')"),
+        (
+            "bun-js",
+            "const receiver = Bun.file('/tmp/a');",
+            "receiver",
+            "receiver.delete()",
+        ),
+        ("openclaw-javascript", "", "tools", "tools.call('')"),
+    ] {
+        let unchanged = analyze(profile, &format!("{setup} {call}"));
+        if profile == "openclaw-javascript" {
+            assert!(unchanged.draft().calls().is_empty(), "{call}");
+            assert!(unchanged.report().nested_executions().is_empty(), "{call}");
+        } else {
+            assert_eq!(unchanged.draft().calls().len(), 1, "{profile}: {call}");
+        }
+        assert!(unchanged.draft().complete(), "{profile}: {call}");
+
+        for mutation in ["alias.member = replacement", "delete alias.member"] {
+            for access in [
+                receiver.to_owned(),
+                "alias".into(),
+                "held.receiver[0]".into(),
+            ] {
+                let call = call.replace(receiver, &access);
+                let code = format!(
+                    "{setup} const alias = {receiver}; const held = {{receiver:[alias]}}; {mutation}; {call}"
+                );
+                let mutated = analyze(profile, &code);
+                assert!(mutated.draft().calls().is_empty(), "{profile}: {code}");
+                assert!(
+                    mutated.report().nested_executions().is_empty(),
+                    "{profile}: {code}"
+                );
+                assert!(!mutated.draft().complete(), "{profile}: {code}");
+            }
+        }
+    }
+
+    for code in [
+        "const env = process.env; process.member = replacement; require('fs').rmSync(env.HOME)",
+        "const alias = process; process.env.HOME = replacement; alias.chdir('/tmp')",
+    ] {
+        let mutated = analyze("node", code);
+        assert!(!mutated.draft().complete(), "{code}");
+        assert!(
+            mutated.draft().calls().iter().all(|call| {
+                callable(call) != "process.chdir"
+                    && call
+                        .filesystems()
+                        .iter()
+                        .all(|effect| effect.requested().is_none())
+            }),
+            "{code}"
+        );
+    }
+
+    for (profile, code) in [
+        (
+            "deno-eval-js",
+            "Deno.member = replacement; Function(\"Deno.remove('/tmp/a')\")()",
+        ),
+        (
+            "bun-js",
+            "Bun.member = replacement; Function(\"Bun.write('/tmp/a', 'text')\")()",
+        ),
+        (
+            "node",
+            "process.member = replacement; Function(\"process.chdir('/tmp')\")()",
+        ),
+    ] {
+        let mutated = analyze(profile, code);
+        assert!(mutated.draft().calls().is_empty(), "{code}");
+        assert!(!mutated.draft().complete(), "{code}");
+    }
+
+    let unaffected = analyze(
+        "bun-js",
+        "process.member = replacement; Bun.write('/tmp/a', 'text'); require('fs').rmSync('/tmp/b')",
+    );
+    assert_eq!(
+        unaffected
+            .draft()
+            .calls()
+            .iter()
+            .map(callable)
+            .collect::<Vec<_>>(),
+        ["Bun.write", "fs.rmSync"]
+    );
+    assert!(!unaffected.draft().complete());
+}
+
+#[test]
 fn expression_assembly_keeps_later_runtime_effects() {
     for (code, requested) in [
         ("[...value, Deno.remove('/array')]", "/array"),
