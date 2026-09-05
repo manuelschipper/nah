@@ -303,6 +303,20 @@ impl State {
                     self.invalidate_node_module_loader();
                 }
             }
+            Value::Process
+            | Value::Environment
+            | Value::Deno
+            | Value::DenoCommandConstructor
+            | Value::DenoCommand(_)
+            | Value::Bun
+            | Value::BunFile(_)
+            | Value::OpenClawTools => {
+                for scope in &mut self.scopes {
+                    for binding in scope.bindings.values_mut() {
+                        invalidate_runtime_receiver_value(binding, value);
+                    }
+                }
+            }
             Value::Array(values) => {
                 for value in values {
                     self.invalidate_value(value);
@@ -327,33 +341,6 @@ impl State {
             for binding in scope.bindings.values_mut() {
                 if binding == value {
                     *binding = Value::Unknown;
-                }
-            }
-        }
-        if matches!(
-            value,
-            Value::Process
-                | Value::Environment
-                | Value::Deno
-                | Value::DenoCommandConstructor
-                | Value::DenoCommand(_)
-                | Value::Bun
-                | Value::BunFile(_)
-                | Value::OpenClawTools
-        ) {
-            for scope in &mut self.scopes {
-                for binding in scope.bindings.values_mut() {
-                    if binding == value
-                        || matches!(
-                            (value, &*binding),
-                            (
-                                Value::Process | Value::Environment,
-                                Value::Process | Value::Environment
-                            )
-                        )
-                    {
-                        *binding = Value::Unknown;
-                    }
                 }
             }
         }
@@ -390,6 +377,36 @@ impl State {
             }
         }
         state
+    }
+}
+
+fn invalidate_runtime_receiver_value(binding: &mut Value, receiver: &Value) {
+    // Process and its environment share ownership; other receivers invalidate only aliases.
+    if binding == receiver
+        || matches!(
+            (receiver, &*binding),
+            (
+                Value::Process | Value::Environment,
+                Value::Process | Value::Environment
+            )
+        )
+    {
+        *binding = Value::Unknown;
+        return;
+    }
+    match binding {
+        Value::Array(values) => {
+            for value in values {
+                invalidate_runtime_receiver_value(value, receiver);
+            }
+        }
+        Value::Object(properties) => {
+            for value in properties.values_mut() {
+                invalidate_runtime_receiver_value(value, receiver);
+            }
+        }
+        Value::UnknownReceiver(value) => invalidate_runtime_receiver_value(value, receiver),
+        _ => {}
     }
 }
 
