@@ -290,7 +290,7 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "secrets-store-read.aws",
         "secrets-store-read.gcloud",
         "secrets-store-read.azure",
-        "secrets-store-read.factory-delegates",
+        "secrets-store-read.factory-blocks",
         "secrets-store-boundary.run-delegates",
         "secrets-store-boundary.inject-delegates",
         "secrets-store-boundary.name-only-delegates",

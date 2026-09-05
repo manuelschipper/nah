@@ -13,7 +13,7 @@
   unrelated overrides.
 - **Secrets guards** — `secrets-credentials` replaces `secrets-keys` with a
   hidden compatibility alias, `secrets-env` now blocks direct output of
-  catalogued credential variables, optional `secrets-store-read` covers
+  catalogued credential variables, default-on `secrets-store-read` covers
   reviewed value reads across common secret-manager CLIs while preserving
   run, inject, and concealed listing workflows, and optional
   `secrets-store-delete` covers reviewed recoverable and permanent deletion.

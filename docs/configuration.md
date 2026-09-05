@@ -25,8 +25,7 @@ invocation through agent tool calls.
 ## Built-in guards
 
 Factory defaults follow proven risk: irreversible commands without routine
-use ship on; lookalike everyday workflows require opt-in. `fs-shell-profile`
-and `fs-startup-management` ship off; all other current built-ins ship on.
+use ship on; lookalike everyday workflows require opt-in.
 `nah guards` shows live state and `nah docs guards` adds defaults and examples:
 
 ```sh

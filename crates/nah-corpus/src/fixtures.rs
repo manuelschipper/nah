@@ -33,6 +33,7 @@ pub struct ContextFixture {
 #[serde(rename_all = "kebab-case")]
 enum ShippedGuardPosture {
     FactoryDefaults,
+    FactoryDefaultsWithoutSecretsStoreRead,
     AllEnabled,
 }
 
@@ -111,6 +112,23 @@ impl ContextFixture {
             AbsolutePath::new(self.platform, &self.home).map_err(|error| error.to_string())?,
             match self.shipped_guards {
                 ShippedGuardPosture::FactoryDefaults => nah_cli::shipped_guard_states(),
+                ShippedGuardPosture::FactoryDefaultsWithoutSecretsStoreRead => {
+                    nah_cli::shipped_guard_states()
+                        .into_iter()
+                        .map(|guard| {
+                            if guard.name() == "secrets-store-read" {
+                                nah_proto::ctx::ShippedGuardState::with_explicit_disable(
+                                    guard.name(),
+                                    false,
+                                    true,
+                                )
+                                .expect("known shipped guard")
+                            } else {
+                                guard
+                            }
+                        })
+                        .collect()
+                }
                 ShippedGuardPosture::AllEnabled => nah_cli::all_shipped_guard_states_enabled(),
             },
             vec![],
